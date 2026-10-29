@@ -319,8 +319,7 @@ class CarState(CarStateBase):
 
     ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(gear))
 
-    # The MDPS sets ToiUnavail while Idle Stop and Go has the engine off. Lateral is inactive at standstill,
-    # so don't report it as a steering fault. Only read LVR12 if it's already parsed and its DBC has the signal.
+    # The MDPS sets ToiUnavail while ISG has the engine off; lateral is inactive at standstill, so it isn't a fault.
     if "LVR12" in cp.vl and "CF_Lvr_IsgState" in cp.vl["LVR12"] and ret.standstill and not self.CP.steerAtStandstill:
       if cp.vl["LVR12"]["CF_Lvr_IsgState"] == ISG_ENGINE_STOPPED:
         self.isg_steer_grace_frames = ISG_RESTART_GRACE_FRAMES
