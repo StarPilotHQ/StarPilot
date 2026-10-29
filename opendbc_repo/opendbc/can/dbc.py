@@ -296,9 +296,9 @@ def get_checksum_state(dbc_name: str) -> ChecksumState | None:
   elif dbc_name == "rivian_primary_actuator":
     return ChecksumState(SignalType.RIVIAN_CHECKSUM, rivian_checksum, checksum_pattern=r"_Checksum$")
   elif dbc_name.startswith(("mazda_2019", "mazda_2023")):
-    return ChecksumState(SignalType.MAZDA2019_CHECKSUM, mazda2019_checksum, checksum_pattern=r"^CH(ECKS|KS)UM$")
+    return ChecksumState(SignalType.MAZDA2019_CHECKSUM, mazda2019_checksum)
   elif dbc_name.startswith("mazda_2017"):
-    return ChecksumState(SignalType.MAZDA2017_CHECKSUM, mazda2017_checksum, checksum_pattern=r"^CH(ECKS|KS)UM$")
+    return ChecksumState(SignalType.MAZDA2017_CHECKSUM, mazda2017_checksum)
   return None
 
 

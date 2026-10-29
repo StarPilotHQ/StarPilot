@@ -33,7 +33,9 @@ class CarState(CarStateBase):
 
     can_define = CANDefine(DBC[CP.carFingerprint][Bus.pt])
     self.shifter_values = can_define.dv["GEAR"]["GEAR"]
-    if CP.flags & MazdaSafetyFlags.MANUAL_TRANSMISSION:
+    # MANUAL_GEAR only exists in the GEN2/GEN3 DBCs; a GEN1 car with the
+    # ManualTransmission toggle must keep parsing the stock GEAR message.
+    if CP.flags & MazdaSafetyFlags.MANUAL_TRANSMISSION and "MANUAL_GEAR" in can_define.dv:
       self.shifter_values = can_define.dv["MANUAL_GEAR"]["GEAR"]
 
     self.crz_btns_counter = 0
