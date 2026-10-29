@@ -53,7 +53,6 @@ class LongControl:
     # Mazda BlendedACC: reset the PID when the CEM path switches to experimental
     self.experimental_mode_last = False
     self.mazda_blended_acc = CP.brand == "mazda" and Params().get_bool("BlendedACC")
-    self.params_memory = Params(memory=True)
     self.last_output_accel = 0.0
     self.takeoff_start = TakeoffStart() if takeoff_eligible(CP) else None
     self.takeoff_starting = False
@@ -98,7 +97,8 @@ class LongControl:
         context=context)
     self.takeoff_starting = selected and self.long_control_state == LongCtrlState.starting
     if self.mazda_blended_acc:
-      experimental_mode = self.params_memory.get_int("CEStatus")  # 0 means experimental mode is off
+      # Dom carries CEM state in LongitudinalContext (from selfdriveState), not a param.
+      experimental_mode = bool(context.experimental_mode)
       if experimental_mode and not self.experimental_mode_last:
         self.reset()
       self.experimental_mode_last = experimental_mode
