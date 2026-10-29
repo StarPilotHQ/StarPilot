@@ -74,8 +74,8 @@ class CarController(CarControllerBase):
           # Send Resume button when planner wants car to move
           can_sends.append(mazdacan.create_button_cmd(self.packer, self.CP, CS.crz_btns_counter, Buttons.RESUME))
 
-      # send HUD alerts
-      if self.frame % 50 == 0:
+      # send HUD alerts (no FSC means no camera lane-info to drive them)
+      if self.frame % 50 == 0 and not (self.CP.flags & MazdaSafetyFlags.NO_FSC):
         ldw = CC.hudControl.visualAlert == VisualAlert.ldw
         steer_required = CC.hudControl.visualAlert == VisualAlert.steerRequired
         # TODO: find a way to silence audible warnings so we can add more hud alerts
@@ -160,7 +160,12 @@ class CarController(CarControllerBase):
       self.packer, self.CP, self.frame, apply_torque, CS.cam_lkas,
       ti_apply_torque if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else None))
     if _projection is not None:
-      _projection.emit('mazda.CAM_LKAS', apply_torque, CC.latActive, can_sends[-1])
+      if self.CP.flags & (MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.GEN3):
+        _projection.emit('mazda.EPS_LKAS', apply_torque, CC.latActive, can_sends[-1])
+      elif not (self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR):
+        _projection.emit('mazda.CAM_LKAS', apply_torque, CC.latActive, can_sends[-1])
+      # GEN1 TI has two independent torque paths; a single observation would be
+      # ambiguous, so no projection is emitted for that configuration.
 
     new_actuators = CC.actuators.as_builder()
     new_actuators.torque = apply_torque / self.ccp.STEER_MAX

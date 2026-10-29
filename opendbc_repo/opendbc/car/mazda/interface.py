@@ -141,6 +141,7 @@ class CarInterface(CarInterfaceBase):
         ret.flags |= MazdaSafetyFlags.MANUAL_TRANSMISSION.value
       ret.deprecated.enableBsm = False
 
-    ret.centerToFront = ret.wheelbase * 0.41
+    # centerToFront comes from the platform CarSpecs ratio via get_std_params;
+    # do not hardcode a single ratio for all Mazda platforms.
 
     return ret
