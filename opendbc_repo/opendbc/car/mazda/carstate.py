@@ -231,7 +231,7 @@ class CarState(CarStateBase):
     ret.seatbeltUnlatched = False # Cruise will not engage if seatbelt is unlatched (handled by car)
     ret.doorOpen = False # Cruise will not engage if door is open (handled by car)
     ret.brakePressed = cp.vl["BRAKE_PEDAL"]["BRAKE_PRESSED"] == 1
-    ret.brake = .1
+    ret.deprecated.brake = .1
     ret.steerFaultPermanent = False # TODO locate signal. Car shows light on dash if there is a fault
     ret.steerFaultTemporary = False # TODO locate signal. Car shows light on dash if there is a fault
 
