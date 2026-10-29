@@ -137,8 +137,7 @@ class CarState(CarStateBase):
     self.ccnc_1b5_ts_ns = 0
     self.dashboard_limit = LimitTracker()
     self.dashboard_stop_sign = None
-    # Classic CAN only: CAN-FD uses FR_CMR_02, and blended cars read the pt bus from ECAN.
-    # Navi_HU is subscribed non-gating; if the car never sends it, the parser never produces a timestamp.
+    # Classic CAN only; CAN-FD and blended cars have their own sources.
     self.can_limit_sources = not (CP.flags & HyundaiFlags.CANFD) and not is_blended(CP)
     self.ioniq6_bsm_sources = (Ioniq6BlindspotSources()
                                if CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and CP.openpilotLongitudinalControl else None)
@@ -624,7 +623,6 @@ class CarState(CarStateBase):
     return ret
 
   def update_can_dashboard_limit(self, cp):
-    # Navigation limit (Navi_HU). Only counts once the parser has received a packet; the tracker advances on new packets only.
     sample_ns, expiry = parser_expiry(cp, "Navi_HU", "SpeedLim_Nav_Clu")
     if sample_ns <= self.dashboard_limit.observation.observed_ns:
       return
@@ -769,7 +767,7 @@ class CarState(CarStateBase):
       msgs.extend((name, 0) for name in {available_msg, enabled_msg, speed_msg})
       if not CP.flags & HyundaiFlags.NON_SCC_NO_FCA:
         (msgs if CP.flags & HyundaiFlags.NON_SCC_RADAR_FCA else cam_msgs).append(("FCA11", math.nan))
-    # Non-gating (NaN): absent on many cars, and must never affect canValid.
+    # Non-gating: many cars don't send it.
     msgs.append(("Navi_HU", math.nan))
     parsers = {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], msgs, 0),
