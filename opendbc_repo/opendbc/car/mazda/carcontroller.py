@@ -160,9 +160,12 @@ class CarController(CarControllerBase):
       self.packer, self.CP, self.frame, apply_torque, CS.cam_lkas,
       ti_apply_torque if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else None))
     if _projection is not None and len(can_sends) > 0:
+      # only an actual steering packet counts as steering evidence (a trailing
+      # cruise-button or HUD packet must not be mislabeled as such)
       if self.CP.flags & (MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.GEN3):
-        _projection.emit('mazda.EPS_LKAS', apply_torque, CC.latActive, can_sends[-1])
-      elif not (self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR):
+        if can_sends[-1][0] == 0x249:
+          _projection.emit('mazda.EPS_LKAS', apply_torque, CC.latActive, can_sends[-1])
+      elif not (self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR) and can_sends[-1][0] == 0x243:
         _projection.emit('mazda.CAM_LKAS', apply_torque, CC.latActive, can_sends[-1])
       # GEN1 TI has two independent torque paths; a single observation would be
       # ambiguous, so no projection is emitted for that configuration.
