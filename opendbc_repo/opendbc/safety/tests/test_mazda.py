@@ -152,6 +152,107 @@ class TestMazda2019Safety(common.CarSafetyTest, common.DriverTorqueSteeringSafet
     self.assertFalse(self._tx(self._torque_cmd_msg(100)))
     self.assertTrue(self._tx(self._torque_cmd_msg(0)))
 
+  # --- Gen2 TI2 / ACC safety-gap regression tests (from the safety action plan) ---
+  # These FAIL against the unremediated safety mode, which allowlists ACC
+  # (0x220, bus 2) with no content checks and never inspects TI2 CPU
+  # violation/state fields. They must pass once the corresponding
+  # remediation lands. Guard tests that pass today prevent over-blocking fixes.
+
+  def _stock_acc_msg(self, accel_cmd=2000):
+    # stock ACC frame as it arrives from the vehicle side of the relay (main bus)
+    return self.packer.make_can_msg_safety("ACC", 0, {"ACCEL_CMD": accel_cmd})
+
+  def _acc_cmd_msg(self, accel_cmd=2000, hold=0, resume=0):
+    # outgoing ACC frame on the camera bus (openpilot side of the relay)
+    values = {"ACCEL_CMD": accel_cmd, "HOLD": hold, "RESUME": resume}
+    return self.packer.make_can_msg_safety("ACC", 2, values)
+
+  def _ti2_feedback_msg(self, viol=(0, 0, 0, 0), cpu_state=(0, 0, 0, 0)):
+    values = {
+      "STEER_TORQUE_SENSOR": 0,
+      "CPU_0_VIOL": viol[0], "CPU_1_VIOL": viol[1], "CPU_2_VIOL": viol[2], "CPU_3_VIOL": viol[3],
+      "CPU_0_STATE": cpu_state[0], "CPU_1_STATE": cpu_state[1], "CPU_2_STATE": cpu_state[2], "CPU_3_STATE": cpu_state[3],
+    }
+    return self.packer.make_can_msg_safety("TI_FEEDBACK", 1, values)
+
+  def test_acc_modified_rejected_when_controls_not_allowed(self):
+    self._rx(self._stock_acc_msg(accel_cmd=2000))
+    self.safety.set_controls_allowed(0)
+    for bad_accel in (0, 1000, 1300, 2401, 3000, 4095):
+      self.assertFalse(self._tx(self._acc_cmd_msg(accel_cmd=bad_accel)), f"{bad_accel=}")
+
+  def test_acc_exact_stock_passthrough_allowed(self):
+    for controls_allowed in (0, 1):
+      self._reset_safety_hooks()
+      self._rx(self._stock_acc_msg(accel_cmd=2000))
+      self.safety.set_controls_allowed(controls_allowed)
+      self.assertTrue(self._tx(self._acc_cmd_msg(accel_cmd=2000)), controls_allowed)
+
+  def test_ti_cpu_violations_disengage(self):
+    for cpu in range(4):
+      self._reset_safety_hooks()
+      self.safety.set_controls_allowed(1)
+      viol = [0, 0, 0, 0]
+      viol[cpu] = 1
+      self._rx(self._ti2_feedback_msg(viol=viol))
+      self.assertFalse(self.safety.get_controls_allowed(), f"CPU_{cpu}_VIOL")
+
+  def test_ti_violation_blocks_steering_and_modified_acc(self):
+    self._rx(self._stock_acc_msg(accel_cmd=2000))
+    self.safety.set_controls_allowed(1)
+    self._rx(self._ti2_feedback_msg(viol=(1, 0, 0, 0)))
+    self.assertFalse(self._tx(self._torque_cmd_msg(45)))
+    self.assertTrue(self._tx(self._torque_cmd_msg(0)))
+    self.assertFalse(self._tx(self._acc_cmd_msg(accel_cmd=3000)))
+    self.assertTrue(self._tx(self._acc_cmd_msg(accel_cmd=2000)))
+
+  def test_ti_recovery_does_not_auto_reengage(self):
+    self.safety.set_controls_allowed(1)
+    self._rx(self._ti2_feedback_msg(viol=(0, 0, 1, 0)))
+    self.assertFalse(self.safety.get_controls_allowed())
+    for _ in range(10):
+      self._rx(self._ti2_feedback_msg())
+    self.assertFalse(self.safety.get_controls_allowed())
+
+
+class TestMazda2023Safety(TestMazda2019Safety):
+  """Gen3 (2023+ Mazda 3/CX-30) — TI steering only; no openpilot longitudinal."""
+  DBC = "mazda_2023"
+  SAFETY_PARAM = MazdaSafetyFlags.GEN3
+  TX_MSGS = [[0x249, 1]]
+  RELAY_MALFUNCTION_ADDRS = {}
+  FWD_BLACKLISTED_ADDRS = {}
+
+  def _speed_msg(self, speed):
+    # Gen3 wheel speeds arrive on the camera bus (bus 2)
+    return self.packer.make_can_msg_safety("WHEEL_SPEEDS", 2, {"FL": speed})
+
+  def _user_brake_msg(self, brake):
+    values = {"BRAKE_PRESSED": brake, "BRAKE_NOT_PRESSED": int(not brake)}
+    return self.packer.make_can_msg_safety("BRAKE_PEDAL", 0, values)
+
+  def _pcm_status_msg(self, enable):
+    # Gen3 CRUZE_STATE lives on the aux bus, engaged state == 3
+    return self.packer.make_can_msg_safety("CRUZE_STATE", 1, {"CRZ_STATE": 3 if enable else 1})
+
+  def test_acc_exact_stock_passthrough_allowed(self):
+    # Gen3 must not transmit 0x220 at all, even a byte-exact stock copy
+    self._rx(self._stock_acc_msg(accel_cmd=2000))
+    self.safety.set_controls_allowed(0)
+    self.assertFalse(self._tx(self._acc_cmd_msg(accel_cmd=2000)))
+
+  def test_gen3_acc_not_in_tx_whitelist(self):
+    self.assertFalse(self._tx(self._acc_cmd_msg(accel_cmd=2000)))
+
+  def test_gen3_brake_while_moving_blocks_engage(self):
+    # A5: wheel speed arrives on bus 2. If the rx hook only reads bus 0,
+    # vehicle_moving stays false and brake-while-moving engages (unsafe).
+    self._rx(self._speed_msg(30.0))
+    self._rx(self._user_brake_msg(1))
+    self.assertTrue(self.safety.get_brake_pressed_prev())
+    self._rx(self._pcm_status_msg(True))
+    self.assertFalse(self.safety.get_controls_allowed())
+
 
 if __name__ == "__main__":
   unittest.main()
