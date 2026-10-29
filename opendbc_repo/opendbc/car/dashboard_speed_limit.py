@@ -87,3 +87,12 @@ def hyundai_canfd_sign(speed: int, system_status: int, is_metric: bool) -> tuple
   if 1 <= speed <= 252:
     return Status.VALID, speed * (1 / 3.6 if is_metric else 0.44704)
   return (Status.ABSENT, 0.0) if speed in (0, 253) else (Status.UNKNOWN, 0.0)
+
+
+def hyundai_can_sign(raw: int, is_metric: bool) -> tuple[Status, float]:
+  # Classic-CAN Navi_HU SpeedLim_Nav_Clu carries the displayed limit in cluster units, with 0 and 255
+  # meaning "nothing shown". Neither value is evidence that no limit is posted (no map match is not a
+  # roadway statement), so both are UNKNOWN rather than ABSENT.
+  if 1 <= raw <= 254:
+    return Status.VALID, raw * (1 / 3.6 if is_metric else 0.44704)
+  return Status.UNKNOWN, 0.0
