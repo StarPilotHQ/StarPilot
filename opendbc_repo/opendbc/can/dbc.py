@@ -26,6 +26,7 @@ from opendbc.car.psa.psacan import psa_checksum
 from opendbc.car.rivian.riviancan import rivian_checksum
 from opendbc.car.ford.fordcan import FORD_CHECKSUM_FIELDS, ford_checksum
 from opendbc.car.mg.mgcan import mg_checksum
+from opendbc.car.mazda.mazdacan import mazda2017_checksum, mazda2019_checksum
 
 
 class SignalType:
@@ -48,6 +49,8 @@ class SignalType:
   FORD_CHECKSUM = 16
   MG_CHECKSUM = 17
   RAY_PEDAL_CHECKSUM = 18
+  MAZDA2017_CHECKSUM = 19
+  MAZDA2019_CHECKSUM = 20
 
 
 @dataclass
@@ -292,6 +295,10 @@ def get_checksum_state(dbc_name: str) -> ChecksumState | None:
     return ChecksumState(SignalType.MG_CHECKSUM, mg_checksum, checksum_pattern=r"Chksm|^ChLKARespToqPVHSC2$")
   elif dbc_name == "rivian_primary_actuator":
     return ChecksumState(SignalType.RIVIAN_CHECKSUM, rivian_checksum, checksum_pattern=r"_Checksum$")
+  elif dbc_name.startswith(("mazda_2019", "mazda_2023")):
+    return ChecksumState(SignalType.MAZDA2019_CHECKSUM, mazda2019_checksum, checksum_pattern=r"^CH(ECKS|KS)UM$")
+  elif dbc_name.startswith("mazda_2017"):
+    return ChecksumState(SignalType.MAZDA2017_CHECKSUM, mazda2017_checksum, checksum_pattern=r"^CH(ECKS|KS)UM$")
   return None
 
 

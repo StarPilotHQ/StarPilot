@@ -7,6 +7,7 @@ from openpilot.common.pid import PIDController
 from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.starpilot.longitudinal.extension import LongitudinalContext, create_extension
 from openpilot.starpilot.longitudinal.takeoffs import TakeoffStart, eligible as takeoff_eligible
+from openpilot.common.params import Params
 
 CONTROL_N_T_IDX = ModelConstants.T_IDXS[:CONTROL_N]
 
@@ -48,6 +49,10 @@ class LongControl:
                              (self.extension.ki if self.extension is not None and self.extension.ki is not None
                               else (CP.longitudinalTuning.kiBP, CP.longitudinalTuning.kiV)),
                              rate=1 / DT_CTRL)
+    # Mazda BlendedACC: reset the PID when the CEM path switches to experimental
+    self.experimental_mode_last = False
+    self.mazda_blended_acc = CP.brand == "mazda" and Params().get_bool("BlendedACC")
+    self.params_memory = Params(memory=True)
     self.last_output_accel = 0.0
     self.takeoff_start = TakeoffStart() if takeoff_eligible(CP) else None
     self.takeoff_starting = False
@@ -85,6 +90,11 @@ class LongControl:
         native_state, previous_state, active, CS, a_target, should_stop, accel_limits,
         context=context)
     self.takeoff_starting = selected and self.long_control_state == LongCtrlState.starting
+    if self.mazda_blended_acc:
+      experimental_mode = self.params_memory.get_int("CEStatus")  # 0 means experimental mode is off
+      if experimental_mode and not self.experimental_mode_last:
+        self.reset()
+      self.experimental_mode_last = experimental_mode
     if self.long_control_state == LongCtrlState.off:
       self.reset()
       output_accel = 0.
