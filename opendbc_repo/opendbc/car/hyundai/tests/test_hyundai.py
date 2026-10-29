@@ -5,7 +5,7 @@ from opendbc.car import Bus, structs
 from opendbc.car import gen_empty_fingerprint
 from opendbc.car.structs import CarParams
 from opendbc.car.fw_versions import build_fw_dict, match_fw_to_car
-from opendbc.car.hyundai.carstate import CarState
+from opendbc.car.hyundai.carstate import CarState, ISG_RESTART_GRACE_FRAMES
 from opendbc.car.hyundai.carcontroller import CarController
 from opendbc.car.hyundai.interface import CarInterface
 from opendbc.car.hyundai import hyundaican
@@ -361,6 +361,50 @@ class TestHyundaiFingerprint(unittest.TestCase):
     old_msg = CANPacker("hyundai_can_generated").make_can_msg("LFAHDA_MFC", 0, {"LFA_Icon_State": 2})
     self.assertEqual(len(old_msg[1]), 4)
     self.assertEqual(len(hyundaican.create_lfahda_mfc(packer, True)[1]), 8)
+
+  @staticmethod
+  def _isg_steer_fault(candidate, fingerprint=None):
+    fingerprint = fingerprint or gen_empty_fingerprint()
+    CP = CarInterface.get_params(candidate, fingerprint, [], False, False, False)
+    CS = CarState(CP)
+    parsers = CS.get_can_parsers(CP)
+    packer = CANPacker(DBC[CP.carFingerprint][Bus.pt])
+    frame = 0
+
+    def update(isg_state, unavail=1, fault=0, speed=0.):
+      nonlocal frame
+      frame += 1
+      msgs = [
+        packer.make_can_msg("MDPS12", 0, {"CF_Mdps_ToiUnavail": unavail, "CF_Mdps_ToiFlt": fault}),
+        packer.make_can_msg("LVR12", 0, {"CF_Lvr_IsgState": isg_state}),
+        packer.make_can_msg("WHL_SPD11", 0, {f"WHL_SPD_{w}": speed for w in ("FL", "FR", "RL", "RR")}),
+      ]
+      parsers[Bus.pt].update((frame * 10_000_000, msgs))
+      return CS.update(parsers).steerFaultTemporary
+
+    update(isg_state=0, unavail=0)  # registers the lazily parsed messages
+    return update
+
+  def test_isg_engine_stop_is_not_a_steer_fault(self):
+    update = self._isg_steer_fault(CAR.KIA_STINGER_2022)
+    self.assertTrue(update(isg_state=0))
+    self.assertFalse(update(isg_state=1))
+    self.assertTrue(update(isg_state=1, fault=1))
+    self.assertTrue(update(isg_state=1, speed=20.))
+
+  def test_isg_engine_restart_grace(self):
+    update = self._isg_steer_fault(CAR.KIA_STINGER_2022)
+    self.assertFalse(update(isg_state=1))
+    self.assertFalse(update(isg_state=2))
+    for _ in range(ISG_RESTART_GRACE_FRAMES):
+      update(isg_state=0)
+    self.assertTrue(update(isg_state=0))
+
+  def test_isg_steer_fault_kept_for_steer_at_standstill(self):
+    fingerprint = gen_empty_fingerprint()
+    fingerprint[0][0x2AA] = 8
+    update = self._isg_steer_fault(CAR.HYUNDAI_PALISADE_2023, fingerprint)
+    self.assertTrue(update(isg_state=1))
 
   def test_feature_detection(self):
     # LKA steering

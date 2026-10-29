@@ -32,6 +32,8 @@ ButtonType = structs.CarState.ButtonEvent.Type
 PREV_BUTTON_SAMPLES = 8
 CLUSTER_SAMPLE_RATE = 20  # frames
 STANDSTILL_THRESHOLD = 12 * 0.03125
+ISG_ENGINE_STOPPED = 1  # LVR12 CF_Lvr_IsgState "activated"
+ISG_RESTART_GRACE_FRAMES = 20  # the MDPS clears ToiUnavail ~60 ms after the engine restarts
 IONIQ_6_BSM_MAX_AGE_NS = 200_000_000
 IONIQ_6_BSM_LEFT_MASK = 0x10
 IONIQ_6_BSM_RIGHT_MASK = 0x08
@@ -140,6 +142,7 @@ class CarState(CarStateBase):
     self.ioniq6_bsm_sources = (Ioniq6BlindspotSources()
                                if CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and CP.openpilotLongitudinalControl else None)
     self.ioniq6_bsm_now_ns = 0
+    self.isg_steer_grace_frames = 0
 
     # On some cars, CLU15->CF_Clu_VehicleSpeed can oscillate faster than the dash updates. Sample at 5 Hz
     self.cluster_speed = 0
@@ -315,6 +318,18 @@ class CarState(CarStateBase):
       gear = cp.vl["LVR12"]["CF_Lvr_Gear"]
 
     ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(gear))
+
+    # The MDPS sets ToiUnavail while Idle Stop and Go has the engine off. Lateral is inactive at standstill,
+    # so don't report it as a steering fault. Only read LVR12 if it's already parsed and its DBC has the signal.
+    if "LVR12" in cp.vl and "CF_Lvr_IsgState" in cp.vl["LVR12"] and ret.standstill and not self.CP.steerAtStandstill:
+      if cp.vl["LVR12"]["CF_Lvr_IsgState"] == ISG_ENGINE_STOPPED:
+        self.isg_steer_grace_frames = ISG_RESTART_GRACE_FRAMES
+      elif self.isg_steer_grace_frames > 0:
+        self.isg_steer_grace_frames -= 1
+      if self.isg_steer_grace_frames > 0 and cp.vl["MDPS12"]["CF_Mdps_ToiFlt"] == 0:
+        ret.steerFaultTemporary = False
+    else:
+      self.isg_steer_grace_frames = 0
 
     if not is_blended(self.CP) and (not self.CP.openpilotLongitudinalControl or self.CP.flags & HyundaiFlags.CAMERA_SCC):
       if non_scc:
