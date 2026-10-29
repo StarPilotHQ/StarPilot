@@ -1817,6 +1817,11 @@ class Car:
         update_subaru_sng(self, CS, CC, now_nanos)
         from openpilot.starpilot.car.subaru.stop_start_caller import update as update_subaru_startup
         update_subaru_startup(self, now_nanos)
+      if self.CP.brand == "mazda":
+        # BlendedACC needs the live CEM state; CarControl has no such field on
+        # this base, so inject it as a controller attribute (same pattern as
+        # learning_projection_observer).
+        self.CI.CC.experimental_mode = bool(self.sm['selfdriveState'].experimentalMode)
       self.last_actuators_output, can_sends = self.CI.apply(CC, now_nanos)
       self.publish_sendcan(can_sends, valid=CS.canValid)
       if learning_snapshot is not None and self.learning_send_committed_mono_ns:

@@ -62,6 +62,7 @@ bool no_mrcc = false;
 // track msgs coming from OP so that we know what CAM msgs to drop and what to forward
 static void mazda_rx_hook(const CANPacket_t *msg) {
   mazda_aol_rx(msg);
+
   if ((int)msg->bus == MAZDA_MAIN) {
     if (gen1) {
       if (msg->addr == MAZDA_ENGINE_DATA) {
@@ -86,13 +87,12 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
       }
 
       if (msg->addr == MAZDA_ENGINE_DATA) {
-        gas_pressed = (msg->data[4] || (msg->data[5] & 0xF0U));
+        gas_pressed = (msg->data[4] | (msg->data[5] & 0xF0U)) != 0U;
       }
 
       if (msg->addr == MAZDA_PEDALS) {
         brake_pressed = (msg->data[0] & 0x10U);
         if (radar_interceptor || no_mrcc) {
-          // acc_main_on = GET_BIT(to_push, 17U); TODO
           bool cruise_engaged = msg->data[0] & 0x8U;
           pcm_cruise_check(cruise_engaged);
         }
@@ -146,7 +146,6 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
       uint8_t state = msg->data[0] & 0x70U;
       bool cruise_engaged = (0x30U == state);
       bool cruise_override = (0x40U == state);
-      //bool cruise_disable = (state == 0x10U);
       acc_main_on = true;
       pcm_cruise_check(cruise_engaged || cruise_override);
     }
@@ -196,22 +195,24 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
 
   bool tx = true;
   // Check if msg is sent on the main BUS
-  // steer cmd checks
-  if (msg_matches(msg, MAZDA_LKAS, MAZDA_MAIN)) {
-    int desired_torque = (((msg->data[0] & 0x0FU) << 8) | msg->data[1]) - 2048U;
+  if (msg->bus == (unsigned char)MAZDA_MAIN) {
+    // steer cmd checks
+    if (msg->addr == MAZDA_LKAS) {
+      int desired_torque = (((msg->data[0] & 0x0FU) << 8) | msg->data[1]) - 2048U;
 
-    if (steer_torque_cmd_checks(desired_torque, -1, MAZDA_STEERING_LIMITS)) {
-      tx = false;
+      if (steer_torque_cmd_checks(desired_torque, -1, MAZDA_STEERING_LIMITS)) {
+        tx = false;
+      }
     }
-  }
 
-  // cruise buttons check
-  if (msg_matches(msg, MAZDA_CRZ_BTNS, MAZDA_MAIN)) {
-    // allow resume spamming while controls allowed, but
-    // only allow cancel while controls not allowed
-    bool cancel_cmd = (msg->data[0] == 0x1U);
-    if (!controls_allowed && !cancel_cmd) {
-      tx = false;
+    // cruise buttons check
+    if (msg->addr == MAZDA_CRZ_BTNS) {
+      // allow resume spamming while controls allowed, but
+      // only allow cancel while controls not allowed
+      bool cancel_cmd = (msg->data[0] == 0x1U);
+      if (!controls_allowed && !cancel_cmd) {
+        tx = false;
+      }
     }
   }
   if ((gen2 || gen3) && (msg->bus == MAZDA_AUX) && (msg->addr == MAZDA_TI_LKAS)) {
@@ -226,11 +227,8 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
 }
 
 static safety_config mazda_init(uint16_t param) {
-  static CanMsg MAZDA_TX_MSGS[] = {
-    {MAZDA_LKAS, 0, 8, .check_relay = true},
-    {MAZDA_CRZ_BTNS, 0, 8, .check_relay = false},
-    {MAZDA_LKAS_HUD, 0, 8, .check_relay = true},
-  };
+  // MAZDA_TX_MSGS stays non-const: the Dom stock-AOL path rewrites check_relay.
+  static CanMsg MAZDA_TX_MSGS[] = {{MAZDA_LKAS, 0, 8, .check_relay = true}, {MAZDA_CRZ_BTNS, 0, 8, .check_relay = false}, {MAZDA_LKAS_HUD, 0, 8, .check_relay = true}};
   static const CanMsg MAZDA_TI_TX_MSGS[] = {{MAZDA_LKAS, 0, 8, .check_relay = true}, {MAZDA_TI_LKAS, 1, 8, .check_relay = false}, {MAZDA_CRZ_BTNS, 0, 8, .check_relay = false}, {MAZDA_LKAS_HUD, 0, 8, .check_relay = true}};
   static const CanMsg MAZDA_RI_TX_MSGS[] = {{MAZDA_LKAS, 0, 8, .check_relay = true}, {MAZDA_CRZ_BTNS, 0, 8, .check_relay = false}, {MAZDA_LKAS_HUD, 0, 8, .check_relay = true},
                                     {MAZDA_CRZ_CTRL, 0, 8, .check_relay = true}, {MAZDA_CRZ_INFO, 0, 8, .check_relay = true}, {MAZDA_RADAR_361, 0, 8, .check_relay = true}, {MAZDA_RADAR_362, 0, 8, .check_relay = true},
@@ -275,8 +273,15 @@ static safety_config mazda_init(uint16_t param) {
     {.msg = {{MAZDA_2019_STEER_TORQUE,  1, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
   };
 
-  // Check flags
-  gen1 = GET_FLAG(param, FLAG_GEN1);
+  mazda_aol_reset();
+
+  // MoreTore param flags select the generation and interceptors. A param of
+  // exactly FLAG_GEN1 (no TI/RI/NoMRCC/NoFSC bits) is the pure-stock GEN1
+  // configuration Dom's stock Always-On-Lateral mode supports.
+  // param 0 = pure-stock GEN1 (Dom convention). The MoreTore GEN1 bit is only
+  // set when TI/RI/NoMRCC/NoFSC is configured (see car/mazda/interface.py).
+  const bool stock_gen1 = (param == 0U);
+  gen1 = GET_FLAG(param, FLAG_GEN1) || stock_gen1;
   gen2 = GET_FLAG(param, FLAG_GEN2);
   gen3 = GET_FLAG(param, FLAG_GEN3);
   radar_interceptor = GET_FLAG(param, FLAG_RADAR_INTERCEPTOR);
@@ -284,8 +289,7 @@ static safety_config mazda_init(uint16_t param) {
   no_fsc = GET_FLAG(param, FLAG_NO_FSC);
   no_mrcc = GET_FLAG(param, FLAG_NO_MRCC);
 
-  mazda_aol_reset();
-  mazda_aol_enabled = (param == 0U) && ((unsigned int)alternative_experience == 32U);
+  mazda_aol_enabled = stock_gen1 && ((unsigned int)alternative_experience == 32U);
   MAZDA_TX_MSGS[0].check_relay = !mazda_aol_enabled;
   MAZDA_TX_MSGS[2].check_relay = !mazda_aol_enabled;
   if (mazda_aol_enabled) {
@@ -298,6 +302,7 @@ static safety_config mazda_init(uint16_t param) {
     };
     aol_policy = &policy;
   }
+
   safety_config ret = BUILD_SAFETY_CFG(mazda_rx_checks, MAZDA_TX_MSGS);
 
   if (gen1) {
@@ -322,7 +327,10 @@ static safety_config mazda_init(uint16_t param) {
     ret = BUILD_SAFETY_CFG(mazda_2023_rx_checks, MAZDA_2019_TX_MSGS);
   }
 
-  if (((unsigned int)alternative_experience == 32U) && (param != 0U)) {
+  // Alt-exp 32 (stock AOL) is only defined for pure-stock GEN1 (param 0).
+  // Every other configuration (TI, RI, GEN2, GEN3) gets no TX in that mode,
+  // matching Dom's fail-closed design for a GEN1-only feature.
+  if (((unsigned int)alternative_experience == 32U) && !stock_gen1) {
     ret.tx_msgs = NULL;
     ret.tx_msgs_len = 0;
   }

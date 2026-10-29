@@ -26,7 +26,8 @@ class CarController(CarControllerBase):
     self.filtered_acc_last = 0
     self.long_active_last = False
     self.params = Params()
-    self.params_memory = Params(memory=True)
+    # CEM state is injected by controlsd each frame (see controlsd.py apply path).
+    self.experimental_mode = False
 
 
 
@@ -96,7 +97,7 @@ class CarController(CarControllerBase):
             if CC.longActive:
               if not self.long_active_last:
                 self.acc_filter.initialized = False
-              target_acc = op_acc if self.params_memory.get_int("CEStatus") != 0 else stock_acc
+              target_acc = op_acc if bool(self.experimental_mode) else stock_acc
               acc_output = self.acc_filter.update(target_acc)
             else:
               acc_output = stock_acc
@@ -118,7 +119,7 @@ class CarController(CarControllerBase):
           if CC.longActive:
             if not self.long_active_last:
               self.acc_filter.initialized = False
-            target_acc = op_acc if self.params_memory.get_int("CEStatus") != 0 else stock_acc
+            target_acc = op_acc if bool(self.experimental_mode) else stock_acc
             acc_output = self.acc_filter.update(target_acc)
           else:
             acc_output = stock_acc

@@ -88,7 +88,6 @@ class CarInterface(CarInterfaceBase):
 
     if candidate in GEN1:
       ret.steerActuatorDelay = 0.335
-      ret.safetyConfigs[0].safetyParam |= MazdaSafetyFlags.GEN1.value
       if p.get_bool("TorqueInterceptorEnabled"): # Torque Interceptor Installed
         ret.flags |= MazdaSafetyFlags.TORQUE_INTERCEPTOR.value
         ret.safetyConfigs[0].safetyParam |= MazdaSafetyFlags.TORQUE_INTERCEPTOR.value
@@ -111,6 +110,11 @@ class CarInterface(CarInterfaceBase):
       if p.get_bool("NoFSC"):  # No Front Sensing Camera
         ret.flags |= MazdaSafetyFlags.NO_FSC.value
         ret.safetyConfigs[0].safetyParam |= MazdaSafetyFlags.NO_FSC.value
+      # Pure-stock GEN1 keeps safetyParam 0 (Dom stock-AOL convention); only
+      # interceptor/variant GEN1 configurations carry the GEN1 bit.
+      if ret.safetyConfigs[0].safetyParam & (MazdaSafetyFlags.TORQUE_INTERCEPTOR | MazdaSafetyFlags.RADAR_INTERCEPTOR |
+                                             MazdaSafetyFlags.NO_MRCC | MazdaSafetyFlags.NO_FSC):
+        ret.safetyConfigs[0].safetyParam |= MazdaSafetyFlags.GEN1.value
 
     if candidate in GEN2:
       ret.steerActuatorDelay = 0.5
