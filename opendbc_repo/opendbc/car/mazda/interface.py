@@ -99,9 +99,9 @@ class CarInterface(CarInterfaceBase):
         ret.alphaLongitudinalAvailable = alpha_long
         ret.openpilotLongitudinalControl = True
         ret.radarUnavailable = False
-        ret.startingState = True
-        ret.longitudinalTuning.kpBP = [0., 5., 30.]
-        ret.longitudinalTuning.kpV = [1.3, 1.0, 0.7]
+        ret.deprecated.startingState = True
+        ret.longitudinalTuning.deprecated.kpBP = [0., 5., 30.]
+        ret.longitudinalTuning.deprecated.kpV = [1.3, 1.0, 0.7]
         ret.longitudinalTuning.kiBP = [0., 5., 20., 30.]
         ret.longitudinalTuning.kiV = [0.36, 0.23, 0.17, 0.1]
       if p.get_bool("NoMRCC"): # No Mazda Radar Cruise Control; Missing CRZ_CTRL signal
@@ -122,13 +122,13 @@ class CarInterface(CarInterfaceBase):
       ret.alphaLongitudinalAvailable = alpha_long
       ret.openpilotLongitudinalControl = True
       ret.stopAccel = -.5
-      ret.vEgoStarting = .2
+      ret.deprecated.vEgoStarting = .2
       ret.longitudinalActuatorDelay = 0.35 # gas is 0.25s and brake looks like 0.5
-      ret.longitudinalTuning.kpBP = [0., 5., 35.]
-      ret.longitudinalTuning.kpV = [0.0, 0.0, 0.0]
+      ret.longitudinalTuning.deprecated.kpBP = [0., 5., 35.]
+      ret.longitudinalTuning.deprecated.kpV = [0.0, 0.0, 0.0]
       ret.longitudinalTuning.kiBP = [0., 35.]
       ret.longitudinalTuning.kiV = [0.1, 0.1]
-      ret.startingState = True
+      ret.deprecated.startingState = True
       ret.steerAtStandstill = True
       ret.deprecated.enableBsm = False
 
@@ -141,7 +141,7 @@ class CarInterface(CarInterfaceBase):
         ret.flags |= MazdaSafetyFlags.MANUAL_TRANSMISSION.value
       ret.deprecated.enableBsm = False
 
-    # centerToFront comes from the platform CarSpecs ratio via get_std_params;
+    # centerToFront comes from the platform CarSpecs ratio via CarInterfaceBase.get_params;
     # do not hardcode a single ratio for all Mazda platforms.
 
     return ret

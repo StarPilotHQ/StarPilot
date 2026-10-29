@@ -888,7 +888,7 @@ class FeatureSettingsOwner:
       rows.extend(row for row in self.panda_wake.rows(parked) if row.key != "IgnoreIgnitionLine")
       cp = self.vehicle_params()
       if cp is not None and str(getattr(cp, "brand", "")) == "mazda":
-        mazda_allowed = configurable and parked and self.authority("vehicle") and self.authority("parked_preferences")
+        mazda_allowed = configurable and parked and self.authority("parked_preferences")
         for key, label, reason in (
           ("TorqueInterceptorEnabled", "Torque Interceptor",
            "Enable the More Torque torque interceptor for steering control (GEN1 hardware; GEN2/GEN3 use the TI without this toggle)."),
@@ -1500,7 +1500,7 @@ class FeatureSettingsOwner:
       source_key = PERSONALITY_PROFILES_PARAM
       group = "long"
     elif key in ("TorqueInterceptorEnabled", "RadarInterceptorEnabled", "NoMRCC", "NoFSC", "BlendedACC", "ManualTransmission"):
-      source_key, group = key, "vehicle"
+      source_key, group = key, "parked_preferences"
     elif key in BOOL_DEFAULTS or key in FLOAT_SPECS or key in (*SOURCE_PRIORITY_KEYS, *ADVANCE_KEYS, 'SLCConfirmation', PEDAL_OVERRIDE_KEY):
       source_key = key
       long_key = (key in ("CustomPersonalities", "ForceStops", "ForceStopDistanceOffset") or "Personality" in key or
