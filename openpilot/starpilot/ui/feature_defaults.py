@@ -14,7 +14,9 @@ AGGRESSIVE_COOLING_KEY = "AggressiveCoolingEnabled"
 AGGRESSIVE_COOLING_DESCRIPTION = ("Runs the fan sooner and harder to keep the comma 10-16 °C (18-29 °F) cooler on hot days, " +
                                   "at the cost of more fan noise. Applies next drive.")
 BOOL_DEFAULTS = {
-  "GMPedalLongitudinal": False, "ForceStops": True, "AlwaysAllowUploads": False, "TurnAssist": True,
+  "GMPedalLongitudinal": False,
+  "TorqueInterceptorEnabled": True, "RadarInterceptorEnabled": False, "NoMRCC": False,
+  "NoFSC": False, "BlendedACC": True, "ManualTransmission": False, "ForceStops": True, "AlwaysAllowUploads": False, "TurnAssist": True,
   "DriveModeProfiles": False, "DriveModeAcceleration": True, "DriveModeDeceleration": True,
   "SubaruAvhStartup": False,
   "SubaruStopStartOff": False,

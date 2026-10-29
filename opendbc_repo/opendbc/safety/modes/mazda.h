@@ -288,9 +288,9 @@ static safety_config mazda_init(uint16_t param) {
   mazda_no_fsc = false;
   mazda_no_mrcc = false;
 
-  // MoreTore param flags select the generation and interceptors. A param of
-  // exactly FLAG_GEN1 (no TI/RI/NoMRCC/NoFSC bits) is the pure-stock GEN1
-  // configuration Dom's stock Always-On-Lateral mode supports.
+  // MoreTore param flags select the generation and interceptors. Pure-stock
+  // GEN1 keeps param 0 (Dom's stock-AOL configuration); the GEN1 bit is set
+  // only for TI/RI/NoMRCC/NoFSC variants (see car/mazda/interface.py).
   // param 0 = pure-stock GEN1 (Dom convention). The MoreTore GEN1 bit is only
   // set when TI/RI/NoMRCC/NoFSC is configured (see car/mazda/interface.py).
   const bool stock_gen1 = (param == 0U);
