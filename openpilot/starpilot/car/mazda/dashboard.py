@@ -1,7 +1,7 @@
 """Optional Mazda camera observation; never a longitudinal control grant."""
 import time
 
-from opendbc.car.mazda.values import CAR, MazdaFlags
+from opendbc.car.mazda.values import CAR, MazdaSafetyFlags
 from openpilot.cereal import messaging
 
 MAX_AGE_NS = 150_000_000
@@ -11,7 +11,7 @@ DASHBOARD_CARS = frozenset(CAR)
 def capable(cp):
   # Read-only observation scope is separate from active-control/AOL admission.
   # Dom's intentional dashboard commit explicitly covers all six GEN1 IDs.
-  return (cp.brand == 'mazda' and cp.carFingerprint in DASHBOARD_CARS and int(cp.flags) == int(MazdaFlags.GEN1) and not cp.notCar)
+  return (cp.brand == 'mazda' and cp.carFingerprint in DASHBOARD_CARS and int(cp.flags) == int(MazdaSafetyFlags.GEN1) and not cp.notCar)
 
 
 def compose(cp, parsed, state, message, *, car_state_stamp):

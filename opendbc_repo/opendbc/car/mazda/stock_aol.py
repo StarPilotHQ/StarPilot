@@ -1,11 +1,11 @@
 from opendbc.car import structs
-from opendbc.car.mazda.values import CAR, MazdaFlags
+from opendbc.car.mazda.values import CAR, MazdaSafetyFlags
 
 CARS = frozenset((CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 
 
 def qualified(cp, *, marked_only=False):
-  return (cp.brand == "mazda" and cp.carFingerprint in CARS and int(cp.flags) == int(MazdaFlags.GEN1) and
+  return (cp.brand == "mazda" and cp.carFingerprint in CARS and int(cp.flags) == int(MazdaSafetyFlags.GEN1) and
           not cp.passive and not cp.notCar and not cp.dashcamOnly and
           cp.transmissionType != structs.CarParams.TransmissionType.manual and
           cp.fingerprintSource != structs.CarParams.FingerprintSource.fixed and
