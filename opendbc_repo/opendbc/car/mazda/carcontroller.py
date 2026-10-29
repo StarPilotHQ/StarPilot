@@ -159,7 +159,7 @@ class CarController(CarControllerBase):
     can_sends.extend(mazdacan.create_steering_control(
       self.packer, self.CP, self.frame, apply_torque, CS.cam_lkas,
       ti_apply_torque if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else None))
-    if _projection is not None:
+    if _projection is not None and len(can_sends) > 0:
       if self.CP.flags & (MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.GEN3):
         _projection.emit('mazda.EPS_LKAS', apply_torque, CC.latActive, can_sends[-1])
       elif not (self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR):

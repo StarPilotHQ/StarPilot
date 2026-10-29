@@ -226,10 +226,12 @@ class TestMazda2023Safety(TestMazda2019Safety):
   def _stock_acc_msg(self, accel_cmd=2000):
     # GEN3's DBC names 0x21E "ACC"; build raw 0x220 frames explicitly so these
     # tests actually exercise the GEN2 ACC address, not the GEN3 alias.
-    return make_msg(0, 0x220)
+    # These are address-rejection checks; payload only encodes accel_cmd so
+    # stock and modified variants differ.
+    return make_msg(0, 0x220, dat=bytes([accel_cmd & 0xFF, (accel_cmd >> 8) & 0xFF, 0, 0, 0, 0, 0, 0]))
 
   def _acc_cmd_msg(self, accel_cmd=2000, hold=0, resume=0):
-    return make_msg(2, 0x220)
+    return make_msg(2, 0x220, dat=bytes([accel_cmd & 0xFF, (accel_cmd >> 8) & 0xFF, 0, 0, 0, 0, 0, 0]))
 
   def _speed_msg(self, speed):
     # Gen3 wheel speeds arrive on the camera bus (bus 2)
