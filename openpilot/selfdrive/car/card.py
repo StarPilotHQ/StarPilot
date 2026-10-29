@@ -181,8 +181,6 @@ class Car:
     # brand-conditional subscription would never happen; subscribe unconditionally.
     subscribed_services = ['pandaStates', 'carControl', 'onroadEvents', 'deviceState', 'autoSteeringLearning',
                            'longitudinalPlan', 'selfdriveState']
-    if self.params.get_bool('SubaruRedneckCruise') or self.params.get_bool('SubaruSNG') or (CI is not None and CI.CP.brand == 'mazda'):
-      subscribed_services.extend(('longitudinalPlan', 'selfdriveState'))
     if self.aol_replay:
       subscribed_services.extend(service for service in ('aolSafetyWire', 'managerState', 'aolAxisState', 'selfdriveState')
                                  if service not in subscribed_services)
