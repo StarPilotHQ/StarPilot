@@ -223,6 +223,14 @@ class TestMazda2023Safety(TestMazda2019Safety):
   RELAY_MALFUNCTION_ADDRS = {}
   FWD_BLACKLISTED_ADDRS = {}
 
+  def _stock_acc_msg(self, accel_cmd=2000):
+    # GEN3's DBC names 0x21E "ACC"; build raw 0x220 frames explicitly so these
+    # tests actually exercise the GEN2 ACC address, not the GEN3 alias.
+    return make_msg(0, 0x220)
+
+  def _acc_cmd_msg(self, accel_cmd=2000, hold=0, resume=0):
+    return make_msg(2, 0x220)
+
   def _speed_msg(self, speed):
     # Gen3 wheel speeds arrive on the camera bus (bus 2)
     return self.packer.make_can_msg_safety("WHEEL_SPEEDS", 2, {"FL": speed})
@@ -239,6 +247,16 @@ class TestMazda2023Safety(TestMazda2019Safety):
     # Gen3 must not transmit 0x220 at all, even a byte-exact stock copy
     self._rx(self._stock_acc_msg(accel_cmd=2000))
     self.safety.set_controls_allowed(0)
+    self.assertFalse(self._tx(self._acc_cmd_msg(accel_cmd=2000)))
+
+  def test_ti_violation_blocks_steering_and_modified_acc(self):
+    # GEN3 is steering-only: BOTH modified and stock-copy ACC must be rejected.
+    self._rx(self._stock_acc_msg())
+    self.safety.set_controls_allowed(1)
+    self._rx(self._ti2_feedback_msg(viol=(1, 0, 0, 0)))
+    self.assertFalse(self._tx(self._torque_cmd_msg(45)))
+    self.assertTrue(self._tx(self._torque_cmd_msg(0)))
+    self.assertFalse(self._tx(self._acc_cmd_msg(accel_cmd=3000)))
     self.assertFalse(self._tx(self._acc_cmd_msg(accel_cmd=2000)))
 
   def test_gen3_acc_not_in_tx_whitelist(self):

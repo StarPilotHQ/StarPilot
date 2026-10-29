@@ -662,6 +662,9 @@ class EmissionDecoder:
         raw, active = values['LKAS_Output'], bool(values['LKAS_Request'])
     elif family == 'mazda':
       raw, active = values['LKAS_REQUEST'], witness.steer_requested
+      if witness.codec_id == 'mazda.EPS_LKAS':
+        # GEN2/GEN3 EPS_LKAS torque is signed 16-bit; the DBC signal is unsigned
+        raw = raw - 65536 if raw >= 32768 else raw
     elif family == 'chrysler':
       raw, active = values['STEERING_TORQUE'], bool(values['LKAS_CONTROL_BIT'])
     elif family == 'mg':
