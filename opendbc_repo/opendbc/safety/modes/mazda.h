@@ -250,31 +250,11 @@ static safety_config mazda_init(uint16_t param) {
     {.msg = {{MAZDA_STEER_TORQUE, 0, 8, 83U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
     {.msg = {{MAZDA_ENGINE_DATA,  0, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
     {.msg = {{MAZDA_PEDALS,       0, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+    // slot 5: populated at init only when a torque interceptor is fitted,
+    // instead of keeping a second full RxCheck table in DTCMRAM
+    { .msg = {{ 0 }, { 0 }, { 0 }} },
   };
-  static RxCheck mazda_ti_rx_checks[] = {
-    {.msg = {{MAZDA_CRZ_CTRL,     0, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{MAZDA_CRZ_BTNS,     0, 8, 10U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{MAZDA_STEER_TORQUE, 0, 8, 83U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{MAZDA_ENGINE_DATA,  0, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{MAZDA_PEDALS,       0, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{TI_STEER_TORQUE,    1, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-
-  };
-  static RxCheck mazda_2019_rx_checks[] = {
-    {.msg = {{MAZDA_2019_BRAKE,         0, 8, 20U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{MAZDA_2019_GAS,           2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{MAZDA_2019_CRUISE,        0, 8, 10U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{MAZDA_2019_SPEED,         2, 8, 30U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{MAZDA_2019_STEER_TORQUE,  1, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-  };
-
-  static RxCheck mazda_2023_rx_checks[] = {
-    {.msg = {{MAZDA_2023_BRAKE,         0, 8, 5U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{MAZDA_2019_GAS,           2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{MAZDA_2019_CRUISE,        1, 8, 10U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{MAZDA_2023_SPEED,         2, 8, 30U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{MAZDA_2019_STEER_TORQUE,  1, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-  };
+  static RxCheck mazda_gen23_rx_checks[5];
 
   mazda_aol_reset();
 
@@ -291,8 +271,6 @@ static safety_config mazda_init(uint16_t param) {
   // MoreTore param flags select the generation and interceptors. Pure-stock
   // GEN1 keeps param 0 (Dom's stock-AOL configuration); the GEN1 bit is set
   // only for TI/RI/NoMRCC/NoFSC variants (see car/mazda/interface.py).
-  // param 0 = pure-stock GEN1 (Dom convention). The MoreTore GEN1 bit is only
-  // set when TI/RI/NoMRCC/NoFSC is configured (see car/mazda/interface.py).
   const bool stock_gen1 = (param == 0U);
   mazda_gen1 = GET_FLAG(param, FLAG_GEN1) || stock_gen1;
   mazda_gen2 = GET_FLAG(param, FLAG_GEN2);
@@ -320,13 +298,17 @@ static safety_config mazda_init(uint16_t param) {
 
   if (mazda_gen1) {
     SET_RX_CHECKS(mazda_rx_checks, ret);
+    if (mazda_torque_interceptor) {
+      mazda_rx_checks[5].msg[0] = (CanMsgCheck){TI_STEER_TORQUE, 1, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true};
+    }
+    // only expose the TI slot when a torque interceptor is actually fitted;
+    // a zeroed slot must not become a check on address 0
+    ret.rx_checks_len = mazda_torque_interceptor ? 6 : 5;
     if (mazda_radar_interceptor && mazda_torque_interceptor) {
-      SET_RX_CHECKS(mazda_ti_rx_checks, ret);
       SET_TX_MSGS(MAZDA_TI_RI_TX_MSGS, ret);
     } else if (mazda_radar_interceptor) {
       SET_TX_MSGS(MAZDA_RI_TX_MSGS, ret);
     } else if (mazda_torque_interceptor) {
-      SET_RX_CHECKS(mazda_ti_rx_checks, ret);
       SET_TX_MSGS(MAZDA_TI_TX_MSGS, ret);
     } else {
       SET_TX_MSGS(MAZDA_TX_MSGS, ret);
@@ -334,10 +316,26 @@ static safety_config mazda_init(uint16_t param) {
   }
 
   if (mazda_gen2) {
-    ret = BUILD_SAFETY_CFG(mazda_2019_rx_checks, MAZDA_2019_TX_MSGS);
+    static const RxCheck checks[5] = {
+      {.msg = {{MAZDA_2019_BRAKE,         0, 8, 20U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+      {.msg = {{MAZDA_2019_GAS,           2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+      {.msg = {{MAZDA_2019_CRUISE,        0, 8, 10U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+      {.msg = {{MAZDA_2019_SPEED,         2, 8, 30U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+      {.msg = {{MAZDA_2019_STEER_TORQUE,  1, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+    };
+    memcpy(mazda_gen23_rx_checks, checks, sizeof(checks));
+    ret = BUILD_SAFETY_CFG(mazda_gen23_rx_checks, MAZDA_2019_TX_MSGS);
   }
   if (mazda_gen3) {
-    ret = BUILD_SAFETY_CFG(mazda_2023_rx_checks, MAZDA_2023_TX_MSGS);
+    static const RxCheck checks[5] = {
+      {.msg = {{MAZDA_2023_BRAKE,         0, 8, 5U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+      {.msg = {{MAZDA_2019_GAS,           2, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+      {.msg = {{MAZDA_2019_CRUISE,        1, 8, 10U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+      {.msg = {{MAZDA_2023_SPEED,         2, 8, 30U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+      {.msg = {{MAZDA_2019_STEER_TORQUE,  1, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+    };
+    memcpy(mazda_gen23_rx_checks, checks, sizeof(checks));
+    ret = BUILD_SAFETY_CFG(mazda_gen23_rx_checks, MAZDA_2023_TX_MSGS);
   }
 
   // Alt-exp 32 (stock AOL) is only defined for pure-stock GEN1 (param 0).
