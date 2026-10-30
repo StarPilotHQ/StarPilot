@@ -1060,6 +1060,9 @@ button.gx-chip:hover {
 .gx-starport-log__download { flex: none; width: var(--touch-target); height: var(--touch-target); border: 1px solid var(--glass-border); background: var(--primary-container); color: var(--on-primary-container); }
 .gx-starport-log__download:hover { background: var(--primary); color: var(--on-primary); }
 .gx-starport-logs__section-title { margin: var(--sp-6) 0 var(--sp-3); }
+.gx-starport-send__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
+.gx-starport-send__row .gx-field { flex: 1 1 220px; min-width: 0; }
+.gx-starport-send__count { font-size: var(--fs-xs); opacity: .7; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 700px) {
   .gx-starport-log { gap: var(--sp-3); padding: var(--sp-3); }

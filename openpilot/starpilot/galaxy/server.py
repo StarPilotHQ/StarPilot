@@ -97,7 +97,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                 sounds=None, software_operations=None, drive_stats=None, layout_preview_socket=None, controllers_socket=None,
                 remote_pairing=None, parked=None, camera_snapshot=None, clock=time.monotonic, starport_setup=None,
                 starport_client=None, navigation=None, offline_maps=None, drive_state=None, cloud_provider=None, cloud_offroad=None, projection_layout=None,
-                local_access=None, tmux_live=None, starport_logs=None, hotspot=None, toyota_tools=None, replay_client=None, replay_root=None,
+                local_access=None, tmux_live=None, starport_logs=None, starport_log_sender=None, hotspot=None, toyota_tools=None, replay_client=None, replay_root=None,
                 spotify_setup=None, companion=None, phone_location=None, reverse_proxy=None):
   from openpilot.starpilot.galaxy.companion import CompanionRegistry, APK_PATH
   from openpilot.starpilot.gps.phone import PhoneGpsPublisher
@@ -139,6 +139,17 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
       from openpilot.starpilot.galaxy.starport_logs import StarPortLogs
       starport_logs_source = StarPortLogs()
     return starport_logs_source
+  starport_log_sender_source = starport_log_sender
+  starport_log_sender_lock = threading.Lock()
+
+  def starport_log_sender():
+    nonlocal starport_log_sender_source
+    with starport_log_sender_lock:
+      if starport_log_sender_source is None:
+        from openpilot.starpilot.galaxy.starport_send import StarPortLogSender, device_summary
+        source = starport_logs()
+        starport_log_sender_source = StarPortLogSender(source.bundle, summary=lambda: device_summary(source.directory))
+    return starport_log_sender_source
   software_source = software
   software_operations_source = software_operations
   software_lock = threading.Lock()
@@ -928,6 +939,9 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           # immediately before sending potentially sensitive content.
           if self.require_session():
             self.json(200, result)
+      elif path == '/api/starport/logs/send':
+        if self.require_session():
+          self.json(200, starport_log_sender().status())
       elif path == '/api/starport/logs' or path.startswith('/api/starport/logs/'):
         if not self.require_session():
           return
@@ -1635,6 +1649,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/replay/export-start',
                       '/api/galaxy/pair', '/api/galaxy/unpair', '/api/galaxy/device-name', '/api/galaxy/hotspot', '/api/cameras/snapshot',
                       '/api/starport/layout', '/api/starport/enable', '/api/starport/control', '/api/starport/pairing',
+                      '/api/starport/logs/send',
                       '/api/starport/pairing/response', '/api/starport/pairing/cancel', '/api/starport/pairing/select',
                       '/api/spotify/enable', '/api/spotify/key', '/api/spotify/preferences', '/api/spotify/control', '/api/spotify/maintenance',
                       '/api/ui/layout', '/api/ui/layout/preview', '/api/favorites/slots',
@@ -2311,6 +2326,27 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         else:
           if self.settings_session() == identity:
             self.json(200, result)
+          else:
+            self.json(401, {'error': 'Sign in to Galaxy'})
+        return
+      if path == '/api/starport/logs/send':
+        if type(payload) is not dict or set(payload) != {'message'}:
+          self.json(400, {'error': 'Invalid StarPort log send request'})
+          return
+        identity = self.settings_session()
+        if identity is None:
+          self.json(401, {'error': 'Sign in to Galaxy'})
+          return
+        from openpilot.starpilot.galaxy.starport_send import SendBusy, SendRejected
+        try:
+          result = starport_log_sender().start(payload['message'])
+        except SendRejected as error:
+          self.json(400, {'error': str(error)})
+        except SendBusy as error:
+          self.json(409, {'error': str(error)})
+        else:
+          if self.settings_session() == identity:
+            self.json(202, result)
           else:
             self.json(401, {'error': 'Sign in to Galaxy'})
         return
