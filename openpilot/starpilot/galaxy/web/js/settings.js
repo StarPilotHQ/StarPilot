@@ -16,6 +16,14 @@ const post = (fetcher, path, body, signal) => fetcher(path, {
   headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
 })
 
+// A settings request is a round trip over the Bluetooth bridge, which needs about
+// 0.4-0.9 s per ATT packet, and the first one also queues behind the encrypted
+// handshake and whatever polling is already in flight. Once the link is warm a
+// page answers in about 2 s, so only the first request of a page session gets the
+// longer deadline; the bridge itself allows 8 s to connect plus 10 s to read.
+export const FIRST_REQUEST_DEADLINE_MS = 12000
+export const REQUEST_DEADLINE_MS = 4000
+
 export const SETTINGS_SECTIONS = Object.freeze([
   { id: "lateral", label: "Lateral (Steering)", icon: "bi-arrows-move", pages: ["aol", "lane_change", "torque", "lane"] },
   { id: "longitudinal", label: "Longitudinal (Speed & Following)", icon: "bi-speedometer2", pages: ["profiles", "conditional", "curve", "slc", "personalities", "aggressive", "standard", "relaxed", "traffic"] },
@@ -57,6 +65,7 @@ export class SettingsFeed {
     this.data = null
     this.pending = null
     this.error = ""
+    this.firstRequest = true
   }
 
   stop() {
@@ -107,9 +116,12 @@ export class SettingsFeed {
       this.error = saving ? "Saving timed out. Checking saved values before another change." : "Settings could not connect. Reconnecting automatically…"
       this.publish({ status: background && this.data ? "ready" : "unavailable", data: this.data, pending: this.pending, error: this.error })
       this.scheduleParkedRefresh()
-    }, 4000)
+    }, this.firstRequest ? FIRST_REQUEST_DEADLINE_MS : REQUEST_DEADLINE_MS)
     try {
       const response = await operation(request.signal)
+      // The link answered, so later requests in this page session use the short
+      // deadline even when this one failed on the server side.
+      this.firstRequest = false
       if (!this.active || generation !== this.generation || request.signal.aborted) return null
       const accessCode = response.status === 503 ? (await response.clone().json().catch(() => null))?.code : null
       if (!this.active || generation !== this.generation || request.signal.aborted) return null

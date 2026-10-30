@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { SettingsFeed, SettingsPage, SETTINGS_SECTIONS } from "../web/js/settings.js"
+import { SettingsFeed, SettingsPage, SETTINGS_SECTIONS, FIRST_REQUEST_DEADLINE_MS, REQUEST_DEADLINE_MS } from "../web/js/settings.js"
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve() }
 const response = (body, status = 200) => ({ ok: status === 200, status, json: async () => body,
@@ -11,14 +11,14 @@ function fixture() {
   let nextTimer = 0
   let unauthorized = 0
   const feed = new SettingsFeed({ publish: (state) => states.push(state), unauthorized: () => { unauthorized++ },
-    later: (fn, ms) => { assert.ok([1500, 3000, 4000].includes(ms)); const id = ++nextTimer; timers.set(id, { fn, ms }); return id },
+    later: (fn, ms) => { assert.ok([1500, 3000, REQUEST_DEADLINE_MS, FIRST_REQUEST_DEADLINE_MS].includes(ms)); const id = ++nextTimer; timers.set(id, { fn, ms }); return id },
     cancelTimer: (id) => timers.delete(id),
     fetcher: (url, options) => new Promise((resolve) => requests.push({ url, options, resolve })) })
   async function reply(index, body, status = 200) { requests[index].resolve(response(body, status)); await flush() }
-  function expire() {
+  function expire(expectedMs) {
     assert.equal(timers.size, 1)
     const [id, { fn, ms }] = timers.entries().next().value
-    assert.equal(ms, 4000)
+    assert.equal(ms, expectedMs, `unexpected request deadline ${ms}`)
     timers.delete(id)
     fn()
   }
@@ -194,7 +194,7 @@ assert.equal(manual.states.at(-1).data.rows[0].value, "On")
 // An ignored AbortSignal must not leave the page loading or replace a fresh view.
 const timeout = fixture()
 timeout.feed.start()
-timeout.expire()
+timeout.expire(FIRST_REQUEST_DEADLINE_MS) // A cold link gets the long first-request deadline.
 assert.equal(timeout.states.at(-1).status, "unavailable")
 assert.match(timeout.states.at(-1).error, /Reconnecting/)
 assert.equal(timeout.requests[0].options.signal.aborted, true)
@@ -215,7 +215,7 @@ uncertain.feed.confirm()
 uncertain.feed.preview(0, 1) // Do not overlap an in-flight save with a new intent.
 uncertain.feed.load("slc")
 assert.equal(uncertain.requests.length, 3)
-uncertain.expire()
+uncertain.expire(REQUEST_DEADLINE_MS) // The link is warm after the first reply, so saves keep the short deadline.
 assert.match(uncertain.states.at(-1).error, /Checking saved values/)
 assert.equal(uncertain.states.at(-1).data, null)
 assert.equal(uncertain.requests.length, 3) // Neither retry the POST nor silently read and claim failure.
@@ -249,7 +249,7 @@ let finishBody
 bodyTimeout.requests[0].resolve({ ok: true, status: 200,
   json: () => new Promise((resolve) => { finishBody = resolve }) })
 await flush()
-bodyTimeout.expire()
+bodyTimeout.expire(FIRST_REQUEST_DEADLINE_MS) // The deadline is captured when the request is dispatched.
 bodyTimeout.feed.load("lane")
 await bodyTimeout.reply(1, { ...lane, view: "after-body-timeout" })
 finishBody(lane)
@@ -343,7 +343,7 @@ const parkedTimeout = fixture()
 parkedTimeout.feed.start("lane")
 await parkedTimeout.reply(0, { ...lane, parked: false })
 parkedTimeout.firePoll()
-parkedTimeout.expire()
+parkedTimeout.expire(REQUEST_DEADLINE_MS)
 assert.equal(parkedTimeout.states.at(-1).status, "ready")
 assert.equal(parkedTimeout.states.at(-1).data.view, lane.view)
 assert.match(parkedTimeout.states.at(-1).error, /Reconnecting/)
@@ -375,7 +375,7 @@ assert.equal(sentryLive.states.at(-1).pending.intent, "sentry-edit")
 assert.equal(sentryLive.states.at(-1).data.subtitle, "Arming · 81s")
 sentryLive.feed.cancel()
 sentryLive.firePoll()
-sentryLive.expire()
+sentryLive.expire(REQUEST_DEADLINE_MS)
 assert.match(sentryLive.states.at(-1).data.subtitle, /unavailable/)
 assert.equal(sentryLive.states.at(-1).data.rows, sentryPage.rows)
 sentryLive.feed.stop()
