@@ -28,6 +28,5 @@ class CarInterface(CarInterfaceBase):
     if candidate not in (CAR.MAZDA_CX5_2022,):
       ret.minSteerSpeed = LKAS_LIMITS.DISABLE_SPEED * CV.KPH_TO_MS
 
-    ret.centerToFront = ret.wheelbase * 0.41
 
     return ret
