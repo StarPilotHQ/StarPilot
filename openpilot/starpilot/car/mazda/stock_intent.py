@@ -31,6 +31,8 @@ class MazdaStockCardIntent(AolCardIntent):
       return
     if CS.steerFaultPermanent or CS.accFaulted:
       self.startup_main_pending = False
+      self.startup_main_source_ns = 0
+      self.startup_binding = None
       return
     try:
       event_ns = int(sm.logMonoTime['onroadEvents'])
@@ -40,6 +42,8 @@ class MazdaStockCardIntent(AolCardIntent):
       faults = [event for event in events if disarming_fault([event], CS)]
       if events_current and faults and not availability_only(faults):
         self.startup_main_pending = False
+        self.startup_main_source_ns = 0
+        self.startup_binding = None
         return
       axis = sm['aolAxisState']
       native = (_healthy_transport_native(sm, self.cp, CS, str(axis.sessionId), now_ns, native)
@@ -104,6 +108,11 @@ class MazdaStockCardIntent(AolCardIntent):
         self.main_pulse = False
       if not available:
         self.main_neutral = True
+        if self.settings.enabled and not state.steerFaultPermanent and not state.accFaulted:
+          # A fault may consume one-time startup eligibility. A healthy MAIN-off
+          # observation lets the driver deliberately reauthorize with a fresh
+          # MAIN-on edge; recovery alone never reopens independent arming.
+          self.startup_main_pending = True
       elif self.main_seen and self.main_neutral and not self.main_available:
         events.append(structs.CarState.ButtonEvent(type=ButtonType.mainCruise, pressed=True))
         self.main_pulse = True
@@ -122,9 +131,14 @@ class MazdaStockCardIntent(AolCardIntent):
         not (self.cancel_held and any(self.settings.cancel_actions)))
       source_ns = kwargs.get('now_ns', 0)
       if not eligible:
-        self.startup_main_pending = False
+        if available or not self.settings.enabled or state.steerFaultPermanent or state.accFaulted:
+          self.startup_main_pending = False
+          self.startup_main_source_ns = 0
+          self.startup_binding = None
       elif self.startup_native_ready and kwargs.get('fault_active'):
         self.startup_main_pending = False
+        self.startup_main_source_ns = 0
+        self.startup_binding = None
       elif self.startup_native_ready and self.startup_main_source_ns and source_ns > self.startup_main_source_ns:
         # The first valid sample initializes the transport feedback pipeline.
         # Confirm MAIN on a subsequent fresh sample before admitting startup intent.
