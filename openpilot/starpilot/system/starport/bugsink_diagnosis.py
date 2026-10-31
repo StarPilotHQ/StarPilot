@@ -125,6 +125,11 @@ def diagnosis(session):
     explanation = "Authentication did not complete. A timeout alone does not prove a bad certificate."
     actions = ["Check whether TLS completed and whether the head unit replied to authentication.",
                "Retry with the head unit fully awake; compare with any successful attempt in this session."]
+  elif stage in ("wifi_start", "wifi_info"):
+    category, confidence = "head_unit_bootstrap_stalled", "observed"
+    explanation = "Bluetooth connected and the version exchange ran, but the head unit stopped answering the Wi-Fi setup."
+    actions = ["Read the attached handshake trace for the last messages the head unit sent and the ones it ignored.",
+               "Compare the head unit make, model and protocol version with other reports before changing timings."]
   elif stage in ("connecting_bluetooth", "rfcomm", "bootstrap"):
     category, confidence = "head_unit_unavailable", "suspected"
     explanation = "The Bluetooth/bootstrap exchange did not complete; the head unit may still be waking or already off."

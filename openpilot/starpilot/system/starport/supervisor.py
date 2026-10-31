@@ -353,6 +353,7 @@ class Supervisor:
     self._pairing_seen: tuple = ()
     self._car_seen_at = -CAR_LINK_HOLD
     self._hfp_link = threading.Event()  # set when the chosen car opens the hands-free link
+    self._modern_reply: dict[str, bool] = {}  # car address -> answer its v4+ version request like a current phone
     self.auto = AutoConnectPolicy()
     self._companion_retry_at = 0.0
     self.log = EventLog()
@@ -1234,16 +1235,22 @@ class Supervisor:
       channel, source = self._discover_channel(address), "sdp"
     self.log("rfcomm_channel", channel=channel, source=source)
 
+    boot = None
     try:
       self._stage("rfcomm", f"channel {channel}")
       rfcomm = self._track(bt_sockets.connect_rfcomm(address, channel))
       boot = WirelessBootstrap(rfcomm, self._bootstrap_log, device_serial=config["device_name"],
-                               version_status=int(config.get("version_status", 0)))
+                               version_status=int(config.get("version_status", 0)),
+                               experiment="all" if car_profiles.tuning(config)["bootstrap_experiments"] else "",
+                               modern_reply=self._modern_reply.get(address, False))
       self._set(state="wifi_start")
       result = boot.run(lambda credentials: lease.acquire(credentials, cancelled=boot.join_is_cancelled), cancelled=self._stop.is_set)
     except Exception as error:
       if _stray_link(error):
         raise StrayLinkError(f"Bluetooth link to the car is stuck: {error}") from error  # says nothing about the cached channel
+      if boot is not None and boot.silent_after_modern_version(error):
+        self._modern_reply[address] = not self._modern_reply.get(address, False)  # try the other version reply next
+        self.log("bootstrap_reply_switched", modern=self._modern_reply[address])
       if source == "cache" and not self._stop.is_set() and self._status["last_stage"] in ("rfcomm", "wifi_start") and car_never_answered(error):
         self._remember_channel(address, None)  # the car never answered there; ask it over SDP next time
         self.log("rfcomm_cache_dropped", channel=channel)

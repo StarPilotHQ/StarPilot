@@ -44,7 +44,7 @@ export function uploadPackage(path, options, progress, makeRequest = () => new X
 }
 
 const ADDRESS = /^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$/
-const ADAPTER_MODELS = { aawireless: "AAWireless", default: "Other" }
+const ADAPTER_MODELS = { aawireless: "AAWireless", default: "Motorola MA1", unofficial: "Unofficial dongle" }
 const HEAD_UNIT_APPS = { headunitpad: "HeadunitPad", openheadunit: "Open Headunit" }
 const HOTSPOT_LINK = `<a class="gx-link" href="#/galaxy">Galaxy Wi-Fi Hotspot</a>`
 const WIRED_STATUS = `<div v-if="wired" class="gx-note">
@@ -564,9 +564,9 @@ export const StarPortPage = {
     },
     adapterRow() {
       const chosen = this.runtime?.car_profile_source === "override"
-      return { label: "Adapter", value: !chosen ? "Choose one" : this.runtime.car_profile === "aawireless" ? ADAPTER_MODELS.aawireless : ADAPTER_MODELS.default,
+      return { label: "Adapter", value: !chosen ? "Choose one" : ADAPTER_MODELS[this.runtime.car_profile] || ADAPTER_MODELS.default,
         choices: [...(!chosen ? ["Choose one"] : []), ...Object.values(ADAPTER_MODELS)], available: true, action: true,
-        reason: "AAWireless gets video and car-data settings tuned for that dongle. Other adapters use the regular pairing." }
+        reason: "AAWireless gets video and car-data settings tuned for that dongle. Motorola MA1 uses the regular pairing. Pick Unofficial dongle for other wireless dongles that will not connect; it tries alternate handshakes and logs more." }
     },
     appDisabled() {
       return !this.setup?.enabled || !this.setup.parked || !!this.pairing?.active || this.linked

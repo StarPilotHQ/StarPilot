@@ -39,7 +39,8 @@ def config(**values):
 def test_aawireless_tuning_applies_only_when_chosen():
   chosen = config(car_profile_override="aawireless", receiver_name="AAWireless-4F2A")
   assert car_profiles.resolve(chosen) == ("aawireless", "override")
-  assert car_profiles.tuning(chosen) == {"connect_delay_s": 0.0, "max_window": 30, "phone_services": True, "phone_frames": True}
+  assert car_profiles.tuning(chosen) == {"connect_delay_s": 0.0, "max_window": 30, "phone_services": True, "phone_frames": True,
+                                          "bootstrap_experiments": False}
   assert car_profiles.summary(chosen)["car_profile_label"] == "AAWireless"
   for other in (config(receiver_name="AAWireless-4F2A"), config(car_profile_override="default")):
     assert car_profiles.tuning(other) == car_profiles.DEFAULTS
@@ -221,3 +222,10 @@ def test_a_new_adapter_setup_is_not_migrated(tmp_path):
   path = tmp_path / "config.json"
   path.write_text(json.dumps({"config_version": identity_store.CONFIG_VERSION, "car_type": "adapter"}))
   assert identity_store.load_config(path)["car_profile_override"] == ""
+
+
+def test_unofficial_dongle_turns_on_the_handshake_experiments_only_when_chosen():
+  assert car_profiles.valid_override("unofficial")
+  assert car_profiles.tuning(config(car_profile_override="unofficial"))["bootstrap_experiments"] is True
+  for other in (config(), config(car_profile_override="default"), config(car_profile_override="aawireless")):
+    assert car_profiles.tuning(other)["bootstrap_experiments"] is False

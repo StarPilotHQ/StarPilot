@@ -524,15 +524,16 @@ assert.equal(dongle.adapterRow.value, 'Choose one', 'no default: the owner picks
 assert.equal(settingControl(dongle.adapterRow), 'select', 'the initial adapter prompt must open a picker')
 assert.match(dongle.pairingReason, /adapter model/)
 dongle.runtime = { car_type: 'adapter', car_profile: 'default', car_profile_source: 'override' }
-assert.equal(dongle.adapterRow.value, 'Other')
-assert.deepEqual(dongle.adapterRow.choices, ['AAWireless', 'Other'])
+assert.equal(dongle.adapterRow.value, 'Motorola MA1')
+assert.deepEqual(dongle.adapterRow.choices, ['AAWireless', 'Motorola MA1', 'Unofficial dongle'])
 dongle.runtime = { car_type: 'adapter', car_profile: 'aawireless', car_profile_source: 'override' }
 assert.equal(dongle.adapterRow.value, 'AAWireless')
 const dongleCalls = []
 dongle.control = (action, extra) => dongleCalls.push([action, extra])
-dongle.saveAdapter(0, 'Other')
+dongle.saveAdapter(0, 'Motorola MA1')
 dongle.saveAdapter(0, 'AAWireless')
-assert.deepEqual(dongleCalls, [['car_profile', { profile: 'default' }], ['car_profile', { profile: 'aawireless' }]])
+dongle.saveAdapter(0, 'Unofficial dongle')
+assert.deepEqual(dongleCalls, [['car_profile', { profile: 'default' }], ['car_profile', { profile: 'aawireless' }], ['car_profile', { profile: 'unofficial' }]])
 assert.match(StarPortPage.template, /adapterSetup" :row="adapterRow"/)
 assert.match(StarPortPage.template, /What’s in your car\?|carTypeRow/)
 assert.match(StarPortPage.template, /runtime\?\.pairing_note/)
