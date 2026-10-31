@@ -25,6 +25,7 @@ class CarController(CarControllerBase):
     self.acc_filter = FirstOrderFilter(0.0, .1, DT_CTRL, initialized=False)
     self.filtered_acc_last = 0
     self.long_active_last = False
+    self.acc_synthesized_last = False
     self.params = Params()
     # CEM state is injected by controlsd each frame (see controlsd.py apply path).
     self.experimental_mode = False
@@ -111,48 +112,67 @@ class CarController(CarControllerBase):
           can_sends.extend(mazdacan.create_radar_command(self.packer, self.frame, CC.longActive, CS, hold))
 
     elif self.CP.flags & MazdaSafetyFlags.GEN2:
-      if self.CP.openpilotLongitudinalControl:
+      # Openpilot modifies 0x220 only while it commands longitudinal, the driver
+      # is off the gas and stock ACC is enabled (ACCEL_CMD idles at 4000 when it
+      # is not). Everything else relays the stock frame exactly (safety plan 5.3;
+      # enforced independently in safety/modes/mazda.h).
+      synthesize_long = (mazdacan.synthesizes_longitudinal(self.CP, CC) and not CS.out.gasPressed and
+                         bool(CS.acc["ACC_ENABLED"]))
+      if synthesize_long:
         stock_acc = CS.acc["ACCEL_CMD"]
-        op_acc = (CC.actuators.accel * 200) + 2000
+        op_acc = (CC.actuators.accel * self.ccp.ACC_ACCEL_SCALE) + self.ccp.ACC_ACCEL_NEUTRAL
 
         if self.params.get_bool("BlendedACC"):
-          if CC.longActive:
-            if not self.long_active_last:
-              self.acc_filter.initialized = False
-            target_acc = op_acc if bool(self.experimental_mode) else stock_acc
-            acc_output = self.acc_filter.update(target_acc)
-          else:
-            acc_output = stock_acc
+          if not self.acc_synthesized_last:
+            self.acc_filter.initialized = False
+          target_acc = op_acc if bool(self.experimental_mode) else stock_acc
+          acc_output = self.acc_filter.update(target_acc)
         else:
-          acc_output = op_acc if CC.longActive else stock_acc
+          acc_output = op_acc
 
-        CS.acc["ACCEL_CMD"] = acc_output
+        CS.acc["ACCEL_CMD"] = int(round(min(max(acc_output, self.ccp.ACC_ACCEL_MIN), self.ccp.ACC_ACCEL_MAX)))
+      self.acc_synthesized_last = synthesize_long
 
       resume = False
       hold = False
+      if not synthesize_long:
+        # Reset on every frame, not only on the 50 Hz send frames: a one-frame
+        # disengagement must not let a RESUME pulse survive into the next send.
+        self.hold_timer_frame = self.frame
+        self.hold_delay_frame = self.frame
+        self.resume_timer_frame = self.frame - 1000
       if self.frame % 2 == 0: # send ACC command at 50hz
-        """
-        Without this hold/resum logic, the car will only stop momentarily.
-        It will then start creeping forward again. This logic allows the car to
-        apply the electric brake to hold the car. The hold delay also fixes a
-        bug with the stock ACC where it sometimes will apply the brakes too early
-        when coming to a stop.
-        """
-        if CS.out.standstill: # if we're stopped
-          if not ((self.frame - self.hold_delay_frame) < 50): # and we have been stopped for more than hold_delay duration. This prevents a hard brake if we aren't fully stopped.
-            if ((CC.cruiseControl.resume and CC.actuators.longControlState != LongCtrlState.stopping) or
-                CC.cruiseControl.override or CS.out.gasPressed or
-                (CC.actuators.longControlState == LongCtrlState.starting) or CS.acc["RESUME"]): # if we are resuming or overriding, we want to release the brake
-              self.resume_timer_frame = self.frame # reset the resume timer so its active
-            else: # otherwise we're holding
-              hold = (self.frame - self.hold_timer_frame) < 600 # hold for 6s. This allows the electric brake to hold the car.
+        if synthesize_long:
+          """
+          Without this hold/resum logic, the car will only stop momentarily.
+          It will then start creeping forward again. This logic allows the car to
+          apply the electric brake to hold the car. The hold delay also fixes a
+          bug with the stock ACC where it sometimes will apply the brakes too early
+          when coming to a stop.
+          """
+          if CS.out.standstill: # if we're stopped
+            if not ((self.frame - self.hold_delay_frame) < 50): # and we have been stopped for more than hold_delay duration. This prevents a hard brake if we aren't fully stopped.
+              if ((CC.cruiseControl.resume and CC.actuators.longControlState != LongCtrlState.stopping) or
+                  CC.cruiseControl.override or
+                  (CC.actuators.longControlState == LongCtrlState.starting) or CS.acc["RESUME"]): # if we are resuming or overriding, we want to release the brake
+                self.resume_timer_frame = self.frame # reset the resume timer so its active
+              else: # otherwise we're holding
+                hold = (self.frame - self.hold_timer_frame) < 600 # hold for 6s. This allows the electric brake to hold the car.
 
-        else: # if we're moving
-          self.hold_timer_frame = self.frame # reset the hold timer so its active when we stop
-          self.hold_delay_frame = self.frame # reset the hold delay
+          else: # if we're moving
+            self.hold_timer_frame = self.frame # reset the hold timer so its active when we stop
+            self.hold_delay_frame = self.frame # reset the hold delay
+            self.resume_timer_frame = self.frame - 1000 # moving: the resume pulse has done its job
 
-        resume = (self.frame - self.resume_timer_frame) < 50 # stay on for 0.5s to release the brake. This allows the car to move.
-        can_sends.append(mazdacan.create_acc_cmd(self.packer, CS.acc, hold, resume))
+          resume = (self.frame - self.resume_timer_frame) < 50 # stay on for 0.5s to release the brake. This allows the car to move.
+          # The panda only permits HOLD/RESUME at its own standstill (raw SPEED <= 10).
+          hold = hold and CS.acc_standstill
+          resume = resume and CS.acc_standstill
+          can_sends.append(mazdacan.create_acc_cmd(self.packer, CS.acc, hold, resume))
+        else:
+          # Stock relay, or openpilot longitudinal is inactive: never synthesize
+          # HOLD/RESUME. The timers were already reset above.
+          can_sends.append(mazdacan.create_acc_passthrough(self.packer, CS.acc))
 
 
     # send steering command

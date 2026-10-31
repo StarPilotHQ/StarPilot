@@ -36,6 +36,14 @@ class CarControllerParams:
       self.STEER_DRIVER_MULTIPLIER = 5      # weight driver torque
       self.STEER_DRIVER_FACTOR = 1           # from dbc
       self.STEER_ERROR_MAX = 3500            # max delta between torque cmd and torque motor
+    if CP.flags & MazdaSafetyFlags.GEN2:
+      # 0x220 ACCEL_CMD = 2000 + 200 * accel, confirmed against measured
+      # acceleration on the target car. The bounds encode ACCEL_MIN/ACCEL_MAX
+      # and mirror MAZDA_ACC_ACCEL_MIN/MAX in safety/modes/mazda.h.
+      self.ACC_ACCEL_NEUTRAL = 2000
+      self.ACC_ACCEL_SCALE = 200
+      self.ACC_ACCEL_MIN = 1300
+      self.ACC_ACCEL_MAX = 2400
 
 class TI_STATE:
   DISCOVER = 0

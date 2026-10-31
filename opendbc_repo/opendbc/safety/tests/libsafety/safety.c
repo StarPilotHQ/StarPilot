@@ -101,6 +101,27 @@ uint32_t get_heartbeat_engaged_mismatches(void) {
   return heartbeat_engaged_mismatches;
 }
 
+// Test-only AOL policy, so lateral-only isolation can be exercised without a
+// production profile existing. safety_init() clears aol_policy between tests.
+static uint8_t aol_test_permission = 0U;
+static uint8_t aol_test_permission_mask(void) {
+  return aol_test_permission;
+}
+static const AolSafetyPolicy aol_test_policy = {
+  .reset = NULL,
+  .host_request = NULL,
+  .request_mask = NULL,
+  .permission_mask = aol_test_permission_mask,
+  .rx_invalid = NULL,
+};
+void set_aol_test_permission_mask(uint8_t mask) {
+  aol_test_permission = mask;
+  aol_policy = &aol_test_policy;
+}
+void clear_aol_test_policy(void) {
+  aol_policy = NULL;
+}
+
 void set_aol_test_heartbeat(bool engaged) {
   heartbeat_engaged = engaged;
 }
