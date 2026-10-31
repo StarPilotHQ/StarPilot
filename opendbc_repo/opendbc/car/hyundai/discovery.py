@@ -22,10 +22,15 @@ HDA2_NORMAL_BUS_LAYOUT = {(2, 0x50): 16, (2, 0x2A4): 24, (1, 0x35): 32, (1, 0xEA
                          (1, 0xA0): 24, (1, 0x1A0): 32, (1, 0x1CF): 8, (1, 0x130): 16}
 
 
+QUIET_CAMERA_NORMAL_BUS_LAYOUT = {(0, 0xEA): 24, (0, 0xA0): 24, (0, 0x1A0): 32, (0, 0x60): 32,
+                                  (0, 0x35): 32, (0, 0x1CF): 8, (0, 0x130): 16,
+                                  **{(1, address): 32 for address in range(0x210, 0x220)}}
+
+
 def _canfd_variant_layouts():
   layouts = []
   originals = (NORMAL_BUS_LAYOUT, HDA1_NORMAL_BUS_LAYOUT, HDA2_NORMAL_BUS_LAYOUT)
-  for base in originals:
+  for base in (*originals, QUIET_CAMERA_NORMAL_BUS_LAYOUT):
     bus = next(bus for bus, address in base if address == 0xEA)
     gears = ((0x130, 16), (0x40, 32), (0x70, 32)) if (bus, 0x130) in base else ((None, 0),)
     for accelerator, (buttons, length), (gear, gear_length) in product(
