@@ -1248,7 +1248,9 @@ class LiveTrackingOptimizer:
     if (
       state['phase'] == 'trial'
       and self.before
-      and reason in ('independent_future_tracking_not_improved', 'matched_tracking_not_consistently_improved', 'trial_tracking_or_oscillation_worse')
+      and reason in (
+        'independent_future_tracking_not_improved', 'matched_tracking_not_consistently_improved',
+        'trial_tracking_or_oscillation_worse', 'trial_oscillation_batch_worse')
     ):
       for name in state['names']:
         direction = 1 if state['target'][name] > state['baseline'][name] else -1
