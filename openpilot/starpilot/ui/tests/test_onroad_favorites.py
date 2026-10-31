@@ -355,6 +355,7 @@ class TestOnroadFavorites(unittest.TestCase):
     self.enterContext(patch.object(session, 'adapter', NS(build=Mock(return_value=NS(onroad=state))), create=True))
     session.snapshot = Mock(return_value=NS(onroad=state))
     session._favorite_authority = Mock(return_value=True)
+    session._bookmark_authority = Mock(return_value=True)
     session._conditional_favorite_active = Mock(return_value=False)
     self.enterContext(patch.object(session, 'conditional_actions', NS(context=Mock(return_value=None)), create=True))
     bookmark, personality, experimental = Mock(return_value=True), Mock(return_value=True), Mock(return_value=True)
@@ -374,6 +375,7 @@ class TestOnroadFavorites(unittest.TestCase):
       assert not current[EXPERIMENTAL].available
       assert 'conditional status' in current[EXPERIMENTAL].reason
       session._favorite_authority.return_value = False
+      session._bookmark_authority.return_value = False
       assert not actions[BOOKMARK].invoke()
       assert not actions[CYCLE_PERSONALITY].invoke()
       assert bookmark.call_count == personality.call_count == experimental.call_count == 1
@@ -492,6 +494,7 @@ class TestOnroadFavorites(unittest.TestCase):
     self.enterContext(patch.object(session, 'adapter', NS(build=Mock(return_value=NS(onroad=state))), create=True))
     session.snapshot = Mock(return_value=NS(onroad=state))
     session._favorite_authority = Mock(return_value=True)
+    session._bookmark_authority = Mock(return_value=True)
     session._conditional_favorite_active = Mock(return_value=True)
     context = NS(token='drive-settings-planner-effective-manual')
     self.enterContext(patch.object(session, 'conditional_actions', NS(context=Mock(return_value=context), dispatch=Mock(return_value=True)), create=True))
