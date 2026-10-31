@@ -33,7 +33,8 @@ def native_session(tmp_path, monkeypatch):
   for key in ('selfdriveState', 'slcState'):
     sm.logMonoTime[key], sm.recv_time[key] = NOW, NOW / 1e9
     sm.seen[key] = sm.alive[key] = sm.valid[key] = True
-  ui = NS(CP=cp, sm=sm, params=params, has_longitudinal_control=True, personality=0, started_frame=1)
+  ui = NS(CP=cp, sm=sm, params=params, has_longitudinal_control=True, personality=0, started_frame=1, started=True)
+  sm.recv_frame = dict.fromkeys(sm, 2)
   monkeypatch.setattr(runtime_app, 'ui_state', ui)
   monkeypatch.setattr(runtime_app.time, 'monotonic_ns', lambda: NOW)
   monkeypatch.setattr(module, 'device', NS(awake=True, toggle_screen_off=lambda: True))
@@ -306,8 +307,8 @@ def test_rapid_personality_cycles_accept_own_notice_and_reject_safety_alert(pers
   actions = session._native_favorite_actions()
   assert actions[CYCLE_PERSONALITY].available and actions[CYCLE_PERSONALITY].invoke()
   assert ui.params.get('LongitudinalPersonality') == 2
-  assert not actions[BOOKMARK].available and not actions[EXPERIMENTAL].available
-  assert not actions[BOOKMARK].invoke() and not actions[EXPERIMENTAL].invoke()
+  assert actions[BOOKMARK].available and not actions[EXPERIMENTAL].available
+  assert actions[BOOKMARK].invoke() and not actions[EXPERIMENTAL].invoke()
 
   queue = []
   monkeypatch.setattr(runtime.messaging, 'recv_one_or_none', lambda _: queue.pop(0) if queue else None)

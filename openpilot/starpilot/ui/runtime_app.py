@@ -324,6 +324,13 @@ class StarShellSession:
     alert_allowed = state.alert.size == AlertSize.NONE or allow_personality_notice and is_personality_notice(state.alert)
     return bool(self._mode == ShellMode.ONROAD and state.camera_available and alert_allowed and camera_allowed)
 
+  def _bookmark_authority(self) -> bool:
+    if (getattr(ui_state, "replay_clock", None) is not None or
+        self._mode != ShellMode.ONROAD or not ui_state.started):
+      return False
+    car_state = display_message(ui_state.sm, 'carState', time.monotonic_ns(), after_frame=ui_state.started_frame)
+    return bool(car_state is not None and car_state.canValid and not car_state.canTimeout)
+
   def _render_driver_monitor(self, rect, state):
     from openpilot.starpilot.ui.runtime_snapshot import display_message
     now = state.observed_ns or time.monotonic_ns()
@@ -357,6 +364,7 @@ class StarShellSession:
   def native_favorite_actions(self, bookmark, personality, experimental):
     state = self.snapshot(ShellMode.ONROAD).onroad
     available = self._favorite_authority()
+    bookmark_available = self._bookmark_authority()
     conditional = self._conditional_favorite_active()
     long_available = bool(available and ui_state.CP is not None and ui_state.has_longitudinal_control and
                           not ui_state.params.get_bool("SafeMode"))
@@ -399,8 +407,9 @@ class StarShellSession:
                                  ui_state.has_longitudinal_control and not ui_state.params.get_bool("SafeMode"))
     self._wheel_personality = lambda: cycle_personality(-1)
     actions = {
-      BOOKMARK: FavoriteAction(BOOKMARK, "Bookmark", available=available, reason="" if available else "Onroad only",
-                               token=repr((drive, available)), invoke=lambda: guarded(bookmark)),
+      BOOKMARK: FavoriteAction(BOOKMARK, "Bookmark", available=bookmark_available, reason="" if bookmark_available else "Fresh onroad state required",
+                               token=repr((drive, bookmark_available)),
+                               invoke=lambda: self._bookmark_authority() and bookmark()),
       CYCLE_PERSONALITY: FavoriteAction(CYCLE_PERSONALITY, "Cycle Driving Personality", kind="enum",
                                       state_label=("Aggressive", "Standard", "Relaxed")[current_personality],
                                       available=personality_available, reason="" if personality_available else "Longitudinal control required",
@@ -547,7 +556,11 @@ class StarShellSession:
         self._wheel_pending.append(event)
         continue
       command = self._wheel_consumer.accept(event, ui_state.params, ui_state.CP, ui_state.sm, now_ns=now_ns)
-      if command is None or command.action == 0 or not self._favorite_authority(allow_personality_notice=command.action == 1):
+      if command is None or command.action == 0:
+        continue
+      authorized = (self._bookmark_authority() if command.action == 8 else
+                    self._favorite_authority(allow_personality_notice=command.action == 1))
+      if not authorized:
         continue
       actions = self._native_favorite_actions()
       try:
