@@ -12,7 +12,9 @@ class ClassicSccCardIntent(ForteCardIntent):
     self.lkas_button_supported = self.has_lkas
 
   def update(self, CS, **kwargs):
-    if self.main_action == AOL_TOGGLE or self.lkas_action == AOL_TOGGLE:
+    default_lkas = (self.has_lkas and self.settings.default_physical_buttons and
+                    self.main_action == 0 and self.lkas_action == 0)
+    if default_lkas or self.main_action == AOL_TOGGLE or self.lkas_action == AOL_TOGGLE:
       # Stock SCC uses the configured physical toggles. Forte's MAIN-derived
       # availability latch belongs to its NON_SCC owner.
       AolCardIntent.update(self, CS, **kwargs)

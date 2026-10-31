@@ -27,14 +27,22 @@ class AolSettings:
   cancel_actions: tuple[int, int, int]
   mode_actions: tuple[int, int, int] = (0, 0, 0)
   custom_actions: tuple[int, int, int] = (0, 0, 0)
+  default_physical_buttons: bool = True
+
+
+def _button_value(params, key: str) -> int | None:
+  try:
+    return int(params.get(key, return_default=True) or '0')
+  except (TypeError, ValueError):
+    return None
+
+
+def _axis_action(value: int | None) -> int:
+  return value if value in (0, PAUSE_LATERAL, PAUSE_LONGITUDINAL, AOL_TOGGLE) else 0
 
 
 def _button_action(params, key: str) -> int:
-  try:
-    value = int(params.get(key, return_default=True) or '0')
-  except (TypeError, ValueError):
-    return 0
-  return value if value in (0, PAUSE_LATERAL, PAUSE_LONGITUDINAL, AOL_TOGGLE) else 0
+  return _axis_action(_button_value(params, key))
 
 
 def read_settings(params) -> AolSettings:
@@ -50,10 +58,12 @@ def read_settings(params) -> AolSettings:
       pause_mps = float('nan')
     break
   valid_pause = 0.0 <= pause_mps <= 100.0
+  lkas = _button_value(params, 'LKASButtonControl')
+  main = _button_value(params, 'MainCruiseButtonControl')
   return AolSettings(
     enabled=params.get_bool('AlwaysOnLateral') and valid_pause, pause_brake_mps=pause_mps if valid_pause else 0.0,
-    lkas_action=_button_action(params, 'LKASButtonControl'),
-    main_action=_button_action(params, 'MainCruiseButtonControl'),
+    lkas_action=_axis_action(lkas), main_action=_axis_action(main),
+    default_physical_buttons=lkas == 0 and main == 0,
     distance_actions=(_button_action(params, 'DistanceButtonControl'),
                       _button_action(params, 'LongDistanceButtonControl'),
                       _button_action(params, 'VeryLongDistanceButtonControl')),
