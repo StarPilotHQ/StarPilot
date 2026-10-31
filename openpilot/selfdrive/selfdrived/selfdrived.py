@@ -57,7 +57,7 @@ from openpilot.starpilot.conditional_mode.projection import paired_clocks_ns
 from openpilot.starpilot.conditional_mode.runtime_settings import (ConditionalSettingsOwner, experimental_requested, read_mode_sources)
 from openpilot.starpilot.conditional_mode.status import settings_fingerprint
 from openpilot.starpilot.feature_runtime import enabled as feature_enabled
-from openpilot.starpilot.nostalgia import aol_no_entry, paddle_cancel, physical_cancel, saved_enabled as nostalgia_saved_enabled
+from openpilot.starpilot.nostalgia import LONGITUDINAL_ONLY_EVENTS, aol_no_entry, paddle_cancel, physical_cancel, saved_enabled as nostalgia_saved_enabled
 from openpilot.starpilot.lateral.low_speed_advisory import LowSpeedAdvisory, advisory_eligible
 from openpilot.starpilot.lateral.lane_change_status_wire import alert_wording, decode as decode_lane_status, fresh_for_model
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager, set_offroad_alert
@@ -265,7 +265,7 @@ class SelfdriveD:
       if not_running != self.not_running_prev:
         cloudlog.event("process_not_running", not_running=not_running, error=True)
       self.not_running_prev = not_running
-      self.events.add(EventName.processNotRunning)
+      self.events.add(EventName.radarFault if set(not_running) == {"radard"} else EventName.processNotRunning)
       return True
     return False
 
@@ -506,7 +506,7 @@ class SelfdriveD:
       self.events.add(EventName.selfdrivedLagging)
     if self.CP.openpilotLongitudinalControl:
       if self.sm['radarState'].radarErrors.canError:
-        self.events.add(EventName.canError)
+        self.events.add(EventName.radarFault)
       elif self.sm['radarState'].radarErrors.radarUnavailableTemporary:
         self.events.add(EventName.radarTempUnavailable)
       elif any(self.sm['radarState'].radarErrors.to_dict().values()):
@@ -621,8 +621,11 @@ class SelfdriveD:
     no_system_errors = (not has_disable_events) or (hardware_events_added == 0 and len(self.events) == num_can_events)
     warmup_sec = 5.
     big_model_settling = self.big_model_loading or time.monotonic() < self.big_model_ready_t + warmup_sec
-    if not self.sm.all_checks() and no_system_errors and not big_model_settling:  # the load holds modelV2 and friends back on purpose
-      if not self.sm.all_alive():
+    if (not self.sm.all_checks() and not big_model_settling and
+        (no_system_errors or any(event in LONGITUDINAL_ONLY_EVENTS for event in self.events.names))):  # the load holds modelV2 and friends back on purpose
+      if self.sm.all_checks([service for service in self.sm.services if service != 'radarState']):
+        self.events.add(EventName.radarFault)
+      elif not self.sm.all_alive():
         self.events.add(EventName.commIssue)
       elif not self.sm.all_freq_ok():
         self.events.add(EventName.commIssueAvgFreq)
@@ -1707,6 +1710,7 @@ class SelfdriveD:
       lateral_events = [event for event in lateral_events if event not in (EventName.wrongGear, EventName.reverseGear)]
     return decide_axes(
       standard_lateral=self.active, standard_longitudinal=bool(self.enabled and self.CP.openpilotLongitudinalControl and
+        not any(event in LONGITUDINAL_ONLY_EVENTS for event in self.events.names) and
         not any(sample.seatbeltUnlatched or sample.doorOpen for sample, _ in getattr(self, 'car_state_samples', ()))),
       intent=intent, native=native, car_state=CS, initialized=self.initialized,
       model_ready=bool(self.sm.all_checks(['modelV2', 'extrinsicsCalibration']) and
@@ -1989,7 +1993,7 @@ class SelfdriveD:
         expired_healthy_source=getattr(self, 'aol_expired_healthy_source', False),
         previously_active=previous.lateral_active, hard_fault=bool(
           self.aol_selected_pair_future or self.aol_authority_lost or lost_active_aol or lost_permission or self.events.contains(ET.IMMEDIATE_DISABLE) or
-          self.events.contains(ET.SOFT_DISABLE)),
+          any(event.softDisable and event.name not in LONGITUDINAL_ONLY_EVENTS for event in self.events.to_msg())),
         model_ready=bool(self.sm.all_checks(['modelV2', 'extrinsicsCalibration']) and
           self.sm['extrinsicsCalibration'].calStatus == log.ExtrinsicsCalibration.Status.calibrated),
         user_disable=self.events.contains(ET.USER_DISABLE))
@@ -2057,7 +2061,7 @@ class SelfdriveD:
       from openpilot.starpilot.aol.seatbelt import seatbelt_lateral_soft_event_allowed
       reverse_pause = known_reverse_pause(CS, getattr(self, 'car_state_samples', ()))
       aol_hard_soft_fault = any(event.softDisable and not (
-        event.name == EventName.doorOpen or
+        event.name == EventName.doorOpen or event.name in LONGITUDINAL_ONLY_EVENTS or
         event.name == EventName.wrongGear and reverse_pause or
         event.name == EventName.steerTempUnavailable and CS.steerFaultTemporary and not CS.steerFaultPermanent or
         seatbelt_lateral_soft_event_allowed(self.CP, CS, intent, native, event,
@@ -2075,7 +2079,8 @@ class SelfdriveD:
         self.events.add(EventName.controlsMismatch)
         lost_active_aol |= pause
     was_enabled = self.enabled
-    if self.aol_replay and source_current and CS.doorOpen and was_enabled:
+    if self.aol_replay and source_current and was_enabled and (
+        CS.doorOpen or any(event in LONGITUDINAL_ONLY_EVENTS for event in self.events.names)):
       # Ordinary cruise is withdrawn; its legacy permission is no longer expected.
       self.aol_availability_long_inhibit = True
     if not self.CP.passive and self.initialized:
@@ -2146,9 +2151,10 @@ class SelfdriveD:
         previous.lateral_active and previous.native_acknowledged and not self.aol_axis_decision.lateral_active and
         self.aol_fault_reason in ('critical', 'availabilityPause') and not self.aol_authority_lost and
         intent is not None and intent.allowedLatch and
-        any(event.softDisable and event.name != EventName.doorOpen for event in self.events.to_msg()) and
+        any(event.softDisable and event.name not in (EventName.doorOpen, *LONGITUDINAL_ONLY_EVENTS)
+            for event in self.events.to_msg()) and
         not self.events.contains(ET.IMMEDIATE_DISABLE)):
-      # Door-open does not inhibit independent steering; ordinary LONG keeps its alert.
+      # Lateral-only operation keeps ordinary longitudinal faults visible.
       self.aol_soft_takeover_alert = True
     if (self.aol_replay and intent is not None and intent.lateralArmed and
         CS.steerFaultTemporary and not CS.steerFaultPermanent and not CS.steeringPressed):
