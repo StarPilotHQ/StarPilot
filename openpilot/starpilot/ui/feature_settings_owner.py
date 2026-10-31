@@ -439,7 +439,7 @@ class FeatureSettingsOwner:
     if not request.confirmation or request.value not in ("Off", "On") or request.dependencies:
       return False
     def authorized():
-      return (self.authority("parked_preferences") and self.authority("vehicle") and
+      return (self.authority("parked_preferences") and
               request.capability is not None and request.capability == self._toyota_sng_capability() and
               request.vehicle_fingerprint == self.vehicle_fingerprint() and request.expected in (None, b"0", b"1"))
     return commit_exact(self.params, key="SNGHack", max_bytes=8, expected=request.expected,
@@ -867,7 +867,7 @@ class FeatureSettingsOwner:
       sng_capability = self._toyota_sng_capability()
       if sng_capability is not None:
         row = self._bool_row("SNGHack", "Stop-and-Go Hack",
-                             configurable and parked and self.authority("vehicle") and self.authority("parked_preferences"),
+                             configurable and parked and self.authority("parked_preferences"),
                              "Automatic resume for Toyota/Lexus vehicles without factory stop-and-go. Applies after the next startup.")
         rows.append(replace(row, available=row.available and self._readable("SNGHack"), capability=sng_capability))
       radar_capability = self._toyota_radar_capability()

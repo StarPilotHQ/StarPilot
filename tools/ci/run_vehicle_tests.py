@@ -148,6 +148,8 @@ AOL_LIFECYCLE_TARGETS = (
   "openpilot/starpilot/car/toyota/tests/test_camera_2aa_native.py",
   "openpilot/starpilot/car/toyota/tests/test_prius_sdsu_filter.py",
   "openpilot/starpilot/car/toyota/tests/test_prius_sdsu_callers.py",
+  "openpilot/starpilot/galaxy/tests/test_prius_sng_settings.py",
+  "openpilot/starpilot/car/toyota/tests/test_sng_resume.py",
   "openpilot/starpilot/car/toyota/tests/test_sng.py",
   "openpilot/starpilot/car/toyota/tests/test_sng_callers.py",
   "openpilot/starpilot/car/toyota/tests/test_brake_stop_cancel.py",

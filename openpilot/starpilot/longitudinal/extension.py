@@ -43,7 +43,9 @@ class LongitudinalExtension:
     self.vehicle_target = getattr(self.vehicle_policy, "target", None)
     self.kp = self.vehicle_policy.kp if self.vehicle_policy is not None else 0.0
     self.ki = getattr(self.vehicle_policy, "ki", None)
-    self.ignore_cruise_standstill = bool(getattr(self.vehicle_policy, "ignore_cruise_standstill", False))
+    from opendbc.car.toyota.sng import eligible as toyota_sng_eligible
+    self.ignore_cruise_standstill = bool(getattr(self.vehicle_policy, "ignore_cruise_standstill", False) or
+      getattr(startup_preferences, "toyota_sng", False) and toyota_sng_eligible(CP))
 
   def qualify_resume(self, default, *, preferences, inputs):
     if self.resume_policy is None or not preferences.volt_sng:
@@ -157,6 +159,7 @@ class LongitudinalExtension:
 def create_extension(cp, startup_preferences=None):
   extension = LongitudinalExtension(cp, startup_preferences)
   if (extension.vehicle_policy is None and extension.toyota_output is None and extension.ioniq6_start is None and
-      extension.bolt_mode is None and extension.stopping_policy is None and extension.stopping_decel_rate == 1.0):
+      extension.bolt_mode is None and extension.stopping_policy is None and extension.stopping_decel_rate == 1.0 and
+      not extension.ignore_cruise_standstill):
     return None
   return extension

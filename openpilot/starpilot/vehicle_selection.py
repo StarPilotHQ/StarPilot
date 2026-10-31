@@ -38,6 +38,10 @@ def choices() -> tuple[VehicleChoice, ...]:
     docs = member.config.car_docs
     make = docs[0].make if docs else member.__class__.__module__.split('.')[-2].title()
     label = docs[0].name if len(docs) == 1 else platform.replace('_', ' ').title()
+    if platform == "TOYOTA_PRIUS":
+      label = "Toyota Prius / Prius Prime 2016-20"
+    elif platform == "TOYOTA_PRIUS_RETROFIT":
+      label = "Toyota Prius 2016-20 (TSS2 EPS retrofit)"
     result.append(VehicleChoice(platform, make, label))
   return tuple(sorted(result, key=lambda item: (item.make, item.label, item.platform)))
 
