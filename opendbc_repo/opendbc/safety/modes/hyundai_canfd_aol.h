@@ -25,6 +25,6 @@ static inline bool hyundai_canfd_torque_long_aol_param(uint16_t param) {
                         ((base & 4U) != 0U) && ((fuel == 0U) || (fuel == 2U)) &&
                         ((topology == 0U) || (topology == 8U) || (topology == 16U) ||
                          (topology == 144U) || (topology == 32U) || (topology == 40U));
-  return sportage || (param == 0x0815U) || (param == 0x0895U) || (param == 0x2815U) || (param == 0x2895U);
+  return sportage || (param == 0x080DU) || (param == 0x0815U) || (param == 0x0895U) || (param == 0x2815U) || (param == 0x2895U);
 }
 #endif

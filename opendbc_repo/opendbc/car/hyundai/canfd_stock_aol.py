@@ -96,9 +96,9 @@ def qualified(cp, *, marked_only=False):
 
 
 SPORTAGE_LONG_AOL_WORDS = frozenset(0x0804 | fuel | topology for fuel in (0, 2) for topology in (0, 8, 16, 144, 32, 40))
-LONG_AOL_WORDS = frozenset((0x0815, 0x0895, 0x2815, 0x2895)) | SPORTAGE_LONG_AOL_WORDS
+LONG_AOL_WORDS = frozenset((0x080D, 0x0815, 0x0895, 0x2815, 0x2895)) | SPORTAGE_LONG_AOL_WORDS
 LONG_EV_CARS = frozenset((CAR.HYUNDAI_IONIQ_5, CAR.HYUNDAI_KONA_EV_2ND_GEN))
-INDEPENDENT_LONG_BUTTON_CARS = LONG_EV_CARS | {CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN, CAR.KIA_SPORTAGE_5TH_GEN}
+INDEPENDENT_LONG_BUTTON_CARS = LONG_EV_CARS | {CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN, CAR.GENESIS_GV60_EV_1ST_GEN, CAR.KIA_SPORTAGE_5TH_GEN}
 
 
 def qualified_long(cp, *, marked_only=False):
@@ -112,7 +112,10 @@ def qualified_long(cp, *, marked_only=False):
     if not eligible(cp):
       return False
   word = _base_word(cp, experiences=(0, 32))
-  if cp.carFingerprint == CAR.KIA_SPORTAGE_5TH_GEN:
+  if cp.carFingerprint == CAR.GENESIS_GV60_EV_1ST_GEN:
+    if word != 0x09:
+      return False
+  elif cp.carFingerprint == CAR.KIA_SPORTAGE_5TH_GEN:
     if word is None or word | 0x804 not in SPORTAGE_LONG_AOL_WORDS:
       return False
   elif word not in (0x11, 0x91):
