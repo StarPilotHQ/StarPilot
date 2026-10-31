@@ -16,19 +16,8 @@ class TestFordAolAdmission(unittest.TestCase):
     self.safety.set_alternative_experience(0)
     self.safety.set_safety_hooks(structs.CarParams.SafetyModel.noOutput, 0)
 
-  def test_angle_profiles_reject_malformed_lateral_frames_without_healthy_sources(self):
-    for word in (128, 129, 130, 131):
-      with self.subTest(word=word):
-        self.safety.init_tests()
-        self.safety.set_alternative_experience(0)
-        self.assertEqual(self.safety.set_safety_hooks(structs.CarParams.SafetyModel.ford, word), 0)
-        self.safety.set_controls_allowed(False)
-        for address in (0x3CA, 0x3D3 if word & 2 else 0x3D6):
-          self.assertFalse(self.safety.safety_tx_hook(libsafety_py.make_CANPacket(address, 0, bytes(8))))
-        self.assertFalse(self.safety.get_controls_allowed())
-
   def test_no_frames_no_lateral_or_longitudinal_authority(self):
-    for word in (8, 9, 10, 11, 12, 13, 18, 19, 32, 33, 66, 67):
+    for word in (0, 1, 2, 3, 8, 9, 10, 11, 12, 13):
       for ae in (0, 32, 33):
         with self.subTest(word=word, ae=ae):
           self.safety.init_tests()
@@ -42,7 +31,7 @@ class TestFordAolAdmission(unittest.TestCase):
 
 
 class TestFordAolDriverIntent(unittest.TestCase):
-  BASE_PROFILES = (8, 9, 10, 11, 12, 13, 18, 19, 32, 33, 66, 67)
+  BASE_PROFILES = (0, 1, 2, 3, 8, 9, 10, 11, 12, 13)
   PROFILES = BASE_PROFILES + tuple(word | 256 for word in BASE_PROFILES)
 
   def setUp(self):
@@ -68,7 +57,7 @@ class TestFordAolDriverIntent(unittest.TestCase):
     self.assertTrue(self.safety.safety_rx_hook(libsafety_py.make_CANPacket(address, bus, data)))
 
   def pump(self, count, *, main=3, tja=False, gear=3, eps=0, mask=0, heartbeat=True, speed=10., curvature=0.):
-    base = self.word & ~(257 | 128)
+    base = self.word & ~257
     gear_name, gear_signal = ('TransGearData', 'GearLvrPos_D_Actl') if base == 8 else (
       ('Gear_Shift_by_Wire_FD1', 'TrnRng_D_RqGsm') if base == 10 else ('PowertrainData_10', 'TrnRng_D_Rq'))
     if self.word & 256:
@@ -92,7 +81,7 @@ class TestFordAolDriverIntent(unittest.TestCase):
       for name, hz, fields in values:
         if self.tick * hz // 100 != (self.tick - 1) * hz // 100:
           self.rx(name, fields)
-      if base in (10, 12, 18, 66) and self.tick * 30 // 100 != (self.tick - 1) * 30 // 100:
+      if base in (2, 10, 12) and self.tick * 30 // 100 != (self.tick - 1) * 30 // 100:
         self.rx('Lane_Assist_Data3_FD1', {'LatCtlSte_D_Stat': 1, 'LaActAvail_D_Actl': 3, 'LaActDeny_B_Actl': 0})
       self.safety.aol_set_host_request(mask)
       self.safety.aol_get_permission_mask()
@@ -146,14 +135,13 @@ class TestFordAolDriverIntent(unittest.TestCase):
     packer = CANPacker("ford_lincoln_base_pt")
     self.safety.init_tests()
     self.safety.set_alternative_experience(32)
-    profiles = ((32, "PowertrainData_10", "TrnRng_D_Rq", False),
+    profiles = ((0, "PowertrainData_10", "TrnRng_D_Rq", False),
                 (8, "TransGearData", "GearLvrPos_D_Actl", False),
                 (10, "Gear_Shift_by_Wire_FD1", "TrnRng_D_RqGsm", True),
                 (12, "PowertrainData_10", "TrnRng_D_Rq", True),
-                (18, "PowertrainData_10", "TrnRng_D_Rq", True),
-                (66, "PowertrainData_10", "TrnRng_D_Rq", True),
+                (2, "PowertrainData_10", "TrnRng_D_Rq", True),
                 (8, "TransGearData", "GearLvrPos_D_Actl", False),
-                (32, "PowertrainData_10", "TrnRng_D_Rq", False))
+                (0, "PowertrainData_10", "TrnRng_D_Rq", False))
     for epoch, (word, gear_name, gear_signal, needs_lka) in enumerate(profiles):
       with self.subTest(word=word, epoch=epoch):
         self.assertEqual(self.safety.set_safety_hooks(structs.CarParams.SafetyModel.ford, word), 0)
@@ -193,12 +181,12 @@ class TestFordAolDriverIntent(unittest.TestCase):
 
   def test_main_cancel_states_and_physical_cancel_buttons_withdraw(self):
     for state in (1, 2):
-      self.reset(32)
+      self.reset(0)
       self.arm()
       self.pump(10, main=state, mask=1)
       self.assertEqual(self.safety.aol_get_permission_mask(), 0)
     for bit in (8, 24):
-      self.reset(32)
+      self.reset(0)
       self.arm()
       data = (1 << bit).to_bytes(8, 'little')
       self.assertTrue(self.safety.safety_rx_hook(libsafety_py.make_CANPacket(0x83, 0, data)))
@@ -209,17 +197,12 @@ class TestFordAolDriverIntent(unittest.TestCase):
 
   def test_accepted_lateral_owns_only_replacement_until_lease_or_rejection(self):
     from opendbc.car.ford.fordcan import CanBus, create_lat_ctl_msg
-    from opendbc.car.ford.mache_can import create_lka_msg
     from opendbc.car import gen_empty_fingerprint
-    self.reset(32)
+    self.reset(0)
     self.arm()
     bus = CanBus(fingerprint=gen_empty_fingerprint())
     frame = create_lat_ctl_msg(self.packer, bus, True, 0., 0., 0., 0.)
     command = libsafety_py.make_CANPacket(frame[0], frame[2], frame[1])
-    self.assertEqual(self.safety.safety_fwd_hook(2, 0x3D3), 0)
-    self.assertFalse(self.safety.safety_tx_hook(command))
-    announcement = create_lka_msg(self.packer, bus)
-    self.assertTrue(self.safety.safety_tx_hook(libsafety_py.make_CANPacket(announcement[0], announcement[2], announcement[1])))
     self.assertEqual(self.safety.safety_fwd_hook(2, 0x3D3), 0)
     self.assertTrue(self.safety.safety_tx_hook(command))
     for address in (0x3D3, 0x3D8, 0x18A):
@@ -230,10 +213,74 @@ class TestFordAolDriverIntent(unittest.TestCase):
     for address in (0x3D3, 0x3D8, 0x18A):
       self.assertEqual(self.safety.safety_fwd_hook(2, address), 0)
 
+  def host_actuator(self, *, valid=True):
+    """This profile's steering actuator, inactive, as the host sends it every frame. Invalid adds a path offset,
+    or on the Transit requests steering without lateral permission."""
+    from opendbc.car.ford.fordcan import CanBus, create_lat_ctl_msg, create_lat_ctl2_msg, create_lka_msg
+    from opendbc.car import gen_empty_fingerprint
+    bus = CanBus(fingerprint=gen_empty_fingerprint())
+    base = self.word & ~257
+    offset = 0. if valid else 1.
+    if base == 12:
+      frame = create_lka_msg(self.packer, bus, transit=True) if valid else \
+              create_lka_msg(self.packer, bus, True, 1., 2, .0002, transit=True)
+    elif base in (2, 10):
+      frame = create_lat_ctl2_msg(self.packer, bus, 0, offset, 0., 0., 0., 0)
+    else:
+      frame = create_lat_ctl_msg(self.packer, bus, False, offset, 0., 0., 0.)
+    return frame[0], libsafety_py.make_CANPacket(frame[0], frame[2], frame[1])
+
+  def test_one_actuator_sender_while_the_host_sends(self):
+    # The camera's actuator is forwarded under AOL so the stock system keeps its message when the host
+    # isn't sending; while the host sends, two senders confuse the PSCM, and a camera frame standing in
+    # for a rejected host frame mid-steer makes it ramp out and fault
+    for word in self.PROFILES:
+      with self.subTest(word=word):
+        self.reset(word)
+        self.pump(10)
+        address, inactive = self.host_actuator()
+        self.assertEqual(self.safety.safety_fwd_hook(2, address), 0)
+        for _ in range(20):
+          self.pump(5)
+          self.assertTrue(self.safety.safety_tx_hook(inactive))
+          self.assertEqual(self.safety.safety_fwd_hook(2, address), -1)
+          self.assertEqual(self.safety.safety_fwd_hook(0, address), 2)
+          self.assertEqual(self.safety.safety_fwd_hook(2, 0x321), 0)
+          # replacing the camera's frame grants nothing
+          self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+          self.assertFalse(self.safety.get_controls_allowed())
+        self.pump(30)
+        self.assertEqual(self.safety.safety_fwd_hook(2, address), -1)
+        self.pump(1)
+        self.assertEqual(self.safety.safety_fwd_hook(2, address), 0)
+        self.assertTrue(self.safety.safety_tx_hook(inactive))
+        self.assertEqual(self.safety.safety_fwd_hook(2, address), -1)
+        # a rejected host frame is a missed frame, not the camera's turn
+        _, rejected = self.host_actuator(valid=False)
+        for _ in range(10):
+          self.pump(5)
+          self.assertFalse(self.safety.safety_tx_hook(rejected))
+          self.assertEqual(self.safety.safety_fwd_hook(2, address), -1)
+        self.pump(31)
+        self.assertEqual(self.safety.safety_fwd_hook(2, address), 0)
+        self.assertFalse(self.safety.safety_tx_hook(rejected))
+        self.assertEqual(self.safety.safety_fwd_hook(2, address), -1)
+        self.safety.set_safety_hooks(structs.CarParams.SafetyModel.ford, word)
+        self.assertEqual(self.safety.safety_fwd_hook(2, address), 0)
+
+  def test_without_aol_the_actuator_stays_statically_blocked(self):
+    for word in self.BASE_PROFILES:
+      with self.subTest(word=word):
+        self.reset(word)
+        address, _ = self.host_actuator()
+        self.safety.set_alternative_experience(0)
+        self.assertEqual(self.safety.set_safety_hooks(structs.CarParams.SafetyModel.ford, word), 0)
+        self.assertEqual(self.safety.safety_fwd_hook(2, address), -1)
+
   def test_native_bounded_catalog_copy_denies_invalid_and_restores_registered_table(self):
     for length, null_catalog in ((0, False), (1, False), (7, False), (8, False), (1, True)):
       with self.subTest(length=length, null_catalog=null_catalog):
-        self.reset(32)
+        self.reset(0)
         self.assertTrue(self.bounded_catalog_contract(length, null_catalog))
         self.assertFalse(self.safety.get_controls_allowed())
         self.assertEqual(self.safety.aol_get_permission_mask(), 0)

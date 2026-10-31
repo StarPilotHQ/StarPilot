@@ -414,7 +414,7 @@ def test_recorded_ford_stopped_geometry_does_not_release_native_stop(request):
   endpoint = TestFordAolDriverIntent(methodName='runTest')
   endpoint.setUp()
   request.addfinalizer(endpoint.tearDown)
-  endpoint.reset(19)
+  endpoint.reset(3)
   endpoint.pump(40, main=0)
   endpoint.pump(10, main=3)
   endpoint.pump(10, main=5, mask=3)

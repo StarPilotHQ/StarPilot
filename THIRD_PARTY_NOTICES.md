@@ -73,17 +73,7 @@ the exclusion of the other.
 
 ## BluePilot Ford support
 
-The Ford lateral strategies, CAN constructors, camera-radar filtering and native checks include work adapted from BluePilot's `bp-7.0` source, through StarPilot `2efe6017bfe14cee4807833e05f9a7f6ba255cdb`. See [CREDITS.md](CREDITS.md#ford-support-adapted-from-bluepilot) for contributors and source revisions. The upstream extension-file and `LICENSE.md` notices reproduced above also apply to the Ford extension sources; they are retained without resolving the difference between their published license descriptions.
-
-## Optional BluePilot angle library adapter
-
-The angle-only adapter in `opendbc_repo/opendbc/bluepilot_lateral` is sourced directly from BluePilot bp-7.0 commit e1d051d7ba270261b4455068bd68f1a58db15a4a. The complete upstream MIT notice is retained in that folder's `LICENSE`, and the simultaneously published Custom MIT notice is retained verbatim in `LICENSE.md`. The applicable SUNNYPILOT acknowledgments reproduced above are also retained in its `CREDITS.md`. This preserves the published terms without resolving their scope or representing the adapted extension as unambiguously plain MIT.
-
-The optional, default-disabled angle lane-centering trim additionally derives from
-BluePilot bp-dev e22afa6be9b881fa784c92ebb316db47728a3d81. Its exact source and
-contributors are recorded in the library CREDITS.md; the same root/opendbc MIT
-and Custom MIT notices coexist unchanged at that revision. This adds attribution,
-not a license-scope decision or permission grant.
+The Ford CAN FD camera-radar filtering includes work adapted from BluePilot's `bp-7.0` source, through StarPilot `2efe6017bfe14cee4807833e05f9a7f6ba255cdb`. See [CREDITS.md](CREDITS.md#ford-support-adapted-from-bluepilot) for contributors and source revisions. The upstream extension-file and `LICENSE.md` notices reproduced above also apply to that source; they are retained without resolving the difference between their published license descriptions.
 
 ## Continental ARS510 radar
 

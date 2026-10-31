@@ -4,7 +4,7 @@ from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
 
 
 def test_original_positional_preferences_do_not_enable_door_features():
-  values = (True, False, True, False, True, False, True, False, True, False, True, False, True, 1, 1)
+  values = (True, False, True, False, True, False, True, False, True, False, True, False, True, 1)
   preferences = VehicleStartupPreferences(*values)
   names = (
     'toyota_auto_hold',
@@ -21,7 +21,6 @@ def test_original_positional_preferences_do_not_enable_door_features():
     'gm_camera_pedal',
     'toyota_filter',
     'gm_longitudinal_tune',
-    'ford_lateral_mode',
   )
   assert tuple(getattr(preferences, name) for name in names) == values
   assert not preferences.toyota_lock_doors and not preferences.toyota_unlock_doors

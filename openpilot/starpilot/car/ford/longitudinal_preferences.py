@@ -7,9 +7,6 @@ def prepare_release_long(cp, params, *, is_release, enabled):
   if not is_release or not enabled or cp.brand != 'ford':
     return cp
   try:
-    owner = aol_safety_config(cp)
-    if owner is not None and owner.safetyParam & 128 and read_saved(params, 'AlwaysOnLateral', 8) != (b'1', True):
-      return cp
     if (cp.alternativeExperience != 0 or not qualified(cp) or not cp.alphaLongitudinalAvailable or
         cp.openpilotLongitudinalControl or read_saved(params, 'AlphaLongitudinalEnabled', 8) != (b'1', True) or
         read_saved(params, 'SafeMode', 8) not in ((None, True), (b'0', True))):

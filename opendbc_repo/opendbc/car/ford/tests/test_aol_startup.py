@@ -9,11 +9,11 @@ from opendbc.car.ford.values import CAR
 
 
 PROFILES = (
-  (CAR.FORD_BRONCO_SPORT_MK1, 32), (CAR.FORD_ESCAPE_MK4, 32), (CAR.FORD_FOCUS_MK4, 32),
-  (CAR.FORD_MAVERICK_MK1, 32), (CAR.FORD_EXPLORER_MK6, 32),
-  (CAR.FORD_MUSTANG_MACH_E_MK1, 18), (CAR.FORD_ESCAPE_MK4_5, 66),
-  (CAR.FORD_EXPEDITION_MK4, 66), (CAR.FORD_F_150_MK14, 66),
-  (CAR.FORD_F_150_LIGHTNING_MK1, 66), (CAR.FORD_RANGER_MK2, 66),
+  (CAR.FORD_BRONCO_SPORT_MK1, 0), (CAR.FORD_ESCAPE_MK4, 0), (CAR.FORD_FOCUS_MK4, 0),
+  (CAR.FORD_MAVERICK_MK1, 0), (CAR.FORD_EXPLORER_MK6, 0),
+  (CAR.FORD_MUSTANG_MACH_E_MK1, 2), (CAR.FORD_ESCAPE_MK4_5, 2),
+  (CAR.FORD_EXPEDITION_MK4, 2), (CAR.FORD_F_150_MK14, 2),
+  (CAR.FORD_F_150_LIGHTNING_MK1, 2), (CAR.FORD_RANGER_MK2, 2),
   (CAR.FORD_EDGE_MK2, 8), (CAR.FORD_MONDEO_MK5, 10), (CAR.FORD_TRANSIT_MK5, 12),
 )
 
@@ -62,7 +62,6 @@ def run_startup(identity, base_word, alpha, release, topology, monkeypatch):
   from openpilot.selfdrive.car.card import Car
   from openpilot.selfdrive.controls.controlsd import Controls
   from openpilot.starpilot.aol.vehicle import policy_for
-  from openpilot.starpilot.controller_extensions import ManualTurnInputs
   from openpilot.starpilot.lateral.tests.test_lane_runtime import feed
 
   monkeypatch.setenv("SIMULATION", "1")
@@ -111,12 +110,6 @@ def run_startup(identity, base_word, alpha, release, topology, monkeypatch):
       assert policy.normal_runtime_supported == admitted
       assert ci.CP is card.CP
       assert ci.CC is not None
-      if base_word in (18, 32, 66):
-        owner = ci.CC.mache_lateral if base_word == 18 else ci.CC.classic_lateral
-        assert owner is not None
-        assert owner.CP is card.CP
-        assert isinstance(ci.CC.manual_turn_inputs, ManualTurnInputs)
-        assert not ci.CC.manual_turn_inputs.enabled
       if admitted:
         assert card.aol_card_intent is not None
         healthy = structs.CarState(canValid=True, canTimeout=False, gearShifter="drive", buttonEvents=[])
@@ -178,8 +171,6 @@ def run_startup(identity, base_word, alpha, release, topology, monkeypatch):
           assert active_command.enabled
           assert active_command.latActive == (acknowledged and not stale)
           assert not active_command.longActive
-      if base_word in (18, 32, 66):
-        assert not owner.human_turn_enabled
     finally:
       del controls, card, ci, subscriber
       gc.collect()

@@ -481,16 +481,6 @@
       "seconds": 0.05543316599994341,
       "source_sha256": "65ad26851e9e115e8b3c9d6a57ccb72295619fa16d22a2e32261bae6e434ea77"
     },
-    "opendbc_repo/opendbc/car/ford/tests/test_mache_display_handoff.py": {
-      "cases": 2,
-      "seconds": 0.17583017300006532,
-      "source_sha256": "dbd0af4c30c2c6ab163ddf5f31af75670d31efee1586a21a62f193a1f25043a8"
-    },
-    "opendbc_repo/opendbc/safety/tests/test_ford_mache_display.py": {
-      "cases": 78,
-      "seconds": 0.16058086799961302,
-      "source_sha256": "f7ea0ed06811453431e3b3aa8eb11cb7138293ca89c87deac09b95f2e6ad3803"
-    },
     "openpilot/starpilot/aol/tests/test_gv70_two_panda_long.py": {
       "cases": 22,
       "seconds": 0.013164143999915723,
@@ -777,34 +767,6 @@
         "artifact_id": 12709085395,
         "shard": 8,
         "results_sha256": "a14538044b22704179bab89d0f9ded3a4f90480c14d4ea9c76047f933d2e48c5"
-      }
-    },
-    "openpilot/starpilot/tests/test_ford_bluepilot_aol.py": {
-      "cases": 133,
-      "seconds": 274.055069753,
-      "source_sha256": "ef4d8ff607cedc41c2cf88375a707c0eecaaab623d1a6ba8c8bb3aeb13391e68",
-      "reference": {
-        "basis": "Maximum of complete same-source whole-module hosted measurements; phase time only, no grouping or deadline changes.",
-        "source_blob": "ce0ee89600b5b608eb2c905a43c0c8ec8db5cc0b",
-        "measurements": [
-          {
-            "revision": "12dab8c31dd362a6198b9f2bb55facdf7dd34a9f",
-            "run_id": 40449589613,
-            "artifact_id": 12710448232,
-            "shard": 19,
-            "suite": "custom-pytest",
-            "seconds": 274.055069753
-          },
-          {
-            "revision": "5f84b6c763b9aa185ed4e169a63b058a4cbce3d9",
-            "run_id": 40477003765,
-            "artifact_id": 12722625581,
-            "shard": 8,
-            "suite": "aol-lifecycle",
-            "seconds": 266.7861787670016,
-            "results_sha256": "ab0b19b17563bd052360b59cac490415407f5c0196fa3762219a960e3a426cc1"
-          }
-        ]
       }
     }
   },

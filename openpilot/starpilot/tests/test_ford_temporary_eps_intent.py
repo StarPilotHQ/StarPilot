@@ -154,7 +154,7 @@ def test_stock_eps_cannot_hide_independent_fault_or_borrow_another_owner(fault, 
   elif fault == 'no-baseline':
     feedback.lateral_only_baseline = False
   elif fault == 'native-config':
-    native_change(peers, native, safetyParam=0)
+    native_change(peers, native, safetyParam=native.safetyParam ^ 1)
   elif fault == 'native-long':
     native_change(peers, native, requestedLongitudinal=True)
   elif fault in ('native-rx', 'native-heartbeat', 'native-fault'):

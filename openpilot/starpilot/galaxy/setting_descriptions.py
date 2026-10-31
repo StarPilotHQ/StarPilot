@@ -11,7 +11,6 @@ DESCRIPTIONS = {
   'ReduceMotion': 'Reduces interface animations for a steadier display.',
   'IsMetric': 'On displays speed and distance in kilometers; Off uses miles. Saved speed-limit offsets keep their physical values.',
   'IsRhdDetected': 'Sets the initial steering-wheel side used by driver monitoring. Applies next drive; automatic side detection continues.',
-  'FordPrefSteerAngleCurvature': 'Uses steering pinion angle instead of yaw rate to estimate Ford steering curvature. Applies at the next vehicle startup.',
   'lane_change:turn_signal_guidance': 'Uses your turn signal to help the model choose a turning path at intersections.',
   'AlphaLongitudinalEnabled': ('Requests StarPilot speed control instead of factory ACC. May disable Automatic Emergency Braking. ' +
                               'Applies after the next startup; exact vehicle takeover checks remain required.'),
@@ -84,7 +83,6 @@ DESCRIPTIONS = {
   'GMLongitudinalTune': 'Selects the supported vehicle speed-control response tune.',
   'TruckTuning': 'Softens small acceleration requests, reduces grade correction and smooths light braking on supported GM trucks.',
   'EVTuning': 'Selects EV acceleration curves for inherited acceleration presets.',
-  'FordLateralMode': 'Chooses the native Ford steering controller or the supported BluePilot angle controller.',
   'TeslaAOLScreenTap': 'Lets a three-finger tap on a supported Tesla screen toggle Always On Lateral.',
   'TeslaAOLDisengageOnBrake': 'Disarms screen-tap Always On Lateral when you press the brake.',
   'RemoteStartBootsComma': 'Wakes comma during GM remote start.',
@@ -139,6 +137,30 @@ DESCRIPTIONS = {
   'conditional:mode': 'Chooses Chill, Experimental or automatic switching based on the configured driving conditions.',
   'conditional:reset': 'Restores the default conditional driving-mode settings.',
   'conditional:manual_reset': 'Returns both remembered manual driving-mode choices to Automatic.',
+  'disable_BP_lat_UI': ('Steers with the BluePilot lateral controller instead of the stock Ford curvature path: curvature or' +
+    ' angle as the primary control, with lane positioning and its own tuning. Off by default.'),
+  'FordPrefLateralControl': ('Chooses what BluePilot steers with. Curvature follows the planned curvature like the stock path;' +
+    ' Angle uses the path angle as the main actuator.'),
+  'FordPrefSteerAngleCurvature': ('Measures curvature from the steering pinion angle instead of the yaw-rate sensor, in control and' +
+    ' Panda safety. For Fords with a faulty yaw sensor.'),
+  'enable_human_turn_detection_curv': 'Eases off steering while you turn the wheel through a turn yourself.',
+  'lane_change_factor_high_curv': 'Scales steering during a lane change. Values under 1.0 soften it.',
+  'enable_lane_positioning_curv': 'Nudges the car toward the lane center, with an optional in-lane offset.',
+  'custom_path_offset_curv': "Biases the car's position inside the lane, in meters.",
+  'enable_lane_full_mode_curv': ("Centers between the lane lines when both are confidently detected, instead of following the model's" +
+    ' path.'),
+  'LC_PID_gain_UI_curv': 'Sets how strongly lane positioning pulls toward its target.',
+  'custom_profile_curv': 'Uses the two predicted-curvature blend settings below instead of the built-in profile.',
+  'pc_blend_ratio_low_C_UI_curv': 'Mixes predicted curvature into gentle curves: 0 follows the plan, 1 follows the prediction.',
+  'pc_blend_ratio_high_C_UI_curv': 'Mixes predicted curvature into sharp curves: 0 follows the plan, 1 follows the prediction.',
+  'FordLowSpeedFactor_ang': 'Scales the low-speed steering response in angle mode. 1.0 is the default feel.',
+  'FordHighSpeedFactor_ang': 'Scales the high-speed steering response in angle mode. 1.0 is the default feel.',
+  'FordHighSpeedDampening_ang': ('Tunes the straight-road response at highway speed in angle mode: lower it if the car oversteers,' +
+    ' raise it if it understeers.'),
+  'lane_change_factor_high_ang': 'Scales steering during a lane change in angle mode. Values over 1.0 strengthen it.',
+  'enable_lane_positioning_ang': 'Nudges the car toward the lane-line center in angle mode, with an optional in-lane offset.',
+  'custom_path_offset_ang': "Biases the car's position inside the lane in angle mode, in meters.",
+  'lane_centering_strength_ang': "Sets how strongly lane positioning pulls against the model's own path in angle mode.",
 }
 
 # These are initialization explanations, not a second defaults table.
@@ -155,13 +177,14 @@ INITIALIZATION = {
   'VoltOnePedalMode': ('First enable requires the next vehicle startup to configure the braking safety ' +
     'permission. An already admitted mode can be disabled live.'),
   'VoltSNG': 'Applies when the vehicle controller next starts: its fresh resume-plan input is created for the selected stop-and-go mode.',
-  'FordLateralMode': 'Requires the next vehicle startup to select the steering controller, admitted CAN mode and Panda safety word.',
   'TeslaAOLScreenTap': 'Requires the next vehicle startup to configure the screen-button CAN source and matching safety permission.',
   'TeslaAOLDisengageOnBrake': 'Requires the next vehicle startup to configure the screen-button brake/disarm safety permission.',
   'RemoteStartBootsComma': 'Requires a device restart to load the matching Panda ignition firmware.',
   'HKGRemoteStartBootsComma': 'Requires a device restart to load the matching Panda ignition firmware.',
   'IgnoreIgnitionLine': 'Requires a device restart to load the matching Panda ignition firmware.',
   'TeslaWakeOnCAN': 'Requires a device restart to load the matching Panda ignition firmware.',
+  'disable_BP_lat_UI': 'Requires the next vehicle startup to configure Panda safety for the BluePilot steering checks.',
+  'FordPrefSteerAngleCurvature': 'Requires the next vehicle startup to configure the pinion measurement in Panda safety.',
 }
 
 CONDITIONS = {

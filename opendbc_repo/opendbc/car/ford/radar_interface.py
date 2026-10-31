@@ -7,9 +7,7 @@ from opendbc.can import CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.ford.fordcan import CanBus
-from opendbc.car.ford.values import DBC, RADAR
-from opendbc.car.ford.generic_canfd_lateral import qualified as generic_canfd_qualified
-from opendbc.car.ford.mache_lateral import qualified as mache_qualified
+from opendbc.car.ford.values import DBC, FORD_CANFD_CARS, FordFlags, RADAR
 from opendbc.car.interfaces import RadarInterfaceBase
 
 DELPHI_ESR_RADAR_MSGS = list(range(0x500, 0x540))
@@ -102,7 +100,8 @@ class RadarInterface(RadarInterfaceBase):
 
     self.points: list[list[float]] = []
     self.clusters: list[Cluster] = []
-    self.generic_canfd_lead = generic_canfd_qualified(CP) or mache_qualified(CP)
+    self.generic_canfd_lead = (CP.carFingerprint in FORD_CANFD_CARS and bool(CP.flags & FordFlags.CANFD) and
+                               not CP.flags & ~int(FordFlags.CANFD | FordFlags.HAS_BSM))
     self.v_rel_history = deque(maxlen=20)
 
     self.updated_messages = set()

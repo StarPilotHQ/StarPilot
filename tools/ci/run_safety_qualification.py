@@ -463,7 +463,7 @@ class Gate:
 from opendbc.safety.tests.libsafety import libsafety_py
 libsafety_py.load(sys.argv[1])
 suite = unittest.TestLoader().discover('.', pattern='test_*.py')
-suite.addTests(unittest.TestLoader().loadTestsFromName('opendbc.bluepilot_lateral.tests.test_angle_native'))
+suite.addTests(unittest.TestLoader().discover('../../bluepilot_lateral/safety/tests', pattern='test_*.py', top_level_dir='../../..'))
 """ + UNITTEST_ACCOUNTING
       code, text = self.run("unittest", [self.python, "-c", suite_script, str(native)], cwd=SAFETY_TESTS)
       summary = parse_unittest_summary(text)

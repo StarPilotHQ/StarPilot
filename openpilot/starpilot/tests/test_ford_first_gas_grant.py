@@ -11,7 +11,7 @@ from openpilot.starpilot.tests.test_ford_reverse_intent import sample
 def first_grant():
   cp, cs, _ = baseline(combined=False)
   cp.carFingerprint, cp.flags = CAR.FORD_MUSTANG_MACH_E_MK1, 3
-  cp.safetyConfigs[0].safetyParam = 19
+  cp.safetyConfigs[0].safetyParam = 3
   feedback = TransportPauseFeedback(cp)
   sm, _ = sample(cp, NOW, NOW, 1, active=False, requested=False, allowed=False)
   assert not feedback.observe(sm, cp, cs, NOW, latched=False, intent_producer_session=PRODUCER)

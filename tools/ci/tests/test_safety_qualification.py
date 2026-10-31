@@ -95,8 +95,7 @@ class TestSafetyQualificationRunner(TestCase):
   def test_coverage_catalog_includes_native_pytest_and_external_callers(self):
     from tools.ci import safety_pytest_coverage as coverage
     selected = coverage.targets_for_coverage(qualification.ROOT)
-    for name in ('opendbc_repo/opendbc/car/ford/tests/test_pinion_measurement.py',
-                 'opendbc_repo/opendbc/safety/tests/test_tesla_preap_pedal.py::test_actual_registered_priming_rate_absolute_bus_and_counter_bounds',
+    for name in ('opendbc_repo/opendbc/safety/tests/test_tesla_preap_pedal.py::test_actual_registered_priming_rate_absolute_bus_and_counter_bounds',
                  'openpilot/starpilot/car/nissan/tests/test_aol.py',
                  'openpilot/starpilot/car/rivian/tests/test_aol_native.py'):
       self.assertIn(name, selected)
@@ -220,7 +219,7 @@ class TestSafetyQualificationRunner(TestCase):
       self.assertEqual(len(libraries.builds[0]['source_sha256']), 64)
       libraries.load(variant)
       module.load.assert_called_with(variant.resolve())
-      params = root / 'opendbc_repo/opendbc/bluepilot_lateral/params/limits.h'
+      params = root / 'opendbc_repo/opendbc/bluepilot_lateral/safety/ford.h'
       params.parent.mkdir(parents=True)
       params.write_text('changed native include')
       with self.assertRaisesRegex(RuntimeError, 'sources changed before loading'):

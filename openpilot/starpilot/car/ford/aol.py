@@ -1,6 +1,6 @@
 from dataclasses import replace
 from opendbc.car import structs
-from opendbc.car.ford.aol import qualified, AOL_WORDS, MANUAL, temporary_restriction, aol_safety_config, base_safety_param, ANGLE
+from opendbc.car.ford.aol import qualified, AOL_WORDS, MANUAL, temporary_restriction, aol_safety_config, profile_word
 from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE
 from openpilot.starpilot.aol.policy import AolVehiclePolicy
 
@@ -10,24 +10,16 @@ def policy_for(cp):
     return AolVehiclePolicy(intent_supported=True, settings_supported=True, runtime_supported=True,
                             normal_runtime_supported=True, ordinary_axis_ack_required=qualified(cp, marked_only=True),
                             explicit_latch=True, alternative_experience_addition=32,
-                            safety_param_addition=(MANUAL if cp.transmissionType == structs.CarParams.TransmissionType.manual else 0) |
-                              (base_safety_param(cp) if aol_safety_config(cp).safetyParam & ANGLE else 0))
+                            safety_param_addition=MANUAL if cp.transmissionType == structs.CarParams.TransmissionType.manual else 0)
   return AolVehiclePolicy()
 
 
 def native_profile_supported(model, param):
-  return model == int(structs.CarParams.SafetyModel.ford) and param in AOL_WORDS
+  return model == int(structs.CarParams.SafetyModel.ford) and profile_word(param) in AOL_WORDS
 
 
 def native_accepts_cp(cp, model, param):
   return qualified(cp, marked_only=True) and native_profile_supported(model, param) and param == aol_safety_config(cp).safetyParam
-
-
-def early_native_long_withdrawal_supported(cp):
-  # Panda can observe a pedal before the parsed host sample. The existing
-  # independent-LAT proof remains mandatory; this never authorizes LONG.
-  return bool(qualified(cp, marked_only=True) and cp.openpilotLongitudinalControl and
-              aol_safety_config(cp).safetyParam & ANGLE)
 
 
 def native_latch_rejected(cp, native):
