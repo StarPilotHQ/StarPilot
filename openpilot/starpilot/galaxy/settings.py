@@ -247,7 +247,9 @@ class LiveContextSource:
         timeout = 0
         while True:
           if sm is None:
-            return False
+            sm = self._refreshed_snapshot(deadline)
+            if sm is None:
+              return False
           if hasattr(sm, "after_mono_ns"):
             self.device_after_mono_ns = max(self.device_after_mono_ns, sm.after_mono_ns)
             self.device_offset_ns = sm.device_offset_ns
@@ -282,9 +284,31 @@ class LiveContextSource:
           remaining_ms = int((deadline - self.wait_clock()) * 1000)
           if remaining_ms <= 0:
             return False
+          if hasattr(sm, "after_mono_ns"):
+            # A snapshot never advances by itself; one stale or skewed sample must not read as onroad.
+            sm = self._refreshed_snapshot(deadline)
+            if sm is None:
+              return False
+            continue
           timeout = min(50, remaining_ms)
       except (OSError, RuntimeError, AttributeError, TypeError, ValueError, OverflowError):
         return False
+
+  def _refreshed_snapshot(self, deadline):
+    """Wait for the shared collector's next deviceState and pandaStates, then sample it again.
+
+    Called with self.lock held; it is released while waiting so concurrent Galaxy requests wait in parallel.
+    """
+    refresh = getattr(self.messages, "refresh", None)
+    remaining_ms = int((deadline - self.wait_clock()) * 1000)
+    if refresh is None or remaining_ms <= 0:
+      return None
+    self.lock.release()
+    try:
+      refreshed = refresh(remaining_ms) is True
+    finally:
+      self.lock.acquire()
+    return self._messages() if refreshed and not self.closed else None
 
   def configuration_allowed(self) -> bool:
     """Allow configuration in effective offroad mode or a fresh stationary Park."""

@@ -7,13 +7,16 @@ import time
 import uuid
 
 from openpilot.starpilot.navigation.owner import ConflictError, NavigationOwner, ValidationError, ROUTE_AVOIDANCES
-from openpilot.starpilot.navigation.route_engine import MapboxRouteEngine
+from openpilot.starpilot.navigation.route_engine import MapboxRouteEngine, distance
 
 from openpilot.starpilot.gps.phone import read_phone_gps
 from openpilot.starpilot.gps.source import GPS_MAX_AGE_NS, GPS_SERVICES, bearing, select_location
 
 ARRIVED_NS = 5_000_000_000      # stopped at the destination this long shows "You have arrived"
 END_ROUTE_NS = 15_000_000_000   # ...and this long ends navigation, like tapping End navigation
+STOPPED_RADIUS_M = 100.         # stopped this close to the destination arrives, wherever the route itself ends
+PARKED_RADIUS_M = 300.          # a drive that ends or starts this close to the destination arrived (garages lose GPS)
+DRIVE_END_NS = 5_000_000_000    # the car has been off this long, not a deviceState hiccup
 
 
 def location(sm, now_ns: int, phone_fix=None):
@@ -44,6 +47,11 @@ class RouteRuntime:
     self.arrived_since = 0
     self.ended_revision = None
     self.session = uuid.uuid4().hex
+    self.drive = 0
+    self.drive_fix = None
+    self.drive_off_since = 0
+    self.drive_start_pending = False
+    self.parked_revision = None
 
   def update(self, now_ns: int, position, drive_id: int) -> dict:
     if position is not None:
@@ -53,6 +61,14 @@ class RouteRuntime:
     if position is None:
       self.owner.position_store.flush()
     settings = self.owner.read_routing()
+    if self._parked_at_destination(now_ns, position, drive_id, settings):
+      self.parked_revision = settings['revision']
+    if self.parked_revision is not None:
+      if self.parked_revision == settings['revision'] and self.ended_revision != settings['revision']:
+        self._end_route(settings['revision'])
+        settings = self.owner.read_routing()
+      if self.parked_revision != settings['revision'] or self.ended_revision == settings['revision']:
+        self.parked_revision = None
     selected = settings['destination']
     destination_key = None if selected is None else (selected['id'], selected['longitude'], selected['latitude'])
     exclusions = tuple(value for key, value in ROUTE_AVOIDANCES.items() if settings[key])
@@ -121,7 +137,9 @@ class RouteRuntime:
     progress = self.route.progress(coordinates, speed, bearing)
     fresh = now_ns <= stamp + GPS_MAX_AGE_NS
     self.off_route_since = (self.off_route_since or now_ns) if fresh and progress.off_route else 0
-    self.arrived_since = (self.arrived_since or now_ns) if fresh and progress.arrived else 0
+    arriving = progress.arrived or (speed is not None and speed < 2 and
+                                    distance(coordinates, (selected['longitude'], selected['latitude'])) < STOPPED_RADIUS_M)
+    self.arrived_since = (self.arrived_since or now_ns) if fresh and arriving else 0
     if self.off_route_since and now_ns - self.off_route_since >= 2_000_000_000:
       self.route = None
       self.routes = []
@@ -132,8 +150,41 @@ class RouteRuntime:
       self._end_route(settings['revision'])
     result.update(status='arrived' if arrived else 'guiding', instruction=progress.instruction,
                   nextManeuver=progress.next_maneuver, route=self.route.preview(),
-                  controlValid=bool(speed is not None and fresh and drive_id > 0 and not progress.off_route and not progress.arrived and stamp >= drive_id))
+                  controlValid=bool(speed is not None and fresh and drive_id > 0 and not progress.off_route and not arriving and stamp >= drive_id))
     return result
+
+  @staticmethod
+  def _near_destination(settings, coordinates) -> bool:
+    selected = settings['destination']
+    return (selected is not None and coordinates is not None and
+            distance(coordinates, (selected['longitude'], selected['latitude'])) < PARKED_RADIUS_M)
+
+  def _parked_at_destination(self, now_ns: int, position, drive_id: int, settings) -> bool:
+    """A parking garage loses GPS before the route ends, so the stopped-at-the-end check never fires there.
+    A drive that ends near the destination arrived, as does one that starts near it (after a reboot, say)."""
+    fresh = position is not None and 0 < position[0] <= now_ns <= position[0] + GPS_MAX_AGE_NS
+    if not drive_id:
+      if not self.drive:
+        return False
+      self.drive_off_since = self.drive_off_since or now_ns
+      if now_ns - self.drive_off_since < DRIVE_END_NS:
+        return False
+      parked = self._near_destination(settings, self.drive_fix)
+      self.drive, self.drive_fix, self.drive_off_since = 0, None, 0
+      return parked
+    self.drive_off_since = 0
+    parked = False
+    if drive_id != self.drive:
+      # Where the car was last seen, then the first fix of this drive
+      self.drive, self.drive_fix, self.drive_start_pending = drive_id, None, True
+      saved = self.owner.position_store.read()
+      parked = saved is not None and self._near_destination(settings, (saved['longitude'], saved['latitude']))
+    if fresh:
+      self.drive_fix = position[1]
+      if self.drive_start_pending:
+        self.drive_start_pending = False
+        parked = parked or self._near_destination(settings, position[1])
+    return parked
 
   def _end_route(self, revision: str) -> None:
     # Once per destination; a concurrent change (new destination, Galaxy edit) wins over arrival.

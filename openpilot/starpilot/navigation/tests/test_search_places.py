@@ -48,7 +48,7 @@ def test_selected_place_routes_without_persisting_temporary_coordinates(owner):
   second = NavigationOwner(owner.root, runtime_source=lambda:None, transient_root=owner.transient_root)
   executor = Executor()
   runtime = RouteRuntime(second, engine=type('Engine',(),{'fetch':None})(), executor=executor)
-  assert runtime.update(10, (9,(-90.,40.),0.,0.),1)['destinationName'] == 'Coffee Shop'
+  assert runtime.update(10, (9,(-90.01,40.),0.,0.),1)['destinationName'] == 'Coffee Shop'
   assert len(executor.jobs) == 1
   with pytest.raises(ValidationError):
     choose(owner, result)

@@ -209,7 +209,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
 
   def context_source(params):
     from openpilot.starpilot.galaxy.settings import LiveContextSource
-    return LiveContextSource(params, messages=evidence_source, evidence_wait_ms=0) if evidence_source is not None else LiveContextSource(params)
+    return LiveContextSource(params, messages=evidence_source) if evidence_source is not None else LiveContextSource(params)
 
   if parked is None:
     from openpilot.common.params import Params
