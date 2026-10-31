@@ -206,6 +206,21 @@ def create_radar_command(packer, frame, active, CS, hold):
   return ret
 
 # GEN2 new mazdas
+def synthesizes_longitudinal(CP, CC) -> bool:
+  """True only when openpilot is actually commanding longitudinal control.
+
+  HOLD/RESUME are openpilot commands, not stock signals: they may only be
+  written while this car has openpilot longitudinal and the axis is active.
+  Anything else must relay the stock ACC frame untouched.
+  """
+  return bool(CP.openpilotLongitudinalControl and CC.longActive)
+
+
+def create_acc_passthrough(packer, values):
+  """Pack the stock ACC frame exactly as received, without HOLD/RESUME synthesis."""
+  return packer.make_can_msg("ACC", 2, values)
+
+
 def create_acc_cmd(packer, values, hold, resume):
   msg_name = "ACC"
   bus = 2

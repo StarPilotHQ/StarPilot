@@ -48,7 +48,7 @@ from openpilot.starpilot.car.rivian.aol import retained_brake_lateral_intent as 
 from opendbc.car.rivian.stock_aol import (qualified as qualified_rivian_aol,
                                          native_observation as rivian_native_observation,
                                          temporary_restriction as rivian_temporary_restriction)
-from opendbc.car.mazda.stock_aol import (qualified as qualified_mazda_aol,
+from opendbc.car.mazda.stock_aol import (admitted as admitted_mazda_aol,
                                         native_observation as mazda_native_observation,
                                         temporary_restriction as mazda_temporary_restriction)
 from opendbc.car.tesla.preap.aol import (
@@ -946,7 +946,7 @@ class Car:
     cached = getattr(self, '_aol_owner_cache', None)
     if cached is None or cached[0] is not self.CP:
       owners = (bool(qualified_angle_aol(self.CP, marked_only=True)), bool(qualified_ford_aol(self.CP, marked_only=True)),
-                bool(qualified_honda_stock_aol(self.CP, marked_only=True)), bool(qualified_mazda_aol(self.CP, marked_only=True)),
+                bool(qualified_honda_stock_aol(self.CP, marked_only=True)), bool(admitted_mazda_aol(self.CP, marked_only=True)),
                 bool(qualified_tesla_preap(self.CP, marked_only=True)), bool(qualified_volkswagen_aol(self.CP, marked_only=True)))
       cached = self._aol_owner_cache = (self.CP, owners)
     return cached[1]

@@ -4,7 +4,7 @@ from opendbc.car import Bus, create_button_events, structs, DT_CTRL
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
 from opendbc.car.mazda.values import CAR, DBC, LKAS_LIMITS, MazdaSafetyFlags, TI_STATE, CarControllerParams
-from opendbc.car.mazda.stock_aol import qualified
+from opendbc.car.mazda.stock_aol import admitted as aol_admitted
 
 ButtonType = structs.CarState.ButtonEvent.Type
 
@@ -40,6 +40,9 @@ class CarState(CarStateBase):
 
     self.crz_btns_counter = 0
     self.acc_active_last = False
+    # GEN2 standstill exactly as the panda judges it for HOLD/RESUME; unknown
+    # until the first SPEED frame, so default to moving.
+    self.acc_standstill = False
     self.lkas_allowed_speed = False
     self.cam_lkas = 0
     self.params = CarControllerParams(CP)
@@ -189,7 +192,7 @@ class CarState(CarStateBase):
     self.decel_button = cp.vl["CRZ_BTNS"]["SET_M"]
 
     ret.buttonEvents = [
-      *(create_button_events(self.cancel_button, prev_cancel_button, {1: ButtonType.cancel}) if qualified(self.CP, marked_only=True) else []),
+      *(create_button_events(self.cancel_button, prev_cancel_button, {1: ButtonType.cancel}) if aol_admitted(self.CP, marked_only=True) else []),
       *create_button_events(self.distance_button, prev_distance_button, {1: ButtonType.gapAdjustCruise}),
       *create_button_events(self.accel_button, prev_accel_button, {1: ButtonType.accelCruise}),
       *create_button_events(self.decel_button, prev_decel_button, {1: ButtonType.decelCruise}),
@@ -234,11 +237,19 @@ class CarState(CarStateBase):
     ret.doorOpen = False # Cruise will not engage if door is open (handled by car)
     ret.brakePressed = cp.vl["BRAKE_PEDAL"]["BRAKE_PRESSED"] == 1
     ret.deprecated.brake = .1
-    ret.steerFaultPermanent = False # TODO locate signal. Car shows light on dash if there is a fault
-    ret.steerFaultTemporary = False # TODO locate signal. Car shows light on dash if there is a fault
+    # TI2 fault contract (safety plan Phase 2): a CPU violation reported by the
+    # interceptor must become a permanent steering fault so nothing downstream
+    # keeps commanding torque. Verified by test_gen2_ti2_faults.py.
+    ti_feedback = cp_body.vl["TI_FEEDBACK"]
+    ret.steerFaultPermanent = any(ti_feedback[f"CPU_{cpu}_VIOL"] != 0 for cpu in range(4))
+    ret.steerFaultTemporary = False # No verified GEN2 source yet; CPU_x_STATE semantics are Phase 4
 
     unit_conversion = CV.MPH_TO_MS if cp.vl["SYSTEM_SETTINGS"]["IMPERIAL_UNIT"] else CV.KPH_TO_MS
     ret.standstill = cp_cam.vl["SPEED"]["SPEED"] * unit_conversion < 0.1
+    # The panda treats raw SPEED > 10 (0.1 display units) as moving and only then
+    # rejects HOLD/RESUME. ret.standstill extends to 0.1 m/s, so it alone would
+    # let the controller send frames the panda refuses.
+    self.acc_standstill = round(cp_cam.vl["SPEED"]["SPEED"] * 100) <= 10
     if self.CP.flags & MazdaSafetyFlags.GEN2:
       ret.cruiseState.speed = cp.vl["CRUZE_STATE"]["CRZ_SPEED"] * unit_conversion
       ret.cruiseState.enabled = (cp.vl["CRUZE_STATE"]["CRZ_STATE"] >= 2)
@@ -251,6 +262,14 @@ class CarState(CarStateBase):
     ret.steeringRateDeg = (ret.steeringAngleDeg - self._prev_steering_angle) / DT_CTRL
     self._prev_steering_angle = ret.steeringAngleDeg
     ret.cruiseState.standstill = ret.standstill if not self.CP.openpilotLongitudinalControl else False
+
+    # Physical button events for the AOL intent owner. GEN2 has no stock button
+    # event path of its own; the mapped Cancel is only produced once this car is
+    # admitted to the AOL profile (alternative-experience 32).
+    prev_cancel_button = self.cancel_button
+    self.cancel_button = cp.vl["CRZ_BTNS"]["CAN"]
+    ret.buttonEvents = (create_button_events(self.cancel_button, prev_cancel_button, {1: ButtonType.cancel})
+                        if aol_admitted(self.CP, marked_only=True) else [])
 
     self.cp = cp
     self.cp_cam = cp_cam
