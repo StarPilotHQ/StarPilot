@@ -42,7 +42,7 @@ from opendbc.car.volkswagen.stock_aol import safety_config as volkswagen_aol_saf
 from openpilot.starpilot.car.volkswagen.aol import qualified as qualified_volkswagen_aol
 from openpilot.starpilot.car.rivian.aol import retained_brake_lateral_intent as rivian_brake_intent_retained
 from opendbc.car.rivian.stock_aol import qualified as qualified_rivian_aol
-from opendbc.car.mazda.stock_aol import qualified as qualified_mazda_aol
+from opendbc.car.mazda.stock_aol import admitted as admitted_mazda_aol
 from opendbc.car.tesla.preap.aol import qualified as qualified_tesla_preap
 from opendbc.car.ford.aol import qualified as qualified_ford_aol
 from opendbc.car.hyundai.canfd_angle_aol import qualified as qualified_angle_aol
@@ -971,7 +971,7 @@ class Car:
     cached = getattr(self, '_aol_owner_cache', None)
     if cached is None or cached[0] is not self.CP:
       owners = (bool(qualified_angle_aol(self.CP, marked_only=True)), bool(qualified_ford_aol(self.CP, marked_only=True)),
-                bool(qualified_honda_stock_aol(self.CP, marked_only=True)), bool(qualified_mazda_aol(self.CP, marked_only=True)),
+                bool(qualified_honda_stock_aol(self.CP, marked_only=True)), bool(admitted_mazda_aol(self.CP, marked_only=True)),
                 bool(qualified_tesla_preap(self.CP, marked_only=True)), bool(qualified_volkswagen_aol(self.CP, marked_only=True)))
       cached = self._aol_owner_cache = (self.CP, owners)
     return cached[1]

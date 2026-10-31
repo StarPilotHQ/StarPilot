@@ -473,6 +473,12 @@ BO_ 544 ACC: 8 XXX
  SG_ HOLD : 49|1@0+ (1,0) [0|255] "" XXX
  SG_ RESUME : 54|1@0+ (1,0) [0|1] "" XXX
  SG_ CHECKSUM : 56|8@1+ (1,0) [0|15] "" XXX
+ SG_ NEW_SIGNAL_14 : 0|1@0+ (1,0) [0|1] "" XXX
+ SG_ NEW_SIGNAL_15 : 8|8@1+ (1,0) [0|255] "" XXX
+ SG_ NEW_SIGNAL_16 : 23|5@0+ (1,0) [0|31] "" XXX
+ SG_ NEW_SIGNAL_17 : 55|1@0+ (1,0) [0|1] "" XXX
+ SG_ NEW_SIGNAL_18 : 53|4@0+ (1,0) [0|15] "" XXX
+ SG_ NEW_SIGNAL_19 : 48|1@0+ (1,0) [0|1] "" XXX
 
 BO_ 546 ACC_2: 8 XXX
  SG_ ACCEL_CMD : 0|12@0+ (1,0) [0|65535] "" XXX

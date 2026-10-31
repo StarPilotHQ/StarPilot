@@ -1,7 +1,6 @@
 #pragma once
 
 #include "opendbc/safety/declarations.h"
-#include "opendbc/safety/modes/mazda_stock_aol.h"
 
 // CAN msgs we care about
 /********** GEN1 msgs **********/
@@ -58,10 +57,102 @@ static bool mazda_radar_interceptor = false;
 static bool mazda_no_fsc = false;
 static bool mazda_no_mrcc = false;
 
+#include "opendbc/safety/modes/mazda_stock_aol.h"
+
+// GEN2 ACC isolation: the last two stock ACC frames as received on the vehicle
+// side of the relay. The target car's drive shows the host relaying the frame one
+// period behind the newest in up to 61% of frames (0.3-61% by session), so both
+// qualify while fresh. Relays further behind were seen 3 times in ~67k relayed frames;
+// rejecting them as replays costs that frame. Index 0 is the newest.
+#define MAZDA_STOCK_ACC_FRESHNESS_US 200000U
+#define MAZDA_STOCK_ACC_REFS 2
+static uint8_t mazda_stock_acc[MAZDA_STOCK_ACC_REFS][8] = {{0}};
+static bool mazda_stock_acc_valid[MAZDA_STOCK_ACC_REFS] = {false};
+static uint32_t mazda_stock_acc_ts[MAZDA_STOCK_ACC_REFS] = {0U};
+
+// Modified 0x220 contract (safety plan 5.2). Only ACCEL_CMD (d2 bit 0, d3, d4
+// bits 7..5), HOLD (d6 bit 1) and RESUME (d6 bit 6) may differ from a fresh stock
+// frame; every other bit, including byte 0's rolling value and any AEB field,
+// must match it. ACCEL_CMD = 2000 + 200 * accel was confirmed against measured
+// acceleration on the target car (reports/mazda-gen2-aol-gate-report.md s24).
+// The bounds encode the host's ACCEL_MIN/ACCEL_MAX (-3.5/+2.0 m/s^2).
+static const uint8_t MAZDA_ACC_APPROVED[7] = {0x00U, 0x00U, 0x01U, 0xFFU, 0xE0U, 0x00U, 0x42U};
+#define MAZDA_ACC_ACCEL_MIN 1300
+#define MAZDA_ACC_ACCEL_MAX 2400
+// HOLD/RESUME need current standstill evidence, not vehicle_moving's initial
+// false value. Match the existing 300 ms GEN2 source freshness in stock-AOL.
+#define MAZDA_SPEED_FRESHNESS_US 300000U
+static bool mazda_speed_seen = false;
+static uint32_t mazda_speed_ts = 0U;
+
+// TI2 fault contract: 0x24B is a required 50 Hz message for GEN2/GEN3. Silence
+// beyond this window is a fault, not a gap, and revokes actuation on its own.
+#define MAZDA_TI_FEEDBACK_TIMEOUT_US 200000U
+// Safety action plan phase 4.1 item 6: several consecutive valid, healthy frames
+// before unhealthy status clears. The target capture delivers 0x24B at about
+// 100 Hz, so ten frames is about 100 ms there. Keep this rule frame-based rather
+// than assuming that cadence for other firmware.
+#define MAZDA_TI_RECOVERY_FRAMES 10U
+// CPU operating state that counts as healthy. The port documents
+// DISCOVER=0, OFF=1, DRIVER_OVER=2, RUN=3 (values.py TI_STATE) and a parked
+// capture with the interceptor running shows 3 on all four CPUs. Safety plan
+// 4.1 item 3 and "unknown TI states are not treated as healthy": every other
+// value is unhealthy. An ignition-cycle capture showed 0, 2 and 5 only as
+// power-up transients, and violations 1/2/51/83 decaying to 0 within ~20 s of a
+// restart; state 1 (OFF) was never seen because the unit stops transmitting when
+// unpowered. DRIVER_OVER as a real override is still unverified (bench).
+#define MAZDA_TI_STATE_RUN 3U
+static bool mazda_ti_feedback_seen = false;
+static uint32_t mazda_ti_feedback_ts = 0U;
+// Latest verified TI2 fault state. It can flicker back to clear within 20 ms of
+// a real recovery, so the tx hook consumes it directly rather than relying only
+// on controls_allowed having been cleared.
+static bool mazda_ti_fault = false;
+static uint8_t mazda_ti_clean_frames = 0U;
+// Latch: once a fault is seen, actuation stays revoked until a clean frame
+// arrives while the host has already let go. A fault that clears while a cruise
+// edge has re-armed controls must not silently restore authority.
+static bool mazda_ti_latch = false;
+
+// ACC integrity: 0x220 carries a checksum in byte 7 (seed 0x2a over bytes 0..6).
+static bool mazda_acc_checksum_valid(const uint8_t *data) {
+  uint8_t sum = 0x2AU;
+  for (int i = 0; i < 7; i++) {
+    sum += data[i];
+  }
+  return data[7] == sum;
+}
+
+
+// Interceptor health: no feedback yet, a verified violation, a latched fault, or
+// feedback older than the required 50 Hz window. This is the only definition; the
+// rx hook and the tx hook must agree on it.
+static bool mazda_ti_unhealthy(void) {
+  return (mazda_gen2 || mazda_gen3) &&
+    (!mazda_ti_feedback_seen || mazda_ti_fault || mazda_ti_latch ||
+     (mazda_ti_clean_frames < MAZDA_TI_RECOVERY_FRAMES) ||
+     (safety_get_ts_elapsed(microsecond_timer_get(), mazda_ti_feedback_ts) > MAZDA_TI_FEEDBACK_TIMEOUT_US));
+}
 
 // track msgs coming from OP so that we know what CAM msgs to drop and what to forward
 static void mazda_rx_hook(const CANPacket_t *msg) {
   mazda_aol_rx(msg);
+
+  // Health before this frame: used to detect unhealthy -> healthy transitions,
+  // where an authorization acquired during the unhealthy interval is not valid.
+  const bool ti_health_before = !mazda_ti_unhealthy();
+
+  // TI2 fault contract: stale interceptor feedback revokes actuation without
+  // waiting for the host. Never re-enables; the driver must authorize again.
+  // A feedback frame is itself proof of freshness, so it is never judged stale.
+  const bool incoming_feedback = (msg->bus == (unsigned char)MAZDA_AUX) && (msg->addr == MAZDA_2019_STEER_TORQUE);
+  if ((mazda_gen2 || mazda_gen3) && mazda_ti_feedback_seen && !incoming_feedback &&
+      (safety_get_ts_elapsed(microsecond_timer_get(), mazda_ti_feedback_ts) > MAZDA_TI_FEEDBACK_TIMEOUT_US)) {
+    mazda_ti_fault = true;
+    mazda_ti_latch = true;
+    mazda_ti_clean_frames = 0U;
+    controls_allowed = false;
+  }
 
   if ((int)msg->bus == MAZDA_MAIN) {
     if (mazda_gen1) {
@@ -104,11 +195,24 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
         brake_pressed = (msg->data[5] & 0x4U);
       }
 
+
+      // CRZ_STATE (byte 0 bits 6..4) is the GEN2 ACC main switch. mazda_2019.dbc
+      // defines 0 = CRUISE_DISABLED, 1 = CRUISE_READY, 2 = CRUISE_ENABLED and
+      // 4 = GAS_OVERRIDE; 3 and 5..7 are undefined. Treating "anything but 0" as
+      // main-on is the conservative reading for an undefined code.
+      // Evidence: a parked capture in which the physical switch produced 16
+      // alternating 0<->1 transitions, each 19-162 ms after a CRZ_BTNS MODE_ACC
+      // edge (reports/mazda-gen2-aol-gate-report.md section 8). It does not
+      // establish the engaged or override states.
       if (msg->addr == MAZDA_2019_CRUISE) {
-        acc_main_on = true;
+        acc_main_on = (msg->data[0] & 0x70U) != 0U;
         bool cruise_engaged = msg->data[0] & 0x20U;
         bool pre_enable = msg->data[0] & 0x40U;
+        const bool was_allowed = controls_allowed;
         pcm_cruise_check((cruise_engaged || pre_enable));
+        // GEN2 must feed the same accepted-cruise observation the GEN1 path
+        // provides, or AOL's neutral/grant sequencing never sees engagement.
+        mazda_aol_engagement(msg, cruise_engaged || pre_enable, !was_allowed && controls_allowed);
       }
     }
 
@@ -136,9 +240,39 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
 
     if (msg->addr == MAZDA_2019_STEER_TORQUE && (mazda_gen2 || mazda_gen3)) {
       update_sample(&torque_driver, (int16_t)(msg->data[0] << 8 | msg->data[1]));
+      mazda_ti_feedback_seen = true;
+      mazda_ti_feedback_ts = microsecond_timer_get();
+
+      // TI2 fault contract: any CPU violation revokes actuation here, without
+      // waiting for the host. CPU_n_VIOL are whole bytes 2..5 in both the GEN2
+      // and GEN3 DBCs. Never re-enables: the driver must authorize again.
+      const bool ti_violation = (msg->data[2] | msg->data[3] | msg->data[4] | msg->data[5]) != 0U;
+      const bool ti_states_ok = (((msg->data[6] >> 4) & 0xFU) == MAZDA_TI_STATE_RUN) &&
+                                ((msg->data[6] & 0xFU) == MAZDA_TI_STATE_RUN) &&
+                                (((msg->data[7] >> 4) & 0xFU) == MAZDA_TI_STATE_RUN) &&
+                                ((msg->data[7] & 0xFU) == MAZDA_TI_STATE_RUN);
+      // A violation or any state that is not RUN is a fault. Treating unknown
+      // values as unhealthy is the fail-closed reading required by the plan.
+      mazda_ti_fault = ti_violation || !ti_states_ok;
+      if (mazda_ti_fault) {
+        mazda_ti_latch = true;
+        mazda_ti_clean_frames = 0U;
+        controls_allowed = false;
+      } else {
+        if (mazda_ti_clean_frames < MAZDA_TI_RECOVERY_FRAMES) {
+          mazda_ti_clean_frames++;
+        }
+        // Released only after a qualified recovery AND while the host is already
+        // disengaged, so a cruise edge taken during the fault cannot re-arm.
+        if (mazda_ti_latch && !controls_allowed && (mazda_ti_clean_frames >= MAZDA_TI_RECOVERY_FRAMES)) {
+          mazda_ti_latch = false;
+        }
+      }
     }
 
     if (msg->addr == MAZDA_2019_CRUISE && mazda_gen3) {
+      // GEN3 keeps the hardcoded reading: there is no GEN3 capture backing a
+      // CRZ_STATE interpretation, so it must not be assumed from GEN2.
       uint8_t state = msg->data[0] & 0x70U;
       bool cruise_engaged = (0x30U == state);
       bool cruise_override = (0x40U == state);
@@ -158,6 +292,8 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
         // sample speed: scale by 0.01 to get kph
         int speed = (msg->data[4] << 8) | (msg->data[5]);
         vehicle_moving = (speed > 10);  // moving when speed > 0.1 kph
+        mazda_speed_seen = true;
+        mazda_speed_ts = microsecond_timer_get();
       }
     }
     if (mazda_gen3) {
@@ -170,6 +306,27 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
         vehicle_moving = speed > 10;  // same 0.1 kph standstill threshold as GEN1/GEN2
       }
     }
+  }
+
+  // A latched TI2 fault overrides any re-arm that arrived in this same frame
+  // (pcm_cruise_check runs inside the mode hook above).
+  if ((mazda_gen2 || mazda_gen3) && mazda_ti_latch) {
+    controls_allowed = false;
+  }
+
+  // Revoke AOL during RX, not only when a later TX happens to query permission.
+  // Otherwise a complete fault/recovery cycle can preserve a stale token. The
+  // pre-frame check also covers feedback returning after an unobserved timeout.
+  if ((mazda_gen2 || mazda_gen3) && (!ti_health_before || mazda_ti_unhealthy())) {
+    mazda_aol_clear();
+  }
+
+  // Health returning never restores authority. If controls were armed while the
+  // interceptor was unhealthy (startup with no feedback, or a feedback timeout),
+  // the authorization predates health and is revoked here; the driver has to
+  // engage again.
+  if ((mazda_gen2 || mazda_gen3) && !ti_health_before && !mazda_ti_unhealthy() && controls_allowed) {
+    controls_allowed = false;
   }
 }
 
@@ -195,6 +352,10 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
   };
 
   bool tx = true;
+  // No verified TI2 feedback at all is a fault, not a gap: before the first clean
+  // frame (and while feedback is stale or latched) openpilot may not actuate.
+  const bool ti_unhealthy = mazda_ti_unhealthy();
+
   // Check if msg is sent on the main BUS
   if (msg->bus == (unsigned char)MAZDA_MAIN) {
     // steer cmd checks
@@ -216,9 +377,61 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
       }
     }
   }
+  if (mazda_gen2 && (msg->bus == (unsigned char)MAZDA_CAM) && (msg->addr == MAZDA_2019_ACC)) {
+    // 1. Internally inconsistent frame: reject before any compare so a
+    // checksum-only mutation cannot slip through.
+    if (!mazda_acc_checksum_valid(msg->data)) {
+      tx = false;
+    }
+
+    // 2. Compare with each fresh stock reference. Byte 7 is the checksum.
+    bool identical = false;
+    bool approved_only = false;
+    const uint32_t now = microsecond_timer_get();
+    for (int r = 0; r < MAZDA_STOCK_ACC_REFS; r++) {
+      if (mazda_stock_acc_valid[r] &&
+          (safety_get_ts_elapsed(now, mazda_stock_acc_ts[r]) <= MAZDA_STOCK_ACC_FRESHNESS_US)) {
+        bool same = true;
+        bool only = true;
+        for (int i = 0; i < 7; i++) {
+          const uint8_t diff = msg->data[i] ^ mazda_stock_acc[r][i];
+          same = same && (diff == 0U);
+          only = only && ((diff & (uint8_t)~MAZDA_ACC_APPROVED[i]) == 0U);
+        }
+        identical = identical || same;
+        approved_only = approved_only || only;
+      }
+    }
+
+    // 3. An exact fresh stock copy is the stock path: disengaged, stock ACC and
+    // AEB, gas override and TI2 faults all relay it untouched.
+    // 4. Anything else is an openpilot command and needs healthy TI2, the
+    // longitudinal axis (controls_allowed with no AOL policy, the axis
+    // permission with one, so a lateral-only grant can never modify 0x220), no
+    // driver gas, approved fields only, bounded ACCEL_CMD, and HOLD/RESUME only
+    // at standstill.
+    if (!identical) {
+      const int accel = ((msg->data[2] & 0x01) << 11) | (msg->data[3] << 3) | (msg->data[4] >> 5);
+      const bool hold_or_resume = (msg->data[6] & 0x42U) != 0U;
+      const bool standstill_current = mazda_speed_seen && !vehicle_moving &&
+        (safety_get_ts_elapsed(now, mazda_speed_ts) <= MAZDA_SPEED_FRESHNESS_US);
+      const bool allowed = approved_only && longitudinal_controls_allowed() && !ti_unhealthy && !gas_pressed &&
+        (accel >= MAZDA_ACC_ACCEL_MIN) && (accel <= MAZDA_ACC_ACCEL_MAX) && (!hold_or_resume || standstill_current);
+      if (!allowed) {
+        tx = false;
+      }
+    }
+  }
+
   if ((mazda_gen2 || mazda_gen3) && (msg->bus == MAZDA_AUX) && (msg->addr == MAZDA_TI_LKAS)) {
     int desired_torque = (int16_t)((msg->data[0] << 8) | msg->data[1]);  // signal is signed
     if (steer_torque_cmd_checks(desired_torque, -1, MAZDA_2019_STEERING_LIMITS)) {
+      tx = false;
+    }
+    // A verified TI2 fault blocks torque even if a cruise re-engagement briefly
+    // set controls_allowed again between two feedback frames. Releasing torque
+    // (zero) stays allowed so the interceptor is never left holding a command.
+    if (ti_unhealthy && (desired_torque != 0)) {
       tx = false;
     }
   }
@@ -267,6 +480,20 @@ static safety_config mazda_init(uint16_t param) {
   mazda_radar_interceptor = false;
   mazda_no_fsc = false;
   mazda_no_mrcc = false;
+  for (int r = 0; r < MAZDA_STOCK_ACC_REFS; r++) {
+    mazda_stock_acc_valid[r] = false;
+    mazda_stock_acc_ts[r] = 0U;
+    for (int i = 0; i < 8; i++) {
+      mazda_stock_acc[r][i] = 0U;
+    }
+  }
+  mazda_speed_seen = false;
+  mazda_speed_ts = 0U;
+  mazda_ti_feedback_seen = false;
+  mazda_ti_feedback_ts = 0U;
+  mazda_ti_fault = false;
+  mazda_ti_latch = false;
+  mazda_ti_clean_frames = 0U;
 
   // MoreTore param flags select the generation and interceptors. Pure-stock
   // GEN1 keeps param 0 (Dom's stock-AOL configuration); the GEN1 bit is set
@@ -280,7 +507,14 @@ static safety_config mazda_init(uint16_t param) {
   mazda_no_fsc = GET_FLAG(param, FLAG_NO_FSC);
   mazda_no_mrcc = GET_FLAG(param, FLAG_NO_MRCC);
 
-  mazda_aol_enabled = stock_gen1 && ((unsigned int)alternative_experience == 32U);
+  // Startup health is carried by mazda_ti_feedback_seen (see the tx hook): no
+  // feedback has arrived yet, so actuation is refused until the first clean
+  // 0x24B frame. That is a missing-input condition, not a fault latch.
+
+  // GEN1 stock AOL keeps its original scope. GEN2 joins it through the same
+  // protocol with its own sources (mazda_stock_aol.h): CRZ_STATE main, GEAR,
+  // interceptor liveness and camera-bus speed.
+  mazda_aol_enabled = (stock_gen1 || (param == (uint16_t)FLAG_GEN2)) && ((unsigned int)alternative_experience == 32U);
   MAZDA_TX_MSGS[0].check_relay = !mazda_aol_enabled;
   MAZDA_TX_MSGS[2].check_relay = !mazda_aol_enabled;
   if (mazda_aol_enabled) {
@@ -338,20 +572,45 @@ static safety_config mazda_init(uint16_t param) {
     ret = BUILD_SAFETY_CFG(mazda_gen23_rx_checks, MAZDA_2023_TX_MSGS);
   }
 
-  // Alt-exp 32 (stock AOL) is only defined for pure-stock GEN1 (param 0).
-  // Every other configuration (TI, RI, GEN2, GEN3) gets no TX in that mode,
-  // matching Dom's fail-closed design for a GEN1-only feature.
-  if (((unsigned int)alternative_experience == 32U) && !stock_gen1) {
+  // Alt-exp 32 without a supported profile gets no TX at all. GEN2 now has its
+  // own profile, so it is excluded from that fail-closed rule; GEN1 TI/RI and
+  // GEN3 still are not supported in that mode.
+  if (((unsigned int)alternative_experience == 32U) && !mazda_aol_enabled) {
     ret.tx_msgs = NULL;
     ret.tx_msgs_len = 0;
   }
   return ret;
 }
 
+// 0x220 is not part of the required GEN2 rx set, so it arrives on the optional
+// ingress path. Record the stock frame for the tx hook's passthrough check; the
+// AOL sources below keep using the same callback.
+static void mazda_optional_rx(const CANPacket_t *msg) {
+  if (mazda_gen2 && (msg->bus == (unsigned char)MAZDA_MAIN) && (msg->addr == MAZDA_2019_ACC)) {
+    // Only a complete, checksum-valid stock frame may become the passthrough
+    // reference; a truncated or corrupt frame must not authorize a relay, and it
+    // invalidates both references.
+    if ((GET_LEN(msg) == 8U) && mazda_acc_checksum_valid(msg->data)) {
+      for (int i = 0; i < 8; i++) {
+        mazda_stock_acc[1][i] = mazda_stock_acc[0][i];
+        mazda_stock_acc[0][i] = msg->data[i];
+      }
+      mazda_stock_acc_valid[1] = mazda_stock_acc_valid[0];
+      mazda_stock_acc_ts[1] = mazda_stock_acc_ts[0];
+      mazda_stock_acc_valid[0] = true;
+      mazda_stock_acc_ts[0] = microsecond_timer_get();
+    } else {
+      mazda_stock_acc_valid[0] = false;
+      mazda_stock_acc_valid[1] = false;
+    }
+  }
+  mazda_aol_optional_rx(msg);
+}
+
 const safety_hooks mazda_hooks = {
   .init = mazda_init,
   .rx = mazda_rx_hook,
   .tx = mazda_tx_hook,
-  .optional_rx = mazda_aol_optional_rx,
+  .optional_rx = mazda_optional_rx,
   .fwd = mazda_aol_fwd,
 };
