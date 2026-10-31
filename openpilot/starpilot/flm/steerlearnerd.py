@@ -450,6 +450,7 @@ def run(
   retained_event = pending_event = None
   live_offer = None
   previous_tracking_pose_header = 0
+  last_tracking_observation_header = 0
   next_tracking_status_ns = 0
   study_health_control = None
   saved_live_targets = set()
@@ -548,13 +549,14 @@ def run(
     return live_offer
 
   def renew_tracking(*, refresh=False, incoming=None):
-    nonlocal live_offer, next_tracking_status_ns, tracking_needs_native
+    nonlocal live_offer, next_tracking_status_ns, tracking_needs_native, last_tracking_observation_header
     if live_offer is None or live_actor is None or live_history.offer is not None:
       tracking_needs_native = False
       return False
     if refresh:
       source_delivery.refresh(sm)
-      if (not sm.updated['deviceMotion'] and not tracking_needs_native and
+      if (not sm.updated['deviceMotion'] and int(sm.logMonoTime['deviceMotion']) <= last_tracking_observation_header and
+          not tracking_needs_native and
           not _pending_pose_bracket_ready(collector, incoming, clock())):
         return False
     valid, stamp = source_current(read=refresh)
@@ -566,6 +568,9 @@ def run(
     if tracking_needs_native:
       return False
     early = _early_tracking_offer(sm, CP, collector, live_actor, source, now_ns=stamp, clock=clock)
+    # A subsequent refresh can clear updated after receiving real new motion.
+    # Retain only its consumed header; all pose/native/lease checks still run.
+    last_tracking_observation_header = max(last_tracking_observation_header, int(sm.logMonoTime['deviceMotion']))
     if early is None:
       return False
     live_offer = early
