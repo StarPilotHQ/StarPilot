@@ -1,5 +1,5 @@
 from opendbc.car import structs
-from opendbc.car.mazda.stock_aol import qualified
+from opendbc.car.mazda.stock_aol import admitted
 from openpilot.selfdrive.car.cruise import CRUISE_LONG_PRESS
 from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE, ButtonType
 
@@ -27,7 +27,7 @@ class MazdaStockCardIntent(AolCardIntent):
     from openpilot.starpilot.aol.transport_pause import _healthy_transport_native, availability_only
 
     self.startup_native_ready = False
-    if not self.startup_main_pending or not qualified(self.cp, marked_only=True):
+    if not self.startup_main_pending or not admitted(self.cp, marked_only=True):
       return
     if CS.steerFaultPermanent or CS.accFaulted:
       self.startup_main_pending = False

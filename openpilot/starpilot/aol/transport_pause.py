@@ -564,7 +564,7 @@ class TransportPauseFeedback:
     from opendbc.car.ford.aol import qualified as ford_qualified
     from opendbc.car.rivian.stock_aol import qualified as rivian_qualified
     from openpilot.starpilot.car.volkswagen.aol import qualified as volkswagen_qualified
-    from opendbc.car.mazda.stock_aol import qualified as mazda_qualified
+    from opendbc.car.mazda.stock_aol import admitted as mazda_admitted
     from opendbc.car.subaru.stock_aol import qualified as subaru_qualified
     from opendbc.car.hyundai.canfd_angle_aol import qualified as angle_qualified
     from opendbc.car.hyundai.canfd_stock_aol import qualified as stock_canfd_qualified
@@ -582,7 +582,7 @@ class TransportPauseFeedback:
     stock_temporary_user = bool(recovering_user and (stock_hkg or cp.brand == 'chrysler' and chrysler_qualified(cp, marked_only=True) or
       cp.brand == 'ford' and ford_qualified(cp, marked_only=True) or cp.brand == 'nissan' and nissan_qualified(cp, marked_only=True)
       or cp.brand == 'subaru' and subaru_qualified(cp, marked_only=True)
-      or cp.brand == 'mazda' and mazda_qualified(cp, marked_only=True)
+      or cp.brand == 'mazda' and mazda_admitted(cp, marked_only=True)
       or cp.brand == 'rivian' and rivian_qualified(cp, marked_only=True)
       or cp.brand == 'volkswagen' and volkswagen_qualified(cp, marked_only=True)) and users and
       not axis.desiredLongitudinal and not axis.longitudinalActive and
@@ -794,9 +794,10 @@ class TransportPauseFeedback:
       self.lateral_inventory==(native.pandaSerial,tuple(p.hardwareSerial for p in native.pandaInventory)))
 
   def _temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer, signature):
-    from openpilot.starpilot.aol.temporary_steering import temporary_steering_intent_current
-    return temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns,
-      latched=latched, producer=producer, signature=signature)
+    def _temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer, signature):
+      from openpilot.starpilot.aol.temporary_steering import temporary_steering_intent_current
+      return temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns,
+        latched=latched, producer=producer, signature=signature)
 
   def _honda_long_withdrawal_lateral_current(self, sm, cp, cs, axis, now_ns, *, latched, source_ns, started, require_long_request):
     from opendbc.car.honda.stock_aol import qualified
@@ -1210,7 +1211,7 @@ class TransportPauseFeedback:
   def _angle_stop_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
     from opendbc.car.structs import car
     from opendbc.car.hyundai.canfd_angle_aol import qualified, temporary_restriction
-    from opendbc.car.mazda.stock_aol import qualified as mazda_qualified, temporary_restriction as mazda_restriction
+    from opendbc.car.mazda.stock_aol import admitted as mazda_admitted, temporary_restriction as mazda_restriction
     from opendbc.car.subaru.stock_aol import temporary_restriction as subaru_restriction
 
     from opendbc.car.hyundai.values import CAR
@@ -1220,7 +1221,7 @@ class TransportPauseFeedback:
     combined_stop = bool(ccnc_stop and axis.desiredLongitudinal and axis.longitudinalActive)
     pending_stop = bool(ccnc_stop and axis.desiredLongitudinal and not axis.longitudinalActive and not axis.lateralActive)
     subaru_stop = cs.standstill and subaru_restriction(cp, cs)
-    if (not (qualified(cp, marked_only=True) or mazda_qualified(cp, marked_only=True) or subaru_stop or ccnc_stop) or
+    if (not (qualified(cp, marked_only=True) or mazda_admitted(cp, marked_only=True) or subaru_stop or ccnc_stop) or
       cs.gearShifter != car.CarState.GearShifter.drive or
       not (temporary_restriction(cp, cs) or mazda_restriction(cp, cs) or subaru_stop) or cs.steerFaultTemporary or cs.steerFaultPermanent or
       not latched or self.failed or self.paused or self.pending_event or self.retention_started_ns or
@@ -1554,11 +1555,11 @@ class TransportPauseFeedback:
             informational_events=(log.OnroadEvent.EventName.userBookmarkNotPaired,), allow_withdrawal_join=True):
           return False
       if cp.brand == 'mazda' and current and continuity:
-        from opendbc.car.mazda.stock_aol import qualified as mazda_qualified
+        from opendbc.car.mazda.stock_aol import admitted as mazda_admitted
         from openpilot.starpilot.aol.reverse_intent import retain_reverse_intent
 
         if retain_reverse_intent(self, sm, cp, cs, axis, now_ns, latched=latched, producer=intent_producer_session,
-            qualified_cp=mazda_qualified(cp, marked_only=True),
+            qualified_cp=mazda_admitted(cp, marked_only=True),
             informational_events=(log.OnroadEvent.EventName.userBookmarkNotPaired,), allow_withdrawal_join=True):
           return False
       if cp.brand == 'rivian' and current and continuity:
