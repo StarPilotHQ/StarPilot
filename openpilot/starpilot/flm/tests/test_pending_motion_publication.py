@@ -27,7 +27,7 @@ def test_absent_pending_pose_does_not_start_extra_observation():
   assert not steerlearnerd._pending_pose_bracket_ready(S(), S(state_ns=BASE), BASE)
 
 
-@pytest.mark.parametrize('missing', ['state_bracket', 'native_pair', 'delivery_in_batch', 'delivery_received_by_native_refresh'])
+@pytest.mark.parametrize('missing', ['state_bracket', 'native_pair', 'delivery_in_batch', 'delivery_received_by_native_refresh', 'pending_trial_ingest'])
 @pytest.mark.parametrize('retained_header', [False, True])
 def test_actual_callbacks_publish_new_witness_before_remaining_fifo_work(monkeypatch, missing, retained_header):
   now = [BASE-25_000_000]
@@ -94,6 +94,8 @@ def test_actual_callbacks_publish_new_witness_before_remaining_fifo_work(monkeyp
     def tick(self, *args, **kwargs):
       self.calls += 1
       assert self.calls == 1
+      if missing == 'pending_trial_ingest':
+        self.ingress = S(optimizer=S(offer_state={'phase':'trial', 'accepted':False, 'deadline_ns':old.deadline_ns}))
       return old
     def mark_publication(self, value):
       self.published.append(value.sequence)
@@ -104,6 +106,17 @@ def test_actual_callbacks_publish_new_witness_before_remaining_fifo_work(monkeyp
       return True
 
   actor = Actor()
+  control_tape, output_tape = object(), object()
+  original_next = steerlearnerd._SourceDelivery.next
+  def observe_wait(delivery, sm, *, pending_evidence=()):
+    if missing == 'pending_trial_ingest' and actor.calls:
+      assert not collector._original_source_pose_queue
+      assert pending_evidence == (control_tape, output_tape)
+      # The fixture owns the arrival schedule below; actual socket polling is
+      # separately tested. This assertion observes the real daemon's API call.
+      return original_next(delivery, sm)
+    return original_next(delivery, sm, pending_evidence=pending_evidence)
+  monkeypatch.setattr(steerlearnerd._SourceDelivery, 'next', observe_wait)
   fitter = S(cancel=lambda *args:None, close=lambda *args:True)
   history = S(offer=None, requalifier=None, reset=lambda:None, advance=lambda *args, **kwargs:None,
     observe_response_recovery=lambda *args:False)
@@ -158,7 +171,7 @@ def test_actual_callbacks_publish_new_witness_before_remaining_fifo_work(monkeyp
     raise Stop
   monkeypatch.setattr(steerlearnerd, 'drain_pair', drain)
   with pytest.raises(Stop):
-    steerlearnerd.run(S(), SM(), object(), object(), S(send=send), lambda *args, **kwargs:adapter,
+    steerlearnerd.run(S(), SM(), control_tape, output_tape, S(send=send), lambda *args, **kwargs:adapter,
       None, source, lambda *args:('objective',), lambda *args:'objective', None, None, fitter, None,
       clock=lambda:now[0], live_actor=actor)
   fresh_sends = [stamp for stamp, version, sequence in sent if version == 1 and sequence == 2]
