@@ -74,6 +74,16 @@ access uses the same authenticated, same-origin HTTP API as local Wi-Fi.
 
 ## Access and operation rules
 
+Home's outside temperature is an Open-Meteo weather estimate near the last
+saved navigation location, not a vehicle sensor reading. The authenticated
+weather endpoint fetches asynchronously, rounds coordinates to two decimal
+places before sending them to Open-Meteo, caches successful requests for ten
+minutes and backs off failed requests for one minute. Changed locations may
+refresh after one minute. Data older than thirty minutes is unavailable;
+no saved location means no weather request. The Home page respects Use Metric
+and stops weather polling when hidden. Device thermal sensors are not cabin-air
+thermometers, so no cabin temperature is inferred from CPU, modem or board heat.
+
 ### Optional reverse proxy
 
 While offroad, open **Toggles → Developer → Reverse proxy**. Enter the proxy IP

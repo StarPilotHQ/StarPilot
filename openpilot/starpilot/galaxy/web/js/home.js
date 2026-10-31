@@ -6,6 +6,7 @@ import { MonitorFeed } from "./monitor-feed.js"
 import { SoftwareStatusFeed } from "./software-status.js"
 import { ModelStatusFeed } from "./models.js"
 import { DriveStatsFeed } from "./drive-stats.js"
+import { WeatherVitals } from "./weather.js"
 
 // The six lightweight motifs follow the original Galaxy Personal Records row.
 const RECORD_ART = {
@@ -124,7 +125,7 @@ export function homeSummary(monitor, model, software) {
 
 export const Home = {
   name: "Home",
-  components: { GxState, GxNotice, LocalAccess },
+  components: { GxState, GxNotice, LocalAccess, WeatherVitals },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, required: true } },
   data: () => ({
@@ -251,6 +252,7 @@ export const Home = {
               <div><strong>{{ summary.system.memory }}</strong><span>Memory</span></div></div>
               <p>12 V battery: <strong>{{ summary.system.battery }}</strong></p>
               <p>Storage: {{ summary.system.storage }}</p><small>Sampled {{ summary.system.observed }}</small></template>
+            <WeatherVitals :metric="drives.data?.isMetric === true" :mode="mode" :unauthorized="unauthorized" />
             <button type="button" class="gx-home__link" @click="go('/logs/monitor')">Open System Monitor <i class="bi bi-arrow-right"></i></button>
           </section>
           <section class="gx-card gx-home__card">

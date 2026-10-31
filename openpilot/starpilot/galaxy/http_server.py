@@ -135,7 +135,7 @@ class _LocalHTTPServer(ThreadingHTTPServer):
       media = getattr(self, 'recording_media_source', None)
       if media is not None:
         cleanup.callback(media.close)
-      for name in ('map_source', 'settings_source', 'vehicle_selection_source', 'toyota_tools_source', 'model_source', 'plots_source',
+      for name in ('weather_source', 'map_source', 'settings_source', 'vehicle_selection_source', 'toyota_tools_source', 'model_source', 'plots_source',
                    'bluetooth_authority', 'bluetooth_source', 'model_manager_source', 'model_authority', 'layout_authority', 'favorites_source',
                    'sound_authority', 'sound_source', 'software_operations_source', 'drive_stats_authority', 'drive_stats_source',
                    'pairing_authority', 'evidence_source', 'device_state_source', 'navigation_source', 'drive_physical_source', 'notification_source',

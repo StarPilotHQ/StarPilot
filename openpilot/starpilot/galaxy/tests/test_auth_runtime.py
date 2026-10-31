@@ -16,6 +16,19 @@ from openpilot.starpilot.galaxy.server import _LocalHTTPServer, allowed_authorit
 
 
 class AuthRuntimeTest(unittest.TestCase):
+  def test_weather_requires_session_and_rechecks_revocation(self):
+    sample = {'status': 'current', 'temperatureC': 12, 'observedAt': 10000}
+    source = mock.Mock()
+    source.sample.return_value = sample
+    with mock.patch('openpilot.starpilot.galaxy.weather.WeatherSource', return_value=source) as factory:
+      self.assertEqual(self.request('/api/weather')[0], 503)
+      factory.assert_not_called()
+      self.assertTrue(self.owner.configure('password123', lambda: True))
+      _, _, cookie = self.login()
+      cookie = cookie.split(';', 1)[0]
+      self.assertEqual(self.request('/api/weather', headers={'Cookie': cookie})[0], 200)
+      source.sample.side_effect = lambda: (self.owner.replace_for_pairing('newpassword123', lambda: True), sample)[1]
+      self.assertEqual(self.request('/api/weather', headers={'Cookie': cookie})[0], 401)
   def test_reverse_proxy_requires_password_even_without_forwarding_headers(self):
     self.stop()
     self.server = make_server(port=0, owner=self.owner, monitor=self.monitor,

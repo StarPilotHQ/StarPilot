@@ -175,6 +175,17 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
     evidence_source = EvidenceSource()
 
   monitor_source = monitor if monitor is not None else SystemMonitor(messages=evidence_source)
+  weather_source = None
+  weather_lock = threading.Lock()
+
+  def weather_status():
+    nonlocal weather_source
+    with weather_lock:
+      if weather_source is None:
+        from openpilot.starpilot.galaxy.weather import WeatherSource
+        weather_source = WeatherSource()
+        server.weather_source = weather_source
+      return weather_source.sample()
   vehicle_display = DeviceStateSource(evidence_source)
 
   def context_source(params):
@@ -880,6 +891,12 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             self.json(200, result)
           else:
             self.json(401, {'error': 'Sign in to Galaxy'})
+      elif path == '/api/weather':
+        if not self.require_session():
+          return
+        result = weather_status()
+        if self.require_session():
+          self.json(200, result)
       elif path == '/api/system/monitor':
         if not self.require_session():
           return
