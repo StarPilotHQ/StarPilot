@@ -138,11 +138,11 @@ def _source_key(context):
 _VALID_SOURCE_CONTEXTS = OrderedDict()
 
 
-def validate_source_context(context):
+def _validated_source_key(context):
   key = _source_key(context)
   if key in _VALID_SOURCE_CONTEXTS:
     _VALID_SOURCE_CONTEXTS.move_to_end(key)
-    return context
+    return key
   context.binding.validate()
   if (
     context.version != SOURCE_VERSION
@@ -165,6 +165,11 @@ def validate_source_context(context):
   _VALID_SOURCE_CONTEXTS[key] = None
   if len(_VALID_SOURCE_CONTEXTS) > 8:
     _VALID_SOURCE_CONTEXTS.popitem(last=False)
+  return key
+
+
+def validate_source_context(context):
+  _validated_source_key(context)
   return context
 
 
@@ -424,11 +429,23 @@ class ResponseWitness:
 def _validate_raw_witness(witness, binding, now_ns, *, content=True):
   if type(witness) is not ResponseWitness:
     raise ValueError('fresh source physical residual witness required')
-  cert = validate_certificate(witness.certificate) if content else witness.certificate
+  owned = _owned(witness, ResponseWitness, _WITNESS_FIELDS)
+  cert = owned['certificate']
+  source_key = _validated_source_key(cert) if content and type(cert) is TrackingSourceContext else None
+  if content and source_key is None:
+    cert = validate_certificate(cert)
   source_only = type(cert) is TrackingSourceContext
+  # Share immutable values only within this call. Every new call still checks
+  # the actual dictionaries/accessors, expected binding and original clocks.
+  cert_binding = cert.binding
+  cert_values = source_key[1] if source_key is not None else _binding_values(cert_binding)
+  expected = cert_values if binding is cert_binding else _binding_values(binding)
+  actual_binding = owned['binding']
+  actual = (cert_values if actual_binding is cert_binding else
+            expected if actual_binding is binding else _binding_values(actual_binding))
   if (
-    _binding_values(witness.binding) != _binding_values(binding)
-    or _binding_values(cert.binding) != _binding_values(binding)
+    actual != expected
+    or cert_values != expected
     or any(
       type(v) is not int
       for v in (
