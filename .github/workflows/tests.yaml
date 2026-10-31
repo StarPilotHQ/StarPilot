@@ -38,7 +38,9 @@ jobs:
       if: github.event_name == 'push' && github.ref == 'refs/heads/Dom'
       run: python3 tools/ci/check_prebuilt_receipt.py --revision HEAD
     - name: Check shipped device runtime dependencies
-      run: python3 -m unittest tools.laptop_device_build.tests.test_runtime_dependencies -v
+      run: |
+        python3 -m unittest tools.laptop_device_build.tests.test_runtime_dependencies -v
+        python3 -c 'from pathlib import Path; assert b"starting pandad (comma hardware)" in Path("openpilot/selfdrive/pandad/pandad").read_bytes(), "Shipped pandad must use the comma hardware build profile"'
     - name: Validate tracked dependencies
       run: python3 tools/vendor/check.py --revision HEAD
     - run: ./tools/op.sh setup
