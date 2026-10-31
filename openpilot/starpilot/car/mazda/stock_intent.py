@@ -113,6 +113,8 @@ class MazdaStockCardIntent(AolCardIntent):
           # observation lets the driver deliberately reauthorize with a fresh
           # MAIN-on edge; recovery alone never reopens independent arming.
           self.startup_main_pending = True
+          self.startup_main_source_ns = 0
+          self.startup_binding = None
       elif self.main_seen and self.main_neutral and not self.main_available:
         events.append(structs.CarState.ButtonEvent(type=ButtonType.mainCruise, pressed=True))
         self.main_pulse = True
