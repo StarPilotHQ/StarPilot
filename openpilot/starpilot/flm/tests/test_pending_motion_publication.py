@@ -27,7 +27,7 @@ def test_absent_pending_pose_does_not_start_extra_observation():
   assert not steerlearnerd._pending_pose_bracket_ready(S(), S(state_ns=BASE), BASE)
 
 
-@pytest.mark.parametrize('missing', ['state_bracket', 'native_pair'])
+@pytest.mark.parametrize('missing', ['state_bracket', 'native_pair', 'delivery_in_batch'])
 @pytest.mark.parametrize('retained_header', [False, True])
 def test_actual_callbacks_publish_new_witness_before_remaining_fifo_work(monkeypatch, missing, retained_header):
   now = [BASE-25_000_000]
@@ -43,14 +43,17 @@ def test_actual_callbacks_publish_new_witness_before_remaining_fifo_work(monkeyp
 
   class SM:
     updated = {'deviceMotion': False}
-    logMonoTime = {'deviceMotion': BASE}
+    logMonoTime = {'deviceMotion': BASE-50_000_000 if missing == 'delivery_in_batch' else BASE}
     def update(self, timeout=None):
       if timeout == 0:
-        self.updated['deviceMotion'] = False
+        self.updated['deviceMotion'] = missing == 'delivery_in_batch' and now[0] >= BASE+30_000_000
+        if self.updated['deviceMotion']:
+          self.logMonoTime['deviceMotion'] = BASE
       else:
         now[0] += 25_000_000
         self.updated['deviceMotion'] = True
-        self.logMonoTime['deviceMotion'] = BASE if retained_header else now[0]
+        self.logMonoTime['deviceMotion'] = (BASE-50_000_000 if missing == 'delivery_in_batch' else
+          BASE if retained_header else now[0])
     def __getitem__(self, key):
       assert key == 'pandaStates'
       return []
@@ -105,11 +108,13 @@ def test_actual_callbacks_publish_new_witness_before_remaining_fifo_work(monkeyp
   monkeypatch.setattr('openpilot.starpilot.flm.source_plant_runtime.start_original_capture', lambda *args:True)
   monkeypatch.setattr('openpilot.starpilot.flm.source_plant_runtime.observe', lambda *args:None)
   def native(sm, cp, control, stamp):
-    return missing == 'state_bracket' or now[0] <= BASE+10_000_000 or control.control_ns >= BASE+25_000_000
+    return missing != 'native_pair' or now[0] <= BASE+10_000_000 or control.control_ns >= BASE+25_000_000
   monkeypatch.setattr('openpilot.starpilot.flm.native_health.current_native_health', native)
   monkeypatch.setattr(steerlearnerd, 'read_control', lambda *args:evidence())
   monkeypatch.setattr(steerlearnerd, 'read_applied', lambda *args:S(control_ns=now[0], apply_ns=now[0]))
   def early(*args, **kwargs):
+    if missing == 'delivery_in_batch' and args[0].logMonoTime['deviceMotion'] < BASE:
+      return None
     if not collector.right_available:
       collector._original_source_pose_queue = (S(mono_ns=BASE, source_upper_ns=BASE),)
       return None

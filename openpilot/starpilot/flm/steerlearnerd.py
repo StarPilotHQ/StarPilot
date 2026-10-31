@@ -544,12 +544,17 @@ def run(
   def current_tracking_offer():
     return live_offer
 
-  def renew_tracking():
+  def renew_tracking(*, refresh=False):
     nonlocal live_offer, next_tracking_status_ns, tracking_needs_native
     if live_offer is None or live_actor is None or live_history.offer is not None:
       tracking_needs_native = False
       return False
-    valid, stamp = source_current()
+    if refresh:
+      source_delivery.refresh(sm)
+      if (not sm.updated['deviceMotion'] and not tracking_needs_native and
+          not getattr(collector, '_original_source_pose_queue', ())):
+        return False
+    valid, stamp = source_current(read=refresh)
     if not valid or collector is None:
       tracking_needs_native = False
       return False
@@ -753,9 +758,9 @@ def run(
             application = read_restore_application(event.starpilotLateralState, now_ns=received_now, offer=live_history.offer)
             if application is not None and current_native_health(sm, CP, evidence, received_now):
               live_history.acknowledge(live_actor, application, now_ns=received_now)
-          if (live_actor is not None and offered is not None and admitted and
-              (tracking_needs_native or _pending_pose_bracket_ready(collector, prepared, clock()))):
-            renew_tracking()
+          if live_actor is not None and offered is not None and admitted:
+            # Motion may arrive while the original FIFO is still draining.
+            renew_tracking(refresh=True)
 
       def output(event, current, stamp):
         valid_source, received_now = source_current()
