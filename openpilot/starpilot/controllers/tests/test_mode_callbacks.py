@@ -39,14 +39,19 @@ def test_border_distinguishes_traffic_switchback_manual_chill_and_experimental()
   assert color() == (145, 155, 149)
 
 
-def test_actual_native_callbacks_recheck_safety_and_current_producer():
+def test_actual_native_callbacks_recheck_safety_and_current_producer(monkeypatch):
   from openpilot.starpilot.ui import runtime_app
   from openpilot.selfdrive.ui import ui_state as device_module
-  sm, cp = {'deviceState': NS(startedMonoTime=0)}, NS(carFingerprint='qualified', flags=0, pcmCruise=True)
+  from openpilot.starpilot.controllers.tests.test_wheel_actions import NOW, services
+  cp = NS(carFingerprint='qualified', flags=0, pcmCruise=True)
+  sm = services(cp)
+  sm.recv_frame = dict.fromkeys(sm, 2)
+  monkeypatch.setattr(runtime_app.time, 'monotonic_ns', lambda: NOW)
   params = NS(get_bool=lambda _: False)
-  ui = NS(CP=cp, params=params, sm=sm, has_longitudinal_control=True, personality=0, started_frame=1)
+  ui = NS(CP=cp, params=params, sm=sm, has_longitudinal_control=True, personality=0, started_frame=1, started=True)
   state = OnroadState(True, True, 15, 80, SpeedLimitObservation())
   session = runtime_app.StarShellSession.__new__(runtime_app.StarShellSession)
+  session._mode = runtime_app.ShellMode.ONROAD
   session.snapshot = Mock(return_value=NS(onroad=state))
   session._favorite_authority = Mock(return_value=True)
   session._conditional_favorite_active = Mock(return_value=False)

@@ -67,6 +67,7 @@ def test_paddle_still_reaches_native_bookmark_after_card_materializes_defaults(n
   ui.params.put('LeftPaddleButtonControl', 8, block=True)
   ui.params.put_bool('NostalgiaMode', False, block=True)
   ui.sm = services(original)
+  ui.sm.recv_frame = dict.fromkeys(ui.sm, ui.started_frame + 1)
   ui.sm['carControl'].enabled = enabled
   owner, sender = wheel_actions.WheelPublisher(), Publisher()
   for cp in (original, rebuilt):

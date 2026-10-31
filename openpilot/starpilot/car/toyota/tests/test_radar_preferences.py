@@ -10,6 +10,7 @@ from opendbc.car import gen_empty_fingerprint
 from opendbc.car.toyota.interface import CarInterface
 from opendbc.car.toyota.radar_interface import RadarInterface
 from opendbc.car.toyota.values import CAR, ToyotaFlags
+from openpilot.common.params import Params
 from openpilot.starpilot.car.toyota.radar_preferences import KEY, CHOICES, capability, selected
 from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
 from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
@@ -19,6 +20,9 @@ from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
 class FilesystemParams:
   def __init__(self, path):
     self.path = path
+
+  def get_default_value(self, key):
+    return Params().get_default_value(key)
 
   def get_param_path(self, key):
     return str(self.path / key)

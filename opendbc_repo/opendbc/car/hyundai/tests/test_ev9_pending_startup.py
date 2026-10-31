@@ -506,6 +506,7 @@ class TestEV9NormalSelection(unittest.TestCase):
     import json
     from pathlib import Path
     FIXTURE = json.loads((Path(__file__).parent / 'testdata' / 'ev9_startup_capture.json').read_text())
+    from openpilot.common.params import Params
     from openpilot.selfdrive.car.card import alpha_long_requested
     from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
     from openpilot.starpilot.vehicle_startup import VehicleStartupOwner
@@ -522,6 +523,9 @@ class TestEV9NormalSelection(unittest.TestCase):
         self.root = Path(self.directory.name)
         for key, value in self.values.items():
           (self.root / key).write_bytes(value)
+
+      def get_default_value(self, key):
+        return Params().get_default_value(key)
 
       def get_param_path(self, key):
         return str(self.root / key)
