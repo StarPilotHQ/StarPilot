@@ -1,5 +1,6 @@
 """Optional planner owners follow the finalized GM driving ownership."""
 
+from opendbc.car.config_cache import cached_config
 from opendbc.car.gm.lateral import lane_centering_supported
 from opendbc.car.gm.suburban import stopping_decel_rate
 from opendbc.car.gm.values import (malibu_hybrid_profile, camera_acc_pedal_profile, control_flags, CAR, GMFlags, GMSafetyFlags,
@@ -20,15 +21,20 @@ def longitudinal_supported(cp) -> bool:
   try:
     if not _healthy(cp) or not cp.openpilotLongitudinalControl or cp.pcmCruise:
       return False
-    return (volt_cc_pedal_profile(cp) is not None or camera_acc_pedal_profile(cp) is not None or is_ordinary_camera_profile(cp, longitudinal=True) or
+    return _longitudinal_owner(cp)
+  except (AttributeError, IndexError, TypeError, ValueError):
+    return False
+
+
+@cached_config
+def _longitudinal_owner(cp) -> bool:
+  return (volt_cc_pedal_profile(cp) is not None or camera_acc_pedal_profile(cp) is not None or is_ordinary_camera_profile(cp, longitudinal=True) or
             is_ordinary_cc_profile(cp) or is_conventional_cc_pedal_profile(cp) or malibu_hybrid_profile(cp) is not None or
             is_ordinary_ascm_profile(cp, longitudinal=True) or is_ordinary_sdgm_profile(cp, longitudinal=True)
         or is_volt_longitudinal(cp) or is_volt_cc_longitudinal(cp) or is_bolt_euv_longitudinal(cp) or
             is_bolt_pedal_profile(cp) or
             (control_flags(cp) == int(GMFlags.CC_LONG) and is_bolt_cc_profile(cp)) or
             (control_flags(cp) == 0 and stopping_decel_rate(cp) is not None))
-  except (AttributeError, IndexError, TypeError, ValueError):
-    return False
 
 
 def display_supported(cp) -> bool:
