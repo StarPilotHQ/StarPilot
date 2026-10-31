@@ -4,16 +4,14 @@ from openpilot.starpilot.tests.ford_lifecycle_helpers import FORD_FACTORIES, for
 
 @pytest.fixture(autouse=True)
 def configuration(monkeypatch, request):
-  monkeypatch.ford_angle = request.node.callspec.params['angle']
   monkeypatch.ford_topology = request.node.callspec.params['topology']
 
 
 @pytest.mark.parametrize('identity', [FORD_FACTORIES[11]])
 @pytest.mark.parametrize('alpha', [True])
 @pytest.mark.parametrize('hands_free', [False, True])
-@pytest.mark.parametrize('angle', [False, True])
 @pytest.mark.parametrize('topology', ['automatic', 'manual-multi'])
-def test_native_first_brake_while_already_stopped(ford_joined, monkeypatch, angle, topology):
+def test_native_first_brake_while_already_stopped(ford_joined, monkeypatch, topology):
   monkeypatch.ford_standstill_brake = True
   monkeypatch.ford_native_first_pedal = True
   monkeypatch.ford_native_10hz = True

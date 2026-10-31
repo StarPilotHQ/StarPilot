@@ -4,11 +4,9 @@ from opendbc.car.carlog import carlog
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.ford.carcontroller import CarController
 from opendbc.car.ford.carstate import CarState
-from opendbc.car.ford.classic_lateral import CLASSIC_EXTENDED_CARS
-from opendbc.car.ford.generic_canfd_lateral import GENERIC_CANFD_CARS
 from opendbc.car.ford.fordcan import CanBus
 from opendbc.car.ford.radar_interface import RadarInterface
-from opendbc.car.ford.values import CarControllerParams, DBC, Ecu, FordFlags, RADAR, FordSafetyFlags, CAR
+from opendbc.car.ford.values import CarControllerParams, DBC, Ecu, FordFlags, RADAR, FordSafetyFlags, CAR, FORD_CANFD_CARS, FORD_CLASSIC_CARS
 from opendbc.car.interfaces import CarInterfaceBase
 
 TransmissionType = structs.CarParams.TransmissionType
@@ -20,11 +18,6 @@ class CarInterface(CarInterfaceBase):
   RadarInterface = RadarInterface
 
   DRIVABLE_GEARS = (structs.CarState.GearShifter.low, structs.CarState.GearShifter.manumatic)
-
-  def update(self, can_packets):
-    if self.CC is not None and self.CC.bp_lat is not None:
-      self.CC.bp_lat.observe_can(can_packets, self.CC.CAN.main)
-    return super().update(can_packets)
 
   @staticmethod
   def get_pid_accel_limits(CP, current_speed, cruise_speed):
@@ -59,18 +52,9 @@ class CarInterface(CarInterfaceBase):
     ret.safetyConfigs = cfgs
 
     new_port = bool(ret.flags & FordFlags.NEW_PORT)
-    if candidate in GENERIC_CANFD_CARS:
+    if candidate in FORD_CANFD_CARS | FORD_CLASSIC_CARS:
+      # Explicit stock/OP-long selection on these families
       ret.alphaLongitudinalAvailable = True
-      ret.steerActuatorDelay = 0.22
-      longitudinal_requested = bool(alpha_long)
-    elif candidate == CAR.FORD_MUSTANG_MACH_E_MK1:
-      ret.alphaLongitudinalAvailable = True
-      longitudinal_requested = bool(alpha_long)
-    elif candidate in CLASSIC_EXTENDED_CARS:
-      # Original shared classic ownership is explicit stock/OP-long selection.
-      # Actuator delay is live; modern LongControl already supplies the original P=0.
-      ret.alphaLongitudinalAvailable = True
-      ret.steerActuatorDelay = 0.22
       longitudinal_requested = bool(alpha_long)
     else:
       ret.alphaLongitudinalAvailable = True if new_port else ret.radarUnavailable
@@ -125,29 +109,5 @@ class CarInterface(CarInterfaceBase):
 
     ret.autoResumeSng = ret.minEnableSpeed == -1.
     ret.centerToFront = ret.wheelbase * 0.44
-
-    classic_extended = (
-      candidate in CLASSIC_EXTENDED_CARS and not (ret.flags & ~int(FordFlags.HAS_BSM))
-      and not ret.dashcamOnly and ret.alternativeExperience == 0
-      and ret.safetyConfigs[-1].safetyParam in (0, 1)
-    )
-    if classic_extended:
-      ret.safetyConfigs[-1].safetyParam |= FordSafetyFlags.CLASSIC_EXTENDED.value
-
-    # The source-derived Mach-E owner has a separate native namespace. SecOC,
-    # unrelated static flags and alternative experiences retain no extension.
-    mach_e_extended = (
-      candidate == CAR.FORD_MUSTANG_MACH_E_MK1
-      and bool(ret.flags & FordFlags.CANFD)
-      and not (ret.flags & ~int(FordFlags.CANFD | FordFlags.HAS_BSM))
-      and not ret.dashcamOnly and ret.alternativeExperience == 0
-      and ret.safetyConfigs[-1].safetyParam in (2, 3)
-    )
-    if mach_e_extended:
-      ret.safetyConfigs[-1].safetyParam |= FordSafetyFlags.MACH_E_EXTENDED.value
-    if (candidate in GENERIC_CANFD_CARS and ret.flags & FordFlags.CANFD and
-        not ret.flags & ~int(FordFlags.CANFD | FordFlags.HAS_BSM) and
-        not ret.dashcamOnly and not ret.passive and not ret.notCar and ret.alternativeExperience == 0):
-      ret.safetyConfigs[-1].safetyParam |= FordSafetyFlags.GENERIC_CANFD_EXTENDED.value
 
     return ret

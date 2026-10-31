@@ -493,9 +493,22 @@ class TestFordLongitudinalSafetyBase(TestFordSafetyBase):
           self.assertEqual(should_tx, self._tx(self._acc_command_msg(self.INACTIVE_GAS, brake, brake_actuation)))
 
 
-class TestFordLongitudinalSafety(TestFordLongitudinalSafetyBase):
-  # Make sure we enforce long safety even without long flag for CAN
+class TestFordStockSafety(TestFordSafetyBase):
+  # StarPilot: classic stock ACC sends no ACCDATA
   SAFETY_PARAM = 0
+  STEER_MESSAGE = MSG_LateralMotionControl
+
+  TX_MSGS = [
+    [MSG_Steering_Data_FD1, 0], [MSG_Steering_Data_FD1, 2], [MSG_ACCDATA_3, 0], [MSG_Lane_Assist_Data1, 0],
+    [MSG_LateralMotionControl, 0], [MSG_IPMA_Data, 0],
+  ]
+  RELAY_MALFUNCTION_ADDRS = {0: (MSG_ACCDATA_3, MSG_Lane_Assist_Data1, MSG_LateralMotionControl, MSG_IPMA_Data)}
+
+  FWD_BLACKLISTED_ADDRS = {2: [MSG_ACCDATA_3, MSG_Lane_Assist_Data1, MSG_LateralMotionControl, MSG_IPMA_Data]}
+
+
+class TestFordLongitudinalSafety(TestFordLongitudinalSafetyBase):
+  SAFETY_PARAM = FordSafetyFlags.LONG_CONTROL
   STEER_MESSAGE = MSG_LateralMotionControl
 
   TX_MSGS = [

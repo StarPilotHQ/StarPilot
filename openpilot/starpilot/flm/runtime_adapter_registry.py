@@ -197,6 +197,9 @@ def ford_public_identity_key(cp, pandas):
   )
 
 
+FORD_PANDA_AGE_NS = 300_000_000  # a pandaStates sample older than this is not current
+
+
 def current_ford_authority(sm, cp, *, now_ns):
   """Optional parent20Hz mirror of the existing successful Ford verifier."""
   key = (now_ns, id(cp))
@@ -205,8 +208,6 @@ def current_ford_authority(sm, cp, *, now_ns):
     return cached[1:]
   allowed, identity = False, ''
   try:
-    from opendbc.bluepilot_lateral.params import limits as bounds
-
     if not ford_downstream(cp):
       raise ValueError('Ford downstream role')
     pandas = sm['pandaStates']
@@ -216,8 +217,8 @@ def current_ford_authority(sm, cp, *, now_ns):
     allowed = bool(
       sm.seen['pandaStates']
       and sm.all_checks(['pandaStates'])
-      and 0 < stamp <= boot <= stamp + bounds.PANDA_AGE_NS
-      and 0 < receipt <= now_ns <= receipt + bounds.PANDA_AGE_NS
+      and 0 < stamp <= boot <= stamp + FORD_PANDA_AGE_NS
+      and 0 < receipt <= now_ns <= receipt + FORD_PANDA_AGE_NS
       and len(pandas) == len(cp.safetyConfigs)
     )
     for index, (panda, config) in enumerate(zip(pandas, cp.safetyConfigs, strict=True)):
@@ -434,11 +435,12 @@ def selected_identity(descriptor, source_epoch, baseline=""):
 
 
 def ford_downstream(cp):
-  # The existing final admitted CP safety word selects the actual library;
+  # The BluePilot lateral library owns Ford steering when its bit is in the final admitted CP safety word;
   # no settings read or generic angle-output inference establishes this role.
-  from opendbc.bluepilot_lateral.hosts.starpilot import qualified
+  from opendbc.car.ford.aol import BP_LATERAL, aol_safety_config
 
-  return bool(str(cp.carFingerprint) in interfaces and qualified(cp))
+  config = aol_safety_config(cp) if cp.brand == 'ford' else None
+  return bool(str(cp.carFingerprint) in interfaces and config is not None and config.safetyParam & BP_LATERAL)
 
 
 def adapter_for_ford(cp, context):

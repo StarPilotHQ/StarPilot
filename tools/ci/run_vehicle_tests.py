@@ -25,9 +25,6 @@ from tools.ci import lifecycle_shards, vehicle_pytest
 # The emitted selected_test_ids record exact parametrized configurations.
 AOL_LIFECYCLE_TARGETS = (
   "opendbc_repo/opendbc/car/hyundai/tests/test_torque_ev_deferred_takeover.py",
-  'openpilot/starpilot/tests/test_ford_bluepilot_aol.py',
-  'opendbc_repo/opendbc/bluepilot_lateral/tests/test_angle_core.py',
-  'opendbc_repo/opendbc/safety/tests/test_ford_bluepilot_aol.py',
   'openpilot/starpilot/aol/tests/test_hkg_early_long_withdrawal.py',
   'openpilot/starpilot/car/toyota/tests/test_prius_retrofit_stock.py',
   'openpilot/starpilot/car/toyota/tests/test_prius_retrofit_stock_callers.py',
@@ -59,8 +56,7 @@ AOL_LIFECYCLE_TARGETS = (
   'openpilot/starpilot/aol/tests/test_hkg_native_admission.py',
   'openpilot/starpilot/aol/tests/test_native_observation_admission.py',
   'openpilot/starpilot/aol/tests/test_forte_physical_arm_join.py',
-  'opendbc_repo/opendbc/car/ford/tests/test_mache_display_handoff.py',
-  'opendbc_repo/opendbc/safety/tests/test_ford_mache_display.py',
+  'opendbc_repo/opendbc/safety/tests/test_ford_canfd_display.py',
   'openpilot/starpilot/aol/tests/test_hkg_cancel_joined.py',
   'openpilot/starpilot/aol/tests/test_gv70_two_panda_long.py',
   'openpilot/starpilot/longitudinal/tests/test_gv70_stopping_parity.py',
@@ -229,10 +225,6 @@ DEBUG_SAFETY_CLASS_TARGETS = {
   "opendbc_repo/opendbc/safety/tests/test_hyundai_ev9_long.py": (
     "opendbc_repo/opendbc/safety/tests/test_hyundai_ev9_long.py::TestEv9LongDebugContract",
   ),
-  "opendbc_repo/opendbc/safety/tests/test_ford_mach_e_extended.py": (
-    "opendbc_repo/opendbc/safety/tests/test_ford_mach_e_extended.py::TestFordMachEExtended",
-    "opendbc_repo/opendbc/safety/tests/test_ford_mach_e_extended.py::TestFordMachEDebugLongExtended",
-  ),
   "opendbc_repo/opendbc/safety/tests/test_hyundai_main_rearm.py": (
     "opendbc_repo/opendbc/safety/tests/test_hyundai_main_rearm.py::TestHkgMainDebug",
   ),
@@ -244,9 +236,6 @@ DEBUG_SAFETY_CLASS_TARGETS = {
 
 
 RELEASE_TARGETS = (
-  'openpilot/starpilot/tests/test_ford_bluepilot_aol.py',
-  'opendbc_repo/opendbc/bluepilot_lateral/tests/test_angle_core.py',
-  'opendbc_repo/opendbc/safety/tests/test_ford_bluepilot_aol.py',
   'openpilot/starpilot/car/toyota/tests/test_prius_retrofit_stock.py',
   'openpilot/starpilot/car/toyota/tests/test_prius_retrofit_stock_callers.py',
   'opendbc_repo/opendbc/car/toyota/tests/test_matrix_filter.py',
@@ -271,8 +260,7 @@ RELEASE_TARGETS = (
   'opendbc_repo/opendbc/safety/tests/test_toyota_radar_lta_pedal.py',
   'opendbc_repo/opendbc/safety/tests/test_toyota_prius_retrofit_advert.py',
   'opendbc_repo/opendbc/car/hyundai/tests/test_long_cp_copy.py',
-  'opendbc_repo/opendbc/car/ford/tests/test_mache_display_handoff.py',
-  'opendbc_repo/opendbc/safety/tests/test_ford_mache_display.py',
+  'opendbc_repo/opendbc/safety/tests/test_ford_canfd_display.py',
   "opendbc_repo/opendbc/safety/tests/test_toyota_prius_advert.py",
   'opendbc_repo/opendbc/safety/tests/test_hyundai_gv60_long.py::TestGV60LongReleaseDenied',
   'openpilot/starpilot/tests/test_ford_configuration_parity.py',
@@ -394,15 +382,9 @@ RELEASE_TARGETS = (
   "opendbc_repo/opendbc/car/ford/tests/test_aol_startup.py",
   "openpilot/starpilot/tests/test_ford_aol_intent.py",
   "opendbc_repo/opendbc/safety/tests/test_ford_aol.py",
-  "opendbc_repo/opendbc/safety/tests/test_ford_mach_e_extended.py::TestFordMachEExtended",
-  "opendbc_repo/opendbc/safety/tests/test_ford_mach_e_extended.py::TestFordMachELongReleaseExtended",
+  "opendbc_repo/opendbc/safety/tests/test_ford.py::TestFordCANFDLongitudinalSafety",
   "opendbc_repo/opendbc/car/ford/tests/test_added_firmware_identity.py",
   "opendbc_repo/opendbc/car/ford/tests/test_required_source_health.py",
-  "opendbc_repo/opendbc/car/ford/tests/test_blend_settings.py",
-  "opendbc_repo/opendbc/car/ford/tests/test_blend_settings_startup.py",
-  "opendbc_repo/opendbc/car/ford/tests/test_production_extensions.py",
-  "opendbc_repo/opendbc/car/ford/tests/test_generic_canfd.py",
-  "opendbc_repo/opendbc/safety/tests/test_ford_generic_canfd_extended.py",
   "opendbc_repo/opendbc/car/hyundai/tests/test_blended_stock_aol.py",
   "openpilot/starpilot/aol/tests/test_nexo_stock_aol.py",
   "opendbc_repo/opendbc/safety/tests/test_nexo_stock_aol.py",

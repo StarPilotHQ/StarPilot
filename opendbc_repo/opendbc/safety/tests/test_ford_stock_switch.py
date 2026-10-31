@@ -17,6 +17,9 @@ class TestFordStockSwitch(unittest.TestCase):
     self._message_fixture.SAFETY_PARAM = self.SAFETY_PARAM
     self._message_fixture.setUp()
 
+  def tearDown(self):
+    libsafety_py.libsafety.set_alternative_experience(0)
+
   def __getattr__(self, name):
     fixture = self.__dict__.get("_message_fixture")
     if fixture is None:
@@ -46,7 +49,7 @@ class TestFordStockSwitch(unittest.TestCase):
       self.assertTrue(self._rx(self.physical_switch(button)))
 
   def test_physical_available_inactive_resume_does_not_enable_controls(self):
-    for word in (2, 8, 10, 12, 18):
+    for word in (0, 2, 8, 10, 12):
       with self.subTest(word=word):
         self.select(word)
         self.healthy(word)
@@ -83,7 +86,7 @@ class TestFordStockSwitch(unittest.TestCase):
     self.assertFalse(self._tx(self._acc_button_msg(Buttons.RESUME, 0)))
 
   def test_long_unknown_ae_and_unreached_words_cannot_use_exception(self):
-    for word, ae in ((0, 0), (4, 0), (1, 0), (3, 0), (9, 0), (11, 0), (13, 0), (19, 0), (34, 0), (2, 32)):
+    for word, ae in ((4, 0), (1, 0), (3, 0), (9, 0), (11, 0), (13, 0), (34, 0), (4, 32)):
       with self.subTest(word=word, ae=ae):
         self.select(word, ae)
         self.healthy(word)

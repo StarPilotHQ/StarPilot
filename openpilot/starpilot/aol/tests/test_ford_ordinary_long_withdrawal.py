@@ -8,8 +8,8 @@ from opendbc.car.ford.interface import CarInterface
 from opendbc.car.ford.values import CAR
 
 
-@pytest.fixture(params=[(False, False), (True, False), (False, True), (True, True)])
-def caller(request):
+@pytest.fixture
+def caller():
   case = fixture.IoniqAvailabilityTests(methodName='runTest')
   with ExitStack() as stack:
     stack.callback(case.doCleanups)
@@ -19,11 +19,6 @@ def caller(request):
     cp = CarInterface.get_params(CAR.FORD_MUSTANG_MACH_E_MK1, fingerprint, [], True, False, False)
     cp.alternativeExperience = 32
     assert cp.safetyConfigs[-1].safetyParam == 19 and cp.flags == 3
-    angle, pinion = request.param
-    cp.safetyConfigs[0].safetyParam |= 128 if angle else 0
-    if pinion:
-      from opendbc.car.ford.pinion import select
-      assert select(cp, True)
     sd, controls, step = case._authority_callers(True, cp=cp, genuine_events=True)
     cs = fixture.car_state()
     cs.cruiseState.enabled = True

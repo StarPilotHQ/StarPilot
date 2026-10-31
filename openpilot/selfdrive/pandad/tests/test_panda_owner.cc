@@ -145,7 +145,7 @@ void test_actual_config_slots_and_owner_handle(cereal::CarParams::SafetyModel mo
 
 void test_registered_owners() {
   test_actual_config_slots_and_owner_handle(cereal::CarParams::SafetyModel::HYUNDAI_CANFD, 0x809);
-  for (uint16_t word : {8U, 9U, 10U, 11U, 12U, 13U, 18U, 19U, 32U, 33U, 66U, 67U}) {
+  for (uint16_t word : {0U, 1U, 2U, 3U, 8U, 9U, 10U, 11U, 12U, 13U}) {
     test_actual_config_slots_and_owner_handle(cereal::CarParams::SafetyModel::FORD, word);
     test_actual_config_slots_and_owner_handle(cereal::CarParams::SafetyModel::FORD, word | 256U);
   }

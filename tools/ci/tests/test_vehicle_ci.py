@@ -292,7 +292,6 @@ class TestVehicleCollection(unittest.TestCase):
           self.assertIn(target, debug)
           self.assertIn(target, release)
     self.assertIn("opendbc_repo/opendbc/safety/tests/test_hyundai_ev9_long.py", mixed)
-    self.assertIn("opendbc_repo/opendbc/safety/tests/test_ford_mach_e_extended.py", mixed)
 
   def test_interfaces_do_not_mislabel_historical_route_test_base(self):
     root = Path(__file__).resolve().parents[3]

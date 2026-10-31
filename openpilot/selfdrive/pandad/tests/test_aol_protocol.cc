@@ -249,22 +249,12 @@ int main() {
     assert(aol_capable(preap, 39U, VEHICLE_REGISTRY) == preap_expected);
     assert(!aol_capable(preap, 35U, VEHICLE_REGISTRY));
   }
-  constexpr uint16_t ford_words[] = {8U, 9U, 10U, 11U, 12U, 13U, 18U, 19U, 32U, 33U, 66U, 67U, 146U, 147U, 160U, 161U, 194U, 195U};
+  constexpr uint16_t ford_words[] = {0U, 1U, 2U, 3U, 8U, 9U, 10U, 11U, 12U, 13U};
   for (uint32_t word = 0U; word <= 65535U; ++word) {
     bool expected = false;
-    for (const auto exact : ford_words) expected |= (word == exact) || (word == (exact | 256U));
-    // Exact opt-in geometry families, independently enumerated from the native decoder.
-    for (uint16_t geometry = 1U; geometry <= 12U; geometry++) {
-      const bool classic = (geometry == 1U) || (geometry == 2U) || (geometry == 5U) || (geometry == 6U) || (geometry == 9U);
-      const uint16_t curvature = classic ? 32U : ((geometry == 11U) ? 18U : ((geometry == 10U) ? 10U : 66U));
-      for (uint16_t longitudinal = 0U; longitudinal <= 1U; longitudinal++) {
-        for (uint16_t angle = 0U; angle <= 1U; angle++) {
-          if ((geometry == 10U) && angle) continue;
-          const uint16_t exact = 512U | (geometry << 10U) | curvature | longitudinal | (angle ? 128U : 0U);
-          expected |= (word == exact) || (word == (exact | 256U));
-        }
-      }
-    }
+    // Bits 9-14 carry the BluePilot lateral library's startup bits, whatever they hold.
+    const uint32_t profile = word & ~0x7E00U;
+    for (const auto exact : ford_words) expected |= (profile == exact) || (profile == (exact | 256U));
     auto ford = status();
     ford.safety_mode = 6U;
     ford.safety_param = static_cast<uint16_t>(word);

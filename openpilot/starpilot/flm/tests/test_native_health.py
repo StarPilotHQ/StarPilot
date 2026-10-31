@@ -124,9 +124,9 @@ def ford_state(cp, observed, *, heartbeat=False):
 
 
 def ford_setup():
-  from opendbc.bluepilot_lateral.hosts.starpilot import select
+  from opendbc.car.ford.aol import BP_LATERAL
   cp = interfaces[FORD.FORD_ESCAPE_MK4].get_non_essential_params(FORD.FORD_ESCAPE_MK4)
-  assert select(cp, 1)
+  cp.safetyConfigs[-1].safetyParam |= BP_LATERAL
   now = time.monotonic_ns()
   sm = ford_state(cp, now-1_000_000)
   allowed, identity = current_ford_authority(sm, cp, now_ns=now)

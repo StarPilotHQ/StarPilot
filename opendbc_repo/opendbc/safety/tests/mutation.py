@@ -529,8 +529,7 @@ def print_live_status(text, *, final=False):
 def _discover_test_catalog():
   loader = unittest.TestLoader()
   catalog = {}
-  test_files = [*sorted(SAFETY_TESTS_DIR.glob("test_*.py")),
-                ROOT / "opendbc" / "bluepilot_lateral" / "tests" / "test_angle_native.py"]
+  test_files = [*sorted(SAFETY_TESTS_DIR.glob("test_*.py")), *sorted((BLUEPILOT_SAFETY_DIR / "tests").glob("test_*.py"))]
   for test_file in test_files:
     module_name = ".".join(test_file.relative_to(ROOT).with_suffix("").parts)
     suite = loader.loadTestsFromName(module_name)

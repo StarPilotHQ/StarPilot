@@ -7,8 +7,8 @@ from opendbc.car.ford.fordcan import CanBus, create_acc_msg
 from opendbc.safety.tests.libsafety import libsafety_py
 from opendbc.safety.tests.test_ford_full_engagement import ford_native as ford_native, select
 
-LONG_WORDS = (9, 11, 13, 19, 33, 67)
-STOCK_WORDS = (8, 10, 12, 18, 32, 66)
+LONG_WORDS = (1, 3, 9, 11, 13)
+STOCK_WORDS = (0, 2, 8, 10, 12)
 
 
 def tx(native, *, active):
@@ -53,7 +53,7 @@ def test_stock_long_off_never_gains_a_long_axis_from_any_request(ford_native, wo
 @pytest.mark.parametrize('fault', ('source', 'heartbeat', 'request-expired', 'eps-permanent'))
 def test_native_long_recovery_requires_new_activation_after_real_revocation(ford_native, fault):
   n = ford_native
-  select(n, 33)
+  select(n, 1)
   n.pump(40, main=3)
   n.pump(10, main=4, mask=3)
   assert n.safety.aol_get_permission_mask() == 3

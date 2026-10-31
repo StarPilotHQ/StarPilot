@@ -92,15 +92,15 @@ class TestFordAolIntent(unittest.TestCase):
       flags=int(FordFlags.CANFD), pcmCruise=True, openpilotLongitudinalControl=True,
       alternativeExperience=32, steerControlType=structs.CarParams.SteerControlType.angle,
       transmissionType=structs.CarParams.TransmissionType.automatic,
-      safetyConfigs=[structs.CarParams.SafetyConfig(safetyModel=structs.CarParams.SafetyModel.ford, safetyParam=19)])
+      safetyConfigs=[structs.CarParams.SafetyConfig(safetyModel=structs.CarParams.SafetyModel.ford, safetyParam=3)])
     state = structs.CarState(canValid=True, gearShifter=structs.CarState.GearShifter.drive,
       buttonEvents=[structs.CarState.ButtonEvent(type=structs.CarState.ButtonEvent.Type.cancel, pressed=True)])
     state.cruiseState.available = True
     settings = AolSettings(True, 0., AOL_TOGGLE, 0, (0, 0, 0), (0, 0, 0))
     intent = IntentState('card', 1, now, now, now + 200_000_000, True, False, False, True, True)
     previous = AxisDecision(True, True, True, True, True)
-    slot = PandaSlot(0, 'panda', int(structs.CarParams.SafetyModel.ford), 19, 32, True, False)
-    native = SafetyState(1, True, now, now + 200_000_000, slot.safetyModel, 19, True, False,
+    slot = PandaSlot(0, 'panda', int(structs.CarParams.SafetyModel.ford), 3, 32, True, False)
+    native = SafetyState(1, True, now, now + 200_000_000, slot.safetyModel, 3, True, False,
       True, True, 'panda', 'axis', now, (slot,))
     def allowed(**changes):
       args = {'settings': settings, 'previous': previous, 'source_ns': now, 'now_ns': now, 'axis_session_id': 'axis'}

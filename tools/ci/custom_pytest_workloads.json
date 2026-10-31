@@ -2012,12 +2012,6 @@
       "cases": 64,
       "seconds": 15.568039
     },
-    "openpilot/starpilot/tests/test_ford_bluepilot_aol.py": {
-      "basis": "Exact 65660a4 hosted main40623875380: all 149 nodes passed, 264.354436s setup/call/teardown; 25% estimate margin, retaining any higher same-source prior estimate. Scheduling only; no test deadline change.",
-      "blob": "0c39bf229eb908d3ba63abd9f57e3c0e68a48c0b",
-      "cases": 149,
-      "seconds": 330.443045
-    },
     "openpilot/starpilot/tests/test_ford_ci_registration.py": {
       "basis": "Separate complete AOL reference from same6eb source; not custom wall-time measurement",
       "blob": "8065ac29f007fc2d14ce32fe81e8e5ff456ddd6a",

@@ -25,7 +25,11 @@ def test_exact_dual_owner_and_manual_identity(identity, base, alpha, manual):
   word = base | int(alpha) | (256 if manual else 0)
   assert cp.safetyConfigs[-1].safetyParam == word
   assert qualified(cp, marked_only=True) and native_matches_cp(cp, 6, word)
-  for field, value in [('safetyParam', word ^ 256), ('safetyParam', word | 512), ('safetyModel', structs.CarParams.SafetyModel.noOutput)]:
+  # bits 9-14 are the BluePilot lateral library's; bit 15 belongs to no one
+  bluepilot = cp.as_reader().as_builder()
+  bluepilot.safetyConfigs[-1].safetyParam = word | 0x4000
+  assert qualified(bluepilot, marked_only=True) and native_matches_cp(bluepilot, 6, word | 0x4000)
+  for field, value in [('safetyParam', word ^ 256), ('safetyParam', word | 0x8000), ('safetyModel', structs.CarParams.SafetyModel.noOutput)]:
     bad = cp.as_reader().as_builder()
     setattr(bad.safetyConfigs[-1], field, value)
     assert not qualified(bad) and not native_matches_cp(bad, 6, word)
@@ -53,13 +57,13 @@ def test_marked_manual_policy_survives_cards_alternative_experience_reset():
   fp = gen_empty_fingerprint()
   cp = CarInterface.get_params(FORD_FACTORIES[0][0], fp, [], False, False, False)
   initial = policy_for(cp)
-  assert cp.safetyConfigs[-1].safetyParam == 32 and initial.safety_param_addition == 256
+  assert cp.safetyConfigs[-1].safetyParam == 0 and initial.safety_param_addition == 256
   cp.safetyConfigs[-1].safetyParam |= initial.safety_param_addition
   cp.alternativeExperience |= initial.alternative_experience_addition
-  assert native_matches_cp(cp, 6, 288)
+  assert native_matches_cp(cp, 6, 256)
   cp.alternativeExperience = 0  # Car resets this before reapplying saved settings.
   recovered = policy_for(cp)
   assert recovered.intent_supported and recovered.safety_param_addition == 256
   cp.safetyConfigs[-1].safetyParam |= recovered.safety_param_addition
   cp.alternativeExperience |= recovered.alternative_experience_addition
-  assert native_matches_cp(cp, 6, 288)
+  assert native_matches_cp(cp, 6, 256)

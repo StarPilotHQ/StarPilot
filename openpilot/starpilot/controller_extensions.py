@@ -1,148 +1,9 @@
-import math
 import time
 
-import numpy as np
-
 import openpilot.cereal.messaging as messaging
-from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.common.swaglog import cloudlog
 
 from openpilot.starpilot.controllers.toyota_cruise import ToyotaCruisePreference, capability as toyota_cruise_capability
-
-from opendbc.car.ford.values import CAR, FordFlags
-from opendbc.car.ford.pinion import configured as pinion_configured
-
-
-class ManualTurnInputs:
-  def __init__(self, params, *, track_assist_permission: bool = False, pinion: bool = False):
-    self.params = params
-    self.pinion = pinion
-    self.vehicle_parameters = None
-    self.track_assist_permission = track_assist_permission
-    services = ["modelV2", "lateralDelay"] + (["pandaStates", "aolSafetyWire"] if track_assist_permission else [])
-    self.sm = messaging.SubMaster(services + (["vehicleParameters"] if pinion else []))
-    self.enabled = bool(self.params.get("FordHumanTurnDetection", return_default=True))
-    self.frames = 0
-    self.blend_settings = self._read_blend_settings()
-    self._applied_blends = {}
-
-  def _read_blend_settings(self):
-    settings = []
-    for key, default, low, high in (("FordCurvatureBlendLow", 0.4, 0.0, 1.0),
-                                    ("FordCurvatureBlendHigh", 0.4, 0.0, 1.0),
-                                    ("FordCurvatureLaneChangeFactor", 0.85, 0.5, 1.25)):
-      try:
-        value = float(self.params.get(key, return_default=True))
-        if not math.isfinite(value):
-          value = default
-      except (TypeError, ValueError, OverflowError, RuntimeError):
-        value = default
-      settings.append(float(np.clip(value, low, high)))
-    return tuple(settings)
-
-  def apply_blend_settings(self, controller):
-    for name in ("mache_lateral", "classic_lateral", "new_port_curvature"):
-      owner = getattr(controller, name, None)
-      if owner is not None and self.pinion:
-        owner.measurement.update_parameters(self.vehicle_parameters)
-      if owner is not None and self._applied_blends.get(owner) != self.blend_settings:
-        owner.set_blend_settings(*self.blend_settings)
-        self._applied_blends[owner] = self.blend_settings
-
-  def update(self):
-    self.sm.update(0)
-    if self.pinion and self.sm.valid["vehicleParameters"] and self.sm.alive["vehicleParameters"]:
-      self.vehicle_parameters = self.sm["vehicleParameters"]
-    if self.frames % 100 == 0:
-      self.enabled = bool(self.params.get("FordHumanTurnDetection", return_default=True))
-      self.blend_settings = self._read_blend_settings()
-    self.frames += 1
-    state = self.sm["modelV2"].meta.laneChangeState
-    model_ready = self.sm.alive["modelV2"] and self.sm.valid["modelV2"]
-    return self.enabled, int(getattr(state, "raw", state)) in (1, 2, 3), model_ready
-
-
-  def preview_curvature(self, speed: float) -> float | None:
-    try:
-      now = time.monotonic_ns()
-      stamp = self.sm.logMonoTime["modelV2"]
-      if (not self.sm.alive["modelV2"] or not self.sm.valid["modelV2"] or
-          not 0 < stamp <= now <= stamp + 100_000_000 or not math.isfinite(speed) or speed < 0.1):
-        return None
-      yaw = tuple(self.sm["modelV2"].orientationRate.z)
-      if len(yaw) != len(ModelConstants.T_IDXS) or not all(math.isfinite(value) for value in yaw):
-        return None
-      delay = 0.2
-      delay_stamp = self.sm.logMonoTime["lateralDelay"]
-      if (self.sm.alive["lateralDelay"] and self.sm.valid["lateralDelay"] and
-          0 < delay_stamp <= now <= delay_stamp + 1_000_000_000):
-        measured_delay = float(self.sm["lateralDelay"].lateralDelay)
-        if math.isfinite(measured_delay):
-          delay = float(np.clip(measured_delay, 0.2, 0.4))
-      return float(np.interp(delay, ModelConstants.T_IDXS, yaw)) / speed
-    except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
-      return None
-
-  def lateral_snapshot(self, speed: float, *, angle: bool = False):
-    if self.preview_curvature(speed) is None:
-      return None
-    delay = 0.15 if angle else 0.2
-    now = time.monotonic_ns()
-    stamp = self.sm.logMonoTime["lateralDelay"]
-    if (self.sm.alive["lateralDelay"] and self.sm.valid["lateralDelay"] and
-        0 < stamp <= now <= stamp + 1_000_000_000):
-      value = float(self.sm["lateralDelay"].lateralDelay)
-      if math.isfinite(value):
-        delay = float(np.clip(value, 0.1, 0.15)) if angle else float(np.clip(value, 0.2, 0.4))
-    return self.sm["modelV2"], ModelConstants.T_IDXS, delay, self.enabled
-
-  def native_permission(self, cp, *, max_age_ns):
-    """Exact current public Panda acknowledgment for the optional angle owner."""
-    if not self.track_assist_permission:
-      return False
-    try:
-      # Drain happens in update(); capture one SM snapshot before sampling clocks.
-      pandas = self.sm["pandaStates"]
-      stamp = int(self.sm.logMonoTime["pandaStates"])
-      receipt = int(self.sm.recv_time["pandaStates"] * 1e9)
-      now, boot = time.monotonic_ns(), time.clock_gettime_ns(time.CLOCK_BOOTTIME)
-      if (not self.sm.seen["pandaStates"] or not self.sm.all_checks(["pandaStates"]) or
-          not 0 < stamp <= boot <= stamp + max_age_ns or
-          not 0 < receipt <= now <= receipt + max_age_ns):
-        return False
-      if len(pandas) != len(cp.safetyConfigs):
-        return False
-      aol = cp.brand == "ford" and cp.alternativeExperience == 32
-      if aol:
-        from openpilot.starpilot.aol.runtime import current_native
-        native = current_native(self.sm, cp, now_ns=boot)
-        if (native is None or not native.pandaInventory or not native.requestedLateral or not native.lateralAllowed or
-            native.sourcePandaStatesMonoTime != stamp or boot - native.observedMonoTime > max_age_ns):
-          return False
-      for i, (panda, config) in enumerate(zip(pandas, cp.safetyConfigs, strict=True)):
-        if (panda.safetyModel != config.safetyModel or panda.safetyParam != config.safetyParam or
-            panda.alternativeExperience != cp.alternativeExperience or panda.safetyRxChecksInvalid or
-            panda.heartbeatLost or len(panda.faults) or str(panda.faultStatus) != "none"):
-          return False
-        if (not aol and bool(panda.controlsAllowed) != (i == len(pandas) - 1) or
-            aol and i != len(pandas) - 1 and panda.controlsAllowed):
-          return False
-      return True
-    except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
-      return False
-
-  def native_tx_blocked(self):
-    """Read only after native_permission qualified this same Panda snapshot."""
-    try:
-      value = self.sm["pandaStates"][-1].safetyTxBlocked
-      return int(value) if 0 <= value <= 0xFFFFFFFF else None
-    except (AttributeError, IndexError, KeyError, TypeError, ValueError, OverflowError):
-      return None
-
-  def assist_permission(self):
-    if not self.track_assist_permission:
-      return (), False
-    return self.sm["pandaStates"], self.sm.all_checks(["pandaStates"])
 
 
 class ResumePlanInputs:
@@ -166,6 +27,10 @@ def configure_controller(CI, params):
   from openpilot.starpilot.car.ford.cluster_preferences import FordClusterPreference, qualified as cluster_qualified
   if controller is not None and cluster_qualified(cp):
     controller.hands_free_cluster_input = FordClusterPreference(params)
+  from opendbc.bluepilot_lateral.hosts.starpilot.safety_param import lateral_inputs_required
+  if controller is not None and lateral_inputs_required(cp) and hasattr(controller, "bluepilot_inputs"):
+    from openpilot.starpilot.car.ford.bluepilot import BluePilotInputs
+    controller.bluepilot_inputs = BluePilotInputs(params)
   if controller is not None and cp.brand == 'gm':
     from opendbc.car.gm.values import (is_bolt_euv_longitudinal, is_volt_longitudinal,
                                      camera_acc_pedal_profile, volt_cc_pedal_profile)
@@ -254,27 +119,6 @@ def configure_controller(CI, params):
       cloudlog.exception('Optional Volt resume input transport unavailable')
   if controller is not None and toyota_cruise_capability(cp) is not None:
     controller.reverse_cruise_input = ToyotaCruisePreference(cp, params)
-  if (controller is not None and cp.brand == "ford" and cp.carFingerprint == CAR.FORD_MUSTANG_MACH_E_MK1 and
-      not cp.flags & FordFlags.LKA_STEERING and not cp.passive and not cp.dashcamOnly and not cp.notCar and
-      getattr(controller, "manual_turn", None) is not None):
-    controller.manual_turn_inputs = ManualTurnInputs(params, track_assist_permission=bool(cp.flags & FordFlags.CANFD), pinion=pinion_configured(cp))
-
-  from opendbc.bluepilot_lateral.hosts.starpilot import qualified as angle_qualified
-  if controller is not None and angle_qualified(cp) and getattr(controller, "bp_lat", None) is not None:
-    controller.bp_lat.host.inputs = ManualTurnInputs(params, track_assist_permission=True, pinion=pinion_configured(cp))
-
-  from opendbc.car.ford.classic_lateral import qualified as classic_qualified
-  from opendbc.car.ford.generic_canfd_lateral import qualified as generic_canfd_qualified
-  if controller is not None and (classic_qualified(cp) or generic_canfd_qualified(cp)) and getattr(controller, "classic_lateral", None) is not None:
-    controller.manual_turn_inputs = ManualTurnInputs(params, pinion=pinion_configured(cp))
-
-  from opendbc.car.ford.new_port_curvature import qualified as new_port_curvature_qualified
-  if controller is not None and new_port_curvature_qualified(cp) and getattr(controller, "new_port_curvature", None) is not None:
-    controller.manual_turn_inputs = ManualTurnInputs(params, pinion=pinion_configured(cp))
-
-  if controller is not None and cp.brand == "ford" and getattr(controller, "manual_turn_inputs", None) is not None:
-    controller.manual_turn_inputs.apply_blend_settings(controller)
-
   if controller is not None and cp.brand == "honda" and getattr(controller, "nidec_interceptor", None) is not None:
     from openpilot.starpilot.car.honda.longitudinal import BoschLearningParams
     controller.interceptor_learning_params = BoschLearningParams(params, controller.nidec_interceptor)

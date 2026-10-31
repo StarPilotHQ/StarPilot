@@ -20,7 +20,6 @@ from openpilot.starpilot.tests.ford_lifecycle_helpers import FORD_FACTORIES, for
 @pytest.fixture(autouse=True)
 def topology_settings(monkeypatch, request):
   monkeypatch.ford_topology = request.node.callspec.params.get('topology', 'automatic')
-  monkeypatch.ford_angle = request.node.callspec.params.get('angle', False)
 
 
 @pytest.mark.parametrize('identity', [FORD_FACTORIES[11]])
@@ -106,9 +105,8 @@ def _motion_payloads(payloads, sample):
 @pytest.mark.parametrize('identity', [FORD_FACTORIES[11]])
 @pytest.mark.parametrize('alpha', [True])
 @pytest.mark.parametrize('hands_free', [False, True])
-@pytest.mark.parametrize('angle', [False, True])
 @pytest.mark.parametrize('topology', ['automatic', 'manual-multi'])
-def test_recorded_departure_with_real_cem_stop_hold(ford_joined, monkeypatch, angle, topology):
+def test_recorded_departure_with_real_cem_stop_hold(ford_joined, monkeypatch, topology):
   # Stop acquisition and clocks use the existing caller fixture. Departure
   # geometry, filtered speed and radar values are recorded; MCU timing is synthetic.
   samples = [sample for sample in _samples() if 334.29 <= sample['routeSeconds'] <= 334.95]
