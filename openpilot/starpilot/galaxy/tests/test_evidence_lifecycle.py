@@ -280,6 +280,37 @@ def test_refresh_updates_cached_onroad_and_reverse_transition(tmp_path):
   assert not source.thread.is_alive() and messages.socket_closed
 
 
+def test_stale_sample_waits_for_next_publishers_instead_of_reading_onroad(tmp_path):
+  messages, source, _ = refresh_readers(tmp_path)
+  params = NS(get_param_path=lambda key: str(tmp_path / key))
+  authority = LiveContextSource(params, source, mono_clock=time.monotonic_ns,
+                                boot_clock=lambda: time.monotonic_ns() + 1_000_000_000, evidence_wait_ms=750)
+  try:
+    assert refresh_with_frames(source, messages, {})
+    time.sleep(0.4)  # Past the Panda TTL: a parked editor's 5 s poll must not flip on one late frame.
+    timer = threading.Timer(0.1, messages.queue)
+    timer.start()
+    assert authority.parked()
+    timer.join()
+    time.sleep(0.4)
+    started = time.monotonic()
+    assert not authority.parked()  # Silent publishers still fail closed once the wait expires.
+    assert time.monotonic() - started < 1.5
+    # Concurrent requests share one authority; their waits overlap instead of queueing on its lock.
+    results = []
+    waiters = [threading.Thread(target=lambda: results.append(authority.parked())) for _ in range(3)]
+    started = time.monotonic()
+    for waiter in waiters:
+      waiter.start()
+    for waiter in waiters:
+      waiter.join(timeout=3)
+    assert results == [False, False, False]
+    assert time.monotonic() - started < 1.5
+  finally:
+    authority.close()
+    source.close()
+
+
 @pytest.mark.parametrize('frame', [None, {'services': ('deviceState',)}, {'services': ('pandaStates',)}, {'replay': True}])
 def test_refresh_requires_both_post_request_publishers(tmp_path, frame):
   messages, source, authority = refresh_readers(tmp_path)
