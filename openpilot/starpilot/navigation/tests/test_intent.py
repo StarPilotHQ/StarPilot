@@ -60,6 +60,35 @@ def test_original_turn_ceiling_and_override(sm):
   assert cruise_ceiling(sm, cp, NOW, 20.) is None
 
 
+def civic_cp(fingerprint='HONDA_CIVIC_2022'):
+  return NS(openpilotLongitudinalControl=True, passive=False, dashcamOnly=False, minSteerSpeed=0., brand='honda',
+            carFingerprint=fingerprint)
+
+
+def test_civic_turn_ceiling_advances_between_route_fixes(sm):
+  nav = sm['starpilotNavigation'].navigation
+  nav.instruction.distanceMeters = 300.
+  nav.locationMonoTime = NOW - 1_000_000_000
+  sm['carState'].vEgo = 15.
+  expected = ((14 * CV.MPH_TO_MS) ** 2 + 2 * .45 * (300 - 15 - 8)) ** .5
+  assert cruise_ceiling(sm, civic_cp(), NOW, 30.) == pytest.approx(expected)
+  stale = ((14 * CV.MPH_TO_MS) ** 2 + 2 * .45 * (300 - 8)) ** .5
+  assert cruise_ceiling(sm, civic_cp('HONDA_CIVIC_BOSCH'), NOW, 30.) == pytest.approx(stale)
+
+
+def test_civic_turn_ceiling_brakes_only_as_hard_as_needed_above_profile(sm):
+  nav = sm['starpilotNavigation'].navigation
+  nav.instruction.distanceMeters = 174.
+  sm['carState'].vEgo = 19.
+  target = 14 * CV.MPH_TO_MS
+  needed = (19. ** 2 - target ** 2) / (2 * (174 - 8))
+  assert cruise_ceiling(sm, civic_cp(), NOW, 30.) == pytest.approx(19. - needed)
+  profile = (target ** 2 + 2 * .45 * (174 - 8)) ** .5
+  assert cruise_ceiling(sm, civic_cp('HONDA_CIVIC_BOSCH'), NOW, 30.) == pytest.approx(profile)
+  sm['carState'].vEgo = profile - 1.
+  assert cruise_ceiling(sm, civic_cp(), NOW, 30.) == pytest.approx(profile)
+
+
 @pytest.mark.parametrize('kind,modifier,mph', [('turn', 'left', 14), ('turn', 'sharpRight', 10), ('turn', 'uturn', 5),
                                              ('roundabout', 'right', 12), ('fork', 'right', None)])
 def test_turn_target_matches_dom_table(kind, modifier, mph):
