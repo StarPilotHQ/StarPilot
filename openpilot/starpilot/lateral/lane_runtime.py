@@ -29,7 +29,7 @@ def read_settings(params) -> LaneCenteringSettings:
     enabled = boolean('LaneCentering', b'0')
     pause = boolean('LaneCenteringPauseOnSignal', b'1')
     offset = float(raw('LaneCenterOffset', b'0.0'))
-    authority = float(raw('LaneCenteringE2EAuthority', b'1.0'))
+    authority = float(raw('LaneCenteringE2EAuthority', b'0.5'))
     try:
       strength = float(raw('LaneCenteringStrength', str(STRENGTH_BASELINE).encode()))
     except UnknownKeyName:

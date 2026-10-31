@@ -54,7 +54,7 @@ class ControlMode(StrEnum):
 class LaneCenteringSettings:
   enabled: bool = False
   offset_m: float = 0.0
-  e2e_authority: float = 1.0
+  e2e_authority: float = 0.5
   pause_on_signal: bool = True
   strength: float = STRENGTH_BASELINE
 

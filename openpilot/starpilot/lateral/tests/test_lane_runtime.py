@@ -988,6 +988,28 @@ class LaneRuntimeTests(unittest.TestCase):
       self.assertEqual(predicted.lane_centering_applied, 0.)
       self.assertEqual(predicted.CP.to_dict(), ordinary.CP.to_dict())
 
+  def test_half_breakaway_defaults_reset_and_preserve_saved_preferences(self):
+    from openpilot.starpilot.lateral.lane_centering import LaneCenteringSettings
+    from openpilot.starpilot.ui.controller_feature import SETUP_DEFAULTS
+    with OpenpilotPrefix():
+      params = Params()
+      key = 'LaneCenteringE2EAuthority'
+      self.assertIsNone(params.get(key))
+      self.assertEqual(params.get_default_value(key), .5)
+      self.assertEqual(LaneCenteringSettings().e2e_authority, .5)
+      self.assertEqual(read_settings(params).e2e_authority, .5)
+      self.assertEqual(SETUP_DEFAULTS[key], b'0.5')
+      self.assertIsNone(params.get(key))
+      for value in (0., .3, 1.):
+        params.put(key, value, block=True)
+        before = Path(params.get_param_path(key)).read_bytes()
+        self.assertEqual(read_settings(params).e2e_authority, value)
+        self.assertEqual(Path(params.get_param_path(key)).read_bytes(), before)
+        self.assertEqual(params.get_default_value(key), .5)
+      params.remove(key)
+      self.assertEqual(read_settings(params).e2e_authority, .5)
+      self.assertIsNone(params.get(key))
+
   def test_saved_settings_bounds_and_corruption(self):
     with OpenpilotPrefix():
       params = Params()
