@@ -111,7 +111,8 @@ def test_boot_fault_requires_a_fresh_main_cycle_after_recovery():
   assert not intent.startup_main_pending
 
 
-def test_fault_consume_resets_the_native_readiness_timestamp():
+@pytest.mark.parametrize('consume', ('permanent', 'fault_active'))
+def test_fault_consume_resets_the_native_readiness_timestamp(consume):
   NOW = 1_000_000_000
   PRODUCER = 'card'
   cp = CarInterface.get_params(CAR.MAZDA_CX5_2022, gen_empty_fingerprint(), [], False, False, False)
@@ -126,11 +127,11 @@ def test_fault_consume_resets_the_native_readiness_timestamp():
   intent.update(cs.as_reader(), fault_active=False, now_ns=now)
   assert intent.startup_main_source_ns and intent.startup_binding is not None
 
-  cs.steerFaultPermanent = True
+  cs.steerFaultPermanent = consume == 'permanent'
   now = NOW + 20_000_000
   sm, native = idle_startup_proof(cp, now, 'startup-session')
   intent.observe_startup_readiness(sm, cs, native=native, panda_ready=True, now_ns=now, producer=PRODUCER)
-  intent.update(cs.as_reader(), fault_active=False, now_ns=now)
+  intent.update(cs.as_reader(), fault_active=consume == 'fault_active', now_ns=now)
   assert not intent.startup_main_pending
   assert intent.startup_main_source_ns == 0 and intent.startup_binding is None
 
@@ -155,6 +156,67 @@ def test_fault_consume_resets_the_native_readiness_timestamp():
   intent.observe_startup_readiness(sm, cs, native=native, panda_ready=True, now_ns=now, producer=PRODUCER)
   intent.update(cs.as_reader(), fault_active=False, now_ns=now)
   assert not intent.startup_main_pending
+
+
+def test_main_off_reopen_requires_two_fresh_proofs():
+  NOW = 1_000_000_000
+  PRODUCER = 'card'
+  cp = CarInterface.get_params(CAR.MAZDA_CX5_2022, gen_empty_fingerprint(), [], False, False, False)
+  cp.alternativeExperience = 32
+  intent = MazdaStockCardIntent(cp, AolSettings(True, 0., 0, 0, (0, 0, 0), (0, 0, 0)))
+  cs = structs.CarState(canValid=True, gearShifter='drive')
+  cs.cruiseState.available = True
+
+  now = NOW + 10_000_000
+  sm, native = idle_startup_proof(cp, now, 'startup-session')
+  intent.observe_startup_readiness(sm, cs, native=native, panda_ready=True, now_ns=now, producer=PRODUCER)
+  intent.update(cs.as_reader(), fault_active=False, now_ns=now)
+  assert intent.startup_main_source_ns and intent.startup_binding is not None
+
+  cs.cruiseState.available = False
+  for tick in range(2, 52):
+    now = NOW + tick * 10_000_000
+    sm, native = idle_startup_proof(cp, now, 'startup-session')
+    intent.observe_startup_readiness(sm, cs, native=native, panda_ready=True, now_ns=now, producer=PRODUCER)
+    intent.update(cs.as_reader(), fault_active=False, now_ns=now)
+  assert intent.startup_main_pending
+  assert intent.startup_main_source_ns == 0 and intent.startup_binding is None
+
+  cs.cruiseState.available = True
+  now = NOW + 52_000_000
+  sm, native = idle_startup_proof(cp, now, 'startup-session')
+  intent.observe_startup_readiness(sm, cs, native=native, panda_ready=True, now_ns=now, producer=PRODUCER)
+  intent.update(cs.as_reader(), fault_active=False, now_ns=now)
+  assert intent.startup_main_pending
+  now = NOW + 53_000_000
+  sm, native = idle_startup_proof(cp, now, 'startup-session')
+  intent.observe_startup_readiness(sm, cs, native=native, panda_ready=True, now_ns=now, producer=PRODUCER)
+  intent.update(cs.as_reader(), fault_active=False, now_ns=now)
+  assert not intent.startup_main_pending
+
+
+def test_ineligible_consume_resets_native_readiness_timestamp():
+  NOW = 1_000_000_000
+  PRODUCER = 'card'
+  cp = CarInterface.get_params(CAR.MAZDA_CX5_2022, gen_empty_fingerprint(), [], False, False, False)
+  cp.alternativeExperience = 32
+  intent = MazdaStockCardIntent(cp, AolSettings(True, 0., 0, 0, (0, 0, 0), (0, 0, 0)))
+  cs = structs.CarState(canValid=True, gearShifter='drive')
+  cs.cruiseState.available = True
+
+  now = NOW + 10_000_000
+  sm, native = idle_startup_proof(cp, now, 'startup-session')
+  intent.observe_startup_readiness(sm, cs, native=native, panda_ready=True, now_ns=now, producer=PRODUCER)
+  intent.update(cs.as_reader(), fault_active=False, now_ns=now)
+  assert intent.startup_main_source_ns and intent.startup_binding is not None
+
+  intent.settings = replace(intent.settings, enabled=False)
+  now = NOW + 20_000_000
+  sm, native = idle_startup_proof(cp, now, 'startup-session')
+  intent.observe_startup_readiness(sm, cs, native=native, panda_ready=True, now_ns=now, producer=PRODUCER)
+  intent.update(cs.as_reader(), fault_active=False, now_ns=now)
+  assert not intent.startup_main_pending
+  assert intent.startup_main_source_ns == 0 and intent.startup_binding is None
 
 
 @pytest.mark.parametrize('blocker', ('disabled', 'permanent', 'acc_fault'))
