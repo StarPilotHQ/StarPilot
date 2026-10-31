@@ -34,6 +34,7 @@ FORD_BLUEPILOT_TARGETS = (
 # Representative production callers plus their source/native refusal cases.
 # The emitted selected_test_ids record exact parametrized configurations.
 AOL_LIFECYCLE_TARGETS = (
+  "openpilot/starpilot/aol/tests/test_gv60_hda1_alpha_aol.py",
   "opendbc_repo/opendbc/car/hyundai/tests/test_torque_ev_deferred_takeover.py",
   'openpilot/starpilot/aol/tests/test_hkg_early_long_withdrawal.py',
   'openpilot/starpilot/car/toyota/tests/test_prius_retrofit_stock.py',
@@ -248,6 +249,7 @@ DEBUG_SAFETY_CLASS_TARGETS = {
 
 
 RELEASE_TARGETS = (
+  "opendbc_repo/opendbc/safety/tests/test_hyundai_gv60_hda1_long_aol.py",
   'openpilot/starpilot/car/toyota/tests/test_prius_retrofit_stock.py',
   'openpilot/starpilot/car/toyota/tests/test_prius_retrofit_stock_callers.py',
   'opendbc_repo/opendbc/car/toyota/tests/test_matrix_filter.py',
