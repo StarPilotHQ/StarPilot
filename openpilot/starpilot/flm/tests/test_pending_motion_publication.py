@@ -58,8 +58,9 @@ def test_actual_callbacks_publish_new_witness_before_remaining_fifo_work(monkeyp
       assert key == 'pandaStates'
       return []
 
+  hold_bracket = [False]
   def evidence():
-    return S(source_epoch='b'*64, source_receipt_ns=BASE, control_ns=now[0], state_ns=now[0]-10_000_000,
+    return S(source_epoch='b'*64, source_receipt_ns=BASE, control_ns=now[0], state_ns=BASE-1 if hold_bracket[0] else now[0]-10_000_000,
       identity='a'*64, generation=1, domain='normalized_torque', stage_revision='stage',
       response_revision='response', controller_mode='torque', policy='policy', baseline_revision='d'*64,
       controller_revision='controller', turn_assist=False, native_required=False)
@@ -112,10 +113,13 @@ def test_actual_callbacks_publish_new_witness_before_remaining_fifo_work(monkeyp
   monkeypatch.setattr('openpilot.starpilot.flm.native_health.current_native_health', native)
   monkeypatch.setattr(steerlearnerd, 'read_control', lambda *args:evidence())
   monkeypatch.setattr(steerlearnerd, 'read_applied', lambda *args:S(control_ns=now[0], apply_ns=now[0]))
+  premature = []
   def early(*args, **kwargs):
     if missing == 'delivery_in_batch' and args[0].logMonoTime['deviceMotion'] < BASE:
       return None
     if not collector.right_available:
+      if collector._original_source_pose_queue:
+        premature.append(now[0])
       collector._original_source_pose_queue = (S(mono_ns=BASE, source_upper_ns=BASE),)
       return None
     collector._original_source_pose_queue = ()
@@ -135,6 +139,11 @@ def test_actual_callbacks_publish_new_witness_before_remaining_fifo_work(monkeyp
     if len(batches) == 1:
       control(event, None, now[0])
       return
+    if missing == 'state_bracket':
+      hold_bracket[0] = True
+      control(event, None, now[0])
+      hold_bracket[0] = False
+      assert not premature
     now[0] += 5_000_000
     control(event, None, now[0])
     if missing == 'native_pair':

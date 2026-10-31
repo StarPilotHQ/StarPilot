@@ -222,6 +222,9 @@ def _early_tracking_offer(sm, cp, collector, actor, source, *, now_ns, clock):
   from openpilot.starpilot.flm.live_tracking_response import validate_response_witness
   observe(sm, cp, collector, now_ns, True)
   current = clock()
+  if (getattr(collector, '_original_source_pose_queue', ()) and
+      getattr(actor.ingress, 'last_pose_ns', 0) <= actor.last_publication_pose_ns):
+    return None
   offer = actor._current_publication_offer(current)
   if offer is None:
     return None
@@ -544,7 +547,7 @@ def run(
   def current_tracking_offer():
     return live_offer
 
-  def renew_tracking(*, refresh=False):
+  def renew_tracking(*, refresh=False, incoming=None):
     nonlocal live_offer, next_tracking_status_ns, tracking_needs_native
     if live_offer is None or live_actor is None or live_history.offer is not None:
       tracking_needs_native = False
@@ -552,7 +555,7 @@ def run(
     if refresh:
       source_delivery.refresh(sm)
       if (not sm.updated['deviceMotion'] and not tracking_needs_native and
-          not getattr(collector, '_original_source_pose_queue', ())):
+          not _pending_pose_bracket_ready(collector, incoming, clock())):
         return False
     valid, stamp = source_current(read=refresh)
     if not valid or collector is None:
@@ -760,7 +763,7 @@ def run(
               live_history.acknowledge(live_actor, application, now_ns=received_now)
           if live_actor is not None and offered is not None and admitted:
             # Motion may arrive while the original FIFO is still draining.
-            renew_tracking(refresh=True)
+            renew_tracking(refresh=True, incoming=prepared)
 
       def output(event, current, stamp):
         valid_source, received_now = source_current()

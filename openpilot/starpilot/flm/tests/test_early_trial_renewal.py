@@ -124,3 +124,15 @@ def test_final_serialization_still_rejects_native_loss_or_expiry(monkeypatch):
   for stamp, native in ((now[0], False), (renewed.expires_ns+1, True)):
     message = steerlearnerd.tracking_message(source(stamp), now_ns=stamp, current_native=native, offer=renewed)
     assert message.starpilotSteeringTracking.trial.version == 0
+
+
+def test_pending_original_bracket_does_not_rebuild_the_already_published_offer(monkeypatch):
+  actor, collector, now, _, _ = setup(monkeypatch)
+  actor.ingress.last_pose_ns = BASE
+  collector._original_source_pose_queue = (S(mono_ns=BASE+25_000_000),)
+  monkeypatch.setattr('openpilot.starpilot.flm.source_plant_runtime.observe', lambda *args: None)
+  def unused(*args):
+    raise AssertionError('pending bracket cannot supply a newer response witness')
+  monkeypatch.setattr(actor, '_current_publication_offer', unused)
+  assert early(actor, collector, now) is None
+  assert actor.last_publication_pose_ns == BASE
