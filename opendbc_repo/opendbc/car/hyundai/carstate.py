@@ -664,12 +664,13 @@ class CarState(CarStateBase):
       if not (ev9_long_qualified(CP) or pe_long_qualified(CP)):
         (cam_msgs if CP.flags & HyundaiFlags.CANFD_CAMERA_SCC else msgs).append(("SCC_CONTROL", 50))
     elif torque_ev_scc_eligible(CP):
-      msgs.extend((("ACCELERATOR", 100), ("TCS", 50), ("WHEEL_SPEEDS", 100), ("MDPS", 100)))
+      msgs.extend(((self.accelerator_msg_canfd, 100), ("TCS", 50), ("WHEEL_SPEEDS", 100), ("MDPS", 100)))
       msgs.extend((("CRUISE_BUTTONS_ALT", math.nan), ("DOORS_SEATBELTS", math.nan),
                    ("STEERING_SENSORS", math.nan), ("BLINKERS", math.nan)))
-      if self.gear_msg_canfd != "ACCELERATOR":
+      if self.gear_msg_canfd != self.accelerator_msg_canfd:
         msgs.append((self.gear_msg_canfd, 100))
-      cam_msgs.append(("CAM_0x362" if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "CAM_0x2a4", 20))
+      if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
+        cam_msgs.append(("CAM_0x362" if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "CAM_0x2a4", 20))
     elif CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and CP.openpilotLongitudinalControl:
       # The acknowledged ADAS takeover removes stock SCC from E-CAN. Require
       # every independent native input and the matching camera source instead.
