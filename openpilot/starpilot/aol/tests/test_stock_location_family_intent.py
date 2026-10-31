@@ -168,3 +168,26 @@ def test_stock_location_never_retains_intent_through_independent_fault(family, f
     if expected:
       assert baseline == (card.aol_transport_feedback.lateral_baseline_ns, card.aol_transport_feedback.lateral_native_ns)
 
+
+
+@pytest.mark.parametrize('family', ['canfd_radar', 'canfd_lka', 'canfd_lka_alt', 'canfd_camera', 'canfd_ccnc_camera'])
+def test_healthy_stock_aol_skips_fault_recovery_profile_validation(family):
+  with ExitStack() as cleanup:
+    sd, drive, card, receive, state = stock_family_callers(cleanup, family)
+    for tick in range(2, 5):
+      axis, _, command = drive(tick, observed_state=state, panda_controls_allowed=False, native_request_long=False)
+      assert axis.lateralActive and command.latActive
+      assert receive(10_000_000_000 + tick * 10_000_000, state=state,
+                     axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
+    feedback = card.aol_transport_feedback
+    axis = card.sm['aolAxisState']
+    with mock.patch('openpilot.starpilot.aol.transport_pause.stock_lateral_user_event') as user_profile, \
+         mock.patch('opendbc.car.hyundai.canfd_stock_aol.qualified') as canfd_profile, \
+         mock.patch('opendbc.car.hyundai.canfd_angle_aol.qualified') as angle_profile, \
+         mock.patch('opendbc.car.hyundai.classic_scc_aol.qualified') as classic_profile:
+      assert not feedback._temporary_host_intent_current(card.sm, card.CP, state, axis,
+        int(card.sm.logMonoTime['aolAxisState']), 10_040_000_001, latched=True,
+        producer=card.slc_producer_session)
+      for profile in (user_profile, canfd_profile, angle_profile, classic_profile):
+        profile.assert_not_called()
+    assert card.aol_card_intent.allowed_latch

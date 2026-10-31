@@ -531,11 +531,12 @@ class TransportPauseFeedback:
 
     # PCM-off != AOL toggle: after output withdrawal retain prior intent only for
     # location faults/matched EPS recovery; native/session/source checks remain.
-    stock_angle = cp.brand == 'hyundai' and angle_qualified(cp, marked_only=True)
-    stock_hkg = cp.brand == 'hyundai' and (stock_angle or stock_canfd_qualified(cp, marked_only=True) or
+    recovering_user = bool((location_fault or eps_recovery) and users)
+    stock_angle = recovering_user and cp.brand == 'hyundai' and angle_qualified(cp, marked_only=True)
+    stock_hkg = recovering_user and cp.brand == 'hyundai' and (stock_angle or stock_canfd_qualified(cp, marked_only=True) or
       stock_classic_qualified(cp, marked_only=True))
-    stock_user = stock_lateral_user_event(cp)
-    stock_temporary_user = bool((location_fault or eps_recovery) and (stock_hkg or cp.brand == 'chrysler' and chrysler_qualified(cp, marked_only=True) or
+    stock_user = stock_lateral_user_event(cp) if recovering_user else None
+    stock_temporary_user = bool(recovering_user and (stock_hkg or cp.brand == 'chrysler' and chrysler_qualified(cp, marked_only=True) or
       cp.brand == 'ford' and ford_qualified(cp, marked_only=True) or cp.brand == 'nissan' and nissan_qualified(cp, marked_only=True)
       or cp.brand == 'subaru' and subaru_qualified(cp, marked_only=True)
       or cp.brand == 'mazda' and mazda_qualified(cp, marked_only=True)

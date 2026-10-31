@@ -119,7 +119,9 @@ def test_temporary_lag_never_masks_real_fault_or_invalid_proof(fault):
     elif fault == 'source_age':
       proof.aolAxisState.sourceCarStateMonoTime -= 30_000_001
     elif fault == 'cancel':
+      from dataclasses import replace
       from opendbc.car.structs import car
+      card.aol_card_intent.settings = replace(card.aol_card_intent.settings, cancel_actions=(9, 0, 0))
       state.buttonEvents = [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.cancel, pressed=True)]
     elif fault == 'settings_disabled':
       from dataclasses import replace
