@@ -36,3 +36,22 @@ def test_library_angle_curvature_aol_native_lifecycle(ford_joined, monkeypatch):
 @pytest.mark.parametrize('mode', ['curvature', 'angle'])
 def test_model_loss_still_withdraws_library_output_through_actual_callers(ford_joined, monkeypatch):
   run_actual_producer(ford_joined, monkeypatch, scenario='model-loss')
+
+
+@pytest.mark.parametrize('identity,alpha,hands_free', [
+  ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), True, True),
+])
+@pytest.mark.parametrize('topology', ['automatic', 'manual-multi'])
+@pytest.mark.parametrize('mode', ['angle', 'curvature'])
+@pytest.mark.parametrize('pinion', [False, True])
+def test_gas_held_first_engagement(ford_joined, monkeypatch, mode, pinion):
+  run_actual_producer(ford_joined, monkeypatch, scenario='bluepilot-gas')
+
+
+
+@pytest.mark.parametrize('identity,alpha,hands_free,topology,mode,pinion', [
+  ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), True, True, 'automatic', 'angle', True),
+])
+def test_sustained_real_loop_lag_still_disables_ford(ford_joined, monkeypatch):
+  monkeypatch.ford_sustained_lag = True
+  run_actual_producer(ford_joined, monkeypatch, scenario='bluepilot-gas')

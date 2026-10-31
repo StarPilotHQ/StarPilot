@@ -202,6 +202,8 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
   now = [10_000_000_000]
   queued, published, previous_sd = [], {}, {}
   delayed_native = {}
+  source_gap_messages = {}
+  source_gap_active = [False]
   steps = start_tick = native.tick
   warmup_waits = qualified_samples = 0
   active_lat_frames = active_long_frames = 0
@@ -252,7 +254,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
       def capture(service, event):
         raw = event if isinstance(event, bytes) else event.to_bytes()
         published[service] = messaging.log_from_bytes(raw).as_builder()
-        return send(service, raw)
+        return None if source_gap_active[0] and service == 'aolIntentWire' else send(service, raw)
 
       local.setattr(host.pm, 'send', capture)
       if scenario == 'model-loss':
@@ -301,8 +303,9 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
       route45_trace = []
 
       def step(*, engaged=False, brake=False, reverse=False, warmup=False, fault=None, main_off=False,
-               availability_transition=False, steering=False, cancel=False, park=False):
+               availability_transition=False, steering=False, cancel=False, park=False, source_gap=False):
         nonlocal steps, warmup_waits, qualified_samples, active_lat_frames, active_long_frames, nonzero_after_brake, brake_seen
+        source_gap_active[0] = source_gap
         brake_seen |= brake
         model_lost[0] = fault == 'model-loss'
         steps += 1
@@ -325,7 +328,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
             fields['CcStat_D_Actl'] = 0
           if scenario == 'route45' and refusal == 'cancel' and name == 'Steering_Data_FD1':
             fields['CcAslButtnCnclPress'] = 1
-          if scenario in ('route49', 'cancel-native-cadence', 'neutral-main-cadence') and name == 'Steering_Data_FD1':
+          if scenario in ('route49', 'cancel-native-cadence', 'neutral-main-cadence', 'bluepilot-gas') and name == 'Steering_Data_FD1':
             fields['CcAslButtnCnclResPress'] = int(cancel)
           if scenario in ('route45', 'route49', 'route22') and name == 'EPAS_INFO':
             fields['SteeringColumnTorque'] = 2 if steering else 0
@@ -484,12 +487,14 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
         assert scenario in ('route45', 'route49', 'route22') or not state.steeringPressed
         assert bool(state.gasPressed) == (fault in ('gas', 'temporary-eps-gas', 'temporary-lkas-gas')
                                           and not any(frame[0] == 0x204 for frame in delayed_pedal_frames))
+        if not source_gap:
+          source_gap_messages.update(carState=published['carState'], aolIntentWire=published['aolIntentWire'])
         axis, sd_state, command = drive(
-          steps,
-          car_state_message=published['carState'],
+          steps, timeout=source_gap,
+          car_state_message=source_gap_messages['carState'],
           gas=bool(state.gasPressed),
           steering=bool(state.steeringPressed),
-          intent_message=published['aolIntentWire'],
+          intent_message=source_gap_messages['aolIntentWire'],
           allowed=bool(permission & 1),
           long_allowed=bool(permission & 2),
           native_request_lat=bool(native_request & 1),
@@ -499,7 +504,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
           panda_state_message=panda_message.as_builder(),
           safety_message=wire_message.as_builder(),
         )
-        if delayed_pedal_frames:
+        if delayed_pedal_frames and prior_axis is not None and prior_axis.aolAxisState.lateralActive:
           assert command.latActive and host.aol_card_intent.allowed_latch, (
             'Native-first pedal erased granted lateral intent', steps, host.aol_card_intent.latch_clear_reason,
             permission, native_request, axis.to_dict(), transition_trace[-4:])
@@ -670,6 +675,61 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
           assert state.steerFaultTemporary and not host.aol_card_intent.allowed_latch
           assert not command.enabled and not command.latActive and not command.longActive
           assert sd_state.alertType != 'steerTempUnavailableSilent/warning', 'Unarmed parked startup shows steering warning'
+        return
+      if scenario == 'bluepilot-gas':
+        for _ in range(50):
+          state, axis, sd_state, command = step(engaged=True, fault='gas')
+        assert state.gasPressed and command.latActive and not command.longActive and host.aol_card_intent.allowed_latch
+        from openpilot.cereal import log
+        with patch.object(sd.rk.avg_dt, 'get_average', return_value=.02):
+          for gap_tick in range(8):
+            state, axis, sd_state, command = step(engaged=True, fault='gas', source_gap=True)
+            assert log.OnroadEvent.EventName.controlsMismatch not in sd.events.names, (gap_tick, axis.to_dict())
+            assert not sd.aol_authority_lost and sd_state.enabled
+            assert host.aol_card_intent.allowed_latch, (gap_tick, host.aol_card_intent.latch_clear_reason, axis.to_dict())
+            if gap_tick >= 3:
+              assert not command.latActive and not command.longActive
+              assert not axis.lateralActive and not axis.longitudinalActive
+        for _ in range(25):
+          state, axis, sd_state, command = step(engaged=True, fault='gas')
+          assert host.aol_card_intent.allowed_latch, (host.aol_card_intent.latch_clear_reason, axis.to_dict(), transition_trace[-6:])
+        assert command.latActive and not command.longActive and not sd.aol_authority_lost
+        for _ in range(30):
+          state, axis, sd_state, command = step(engaged=True)
+        assert command.latActive and command.longActive and host.aol_card_intent.allowed_latch
+        cancel_seen = False
+        for _ in range(12):
+          state, axis, sd_state, command = step(engaged=True, cancel=True)
+          cancel_seen |= host.CI.CS.cancel_button
+          assert command.latActive and host.aol_card_intent.allowed_latch
+          if not joined.last_permission & 2:
+            assert not command.longActive
+        assert cancel_seen
+        for _ in range(35):
+          state, axis, sd_state, command = step()
+          assert command.latActive and not command.longActive and host.aol_card_intent.allowed_latch, (
+            steps, host.aol_card_intent.latch_clear_reason, axis.to_dict(), vars(host.aol_transport_feedback), transition_trace[-12:])
+        for _ in range(30):
+          state, axis, sd_state, command = step(engaged=True)
+        assert command.latActive and command.longActive
+        for _ in range(35):
+          state, axis, sd_state, command = step(brake=True)
+          assert command.latActive and host.aol_card_intent.allowed_latch
+          if state.brakePressed or not joined.last_permission & 2:
+            assert not command.longActive
+        for _ in range(30):
+          state, axis, sd_state, command = step()
+          assert command.latActive and not command.longActive and host.aol_card_intent.allowed_latch
+        assert joined.nonzero_after_brake > 0
+        if getattr(monkeypatch, 'ford_sustained_lag', False):
+          for _ in range(35):
+            state, axis, sd_state, command = step(engaged=True, fault='gas')
+          with patch.object(sd.rk.avg_dt, 'get_average', return_value=.02):
+            for _ in range(350):
+              state, axis, sd_state, command = step(engaged=True, fault='gas')
+            assert log.OnroadEvent.EventName.selfdrivedLagging in sd.events.names
+            assert not sd_state.enabled and not command.latActive and not command.longActive
+            assert not native.safety.aol_get_permission_mask()
         return
       if scenario == 'route22':
         assert host.CP.openpilotLongitudinalControl
