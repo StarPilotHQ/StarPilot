@@ -290,7 +290,7 @@ int main() {
   FakeTransport ford_transport;
   auto ford_status = status();
   ford_status.safety_mode = 6U;
-  ford_status.safety_param = 32U;
+  ford_status.safety_param = 0U;
   auto ford_axis = axis("ford-session", false, false);
   ford_axis.retain_lateral_arm = true;
   queue(ford_transport, ford_status, ford_status);

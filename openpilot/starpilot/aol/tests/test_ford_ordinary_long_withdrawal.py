@@ -18,7 +18,7 @@ def caller():
     fingerprint[0] = {0x5A: 8, 0x3A6: 8, 0x3A7: 8}
     cp = CarInterface.get_params(CAR.FORD_MUSTANG_MACH_E_MK1, fingerprint, [], True, False, False)
     cp.alternativeExperience = 32
-    assert cp.safetyConfigs[-1].safetyParam == 19 and cp.flags == 3
+    assert cp.safetyConfigs[-1].safetyParam == 3 and cp.flags == 3
     sd, controls, step = case._authority_callers(True, cp=cp, genuine_events=True)
     cs = fixture.car_state()
     cs.cruiseState.enabled = True

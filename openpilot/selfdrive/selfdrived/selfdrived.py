@@ -1784,15 +1784,13 @@ class SelfdriveD:
     mismatch counter retain their original fault ownership.
     """
     from openpilot.starpilot.aol.transport_pause import independent_lateral_health
-    from opendbc.car.ford.values import CAR as FORD_CAR
-    from opendbc.car.ford.aol import profile_word
     from openpilot.starpilot.car.ford.aol import native_accepts_cp as ford_native_accepts_cp
-    # Established ordinary Mach-E cruise does not require an independent AOL latch.
+    # Established ordinary Ford cruise does not require an independent AOL latch.
     # Its native LONG pedal withdrawal may precede Card; the original combined
     # publication, live LAT grant and every health/deadline check below still apply.
     ford_word = self.CP.safetyConfigs[-1].safetyParam
-    ordinary_ford = bool(self.CP.carFingerprint == FORD_CAR.FORD_MUSTANG_MACH_E_MK1 and profile_word(ford_word) == 3 and
-                         ford_native_accepts_cp(self.CP, int(car.CarParams.SafetyModel.ford), ford_word))
+    ordinary_ford = bool(self.CP.openpilotLongitudinalControl and
+      ford_native_accepts_cp(self.CP, int(car.CarParams.SafetyModel.ford), ford_word))
     proof = getattr(self, 'aol_published_input_proof', None)
     prior = getattr(self, 'aol_published_input_native', None)
     anchor = getattr(self, 'aol_ordinary_source_anchor', None)

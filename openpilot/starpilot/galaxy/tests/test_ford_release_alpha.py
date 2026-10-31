@@ -77,9 +77,9 @@ def test_release_ford_capability_rejects_invalid_native_owner_and_passive_config
     params, state, gateway = fixture('FORD_MUSTANG_MACH_E_MK1', manual=False, offset=0)
     try:
       if failure == 'legacy':
-        state.cp.safetyConfigs[-1].safetyParam = 3
+        state.cp.safetyConfigs[-1].safetyParam = 18
       elif failure == 'wrong-owner':
-        state.cp.safetyConfigs[-1].safetyParam = 66
+        state.cp.safetyConfigs[-1].safetyModel = 'noOutput'
       elif failure == 'automatic-manual-marker':
         state.cp.safetyConfigs[-1].safetyParam |= 256
       else:

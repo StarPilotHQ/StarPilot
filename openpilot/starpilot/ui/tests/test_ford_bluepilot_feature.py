@@ -7,7 +7,7 @@ from opendbc.car.ford.values import CAR
 from opendbc.car.toyota.values import CAR as TOYOTA
 from openpilot.common.params import Params
 from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
-from openpilot.starpilot.ui.ford_bluepilot_feature import ENABLE, MODE, PINION, FordBluePilotFeature
+from openpilot.starpilot.ui.ford_bluepilot_feature import ENABLE, MODE, PINION, CONTROLLERS, BLUEPILOT_VERSION, FordBluePilotFeature
 
 
 class Owner:
@@ -48,18 +48,29 @@ def change(o, key, value, row=None):
   return FordBluePilotFeature(o).apply(request)
 
 
-def test_off_by_default_with_only_the_switch_editable(tmp_path):
+def test_bluepilot_is_default_and_shows_the_pinned_iteration(tmp_path):
   o = owner(tmp_path)
   shown = rows(o)
-  assert shown[ENABLE].value == "Off" and shown[ENABLE].available
-  assert not shown[MODE].available and not shown[PINION].available
-  assert shown["LC_PID_gain_UI_curv"].reason == "Turn on BluePilot Lateral first"
+  assert shown[ENABLE].label == "Ford Controller"
+  assert shown[ENABLE].value == f"BluePilot Controller {BLUEPILOT_VERSION}"
+  assert shown[ENABLE].default_value == CONTROLLERS[1]
+  assert shown[ENABLE].available and shown[MODE].available and shown[PINION].available
   assert not any(key.endswith("_ang") for key in shown)
+
+
+def test_stock_ford_selection_disables_bluepilot_tuning(tmp_path):
+  o = owner(tmp_path)
+  assert change(o, ENABLE, CONTROLLERS[0])
+  assert saved(o, ENABLE) == b"1"
+  shown = rows(o)
+  assert shown[ENABLE].value == "Stock Ford"
+  assert not shown[MODE].available and not shown[PINION].available
+  assert shown["LC_PID_gain_UI_curv"].reason == "Select BluePilot Controller first"
 
 
 def test_turning_on_saves_the_inverse_and_unlocks_the_tuning(tmp_path):
   o = owner(tmp_path)
-  assert change(o, ENABLE, "On")
+  assert change(o, ENABLE, CONTROLLERS[1])
   assert saved(o, ENABLE) == b"0"
   shown = rows(o)
   assert shown[MODE].available and shown[PINION].available
@@ -88,7 +99,7 @@ def test_startup_settings_change_only_while_parked_and_tuning_any_time(tmp_path)
   shown = rows(o)
   assert not shown[ENABLE].available and not shown[MODE].available and not shown[PINION].available
   assert shown["lane_change_factor_high_curv"].available
-  assert not change(o, ENABLE, "Off")
+  assert not change(o, ENABLE, CONTROLLERS[0])
   assert change(o, "lane_change_factor_high_curv", "0.9")
   assert saved(o, "lane_change_factor_high_curv") == b"0.9"
 
@@ -120,7 +131,7 @@ def test_safe_mode_keeps_bluepilot_lateral_off(tmp_path):
   save(o, "SafeMode", b"1")
   assert not rows(o)[ENABLE].available
   assert rows(o)[ENABLE].reason == "Safe Mode must be off"
-  assert not change(o, ENABLE, "On")
+  assert not change(o, ENABLE, CONTROLLERS[1])
 
 
 def test_a_request_from_before_its_dependency_changed_is_refused(tmp_path):

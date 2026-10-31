@@ -21,6 +21,16 @@ sys.path.insert(0, str(ROOT))
 from tools import test_runner
 from tools.ci import lifecycle_shards, vehicle_pytest
 
+FORD_BLUEPILOT_TARGETS = (
+  'openpilot/starpilot/tests/test_ford_bluepilot_library_lifecycle.py',
+  'openpilot/starpilot/tests/test_ford_reverse_native_echo.py',
+  'openpilot/starpilot/tests/test_bluepilot_vendor_pin.py',
+  'opendbc_repo/opendbc/safety/tests/test_ford_bluepilot_hooks.py',
+  *(str(path.relative_to(ROOT))
+    for folder in ('opendbc_repo/opendbc/bluepilot_lateral/tests', 'opendbc_repo/opendbc/bluepilot_lateral/safety/tests')
+    for path in sorted((ROOT / folder).glob('test_*.py'))),
+)
+
 # Representative production callers plus their source/native refusal cases.
 # The emitted selected_test_ids record exact parametrized configurations.
 AOL_LIFECYCLE_TARGETS = (
@@ -552,7 +562,7 @@ def sha256(path):
 
 def targets_for(suite):
   if suite == "aol-lifecycle":
-    return list(AOL_LIFECYCLE_TARGETS)
+    return list(AOL_LIFECYCLE_TARGETS + FORD_BLUEPILOT_TARGETS)
   if suite == "interfaces":
     car_root = ROOT / "opendbc_repo/opendbc/car"
     return [str(path.relative_to(ROOT)) for path in sorted(car_root.rglob("test_*.py"))
@@ -563,7 +573,7 @@ def targets_for(suite):
       "openpilot/starpilot/aol/tests/test_classic_startup_neutral_replacement.py",
     ]
   if suite == "safety-release":
-    return list(RELEASE_TARGETS)
+    return list(RELEASE_TARGETS + FORD_BLUEPILOT_TARGETS)
   raise ValueError(f"Unknown vehicle test suite: {suite}")
 
 

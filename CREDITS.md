@@ -12,6 +12,8 @@ The copied MRR35 generator source and DBC definition are at `opendbc_repo/opendb
 
 ## Ford support adapted from BluePilot
 
+Ford lateral control vendors [BluePilot lateral](https://github.com/BluePilotDev/bluepilot-lateral) v0.2.1 (`2b9dc6cc784faac47a1885d0bda0561f7b76f74d`), developed by Alan Polk (`alan-polk`) and the BluePilot contributors. Alan provided the [StarPilot integration in PR #269](https://github.com/StarPilotHQ/StarPilot/pull/269); his commits and authorship are retained. BluePilot maintains the library and its integration; StarPilot keeps its settings, AOL policy, packaging and integration tests separate. Complete contributor and license notices remain in [the library credits](opendbc_repo/opendbc/bluepilot_lateral/CREDITS.md) and [license](opendbc_repo/opendbc/bluepilot_lateral/LICENSE).
+
 The Ford CAN FD camera-lead radar filtering is adapted from StarPilot `2efe6017bfe14cee4807833e05f9a7f6ba255cdb`. Its lineage includes BluePilot's `bp-7.0` Ford work, principally by Alan Polk, with contributions from John Christman, Jacob Neulight, tonesto7, Haibin Wen and other sunnypilot and BluePilot contributors. The reference snapshot is [`e1d051d7ba270261b4455068bd68f1a58db15a4a`](https://github.com/BluePilotDev/bluepilot/commit/e1d051d7ba270261b4455068bd68f1a58db15a4a); the exact checkout used for the earlier StarPilot import was not recorded.
 
 The radar interface preserves that attribution while adapting to the current interfaces. Upstream contributors do not maintain or endorse this adaptation. Applicable notices are retained in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

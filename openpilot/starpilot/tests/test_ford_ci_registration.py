@@ -4,6 +4,10 @@ from tools.ci import run_vehicle_tests as runner
 
 
 FAMILY_TARGETS = (
+  'openpilot/starpilot/tests/test_ford_bluepilot_library_lifecycle.py',
+  'openpilot/starpilot/tests/test_ford_reverse_native_echo.py',
+  'openpilot/starpilot/tests/test_bluepilot_vendor_pin.py',
+  'opendbc_repo/opendbc/safety/tests/test_ford_bluepilot_hooks.py',
   'opendbc_repo/opendbc/safety/tests/test_ford_canfd_display.py',
   'openpilot/starpilot/tests/test_ford_configuration_parity.py',
   'openpilot/starpilot/tests/test_ford_configuration_admission.py',

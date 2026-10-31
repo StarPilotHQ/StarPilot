@@ -4,6 +4,7 @@ Ranges and the controller's defaults come from the library's manifest, so a sett
 controller reads. BluePilot Lateral, Primary Control and Use Pinion Yaw Sensor change while parked; the first and
 last apply at the next vehicle startup. The tuning rows change any time: the library reads them every frame."""
 import math
+from importlib.resources import files
 from dataclasses import dataclass
 
 from opendbc.bluepilot_lateral.core.values_ext import FORD_PINION_GEOMETRY_INDEX
@@ -17,6 +18,8 @@ MANIFEST = {setting.key: setting for setting in SETTINGS}
 ENABLE = "disable_BP_lat_UI"  # stored inverted: "0" is on
 MODE = "FordPrefLateralControl"
 PINION = "FordPrefSteerAngleCurvature"
+BLUEPILOT_VERSION, BLUEPILOT_COMMIT = files("opendbc.bluepilot_lateral").joinpath("VERSION").read_text().split()
+CONTROLLERS = ("Stock Ford", f"BluePilot Controller {BLUEPILOT_VERSION}")
 SWITCH = ("Off", "On")
 MODES = ("Curvature", "Angle")
 CURVATURE, ANGLE = 0, 1
@@ -120,13 +123,13 @@ class FordBluePilotFeature:
     default = self.default(key)
 
     if key == ENABLE:
-      value = SWITCH[1] if number == 0.0 else SWITCH[0]
-      return FeatureRow(key, "BluePilot Lateral", value if number is not None else "Invalid saved value", raw,
-                        choices=SWITCH, available=parked_ok and readable and safe_off, capability=capability,
-                        dependencies=dependencies or (), default_value=SWITCH[0] if default != 0.0 else SWITCH[1],
-                        repair_value="" if number is not None else SWITCH[0],
+      value = CONTROLLERS[1] if number == 0.0 else CONTROLLERS[0]
+      return FeatureRow(key, "Ford Controller", value if number is not None else "Invalid saved value", raw,
+                        choices=CONTROLLERS, available=parked_ok and readable and safe_off, capability=capability,
+                        dependencies=dependencies or (), default_value=CONTROLLERS[0] if default != 0.0 else CONTROLLERS[1],
+                        repair_value="" if number is not None else CONTROLLERS[0],
                         reason="" if safe_off else "Safe Mode must be off")
-    gate = "" if self.on() else "Turn on BluePilot Lateral first"
+    gate = "" if self.on() else "Select BluePilot Controller first"
     if key in (MODE, PINION):
       labels = MODES if key == MODE else SWITCH
       return FeatureRow(key, "Primary Control" if key == MODE else "Use Pinion Yaw Sensor",
@@ -148,7 +151,9 @@ class FordBluePilotFeature:
       return FeatureRow(key, tuning.label, SWITCH[int(number)] if number is not None else "Invalid saved value", raw,
                         choices=SWITCH, available=available, capability=capability, dependencies=dependencies or (),
                         default_value=shown, repair_value="" if number is not None else shown, reason=reason)
-    low, high = MANIFEST[key].range
+    bounds = MANIFEST[key].range
+    assert bounds is not None
+    low, high = bounds
     shown = str(round(default, 4))
     return FeatureRow(key, tuning.label, str(round(number, 4)) if number is not None else "Invalid saved value", raw,
                       step=tuning.step if number is not None else 0.0, minimum=low, maximum=high, available=available,
@@ -156,7 +161,7 @@ class FordBluePilotFeature:
                       repair_value="" if number is not None else shown, reason=reason)
 
   def default(self, key):
-    """The params_keys.h default as a number (StarPilot's own: BluePilot lateral is off by default)."""
+    """The params_keys.h default as a number (StarPilot's own: BluePilot is the default controller)."""
     default = self.owner.params.get_default_value(key)
     return float(int(default)) if isinstance(default, bool) else float(default)
 
@@ -170,7 +175,7 @@ class FordBluePilotFeature:
   def encode(self, key, value):
     """The bytes to save for a requested display value, or None if it isn't one of the row's values."""
     if key == ENABLE:
-      return {SWITCH[1]: b"0", SWITCH[0]: b"1"}.get(value)
+      return {CONTROLLERS[1]: b"0", CONTROLLERS[0]: b"1"}.get(value)
     if key == MODE:
       return {MODES[0]: b"0", MODES[1]: b"1"}.get(value)
     if is_switch(key):
@@ -179,7 +184,9 @@ class FordBluePilotFeature:
       number = float(value)
     except ValueError:
       return None
-    low, high = MANIFEST[key].range
+    bounds = MANIFEST[key].range
+    assert bounds is not None
+    low, high = bounds
     step = TUNING_BY_KEY[key].step
     if not math.isfinite(number) or not low <= number <= high or abs((number - low) / step - round((number - low) / step)) > 1e-6:
       return None
