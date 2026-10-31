@@ -4,7 +4,7 @@ A certificate is never a current/native permission. No desired-model trajectory
 is used as measured vehicle response. This code belongs to the optional learner.
 """
 
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import asdict, dataclass, replace
 import hashlib
 import struct
@@ -135,8 +135,14 @@ def _source_key(context):
   )
 
 
+_VALID_SOURCE_CONTEXTS = OrderedDict()
+
+
 def validate_source_context(context):
-  _source_key(context)
+  key = _source_key(context)
+  if key in _VALID_SOURCE_CONTEXTS:
+    _VALID_SOURCE_CONTEXTS.move_to_end(key)
+    return context
   context.binding.validate()
   if (
     context.version != SOURCE_VERSION
@@ -155,6 +161,10 @@ def validate_source_context(context):
       raise ValueError('retained source context needs fresh observations')
   else:
     raise ValueError('unsupported source context provenance')
+  # Only immutable identity content; witness clocks and current binding stay live.
+  _VALID_SOURCE_CONTEXTS[key] = None
+  if len(_VALID_SOURCE_CONTEXTS) > 8:
+    _VALID_SOURCE_CONTEXTS.popitem(last=False)
   return context
 
 
