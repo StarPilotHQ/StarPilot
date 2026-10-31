@@ -67,3 +67,13 @@ def test_forget_car_edits_the_saved_config_when_the_daemon_is_not_running(tmp_pa
   assert saved()["companion_address"] == "" and saved()["receiver_address"] == ADAPTER
   assert protocol.forget_car(ADAPTER.lower(), client) is True
   assert saved()["receiver_address"] == "" and saved()["rfcomm_cache"] == {}
+
+
+def test_the_version_reply_a_car_started_with_is_kept_and_forgotten_with_it(sup):
+  sup._remember_reply(ADAPTER, True)
+  sup._remember_reply(OTHER, True)
+  assert saved()["modern_reply_cache"] == {ADAPTER: True, OTHER: True}
+  sup._remember_reply(OTHER, False)
+  assert saved()["modern_reply_cache"] == {ADAPTER: True}
+  daemon.handle(sup, {"command": "forget_receiver", "address": ADAPTER})
+  assert saved()["modern_reply_cache"] == {} and ADAPTER not in sup._modern_reply

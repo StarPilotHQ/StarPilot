@@ -146,6 +146,7 @@ DEFAULT_CONFIG = {
   "phone_class": True,         # while pairing/connecting, present as a phone: HFP gateway + smartphone Class of Device
   "auto_connect": True,        # start projection on its own when the chosen car is on (onroad, or it reaches the comma)
   "rfcomm_cache": {},          # car address -> Android Auto RFCOMM channel learned over SDP, to skip discovery next time
+  "modern_reply_cache": {},    # car address -> True when its v4+ head unit only started after the phone-style version reply
   "car_type": "",              # wireless setup shown in Galaxy: "builtin" or "adapter"; "" = work it out from the saved companion car
   "car_profile_override": "",  # "" = pick by fingerprint (a wireless adapter must choose); "default" = standard; otherwise a car_profiles id
   "car_fingerprint": {},       # what the chosen car's head unit reported last time, used to pick a profile before it connects
@@ -193,6 +194,8 @@ def load_config(path: Path | None = None) -> dict:
   config["render_profile_kb"] = max(16, min(4096, int(config["render_profile_kb"])))
   config["rfcomm_cache"] = {str(address).upper(): channel for address, channel in config["rfcomm_cache"].items()
                             if type(channel) is int and 1 <= channel <= 30}
+  config["modern_reply_cache"] = {str(address).upper(): True for address, modern in config["modern_reply_cache"].items()
+                                  if modern is True}
   return config
 
 
