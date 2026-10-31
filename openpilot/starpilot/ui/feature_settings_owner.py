@@ -27,10 +27,10 @@ from openpilot.starpilot.longitudinal.planner_selection import KEY as PLANNER_SE
 
 from openpilot.starpilot.longitudinal.profile_document import (
   ACCELERATION_PRESETS, ACCELERATION_SPEEDS_MPH, BRAKING_PRESETS, FOLLOWING_PRESETS, CURVE_BOUNDS,
-  DEFAULT_DECELERATION_PROFILE, PERSONALITY_PROFILES_PARAM, default_personality_profiles, initial_custom_curve,
+  DEFAULT_DECELERATION_PROFILE, MAX_EXTRA_STOPPED_GAP_M, PERSONALITY_PROFILES_PARAM, default_personality_profiles, initial_custom_curve,
   FOLLOWING_SPEEDS_MPH, is_truck_fingerprint,
   personality_reference_curves, serialize_personality_profiles,
-  update_personality_profile,
+  update_personality_profile, profile_document,
   synchronise_profile_document_enabled,
 )
 from openpilot.starpilot.ui.feature_settings_state import (
@@ -1202,6 +1202,15 @@ class FeatureSettingsOwner:
                                reason=(CATEGORY_HELP[category] if category == 'braking' else
                                        'Personalities set to Selected Profile follow this choice; explicit overrides stay unchanged.'),
                                default_value=preset_label('dom_default' if category == 'acceleration' else DEFAULT_DECELERATION_PROFILE)))
+      unit_value, unit_raw, unit_valid = self._value("IsMetric")
+      unit_valid = unit_valid and unit_value in ("0", "1") and self._readable("IsMetric")
+      scale = 1.0 if unit_value == "1" else 1.0 / 0.3048
+      gap = document.get("extraStoppedGapM", 0.0) if document is not None else 0.0
+      rows.append(FeatureRow("profile:stopped_gap", "Extra stopped-lead distance", str(round(gap * scale, 3)), raw,
+                             step=0.1 if unit_value == "1" else 0.5, minimum=0., maximum=round(MAX_EXTRA_STOPPED_GAP_M * scale, 3),
+                             unit="m" if unit_value == "1" else "ft", available=allowed and valid and unit_valid,
+                             dependencies=(("IsMetric", unit_raw),), display_unit="m" if unit_value == "1" else "ft",
+                             default_value="0", reason="Adds space behind slow or stopped leads with the StarPilot planner; zero keeps the normal gap."))
       health = read_profile_health(self.params)
       master = health.values["CustomPersonalities"]
       master_row = self._bool_row("CustomPersonalities", "Custom Following and Jerk",
@@ -1482,6 +1491,11 @@ class FeatureSettingsOwner:
           not self.authority(group) or self._raw(source_key) != request.expected or
           not self._readable(source_key)):
         return False
+      if key == "profile:stopped_gap":
+        units, raw_units, units_valid = self._value("IsMetric")
+        if (not units_valid or units not in ("0", "1") or not self._readable("IsMetric") or
+            request.dependencies != (("IsMetric", raw_units),) or request.display_unit != ("m" if units == "1" else "ft")):
+          return False
       if group in ("torque", "aol", "aol_wheel"):
         if request.capability is None or request.capability != self._capability(group) or \
            any(self._raw(name) != raw for name, raw in request.dependencies):
@@ -1752,6 +1766,8 @@ class FeatureSettingsOwner:
                self.traffic_profiles._sources() == (request.dependencies, True)) and
               (not require_seed_capability or request.capability is not None and
                self.long_profiles.curve_capability() == request.capability) and
+              (request.key != "profile:stopped_gap" or all(self._raw(key) == value and self._readable(key)
+                                                         for key, value in request.dependencies)) and
               self._readable("CustomPersonalities") and self._raw("CustomPersonalities") == master_source and
               (dependencies is None or self.long_profiles._fresh(request, dependencies)))
     result = commit_exact(self.params, key=PERSONALITY_PROFILES_PARAM, max_bytes=65536, raw=raw, expected=expected,
@@ -1760,6 +1776,17 @@ class FeatureSettingsOwner:
 
   def _edit_document(self, key: str, value: str, *, seed_capability: tuple | None = None) -> str | None:
     parts = key.split(":")
+    if key == "profile:stopped_gap":
+      document, _, valid = self._document()
+      if not valid:
+        return None
+      if document is None:
+        document = profile_document(default_personality_profiles(False, is_truck_fingerprint(self.vehicle_fingerprint())), enabled=False)
+      gap = float(value) * (1.0 if self._value("IsMetric")[0] == "1" else 0.3048)
+      if not math.isfinite(gap) or not 0. <= gap <= MAX_EXTRA_STOPPED_GAP_M:
+        return None
+      document["extraStoppedGapM"] = round(gap, 6)
+      return json.dumps(document, separators=(",", ":"), sort_keys=True, allow_nan=False)
     if key in ('profile:global_acceleration', 'profile:global_braking'):
       category = 'acceleration' if key.endswith('acceleration') else 'braking'
       selected = preset_value(value) if type(value) is str else None
@@ -1778,7 +1805,8 @@ class FeatureSettingsOwner:
       braking = document['selectedDecelerationProfile'] if document is not None else DEFAULT_DECELERATION_PROFILE
       return serialize_personality_profiles(profiles, False, truck, enabled=document['enabled'] if document is not None else False,
                                             selected_acceleration_profile=selected if category == 'acceleration' else acceleration,
-                                            selected_deceleration_profile=selected if category == 'braking' else braking)
+                                            selected_deceleration_profile=selected if category == 'braking' else braking,
+                                            extra_stopped_gap_m=document.get("extraStoppedGapM", 0.) if document is not None else 0.)
     if len(parts) not in (3, 4) or parts[1] not in DOCUMENT_PROFILE_NAMES or parts[2] not in PRESETS:
       return None
     fingerprint = self.vehicle_fingerprint()
@@ -1843,4 +1871,5 @@ class FeatureSettingsOwner:
     return serialize_personality_profiles(updated, ev, truck, enabled=enabled == "1",
                                           selected_acceleration_profile=document["selectedAccelerationProfile"] if document is not None else "dom_default",
                                           selected_deceleration_profile=(document["selectedDecelerationProfile"] if document is not None
-                                                                         else DEFAULT_DECELERATION_PROFILE))
+                                                                         else DEFAULT_DECELERATION_PROFILE),
+                                          extra_stopped_gap_m=document.get("extraStoppedGapM", 0.) if document is not None else 0.)

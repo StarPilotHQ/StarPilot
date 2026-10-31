@@ -30,6 +30,7 @@ def legacy_document(profiles, *, enabled, global_braking_response='standard'):
         profile[category]['preset'] = 'dom_default'
   document = current_profile_document(profiles, enabled=enabled, global_braking_response=global_braking_response)
   document['schemaVersion'] = 4
+  document.pop('extraStoppedGapM')
   document['globalBrakingResponse'] = document.pop('selectedDecelerationProfile')
   document.pop('selectedAccelerationProfile')
   return document
@@ -324,7 +325,7 @@ class ProfileRuntimeTests(unittest.TestCase):
     self.params.put('LongitudinalPersonalityProfiles', document, block=True)
     migrated = read_settings(self.params)
     assert migrated is not None and migrated.document is not None
-    self.assertEqual(migrated.document['schemaVersion'], 5)
+    self.assertEqual(migrated.document['schemaVersion'], 6)
     self.params.put('LongitudinalPersonalityProfiles', document, block=True)
     Path(self.params.get_param_path('LongitudinalPersonalityProfiles')).write_text('{broken')
     self.assertIsNone(read_settings(self.params))

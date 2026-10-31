@@ -902,7 +902,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertTrue(readable)
     assert raw is not None
     document = json.loads(raw)
-    self.assertEqual(document["schemaVersion"], 5)
+    self.assertEqual(document["schemaVersion"], 6)
     self.assertEqual(document["selectedDecelerationProfile"], "sport")
     self.assertNotIn("globalBrakingResponse", document)
     self.assertEqual(document["profiles"]["aggressive"]["braking"], previous)

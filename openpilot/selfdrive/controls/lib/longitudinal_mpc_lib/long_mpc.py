@@ -538,7 +538,8 @@ class LongitudinalMpc:
     return lead_xv
 
   def update(self, radarstate, personality=log.LongitudinalPersonality.standard,
-             *, follow_seconds: float | None = None, acceleration_max: float | None = None, stop_line_m: float | None = None, modelV2=None):
+             *, follow_seconds: float | None = None, acceleration_max: float | None = None, stop_line_m: float | None = None,
+             modelV2=None, extra_stopped_gap_m: float = 0.0):
     t_follow = get_T_FOLLOW(personality)
     if follow_seconds is not None and math.isfinite(follow_seconds) and 0.5 <= follow_seconds <= 3.0:
       t_follow = follow_seconds
@@ -554,6 +555,13 @@ class LongitudinalMpc:
     # and then treat that as a stopped car/obstacle at this new distance.
     lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(lead_xv_0[:,1])
     lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(lead_xv_1[:,1])
+
+    if type(extra_stopped_gap_m) in (int, float) and math.isfinite(extra_stopped_gap_m) and 0.0 < extra_stopped_gap_m <= 3.048:
+      # Shift only lead obstacles; physical trajectories still own collision warnings.
+      if radarstate.leadOne.present:
+        lead_0_obstacle -= extra_stopped_gap_m * np.clip(1.0 - lead_xv_0[:, 1] / 5.0, 0.0, 1.0)
+      if radarstate.leadTwo.present:
+        lead_1_obstacle -= extra_stopped_gap_m * np.clip(1.0 - lead_xv_1[:, 1] / 5.0, 0.0, 1.0)
 
     x_obstacles = np.column_stack([lead_0_obstacle, lead_1_obstacle])
     self.source = MPC_SOURCES[np.argmin(x_obstacles[0])]

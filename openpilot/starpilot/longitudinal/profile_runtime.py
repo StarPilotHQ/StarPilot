@@ -267,6 +267,7 @@ class SelectedProfileTuning:
   acceleration_max: float | None = None
   cruise_brake_magnitude: float | None = None
   braking_style: str = 'standard'
+  extra_stopped_gap_m: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -300,7 +301,8 @@ def read_global_powertrain_preset(params, CP) -> GlobalPowertrainPreset | None:
 def selected_profiles_requested(document: dict | None) -> bool:
   if document is None:
     return False
-  if document['selectedAccelerationProfile'] != 'dom_default' or document['selectedDecelerationProfile'] != 'dom_default':
+  if (document.get('extraStoppedGapM', 0.) > 0 or document['selectedAccelerationProfile'] != 'dom_default' or
+      document['selectedDecelerationProfile'] != 'dom_default'):
     return True
   return any(config['preset'] not in ('dom_default', 'selected_profile') and not config.get('legacyActivation', False)
              for profile in document['profiles'].values() for category, config in profile.items() if category != 'following')
@@ -353,7 +355,7 @@ def resolve_selected_profiles(document: dict | None, personality, v_ego: float, 
     else:
       braking = min(max(value, 0.35 if traffic_mode else 0.5), abs(ACCEL_MIN))
       style = preset if preset in ('eco', 'sport') else 'standard'
-  return SelectedProfileTuning(acceleration, braking, style)
+  return SelectedProfileTuning(acceleration, braking, style, document.get("extraStoppedGapM", 0.))
 
 
 class ProfileHost:
