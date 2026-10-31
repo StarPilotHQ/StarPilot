@@ -7,13 +7,15 @@ import unittest
 from opendbc.car.gm.tests.test_ascm_intercept import params
 from opendbc.car import structs
 from opendbc.car.gm.values import CAR, PEDAL_BOLT_CAR
+from openpilot.common.params import Params
 from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
 
 
 class TestGMPitchPreferences(unittest.TestCase):
   def test_exact_off_and_default_on(self):
     with tempfile.TemporaryDirectory() as root:
-      source = SimpleNamespace(get_param_path=lambda key: str(Path(root) / key))
+      source = SimpleNamespace(get_param_path=lambda key: str(Path(root) / key),
+                               get_default_value=Params().get_default_value)
       for raw in (None, b'0', b'1', b'', b'false', b'0\n', b'0' * 20):
         path = Path(root) / 'LongPitch'
         path.unlink(missing_ok=True)
