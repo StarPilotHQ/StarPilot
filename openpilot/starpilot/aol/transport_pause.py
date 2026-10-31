@@ -546,7 +546,7 @@ class TransportPauseFeedback:
       cs.cruiseState.available and not cs.cruiseState.enabled and
       cs.gearShifter in (gears.drive, gears.low, gears.sport, gears.brake) and
       not cs.doorOpen and (not cs.seatbeltUnlatched or belt_eps_recovery) and not cs.brakePressed and not cs.regenBraking and
-      (not cs.gasPressed or stock_angle) and
+      (not cs.gasPressed or stock_angle or eps_recovery and stock_canfd_qualified(cp, marked_only=True)) and
       all(event.name == stock_user and not event.softDisable and
           not event.immediateDisable for event in users))
     from openpilot.starpilot.car.ford.aol import temporary_eps_pedal_recovery

@@ -1230,7 +1230,7 @@ class SelfdriveD:
         not 0 < intent.carStateLogMonoTime <= now_ns or now_ns - intent.carStateLogMonoTime > INTENT_MAX_AGE_NS or
         intent.carStateLogMonoTime <= anchor[2].carStateLogMonoTime or
         intent.producerSessionId != anchor[0][4] or companion is None or companion.integrity_epoch != anchor[0][5] or
-        (self.events.contains(ET.USER_DISABLE) and not stock_lateral_role(self, CS, native, intent)) or
+        (self.events.contains(ET.USER_DISABLE) and not stock_lateral_role(self, CS, native, intent, allow_independent_gas=True)) or
         self.events.contains(ET.IMMEDIATE_DISABLE) or
         native is None or native is not getattr(self.aol_transport_pause, 'observed_native', None) or
         native.pandaSerial != anchor[1].pandaSerial or native.observedMonoTime < anchor[1].observedMonoTime or

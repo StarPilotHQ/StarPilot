@@ -131,11 +131,13 @@ def ordinary_source_availability(self, CS, now_ns, native=None, *, replay: bool,
     events = [event for event in events if not (event.name == EventName.pedalPressed and
       event.userDisable and not event.softDisable and not event.immediateDisable)]
   stock_user = None
+  stock_gas = False
   if any(event.name in (EventName.pcmDisable, EventName.cruiseDisabled) and event.userDisable for event in events):
     # Resolve the native value once, as this classifier already does below.
     # Normal healthy frames never enter this nominal stock-role branch.
     native = native or native_provider(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
-    if stock_lateral_role(self, CS, native, allow_independent_brake=held_pedal):
+    if stock_lateral_role(self, CS, native, allow_independent_brake=held_pedal, allow_independent_gas=True):
+      stock_gas = bool(CS.gasPressed and anchor is not None and anchor[4].gasPressed)
       stock_user = stock_lateral_user_event(self.CP)
       events = [event for event in events if not (event.name == stock_user and event.userDisable and
         not event.softDisable and not event.immediateDisable)]
@@ -210,7 +212,8 @@ def ordinary_source_availability(self, CS, now_ns, native=None, *, replay: bool,
   if any(not valid or not sample.canValid or sample.canTimeout or sample.steerFaultPermanent or
          sample.steerFaultTemporary or sample.accFaulted or sample.doorOpen or sample.seatbeltUnlatched or
          (sample.brakePressed or sample.regenBraking) and not held_pedal or
-         sample.gasPressed and not toyota_pedal or physical_cancel(sample, self.CP) or
+         sample.gasPressed and not (toyota_pedal or stock_gas) or
+         stock_gas and sample.gasPressed != accepted_state.gasPressed or physical_cancel(sample, self.CP) or
          sample.gearShifter not in (car.CarState.GearShifter.drive, car.CarState.GearShifter.sport,
                                    car.CarState.GearShifter.low, car.CarState.GearShifter.brake)
          for sample, valid in samples):
