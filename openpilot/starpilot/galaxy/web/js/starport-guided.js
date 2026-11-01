@@ -3,6 +3,9 @@
 // so it adds no new state of its own. Turned off, the classic screens come back ("Use classic setup").
 
 export const FIRST_RUN_NOTICE = "The first connection can take a few minutes, and sometimes more than one drive, while we find what your car accepts. Keep the car on and its screen awake. Later connections are much faster because we remember what worked."
+// The adapter flow refuses to continue until the car itself is connected in Galaxy Bluetooth (27 Bugsink reports, 7 devices).
+export const BLUETOOTH_FIRST = /connect your paired car in galaxy bluetooth first/i
+export const BLUETOOTH_HINT = { text: "Connect your car in Bluetooth first, then come back and tap Connect.", href: "#/bluetooth", label: "Open Bluetooth" }
 export const EXHAUSTED_NOTICE = "We tried every option we have this drive. We keep what works best and will try again the next time the car starts."
 
 const CHOICES = [
@@ -68,16 +71,20 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
   const connecting = !!runtime?.running && CONNECTING.has(state)
   const installed = !!setup?.identity?.installed
   const base = { show: false, phase: "live", title: "", detail: "", choices: [], carType, candidates: [], progress: [], handshake: [],
-    notice: "", exhausted: false }
+    notice: "", exhausted: false, hint: null }
   if (setup === null) return base
+  const hint = BLUETOOTH_FIRST.test(String(runtime?.error || "")) ? BLUETOOTH_HINT : null
   if (connecting) {
     const firstRun = !ladder?.learned && !(ladder?.successes > 0) && (runtime?.connection || "wireless") === "wireless"
     return { ...base, show: true, phase: "connecting", title: runtime?.label || "Connecting to your car",
       detail: runtime?.detail || "Keep your car’s screen on. We’ll move to the next step automatically.",
       progress: connectionStages(runtime), handshake: handshakeSteps(ladder), exhausted: !!ladder?.exhausted,
-      notice: ladder?.exhausted ? EXHAUSTED_NOTICE : firstRun ? FIRST_RUN_NOTICE : "" }
+      notice: ladder?.exhausted ? EXHAUSTED_NOTICE : firstRun ? FIRST_RUN_NOTICE : "", hint }
   }
-  if (setupDone) return base
+  if (setupDone) {
+    // A finished setup shows nothing, except a refusal that is the one thing to act on.
+    return hint ? { ...base, show: true, phase: "bluetooth", title: "Your car needs to be connected in Bluetooth first", detail: hint.text, hint } : base
+  }
   if (!installed) {
     return { ...base, show: true, phase: "package", title: "Start by adding your Android Auto package",
       detail: "Your car only talks to devices that present Google’s Android Auto certificate. Follow step 1 below, then come back here." }
@@ -93,7 +100,7 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
   }
   const pairs = carType === "builtin" || carType === "adapter"
   return { ...base, show: true, phase: "setup", title: "How does your car connect to Android Auto?",
-    detail: INSTRUCTIONS[carType] || INSTRUCTIONS.builtin, choices, candidates: pairs && !pairingActive ? candidates : [] }
+    detail: INSTRUCTIONS[carType] || INSTRUCTIONS.builtin, choices, candidates: pairs && !pairingActive ? candidates : [], hint }
 }
 
 export const StarPortGuidedSetup = {
@@ -142,6 +149,7 @@ export const StarPortGuidedSetup = {
             </li>
           </ol>
         </details>
+        <p v-if="state.hint" class="gx-note" role="status">{{ state.hint.text }} <a class="gx-btn gx-btn--tonal" :href="state.hint.href">{{ state.hint.label }}</a></p>
         <p v-if="state.notice" class="gx-note" role="status">{{ state.notice }}</p>
         <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="$emit('classic')">Use classic setup</button>
       </div>

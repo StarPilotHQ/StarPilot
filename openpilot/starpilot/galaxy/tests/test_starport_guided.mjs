@@ -132,3 +132,18 @@ assert.equal(guidedState({ setup: null, runtime: running("rfcomm") }).show, fals
   assert.equal(StarPortPage.computed.newSetup.call({ setup: null }), true)
 }
 console.log("StarPort guided setup: question, steps, candidates, live checklist, first-run notice and handshake list passed")
+
+// The adapter's "connect your car in Bluetooth first" refusal becomes a step with a link, not a dead end.
+{
+  const { BLUETOOTH_HINT } = await import("../web/js/starport-guided.js")
+  const refused = { running: false, state: "error", error: "Connect your paired car in Galaxy Bluetooth first to select it for this Android Auto adapter" }
+  const state = guidedState({ setup, runtime: refused, carType: "adapter", labels })
+  assert.equal(state.phase, "setup")      // the usual question and steps stay, with the action first
+  assert.deepEqual(state.hint, BLUETOOTH_HINT)
+  assert.equal(BLUETOOTH_HINT.href, "#/bluetooth")
+  const done = guidedState({ setup, runtime: refused, setupDone: true })
+  assert.equal(done.phase, "bluetooth")   // even a finished setup shows the thing to fix
+  assert.equal(guidedState({ setup, runtime: { running: false, state: "error", error: "something else" }, carType: "adapter", labels }).hint, null)
+  assert.match(StarPortGuidedSetup.template, /state\.hint\.href/)
+}
+console.log("StarPort guided setup: Bluetooth-first hint passed")
