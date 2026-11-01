@@ -797,10 +797,9 @@ class TransportPauseFeedback:
       self.lateral_inventory==(native.pandaSerial,tuple(p.hardwareSerial for p in native.pandaInventory)))
 
   def _temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer, signature):
-    def _temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer, signature):
-      from openpilot.starpilot.aol.temporary_steering import temporary_steering_intent_current
-      return temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns,
-        latched=latched, producer=producer, signature=signature)
+    from openpilot.starpilot.aol.temporary_steering import temporary_steering_intent_current
+    return temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns,
+      latched=latched, producer=producer, signature=signature)
 
   def _honda_brake_lateral_current(self, sm, cp, cs, axis, now_ns, *, latched, brake_source_ns):
     from opendbc.car.honda.stock_aol import qualified
