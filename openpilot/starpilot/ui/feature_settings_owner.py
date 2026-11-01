@@ -1022,10 +1022,13 @@ class FeatureSettingsOwner:
                              reason="" if learning.resettable else "No saved learning" if learning.valid and not learning.has_samples else
                                     "Park to reset saved learning" if not parked else "Saved learning is currently in use",
                              vehicle_fingerprint=self.vehicle_fingerprint(), dependencies=learning.sources))
+    elif page == FeaturePage.BLUEPILOT:
+      title = "BluePilot Controller Options"
+      rows.extend(FordBluePilotFeature(self).rows(parked, options=True))
+      rows.extend(FordClusterFeature(self).rows(parked))
     elif page == FeaturePage.TORQUE:
       title = "Steering and Torque"
       rows.extend(FordBluePilotFeature(self).rows(parked))
-      rows.extend(FordClusterFeature(self).rows(parked))
       controller_row = self.controller.row()
       if controller_row is not None:
         rows.append(controller_row)

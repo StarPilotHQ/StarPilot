@@ -166,3 +166,59 @@ def test_stock_eps_cannot_hide_independent_fault_or_borrow_another_owner(fault, 
     change(peers, 'onroadEvents', lambda events: setattr(events[0], 'name', 'buttonCancel'))
   assert feedback.observe(peers, cp, cs, stamp, latched=latched, intent_producer_session=producer)
   assert feedback.failed
+
+
+@pytest.mark.parametrize('gas', [False, True])
+@pytest.mark.parametrize('fault', ['none', 'unlatched', 'permanent', 'can', 'timeout', 'door', 'belt', 'main',
+  'reverse', 'producer', 'epoch', 'session', 'source', 'native-deadline', 'native-rx', 'native-heartbeat',
+  'native-identity', 'hard-event', 'ungranted-long'])
+def test_alpha_eps_retains_only_intent_with_current_source_and_native_health(gas, fault):
+  from openpilot.starpilot.tests.ford_alpha_test_support import baseline, receipt
+  cp, cs, feedback = baseline(combined=True)
+  cs.steerFaultTemporary, cs.gasPressed = True, gas
+  stamp = NOW + 10_000_000
+  peers, native = receipt(cp, stamp, stamp, 2, combined=not gas, gas=gas)
+  def withdrawn(axis):
+    axis.lateralActive = axis.desiredLateral = False
+    axis.mode = 'off' if gas else 'longitudinalOnly'
+    axis.faultEventMonoTime = stamp
+  change(peers, 'aolAxisState', withdrawn)
+  native = native_change(peers, native, requestedLateral=False, lateralAllowed=False)
+  event = messaging.new_message('onroadEvents', 1, valid=True, logMonoTime=stamp)
+  event.onroadEvents[0].name = 'steerTempUnavailableSilent'
+  event.onroadEvents[0].warning = True
+  peers.messages['onroadEvents'], peers.logMonoTime['onroadEvents'] = event.as_reader(), stamp
+  latched, producer = fault != 'unlatched', PRODUCER
+  if fault in ('permanent', 'can', 'timeout', 'door', 'belt', 'main'):
+    if fault == 'main':
+      cs.cruiseState.available = False
+    else:
+      field = {'permanent': 'steerFaultPermanent', 'can': 'canValid', 'timeout': 'canTimeout',
+               'door': 'doorOpen', 'belt': 'seatbeltUnlatched'}[fault]
+      setattr(cs, field, fault != 'can')
+  elif fault == 'reverse':
+    cs.gearShifter = 'reverse'
+  elif fault == 'producer':
+    producer = 'other-card'
+  elif fault in ('epoch', 'session', 'source'):
+    field, value = {'epoch': ('intentIntegrityEpoch', 2), 'session': ('sessionId', 'other'),
+                    'source': ('sourceCarStateMonoTime', stamp - 30_000_001)}[fault]
+    change(peers, 'aolAxisState', lambda a: setattr(a, field, value))
+  elif fault == 'native-deadline':
+    native_change(peers, native, validUntilMonoTime=stamp - 1)
+  elif fault in ('native-rx', 'native-heartbeat', 'native-identity'):
+    field, value = {'native-rx': ('safetyRxChecksInvalid', True), 'native-heartbeat': ('heartbeatLost', True),
+                    'native-identity': ('hardwareSerial', 'other')}[fault]
+    native_change(peers, native, pandaInventory=(replace(native.pandaInventory[0], **{field: value}),))
+  elif fault == 'hard-event':
+    change(peers, 'onroadEvents', lambda events: setattr(events[0], 'immediateDisable', True))
+  elif fault == 'ungranted-long':
+    change(peers, 'aolAxisState', lambda a: setattr(a, 'longitudinalActive', True))
+    native_change(peers, native, longitudinalAllowed=False)
+  original = (feedback.lateral_baseline_ns, feedback.lateral_native_ns, feedback.lateral_source_ns)
+  stamps = dict(peers.logMonoTime)
+  accepted = feedback._temporary_steering_intent_current(peers, cp, cs, peers['aolAxisState'], stamp, stamp,
+    latched=latched, producer=producer, signature=feedback.signature)
+  assert accepted == (fault == 'none')
+  assert original == (feedback.lateral_baseline_ns, feedback.lateral_native_ns, feedback.lateral_source_ns)
+  assert peers.logMonoTime == stamps

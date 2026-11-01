@@ -1207,6 +1207,10 @@ class SelfdriveD:
       self.AM.alerts.pop('aolAvailability/warning', None)
     if getattr(self, 'jetlink_link_lost', False):
       alerts.append(jetlink_lost_alert())
+    if self.CP.brand == 'ford' and CS.steeringPressed:
+      # Saturation is already ignored during override; retire its held presentation too.
+      alerts = [alert for alert in alerts if alert.alert_type != 'steerSaturated/warning']
+      self.AM.alerts.pop('steerSaturated/warning', None)
     self.AM.add_many(self.sm.frame, alerts)
     self.AM.process_alerts(self.sm.frame, clear_event_types)
     from openpilot.starpilot.audio.availability_warning import AvailabilityWarningDelivery
@@ -1410,6 +1414,13 @@ class SelfdriveD:
       # An already-off PCM is not a new cruise cancellation. Only a fresh,
       # independently checked LAT source may replace the expired LAT-only proof.
       user_disable = any(event.userDisable and event.name != EventName.pcmDisable for event in self.events.to_msg())
+    if user_disable and fresh_successor and self.ford_source_deadline_supported():
+      from openpilot.starpilot.car.ford.aol import physical_cancel_lateral_allowed
+      native = current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
+      if physical_cancel_lateral_allowed(self.CP, CS, intent, native, settings=self.aol_settings,
+          previous=decision, source_ns=source_ns, now_ns=now_ns, axis_session_id=self.aol_session_id, allow_brake=True):
+        user_disable = any(event.userDisable and event.name not in
+          (EventName.buttonCancel, EventName.pcmDisable, EventName.pedalPressed) for event in self.events.to_msg())
     held_brake, held_gas = self.held_axis_override_wait(CS, proof, now_ns,
       fresh_successor=fresh_successor and (qualified_gm(self.CP) or self.ford_source_deadline_supported()))
     if user_disable and (held_brake or self.ford_source_deadline_supported() and held_gas):
@@ -1805,7 +1816,8 @@ class SelfdriveD:
         now_ns - self.aol_car_state_log_ns > INTENT_MAX_AGE_NS or
         native is None or prior is None or proof is None or anchor is None or
         anchor[3] != cp_identity(self.CP) or proof[0] != self.aol_session_id or
-        not proof[8] or not proof[9] or not 0 < proof[2] <= now_ns <= proof[3] or
+        not proof[8] or not proof[9] or not 0 < proof[2] <= now_ns or
+        now_ns > proof[3] and not (ordinary_ford and proof[1] < self.aol_car_state_log_ns) or
         intent is None or companion is None or proof[4] != intent.producerSessionId or
         proof[5] != companion.integrity_epoch or not ((intent.allowedLatch and intent.lateralArmed) or ordinary_ford) or
         not native.requestedLateral or not native.lateralAllowed or

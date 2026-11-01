@@ -1,8 +1,8 @@
 """BluePilot lateral settings for Fords, shared by Galaxy and the native feature presentation.
 
 Ranges and the controller's defaults come from the library's manifest, so a setting can't drift from what the
-controller reads. BluePilot Lateral, Primary Control and Use Pinion Yaw Sensor change while parked; the first and
-last apply at the next vehicle startup. The tuning rows change any time: the library reads them every frame."""
+controller reads. Controller selection and Use Pinion Yaw Sensor change while parked; the sensor choice applies
+at the next vehicle startup. Other controller options change any time. Lane positioning belongs to StarPilot."""
 import math
 from importlib.resources import files
 from dataclasses import dataclass
@@ -12,16 +12,14 @@ from opendbc.bluepilot_lateral.hosts.starpilot.safety_param import lateral_input
 from opendbc.bluepilot_lateral.params.manifest import SETTINGS
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.saved_document import commit_exact
-from openpilot.starpilot.ui.feature_settings_state import FeatureRow
+from openpilot.starpilot.ui.feature_settings_state import FeaturePage, FeatureRow
 
 MANIFEST = {setting.key: setting for setting in SETTINGS}
-ENABLE = "disable_BP_lat_UI"  # stored inverted: "0" is on
 MODE = "FordPrefLateralControl"
 PINION = "FordPrefSteerAngleCurvature"
 BLUEPILOT_VERSION, BLUEPILOT_COMMIT = files("opendbc.bluepilot_lateral").joinpath("VERSION").read_text().split()
-CONTROLLERS = ("Stock Ford", f"BluePilot Controller {BLUEPILOT_VERSION}")
+CONTROLLERS = ("BluePilot Curvature", "BluePilot Angle")
 SWITCH = ("Off", "On")
-MODES = ("Curvature", "Angle")
 CURVATURE, ANGLE = 0, 1
 
 
@@ -37,10 +35,6 @@ class Tuning:
 TUNING = (
   Tuning("enable_human_turn_detection_curv", "Human Turn Detection", CURVATURE),
   Tuning("lane_change_factor_high_curv", "Lane Change Factor", CURVATURE),
-  Tuning("enable_lane_positioning_curv", "Lane Positioning", CURVATURE),
-  Tuning("custom_path_offset_curv", "In-Lane Offset", CURVATURE, ("enable_lane_positioning_curv",)),
-  Tuning("enable_lane_full_mode_curv", "Lanefull Mode", CURVATURE, ("enable_lane_positioning_curv",)),
-  Tuning("LC_PID_gain_UI_curv", "Centering Gain", CURVATURE, ("enable_lane_positioning_curv",), step=0.5),
   Tuning("custom_profile_curv", "Custom Tuning Profile", CURVATURE),
   Tuning("pc_blend_ratio_low_C_UI_curv", "Predicted Blend, Low Curvature", CURVATURE, ("custom_profile_curv",)),
   Tuning("pc_blend_ratio_high_C_UI_curv", "Predicted Blend, High Curvature", CURVATURE, ("custom_profile_curv",)),
@@ -48,12 +42,9 @@ TUNING = (
   Tuning("FordHighSpeedFactor_ang", "High Speed Factor", ANGLE, step=0.01),
   Tuning("FordHighSpeedDampening_ang", "High Speed Straight Factor", ANGLE, step=0.01),
   Tuning("lane_change_factor_high_ang", "Lane Change Factor", ANGLE),
-  Tuning("enable_lane_positioning_ang", "Lane Positioning", ANGLE),
-  Tuning("custom_path_offset_ang", "In-Lane Offset", ANGLE, ("enable_lane_positioning_ang",), step=0.01),
-  Tuning("lane_centering_strength_ang", "Lane Centering Strength", ANGLE, ("enable_lane_positioning_ang",)),
 )
 TUNING_BY_KEY = {row.key: row for row in TUNING}
-KEYS = frozenset((ENABLE, MODE, PINION, *TUNING_BY_KEY))
+KEYS = frozenset((MODE, PINION, *TUNING_BY_KEY))
 
 
 def is_switch(key):
@@ -90,10 +81,6 @@ class FordBluePilotFeature:
     valid = math.isfinite(number) and low <= number <= high and (not is_switch(key) and key != MODE or number in (0.0, 1.0))
     return (number if valid else None), raw, True
 
-  def on(self):
-    number, _, _ = self.read(ENABLE)
-    return number == 0.0
-
   def mode(self):
     number, _, _ = self.read(MODE)
     return ANGLE if number == 1.0 else CURVATURE
@@ -103,8 +90,6 @@ class FordBluePilotFeature:
     if not safe_readable:
       return None
     sources = [("SafeMode", safe)]
-    if key != ENABLE:
-      sources.append((ENABLE, read_saved(self.owner.params, ENABLE, 16)[0]))
     if key in TUNING_BY_KEY:
       sources.append((MODE, read_saved(self.owner.params, MODE, 16)[0]))
       sources += [(need, read_saved(self.owner.params, need, 16)[0]) for need in TUNING_BY_KEY[key].needs]
@@ -122,28 +107,20 @@ class FordBluePilotFeature:
     parked_ok = parked and self.owner.authority("parked_preferences")
     default = self.default(key)
 
-    if key == ENABLE:
-      value = CONTROLLERS[1] if number == 0.0 else CONTROLLERS[0]
-      return FeatureRow(key, "Ford Controller", value if number is not None else "Invalid saved value", raw,
-                        choices=CONTROLLERS, available=parked_ok and readable and safe_off, capability=capability,
-                        dependencies=dependencies or (), default_value=CONTROLLERS[0] if default != 0.0 else CONTROLLERS[1],
-                        repair_value="" if number is not None else CONTROLLERS[0],
-                        reason="" if safe_off else "Safe Mode must be off")
-    gate = "" if self.on() else "Select BluePilot Controller first"
     if key in (MODE, PINION):
-      labels = MODES if key == MODE else SWITCH
-      return FeatureRow(key, "Primary Control" if key == MODE else "Use Pinion Yaw Sensor",
+      labels = CONTROLLERS if key == MODE else SWITCH
+      return FeatureRow(key, "Ford Controller" if key == MODE else "Use Pinion Yaw Sensor",
                         labels[int(number)] if number is not None else "Invalid saved value", raw, choices=labels,
-                        available=parked_ok and readable and safe_off and not gate, capability=capability,
+                        available=parked_ok and readable and safe_off, capability=capability,
                         dependencies=dependencies or (), default_value=labels[int(default)],
                         repair_value="" if number is not None else labels[int(default)],
-                        reason=gate or ("" if parked else "Change while parked"))
+                        reason="Safe Mode must be off" if not safe_off else "" if parked else "Change while parked")
 
     tuning = TUNING_BY_KEY[key]
     if tuning.mode != self.mode():
       return None
     needs = next((TUNING_BY_KEY[need].label for need in tuning.needs if self.read(need)[0] != 1.0), None)
-    reason = gate or (f"Turn on {needs} first" if needs else "")
+    reason = ("Safe Mode must be off" if not safe_off else f"Turn on {needs} first" if needs else "")
     # an invalid saved value can still be repaired to the default
     available = self.owner.authority("preferences") and readable and not reason
     if is_switch(key):
@@ -165,19 +142,19 @@ class FordBluePilotFeature:
     default = self.owner.params.get_default_value(key)
     return float(int(default)) if isinstance(default, bool) else float(default)
 
-  def rows(self, parked):
+  def rows(self, parked, *, options=False):
     if self.capability() is None:
       return ()
-    rows = (self.row(ENABLE, parked), self.row(MODE, parked), self.row(PINION, parked),
-            *(self.row(tuning.key, parked) for tuning in TUNING))
+    if not options:
+      return (self.row(MODE, parked), FeatureRow("", "BluePilot Controller Options", BLUEPILOT_VERSION,
+              page=FeaturePage.BLUEPILOT, available=True))
+    rows = (self.row(PINION, parked), *(self.row(tuning.key, parked) for tuning in TUNING))
     return tuple(row for row in rows if row is not None)
 
   def encode(self, key, value):
     """The bytes to save for a requested display value, or None if it isn't one of the row's values."""
-    if key == ENABLE:
-      return {CONTROLLERS[1]: b"0", CONTROLLERS[0]: b"1"}.get(value)
     if key == MODE:
-      return {MODES[0]: b"0", MODES[1]: b"1"}.get(value)
+      return {CONTROLLERS[0]: b"0", CONTROLLERS[1]: b"1"}.get(value)
     if is_switch(key):
       return {SWITCH[0]: b"0", SWITCH[1]: b"1"}.get(value)
     try:

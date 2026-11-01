@@ -9,7 +9,6 @@ from openpilot.cereal import log
 from openpilot.selfdrive.modeld import modeld
 from openpilot.starpilot.car.subaru.smoothing import filter_action
 from openpilot.starpilot.models.runner import CatalogModelState
-from openpilot.starpilot.lateral.chubbs_lane import ChubbsLaneCentering
 
 
 def common_join():
@@ -22,12 +21,10 @@ def common_join():
     for index, statement in enumerate(body):
       if (isinstance(statement, ast.Assign) and ast.unparse(statement.targets[0]) == 'action' and
           isinstance(statement.value, ast.Call) and ast.unparse(statement.value.func) == 'model.get_action_from_model'):
-        statements = body[index:index + 4]
-        assert len(statements) == 4
-        assert isinstance(statements[1], ast.Expr) and isinstance(statements[1].value, ast.Call)
-        assert ast.unparse(statements[1].value.func) == 'chubbs.apply'
-        assert ast.unparse(statements[2]) == 'filter_action(action, prev_action, v_ego, subaru_tau)'
-        assert ast.unparse(statements[3]) == 'prev_action = action'
+        statements = body[index:index + 3]
+        assert len(statements) == 3
+        assert ast.unparse(statements[1]) == 'filter_action(action, prev_action, v_ego, subaru_tau)'
+        assert ast.unparse(statements[2]) == 'prev_action = action'
         matches.append(ast.Module(body=statements, type_ignores=[]))
   assert len(matches) == 1
   return compile(matches[0], modeld.__file__, 'exec')
@@ -50,10 +47,7 @@ def test_actual_common_join_once_and_acceleration_unchanged(owner, tau, monkeypa
   outputs = {'action': np.array([[.08, .5]])}
   baseline = function(outputs, previous, .2, .2, 2.)
   scope = {'model': SimpleNamespace(get_action_from_model=function), 'model_output': outputs, 'prev_action': previous,
-           'lat_action_t': .2, 'long_action_t': .2, 'v_ego': 2., 'subaru_tau': tau, 'filter_action': filter_action,
-           # Exercise the production join with the independent lane-centering option disabled.
-           'chubbs': ChubbsLaneCentering(False), 'sm': {'carControl': SimpleNamespace(latActive=False)},
-           'desire': 0, 'DH': SimpleNamespace(lane_change_state=0)}
+           'lat_action_t': .2, 'long_action_t': .2, 'v_ego': 2., 'subaru_tau': tau, 'filter_action': filter_action}
   exec(common_join(), scope)
   action = scope['action']
   alpha = 1. - math.exp(-.05 / tau) if tau > 0. else 1.

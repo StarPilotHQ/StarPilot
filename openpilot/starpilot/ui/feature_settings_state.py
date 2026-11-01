@@ -57,6 +57,7 @@ class FeaturePage(StrEnum):
   TRAFFIC = "traffic"
   CURVE = "curve"
   TORQUE = "torque"
+  BLUEPILOT = "torque/bluepilot"
   AOL = "aol"
   WHEEL = "wheel"
   CONDITIONAL = "conditional"
@@ -277,7 +278,7 @@ def feature_parent_page(page: str) -> str | None:
 def feature_parent_title(page: str) -> str:
   parent = feature_parent_page(page)
   return {None: "StarPilot", FeaturePage.HUB: "Driving Controls", FeaturePage.PROFILES: "Long Planner",
-          FeaturePage.CONDITIONAL: "Conditional Driving Modes"}.get(parent, (parent or "").replace("_", " ").title())
+          FeaturePage.CONDITIONAL: "Conditional Driving Modes", FeaturePage.TORQUE: "Steering and Torque"}.get(parent, (parent or "").replace("_", " ").title())
 
 
 def boolean_value(row: FeatureRow) -> bool | None:

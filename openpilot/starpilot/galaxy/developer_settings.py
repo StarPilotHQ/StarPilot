@@ -3,7 +3,6 @@
 from dataclasses import replace
 
 from openpilot.starpilot.longitudinal.voacc import KEY, DESCRIPTION
-from openpilot.starpilot.lateral.chubbs_lane import KEY as CHUBBS_KEY, DESCRIPTION as CHUBBS_DESCRIPTION
 from openpilot.starpilot.ui.calibration_reset import calibration_reset
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
@@ -68,15 +67,9 @@ class DeveloperSettingsOwner:
       FeatureRow(STARPORT_WIFI_KEY, "StarPort: Stay on Wi-Fi", "On" if enabled else "Off", b"1" if enabled else b"0", ("Off", "On"),
                  available=parked, reason=STARPORT_WIFI_DESCRIPTION if parked else "Park the vehicle to change this setting.",
                  default_value="On"),)
-    chubbs_raw, chubbs_readable = read_saved(self.params, CHUBBS_KEY, 8)
-    chubbs_valid = chubbs_readable and chubbs_raw in (None, b"0", b"1")
-    chubbs = FeatureRow(CHUBBS_KEY, "Try Chubbs Lane Centering",
-                        ("On" if chubbs_raw == b"1" else "Off") if chubbs_valid else "Invalid saved value",
-                        chubbs_raw, ("Off", "On") if chubbs_valid else (), available=parked and chubbs_valid,
-                        reason=CHUBBS_DESCRIPTION if parked else "Park the vehicle to change this setting.", default_value="Off")
     summary = "Changes apply next drive. Panda firmware changes require a device restart." if firmware_rows else "Changes apply next drive."
     return FeatureSettingsState("developer", "Developer driving options", summary,
-                                (row, chubbs, reset_row, calibration_row, *firmware_rows, *starport_rows), parked)
+                                (row, reset_row, calibration_row, *firmware_rows, *starport_rows), parked)
 
   def apply(self, request):
     if request.key == CALIBRATION_RESET:
@@ -103,7 +96,7 @@ class DeveloperSettingsOwner:
       return self.panda_wake is not None and self.panda_wake.apply(request)
     if request.key == STARPORT_WIFI_KEY:
       return self._apply_starport(request)
-    if request.key not in (KEY, CHUBBS_KEY) or request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
+    if request.key != KEY or request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
       return False
     result = commit_exact(self.params, key=request.key, max_bytes=8, raw=b"1" if request.value == "On" else b"0",
                           expected=request.expected, authorized=self.authorized, temp_prefix=".voacc-")

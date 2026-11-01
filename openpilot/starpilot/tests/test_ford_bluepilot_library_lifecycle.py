@@ -55,3 +55,48 @@ def test_gas_held_first_engagement(ford_joined, monkeypatch, mode, pinion):
 def test_sustained_real_loop_lag_still_disables_ford(ford_joined, monkeypatch):
   monkeypatch.ford_sustained_lag = True
   run_actual_producer(ford_joined, monkeypatch, scenario='bluepilot-gas')
+
+
+@pytest.mark.parametrize('identity,alpha,hands_free,topology,pinion', [
+  ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), True, True, 'automatic', False),
+])
+@pytest.mark.parametrize('mode', ['curvature', 'angle'])
+@pytest.mark.parametrize('phase', range(10))
+def test_cancel_at_every_native_receipt_phase(ford_joined, monkeypatch, phase):
+  monkeypatch.ford_cancel_phase = phase
+  run_actual_producer(ford_joined, monkeypatch, scenario='cancel-native-cadence')
+
+
+@pytest.mark.parametrize('identity,alpha,hands_free,topology,pinion', [
+  ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), True, True, 'automatic', False),
+])
+@pytest.mark.parametrize('mode', ['curvature', 'angle'])
+def test_manual_eps_refusal_keeps_aol_intent_without_steering_through_fault(ford_joined, monkeypatch):
+  monkeypatch.ford_eps_alpha = True
+  run_actual_producer(ford_joined, monkeypatch, scenario='route45')
+
+
+@pytest.mark.parametrize('identity,alpha,hands_free,topology,pinion', [
+  ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), True, True, 'automatic', False),
+])
+@pytest.mark.parametrize('mode', ['curvature', 'angle'])
+def test_cruise_resume_preserves_deliberate_lateral_pause(ford_joined, monkeypatch):
+  run_actual_producer(ford_joined, monkeypatch, scenario='bluepilot-pause')
+
+
+@pytest.mark.parametrize('identity,alpha,hands_free,topology,pinion', [
+  ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), True, True, 'automatic', False),
+])
+@pytest.mark.parametrize('mode', ['curvature', 'angle'])
+def test_manual_steering_retires_held_turn_limit_alert(ford_joined, monkeypatch):
+  run_actual_producer(ford_joined, monkeypatch, scenario='bluepilot-manual-alert')
+
+
+@pytest.mark.parametrize('identity,alpha,hands_free,topology,pinion', [
+  ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), True, True, 'automatic', False),
+])
+@pytest.mark.parametrize('mode', ['curvature', 'angle'])
+@pytest.mark.parametrize('brake', [False, True], ids=['cancel', 'brake'])
+def test_fresh_cruise_withdrawal_after_previous_output_expires(ford_joined, monkeypatch, brake):
+  monkeypatch.ford_gap_brake = brake
+  run_actual_producer(ford_joined, monkeypatch, scenario='bluepilot-cancel-gap')

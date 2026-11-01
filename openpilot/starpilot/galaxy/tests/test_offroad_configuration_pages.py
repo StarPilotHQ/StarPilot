@@ -57,9 +57,9 @@ class TestOffroadConfigurationPages(unittest.TestCase):
             current = self.editable_inventory(self.page(name))
             expected = saved[name]
             if name == 'developer':
-              self.assertEqual([row[0] for row in expected], ['Use VOACC', 'Try Chubbs Lane Centering'])
-              self.assertEqual([row[1] for row in expected], [False, False])
-              self.assertEqual([row[1] for row in current], [True, True])
+              self.assertEqual([row[0] for row in expected], ['Use VOACC'])
+              self.assertEqual([row[1] for row in expected], [False])
+              self.assertEqual([row[1] for row in current], [True])
               expected = [(row[0], True, *row[2:]) for row in expected]
             if name == 'profiles':
               # Saved configuration uses the native catalog; this preference is Galaxy-only.

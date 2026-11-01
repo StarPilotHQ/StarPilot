@@ -37,9 +37,3 @@ Subaru angle support includes implementation maintained and integrated by **Jaco
 The inherited source covers Subaru angle platform/firmware definitions, `ES_Status` cruise state, angle controller/CAN integration, vehicle-model limits and native angle enforcement. StarPilot has additional platform-specific limits, driver handoff, discovery and AOL safety guards; this attribution does not claim identical tuning or complete parity with the reference fork. Original source commits, author names, emails and titles are recorded in [the Subaru origin history](opendbc_repo/opendbc/car/subaru/ORIGIN_HISTORY.tsv).
 
 The explicit StarPilot [jacobw Subaru adapter](opendbc_repo/opendbc/car/subaru/JACOBW.md) additionally integrates that branch's low-speed filter, target-first limiting and Crosstrek EPS envelope. Its preserved stricter guards and platform scope are documented alongside the code.
-
-## Experimental Blendful lane centering
-
-Blendful is authored by James Vecellio-Grant (Discountchubbs), with coauthors royjr <royjr96@gmail.com>, nayan <nayan8teen@gmail.com> and Jason Wen <haibin.wen3@gmail.com>. The algorithm and its tests come from commit `97135965effb3630ed55993903449edb73468d50`, “controls: Blendful lateral policy (alpha) (#2073)”. Original copyright notices and the referenced license are retained in [LICENSE.blendful.md](openpilot/starpilot/lateral/LICENSE.blendful.md). StarPilot adds the default-off developer selection and runtime compatibility guards.
-
-This project uses software from Haibin Wen and SUNNYPILOT LLC and is licensed under a custom license requiring permission for use.

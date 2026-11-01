@@ -60,7 +60,6 @@ from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_drivi
 from openpilot.selfdrive.modeld.constants import LAT_SMOOTH_SECONDS, ModelConstants, Plan
 from openpilot.selfdrive.modeld.helpers import MODELS_DIR, chestnut_present, modeld_pkl_path, load_oob, wait_for_chestnut
 
-from openpilot.starpilot.lateral.chubbs_lane import ChubbsLaneCentering, selected as chubbs_selected
 
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 
@@ -469,7 +468,6 @@ def main(demo=False):
   initial_mono_ns, initial_boot_ns, initial_skew_ns = paired_clocks_ns()
   lane_clock_guard = ClockEpochGuard(initial_mono_ns, initial_boot_ns, initial_skew_ns)
   DH = DesireHelper(runtime_lane_policy)
-  chubbs = ChubbsLaneCentering(chubbs_selected(params))
   navigation_turn = TurnIntent(params, CP)
   lane_status_session = uuid.uuid4().hex
   lane_status_sequence = 0
@@ -605,10 +603,6 @@ def main(demo=False):
       posenet_send = messaging.new_message('cameraOdometry')
 
       action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
-      chubbs.apply(model_output, action, v_ego,
-                   active=bool(sm['carControl'].latActive and sm.all_checks(['carState', 'carControl']) and
-                               sm['carState'].canValid and not sm['carState'].canTimeout and not sm['carState'].steeringPressed),
-                   desire=desire, lane_change=DH.lane_change_state)
       filter_action(action, prev_action, v_ego, subaru_tau)
       prev_action = action
       fill_model_msg(modelv2_send, model_output, action,

@@ -7,17 +7,28 @@ from openpilot.starpilot.saved_source import read_saved
 from opendbc.bluepilot_lateral.core.values_ext import BP_LATERAL_PARAMS
 from opendbc.bluepilot_lateral.hosts.starpilot.lateral import FrameInputs
 
-STARTUP_KEYS = ("disable_BP_lat_UI", "FordPrefSteerAngleCurvature")
+STARTUP_KEYS = ("FordPrefSteerAngleCurvature",)
+# Global StarPilot lane settings are the only lane-positioning owner.
+HOST_SETTINGS = {
+  "disable_BP_lat_UI": False,
+  "enable_lane_positioning_curv": False,
+  "enable_lane_full_mode_curv": False,
+  "custom_path_offset_curv": 0.0,
+  "LC_PID_gain_UI_curv": 0.0,
+  "enable_lane_positioning_ang": False,
+  "custom_path_offset_ang": 0.0,
+  "lane_centering_strength_ang": 0.0,
+}
 SETTINGS_REFRESH_FRAMES = 300  # 3 s of card's 100 Hz loop
 
 
 def startup_params(params, *, enabled: bool) -> dict[str, str]:
   """The startup settings init_ford_safety_param_starpilot reads. BluePilot lateral stays off without the openpilot
-  toggle, in Safe Mode, or when a setting can't be read; an unset key gets its params_keys.h default."""
+  toggle, in Safe Mode, or when a startup setting can't be read. Legacy stock selection is retired."""
   safe, safe_readable = read_saved(params, "SafeMode", 8)
   if not enabled or not safe_readable or safe not in (None, b"0"):
     return {"disable_BP_lat_UI": "1"}
-  settings = {}
+  settings = {"disable_BP_lat_UI": "0"}
   for key in STARTUP_KEYS:
     raw, readable = read_saved(params, key, 8)
     if not readable:
@@ -44,7 +55,7 @@ class BluePilotInputs:
     entries = []
     for key in BP_LATERAL_PARAMS:
       try:
-        value = self.params.get(key, return_default=True)
+        value = HOST_SETTINGS[key] if key in HOST_SETTINGS else self.params.get(key, return_default=True)
       except Exception:
         if key not in self.unknown_keys:
           cloudlog.warning(f"BluePilot lateral param {key} not registered in params_keys.h; skipping")
