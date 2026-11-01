@@ -100,3 +100,18 @@ def test_manual_steering_retires_held_turn_limit_alert(ford_joined, monkeypatch)
 def test_fresh_cruise_withdrawal_after_previous_output_expires(ford_joined, monkeypatch, brake):
   monkeypatch.ford_gap_brake = brake
   run_actual_producer(ford_joined, monkeypatch, scenario='bluepilot-cancel-gap')
+
+
+@pytest.mark.parametrize('identity,alpha,hands_free,topology,mode,pinion', [
+  ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), True, True, 'automatic', 'curvature', False),
+])
+@pytest.mark.parametrize('speed', [12.4, 13.6, 16., 25.])
+@pytest.mark.parametrize('sign', [-1., 1.])
+@pytest.mark.parametrize('gas', [False, True])
+@pytest.mark.parametrize('manual', [False, True])
+def test_reengaging_in_a_manual_curve_respects_native_convergence(ford_joined, monkeypatch, speed, sign, gas, manual):
+  monkeypatch.ford_curve_speed = speed
+  monkeypatch.ford_curve_sign = sign
+  monkeypatch.ford_curve_gas = gas
+  monkeypatch.ford_curve_manual = manual
+  run_actual_producer(ford_joined, monkeypatch, scenario='curvature-handoff')

@@ -29,9 +29,12 @@ FORD_BLUEPILOT_TARGETS = (
   'openpilot/starpilot/tests/test_bluepilot_vendor_pin.py',
   'opendbc_repo/opendbc/safety/tests/test_ford_bluepilot_hooks.py',
   *(str(path.relative_to(ROOT))
-    for folder in ('opendbc_repo/opendbc/bluepilot_lateral/tests', 'opendbc_repo/opendbc/bluepilot_lateral/safety/tests')
-    for path in sorted((ROOT / folder).glob('test_*.py'))),
+    for path in sorted((ROOT / 'opendbc_repo/opendbc/bluepilot_lateral/tests').glob('test_*.py'))),
 )
+
+# Ordinary native suites include inherited, intentionally unsupported cases; RELEASE preserves those skips.
+FORD_BLUEPILOT_NATIVE_TARGETS = tuple(str(path.relative_to(ROOT)) for path in sorted(
+  (ROOT / 'opendbc_repo/opendbc/bluepilot_lateral/safety/tests').glob('test_*.py')))
 
 # Representative production callers plus their source/native refusal cases.
 # The emitted selected_test_ids record exact parametrized configurations.
@@ -577,9 +580,9 @@ def targets_for(suite):
     paths = [str(path.relative_to(ROOT)) for path in sorted((ROOT / "opendbc_repo/opendbc/safety/tests").glob("test_*.py"))]
     return [selected for path in paths for selected in DEBUG_SAFETY_CLASS_TARGETS.get(path, (path,))] + [
       "openpilot/starpilot/aol/tests/test_classic_startup_neutral_replacement.py",
-    ]
+    ] + list(FORD_BLUEPILOT_NATIVE_TARGETS)
   if suite == "safety-release":
-    return list(RELEASE_TARGETS + FORD_BLUEPILOT_TARGETS)
+    return list(RELEASE_TARGETS + FORD_BLUEPILOT_TARGETS + FORD_BLUEPILOT_NATIVE_TARGETS)
   raise ValueError(f"Unknown vehicle test suite: {suite}")
 
 

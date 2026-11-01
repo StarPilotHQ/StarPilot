@@ -90,7 +90,7 @@ from openpilot.starpilot.feature_runtime import (requested as feature_requested,
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.vehicle_selection import startup_candidate
 from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
-from openpilot.starpilot.controller_extensions import configure_controller
+from openpilot.starpilot.controller_extensions import configure_controller, observe_controller_can
 from openpilot.starpilot.vehicle_startup import VehicleStartupOwner
 from openpilot.starpilot.controllers.wheel_actions import WheelPublisher, key_for
 from openpilot.starpilot.controllers.cruise_action import CruiseActionConsumer, eligible as cruise_action_eligible
@@ -513,6 +513,7 @@ class Car:
     can_list = can_capnp_to_list(can_strs)
 
     # Update carState from CAN
+    observe_controller_can(self.CI, can_list)
     CS = self.CI.update(can_list)
     from openpilot.starpilot.car.gm.aol import f1_conventional_lateral_owner
     cancel_boot_ns = (time.clock_gettime_ns(time.CLOCK_BOOTTIME)

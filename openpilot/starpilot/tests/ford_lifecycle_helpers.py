@@ -333,7 +333,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
             fields['CcAslButtnCnclResPress'] = int(cancel)
           if scenario in ('route49', 'cancel-native-cadence', 'neutral-main-cadence', 'bluepilot-gas', 'bluepilot-cancel-gap') and name == 'Steering_Data_FD1':
             fields['CcAslButtnCnclResPress'] = int(cancel)
-          if scenario in ('route45', 'route49', 'route22', 'bluepilot-manual-alert') and name == 'EPAS_INFO':
+          if scenario in ('route45', 'route49', 'route22', 'bluepilot-manual-alert', 'curvature-handoff') and name == 'EPAS_INFO':
             fields['SteeringColumnTorque'] = 2 if steering else 0
           if scenario == 'route45' and name == 'Lane_Assist_Data3_FD1':
             fields['LatCtlSte_D_Stat'] = 0 if fault in ('temporary-lkas', 'temporary-lkas-gas') else 1
@@ -372,6 +372,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
             heartbeat=heartbeat and fault != 'heartbeat',
             speed=(3.1 + .12 * ((steps // 2) % 12) / 11 if getattr(monkeypatch, "ford_speed_window", False) else getattr(joined, 'speed', 15.0)),
             eps=1 if fault in ('temporary-eps', 'temporary-eps-gas') else 0,
+            curvature=getattr(joined, 'measured_curvature', 0.),
           )
         assert native.tick == steps
         safety.safety_tick()
@@ -487,7 +488,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
                 getattr(monkeypatch, 'ford_main_off_warmup', False) and steps <= start_tick + 130 or
                 availability_transition and not state.cruiseState.enabled
                 or scenario == 'route45' and getattr(monkeypatch, 'ford_route45_refusal', None) == 'main-off')
-        assert scenario in ('route45', 'route49', 'route22', 'bluepilot-manual-alert') or not state.steeringPressed
+        assert scenario in ('route45', 'route49', 'route22', 'bluepilot-manual-alert', 'curvature-handoff') or not state.steeringPressed
         assert bool(state.gasPressed) == (fault in ('gas', 'temporary-eps-gas', 'temporary-lkas-gas')
                                           and not any(frame[0] == 0x204 for frame in delayed_pedal_frames))
         if not source_gap:
@@ -684,6 +685,31 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
           assert state.steerFaultTemporary and not host.aol_card_intent.allowed_latch
           assert not command.enabled and not command.latActive and not command.longActive
           assert sd_state.alertType != 'steerTempUnavailableSilent/warning', 'Unarmed parked startup shows steering warning'
+        return
+      if scenario == 'curvature-handoff':
+        from openpilot.starpilot.car.ford.bluepilot import FordBluePilotController
+        assert isinstance(host.CI.CC.bp, FordBluePilotController)
+        for _ in range(41):
+          state, axis, sd_state, command = step()
+        joined.speed = monkeypatch.ford_curve_speed
+        joined.measured_curvature = monkeypatch.ford_curve_sign * min(.018, (3.8 if monkeypatch.ford_curve_manual else 2.0) / joined.speed ** 2)
+        for _ in range(40):
+          state, axis, sd_state, command = step()
+        assert abs(state.yawRate / state.vEgoRaw - joined.measured_curvature) < .0001
+        for tick in range(70):
+          state, axis, sd_state, command = step(engaged=True, steering=monkeypatch.ford_curve_manual, fault='gas' if monkeypatch.ford_curve_gas else None)
+          if tick >= 40:
+            assert command.latActive and host.aol_card_intent.allowed_latch
+          assert not state.steerFaultTemporary and not state.steerFaultPermanent
+          assert sd_state.alertType not in ('controlsMismatch/immediateDisable', 'commIssue/softDisable')
+        if monkeypatch.ford_curve_manual:
+          assert state.steeringPressed and host.CI.CC.apply_curvature_last == 0.
+          joined.measured_curvature = monkeypatch.ford_curve_sign * (1.6 / joined.speed ** 2)
+          for _ in range(70):
+            state, axis, sd_state, command = step(engaged=True)
+            assert not state.steerFaultTemporary and not state.steerFaultPermanent
+        assert command.latActive and host.aol_card_intent.allowed_latch
+        assert abs(host.CI.CC.apply_curvature_last) > 0.
         return
       if scenario == 'bluepilot-gas':
         for _ in range(50):

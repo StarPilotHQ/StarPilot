@@ -43,3 +43,16 @@ def test_actual_host_collector_discovers_release_ui_guards(tmp_path):
   target.parent.mkdir(parents=True)
   target.write_bytes((runner.ROOT / name).read_bytes())
   assert name in pytest_files(tmp_path)
+
+
+def test_imported_native_cases_retain_complete_release_coverage():
+  native = {str(path.relative_to(runner.ROOT)) for path in
+            (runner.ROOT / 'opendbc_repo/opendbc/bluepilot_lateral/safety/tests').glob('test_*.py')}
+  assert native
+  assert native <= set(runner.targets_for('safety-release'))
+  assert native <= set(runner.targets_for('safety-debug'))
+  assert native.isdisjoint(runner.targets_for('aol-lifecycle'))
+  # Actual host/native AOL lifecycle contracts still run in both required lanes.
+  for path in FAMILY_TARGETS:
+    assert path in runner.targets_for('aol-lifecycle')
+    assert path in runner.targets_for('safety-release')
