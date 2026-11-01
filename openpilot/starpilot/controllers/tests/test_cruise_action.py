@@ -107,7 +107,7 @@ class TestControllerCruise(unittest.TestCase):
     vars(instance)['sm'] = self.sm
     instance.CC_prev = car.CarControl(enabled=True)
     instance.CS_prev = self.cs
-    vars(instance)['CI'] = SimpleNamespace(CS=SimpleNamespace(), update=lambda packets:self.cs)
+    vars(instance)['CI'] = SimpleNamespace(CC=None, CS=SimpleNamespace(), update=lambda packets:self.cs)
     instance.car_gps_publisher = card.CarGpsPublisher()
     self.enterContext(patch.object(instance, 'pm', SimpleNamespace(send=Mock()), create=True))
     vars(instance)['RI'] = SimpleNamespace(update=lambda packets:None)

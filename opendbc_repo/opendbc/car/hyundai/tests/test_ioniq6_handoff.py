@@ -901,7 +901,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     card_owner.sm = SM()
     sent = []
     card_owner.pm = SimpleNamespace(send=lambda service, packet: sent.append((service, packet)))
-    card_owner.CI = SimpleNamespace(CC=SimpleNamespace(), CS=SimpleNamespace(),
+    card_owner.CI = SimpleNamespace(CP=cp, CC=SimpleNamespace(), CS=SimpleNamespace(),
                                     update=Mock(side_effect=lambda packets: car.CarState(canValid=True, canTimeout=False)),
                                     apply=Mock(return_value=(structs.CarControl.Actuators(), [CanData(0x1A0, b'\0' * 8, 1)])),
                                     init=Mock())
