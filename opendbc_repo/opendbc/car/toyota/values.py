@@ -476,6 +476,16 @@ def get_platform_codes(fw_versions: list[bytes]) -> dict[bytes, set[bytes]]:
   return dict(codes)
 
 
+def automatic_prius_candidate(candidate, car_fw):
+  if candidate != CAR.TOYOTA_PRIUS:
+    return candidate
+  eps = [fw for fw in car_fw if fw.ecu == Ecu.eps]
+  if eps and all(not fw.logging and fw.bus == 0 and fw.brand == 'toyota' and fw.address == 0x7A1 and
+                 not fw.subAddress and bytes(fw.fwVersion) == b'8965B47070' + bytes(6) for fw in eps):
+    return CAR.TOYOTA_PRIUS_RETROFIT
+  return candidate
+
+
 def match_fw_to_car_fuzzy(live_fw_versions, vin, offline_fw_versions) -> set[str]:
   candidates = set()
 

@@ -278,6 +278,10 @@ def get_car(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multip
     carlog.error({"event": "car doesn't match any fingerprints", "fingerprints": repr(fingerprints)})
     candidate = "MOCK"
 
+  if source != CarParams.FingerprintSource.fixed and candidate == 'TOYOTA_PRIUS':
+    from opendbc.car.toyota.values import automatic_prius_candidate
+    candidate = automatic_prius_candidate(candidate, car_fw)
+
   CarInterface = interfaces[candidate]
   params_options = {'auto_pedal': False} if source == CarParams.FingerprintSource.fixed and candidate in interface_names['gm'] else {}
   CP: CarParams = CarInterface.get_params(candidate, fingerprints, car_fw, alpha_long_allowed, is_release, docs=False, **params_options)
