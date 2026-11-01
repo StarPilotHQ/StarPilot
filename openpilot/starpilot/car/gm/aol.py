@@ -96,34 +96,35 @@ def steering_source_gap_intent_only(owner, cs, companion, now_ns: int) -> bool:
   return owner.ordinary_source_availability(cs, now_ns)
 
 
-def held_sdgm_lateral_pedal(owner, cs) -> bool:
+def held_gm_lateral_pedal(owner, cs) -> bool:
   """An already accepted LAT-only pedal state remains intent, never output."""
   from openpilot.starpilot.nostalgia import physical_cancel
   anchor = getattr(owner, 'aol_ordinary_source_anchor', None)
-  if not sdgm_alpha_lateral_owner(owner.CP) or anchor is None:
+  if not qualified_gm(owner.CP) or not aol_enabled(owner.CP) or anchor is None:
     return False
   proof, native, accepted, _, accepted_state = anchor
   settings = getattr(owner, 'aol_settings', None)
   return bool(cs is accepted_state and not getattr(owner, 'car_state_samples', ()) and
     proof[8] and not proof[9] and not owner.enabled and not owner.active and
     native is not None and native.requestedLateral and native.lateralAllowed and
-    not native.requestedLongitudinal and not native.longitudinalAllowed and
     accepted is not None and accepted.allowedLatch and accepted.lateralArmed and
     accepted.settingsQualified and not accepted.pauseLateral and not accepted.pauseLongitudinal and
     settings is not None and settings.enabled and
     not getattr(owner, 'aol_dm_lateral_inhibit', False) and
-    sdgm_alpha_pedal_withdrawal(owner.CP, cs) and not cs.gasPressed and
+    cs.cruiseState.available and (cs.brakePressed or cs.regenBraking) and
+    not cs.steeringDisengage and not cs.gasPressed and
     not cs.seatbeltUnlatched and not physical_cancel(cs, owner.CP) and
     (not cs.brakePressed or cs.standstill or cs.vEgo >= settings.pause_brake_mps))
 
 
 
-def sdgm_lateral_pedal_source_zero(feedback, cp, cs, axis, native, now_ns, *, producer):
+def gm_lateral_pedal_source_zero(feedback, cp, cs, axis, native, now_ns, *, producer):
   """Fresh physical braking cannot turn an accepted LAT-only source wait fatal."""
   from openpilot.starpilot.aol.runtime import SAFETY_MAX_AGE_NS
   from openpilot.starpilot.nostalgia import physical_cancel
+  from opendbc.car.structs import car
   prior = feedback.signature
-  return bool(sdgm_alpha_lateral_owner(cp) and feedback.lateral_only_baseline and
+  return bool(qualified_gm(cp) and aol_enabled(cp) and feedback.ever_lateral_active and
     not feedback.failed and not feedback.pending_event and prior is not None and
     prior[0] == feedback.session and prior[7] == feedback.session and
     prior[14:16] == (producer, feedback.availability_epoch) and
@@ -134,10 +135,15 @@ def sdgm_lateral_pedal_source_zero(feedback, cp, cs, axis, native, now_ns, *, pr
     str(axis.faultReason) == 'availabilityPause' and axis.sourceCarStateMonoTime == 0 and
     axis.desiredLateral and axis.nativeAcknowledged and not axis.desiredLongitudinal and
     not axis.lateralActive and not axis.longitudinalActive and
-    sdgm_alpha_pedal_withdrawal(cp, cs) and not cs.gasPressed and not cs.seatbeltUnlatched and
+    cs.canValid and not cs.canTimeout and cs.cruiseState.available and
+    not cs.steerFaultTemporary and not cs.steerFaultPermanent and not cs.accFaulted and
+    cs.gearShifter in (car.CarState.GearShifter.drive, car.CarState.GearShifter.low,
+                      car.CarState.GearShifter.sport, car.CarState.GearShifter.brake,
+                      car.CarState.GearShifter.manumatic) and
+    (cs.brakePressed or cs.regenBraking) and not cs.doorOpen and not cs.steeringDisengage and
+    not cs.gasPressed and not cs.seatbeltUnlatched and
     not physical_cancel(cs, cp) and native is not None and
-    native.requestedLateral and native.lateralAllowed and
-    not native.requestedLongitudinal and not native.longitudinalAllowed)
+    native.requestedLateral and native.lateralAllowed)
 
 
 def cold_gm_main_intent_current(feedback, sm, cp, cs, axis, native, now_ns, *, producer):

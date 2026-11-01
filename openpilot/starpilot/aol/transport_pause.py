@@ -162,6 +162,7 @@ class AvailabilityPause:
         self.baseline_ns = 0
         return False
       if source_expired:
+        # Retain intent under its original 200ms lease, never a renewed command.
         latest = companion.latest
         raw = latest[2] if latest is not None and latest[1] else None
         verified = companion.verified_sm_projection
@@ -178,7 +179,7 @@ class AvailabilityPause:
           not 0 < raw.carStateLogMonoTime <= now_ns or raw.observedMonoTime > now_ns or
           now_ns - raw.carStateLogMonoTime > SAFETY_MAX_AGE_NS or
           (int(sm.logMonoTime['aolIntentWire']) != raw.carStateLogMonoTime and not projection) or
-          not sm.seen['aolIntentWire'] or not sm.valid['aolIntentWire'] or not sm.alive['aolIntentWire']):
+          not sm.seen['aolIntentWire'] or not sm.valid['aolIntentWire']):
           self.active = False
           return False
       inventory = (healthy.pandaSerial, tuple(p.hardwareSerial for p in healthy.pandaInventory))
@@ -898,8 +899,8 @@ class TransportPauseFeedback:
         toyota_pedal and event.name == log.OnroadEvent.EventName.pedalPressed) and
         event.userDisable and not event.softDisable and not event.immediateDisable)]
     if cp.brand == 'gm':
-      from openpilot.starpilot.car.gm.aol import sdgm_lateral_pedal_source_zero
-      if sdgm_lateral_pedal_source_zero(self, cp, cs, axis, native, now_ns,
+      from openpilot.starpilot.car.gm.aol import gm_lateral_pedal_source_zero
+      if gm_lateral_pedal_source_zero(self, cp, cs, axis, native, now_ns,
           producer=intent_producer_session):
         events = [event for event in events if not (event.name == log.OnroadEvent.EventName.pedalPressed and
           event.userDisable and not event.softDisable and not event.immediateDisable)]

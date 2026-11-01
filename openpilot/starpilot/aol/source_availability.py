@@ -123,10 +123,10 @@ def ordinary_source_availability(self, CS, now_ns, native=None, *, replay: bool,
   anchor = getattr(self, 'aol_ordinary_source_anchor', None)
   companion = getattr(self, 'aol_intent_companion', None)
   events = self.events.to_msg()
-  from openpilot.starpilot.car.gm.aol import held_sdgm_lateral_pedal
+  from openpilot.starpilot.car.gm.aol import held_gm_lateral_pedal
   from openpilot.starpilot.car.toyota.aol import held_lateral_pedal
   toyota_pedal = held_lateral_pedal(self, CS)
-  held_pedal = held_sdgm_lateral_pedal(self, CS) or toyota_pedal
+  held_pedal = held_gm_lateral_pedal(self, CS) or toyota_pedal
   if held_pedal:
     events = [event for event in events if not (event.name == EventName.pedalPressed and
       event.userDisable and not event.softDisable and not event.immediateDisable)]
@@ -265,7 +265,7 @@ def ordinary_source_availability(self, CS, now_ns, native=None, *, replay: bool,
     return False
   native = native or native_provider(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
   lateral_intent_only = bool(proof[8] and not proof[9] and not self.enabled)
-  if (native is None or held_pedal and (native.requestedLongitudinal or native.longitudinalAllowed) or
+  if (native is None or toyota_pedal and (native.requestedLongitudinal or native.longitudinalAllowed) or
       lateral_intent_only and not (accepted.allowedLatch and accepted.lateralArmed and
         not accepted.pauseLateral and not getattr(self, 'aol_dm_lateral_inhibit', False) and
         native.requestedLateral and native.lateralAllowed) or
