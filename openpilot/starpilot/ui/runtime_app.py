@@ -452,7 +452,7 @@ class StarShellSession:
       invoke=lambda: guarded(device.toggle_screen_off))
     if not hasattr(self, 'mode_actions'):
       self.mode_actions = ModeActionPublisher()
-    for key, label, mode, requested in ((TRAFFIC, "Traffic Mode", 'traffic', state.traffic_mode),
+    for key, label, mode, requested in ((TRAFFIC, "Traffic Mode", 'traffic', state.traffic_selected or state.traffic_mode),
                                        (SWITCHBACK, "Switchback Mode", 'switchback', getattr(state, 'switchback_mode', False))):
       now_ns = time.monotonic_ns()
       allowed = (self._favorite_authority() and not ui_state.params.get_bool("SafeMode") and

@@ -99,18 +99,25 @@ def test_gas_override_blinks_only_selected_bars_and_clears_on_disengagement(disp
 
 
 @pytest.mark.parametrize('profile', list(Profile))
-def test_traffic_label_and_accent_restore_selected_personality(display, profile):
+def test_traffic_accent_is_stable_without_labels_and_restores_personality(display, profile):
   display.fonts.profile = profile
   state = road(personality=2, traffic_mode=True, traffic_display=TrafficDisplay('active', 'TRAFFIC'))
   draws = settle(display, state)
   assert draws[2].args[4] == (200, 32, 48)
   assert draws[4].args[3] == pytest.approx(.35, abs=.001)
   assert all(draws[i].args[3] < .001 for i in (3, 5, 7))
-  assert display.fonts.draw.call_args.args[0] == 'TRF'
-  for status, label in (('paused', 'PAUSE'), ('off', 'OFF')):
-    draws = settle(display, replace(state, traffic_mode=False, traffic_display=TrafficDisplay(status, '')))
-    assert all(draws[i].args[3] == pytest.approx(.9, abs=.001) for i in (2, 4, 6))
-    assert display.fonts.draw.call_args.args[0] == label
+  original_rect = draws[2].args[1]
+  for status in ('paused', 'unavailable_source', 'unavailable_profile', None):
+    draws = settle(display, replace(state, traffic_mode=False, traffic_selected=True,
+                                    gas_pressed_override=True,
+                                    traffic_display=TrafficDisplay(status, '') if status else None))
+    assert draws[2].args[4] == (200, 32, 48)
+    assert draws[2].args[3] == pytest.approx(.9, abs=.001)
+    rect = draws[2].args[1]
+    assert (rect.x, rect.y, rect.width, rect.height) == (original_rect.x, original_rect.y, original_rect.width, original_rect.height)
+  draws = settle(display, replace(state, traffic_mode=False, traffic_selected=False, traffic_display=TrafficDisplay('off', 'OFF')))
+  assert all(draws[i].args[3] == pytest.approx(.9, abs=.001) for i in (2, 4, 6))
+  display.fonts.draw.assert_not_called()
 
 
 def test_large_default_sits_left_of_driver_monitor_and_custom_positions_stay_put(display):

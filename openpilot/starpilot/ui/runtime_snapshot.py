@@ -693,6 +693,7 @@ class RuntimeSnapshotAdapter:
                            self._switchback.sample_state(slc, drive_id=drive_id, now_ns=now_ns,
                              event_ns=int(sm.logMonoTime['slcState']))),
                          traffic_mode=bool(traffic is not None and traffic.state == 'active'),
+                         traffic_selected=bool(started and self._traffic.drive_id == drive_id and self._traffic.requested),
                          traffic_display=traffic,
                          torque_utilization=torque.utilization if torque.utilization is not None else 0.0,
                          torque_source_available=torque.utilization is not None,

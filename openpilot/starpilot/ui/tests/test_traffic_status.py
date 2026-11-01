@@ -74,15 +74,19 @@ class TestTrafficStatus(unittest.TestCase):
   def test_actual_wire_states_and_clearing(self):
     active = receipt(self.settings_hash, self.map_hash)
     self.assertEqual(self.project(active).state, 'active')
+    self.assertTrue(self.reader.requested)
     self.assertEqual(self.project(active).state, 'active')  # Same frame remains fresh, not a new source.
     self.assertIsNone(self.project(active, now_mono_ns=NOW + 101_000_000))
+    self.assertTrue(self.reader.requested)
     self.assertIsNone(self.project(active, now_boot_ns=BOOT + 400_000_000))
     paused = receipt(self.settings_hash, self.map_hash, sequence=2, observed=NOW + 10_000_000,
                      reason='authority_unavailable', effective=False)
     self.assertEqual(self.project(paused, now_mono_ns=NOW + 10_000_000, long_active=False).state, 'paused')
+    self.assertTrue(self.reader.requested)
     off = receipt(self.settings_hash, self.map_hash, sequence=3, observed=NOW + 20_000_000,
                   reason='off', accepted=False, effective=False)
     self.assertEqual(self.project(off, now_mono_ns=NOW + 20_000_000).state, 'off')
+    self.assertFalse(self.reader.requested)
     unavailable = receipt(self.settings_hash, self.map_hash, sequence=4, observed=NOW + 30_000_000, ready=False)
     self.assertEqual(self.project(unavailable, now_mono_ns=NOW + 30_000_000).state, 'unavailable_profile')
     self.assertIsNone(self.project(active))  # Old sequence cannot resurrect active status.
@@ -133,7 +137,7 @@ class TestTrafficStatus(unittest.TestCase):
       rail = MiciSidebarWidgets(fonts)
       with mock.patch.object(rail.personality, 'draw'):
         rail._personality(rl.Rectangle(476, 160, 60, 80), shown)
-      self.assertEqual(fonts.draw.call_args.args[:3], ('TRF', FontRole.SEMI_BOLD, 11))
+      fonts.draw.assert_not_called()
       large = OnroadView.__new__(OnroadView)
       large.personality = mock.Mock()
       large.fonts = fonts
@@ -143,6 +147,7 @@ class TestTrafficStatus(unittest.TestCase):
         large._traffic_badge(replace(shown, viewport_width=width), 101)
         self.assertEqual(fonts.draw.call_args.args[:5], ('TRAFFIC', FontRole.SEMI_BOLD, 25, expected_x, 101))
       self.assertFalse(adapter.build(ShellMode.ONROAD, now_ns=NOW + 101_000_000).onroad.traffic_mode)
+      self.assertTrue(adapter.build(ShellMode.ONROAD, now_ns=NOW + 101_000_000).onroad.traffic_selected)
       self.assertIsNone(adapter.build(ShellMode.ONROAD, now_ns=NOW + 101_000_000).onroad.traffic_display)
 
 

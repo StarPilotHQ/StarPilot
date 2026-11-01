@@ -5,7 +5,7 @@ import pyray as rl
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadState, is_lane_change_notice, personality_bounds
 from openpilot.starpilot.ui.onroad_widget_style import draw_widget_frame
-from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
+from openpilot.starpilot.ui.presentation import BitmapFonts, Profile
 from openpilot.system.ui.lib.application import gui_app
 
 HIGHLIGHT_TIME = 2.5
@@ -47,19 +47,8 @@ class PersonalityWidget:
     width, height = right - left, bottom - top
     rect = rl.Rectangle(left, top, width, height)
     draw_widget_frame(rect, state.customization, profile, 'following_distance')
-    scale = width / 60
-    label = ({'active': 'TRF', 'paused': 'PAUSE', 'off': 'OFF'}.get(state.traffic_display.state)
-             if state.traffic_display is not None else None)
-    icon = rl.Rectangle(rect.x, rect.y, width, height - 14 * scale if label else height)
-    self.draw(icon, personality=state.personality, has_lead=state.lead_detected, longitudinal_active=state.cruise_active,
-              traffic_mode=state.traffic_mode, gas_override=state.gas_pressed_override, visible=routine)
-    if label and self.fonts is not None and state.alert.size != AlertSize.FULL:
-      size = 11 * scale * Profile.COMPACT.font_scale / profile.font_scale
-      measured = self.fonts.measure(label, FontRole.SEMI_BOLD, size)
-      color = ((255, 155, 63, 255) if state.traffic_display.state == 'paused' else
-               (200, 32, 48, 255) if state.traffic_mode else (112, 192, 216, 255))
-      self.fonts.draw(label, FontRole.SEMI_BOLD, size, rect.x + (width - measured.width) / 2,
-                      rect.y + height - 14 * scale, rl.Color(*color))
+    self.draw(rect, personality=state.personality, has_lead=state.lead_detected, longitudinal_active=state.cruise_active,
+              traffic_mode=state.traffic_selected or state.traffic_mode, gas_override=state.gas_pressed_override, visible=routine)
 
   def draw(self, rect: rl.Rectangle, *, personality: int, has_lead: bool, longitudinal_active: bool,
            traffic_mode: bool = False, gas_override: bool = False, visible: bool = True, fit: bool = True) -> None:
@@ -82,7 +71,7 @@ class PersonalityWidget:
     if not visible and now - self._personality_changed_time < HIGHLIGHT_TIME:
       self._personality_changed_time = now
     highlight = now - self._personality_changed_time < HIGHLIGHT_TIME
-    blink = 0.35 / 0.9 if gas_override and longitudinal_active and now % 0.375 > 0.1875 else 1.0
+    blink = 0.35 / 0.9 if gas_override and longitudinal_active and not traffic_mode and now % 0.375 > 0.1875 else 1.0
     count = 1 if traffic_mode else personality + 1
     for i, ((white, green), y, (active_f, green_f)) in enumerate(zip(self._distance, (122, 136, 152), self._distance_filters, strict=True)):
       active = active_f.update(float(i < count))
