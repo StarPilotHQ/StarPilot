@@ -1817,7 +1817,8 @@ class SelfdriveD:
         native is None or prior is None or proof is None or anchor is None or
         anchor[3] != cp_identity(self.CP) or proof[0] != self.aol_session_id or
         not proof[8] or not proof[9] or not 0 < proof[2] <= now_ns or
-        now_ns > proof[3] and not (ordinary_ford and proof[1] < self.aol_car_state_log_ns) or
+        now_ns > proof[3] and not (ordinary_ford and proof[1] < self.aol_car_state_log_ns and
+          intent is not None and intent.allowedLatch and intent.lateralArmed and not intent.pauseLateral) or
         intent is None or companion is None or proof[4] != intent.producerSessionId or
         proof[5] != companion.integrity_epoch or not ((intent.allowedLatch and intent.lateralArmed) or ordinary_ford) or
         not native.requestedLateral or not native.lateralAllowed or
