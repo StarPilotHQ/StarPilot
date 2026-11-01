@@ -1391,6 +1391,10 @@ class SelfdriveD:
         not self.events.contains(ET.IMMEDIATE_DISABLE) and
         (not decision.longitudinal_active or self.enabled and self.active))
     user_disable = self.events.contains(ET.USER_DISABLE)
+    if (user_disable and getattr(self, 'nostalgia_paddle_cancel', False) and fresh_successor and
+        decision.lateral_active and not decision.longitudinal_active and not self.enabled and not self.active and
+        intent.allowedLatch and intent.lateralArmed):
+      user_disable = any(event.userDisable and event.name != EventName.buttonCancel for event in self.events.to_msg())
     if user_disable:
       from opendbc.car.hyundai.canfd_angle_aol import qualified as angle_qualified
       from opendbc.car.hyundai.canfd_stock_aol import qualified as stock_canfd_qualified

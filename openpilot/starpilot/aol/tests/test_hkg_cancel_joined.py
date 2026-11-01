@@ -620,3 +620,73 @@ def test_gv70_single_panda_long_cancel_neighbor(withdrawal, monkeypatch):
   (CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN, False), (CAR.KIA_EV6, True)])
 def test_default_aol_actual_cancel_join(identity, alternate, monkeypatch):
   _exercise_join(identity, alternate, 'cancel', 'toggle-off', monkeypatch, unmapped=True)
+
+
+@pytest.mark.parametrize('family,alternate', [('ioniq6', False), ('ioniq6', True), ('ioniq5', False)])
+@pytest.mark.parametrize('expired', [False, True])
+def test_nostalgia_paddle_cancel_keeps_fresh_lateral_after_old_proof_expiry(family, alternate, expired):
+  from openpilot.selfdrive.car.tests.test_hyundai_aol import candidate
+  from openpilot.starpilot.aol.tests import test_ioniq_availability as fixture
+  from openpilot.starpilot.tests.test_nostalgia import _ioniq5_params
+
+  with OpenpilotPrefix(), patch.dict(os.environ, {'SIMULATION': '0', 'AOL_REPLAY_RUNTIME': '1'}):
+    Params().put_bool('NostalgiaMode', True, block=True)
+    case = fixture.IoniqAvailabilityTests(methodName='runTest')
+    try:
+      cp = candidate(alternate)[1] if family == 'ioniq6' else _ioniq5_params(alternate=alternate)
+      if family == 'ioniq6':
+        cp.safetyConfigs[-1].safetyParam |= 0x0800
+        sd, _, step, card, receive = case._ioniq_availability_callers(True, cp=cp)
+      else:
+        sd, _, step = case._authority_callers(True, cp=cp, genuine_events=True)
+        for tick in (0, 1):
+          axis, _, command = step(tick)
+          assert axis.lateralActive and axis.longitudinalActive and command.longActive
+      sd.aol_settings = read_settings(Params())
+      prior = sd.aol_published_input_proof
+      observed = fixture.car_state()
+      observed.vEgo = observed.vEgoRaw = .75
+      observed.buttonEvents = [structs.CarState.ButtonEvent(type='altButton2', pressed=True)]
+      tick, offset = (4, 1_516_362) if expired else (2, 0)
+      now = 10_000_000_000 + tick * 10_000_000 + offset
+      assert (now > prior[3]) == expired
+      axis, state, command = step(tick, offset_ns=offset, observed_state=observed, native_request_long=True)
+      assert sd.nostalgia_paddle_cancel
+      assert not state.enabled and not command.longActive and not axis.longitudinalActive
+      assert axis.lateralActive and command.latActive and str(axis.faultReason) == 'none'
+      assert axis.sourceCarStateMonoTime == now and axis.validUntilMonoTime == now + 30_000_000
+      assert 'controlsMismatch' not in [str(event) for event in sd.events.names]
+      if family == 'ioniq6':
+        assert receive(now, state=observed, axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
+        assert card.aol_card_intent.allowed_latch
+      axis, state, command = step(tick + 1, offset_ns=offset, native_request_long=False, long_allowed=False)
+      assert axis.lateralActive and command.latActive and not command.longActive and not state.enabled
+    finally:
+      case.doCleanups()
+
+
+@pytest.mark.parametrize('fault', ['native_denied', 'native_invalid', 'can_invalid', 'permanent_eps'])
+def test_nostalgia_paddle_expiry_cannot_restore_invalid_lateral(fault):
+  from openpilot.starpilot.aol.tests import test_ioniq_availability as fixture
+
+  with OpenpilotPrefix(), patch.dict(os.environ, {'SIMULATION': '0', 'AOL_REPLAY_RUNTIME': '1'}):
+    Params().put_bool('NostalgiaMode', True, block=True)
+    case = fixture.IoniqAvailabilityTests(methodName='runTest')
+    try:
+      sd, _, step, _, _ = case._ioniq_availability_callers(True)
+      sd.aol_settings = read_settings(Params())
+      observed = fixture.car_state()
+      observed.buttonEvents = [structs.CarState.ButtonEvent(type='altButton2', pressed=True)]
+      kwargs = {}
+      if fault == 'native_denied':
+        kwargs['allowed'] = False
+      elif fault == 'native_invalid':
+        kwargs['native_valid'] = False
+      elif fault == 'can_invalid':
+        observed.canValid = False
+      else:
+        observed.steerFaultPermanent = True
+      axis, _, command = step(5, observed_state=observed, **kwargs)
+      assert not axis.lateralActive and not command.latActive
+    finally:
+      case.doCleanups()
