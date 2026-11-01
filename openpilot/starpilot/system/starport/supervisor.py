@@ -177,6 +177,17 @@ def car_never_answered(error: BaseException) -> bool:
   return not (isinstance(error, OSError) and error.errno in LOCAL_SOCKET_ERRORS)
 
 
+ADOPT_INTERVAL = 20.0         # how often housekeeping looks for a paired car that was never chosen
+
+
+def choose_only_car(devices: list[dict]) -> tuple[dict | None, list[dict]]:
+  """(the car to adopt, every candidate). A car is adopted only when exactly one paired device offers Android Auto Wireless.
+
+  Reads the cached BlueZ service list, so it never pages a device. Two candidates are never guessed between."""
+  candidates = [device for device in devices if device.get("paired") and device.get("starport")]
+  return (candidates[0] if len(candidates) == 1 else None), candidates
+
+
 def drops_cached_channel(stage: str, error: BaseException) -> bool:
   """Forget the cached RFCOMM channel only when the car answered nothing there for a reason about the channel.
 
@@ -406,6 +417,7 @@ class Supervisor:
     status["auto_connect"] = bool(self.config["auto_connect"])
     status["dedicated_wifi_interface"] = bool(self.config["dedicated_wifi_interface"])
     status["allow_hevc"] = bool(self.config["allow_hevc"])
+    status["car_candidates"] = list(getattr(self, "_candidates", []))[:8]  # paired Android Auto devices to choose between
     status["auto_paused"] = self.auto.suppressed
     status["recent"] = list(self.log.recent)[-8:]
     return status
@@ -749,7 +761,36 @@ class Supervisor:
         self._end_pairing("expired")
         if not self._session_alive():
           self._release_phone()
+    self._adopt_only_car(now)
     self._auto_connect(now)
+
+  def _adopt_only_car(self, now: float) -> None:
+    """A car that is paired and offers Android Auto but was never chosen (the pairing window closed first, or it was
+    paired in Bluetooth settings) becomes the chosen car when it is the only one. Never during a pairing window or session."""
+    config = self.config
+    if (config["receiver_address"] or config["connection"] != "wireless" or self.car_type() == "adapter"
+        or self._pairing_active() or self._session_alive() or now - getattr(self, "_adopt_at", -ADOPT_INTERVAL) < ADOPT_INTERVAL):
+      if config["receiver_address"]:
+        self._candidates = []
+      return
+    self._adopt_at = now
+    try:
+      car, candidates = choose_only_car(self._phone().devices())
+    except Exception as error:
+      self.log("car_adopt_unavailable", kind=type(error).__name__, error=str(error)[:120])
+      return
+    self._candidates = [{"address": device["address"], "name": device.get("name") or device["address"]} for device in candidates]
+    if car is None:
+      if len(candidates) > 1:
+        self.log("car_adopt_ambiguous", count=len(candidates))
+      return
+    try:
+      self.select_receiver(car["address"], car.get("name") or "")
+    except (RuntimeError, ValueError) as error:
+      self.log("car_adopt_failed", error=str(error))
+      return
+    self._candidates = []
+    self.log("car_adopted", car=car.get("name") or "", reason="only paired Android Auto device")
 
   def _auto_connect(self, now: float) -> None:
     config = self.config

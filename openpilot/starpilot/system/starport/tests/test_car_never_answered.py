@@ -31,3 +31,20 @@ class TestDropsCachedChannel(unittest.TestCase):
     self.assertFalse(drops_cached_channel('authenticating', ConnectionResetError(errno.ECONNRESET, 'reset')))
     self.assertFalse(drops_cached_channel('rfcomm', OSError(errno.ENOSYS, 'local')))
     self.assertFalse(drops_cached_channel('rfcomm', OSError(errno.EBUSY, 'Device or resource busy')))
+
+
+class TestChooseOnlyCar(unittest.TestCase):
+  def car(self, address, paired=True, starport=True):
+    return {"address": address, "name": f"car {address}", "paired": paired, "starport": starport}
+
+  def test_exactly_one_paired_android_auto_device_is_adopted(self):
+    from openpilot.starpilot.system.starport.supervisor import choose_only_car
+    only, candidates = choose_only_car([self.car("A"), self.car("B", starport=False), self.car("C", paired=False)])
+    self.assertEqual((only["address"], [c["address"] for c in candidates]), ("A", ["A"]))
+
+  def test_two_candidates_or_none_are_never_guessed(self):
+    from openpilot.starpilot.system.starport.supervisor import choose_only_car
+    self.assertEqual(choose_only_car([self.car("A"), self.car("B")])[0], None)
+    self.assertEqual([c["address"] for c in choose_only_car([self.car("A"), self.car("B")])[1]], ["A", "B"])
+    self.assertEqual(choose_only_car([self.car("A", starport=False)]), (None, []))
+    self.assertEqual(choose_only_car([]), (None, []))
