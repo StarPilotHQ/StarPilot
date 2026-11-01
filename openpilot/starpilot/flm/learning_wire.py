@@ -63,6 +63,18 @@ def _evidence_field_name(name):
   return name
 
 
+@lru_cache(maxsize=4096)
+def _scalar_pair(name, kind, value):
+  return name, struct.unpack('!d', value)[0] if kind is float else value
+
+
+def _shared_scalar_pair(name, value):
+  # Share exact immutable content, including IEEE signed zero; never a verdict.
+  if not name or len(name.encode()) > 96 or type(value) is str and len(value.encode()) > 96:
+    return name, value
+  return _scalar_pair(name, type(value), struct.pack('!d', value) if type(value) is float else value)
+
+
 def _read_named_values(values, bound):
   if len(values) > bound:
     raise ValueError('replay scalar bounds')
@@ -76,13 +88,13 @@ def _read_named_values(values, bound):
       kind = row._which_str()
       value = row._get_by_field(fields[kind])
       value = bool(value) if kind == 'boolean' else _string(str(value), 96) if kind == 'text' else float(value)
-      result.append((name, value))
+      result.append(_shared_scalar_pair(name, value))
     return tuple(result)
   for row in values:
     name = _evidence_field_name(_string(str(row.name), 96))
     kind = row.which()
     value = bool(row.boolean) if kind == 'boolean' else _string(str(row.text), 96) if kind == 'text' else float(row.number)
-    result.append((name, value))
+    result.append(_shared_scalar_pair(name, value))
   return tuple(result)
 
 
@@ -232,7 +244,9 @@ def write_control(parent, evidence):
 
 def _read_fields(row, schema):
   if type(row) is _DynamicStructReader and row.schema == schema:
-    return SimpleNamespace(**{name: row._get_by_field(field) for name, field in schema.fields.items()})
+    values = {name: row._get_by_field(field) for name, field in schema.fields.items()}
+    return SimpleNamespace(**{name: _evidence_field_name(value) if type(value) is str and 0 < len(value.encode()) <= 96 else value
+                              for name, value in values.items()})
   return row
 
 
@@ -276,7 +290,7 @@ def read_control(event):
     bool(row.modelWobble),
     bool(row.controllerChatter),
     str(row.stageSchemaRevision),
-    tuple((str(v.name), float(v.value)) for v in row.stageValues),
+    tuple(_shared_scalar_pair(str(v.name), float(v.value)) for v in row.stageValues),
     tuple(float(v) for v in row.appliedCoordinates),
     str(row.sourceEpoch),
     int(row.sourceReceiptMonoTime),
