@@ -1,15 +1,14 @@
 """Regression tests for Gen2 (TI2) steering-fault propagation in CarState.
 
-Mazda TI2 safety remediation: update_gen2() currently hardcodes
-steerFaultPermanent/steerFaultTemporary to False, hiding TI2 violation states
-from the rest of the stack. These tests encode the required mappings:
+Mazda TI2 safety remediation: update_gen2() maps the interceptor's CPU
+violation bytes onto the steering-fault fields. These tests pin the required
+mappings (they fail against a CarState that hardcodes both fields to False):
 
   - any CPU_x_VIOL != 0            -> steerFaultPermanent
   - no violation                   -> no steerFaultPermanent
 
 TI2 operating-state (CPU_x_STATE) semantics are established by the Phase 2
 capture contract; not-ready/override mappings are covered by Phase 4 tests.
-The violation-field tests FAIL against the unfixed CarState by design.
 Adapted to Dom's CarState conventions (CP-only constructor, no starpilot params).
 """
 import pytest
