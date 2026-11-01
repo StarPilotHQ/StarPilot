@@ -39,6 +39,7 @@ NM_WIRELESS_IFACE = "org.freedesktop.NetworkManager.Device.Wireless"
 NM_AP_IFACE = "org.freedesktop.NetworkManager.AccessPoint"
 DEVICE_TYPE_WIFI = 2
 DEVICE_STATE_DISCONNECTED = 30
+DEVICE_STATES_NOT_MANAGED = (10, 20)  # NM_DEVICE_STATE_UNMANAGED, NM_DEVICE_STATE_UNAVAILABLE
 DEVICE_READY_TIMEOUT_S = 5.0
 # A shared interface can be briefly unmanaged (for example while the Wi-Fi mode is being switched). Bugsink showed 19 joins
 # refused with "device is strictly unmanaged"; waiting a few seconds turns a transient state into a normal join, and a
@@ -325,7 +326,7 @@ class NetworkLease:
     """Give NetworkManager a few seconds to manage the shared interface before joining on it."""
     deadline = time.monotonic() + timeout
     waited = False
-    while (state := self._get(self.device_path, NM_DEVICE_IFACE, "State")) < DEVICE_STATE_DISCONNECTED:
+    while (state := self._get(self.device_path, NM_DEVICE_IFACE, "State")) in DEVICE_STATES_NOT_MANAGED:
       if cancelled():
         raise NetworkError("cancelled")
       if time.monotonic() >= deadline:
