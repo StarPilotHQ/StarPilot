@@ -66,6 +66,7 @@ def test_route28_accepted_lateral_pedal_cutoff_retains_intent_without_output(can
     cleanup.callback(card.vehicle_startup.close)
     assert card.CP.to_dict() == sd.CP.to_dict()
     card.slc_producer_session = 'authority-card'
+    assert card.aol_card_intent is not None
     card.aol_card_intent.allowed_latch = True
     def receive(now):
       frames = [sd.pm.messages[name] for name in ('aolAxisState', 'onroadEvents', 'selfdriveState')]
