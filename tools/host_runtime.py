@@ -28,7 +28,8 @@ HELP = """Usage: ./dev <command> [args...]
   onroad        Build replay and launch route UI(s); see ./onroad --help.
   replay        Build and run upstream replay.
   cabana        Build and run Cabana in its own concurrent cache.
-  plotjuggler   Run PlotJuggler (alias: juggle).
+  jotpluggler   Build and run JotPluggler (alias: juggle; also ./juggle).
+  plotjuggler   Run legacy PlotJuggler.
   galaxy        Run authenticated Galaxy on loopback (optional --port).
                 --live releases the shared lock and follows edits under
                 openpilot/starpilot/galaxy, restarting for Python changes and
@@ -46,8 +47,8 @@ Native build artifacts, editable installs and Params stay in that cache.
 Shared commands wait while another shared command is running; Cabana is separate.
 ./build remains the Linux ARM64 device build, including ./build --panda.
 """
-COMMANDS = {'c3', 'c4', 'onroad', 'replay', 'cabana', 'plotjuggler', 'galaxy', 'python', 'pytest', 'shell', 'sync'}
-BUCKET_ALIASES = dict.fromkeys(('shared', 'default', 'ui', 'c3', 'c4', 'onroad', 'replay', 'shell', 'plotjuggler', 'juggle'), 'shared')
+COMMANDS = {'c3', 'c4', 'onroad', 'replay', 'cabana', 'jotpluggler', 'plotjuggler', 'galaxy', 'python', 'pytest', 'shell', 'sync'}
+BUCKET_ALIASES = dict.fromkeys(('shared', 'default', 'ui', 'c3', 'c4', 'onroad', 'replay', 'shell', 'jotpluggler', 'plotjuggler', 'juggle'), 'shared')
 BUCKET_ALIASES['cabana'] = 'cabana'
 VENDORS = ('msgq_repo', 'opendbc_repo', 'rednose_repo', 'teleoprtc_repo', 'tinygrad_repo', 'jetlink_repo')
 # Never inherit a device/cross compiler or another project's editable imports.
@@ -95,7 +96,7 @@ def parse(arguments):
   if command in ('help', '-h', '--help'):
     return 'help', 0, []
   if command == 'juggle':
-    command = 'plotjuggler'
+    command = 'jotpluggler'
   if command not in COMMANDS:
     raise ValueError(f'Unknown developer command: {command}. Run ./dev help.')
   args = list(arguments[1:])
@@ -333,6 +334,8 @@ class HostRuntime:
                   'openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/acados_ocp_solver_pyx.so']
     if command in ('onroad', 'replay', 'cabana'):
       targets += ['openpilot/tools/' + ('cabana/cabana' if command == 'cabana' else 'replay/replay')]
+    if command == 'jotpluggler':
+      targets += ['openpilot/tools/jotpluggler/jotpluggler']
     run([self.venv / 'bin/python', '-m', 'SCons', f'-j{jobs}', *targets], cwd=self.work, env=self.environment())
 
   def private_ipc(self):
@@ -349,7 +352,7 @@ class HostRuntime:
     if command in ('c3', 'c4', 'onroad'):
       script = 'launch_onroad_desktop.sh' if command == 'onroad' else f'launch_ui_{command}_desktop.sh'
       argv = [self.work / 'scripts' / script, str(jobs), *arguments]
-    elif command in ('replay', 'cabana'):
+    elif command in ('replay', 'cabana', 'jotpluggler'):
       argv = [self.work / 'openpilot/tools' / command / command, *arguments]
     elif command == 'plotjuggler':
       argv = [python, '-m', 'openpilot.tools.plotjuggler.juggle', *arguments]
