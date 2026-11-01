@@ -45,7 +45,7 @@ NORMAL_BUS0_LAYOUT = {(0, 0x82): 8, (0, 0x165): 8, (0, 0x204): 8,
                       (0, 0x217): 8, (2, 0x3CA): 8, (2, 0x3D6): 8}
 
 
-def normal_bus_query_brand(can_recv, hyundai_probe, *, gm_probe=None, volvo_probe=None, clock=time.monotonic):
+def normal_bus_query_brand(can_recv, hyundai_probe, *, gm_probe=None, volvo_probe=None, tesla_probe=None, clock=time.monotonic):
   # Share the existing bounded passive HKG read, rather than consuming a second
   # startup window or enabling the OBD mux to find out whether this is a Ford.
   received = {}
@@ -62,7 +62,7 @@ def normal_bus_query_brand(can_recv, hyundai_probe, *, gm_probe=None, volvo_prob
     for packet in packets:
       for frame in packet:
         key = (frame.src, frame.address)
-        if gm_probe is not None or volvo_probe is not None:
+        if gm_probe is not None or volvo_probe is not None or tesla_probe is not None:
           bus = gm_received.setdefault(frame.src, {})
           length = len(frame.dat)
           gm_malformed |= frame.address in bus and bus[frame.address] != length
@@ -78,7 +78,7 @@ def normal_bus_query_brand(can_recv, hyundai_probe, *, gm_probe=None, volvo_prob
   # Rejecting HKG or Ford does not reject GM. Finish the shared passive window
   # within its original budget even when an early frame excludes Ford.
   while not (not malformed and received == NORMAL_BUS0_LAYOUT) and reads < 24 and clock() < deadline:
-    if malformed and ((gm_probe is None and volvo_probe is None) or gm_malformed):
+    if malformed and ((gm_probe is None and volvo_probe is None and tesla_probe is None) or gm_malformed):
       break
     observe(wait_for_one=True)
   if not malformed and received == NORMAL_BUS0_LAYOUT and normal_bus0_queries():
@@ -87,4 +87,6 @@ def normal_bus_query_brand(can_recv, hyundai_probe, *, gm_probe=None, volvo_prob
     return 'gm'
   if volvo_probe is not None and not gm_malformed and volvo_probe(gm_received):
     return 'volvo'
+  if tesla_probe is not None and not gm_malformed and tesla_probe(gm_received):
+    return 'tesla'
   return None
