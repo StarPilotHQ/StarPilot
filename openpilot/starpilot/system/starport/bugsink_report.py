@@ -161,6 +161,61 @@ def bounded_trace(trace: list[dict], limit: int) -> dict:
   return {"events": kept, "omitted": len(trace) - len(kept)}
 
 
+MAX_OFFERED_MODES = 16
+SETUP_TYPES = ("builtin", "adapter", "usb", "app")
+
+
+def offered_modes(events: list[dict]) -> list[str]:
+  """Every video mode the head unit offered, e.g. "1280x720 H.264 margins 0x240", from its service discovery.
+
+  Kept for working pairings too, so the choice of mode can later be replayed against real cars."""
+  from openpilot.starpilot.system.starport.session import CODEC_H264_BP, CODEC_NAMES, RESOLUTION_NAMES
+  found = next((event for event in events if event["event"] == "discovered"), {})
+  modes: list[str] = []
+  for channel in found.get("channels") or []:
+    for config in (channel.get("video_configs") or []) if isinstance(channel, dict) else []:
+      if not isinstance(config, dict):
+        continue
+
+      def field(number, default=None):
+        values = config.get(str(number), config.get(number))
+        return values[0] if isinstance(values, list) and values and isinstance(values[0], int) else default
+
+      resolution, codec = field(1), field(10, CODEC_H264_BP)
+      text = f"{RESOLUTION_NAMES.get(resolution, f'resolution {resolution}')} {CODEC_NAMES.get(codec, f'codec {codec}')}"
+      if field(3, 0) or field(4, 0):
+        text += f" margins {field(3, 0)}x{field(4, 0)}"
+      modes.append(text)
+  return modes[:MAX_OFFERED_MODES]
+
+
+def session_setup(events: list[dict]) -> dict:
+  """The setup type and profile the owner chose, as recorded when the session started."""
+  start = next((event for event in events if event["event"] == "session_start"), {})
+  setup = start.get("setup") if isinstance(start.get("setup"), dict) else {}
+  kind = setup.get("type")
+  return {key: value for key, value in (
+    ("type", kind if kind in SETUP_TYPES else None),
+    ("profile", scrub(setup.get("profile", ""), 40) or None),
+    ("profile_source", setup.get("profile_source") if setup.get("profile_source") in ("override", "detected", "standard") else None),
+  ) if value}
+
+
+def session_strategy(events: list[dict], setup: dict) -> dict:
+  """What a streaming session ran with; the raw material for "this head unit usually likes this profile"."""
+  if not any(event["event"] == "video_acknowledged" for event in events):
+    return {}
+  ready = next((event for event in reversed(events) if event["event"] == "video_setup"), {})
+  reply = next((event for event in events if event["event"] == "bootstrap_version_reply"), {})
+  mode = ready.get("mode") if isinstance(ready.get("mode"), dict) else {}
+  # Only a wireless bootstrap has a version reply; the modern one is logged, the standard one is its absence.
+  style = reply.get("style") or ("standard" if any(event["event"] == "bootstrap_start_response" for event in events) else None)
+  strategy = {"profile": setup.get("profile"), "window_offered": ready.get("window"), "window_used": ready.get("used_window"),
+              "reply_style": style, "channel_type": reply.get("channel_type"),
+              "config_index": mode.get("config_index")}
+  return {key: value for key, value in strategy.items() if value is not None}
+
+
 def session_record(path: Path) -> dict:
   """One finished session log reduced to its outcome, stage timings, video and the car it talked to."""
   from openpilot.starpilot.system.starport import compat_report
@@ -184,7 +239,14 @@ def session_record(path: Path) -> dict:
   car = report["car"]
   start = next((e for e in events if e["event"] == "session_start"), {})
   software, settings = start.get("software", {}), start.get("settings")
+  setup = session_setup(events)
+  opened = next((e for e in events if e["event"] == "bluetooth_opened"), None)
   record = {
+    "setup": setup,
+    "offered_modes": offered_modes(events),
+    # True when the comma's address went to the car in the pairing request; None when the car never opened that channel.
+    "phone_address_sent": bool(opened.get("phone_address")) if opened is not None else None,
+    "strategy": session_strategy(events, setup),
     "software": {key: str(software.get(key) or "unknown") for key in ("commit", "branch")} if isinstance(software, dict) else {},
     "settings": settings if isinstance(settings, dict) else {},
     "seq": _session_number(path),
@@ -395,6 +457,8 @@ def drive_event(sessions: list[dict]) -> dict:
   head_unit = next((s["head_unit"] for s in reversed(sessions) if s["head_unit"]), {})
   video = next((s["video"] for s in reversed(sessions) if s["video"].get("resolution")), {})
   label = _head_unit_label(head_unit)
+  setup = next((s["setup"] for s in reversed(sessions) if s.get("setup")), {})
+  sent = next((s["phone_address_sent"] for s in reversed(sessions) if s.get("phone_address_sent") is not None), None)
   failures = [failure_detail(failure) for failure in drive_failures(sessions)]
   failed = [session for session in sessions if session["seq"] in {failure["session"] for failure in failures}]
   heading = "failures" if failures else "sessions"
@@ -425,6 +489,11 @@ def drive_event(sessions: list[dict]) -> dict:
              "aa.encoder": video.get("encoder", "unknown"),
              "aa.fps": str(summary["fps_avg"]) if summary["fps_avg"] is not None else "none",
              "aa.failures": str(len(failures)),
+             # Low-cardinality choices only; long values (offered modes, strategy) live in the contexts below.
+             **({"aa.setup_type": setup["type"]} if setup.get("type") else {}),
+             **({"aa.adapter_model": setup["profile"]} if setup.get("profile") else {}),
+             **({"aa.profile_source": setup["profile_source"]} if setup.get("profile_source") else {}),
+             **({"aa.phone_address_sent": "yes" if sent else "no"} if sent is not None else {}),
              **({"aa.attention": ",".join(reasons)[:190]} if reasons else {}),
              **({"aa.cause": latest["cause"], "aa.stage": latest["stage"], "aa.error_kind": latest["error_kind"]} if latest else {})},
     "breadcrumbs": {"values": attempt_breadcrumbs(sessions)},

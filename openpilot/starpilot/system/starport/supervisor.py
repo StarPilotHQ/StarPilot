@@ -1134,9 +1134,13 @@ class Supervisor:
     receiver = {"wired": "usb", "headunitpad": "headunitpad", "openheadunit": "openheadunit"}.get(connection, self.config["receiver_name"])
     from openpilot.starpilot.system.starport.bugsink_transport import device_metadata
     software = device_metadata()
+    profile, profile_source = car_profiles.resolve(self.config)
     self.log("session_start", receiver=receiver, generation=generation, trigger=trigger,
              software={key: software.get(key, "unknown") for key in ("commit", "branch")},
-             settings={key: self.config.get(key) for key in REPORTED_SETTINGS})
+             settings={key: self.config.get(key) for key in REPORTED_SETTINGS},
+             # What the owner chose, so a report can tell a built-in unit from a dongle and say which profile applied.
+             setup={"type": {"wired": "usb", "headunitpad": "app", "openheadunit": "app"}.get(connection) or self.car_type(),
+                    "profile": profile, "profile_source": profile_source})
     lease = self._lease() if wireless else NoLease()
     attempt = 0
     car_first = trigger == "onroad" and wireless
