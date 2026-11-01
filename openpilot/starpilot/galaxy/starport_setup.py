@@ -13,7 +13,7 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import BinaryIO
 
-from openpilot.starpilot.system.starport import apk_identity, apkpure
+from openpilot.starpilot.system.starport import apk_identity, apkpure, new_setup
 
 # Left behind by the removed Google sign-in: a saved refresh token and the resolver binary.
 LEGACY_GOOGLE_FILES = (Path('/data/starpilot/starport_token'), Path('/data/starpilot/google-play'))
@@ -65,6 +65,7 @@ class StarPortSetup:
     ident = self.identity_status()
     return {
       'enabled': self.enabled(), 'bluetoothEnabled': self.bluetooth_enabled(), 'parked': self.parked(),
+      'newSetup': new_setup.enabled(),
       'installReady': self.install_ready(), 'serviceReady': self.service_ready(),
       'identity': {key: ident[key] for key in ('installed', 'expires', 'days_left', 'warning', 'message', 'expired', 'error', 'app_version') if key in ident},
       'import': self.job.status(),

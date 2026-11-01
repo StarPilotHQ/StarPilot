@@ -2399,6 +2399,18 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             else:
               self.json(401, {'error': 'Sign in to Galaxy'})
           return
+        if action == 'new_setup' and set(payload) == {'action', 'enabled'} and type(payload['enabled']) is bool:
+          # The way back to the classic screens, so it works with the StarPort service off or broken.
+          from openpilot.starpilot.system.starport import new_setup
+          if not configuration_allowed():
+            self.json(403, {'error': 'Park before changing the setup screens'})
+          elif not new_setup.set_enabled(payload['enabled']):
+            self.json(503, {'error': 'Could not save the setup screen choice'})
+          elif self.settings_session() == identity:
+            self.json(200, {'newSetup': new_setup.enabled()})
+          else:
+            self.json(401, {'error': 'Sign in to Galaxy'})
+          return
         if not starport_setup_owner().enabled():
           self.json(409, {'error': 'Enable StarPort first'})
           return
