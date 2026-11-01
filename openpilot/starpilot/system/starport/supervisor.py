@@ -773,10 +773,13 @@ class Supervisor:
 
   def _adopt_only_car(self, now: float) -> None:
     """A car that is paired and offers Android Auto but was never chosen (the pairing window closed first, or it was
-    paired in Bluetooth settings) becomes the chosen car when it is the only one. Never during a pairing window or session."""
+    paired in Bluetooth settings) becomes the chosen car when it is the only one. Never during a pairing window or session,
+    and never a car the owner uses as the Bluetooth audio output: choosing it as the receiver would unselect that, and this
+    runs with nobody at the screen (the setup screen's Use button is where that choice is made)."""
     config = self.config
     if (config["receiver_address"] or config["connection"] != "wireless" or self.car_type() == "adapter"
-        or not self._projection_enabled() or self._pairing_active() or self._session_alive() or now - getattr(self, "_adopt_at", -ADOPT_INTERVAL) < ADOPT_INTERVAL):
+        or not self._projection_enabled() or self._pairing_active() or self._session_alive()
+        or now - getattr(self, "_adopt_at", -ADOPT_INTERVAL) < ADOPT_INTERVAL):
       if config["receiver_address"]:
         self._candidates = []
       return
@@ -784,20 +787,42 @@ class Supervisor:
     try:
       car, candidates = choose_only_car(self._phone().devices())
     except Exception as error:
-      self.log("car_adopt_unavailable", kind=type(error).__name__, error=str(error)[:120])
+      self._adopt_note("car_adopt_unavailable", kind=type(error).__name__, error=str(error)[:120])
       return
     self._candidates = [{"address": device["address"], "name": device.get("name") or device["address"]} for device in candidates]
     if car is None:
       if len(candidates) > 1:
-        self.log("car_adopt_ambiguous", count=len(candidates))
+        self._adopt_note("car_adopt_ambiguous", count=len(candidates))
+      return
+    if self._is_audio_car(car["address"]):
+      self._adopt_note("car_adopt_skipped", reason="selected as the Bluetooth audio output")
       return
     try:
       self.select_receiver(car["address"], car.get("name") or "")
     except (RuntimeError, ValueError) as error:
-      self.log("car_adopt_failed", error=str(error))
+      self._adopt_note("car_adopt_failed", error=str(error))
       return
+    finally:
+      if not self._session_alive():
+        self._release_phone()    # select_receiver took the projection role; nothing is connecting, so give it back
     self._candidates = []
+    self._adopt_last = None
     self.log("car_adopted", car=car.get("name") or "", reason="only paired Android Auto device")
+
+  def _adopt_note(self, name: str, **values) -> None:
+    """Housekeeping runs every 20 s: say what is wrong once, and again only when it changes."""
+    signature = (name, tuple(sorted(values.items())))
+    if signature != getattr(self, "_adopt_last", None):
+      self._adopt_last = signature
+      self.log(name, **values)
+
+  def _is_audio_car(self, address: str) -> bool:
+    if self._bt_client is None:
+      return False
+    try:
+      return self._bt_client.status().selected_audio.upper() == address.upper()
+    except Exception:
+      return True   # cannot tell, so leave the owner's audio setup alone
 
   def _auto_connect(self, now: float) -> None:
     config = self.config
@@ -1198,6 +1223,8 @@ class Supervisor:
     wireless = connection == "wireless"
     receiver = {"wired": "usb", "headunitpad": "headunitpad", "openheadunit": "openheadunit"}.get(connection, self.config["receiver_name"])
     self._video_seen, self._strategy, self._run_started = False, None, time.monotonic()
+    if trigger == "onroad" and wireless:   # a new drive: the ladder's passes are per ignition, and the comma can stay on between drives
+      self._ladder.begin_cycle(self.config["receiver_address"])
     from openpilot.starpilot.system.starport.bugsink_transport import device_metadata
     software = device_metadata()
     profile, profile_source = car_profiles.resolve(self.config)

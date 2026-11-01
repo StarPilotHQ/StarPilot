@@ -121,7 +121,9 @@ def test_a_learned_strategy_is_forgotten_only_after_two_handshake_failures(ladde
   assert refuse(ladder, learned) == "counted" and ladder.strategy(CAR, False).rung == "modern_dual"
   assert refuse(ladder, learned, ladder_failure=False) is None and refuse(ladder, learned, video_seen=True) is None
   assert refuse(ladder, learned) == "dropped"
-  assert ladder.strategy(CAR, False).rung == "standard" and not ladder.snapshot(CAR)["learned"]
+  # Not back to the start: the strategy that just failed twice is not tried first, the next rung is.
+  assert ladder.strategy(CAR, False).rung == "modern_24ghz" and not ladder.snapshot(CAR)["learned"]
+  assert ladder.snapshot(CAR)["steps"][2]["state"] == "failed"
 
 
 def test_state_survives_a_restart_and_a_damaged_file_means_a_fresh_start(tmp_path):
@@ -221,3 +223,22 @@ def test_a_slow_car_gets_the_patience_it_once_needed_and_an_unknown_car_gets_no_
   assert ladder.ready_patience(CAR) == 4   # 70 s at 20 s per stage timeout
   ladder.worked(CAR, sl.resolve("standard", False), 3000.0)
   assert ladder.ready_patience(CAR) == 9   # capped
+
+
+def test_a_learned_standard_strategy_that_stops_working_moves_on_to_the_other_reply(ladder):
+  ladder.worked(CAR, sl.resolve("standard", False))
+  learned = ladder.strategy(CAR, False)
+  assert refuse(ladder, learned) == "counted"
+  assert refuse(ladder, learned) == "dropped"
+  assert ladder.strategy(CAR, False).rung == "other_reply"   # one failure fewer than starting over, as the dongle flip did
+
+
+def test_the_passes_come_back_with_each_ignition_even_without_a_reboot(ladder):
+  for _ in range(5 * sl.MAX_PASSES):
+    refuse(ladder, ladder.strategy(CAR, False))
+  assert ladder.exhausted(CAR) and ladder.snapshot(CAR)["passes"] == sl.MAX_PASSES
+  ladder.begin_cycle(CAR)                         # the next drive starts: same boot, same comma
+  assert not ladder.exhausted(CAR) and ladder.snapshot(CAR)["passes"] == 0
+  assert refuse(ladder, ladder.strategy(CAR, False)) == "advanced"
+  ladder.begin_cycle("AA:00:00:00:00:99")        # an unknown car is a no-op
+  assert "AA:00:00:00:00:99" not in ladder.cars

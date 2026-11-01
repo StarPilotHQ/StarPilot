@@ -27,7 +27,7 @@ from openpilot.starpilot.system.starport.identity import DATA_DIR
 STATE_PATH = DATA_DIR / "setup_state.json"
 STATE_VERSION = 1
 MAX_CARS = 16
-MAX_PASSES = 3          # full runs through the ladder per boot (one boot is one ignition cycle); not yet confirmed against real cars
+MAX_PASSES = 3          # full runs through the ladder per ignition cycle; not yet confirmed against real cars
 DROP_AFTER = 2          # failures at the remembered strategy before it is forgotten and the ladder starts over
 CLEAN_SECONDS = 60.0    # a session that streamed this long without ending in a handshake failure counts as working
 LONG_PATIENCE = 2 * REFUSAL_PATIENCE
@@ -170,9 +170,18 @@ class SetupLadder:
   def _entry(self, address: str) -> dict:
     entry = self.cars.setdefault(address.upper(), _fresh())
     boot = self.boot_id()
-    if entry["boot"] != boot:       # a new ignition cycle gets its full passes again and resumes at the first untried rung
+    if entry["boot"] != boot:       # a reboot is also a new cycle, for a comma that was powered off between drives
       entry["boot"], entry["passes"] = boot, 0
     return entry
+
+  def begin_cycle(self, address: str) -> None:
+    """A new ignition cycle: the passes are used up per drive, not per boot (the comma can stay powered between drives).
+
+    Resumes at the first untried rung. Does nothing for a car with a learned strategy or nothing tried."""
+    entry = self.cars.get(address.upper())
+    if entry and entry["passes"]:
+      entry["passes"] = 0
+      self.save()
 
   def forget(self, address: str) -> bool:
     """A car's pairing was deleted: drop what was learned about it."""
@@ -205,14 +214,15 @@ class SetupLadder:
     entry = self._entry(address)
     entry["updated"] = self.clock()
     working = _valid_strategy(entry["working"])
+    dropped = False
     if working and strategy.rung == working.rung:
       entry["working_failures"] += 1
       if entry["working_failures"] < DROP_AFTER:
         self.save()
         return "counted"
-      entry.update(working=None, working_failures=0, rung="standard", results={})
-      self.save()
-      return "dropped"
+      # Forgotten, and what just failed twice is not tried again first: carry on from the next rung.
+      entry.update(working=None, working_failures=0, results={})
+      dropped = True
     if entry["passes"] >= MAX_PASSES:
       return None
     entry["results"][strategy.rung] = "failed"
@@ -229,7 +239,7 @@ class SetupLadder:
       if entry["passes"] >= MAX_PASSES:
         outcome = "exhausted"
     self.save()
-    return outcome
+    return "dropped" if dropped else outcome
 
   def worked(self, address: str, strategy: Strategy, t_ready_s: float | None = None) -> None:
     entry = self._entry(address)
