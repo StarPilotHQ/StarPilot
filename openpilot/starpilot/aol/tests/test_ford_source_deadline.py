@@ -295,3 +295,105 @@ def test_combined_gas_override_keeps_only_its_original_lateral_proof(bluepilot, 
     axis, state, command = drive(6, observed_state=cs, gas=True, state_stamp=fresh,
       long_allowed=False, **settings('combined', fresh, 4))
     assert state.enabled and axis.lateralActive and command.latActive and not command.longActive
+
+
+@pytest.mark.parametrize('gas', [False, True])
+@pytest.mark.parametrize('after_deadline', [False, True])
+@pytest.mark.parametrize('pulse', ['healthy', 'cancel_then_enable', 'brake_then_clear', 'permanent_eps',
+                                  'invalid_then_valid', 'missing_intent', 'lateral_denied', 'temporary_eps'])
+def test_ford_merge_reconciles_late_input_before_axis_decision(gas, after_deadline, pulse):
+  from collections import deque
+  from openpilot.starpilot.aol.tests.test_carstate_queue import message
+  from openpilot.starpilot.aol.tests.test_input_deadline_continuity import intent
+
+  case = fixture.IoniqAvailabilityTests(methodName='runTest')
+  with ExitStack() as cleanup:
+    cleanup.callback(case.doCleanups)
+    cleanup.enter_context(OpenpilotPrefix())
+    sd, _, drive = case._authority_callers(True, cp=profile(bluepilot=True), genuine_events=True)
+    cs = fixture.car_state()
+    cs.cruiseState.enabled = True
+    for tick in range(3):
+      stamp = 10_000_000_000 + tick * 10_000_000
+      old, _, command = drive(tick, observed_state=cs, gas=gas, state_stamp=stamp,
+        offset_ns=PUBLISHED_OFFSET if tick == 2 else 0, long_allowed=not gas,
+        **settings('combined', stamp, tick+1))
+    assert old.lateralActive and command.latActive and old.longitudinalActive == (not gas)
+    source = SOURCE
+    fresh = source + (36_000_000 if after_deadline else 29_563_312)
+    observed = source + (40_000_000 if after_deadline else 32_956_912)
+    assert (observed > old.validUntilMonoTime) == after_deadline
+    now = [source + 27_000_000]
+    queue, wires = deque(), deque()
+    original_receive = messaging.recv_one_or_none
+    original_car_update = sd._update_car_event_sample
+    injected = False
+
+    def receive(sock):
+      if sock is sd.car_state_sock:
+        return queue.popleft() if queue else None
+      if sock is sd.aol_intent_companion.sock:
+        return wires.popleft() if wires else None
+      return original_receive(sock)
+
+    def car_update(sample, previous):
+      nonlocal injected
+      result = original_car_update(sample, previous)
+      if not injected:
+        injected = True
+        late = fixture.car_state()
+        late.cruiseState.available = late.cruiseState.enabled = True
+        late.gasPressed = gas
+        if pulse == 'cancel_then_enable':
+          late.buttonEvents = [{'type': 'cancel', 'pressed': True}]
+        elif pulse == 'brake_then_clear':
+          late.brakePressed = True
+        elif pulse == 'permanent_eps':
+          late.steerFaultPermanent = True
+        elif pulse == 'temporary_eps':
+          late.steerFaultTemporary = True
+        queue.append(message(fresh, late, valid=pulse != 'invalid_then_valid'))
+        if pulse != 'missing_intent':
+          wires.append(intent(fresh, 4, latched=pulse != 'cancel_then_enable').as_reader())
+        if pulse in ('cancel_then_enable', 'brake_then_clear', 'invalid_then_valid'):
+          clear = fixture.car_state()
+          clear.cruiseState.available = clear.cruiseState.enabled = True
+          clear.gasPressed = gas
+          clear.buttonEnable = pulse == 'cancel_then_enable'
+          queue.append(message(fresh + 100_000, clear))
+          wires.append(intent(fresh + 100_000, 5).as_reader())
+        now[0] = observed
+      return result
+
+    sd.car_state_poller = mock.Mock()
+    sd.car_state_poller.poll.return_value = []
+    with mock.patch('openpilot.selfdrive.selfdrived.selfdrived.time.monotonic_ns', side_effect=lambda: now[0]), \
+         mock.patch('openpilot.selfdrive.selfdrived.selfdrived.messaging.recv_one_or_none', side_effect=receive), \
+         mock.patch.object(sd, '_update_car_event_sample', side_effect=car_update) as car_events, \
+         mock.patch.object(sd.state_machine, 'update', wraps=sd.state_machine.update) as transition:
+      axis, state, command = drive(4, offset_ns=7_000_000, observed_state=cs,
+        gas=gas, state_stamp=source, long_allowed=not gas,
+        **dict(settings('combined', source, 3), allowed=pulse != 'lateral_denied'))
+    assert not queue and transition.call_count == 1
+    assert car_events.call_count == (3 if pulse.endswith(('enable', 'clear', 'valid')) else 2)
+    assert old.validUntilMonoTime == source + PUBLISHED_OFFSET + 30_000_000
+    if pulse == 'healthy':
+      assert axis.sourceCarStateMonoTime == fresh and sd.aol_last_intent.carStateLogMonoTime == fresh
+      assert axis.lateralActive and command.latActive and state.enabled
+      assert axis.longitudinalActive == (not gas) and command.longActive == (not gas)
+      assert log.OnroadEvent.EventName.commIssue not in sd.events.names
+      assert not sd.aol_authority_lost
+    else:
+      if pulse not in ('brake_then_clear', 'temporary_eps', 'lateral_denied'):
+        assert not axis.lateralActive and not command.latActive
+      if pulse == 'temporary_eps':
+        assert not axis.lateralActive and not command.latActive
+      if pulse == 'lateral_denied':
+        assert not axis.lateralActive and not command.latActive
+      if pulse in ('cancel_then_enable', 'brake_then_clear', 'permanent_eps', 'invalid_then_valid', 'missing_intent'):
+        assert not axis.longitudinalActive and not command.longActive
+      if pulse == 'cancel_then_enable':
+        assert log.OnroadEvent.EventName.buttonCancel in sd.events.names
+        assert not sd.events.contains(fixture.ET.ENABLE)
+      if pulse == 'invalid_then_valid':
+        assert axis.sourceCarStateMonoTime == 0 and not sd.conditional_car_state_valid

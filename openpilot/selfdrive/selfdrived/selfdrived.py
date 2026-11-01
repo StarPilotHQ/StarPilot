@@ -516,7 +516,7 @@ class SelfdriveD:
     from openpilot.starpilot.car.hyundai.aol import source_deadline_supported
     input_proof = getattr(self, 'aol_step_input_proof', None)
     reconcile_input = bool(input_proof is not None and not REPLAY and self.aol_replay and self.axis_transport_required and
-                           source_deadline_supported(self.CP) and
+                           (source_deadline_supported(self.CP) or self.ford_source_deadline_supported()) and
                            input_proof[0] == self.aol_session_id and
                            (input_proof[8] or input_proof[9]))
     self.aol_event_input_reconcile = reconcile_input
