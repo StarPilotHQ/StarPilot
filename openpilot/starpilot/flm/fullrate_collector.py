@@ -935,11 +935,13 @@ def drain_pair(control_socket, control, applied_socket, applied, receive, collec
   transport ordering keys. Headers choose order only: the original callbacks
   still decode the untouched event and resample source/native/receiver clocks.
   Equal headers put control first, matching the previous causal preference.
-  Malformed input or either stream overrunning remains a maneuver boundary.
-  A persistent state retains only the two already-read heads at an overrun.
-  Their original wire and clocks are checked again on the next bounded drain.
+  Malformed input remains a maneuver boundary. Stateless overflow cannot
+  retain its lookahead and still rejects the maneuver. Run-owned state yields
+  at the same batch bound without losing input; both original heads face the
+  same wire and current receipt checks on the next bounded drain.
   """
   sockets, callbacks = (control_socket, applied_socket), (control, applied)
+  retained = type(state) is PairedDrainState
   if state is None:
     state = PairedDrainState(*sockets)
   pending = list(state.heads)
@@ -975,7 +977,8 @@ def drain_pair(control_socket, control, applied_socket, applied, receive, collec
       head(index)
   except _DrainOverrun:
     state.heads = tuple(pending)
-    collector.overrun()
+    if not retained:
+      collector.overrun()
     return False
   except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
     collector.split('malformed_evidence', reset=True)

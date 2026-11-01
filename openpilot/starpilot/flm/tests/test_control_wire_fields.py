@@ -184,3 +184,128 @@ def test_invalid_fields_remain_rejected_by_same_exception(field, value):
     packet(reference_write_control, row)
   with pytest.raises(type(before.value)):
     packet(wire.write_control, row)
+
+
+def reference_read_named_values(values, bound):
+  if len(values) > bound:
+    raise ValueError('replay scalar bounds')
+  result = []
+  for row in values:
+    name = wire._evidence_field_name(wire._string(str(row.name), 96))
+    kind = row.which()
+    value = bool(row.boolean) if kind == 'boolean' else wire._string(str(row.text), 96) if kind == 'text' else float(row.number)
+    result.append((name, value))
+  return tuple(result)
+
+
+@pytest.mark.parametrize('points', [
+  (), (('zero', 0.0),), (('negative_zero', -0.0),), (('true', True),),
+  (('false', False),), (('text', 'value'),), (('unicode', 'λ'),),
+  tuple((f'field{index}', index / 10) for index in range(32)),
+])
+def test_native_named_scalar_reader_keeps_exact_types_and_bits(points):
+  import struct
+  row = replace(row_with_fields(), replay_snapshot=points)
+  event = packet(wire.write_control, row)
+  reader = messaging.log_from_bytes(event.to_bytes())
+  actual = wire._read_named_values(reader.starpilotLateralState.learningEvidence.replaySnapshot, 1024)
+  original = reference_read_named_values(reader.starpilotLateralState.learningEvidence.replaySnapshot, 1024)
+  assert actual == original
+  assert tuple(type(value) for _, value in actual) == tuple(type(value) for _, value in original)
+  for (_, value), (_, previous) in zip(actual, original, strict=True):
+    if type(value) is float:
+      assert struct.pack('!d', value) == struct.pack('!d', previous)
+
+
+@pytest.mark.parametrize('points,bound', [
+  ([{'name': '', 'number': 1.}], 1024),
+  ([{'name': 'x' * 97, 'number': 1.}], 1024),
+  ([{'name': 'λ' * 49, 'number': 1.}], 1024),
+  ([{'name': 'text', 'text': ''}], 1024),
+  ([{'name': 'text', 'text': 'x' * 97}], 1024),
+  ([{'name': 'number', 'number': 1.}], 0),
+])
+def test_native_named_scalar_reader_preserves_refusal(points, bound):
+  event = packet(wire.write_control, row_with_fields())
+  event.starpilotLateralState.learningEvidence.replaySnapshot = points
+  reader = event.as_reader().starpilotLateralState.learningEvidence.replaySnapshot
+  with pytest.raises(Exception) as original:
+    reference_read_named_values(reader, bound)
+  with pytest.raises(type(original.value)):
+    wire._read_named_values(reader, bound)
+
+
+def test_native_named_scalar_reader_foreign_schema_keeps_original_refusal():
+  event = packet(wire.write_control, row_with_fields())
+  event.starpilotLateralState.learningEvidence.stageValues = [{'name': 'x', 'value': 1.}]
+  rows = event.as_reader().starpilotLateralState.learningEvidence.stageValues
+  with pytest.raises(Exception) as original:
+    reference_read_named_values(rows, 1024)
+  with pytest.raises(type(original.value)):
+    wire._read_named_values(rows, 1024)
+
+
+def test_native_named_scalar_reader_matches_complete_control_roundtrip(monkeypatch):
+  event = packet(wire.write_control, row_with_fields())
+  reader = event.as_reader()
+  actual = wire.read_control(reader)
+  monkeypatch.setattr(wire, '_read_named_values', reference_read_named_values)
+  assert actual == wire.read_control(reader)
+
+
+def test_native_named_scalar_reader_unknown_discriminant_keeps_refusal():
+  import struct
+  from openpilot.cereal import custom
+
+  event = custom.LearningControlEvidence.new_message(replaySnapshot=[{'name': 'x', 'number': 1.}])
+  data = bytearray(event.to_bytes())
+  assert struct.unpack_from('<I', data)[0] == 0
+
+  def word(offset):
+    return struct.unpack_from('<Q', data, offset)[0]
+
+  def displacement(value):
+    offset = (value >> 2) & 0x3fffffff
+    return offset - (1 << 30) if offset & (1 << 29) else offset
+
+  root = word(8)
+  fields = custom.LearningControlEvidence.schema.fields
+  pointer = 16 + displacement(root) * 8 + ((root >> 32) & 0xffff) * 8 + fields['replaySnapshot'].proto.slot.offset * 8
+  values = word(pointer)
+  assert values & 3 == 1 and (values >> 32) & 7 == 7
+  first = pointer + 16 + displacement(values) * 8
+  discriminant = custom.LearningControlEvidence.NamedValue.schema.node.struct.discriminantOffset
+  struct.pack_into('<H', data, first + 2 * discriminant, 0xffff)
+  with custom.LearningControlEvidence.from_bytes(data) as reader:
+    with pytest.raises(Exception) as original:
+      reference_read_named_values(reader.replaySnapshot, 1024)
+    with pytest.raises(type(original.value)):
+      wire._read_named_values(reader.replaySnapshot, 1024)
+
+
+def test_native_evidence_fields_foreign_and_custom_operands_keep_fallback():
+  from types import SimpleNamespace
+  from openpilot.cereal import custom
+
+  value = SimpleNamespace(version=1)
+  assert wire._read_fields(value, custom.LearningControlEvidence.schema) is value
+  foreign = custom.LearningAppliedEvidence.new_message(version=1).as_reader()
+  assert wire._read_fields(foreign, custom.LearningControlEvidence.schema) is foreign
+
+
+def test_native_evidence_fields_keep_all_actual_scalar_and_list_values():
+  from openpilot.cereal import custom
+
+  event = packet(wire.write_control, row_with_fields())
+  reader = event.as_reader().starpilotLateralState.learningEvidence
+  values = wire._read_fields(reader, custom.LearningControlEvidence.schema)
+  assert vars(values).keys() == custom.LearningControlEvidence.schema.fields.keys()
+  for name in custom.LearningControlEvidence.schema.fields:
+    actual, original = getattr(values, name), getattr(reader, name)
+    if hasattr(original, 'to_dict'):
+      assert actual.to_dict() == original.to_dict()
+    elif name in ('features', 'stageValues', 'appliedCoordinates', 'baselineValues', 'replaySnapshot',
+                  'replayInputs', 'appliedParameterNames', 'vehicleModelAnchor', 'liveAppliedCoordinates'):
+      assert str(actual) == str(original)
+    else:
+      assert actual == original

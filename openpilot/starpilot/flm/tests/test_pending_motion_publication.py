@@ -115,6 +115,9 @@ def test_actual_callbacks_publish_new_witness_before_remaining_fifo_work(monkeyp
       # The fixture owns the arrival schedule below; actual socket polling is
       # separately tested. This assertion observes the real daemon's API call.
       return original_next(delivery, sm)
+    if pending_evidence:
+      assert pending_evidence == (control_tape, output_tape)
+      return original_next(delivery, sm)  # Fixture owns motion; real FIFO polling is tested separately.
     return original_next(delivery, sm, pending_evidence=pending_evidence)
   monkeypatch.setattr(steerlearnerd._SourceDelivery, 'next', observe_wait)
   fitter = S(cancel=lambda *args:None, close=lambda *args:True)

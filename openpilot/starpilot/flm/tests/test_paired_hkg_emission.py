@@ -17,7 +17,7 @@ from openpilot.starpilot.flm.tests.test_paired_evidence_drain import transport
 BASE = 10_000_000_000
 
 
-def original_rows():
+def original_rows(count=17):
   factory = interfaces[CAR.HYUNDAI_IONIQ_6]
   cp = factory.get_non_essential_params(CAR.HYUNDAI_IONIQ_6)
   ci = factory(cp)
@@ -31,7 +31,7 @@ def original_rows():
   command = structs.CarControl.new_message(enabled=True, latActive=True, longActive=False)
   command.actuators.torque = 0.
   rows = []
-  for index in range(17):
+  for index in range(count):
     stamp = BASE + index * 10_000_000
     control = replace(snapshots(stamp)[0], domain='normalized_torque', requested=0., baseline_prediction=0.)
     actuators, packets = ci.apply(command.as_reader(), stamp + 1_000_000)
@@ -131,3 +131,40 @@ def test_paired_collector_reaches_real_ingress_without_inventing_scores_or_trial
   assert ingress.monitor.witness(now) is None
   assert ingress.optimizer.offer(now) is None
   assert not ingress.optimizer.before and not ingress.optimizer.future
+
+
+def test_lossless_quota_preserves_current_actual_hkg_native_emission_records():
+  from openpilot.starpilot.flm.fullrate_collector import MAX_DRAIN, PairedDrainState
+
+  cp, rows = original_rows(MAX_DRAIN + 3)
+  history = EmissionHistory(cp, identity=rows[0][0].identity, baseline_revision=rows[0][0].baseline_revision)
+  adapter = SimpleNamespace(command_domain='normalized_torque', record_actual_carrier=history.record_carrier,
+    record_actual_emission=history.record)
+  collector = FullrateCollector(adapter)
+  sockets, receive, _ = transport([serialized_control(c) for c, _ in rows], [serialized_output(o) for _, o in rows])
+  state = PairedDrainState(*sockets)
+  seen = []
+
+  def control(event, current, now):
+    row = read_control(event)
+    seen.append(('control', row.control_ns))
+    current.control(row, now)
+
+  def output(event, current, now):
+    row = read_applied(event)
+    seen.append(('output', row.apply_ns))
+    current.output(row, now)
+
+  assert not drain_pair(sockets[0], control, sockets[1], output, receive, collector, BASE + 341_000_000, state)
+  assert list(collector.ready) == rows[25:MAX_DRAIN - 1]
+  assert collector.training_interruptions['stale_control'] == 25
+  assert collector.dropped == 0
+  for command, emission in collector.ready:
+    history.verify(command, emission)
+  assert drain_pair(sockets[0], control, sockets[1], output, receive, collector, BASE + 342_000_000, state)
+  assert list(collector.ready) == rows[25:]
+  assert len(seen) == len(set(seen)) == 2 * len(rows)
+  for command, emission in collector.ready:
+    history.verify(command, emission)
+  assert collector.training_interruptions['actual_carrier_gap_or_clock'] == 0
+  assert collector.training_interruptions['fullrate_overrun'] == 0

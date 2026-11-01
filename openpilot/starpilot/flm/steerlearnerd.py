@@ -620,10 +620,11 @@ def run(
         pending_stamp = getattr(pending_poses[0], 'mono_ns', 0)
         pending_now = clock()
         pending_fresh = type(pending_stamp) is int and 0 < pending_stamp <= pending_now <= pending_stamp + MAX_GAP_NS
-      # Keep the genuine tapes current between poses during a bounded trial;
-      # otherwise each motion arrival starts behind another full FIFO batch.
+      # Bootstrap also needs evidence wakeups; waiting for motion lets the
+      # full-rate tapes spend their original freshness budget before decoding.
       delivered_pose_header = (source_delivery.next(sm, pending_evidence=(control_socket, applied_socket))
-                               if pending_fresh or pending_trial else source_delivery.next(sm))
+                               if pending_fresh or pending_trial or (live_actor is not None and collector is not None and
+                                  getattr(collector.adapter, 'event_collection', False)) else source_delivery.next(sm))
       source_rejected = False
       now = clock()
       # This is an ORIGINAL header from the real poll or an already consumed
@@ -1230,3 +1231,4 @@ def main():
 
 if __name__ == '__main__':
   main()
+
