@@ -1714,6 +1714,10 @@ input[type="checkbox"]:disabled { opacity: .4; cursor: not-allowed; }
 /* A section title inside a settings page: a label only, never dimmed like an unavailable control. */
 .gx-row.gx-row--heading, .gx-row.gx-row--heading.disabled { opacity: 1; padding-top: 1.25rem; }
 .gx-row--heading .gx-row__label { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; opacity: .75; }
+/* Guided StarPort setup: the one question about how the car connects. */
+.gx-starport-guided__choices { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
+.gx-starport-guided__choice { display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; text-align: left; height: auto; padding: .7rem .9rem; }
+.gx-starport-guided__choice small { font-weight: 400; opacity: .75; white-space: normal; }
 .gx-row--wrap { flex-wrap: wrap; }
 .gx-row__info.gx-row__info--wide { flex: 1 1 180px; }
 .gx-filter-field { flex: 1 1 14rem; min-width: 0; }

@@ -7,6 +7,7 @@ import { connectionError } from "./polling.js"
 import { BluetoothDeviceList } from "./bluetooth-devices.js"
 import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 import { GalaxySettingRow, switchRow } from "./galaxy-setting-row.js"
+import { StarPortGuidedSetup, guidedState } from "./starport-guided.js"
 
 export function uploadTimeout(bytes) {
   return Math.max(180000, Math.ceil(bytes / (64 * 1024)) * 1000)
@@ -319,6 +320,18 @@ export class StarPortFeed {
     return true
   }
 
+  // The guided setup's way back to the classic screens (and back). It never needs the StarPort service, so it is not a control().
+  async setNewSetup(enabled) {
+    if (!this.active || this.busy || typeof enabled !== "boolean") return false
+    const result = await this.request("./api/starport/control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "new_setup", enabled })
+    })
+    if (result === null) return false
+    await this.refresh()
+    return true
+  }
+
   async setEnabled(enabled, enableBluetooth = false) {
     if (!this.active || this.busy || typeof enabled !== "boolean" ||
       typeof enableBluetooth !== "boolean" || enableBluetooth && !enabled || enabled && !this.setup?.installReady) return false
@@ -481,7 +494,7 @@ export function connectionProgress(runtime, { wired = false, app = "", selected 
 }
 
 export const StarPortPage = {
-  components: { GxState, GxIconButton, GxNotice, BluetoothNotice, GxDialog, GalaxySettingRow },
+  components: { GxState, GxIconButton, GxNotice, BluetoothNotice, GxDialog, GalaxySettingRow, StarPortGuidedSetup },
   props: {
     mode: { type: String, required: true }, localAccess: { type: Boolean, required: true },
     unauthorized: { type: Function, required: true }
@@ -540,6 +553,11 @@ export const StarPortPage = {
     setupDone() {
       return !!(this.supportReady && (this.selected || this.wired || this.app) && !this.pairing?.active &&
         !(this.adapterSetup && this.runtime?.car_profile_source !== "override"))
+    },
+    newSetup() { return this.setup?.newSetup !== false },
+    guided() {
+      return guidedState({ setup: this.setup, runtime: this.runtime, selected: this.selected, receivers: this.receivers, wired: this.wired,
+        app: this.app, carType: this.carType, setupDone: this.setupDone, pairingActive: !!this.pairing?.active, labels: this.carTypeLabels })
     },
     wiredStatus() {
       if (this.runtime?.wired_blocked) return { tone: "expired", label: "Wired StarPort not enabled", detail: this.runtime.wired_blocked }
@@ -676,6 +694,9 @@ export const StarPortPage = {
       return stopping ? stopping.then((stopped) => stopped && next()) : next()
     },
     useCar(address) { return this.afterWaiting(() => this.control("select_receiver", { address })) },
+    chooseType(key) { return this.saveCarType(0, this.carTypeLabels[key]) },
+    useClassic() { return this.feed.setNewSetup(false) },
+    useGuided() { return this.feed.setNewSetup(true) },
     saveCarType(index, value) {
       const labels = this.carTypeLabels
       const carType = Object.keys(labels).find(key => labels[key] === value)
@@ -853,6 +874,9 @@ export const StarPortPage = {
             </details>
           </div>
         </section>
+      <StarPortGuidedSetup v-if="setup && newSetup && guided.show" :state="guided" :busy="busy"
+        @choose-type="chooseType" @use-car="useCar" @classic="useClassic" />
+      <p v-else-if="setup && !newSetup && !setupDone" class="gx-note"><button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="useGuided">Try the guided setup</button></p>
       <ol v-if="setup" id="gx-starport-steps" class="gx-starport__steps">
         <li v-show="!setupDone || showSteps" class="gx-card gx-starport-step" :class="{ 'gx-starport-step--done': !!selected && !pairing?.active }">
           <div class="gx-starport-step__head">
