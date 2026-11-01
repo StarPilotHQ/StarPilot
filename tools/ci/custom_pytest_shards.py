@@ -97,7 +97,7 @@ def blob_id(path):
 
 def partition(catalog, count, root=ROOT):
   """Whole modules, except explicitly reviewed independent heavy parameter cases."""
-  if type(count) is not int or not 1 <= count <= 24 or not catalog or len(catalog) != len(set(catalog)):
+  if type(count) is not int or not 1 <= count <= 32 or not catalog or len(catalog) != len(set(catalog)):
     raise ValueError('Empty, duplicate or invalid custom pytest catalog')
   grouped = defaultdict(list)
   for node in catalog:
@@ -430,7 +430,7 @@ def main():
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument('action', choices=('run', 'aggregate'))
   parser.add_argument('--index', type=int)
-  parser.add_argument('--count', type=int, default=24)
+  parser.add_argument('--count', type=int, default=32)
   parser.add_argument('--output', type=Path, required=True)
   parser.add_argument('--directory', type=Path)
   args = parser.parse_args()

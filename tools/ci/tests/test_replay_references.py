@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tools.ci.replay_references import config_signature, reviewed_reference
+from tools.ci.replay_references import REFERENCE_DIR, config_signature, reviewed_reference
 
 
 @dataclass
@@ -32,16 +32,19 @@ class TestReviewedReferences(unittest.TestCase):
     self.input = b"independent input"
     expected = b"approved expected output"
     (self.root / "card.zst").write_bytes(expected)
-    self.record = {"official_baseline_commit": "official", "official_artifact_commit": "artifact", "segment": "known", "process": "card", "file": "card.zst", "bytes": len(expected),
+    self.record = {"official_baseline_commit": "official", "official_artifact_commit": "artifact",
+                   "segment": "known", "process": "card", "file": "card.zst", "bytes": len(expected),
                    "sha256": hashlib.sha256(expected).hexdigest(), "input_bytes": len(self.input),
                    "input_sha256": hashlib.sha256(self.input).hexdigest(), "config_sha256": config_signature(self.cfg)}
     self.write_manifest()
 
   def write_manifest(self):
-    (self.root / "manifest.json").write_text(json.dumps({"version": 1, "official_baseline_commit": "official", "official_artifact_commit": "artifact", "references": [self.record]}))
+    (self.root / "manifest.json").write_text(json.dumps({"version": 1, "official_baseline_commit": "official",
+                                                         "official_artifact_commit": "artifact", "references": [self.record]}))
 
   def select(self, segment="known", raw=None):
-    return reviewed_reference(segment, self.cfg, self.input if raw is None else raw, official_commit="official", artifact_commit="artifact", reference_dir=self.root)
+    return reviewed_reference(segment, self.cfg, self.input if raw is None else raw,
+                              official_commit="official", artifact_commit="artifact", reference_dir=self.root)
 
   def test_exact_pair_and_official_fallback(self):
     self.assertEqual(self.select(), str(self.root / "card.zst"))
@@ -75,6 +78,17 @@ class TestReviewedReferences(unittest.TestCase):
     self.write_manifest()
     with self.assertRaisesRegex(ValueError, "local filename"):
       self.select()
-    (self.root / "manifest.json").write_text(json.dumps({"version": 1, "official_baseline_commit": "official", "official_artifact_commit": "artifact", "references": [self.record, self.record]}))
+    (self.root / "manifest.json").write_text(json.dumps({"version": 1, "official_baseline_commit": "official",
+                                                         "official_artifact_commit": "artifact", "references": [self.record, self.record]}))
     with self.assertRaisesRegex(ValueError, "Duplicate"):
       self.select()
+
+
+  def test_reviewed_ford_card_reference_matches_manifest(self):
+    manifest = json.loads((REFERENCE_DIR / "manifest.json").read_text())
+    filename = "regen755D8CB1E1F_2025-04-08--23-13-43--0_card.zst"
+    records = [record for record in manifest["references"] if record["file"] == filename]
+    self.assertEqual(len(records), 1)
+    raw = (REFERENCE_DIR / filename).read_bytes()
+    self.assertEqual(len(raw), records[0]["bytes"])
+    self.assertEqual(hashlib.sha256(raw).hexdigest(), records[0]["sha256"])

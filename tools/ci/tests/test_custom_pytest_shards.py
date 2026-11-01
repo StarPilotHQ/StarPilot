@@ -151,15 +151,16 @@ def test_changed_source_in_all_jobs_denied_against_checkout(jobs):
     shards.aggregate(directory, 2)
 
 
-def test_exact_parameter_nodes_whole_other_modules_and_bounded_heavy_groups():
+@pytest.mark.parametrize('count', [24, 32])
+def test_exact_parameter_nodes_whole_other_modules_and_bounded_heavy_groups(count):
   heavy = 'openpilot/starpilot/car/toyota/tests/test_legacy_advert_callers.py'
   catalog = [f'{heavy}::test_independent[{i}]' for i in range(126)] + ['other.py::test_case[1]', 'other.py::test_case[10]']
-  assigned, loads = shards.partition(catalog, 24)
+  assigned, loads = shards.partition(catalog, count)
   assert sorted(node for group in assigned for node in group) == sorted(catalog)
   assert max(loads) <= 240
   assert any('other.py::test_case[1]' in group and 'other.py::test_case[10]' in group for group in assigned)
   assert [sum(node.startswith(heavy) for node in group) for group in assigned].count(60) == 2
-  assert shards.partition(catalog, 24) == (assigned, loads)
+  assert shards.partition(catalog, count) == (assigned, loads)
 
 
 @pytest.mark.parametrize('catalog', [[], ['a.py::test_a', 'a.py::test_a'], ['../a.py::test_a'], ['/a.py::test_a'], ['a.py']])
@@ -614,3 +615,9 @@ def test_measured_slow_module_exact_function_and_leaf_groups(module, counts, exp
   reverse, reverse_loads = shards.partition(list(reversed(catalog)), 24)
   assert [set(group) for group in reverse] == [set(group) for group in assignment]
   assert reverse_loads == loads
+
+
+@pytest.mark.parametrize('count', [0, 33, True, 1.5])
+def test_invalid_shard_count_still_denied(count):
+  with pytest.raises(ValueError):
+    shards.partition(['a.py::test_a'], count)
