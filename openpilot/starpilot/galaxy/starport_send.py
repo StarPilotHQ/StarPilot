@@ -93,10 +93,21 @@ def _head_unit(log_dir: Path | None, logs_to_check: int = 3) -> str:
   return ""
 
 
+def _setup(log_dir: Path | None, logs_to_check: int = 3) -> str:
+  """The setup the owner chose (built-in / adapter / usb / app) and its profile, from the newest log that recorded one."""
+  from openpilot.starpilot.system.starport import compat_report
+  from openpilot.starpilot.system.starport.bugsink_report import session_setup
+  for path in compat_report.session_logs(log_dir or identity_store.LOG_DIR)[:logs_to_check]:
+    setup = session_setup(compat_report.load_events(path))
+    if setup:
+      return " / ".join(str(setup[key]) for key in ("type", "profile", "profile_source") if setup.get(key))
+  return ""
+
+
 def device_summary(log_dir: Path | None = None) -> dict:
   from openpilot.starpilot.system.starport.bugsink_transport import device_metadata
   summary = device_metadata()
-  for key, read in (("car_fingerprint", _car_fingerprint), ("head_unit", lambda: _head_unit(log_dir))):
+  for key, read in (("car_fingerprint", _car_fingerprint), ("head_unit", lambda: _head_unit(log_dir)), ("setup", lambda: _setup(log_dir))):
     try:
       summary[key] = read()
     except Exception as error:
@@ -151,6 +162,7 @@ def send(data: bytes, name: str, note: str, summary: dict, url: str | None = Non
   lines = [f"**StarPort logs from {device_tag(summary)}**",
            f"Car: {summary.get('car_fingerprint') or 'unknown'}",
            f"Head unit: {summary.get('head_unit') or 'unknown'}",
+           f"Setup: {summary.get('setup') or 'unknown'}",
            f"Branch {summary.get('branch', '?')} @ {str(summary.get('commit', '?'))[:10]}",
            f"Note: {note.strip() or '(none)'}"]
   payload = {"content": "\n".join(lines)[:1900], "username": "StarPilot diagnostics", "allowed_mentions": {"parse": []}}
