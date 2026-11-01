@@ -85,15 +85,16 @@ class TestModelLineEndpoint:
 class TestExperimentalGradient:
   @staticmethod
   def renderer(dtype, count, seed):
-    from openpilot.selfdrive.ui.mici.onroad.model_renderer import ModelRenderer
+    from openpilot.selfdrive.ui.mici.onroad.model_renderer import ModelPoints, ModelRenderer
+    from openpilot.system.ui.lib.shader_polygon import Gradient
     import pyray as rl
     rng = np.random.default_rng(seed)
     result = object.__new__(ModelRenderer)
     result._experimental_mode = True
     result._rect = rl.Rectangle(-12, 21, 536, 240)
-    result._path = SimpleNamespace(projected_points=rng.uniform(-200, 500, (count, 2)).astype(dtype))
+    result._path = ModelPoints(projected_points=rng.uniform(-200, 500, (count, 2)).astype(dtype))
     result._acceleration_x = rng.uniform(-3, 3, 33).astype(dtype)
-    result._exp_gradient = SimpleNamespace(colors=[], stops=[])
+    result._exp_gradient = Gradient((0., 0.), (0., 1.), [], [])
     return result
 
   @staticmethod
