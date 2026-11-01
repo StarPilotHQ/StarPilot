@@ -506,3 +506,11 @@ def test_report_shows_what_the_ladder_tried_and_what_worked(tmp_path):
   tags = br.drive_event([record])["tags"]
   assert (tags["aa.ladder_rung"], tags["aa.ladder_learned"]) == ("other_reply", "no")
   assert br.session_record(write_session(tmp_path, 2, STREAMED))["ladder"] == []   # older logs report nothing, without error
+
+
+def test_report_says_how_the_rfcomm_channel_was_found(tmp_path):
+  events = [list(item) for item in STREAMED]
+  events.insert(1, (0, 1, "sdp_retry", {"error": "x"}))
+  events.insert(2, (0, 2, "rfcomm_channel", {"channel": 8, "source": "sdp"}))
+  assert br.session_record(write_session(tmp_path, 1, events))["sdp"] == {"channel": 8, "source": "sdp", "retries": 1}
+  assert br.session_record(write_session(tmp_path, 2, STREAMED))["sdp"] == {}

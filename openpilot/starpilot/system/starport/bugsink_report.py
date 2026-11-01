@@ -190,6 +190,17 @@ def offered_modes(events: list[dict]) -> list[str]:
   return modes[:MAX_OFFERED_MODES]
 
 
+def session_sdp(events: list[dict]) -> dict:
+  """How the car's Android Auto RFCOMM channel was found: where it came from, and how many SDP retries it took."""
+  found = next((event for event in events if event["event"] == "rfcomm_channel"), {})
+  retries = sum(1 for event in events if event["event"] == "sdp_retry")
+  if not found and not retries:
+    return {}
+  return {key: value for key, value in (("channel", found.get("channel") if isinstance(found.get("channel"), int) else None),
+                                         ("source", str(found["source"])[:12] if found.get("source") else None),
+                                         ("retries", retries or None)) if value is not None}
+
+
 def session_setup(events: list[dict]) -> dict:
   """The setup type and profile the owner chose, as recorded when the session started."""
   start = next((event for event in events if event["event"] == "session_start"), {})
@@ -265,6 +276,7 @@ def session_record(path: Path) -> dict:
     "phone_address_sent": bool(opened.get("phone_address")) if opened is not None else None,
     "strategy": session_strategy(events, setup),
     "ladder": session_ladder(events),
+    "sdp": session_sdp(events),
     "software": {key: str(software.get(key) or "unknown") for key in ("commit", "branch")} if isinstance(software, dict) else {},
     "settings": settings if isinstance(settings, dict) else {},
     "seq": _session_number(path),

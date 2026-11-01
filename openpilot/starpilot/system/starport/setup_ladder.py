@@ -239,6 +239,14 @@ class SetupLadder:
       entry["t_ready"] = (entry["t_ready"] + [round(float(t_ready_s), 1)])[-8:]
     self.save()
 
+  def ready_patience(self, address: str, stage_timeout: float = 20.0) -> int:
+    """Stage timeouts a slow car needs: it was ready after t_ready_s once, so the bootstrap must be willing to wait that long.
+
+    Never less than the standard patience, and 0 (no opinion) for a car nothing is known about."""
+    entry = self.cars.get(address.upper())
+    times = entry["t_ready"] if entry else []
+    return min(9, int(-(-max(times) // stage_timeout))) if times else 0
+
   def snapshot(self, address: str, adapter: bool = False) -> dict:
     """What the setup screen and the reports show: every rung, its state, and whether this car has a learned strategy."""
     entry = self.cars.get(address.upper()) if address else None

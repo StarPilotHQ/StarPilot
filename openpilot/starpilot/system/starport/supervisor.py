@@ -1341,7 +1341,9 @@ class Supervisor:
       boot = WirelessBootstrap(rfcomm, self._bootstrap_log, device_serial=config["device_name"],
                                version_status=int(config.get("version_status", 0)),
                                experiment="all" if car_profiles.tuning(config)["bootstrap_experiments"] or strategy.experiments else "",
-                               modern_reply=strategy.modern_reply, patience=strategy.patience, channel_override=strategy.channel_type)
+                               modern_reply=strategy.modern_reply, channel_override=strategy.channel_type,
+                               # a car that once took 70 s to be ready gets more than the standard wait for the Wi-Fi handshake
+                               patience=max(strategy.patience, self._ladder.ready_patience(address, 20.0)))
       self._set(state="wifi_start")
       result = boot.run(lambda credentials: lease.acquire(credentials, cancelled=boot.join_is_cancelled), cancelled=self._stop.is_set)
     except Exception as error:

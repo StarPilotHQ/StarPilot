@@ -211,3 +211,13 @@ def test_forgetting_a_car_forgets_what_was_learned_about_it(sup):
   sup._ladder.worked(RECEIVER, sl.resolve("patient", False), 10.0)
   assert sup.forget_receiver(RECEIVER) is True
   assert not sup._ladder.snapshot(RECEIVER)["learned"] and RECEIVER not in sup._ladder.cars
+
+
+def test_a_slow_car_gets_the_patience_it_once_needed_and_an_unknown_car_gets_no_opinion(ladder):
+  assert ladder.ready_patience(CAR) == 0
+  ladder.worked(CAR, sl.resolve("standard", False), 14.0)
+  assert ladder.ready_patience(CAR) == 1
+  ladder.worked(CAR, sl.resolve("standard", False), 70.0)
+  assert ladder.ready_patience(CAR) == 4   # 70 s at 20 s per stage timeout
+  ladder.worked(CAR, sl.resolve("standard", False), 3000.0)
+  assert ladder.ready_patience(CAR) == 9   # capped

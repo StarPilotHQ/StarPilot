@@ -61,6 +61,7 @@ class SendTest(unittest.TestCase):
     self.assertIn("Note: Dropped at the light", call["payload"]["content"])
     self.assertIn("Head unit: Honda Display Audio", call["payload"]["content"])
     self.assertIn("Setup: unknown", call["payload"]["content"])  # no session log recorded a setup in this fixture
+    self.assertIn("Handshake: unknown", call["payload"]["content"])
     self.assertNotIn(SUMMARY["device_id"], call["payload"]["content"])
     self.assertEqual(query(call), {"wait": "true"})
     self.assertEqual(call["files"]["files[0]"], ("logs.zip", b"zip", "application/zip"))

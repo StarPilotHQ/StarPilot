@@ -104,10 +104,22 @@ def _setup(log_dir: Path | None, logs_to_check: int = 3) -> str:
   return ""
 
 
+def _handshake(log_dir: Path | None, logs_to_check: int = 3) -> str:
+  """What the setup ladder tried in the newest log that recorded it, e.g. "standard (advanced) > other_reply (worked)"."""
+  from openpilot.starpilot.system.starport import compat_report
+  from openpilot.starpilot.system.starport.bugsink_report import session_ladder
+  for path in compat_report.session_logs(log_dir or identity_store.LOG_DIR)[:logs_to_check]:
+    tried = session_ladder(compat_report.load_events(path))
+    if tried:
+      return " > ".join(f"{item['rung']}{' learned' if item.get('learned') else ''} ({item.get('outcome', 'tried')})" for item in tried[-6:])
+  return ""
+
+
 def device_summary(log_dir: Path | None = None) -> dict:
   from openpilot.starpilot.system.starport.bugsink_transport import device_metadata
   summary = device_metadata()
-  for key, read in (("car_fingerprint", _car_fingerprint), ("head_unit", lambda: _head_unit(log_dir)), ("setup", lambda: _setup(log_dir))):
+  for key, read in (("car_fingerprint", _car_fingerprint), ("head_unit", lambda: _head_unit(log_dir)), ("setup", lambda: _setup(log_dir)),
+                    ("handshake", lambda: _handshake(log_dir))):
     try:
       summary[key] = read()
     except Exception as error:
@@ -163,6 +175,7 @@ def send(data: bytes, name: str, note: str, summary: dict, url: str | None = Non
            f"Car: {summary.get('car_fingerprint') or 'unknown'}",
            f"Head unit: {summary.get('head_unit') or 'unknown'}",
            f"Setup: {summary.get('setup') or 'unknown'}",
+           f"Handshake: {summary.get('handshake') or 'unknown'}",
            f"Branch {summary.get('branch', '?')} @ {str(summary.get('commit', '?'))[:10]}",
            f"Note: {note.strip() or '(none)'}"]
   payload = {"content": "\n".join(lines)[:1900], "username": "StarPilot diagnostics", "allowed_mentions": {"parse": []}}
