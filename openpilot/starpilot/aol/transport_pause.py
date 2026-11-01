@@ -350,7 +350,7 @@ class TransportPauseFeedback:
     # Before 10Hz LONG echo: physical pedal/cancel retains only real independent LAT intent.
     ford_withdrawal = bool(cp.brand == 'ford' and ford_qualified(cp, marked_only=True) and cp.openpilotLongitudinalControl and
       (cs.brakePressed or not cs.cruiseState.enabled or physical_cancel(cs, cp) or
-       not axis.desiredLongitudinal and not axis.longitudinalActive) and not (cs.brakePressed and cs.gasPressed) and not cs.regenBraking and
+       not axis.desiredLongitudinal and not axis.longitudinalActive) and not cs.regenBraking and
       cs.cruiseState.available and not cs.doorOpen and not cs.seatbeltUnlatched and
       not cs.vehicleSensorsInvalid and cs.gearShifter == structs.CarState.GearShifter.drive)
     # Ford angle/curvature share native independent axes: intent-only 10Hz LONG withdrawal/recovery echo join.
@@ -1534,7 +1534,8 @@ class TransportPauseFeedback:
       native = _healthy_transport_native(sm, cp, cs, str(axis.sessionId), now_ns)
       if (native is None and intent_paused and cs.canValid and not cs.canTimeout and
           not cs.steerFaultPermanent and not any(signature[9:13])):
-        native = _configured_transport_native(sm, cp, str(axis.sessionId), now_ns)
+        native = _configured_transport_native(sm, cp, str(axis.sessionId), now_ns,
+          require_longitudinal=not (cp.brand == 'ford' and cs.brakePressed))
       from opendbc.car import structs
       previous = self.signature
       inactive = bool(not self.failed and self.session and previous is not None and
@@ -1557,7 +1558,9 @@ class TransportPauseFeedback:
              event.noEntry and not event.userDisable) and
             (not event.userDisable or event.name in
              (log.OnroadEvent.EventName.pcmDisable, log.OnroadEvent.EventName.buttonCancel,
-              log.OnroadEvent.EventName.reverseGear) or intent_paused and event.name == log.OnroadEvent.EventName.wrongGear)
+              log.OnroadEvent.EventName.reverseGear) or intent_paused and
+             (event.name == log.OnroadEvent.EventName.wrongGear or cp.brand == 'ford' and cs.brakePressed and
+              event.name == log.OnroadEvent.EventName.pedalPressed))
             for event in sm['onroadEvents']) and
         native is not None and native.pandaInventory and self.healthy_inventory ==
           (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory)) and

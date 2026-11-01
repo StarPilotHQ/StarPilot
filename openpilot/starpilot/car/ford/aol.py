@@ -1,4 +1,5 @@
 from dataclasses import replace
+from math import isfinite
 from opendbc.car import structs
 from opendbc.car.ford.aol import qualified, AOL_WORDS, MANUAL, temporary_restriction, aol_safety_config, profile_word
 from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE
@@ -70,7 +71,7 @@ class FordCardIntent(AolCardIntent):
           axis.intentProducerSessionId != producer or stamp != axis.observedMonoTime or
           not 0 < axis.sourceCarStateMonoTime <= stamp < now_ns <= axis.validUntilMonoTime or
           now_ns - axis.sourceCarStateMonoTime > 30_000_000 or axis.validUntilMonoTime - stamp > 30_000_000 or
-          str(axis.faultReason) != 'none' or str(axis.mode) != 'off' or axis.nativeAcknowledged or
+          str(axis.faultReason) != 'none' or str(axis.mode) != 'off' or
           axis.desiredLateral or axis.desiredLongitudinal or axis.lateralActive or axis.longitudinalActive or
           not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents']):
         return
@@ -202,3 +203,10 @@ def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previou
       native.validUntilMonoTime - native.observedMonoTime <= SAFETY_MAX_AGE_NS)
   except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
     return False
+
+
+def brake_pause_active(cp, state, settings):
+  """A configured brake pause withdraws commands without discarding armed intent."""
+  return bool(settings is not None and qualified(cp, marked_only=True) and
+    state.brakePressed and not state.standstill and isfinite(state.vEgo) and
+    isfinite(settings.pause_brake_mps) and 0 <= state.vEgo < settings.pause_brake_mps)

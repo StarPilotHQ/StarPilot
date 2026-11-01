@@ -68,6 +68,7 @@ from openpilot.starpilot.car.nissan.aol import (
 )
 from openpilot.starpilot.car.hyundai.aol import aol_safety_config as hyundai_aol_safety_config, pending_stock_angle_arm
 from openpilot.starpilot.car.hyundai.aol import retained_shared_long_cancel_intent as hkg_cancel_intent_retained
+from openpilot.starpilot.car.ford.aol import brake_pause_active as ford_brake_pause_active
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, current_axis, current_native
 from openpilot.starpilot.aol.vehicle import create_intent as create_aol_intent, native_latch_rejected, policy_for as aol_policy_for
 from openpilot.starpilot.aol.wire import IntentState, encode_intent
@@ -624,7 +625,8 @@ class Car:
         intent_producer_session=getattr(self, 'slc_producer_session', ''),
         main_arm_ns=getattr(self.aol_card_intent, 'main_arm_ns', 0),
         startup_calibration_pending=getattr(self.aol_card_intent, 'startup_calibration_pending', False),
-        intent_paused=getattr(self.aol_card_intent, 'pause_lateral', False))
+        intent_paused=(getattr(self.aol_card_intent, 'pause_lateral', False) or
+          ford_brake_pause_active(self.CP, CS, self.aol_settings)))
       fault_active = True if transport_reset else None
       event_ns = int(self.sm.logMonoTime['onroadEvents'])
       if (getattr(self.aol_card_intent, 'requires_fault_observation', self.aol_card_intent.explicit_latch) and
@@ -676,8 +678,9 @@ class Car:
           panda_ready=angle_panda_ready,
           restricted=(getattr(self.aol_transport_feedback, 'ordinary_warning_qualified', False) or
             restrict(self.CP, CS) or
-            ((angle_aol or mazda_aol or preap_aol or rivian_aol) and self.aol_card_intent.pause_lateral) or
+            ((angle_aol or ford_aol or mazda_aol or preap_aol or rivian_aol) and self.aol_card_intent.pause_lateral) or
             (angle_aol and CS.brakePressed and (not CS.standstill) and (CS.vEgo < self.aol_settings.pause_brake_mps)) or
+            ford_brake_pause_active(self.CP, CS, self.aol_settings) or
             (volkswagen_aol and (self.aol_card_intent.pause_lateral or
             (CS.brakePressed and (not CS.standstill) and (CS.vEgo < self.aol_card_intent.settings.pause_brake_mps))))),
           now_ns=now_ns,
@@ -931,7 +934,8 @@ class Car:
         intent_producer_session=getattr(self, 'slc_producer_session', ''),
         main_arm_ns=getattr(self.aol_card_intent, 'main_arm_ns', 0),
         startup_calibration_pending=getattr(self.aol_card_intent, 'startup_calibration_pending', False),
-        intent_paused=getattr(self.aol_card_intent, 'pause_lateral', False)):
+        intent_paused=(getattr(self.aol_card_intent, 'pause_lateral', False) or
+          ford_brake_pause_active(self.CP, CS, self.aol_settings))):
       return True
     events = self.sm['onroadEvents']
     if self.aol_transport_feedback.retention_qualified or self.aol_transport_feedback.retention_pending:

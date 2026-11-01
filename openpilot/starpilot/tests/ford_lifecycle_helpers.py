@@ -104,6 +104,8 @@ def ford_joined(identity, alpha, hands_free, monkeypatch, record_property):
 
     for key, value in (('PauseAOLOnBrake', b'0.0'), ('CancelButtonControl', b'0'), ('MainCruiseButtonControl', b'0')):
       Path(saved.get_param_path(key)).write_bytes(value)
+    if hasattr(monkeypatch, 'ford_brake_pause'):
+      Path(saved.get_param_path('AolBrakePauseSpeedMps')).write_bytes(str(monkeypatch.ford_brake_pause).encode())
     Path(saved.get_param_path("FordHandsFreeCluster")).write_bytes(b"1" if hands_free else b"0")
     fp = gen_empty_fingerprint()
     topology = getattr(monkeypatch, 'ford_topology', 'automatic')
@@ -561,14 +563,14 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
             # A real native fault can precede the next 10Hz host receipt. Active
             # requests in that gap must be rejected, never treated as accepted.
             fault_before_receipt = (getattr(monkeypatch, 'ford_native_10hz', False) and
-              scenario == 'route22' and fault in ('heartbeat', 'source-loss') and permission == 0)
+              scenario in ('route22', 'brake-overlap', 'brake-pause') and fault in ('heartbeat', 'source-loss') and permission == 0)
             if fault_before_receipt and frame.address in (0x3D3, 0x3D6):
               mode = ((frame.dat[4] >> 2) & 7) if frame.address == 0x3D3 else ((frame.dat[0] >> 4) & 7)
               if mode:
                 assert not accepted, 'Native fault admitted active steering'
             if not accepted:
               display_only = frame.address in (0x18A, 0x3D8)
-              display_veto = (display_only and scenario == 'route22' and
+              display_veto = (display_only and scenario in ('route22', 'brake-overlap', 'brake-pause') and
                 fault in ('heartbeat', 'source-loss', 'rx-quality') and permission == 0)
               assert display_veto or (fault_before_receipt and not safety.get_controls_allowed()), (
                 steps, fault, hex(frame.address), bytes(frame.dat).hex(), request, native_request, permission)
@@ -856,6 +858,28 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
           state, axis, sd_state, command = step(engaged=True, steering=True)
         assert state.steeringPressed
         assert sd_state.alertType != 'steerSaturated/warning'
+        return
+      if scenario in ('brake-overlap', 'brake-pause'):
+        gas = 'gas' if scenario == 'brake-overlap' else None
+        for _ in range(50):
+          state, axis, sd_state, command = step(engaged=True, fault=gas)
+        assert host.aol_card_intent.allowed_latch and command.latActive
+        if scenario == 'brake-pause':
+          joined.speed = .2
+        for _ in range(60):
+          state, axis, sd_state, command = step(brake=True, fault=gas)
+          assert host.aol_card_intent.allowed_latch, (host.aol_card_intent.latch_clear_reason, transition_trace[-4:])
+          if state.brakePressed:
+            assert not command.longActive
+            paused = not state.standstill and state.vEgo < .44704
+            assert command.latActive == (not paused)
+        for _ in range(50):
+          state, axis, sd_state, command = step()
+          assert host.aol_card_intent.allowed_latch
+        assert command.latActive and not command.longActive
+        for _ in range(30):
+          state, axis, sd_state, command = step(fault='heartbeat')
+        assert not host.aol_card_intent.allowed_latch and not command.latActive and not command.longActive
         return
       if scenario == 'bluepilot-pause':
         for _ in range(41):
