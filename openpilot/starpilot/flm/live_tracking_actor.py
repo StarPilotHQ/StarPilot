@@ -746,6 +746,14 @@ class LiveTrackingActor:
       self._advance_original_decoder(collector, now_ns)
       self._retire_identified_history(collector)
     if collector is None or source is None or not collector.ready or current_native is not True:
+      # Report the current missing input, not an earlier identity transition.
+      # Retaining historical work below still supplies no current permission.
+      self.reason = (
+        'controller_collection_required' if collector is None else
+        'current_settings_source_required' if source is None else
+        'qualified_control_output_pair_required' if not collector.ready else
+        'current_native_permission_unavailable'
+      )
       # A frozen response job describes ORIGINAL source/native observations,
       # not permission to apply a correction now. Temporary input/native gaps
       # must not cancel that computation after expensive snapshot preparation.
