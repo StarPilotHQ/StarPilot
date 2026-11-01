@@ -50,6 +50,10 @@ def _named_values(values):
   return [{'name': _string(name, 96), 'boolean' if type(value) is bool else 'text' if type(value) is str else 'number': value} for name, value in values]
 
 
+def _named_pairs(values, limit=96):
+  return [(_string(name, limit), value) for name, value in values]
+
+
 @lru_cache(maxsize=2048)
 def _evidence_field_name(name):
   # Receiver-only immutable key sharing. Ten minutes of100Hz actual replay
@@ -152,7 +156,7 @@ def write_control(parent, evidence):
     'features': evidence.features,
     'baselinePrediction': evidence.baseline_prediction,
     'stageSchemaRevision': _string(evidence.stage_schema_revision),
-    'stageValues': [{'name': _string(name, 64), 'value': v} for name, v in evidence.stage_values],
+    'stageValues': _named_pairs(evidence.stage_values, 64),
     'appliedCoordinates': evidence.applied_coordinates,
     'sourceEpoch': evidence.source_epoch,
     'sourceReceiptMonoTime': evidence.source_receipt_ns,
@@ -161,8 +165,8 @@ def write_control(parent, evidence):
     'baselineRevision': evidence.baseline_revision,
     'baselineValues': evidence.baseline_values,
     'controllerRevision': _string(evidence.controller_revision),
-    'replaySnapshot': _named_values(evidence.replay_snapshot),
-    'replayInputs': _named_values(evidence.replay_inputs),
+    'replaySnapshot': _named_pairs(evidence.replay_snapshot),
+    'replayInputs': _named_pairs(evidence.replay_inputs),
     'snapshotSequence': evidence.snapshot_sequence,
     'vehicleModelAnchor': evidence.vehicle_model_anchor,
     'liveAppliedCoordinates': evidence.live_applied_coordinates,
@@ -200,11 +204,13 @@ def write_control(parent, evidence):
   wire = parent.init('learningEvidence')
   for name, value in payload.items():
     if name in ('replaySnapshot', 'replayInputs', 'stageValues'):
-      nested_values = cast(list[dict[str, object]], value)
+      nested_values = cast(list[tuple[str, object]], value)
       rows = wire.init(name, len(nested_values))
-      for row, fields in zip(rows, nested_values, strict=True):
-        for field, item in fields.items():
-          setattr(row, field, item)
+      for row, (field, item) in zip(rows, nested_values, strict=True):
+        row.name = field
+        kind = ('value' if name == 'stageValues' else
+                'boolean' if type(item) is bool else 'text' if type(item) is str else 'number')
+        setattr(row, kind, item)
     else:
       setattr(wire, name, value)
 
