@@ -5,7 +5,9 @@ import pytest
 
 from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.ford.interface import CarInterface
-from opendbc.car.ford.values import CAR
+from opendbc.car.ford.values import CAR, FordFlags
+from opendbc.bluepilot_lateral.core.values_ext import FordSafetyFlagsSP
+from opendbc.bluepilot_lateral.hosts.starpilot.safety_param import BP_SAFETY_PARAM_SHIFT
 
 
 PROFILES = (
@@ -76,6 +78,8 @@ def run_startup(identity, base_word, alpha, release, topology, monkeypatch):
   initial_word = base_word | int(expected_long)
   expected_word = initial_word | (256 if topology == "manual" else 0)
   initial = CarInterface.get_params(identity, fingerprint, [], expected_long, release, False)
+  if not initial.flags & FordFlags.LKA_STEERING:
+    expected_word |= FordSafetyFlagsSP.BP_LATERAL << BP_SAFETY_PARAM_SHIFT
   initial.carVin = "0" * 17
   initial.carFw = []
   admitted = True
@@ -88,8 +92,7 @@ def run_startup(identity, base_word, alpha, release, topology, monkeypatch):
   with OpenpilotPrefix():
     saved = Params()
     for key, value in (("OpenpilotEnabledToggle", True), ("AlwaysOnLateral", True),
-                       ("AlphaLongitudinalEnabled", alpha), ("IsReleaseBranch", release),
-                       ("FordHumanTurnDetection", False)):
+                       ("AlphaLongitudinalEnabled", alpha), ("IsReleaseBranch", release)):
       saved.put_bool(key, value, block=True)
     observed = (identity, fingerprint, initial.carVin, [], initial.fingerprintSource, True)
     subscriber = messaging.sub_sock("carParams", timeout=100, conflate=True)

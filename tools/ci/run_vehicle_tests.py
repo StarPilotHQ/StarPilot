@@ -690,6 +690,9 @@ def native_provenance():
 def build_safety_library(release, output):
   from opendbc.car.structs import CarParams
   from opendbc.safety.tests.libsafety import libsafety_py
+  alias = "opendbc_repo.opendbc.safety.tests.libsafety.libsafety_py"
+  if sys.modules.setdefault(alias, libsafety_py) is not libsafety_py:
+    raise RuntimeError("Vehicle tests imported multiple native safety loaders")
   commands = []
   check_call = subprocess.check_call
 
