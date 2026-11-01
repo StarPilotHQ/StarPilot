@@ -103,6 +103,7 @@ def video_summary(events: list[dict]) -> dict:
     "screen": f"{mode['width'] - (mode.get('margin_width') or 0)}x{mode['height'] - (mode.get('margin_height') or 0)}"
               if mode.get("width") and mode.get("height") else None,
     "density_dpi": mode.get("density") or None,
+    "codec": mode.get("codec"),  # present only for H.265; H.264 reports are unchanged
     "target_fps": pipeline.get("target_fps"),
     "encoder": pipeline.get("encoder"),
     "nv12": pipeline.get("nv12"),

@@ -42,7 +42,7 @@ from openpilot.starpilot.system.starport.frame_source import (DEFAULT_PATH as DE
 from openpilot.starpilot.system.starport.projection_control import DEFAULT_CONTROL_SOCKET, NATIVE_FOCUS
 from openpilot.starpilot.system.starport.touch import DEFAULT_TOUCH_SOCKET
 from openpilot.starpilot.system.starport.view import CAR_FRAME_PATH, ViewSource, renderer_available
-from openpilot.starpilot.system.starport.session import AuthenticationRejected, PeerRequestedStop, ProjectionSession
+from openpilot.starpilot.system.starport.session import CODEC_H265, AuthenticationRejected, PeerRequestedStop, ProjectionSession
 
 BACKOFF_SECONDS = (2.0, 4.0, 8.0, 15.0, 30.0)
 STABLE_SESSION_SECONDS = 30.0
@@ -769,7 +769,7 @@ class Supervisor:
     paired in Bluetooth settings) becomes the chosen car when it is the only one. Never during a pairing window or session."""
     config = self.config
     if (config["receiver_address"] or config["connection"] != "wireless" or self.car_type() == "adapter"
-        or self._pairing_active() or self._session_alive() or now - getattr(self, "_adopt_at", -ADOPT_INTERVAL) < ADOPT_INTERVAL):
+        or not self._projection_enabled() or self._pairing_active() or self._session_alive() or now - getattr(self, "_adopt_at", -ADOPT_INTERVAL) < ADOPT_INTERVAL):
       if config["receiver_address"]:
         self._candidates = []
       return
@@ -1568,6 +1568,7 @@ class Supervisor:
     tuning = car_profiles.tuning(config)
     session.max_window = tuning["max_window"]
     session.phone_frames = tuning["phone_frames"]
+    session.allow_hevc = bool(config["allow_hevc"])
     if tuning["phone_services"]:
       session.phone_services = True
       session.phone_address = self._adapter_address()
@@ -1583,16 +1584,20 @@ class Supervisor:
     except (OSError, ValueError, TypeError, KeyError) as error:
       self.log("screen_profile_error", error=str(error))
 
-    from openpilot.starpilot.system.starport.hw_encoder import create_encoder
+    from openpilot.starpilot.system.starport.hw_encoder import create_encoder, create_hevc_encoder
     # ANDROID AUTO VIDEO PERFORMANCE GUARDRAIL: Encoder cadence and pipeline flags are tuned together for Android Auto video.
     # Altering this can degrade video smoothness or introduce lag on Android Auto.
     # Do not change it autonomously; require an explicit user request specifically for this video optimization.
     software_fps = min(SOFTWARE_FPS, config["fps"]) if config["fps"] else SOFTWARE_FPS
-    encoder, fps = create_encoder(mode.width, mode.height, preference=encoder_preference(config["encoder"]),
-                                  bitrate_kbps=config["bitrate_kbps"],
-                                  margin_height=mode.margin_height if mode.content_top in (None, mode.margin_height // 2) else 0,
-                                  software_fps=software_fps, log=self.log,
-                                  rate_control=config["rate_control"])
+    margin_height = mode.margin_height if mode.content_top in (None, mode.margin_height // 2) else 0
+    if mode.codec == CODEC_H265:  # only a car with no H.264 mode, and only with Allow H.265 video on
+      encoder, fps = create_hevc_encoder(mode.width, mode.height, bitrate_kbps=config["bitrate_kbps"], margin_height=margin_height,
+                                         log=self.log, rate_control=config["rate_control"])
+    else:
+      encoder, fps = create_encoder(mode.width, mode.height, preference=encoder_preference(config["encoder"]),
+                                    bitrate_kbps=config["bitrate_kbps"], margin_height=margin_height,
+                                    software_fps=software_fps, log=self.log,
+                                    rate_control=config["rate_control"])
     fps = min(fps, mode.fps, config["fps"] or fps)
     interval = 1.0 / fps
     flags = (FLAG_NV12 if config["gpu_nv12"] and getattr(encoder, "supports_nv12", False) else 0) | \

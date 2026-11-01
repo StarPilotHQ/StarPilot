@@ -3,11 +3,12 @@
 // Altering them can degrade video smoothness or introduce lag on Android Auto.
 // Do not change them autonomously; require an explicit user request specifically
 // for these video optimizations.
-// Isolated Qualcomm H.264 session for Android Auto projection. No cereal publisher,
+// Isolated Qualcomm H.264 (or, with AA_ENCODER_HEVC, H.265) session for Android Auto projection. No cereal publisher,
 // camera buffers, realtime priority, or background thread. Exactly one input in flight.
 // Input is RGBA (converted here with NEON) or NV12 already converted on the GPU by the
 // car renderer (copied into the encoder's padded layout). ABI 3 adds the NV12 entry
-// point and create() options (AA_ENCODER_CBR).
+// point and create() options (AA_ENCODER_CBR). ABI 4 adds AA_ENCODER_HEVC for a head unit that offers only H.265;
+// the H.264 path is untouched. HEVC controls follow system/loggerd/encoder/v4l_encoder.cc.
 // Buffer/ioctl conventions follow system/loggerd/encoder/v4l_encoder.cc and
 // msgq/visionipc/visionbuf_ion.cc. Built for comma_arm64 by this directory's SConscript.
 //
@@ -38,6 +39,7 @@ namespace {
 using Clock = std::chrono::steady_clock;
 constexpr unsigned CODECCONFIG = 0x00020000;
 constexpr int AA_ENCODER_CBR = 1;  // hold the configured bitrate instead of letting it float with scene complexity
+constexpr int AA_ENCODER_HEVC = 2; // encode H.265 (Main profile) instead of H.264 baseline
 constexpr size_t MAX_PACKET = 2 * 1024 * 1024 - 10;
 
 void check(bool ok, const char *what) {
@@ -142,8 +144,9 @@ struct Encoder {
         strcmp(reinterpret_cast<char *>(cap.card), "msm_vidc_venc")) throw std::runtime_error("Unsupported encoder driver");
     v4l2_format out = {}; out.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     out.fmt.pix_mp.width = width; out.fmt.pix_mp.height = height;
-    out.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H264;
-    call(fd, VIDIOC_S_FMT, &out, "H264 format");
+    const bool hevc = options & AA_ENCODER_HEVC;
+    out.fmt.pix_mp.pixelformat = hevc ? V4L2_PIX_FMT_HEVC : V4L2_PIX_FMT_H264;
+    call(fd, VIDIOC_S_FMT, &out, hevc ? "HEVC format" : "H264 format");
     v4l2_streamparm parm = {}; parm.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
     parm.parm.output.timeperframe.numerator = 1; parm.parm.output.timeperframe.denominator = fps;
     call(fd, VIDIOC_S_PARM, &parm, "frame rate");
@@ -167,10 +170,15 @@ struct Encoder {
                                                                          : V4L2_CID_MPEG_VIDC_VIDEO_RATE_CONTROL_VBR_CFR);
     control(V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY, V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_DISABLE);
     control(V4L2_CID_MPEG_VIDC_VIDEO_IDR_PERIOD, 1);
-    control(V4L2_CID_MPEG_VIDEO_H264_PROFILE, V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE);
-    control(V4L2_CID_MPEG_VIDEO_H264_LEVEL, V4L2_MPEG_VIDEO_H264_LEVEL_3_1);
-    control(V4L2_CID_MPEG_VIDEO_H264_ENTROPY_MODE, V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CAVLC);
-    control(V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_MODE, V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_ENABLED);
+    if (hevc) {
+      control(V4L2_CID_MPEG_VIDC_VIDEO_HEVC_PROFILE, V4L2_MPEG_VIDC_VIDEO_HEVC_PROFILE_MAIN);
+      control(V4L2_CID_MPEG_VIDC_VIDEO_HEVC_TIER_LEVEL, V4L2_MPEG_VIDC_VIDEO_HEVC_LEVEL_HIGH_TIER_LEVEL_5);
+    } else {
+      control(V4L2_CID_MPEG_VIDEO_H264_PROFILE, V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE);
+      control(V4L2_CID_MPEG_VIDEO_H264_LEVEL, V4L2_MPEG_VIDEO_H264_LEVEL_3_1);
+      control(V4L2_CID_MPEG_VIDEO_H264_ENTROPY_MODE, V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CAVLC);
+      control(V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_MODE, V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_ENABLED);
+    }
     control(V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE, 0);
     unsigned count = buffers(V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE, 6);
     buffers(V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE, 9);
@@ -257,7 +265,7 @@ struct Encoder {
           auto &buffer = *outputs[b.index]; buffer.sync(true);
           auto *bytes = static_cast<unsigned char *>(buffer.addr);
           if (b.flags & CODECCONFIG) {
-            if (plane.bytesused > 65536) throw std::runtime_error("Oversized H264 header");
+            if (plane.bytesused > 65536) throw std::runtime_error("Oversized codec header");
             header.assign(bytes, bytes + plane.bytesused);
           } else {
             if (b.timestamp.tv_sec * 1000000LL + b.timestamp.tv_usec != timestamp || frame_done)
@@ -281,15 +289,20 @@ struct Encoder {
 }
 
 extern "C" {
-int starport_encoder_abi() { return 3; }
+int starport_encoder_abi() { return 4; }
 void starport_encoder_timing(void *ptr, double *output) {
   if (ptr && output) std::copy_n(static_cast<Encoder *>(ptr)->timing, 3, output);
 }
 void *starport_encoder_create(int width, int height, int fps, int bitrate, int margin_height, int options, char *error, size_t size) {
   try {
-    if (width < 2 || width > 1280 || height < 2 || height > 720 || width % 2 || height % 2 ||
+    // H.264 baseline level 3.1 is a 720p30 session; HEVC Main at high-tier level 5 carries 1080p30 for a head unit
+    // that offers nothing else.
+    const bool hevc = options & AA_ENCODER_HEVC;
+    const int max_width = hevc ? 1920 : 1280, max_height = hevc ? 1080 : 720;
+    if (width < 2 || width > max_width || height < 2 || height > max_height || width % 2 || height % 2 ||
         fps != 30 || bitrate < 1000000 || bitrate > 20000000 || margin_height < 0 ||
-        margin_height >= height || margin_height % 4 || (options & ~AA_ENCODER_CBR)) throw std::runtime_error("Unsupported encoder configuration");
+        margin_height >= height || margin_height % 4 || (options & ~(AA_ENCODER_CBR | AA_ENCODER_HEVC)))
+      throw std::runtime_error("Unsupported encoder configuration");
     auto encoder = std::make_unique<Encoder>(width, height, fps, margin_height, options);
     encoder->init(bitrate); return encoder.release();
   } catch (const std::exception &e) { error_text(error, size, e); return nullptr; }

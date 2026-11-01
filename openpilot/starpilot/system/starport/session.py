@@ -80,6 +80,7 @@ BLUETOOTH_AUTH_DATA = 0x8003
 SENSOR_NIGHT, SENSOR_DRIVING_STATUS = 10, 13
 
 CODEC_H264_BP = 3
+CODEC_H265 = 7          # MediaCodecType VIDEO_H265, offered by some head units instead of H.264
 SETUP_STATUS_READY = 2
 FOCUS_PROJECTED = 1
 FOCUS_NATIVE = 2
@@ -141,6 +142,39 @@ def wire_frame(access_unit: bytes, *, drop_config: bool) -> bytes:
   return b"".join(units) or access_unit
 
 
+# H.265 handling is kept apart from the H.264 functions above so the H.264 path stays byte-for-byte what it was.
+# A NAL header is two bytes; the type is bits 1-6 of the first (ITU-T H.265 7.3.1.2).
+HEVC_PARAMETER_SETS = (32, 33, 34)   # VPS, SPS, PPS
+HEVC_AUD = 35
+
+
+def hevc_nal_type(first_byte: int) -> int:
+  return (first_byte >> 1) & 0x3F
+
+
+def codec_config_hevc(access_unit: bytes) -> bytes:
+  """The VPS, SPS and PPS NAL units of an H.265 keyframe, as the codec-config buffer carries them."""
+  starts = list(START_CODE.finditer(access_unit))
+  units = []
+  for index, match in enumerate(starts):
+    end = starts[index + 1].start() if index + 1 < len(starts) else len(access_unit)
+    if match.end() < end and hevc_nal_type(access_unit[match.end()]) in HEVC_PARAMETER_SETS:
+      units.append(b"\x00\x00\x00\x01" + access_unit[match.end():end])
+  return b"".join(units)
+
+
+def wire_frame_hevc(access_unit: bytes, *, drop_config: bool) -> bytes:
+  """The H.265 picture NAL units without the access unit delimiter, and without parameter sets once they went separately."""
+  starts = list(START_CODE.finditer(access_unit))
+  drop = {HEVC_AUD, *HEVC_PARAMETER_SETS} if drop_config else {HEVC_AUD}
+  units = []
+  for index, match in enumerate(starts):
+    end = starts[index + 1].start() if index + 1 < len(starts) else len(access_unit)
+    if match.end() < end and hevc_nal_type(access_unit[match.end()]) not in drop:
+      units.append(b"\x00\x00\x00\x01" + access_unit[match.end():end])
+  return b"".join(units) or access_unit
+
+
 @dataclass(frozen=True)
 class VideoMode:
   channel: int
@@ -153,6 +187,7 @@ class VideoMode:
   content_left: int | None = None
   content_top: int | None = None
   density: int = 0  # dpi the head unit reports; 0 when it does not say
+  codec: int = CODEC_H264_BP
 
   @property
   def content_width(self) -> int:
@@ -166,6 +201,7 @@ class VideoMode:
     return {"channel": self.channel, "config_index": self.config_index, "width": self.width, "height": self.height,
             "fps": self.fps, "margin_width": self.margin_width, "margin_height": self.margin_height,
             "density": self.density,
+            **({"codec": CODEC_NAMES[self.codec]} if self.codec != CODEC_H264_BP else {}),
             **({"content_left": self.content_left, "content_top": self.content_top} if self.content_left is not None else {})}
 
 
@@ -188,14 +224,18 @@ def describe_video_configs(channels: list[dict]) -> str:
   return ", ".join(offered) or "no video"
 
 
-def choose_video_mode(channels: list[dict]) -> VideoMode:
-  """Pick a negotiated H.264 mode the software encoder can sustain."""
+def choose_video_mode(channels: list[dict], allow_hevc: bool = False) -> VideoMode:
+  """Pick a negotiated H.264 mode the software encoder can sustain.
+
+  H.265 is considered only when the owner allows it and the car offered no usable H.264 mode, so a car that works on
+  H.264 is never changed."""
   candidates = []
+  hevc_candidates = []
   for channel in channels:
     for index, config in enumerate(channel.get("video_configs", [])):
       resolution = one(config, 1)
       codec = one(config, 10, CODEC_H264_BP)
-      if resolution not in RESOLUTIONS or codec != CODEC_H264_BP:
+      if resolution not in RESOLUTIONS or codec not in (CODEC_H264_BP, CODEC_H265):
         continue
       width, height = RESOLUTIONS[resolution]
       margin_width, margin_height = int(one(config, 3, 0) or 0), int(one(config, 4, 0) or 0)
@@ -215,10 +255,13 @@ def choose_video_mode(channels: list[dict]) -> VideoMode:
               top_edge + bottom == margin_height and left_edge + right == margin_width):
             left, top = left_edge, top_edge
       mode = VideoMode(int(channel["id"]), index, width, height, fps, margin_width, margin_height, left, top,
-                       int(one(config, 5, 0) or 0))
-      candidates.append((RESOLUTION_PREFERENCE.index(resolution), fps != 30, index, mode))
+                       int(one(config, 5, 0) or 0), codec)
+      (candidates if codec == CODEC_H264_BP else hevc_candidates).append((RESOLUTION_PREFERENCE.index(resolution), fps != 30, index, mode))
+  if not candidates and allow_hevc:
+    candidates = hevc_candidates
   if not candidates:
-    raise ValueError(f"Head unit did not advertise a supported H.264 video mode (offered {describe_video_configs(channels)})")
+    hint = "; this car offers H.265, which can be turned on in Developer > StarPort" if hevc_candidates else ""
+    raise ValueError(f"Head unit did not advertise a supported H.264 video mode (offered {describe_video_configs(channels)}){hint}")
   return min(candidates, key=lambda item: item[:3])[3]
 
 
@@ -631,6 +674,7 @@ class ProjectionSession(Session):
     self.video_confirmed = False
     self.input_channel: int | None = None
     self.max_window = self.MAX_WINDOW  # raised by the supervisor for adapters that need the car's full window
+    self.allow_hevc = False  # the owner's Allow H.265 video setting; used only when the car offers no H.264 mode
     self.phone_services = False  # open the car-data and Bluetooth channels like a phone (adapter profile)
     self.phone_frames = False  # send picture NAL units only (adapter profile)
     self.phone_address = ""  # this comma's Bluetooth address, for the pairing request
@@ -652,7 +696,7 @@ class ProjectionSession(Session):
 
   def start(self, device_name: str, device_brand: str) -> VideoMode:
     self.channels = self.discover(device_name, device_brand)
-    self.mode = choose_video_mode(self.channels)
+    self.mode = choose_video_mode(self.channels, self.allow_hevc)
     self.open_video()
     self.open_input()
     if self.phone_services:
@@ -667,7 +711,7 @@ class ProjectionSession(Session):
     opened = parse_fields(self.wait_for(mode.channel, MSG_CHANNEL_OPEN_RESPONSE))
     if signed(one(opened, 1)) != 0:
       raise ValueError(f"Head unit rejected opening the video channel: {json_fields(opened)}")
-    self.send(mode.channel, AV_SETUP_REQUEST, field(1, CODEC_H264_BP))
+    self.send(mode.channel, AV_SETUP_REQUEST, field(1, mode.codec))
     setup = parse_fields(self.wait_for(mode.channel, AV_SETUP_RESPONSE))
     window = int(one(setup, 2, 0) or 0)
     if one(setup, 1) != SETUP_STATUS_READY or window < 1:  # the window is capped to MAX_WINDOW below; MIB3 offers 100
@@ -944,13 +988,13 @@ class ProjectionSession(Session):
     fragments = 0
     config = b""
     if self.needs_keyframe:
-      config = codec_config(data)
+      config = codec_config_hevc(data) if self.mode.codec == CODEC_H265 else codec_config(data)
       if config:
         fragments += self.send(self.mode.channel, AV_MEDIA_CODEC_CONFIG, config)
         if not self.fragment_acks:
           self.config_ack_slack += 1
     if self.phone_frames:
-      data = wire_frame(data, drop_config=bool(config))
+      data = (wire_frame_hevc if self.mode.codec == CODEC_H265 else wire_frame)(data, drop_config=bool(config))
     fragments += self.send(self.mode.channel, AV_MEDIA_WITH_TIMESTAMP, struct.pack(">Q", timestamp_us) + data)
     if self.fragment_acks:
       self.frame_fragments.append(fragments)
