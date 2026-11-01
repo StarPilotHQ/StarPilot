@@ -95,10 +95,13 @@ class PersonalityWidget:
   def _draw_centered(art, rect: rl.Rectangle, y: float, alpha: float,
                      color: tuple[int, int, int] = (255, 255, 255), *, fit: bool = True) -> None:
     texture, width, height = art
+    opacity = round(255 * alpha)
+    if opacity == 0:
+      return
     padding = rect.width / 15
     scale = min((rect.width - padding) / 76, (rect.height - padding) / 94) if fit else 1.0
     cx = rect.x + rect.width / 2 if fit else rect.x + 46
     cy = rect.y + rect.height / 2 + (y - 126) * scale if fit else rect.y + y
     rl.draw_texture_pro(texture, rl.Rectangle(0, 0, texture.width, texture.height),
                         rl.Rectangle(cx - width * scale / 2, cy - height * scale / 2, width * scale, height * scale),
-                        rl.Vector2(0, 0), 0, rl.Color(*color, round(255 * alpha)))
+                        rl.Vector2(0, 0), 0, rl.Color(*color, opacity))

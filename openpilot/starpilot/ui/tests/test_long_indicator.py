@@ -50,7 +50,9 @@ def test_same_selected_bars_and_lead_on_both_profiles(display, profile, personal
 
 @pytest.mark.parametrize('traffic', (False, True))
 def test_art_scales_uniformly_without_clipping_or_downsized_source_textures(display, monkeypatch, traffic):
-  display._draw_centered = indicator.PersonalityWidget._draw_centered
+  def draw_all_art_opaque(art, rect, y, alpha, *args, **kwargs):
+    return indicator.PersonalityWidget._draw_centered(art, rect, y, 1., *args, **kwargs)
+  display._draw_centered = draw_all_art_opaque
   draw = Mock()
   monkeypatch.setattr(rl, 'draw_texture_pro', draw)
   state = road(traffic_mode=traffic, traffic_display=TrafficDisplay('active', 'TRAFFIC') if traffic else None)
@@ -184,3 +186,17 @@ def test_routine_lane_guidance_keeps_widget_and_urgent_alerts_hide_it(display, p
       assert not draws
     else:
       assert (draws[-7].args[3] > .99) if visible else (draws[-7].args[3] < .001)
+
+
+@pytest.mark.parametrize(('alpha', 'visible_alpha'), ((0., None), (.0001, None), (.0019, None),
+                                                       (.002, 1), (1/255, 1), (.5, 128), (1., 255)))
+def test_invisible_art_avoids_gpu_submission_without_losing_faint_visible_art(display, monkeypatch, alpha, visible_alpha):
+  display._prepare()
+  draw = Mock()
+  monkeypatch.setattr(rl, 'draw_texture_pro', draw)
+  indicator.PersonalityWidget._draw_centered(display._lead_car[0], rl.Rectangle(476, 160, 60, 80), 100, alpha)
+  if visible_alpha is None:
+    draw.assert_not_called()
+  else:
+    draw.assert_called_once()
+    assert draw.call_args.args[-1].a == visible_alpha
