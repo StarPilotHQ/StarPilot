@@ -672,6 +672,7 @@ class ProjectionSession(Session):
     self.config_ack_slack = 0  # codec-config messages a head unit may acknowledge like frames
     self.epoch_acked = 0
     self.video_confirmed = False
+    self.video_confirmed_at = 0.0
     self.input_channel: int | None = None
     self.max_window = self.MAX_WINDOW  # raised by the supervisor for adapters that need the car's full window
     self.allow_hevc = False  # the owner's Allow H.265 video setting; used only when the car offers no H.264 mode
@@ -950,6 +951,7 @@ class ProjectionSession(Session):
     # bound on acknowledged frames without changing flow-control credit.
     if not self.video_confirmed and self.epoch_acked > self.config_ack_slack:
       self.video_confirmed = True
+      self.video_confirmed_at = time.monotonic()
       self.event("video_acknowledged", session=self.session_id, ack_ms=round(self.max_ack_seconds * 1000))
 
   # ANDROID AUTO VIDEO PERFORMANCE GUARDRAIL: Receiver ACK flow control bounds in-flight video; extra buffering increases latency.

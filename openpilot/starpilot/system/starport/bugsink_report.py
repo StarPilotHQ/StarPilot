@@ -202,6 +202,22 @@ def session_setup(events: list[dict]) -> dict:
   ) if value}
 
 
+def session_ladder(events: list[dict]) -> list[dict]:
+  """The handshake strategies tried in a session, in order, and how each ended (advanced, wrapped, exhausted, counted,
+  dropped, or worked). Kept for working pairings too: it is what shows which strategy a head unit likes."""
+  tried: list[dict] = []
+  for event in events:
+    name = event["event"]
+    if name == "ladder_strategy":
+      tried.append({"rung": str(event.get("rung", ""))[:24], "learned": bool(event.get("learned")),
+                    "at_s": elapsed(events[0], event)})
+    elif name == "ladder_failed" and tried:
+      tried[-1]["outcome"] = str(event.get("outcome", ""))[:16]
+    elif name == "ladder_worked" and tried:
+      tried[-1].update(outcome="worked", streamed_s=event.get("streamed_s"), t_ready_s=event.get("t_ready_s"))
+  return [{key: value for key, value in item.items() if value is not None} for item in tried[-12:]]
+
+
 def session_strategy(events: list[dict], setup: dict) -> dict:
   """What a streaming session ran with; the raw material for "this head unit usually likes this profile"."""
   if not any(event["event"] == "video_acknowledged" for event in events):
@@ -248,6 +264,7 @@ def session_record(path: Path) -> dict:
     # True when the comma's address went to the car in the pairing request; None when the car never opened that channel.
     "phone_address_sent": bool(opened.get("phone_address")) if opened is not None else None,
     "strategy": session_strategy(events, setup),
+    "ladder": session_ladder(events),
     "software": {key: str(software.get(key) or "unknown") for key in ("commit", "branch")} if isinstance(software, dict) else {},
     "settings": settings if isinstance(settings, dict) else {},
     "seq": _session_number(path),
@@ -464,6 +481,7 @@ def drive_event(sessions: list[dict]) -> dict:
   label = _head_unit_label(head_unit)
   setup = next((s["setup"] for s in reversed(sessions) if s.get("setup")), {})
   sent = next((s["phone_address_sent"] for s in reversed(sessions) if s.get("phone_address_sent") is not None), None)
+  ladder = next((s["ladder"][-1] for s in reversed(sessions) if s.get("ladder")), {})
   failures = [failure_detail(failure) for failure in drive_failures(sessions)]
   failed = [session for session in sessions if session["seq"] in {failure["session"] for failure in failures}]
   heading = "failures" if failures else "sessions"
@@ -499,6 +517,7 @@ def drive_event(sessions: list[dict]) -> dict:
              **({"aa.adapter_model": setup["profile"]} if setup.get("profile") else {}),
              **({"aa.profile_source": setup["profile_source"]} if setup.get("profile_source") else {}),
              **({"aa.phone_address_sent": "yes" if sent else "no"} if sent is not None else {}),
+             **({"aa.ladder_rung": ladder["rung"], "aa.ladder_learned": "yes" if ladder.get("learned") else "no"} if ladder else {}),
              **({"aa.attention": ",".join(reasons)[:190]} if reasons else {}),
              **({"aa.cause": latest["cause"], "aa.stage": latest["stage"], "aa.error_kind": latest["error_kind"]} if latest else {}),
              **({"aa.reach_class": latest["reach"]} if latest and latest.get("reach") else {}),

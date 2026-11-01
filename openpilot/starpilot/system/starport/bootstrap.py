@@ -266,11 +266,14 @@ class WirelessBootstrap:
   def __init__(self, sock, log: Callable[..., None], *, device_serial: str = "starpilot",
                version_status: int = STATUS_SUCCESS, stage_timeout: float = 20.0, start_request_delay: float = 5.0,
                initial_kick_delay: float = INITIAL_KICK_SECONDS, join_ping_interval: float = JOIN_PING_INTERVAL,
-               experiment: str = "", modern_reply: bool = False):
+               experiment: str = "", modern_reply: bool = False, patience: int = REFUSAL_PATIENCE,
+               channel_override: int | None = None):
     self.sock = sock
     self.experiment = experiment if valid_experiment(experiment) else ""
     self.lifetime_id = uuid.uuid4().hex
     self.modern_reply = modern_reply
+    self.patience = patience                # stage timeouts a car that keeps saying "not ready" gets (setup ladder)
+    self.channel_override = channel_override  # Wi-Fi band to answer with inside the phone-style reply; None keeps the car's own
     self.version_major = 0
     self.car_started = False
     self.flags = EXPERIMENTS[self.experiment][1] if self.experiment else set()
@@ -337,7 +340,7 @@ class WirelessBootstrap:
     self.version_major = major
     if major < MODERN_MAJOR or not self.modern_reply:
       return field(1, major) + field(2, minor) + field(3, self.device_serial) + field(4, self.version_status)
-    selected = channel_type(request)
+    selected = self.channel_override or channel_type(request)
     session = field(1, self.device_serial) + field(2, self.lifetime_id)
     reply = (field(1, major) + field(2, minor) + field(3, self.device_serial) + field(4, MODERN_VERSION_SUCCESS) +
              field(5, selected) + field(6, session))
@@ -376,7 +379,7 @@ class WirelessBootstrap:
     # exchange if the car has not started it; newer head units (2025 Honda) wait for it.
     start_request_at: float | None = None
     deadline = time.monotonic() + self.stage_timeout
-    latest_deadline = time.monotonic() + REFUSAL_PATIENCE * self.stage_timeout
+    latest_deadline = time.monotonic() + self.patience * self.stage_timeout
     initial_kick_at: float | None = time.monotonic() + self.initial_kick_delay
     hint_ready_at: float | None = None
     while endpoint is None:

@@ -492,3 +492,17 @@ def test_unknown_setup_values_are_dropped(tmp_path):
   events[0] = (0, 0, "session_start", {"setup": {"type": "<script>", "profile": "x" * 90, "profile_source": "guess"}})
   setup = br.session_record(write_session(tmp_path, 1, events))["setup"]
   assert "type" not in setup and "profile_source" not in setup and len(setup["profile"]) <= 40
+
+
+def test_report_shows_what_the_ladder_tried_and_what_worked(tmp_path):
+  events = [list(item) for item in STREAMED]
+  events.insert(1, (0, 1, "ladder_strategy", {"rung": "standard", "learned": False}))
+  events.insert(2, (0, 5, "ladder_failed", {"outcome": "advanced", "rung": "standard", "next": "other_reply"}))
+  events.insert(3, (0, 6, "ladder_strategy", {"rung": "other_reply", "learned": False}))
+  events.append((1, 50, "ladder_worked", {"rung": "other_reply", "streamed_s": 62.0, "t_ready_s": 14.5}))
+  record = br.session_record(write_session(tmp_path, 1, events))
+  assert record["ladder"] == [{"rung": "standard", "learned": False, "at_s": 1.0, "outcome": "advanced"},
+                              {"rung": "other_reply", "learned": False, "at_s": 6.0, "outcome": "worked", "streamed_s": 62.0, "t_ready_s": 14.5}]
+  tags = br.drive_event([record])["tags"]
+  assert (tags["aa.ladder_rung"], tags["aa.ladder_learned"]) == ("other_reply", "no")
+  assert br.session_record(write_session(tmp_path, 2, STREAMED))["ladder"] == []   # older logs report nothing, without error

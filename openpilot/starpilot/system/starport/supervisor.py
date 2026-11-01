@@ -33,9 +33,9 @@ from pathlib import Path
 from typing import Any
 
 from openpilot.common.hardware import COMMA_HARDWARE
-from openpilot.starpilot.system.starport import car_profiles, device_health, identity as identity_store, reachability, system_slice
+from openpilot.starpilot.system.starport import car_profiles, device_health, identity as identity_store, new_setup, reachability, setup_ladder, system_slice
 from openpilot.starpilot.system.starport.auto_connect import AutoConnectPolicy
-from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, BootstrapError, WirelessBootstrap
+from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, BootstrapError, BootstrapTimeout, WirelessBootstrap
 from openpilot.starpilot.system.starport.bugsink_report import PairingAttempt
 from openpilot.starpilot.system.starport.frame_source import (DEFAULT_PATH as DEFAULT_FRAME_PATH, FLAG_ASYNC_READBACK, FLAG_NV12,
                                                                   FORMAT_NV12, FrameRequest)
@@ -374,6 +374,10 @@ class Supervisor:
     self._car_seen_at = -CAR_LINK_HOLD
     self._hfp_link = threading.Event()  # set when the chosen car opens the hands-free link
     self._modern_reply: dict[str, bool] = {}  # car address -> answer its v4+ version request like a current phone
+    self._ladder = setup_ladder.SetupLadder(identity_store.CONFIG_PATH.with_name("setup_state.json"))   # which handshake to try for each car, and which one last worked
+    self._strategy: setup_ladder.Strategy | None = None   # the one this attempt runs
+    self._video_seen = False                    # video was acknowledged in this session: later failures say nothing about the handshake
+    self._run_started = 0.0
     self.auto = AutoConnectPolicy()
     self._companion_retry_at = 0.0
     self.log = EventLog()
@@ -418,6 +422,8 @@ class Supervisor:
     status["dedicated_wifi_interface"] = bool(self.config["dedicated_wifi_interface"])
     status["allow_hevc"] = bool(self.config["allow_hevc"])
     status["car_candidates"] = list(getattr(self, "_candidates", []))[:8]  # paired Android Auto devices to choose between
+    status["new_setup"] = new_setup.enabled()
+    status["setup_ladder"] = self._ladder.snapshot(self.config["receiver_address"], self.car_type() == "adapter")
     status["auto_paused"] = self.auto.suppressed
     status["recent"] = list(self.log.recent)[-8:]
     return status
@@ -534,6 +540,7 @@ class Supervisor:
         return False  # nothing of this device was kept
       self.config.update(rfcomm_cache=cache, modern_reply_cache=replies)
       self._modern_reply.pop(address, None)
+      self._ladder.forget(address)
       if chosen:
         if self._bluez is not None:
           self._bluez.release()
@@ -1190,6 +1197,7 @@ class Supervisor:
     connection = self.config["connection"]
     wireless = connection == "wireless"
     receiver = {"wired": "usb", "headunitpad": "headunitpad", "openheadunit": "openheadunit"}.get(connection, self.config["receiver_name"])
+    self._video_seen, self._strategy, self._run_started = False, None, time.monotonic()
     from openpilot.starpilot.system.starport.bugsink_transport import device_metadata
     software = device_metadata()
     profile, profile_source = car_profiles.resolve(self.config)
@@ -1285,6 +1293,7 @@ class Supervisor:
     config = self.config
     address = config["receiver_address"]
     ident = identity_store.load_identity()
+    self._strategy = None
 
     self._stage("connecting_bluetooth", config["receiver_name"])
     bluez = self._phone()
@@ -1318,21 +1327,35 @@ class Supervisor:
     self.log("rfcomm_channel", channel=channel, source=source)
 
     boot = None
+    adapter = self.car_type() == "adapter"
+    # The ladder decides how to answer this car: what worked before, else the first rung (today's behavior), moving on
+    # only when a car that answered the handshake keeps refusing it before any video.
+    base_modern = self._modern_reply.get(address, config.get("modern_reply_cache", {}).get(address, False))
+    strategy = self._strategy = self._ladder.strategy(address, base_modern)
+    learned = self._ladder.snapshot(address, adapter)["learned"]
+    self.log("ladder_strategy", rung=strategy.rung, label=strategy.label, learned=learned, modern_reply=strategy.modern_reply,
+             channel_type=strategy.channel_type, patience=strategy.patience, experiments=strategy.experiments)
     try:
       self._stage("rfcomm", f"channel {channel}")
       rfcomm = self._track(bt_sockets.connect_rfcomm(address, channel))
       boot = WirelessBootstrap(rfcomm, self._bootstrap_log, device_serial=config["device_name"],
                                version_status=int(config.get("version_status", 0)),
-                               experiment="all" if car_profiles.tuning(config)["bootstrap_experiments"] else "",
-                               modern_reply=self._modern_reply.get(address, config.get("modern_reply_cache", {}).get(address, False)))
+                               experiment="all" if car_profiles.tuning(config)["bootstrap_experiments"] or strategy.experiments else "",
+                               modern_reply=strategy.modern_reply, patience=strategy.patience, channel_override=strategy.channel_type)
       self._set(state="wifi_start")
       result = boot.run(lambda credentials: lease.acquire(credentials, cancelled=boot.join_is_cancelled), cancelled=self._stop.is_set)
     except Exception as error:
       if _stray_link(error):
         raise StrayLinkError(f"Bluetooth link to the car is stuck: {error}") from error  # says nothing about the cached channel
-      if boot is not None and boot.silent_after_modern_version(error):
-        self._modern_reply[address] = not boot.modern_reply  # try the other version reply next
-        self.log("bootstrap_reply_switched", modern=self._modern_reply[address])
+      # A car that answered the version exchange and then went silent or refused the Wi-Fi setup says something about the
+      # handshake; every other failure (asleep, local Bluetooth trouble, after video) says nothing and leaves the ladder alone.
+      ladder_failure = (boot is not None and boot.version_major > 0 and isinstance(error, BootstrapTimeout)
+                        and error.stage in ("wifi_start", "wifi_info") and not self._stop.is_set())
+      outcome = self._ladder.failed(address, strategy, ladder_failure=ladder_failure, video_seen=self._video_seen,
+                                    version_major=boot.version_major if boot is not None else 0, adapter=adapter)
+      if outcome:
+        self.log("ladder_failed", outcome=outcome, rung=strategy.rung, next=self._ladder.strategy(address, base_modern).rung,
+                 version_major=boot.version_major)
       if source == "cache" and not self._stop.is_set() and drops_cached_channel(self._status["last_stage"], error):
         self._remember_channel(address, None)  # the car never answered there; ask it over SDP next time
         self.log("rfcomm_cache_dropped", channel=channel)
@@ -1632,6 +1655,7 @@ class Supervisor:
     try:
       self._stream(session, encoder, source, watch, interval)
     finally:
+      self._note_streamed(session)
       if session.audio is not None:
         session.audio.close()
       if getattr(session, "nav", None) is not None:
@@ -1644,6 +1668,20 @@ class Supervisor:
           session.shutdown()
         except Exception:
           pass
+
+  def _note_streamed(self, session: ProjectionSession) -> None:
+    """Video was acknowledged: later failures in this session say nothing about the handshake. A session that streamed for
+    a minute without a handshake failure makes the strategy it ran with the one this car starts with next time."""
+    if not session.video_confirmed:
+      return
+    self._video_seen = True
+    strategy, address = self._strategy, self.config["receiver_address"]
+    streamed = time.monotonic() - session.video_confirmed_at
+    if strategy is None or not address or streamed < setup_ladder.CLEAN_SECONDS:
+      return
+    self._ladder.worked(address, strategy, t_ready_s=session.video_confirmed_at - self._run_started)
+    self.log("ladder_worked", rung=strategy.rung, streamed_s=round(streamed, 1),
+             t_ready_s=round(session.video_confirmed_at - self._run_started, 1))
 
   # ANDROID AUTO VIDEO PERFORMANCE GUARDRAIL: The bounded ACK/input drain and conditional waits keep video and touches responsive.
   # Altering this can degrade video smoothness or introduce lag on Android Auto.
