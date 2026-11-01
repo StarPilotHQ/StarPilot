@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from openpilot.starpilot.system.starport import identity as identity_store, reachability, system_slice
-from openpilot.starpilot.system.starport.bugsink_diagnosis import attempt_records, diagnosis, elapsed, sanitize
+from openpilot.starpilot.system.starport.bugsink_diagnosis import attempt_records, diagnosis, elapsed, sanitize, stream_loss_kind
 from openpilot.starpilot.system.starport.bugsink_summary import batch_summary, failure_summary, pairing_summary, session_timeline, software_tags
 
 STATE_PATH = identity_store.DATA_DIR / "bugsink_report.json"
@@ -405,6 +405,7 @@ def failure_detail(session: dict) -> dict:
     "session": session["seq"],
     "attempt": session.get("failed_attempt"),
     "cause": assessment["category"], "stage": stage, "error_kind": kind, "reach": session.get("reach", ""),
+    "loss": stream_loss_kind(session.get("error", "")) if assessment["category"] == "projection_interrupted" else "",
     "summary": sanitize(failure_summary(assessment), names),
     "diagnosis": sanitize(assessment, names),
   }
@@ -499,7 +500,8 @@ def drive_event(sessions: list[dict]) -> dict:
              **({"aa.phone_address_sent": "yes" if sent else "no"} if sent is not None else {}),
              **({"aa.attention": ",".join(reasons)[:190]} if reasons else {}),
              **({"aa.cause": latest["cause"], "aa.stage": latest["stage"], "aa.error_kind": latest["error_kind"]} if latest else {}),
-             **({"aa.reach_class": latest["reach"]} if latest and latest.get("reach") else {})},
+             **({"aa.reach_class": latest["reach"]} if latest and latest.get("reach") else {}),
+             **({"aa.loss_kind": latest["loss"]} if latest and latest.get("loss") else {})},
     "breadcrumbs": {"values": attempt_breadcrumbs(sessions)},
     "contexts": {"starport_drive": summary, "starport_head_unit": head_unit,
                  **{f"starport_session_{index + 1}": _public(session) for index, session in enumerate(sessions)},

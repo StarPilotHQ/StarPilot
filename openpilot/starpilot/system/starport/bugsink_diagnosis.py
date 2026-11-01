@@ -97,6 +97,24 @@ def attempt_records(events):
   return attempts
 
 
+STREAM_LOSS = {
+  "stalled": ("Video acknowledgement older than", "The car kept the link but stopped acknowledging video for too long, so the stream was ended.",
+              ["Compare the Wi-Fi signal, frame age and encoder recoveries around the stall.",
+               "If it repeats at the same place or speed, look for the comma stalling (CPU, thermal) rather than the car."]),
+  "silent": ("Head unit stopped answering", "The head unit stopped answering protocol messages while the link looked up.",
+             ["Check whether the car's screen turned off or switched source at that time.",
+              "Compare with other drives on the same head unit before changing timings."]),
+  "disconnected": ("Head unit disconnected", "The head unit closed the connection, which is what a car shutdown or a source change looks like.",
+                   ["Check whether the drive ended or the driver changed source on the head unit.",
+                    "Only investigate further if it happened while the car stayed on and Android Auto was showing."]),
+}
+
+
+def stream_loss_kind(error: str) -> str:
+  """Why a stream ended, from the logged error text: stalled, silent, disconnected or other."""
+  return next((kind for kind, (marker, _, _) in STREAM_LOSS.items() if marker.lower() in error.lower()), "other")
+
+
 def diagnosis(session):
   stage, error = session.get("failed_stage", ""), session.get("error", "").lower()
   category, confidence = "unknown", "unknown"
@@ -156,6 +174,8 @@ def diagnosis(session):
     explanation = "Projection was interrupted. EOF or a timeout alone cannot distinguish a car shutdown from link loss."
     actions = ["Compare video acknowledgments, Wi-Fi signal, stalls, encoder recoveries and head-unit shutdown events.",
                "Retry while parked and verify sustained acknowledged frames, not just a streaming status."]
+    if (loss := stream_loss_kind(session.get("error", ""))) != "other":
+      explanation, actions = STREAM_LOSS[loss][1], STREAM_LOSS[loss][2]
   return {"category": category, "confidence": confidence, "summary": explanation,
           "evidence": session.get("error", ""), "recovered": session.get("outcome") == "recovered",
           "next_steps": actions, "log_file": session.get("name", ""),

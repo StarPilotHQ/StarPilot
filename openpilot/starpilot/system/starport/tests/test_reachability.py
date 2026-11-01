@@ -52,3 +52,15 @@ def test_report_names_a_sleeping_car_instead_of_unknown(tmp_path):
   recorded = [(0, 0, "session_start", {}), (0, 9, "attempt_failed", {"stage": "rfcomm", "kind": "ConnectionRefusedError",
                                                                       "error": "refused", "reach": "not_ready"})]
   assert br.session_record(write_session(tmp_path, 2, recorded))["reach"] == "not_ready"
+
+
+def test_stream_losses_are_told_apart_by_what_the_log_says(tmp_path):
+  from openpilot.starpilot.system.starport.bugsink_diagnosis import stream_loss_kind
+  assert stream_loss_kind("projecting: Video acknowledgement older than 2.5 s") == "stalled"
+  assert stream_loss_kind("projecting: Head unit stopped answering for 6 s") == "silent"
+  assert stream_loss_kind("projecting: Head unit disconnected after 4/8 bytes") == "disconnected"
+  assert stream_loss_kind("something else") == "other"
+  for text, kind in (("Video acknowledgement older than 2.5 s", "stalled"), ("Head unit disconnected after 4/8 bytes", "disconnected")):
+    events = [(0, 0, "session_start", {}), (0, 1, "stage", {"state": "streaming"}), (0, 9, "attempt_failed", {"stage": "streaming", "kind": "EOFError", "error": text})]
+    event = br.drive_event([br.session_record(write_session(tmp_path, 3 if kind == "stalled" else 4, events))])
+    assert event["tags"]["aa.cause"] == "projection_interrupted" and event["tags"]["aa.loss_kind"] == kind
