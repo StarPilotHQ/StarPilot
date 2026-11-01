@@ -113,7 +113,9 @@ class TestDeveloperRuntime(unittest.TestCase):
 
   def test_command_parsing_preserves_tool_arguments(self):
     self.assertEqual(parse(['c3', '8', '--demo']), ('c3', 8, ['--demo']))
-    self.assertEqual(parse(['juggle', '4', '--demo']), ('plotjuggler', 4, ['--demo']))
+    self.assertEqual(parse(['juggle', '4', '--demo']), ('jotpluggler', 4, ['--demo']))
+    self.assertEqual(parse(['jotpluggler', '4', '--demo']), ('jotpluggler', 4, ['--demo']))
+    self.assertEqual(parse(['plotjuggler', '4', '--demo']), ('plotjuggler', 4, ['--demo']))
     self.assertEqual(parse(['python', '-c', 'print(1)'])[2], ['-c', 'print(1)'])
     self.assertEqual(parse(['pytest', '-n', '2'])[2], ['-n', '2'])
     self.assertEqual(parse(['--help'])[0], 'help')
@@ -168,6 +170,7 @@ class TestDeveloperRuntime(unittest.TestCase):
 
       def wait(self, timeout=None):
         if self.returncode is None:
+          assert timeout is not None
           raise subprocess.TimeoutExpired('galaxy', timeout)
         return self.returncode
 
@@ -358,7 +361,9 @@ class TestDeveloperRuntime(unittest.TestCase):
       child.poll.return_value = None
 
       def tick(_interval, signum=signum):
-        signal.getsignal(signum)(signum, None)
+        handler = signal.getsignal(signum)
+        assert callable(handler)
+        handler(signum, None)
 
       with patch.object(self.runtime, 'galaxy_sources', return_value=self.runtime.galaxy_sources()), \
            patch('tools.host_runtime.subprocess.Popen', return_value=child), \
