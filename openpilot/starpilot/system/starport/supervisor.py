@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from openpilot.common.hardware import COMMA_HARDWARE
-from openpilot.starpilot.system.starport import car_profiles, device_health, identity as identity_store, system_slice
+from openpilot.starpilot.system.starport import car_profiles, device_health, identity as identity_store, reachability, system_slice
 from openpilot.starpilot.system.starport.auto_connect import AutoConnectPolicy
 from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, BootstrapError, WirelessBootstrap
 from openpilot.starpilot.system.starport.bugsink_report import PairingAttempt
@@ -175,6 +175,15 @@ LOCAL_SOCKET_ERRORS = (errno.ENOSYS, errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT)
 def car_never_answered(error: BaseException) -> bool:
   """False when this device's own Bluetooth stack failed, so the car's cached channel says nothing about the car."""
   return not (isinstance(error, OSError) and error.errno in LOCAL_SOCKET_ERRORS)
+
+
+def drops_cached_channel(stage: str, error: BaseException) -> bool:
+  """Forget the cached RFCOMM channel only when the car answered nothing there for a reason about the channel.
+
+  A sleeping car (page timeout, host down) or this comma's own busy Bluetooth says nothing about which channel is right."""
+  if stage not in ("rfcomm", "wifi_start") or not car_never_answered(error):
+    return False
+  return not reachability.keeps_cached_channel(reachability.classify(stage, type(error).__name__, str(error)))
 
 
 def _where(error: BaseException, depth: int = 4) -> list[str]:
@@ -1148,6 +1157,7 @@ class Supervisor:
       while not self._stop.is_set():
         started = time.monotonic()
         peer_stopped = False
+        reach = reachability.OTHER  # set by a failed attempt; a clean end or a car-ended session keeps the standard wait
         self.log("attempt_start")
         try:
           if car_first:
@@ -1167,7 +1177,8 @@ class Supervisor:
           stage = error.stage if isinstance(error, BootstrapError) else self._status["last_stage"]
           message = self._describe_error(stage, error)
           self._set(error=message)
-          self.log("attempt_failed", stage=stage, error=message, kind=type(error).__name__, where=_where(error))
+          reach = reachability.classify(stage, type(error).__name__, f"{message} {error}")
+          self.log("attempt_failed", stage=stage, error=message, kind=type(error).__name__, where=_where(error), reach=reach)
           if isinstance(error, StrayLinkError):
             self._clear_stray_link()
             car_first = True  # the car pages right back once its link drops; let it, rather than crossing it again
@@ -1181,6 +1192,7 @@ class Supervisor:
           break
         attempt = 0 if time.monotonic() - started > STABLE_SESSION_SECONDS else attempt + 1
         delay = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
+        delay = reachability.retry_delay(reach, attempt, delay)
         if peer_stopped:
           delay = max(delay, PEER_STOP_RETRY_SECONDS)  # the car ended projection itself; do not bounce straight back
         self._set(state="backoff", attempt=attempt, retry_in=delay, mode=None)
@@ -1272,7 +1284,7 @@ class Supervisor:
       if boot is not None and boot.silent_after_modern_version(error):
         self._modern_reply[address] = not boot.modern_reply  # try the other version reply next
         self.log("bootstrap_reply_switched", modern=self._modern_reply[address])
-      if source == "cache" and not self._stop.is_set() and self._status["last_stage"] in ("rfcomm", "wifi_start") and car_never_answered(error):
+      if source == "cache" and not self._stop.is_set() and drops_cached_channel(self._status["last_stage"], error):
         self._remember_channel(address, None)  # the car never answered there; ask it over SDP next time
         self.log("rfcomm_cache_dropped", channel=channel)
       raise

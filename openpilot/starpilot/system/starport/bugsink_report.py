@@ -13,7 +13,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from openpilot.starpilot.system.starport import identity as identity_store, system_slice
+from openpilot.starpilot.system.starport import identity as identity_store, reachability, system_slice
 from openpilot.starpilot.system.starport.bugsink_diagnosis import attempt_records, diagnosis, elapsed, sanitize
 from openpilot.starpilot.system.starport.bugsink_summary import batch_summary, failure_summary, pairing_summary, session_timeline, software_tags
 
@@ -258,6 +258,9 @@ def session_record(path: Path) -> dict:
     "furthest_stage": report["furthest_stage"],
     "failed_stage": str(last_failure.get("failed_stage", "")),
     "error_kind": str(last_failure.get("error_kind", "")),
+    "reach": str(last_failure.get("reach", "")) or (reachability.classify(
+      str(last_failure.get("failed_stage", "")), str(last_failure.get("error_kind", "")), str(last_failure.get("error", "")))
+      if last_failure else ""),
     "error": scrub(last_failure.get("error", "")),
     "failures": len(failures),
     "drops": len(drops),
@@ -401,7 +404,7 @@ def failure_detail(session: dict) -> dict:
     "title": f"{assessment['category']} at {stage}: {kind}",
     "session": session["seq"],
     "attempt": session.get("failed_attempt"),
-    "cause": assessment["category"], "stage": stage, "error_kind": kind,
+    "cause": assessment["category"], "stage": stage, "error_kind": kind, "reach": session.get("reach", ""),
     "summary": sanitize(failure_summary(assessment), names),
     "diagnosis": sanitize(assessment, names),
   }
@@ -495,7 +498,8 @@ def drive_event(sessions: list[dict]) -> dict:
              **({"aa.profile_source": setup["profile_source"]} if setup.get("profile_source") else {}),
              **({"aa.phone_address_sent": "yes" if sent else "no"} if sent is not None else {}),
              **({"aa.attention": ",".join(reasons)[:190]} if reasons else {}),
-             **({"aa.cause": latest["cause"], "aa.stage": latest["stage"], "aa.error_kind": latest["error_kind"]} if latest else {})},
+             **({"aa.cause": latest["cause"], "aa.stage": latest["stage"], "aa.error_kind": latest["error_kind"]} if latest else {}),
+             **({"aa.reach_class": latest["reach"]} if latest and latest.get("reach") else {})},
     "breadcrumbs": {"values": attempt_breadcrumbs(sessions)},
     "contexts": {"starport_drive": summary, "starport_head_unit": head_unit,
                  **{f"starport_session_{index + 1}": _public(session) for index, session in enumerate(sessions)},
