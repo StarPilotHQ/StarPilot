@@ -73,6 +73,24 @@ class LifecycleShardTests(unittest.TestCase):
     self.assertCountEqual(selected, identities)
     self.assertEqual(shards, helper.partition(list(reversed(targets)), list(reversed(identities)), 2))
 
+  def test_measured_bluepilot_lifecycle_is_not_packed_as_unknown_work(self):
+    module = 'openpilot/starpilot/tests/test_ford_bluepilot_library_lifecycle.py'
+    policy = helper.workload_policy()
+    measured = policy['modules'][module]
+    self.assertNotIn(module, policy['function_groups'])
+    self.assertEqual(measured['cases'], 169)
+    self.assertGreater(measured['seconds'], 300 * policy['unknown_seconds_per_case'])
+    self.assertEqual(len(measured['source_sha256']), 64)
+    self.assertEqual(measured['reference']['artifact_id'], 13071624813)
+    prefix = module.removesuffix('.py').replace('/', '.') + '.'
+    identities = [prefix + f'test_case[{index}]' for index in range(169)]
+    identities += [f'other.test_case[{index}]' for index in range(300)]
+    shards = helper.partition([module, 'other.py'], identities, 2)
+    self.assertEqual(shards, [[module], ['other.py']])
+    selected = [identity for shard in shards for identity in identities
+                if any(helper.matches(identity, target) for target in shard)]
+    self.assertCountEqual(selected, identities)
+
   def test_only_large_reviewed_heavy_functions_split_into_exact_parameter_leaves(self):
     heavy = 'openpilot/starpilot/car/toyota/tests/test_legacy_advert_callers.py'
     prefix = heavy.removesuffix('.py').replace('/', '.') + '.'
