@@ -472,6 +472,7 @@ def test_report_keeps_setup_offered_modes_and_the_working_strategy(tmp_path):
   tags = event["tags"]
   assert (tags["aa.setup_type"], tags["aa.adapter_model"], tags["aa.profile_source"], tags["aa.phone_address_sent"]) == (
     "adapter", "aawireless", "override", "yes")
+  assert (tags["aa.reply_style"], tags["aa.wifi_channel_type"]) == ("modern", "1")
   context = event["contexts"]["starport_session_1"]
   assert context["offered_modes"] == record["offered_modes"] and context["strategy"]["reply_style"] == "modern"
   assert "39:90:21:64:07:00" not in json.dumps(event)  # the comma's own address is sanitized from every field

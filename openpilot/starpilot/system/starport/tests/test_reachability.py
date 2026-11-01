@@ -64,3 +64,26 @@ def test_stream_losses_are_told_apart_by_what_the_log_says(tmp_path):
     events = [(0, 0, "session_start", {}), (0, 1, "stage", {"state": "streaming"}), (0, 9, "attempt_failed", {"stage": "streaming", "kind": "EOFError", "error": text})]
     event = br.drive_event([br.session_record(write_session(tmp_path, 3 if kind == "stalled" else 4, events))])
     assert event["tags"]["aa.cause"] == "projection_interrupted" and event["tags"]["aa.loss_kind"] == kind
+
+
+def test_every_real_bugsink_failure_text_is_classified_as_intended():
+  import json
+  from pathlib import Path
+  rows = json.loads((Path(__file__).parent / "fixtures" / "bugsink_failure_texts.json").read_text())["failures"]
+  assert sum(row["count"] for row in rows) > 600 and len(rows) > 40
+  seen = {r.ASLEEP: 0, r.NOT_READY: 0, r.LOCAL: 0, r.OTHER: 0}
+  for row in rows:
+    got = r.classify(row["stage"], row["kind"], row["evidence"])
+    text = row["evidence"].lower()
+    seen[got] += row["count"]
+    if row["stage"] in ("streaming", "authenticating", "negotiating", "connecting_tcp", "joining_wifi"):
+      assert got == r.OTHER, row            # once the link is up, none of this is about reaching the car
+      continue
+    if "host is down" in text or "page-timeout" in text:
+      assert got == r.ASLEEP, row
+    if "connection refused" in text or "did not answer in time" in text:
+      assert got == r.NOT_READY, row
+    if "galaxy bluetooth first" in text:
+      assert got == r.OTHER, row            # a setup step to take, not a reachability problem
+  early = seen[r.ASLEEP] + seen[r.NOT_READY] + seen[r.LOCAL]
+  assert early > 0.6 * sum(seen.values()), seen   # most failures before video are now explained instead of "unknown"

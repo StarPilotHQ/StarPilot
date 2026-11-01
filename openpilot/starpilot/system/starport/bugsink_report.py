@@ -494,6 +494,7 @@ def drive_event(sessions: list[dict]) -> dict:
   setup = next((s["setup"] for s in reversed(sessions) if s.get("setup")), {})
   sent = next((s["phone_address_sent"] for s in reversed(sessions) if s.get("phone_address_sent") is not None), None)
   ladder = next((s["ladder"][-1] for s in reversed(sessions) if s.get("ladder")), {})
+  strategy = next((s["strategy"] for s in reversed(sessions) if s.get("strategy")), {})
   failures = [failure_detail(failure) for failure in drive_failures(sessions)]
   failed = [session for session in sessions if session["seq"] in {failure["session"] for failure in failures}]
   heading = "failures" if failures else "sessions"
@@ -529,6 +530,8 @@ def drive_event(sessions: list[dict]) -> dict:
              **({"aa.adapter_model": setup["profile"]} if setup.get("profile") else {}),
              **({"aa.profile_source": setup["profile_source"]} if setup.get("profile_source") else {}),
              **({"aa.phone_address_sent": "yes" if sent else "no"} if sent is not None else {}),
+             **({"aa.reply_style": strategy["reply_style"]} if strategy.get("reply_style") else {}),
+             **({"aa.wifi_channel_type": str(strategy["channel_type"])} if strategy.get("channel_type") else {}),
              **({"aa.ladder_rung": ladder["rung"], "aa.ladder_learned": "yes" if ladder.get("learned") else "no"} if ladder else {}),
              **({"aa.attention": ",".join(reasons)[:190]} if reasons else {}),
              **({"aa.cause": latest["cause"], "aa.stage": latest["stage"], "aa.error_kind": latest["error_kind"]} if latest else {}),
