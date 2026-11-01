@@ -690,7 +690,7 @@ class RuntimeSnapshotAdapter:
                            e.name == log.OnroadEvent.EventName.gasPressedOverride for e in display_events)),
                          right_hand_drive=getattr(self, '_display_rhd', False),
                          switchback_mode=bool(lateral_supported(cp) and display_control is not None and display_control.latActive and
-                           self._switchback.sample(slc, drive_id=drive_id, now_ns=now_ns,
+                           self._switchback.sample_state(slc, drive_id=drive_id, now_ns=now_ns,
                              event_ns=int(sm.logMonoTime['slcState']))),
                          traffic_mode=bool(traffic is not None and traffic.state == 'active'),
                          traffic_display=traffic,

@@ -101,6 +101,26 @@ def ui_fake():
 
 
 class TestRuntimeSnapshot(unittest.TestCase):
+  def test_switchback_display_uses_payload_reader_with_original_source_metadata(self):
+    from opendbc.car.structs import CarParams
+    ui = ui_fake()
+    cp = CarParams()
+    cp.carFingerprint, cp.brand = 'HYUNDAI_IONIQ_6', 'hyundai'
+    cp.steerControlType = CarParams.SteerControlType.torque
+    cp.safetyConfigs = [CarParams.SafetyConfig(safetyModel=CarParams.SafetyModel.hyundaiCanfd)]
+    ui.CP = cp
+    ui.sm['deviceState'].startedMonoTime = NOW - 1_000_000_000
+    adapter = RuntimeSnapshotAdapter(ui)
+    owner = Mock()
+    owner.sample.side_effect = AssertionError('A SubMaster payload is not an Event envelope')
+    owner.sample_state.return_value = True
+    adapter._switchback = owner
+    snapshot = adapter.build(ShellMode.ONROAD, now_ns=NOW, onroad_view_only=True)
+    self.assertTrue(snapshot.onroad.switchback_mode)
+    owner.sample.assert_not_called()
+    owner.sample_state.assert_called_once_with(ui.sm['slcState'], drive_id=NOW - 1_000_000_000,
+                                              now_ns=NOW, event_ns=ui.sm.logMonoTime['slcState'])
+
   def test_personality_feedback_uses_current_drive_plan_and_override_events(self):
     ui = ui_fake()
     ui.sm.put('longitudinalPlan', NS(hasLead=True))
