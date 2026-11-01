@@ -69,7 +69,7 @@ LINK_CHECK_SLOW = 1.0        # a link check slower than this is logged (NetworkM
 STREAM_STALL_LOG = 1.0       # a streaming loop pass slower than this is logged
 REPORTED_SETTINGS = ("connection", "usb_mode", "view", "encoder", "fps", "bitrate_kbps", "rate_control", "gpu_nv12",
                      "async_readback", "wifi_interface", "dedicated_wifi_interface", "verify_head_unit", "version_status",
-                     "rfcomm_channel", "phone_class", "auto_connect")
+                     "rfcomm_channel", "phone_class", "auto_connect", "allow_hevc")
 
 
 def encoder_preference(configured: str) -> str:
@@ -405,6 +405,7 @@ class Supervisor:
     status["pairing_ready"] = self._pairing_active()
     status["auto_connect"] = bool(self.config["auto_connect"])
     status["dedicated_wifi_interface"] = bool(self.config["dedicated_wifi_interface"])
+    status["allow_hevc"] = bool(self.config["allow_hevc"])
     status["auto_paused"] = self.auto.suppressed
     status["recent"] = list(self.log.recent)[-8:]
     return status
@@ -432,6 +433,13 @@ class Supervisor:
       self.config["dedicated_wifi_interface"] = bool(enabled)
       identity_store.save_config(self.config)
     self.log("dedicated_wifi_selected", enabled=bool(enabled))
+
+  def set_allow_hevc(self, enabled: bool) -> None:
+    """Let a car that offers only H.265 get H.265 video; used from the next session. Cars with an H.264 mode never change."""
+    with self._lock:
+      self.config["allow_hevc"] = bool(enabled)
+      identity_store.save_config(self.config)
+    self.log("allow_hevc_selected", enabled=bool(enabled))
 
   def _adapter_choice_needed(self) -> bool:
     return self.car_type() == "adapter" and not self.config.get("car_profile_override")

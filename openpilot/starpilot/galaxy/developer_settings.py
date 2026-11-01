@@ -6,7 +6,8 @@ from openpilot.starpilot.longitudinal.voacc import KEY, DESCRIPTION
 from openpilot.starpilot.ui.calibration_reset import calibration_reset
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
-from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsState
+from openpilot.starpilot.system.starport import new_setup
+from openpilot.starpilot.ui.feature_settings_state import HEADING_PREFIX, FeatureRow, FeatureSettingsState
 
 
 STARPORT_WIFI_KEY = "StarPortDedicatedWifi"
@@ -14,6 +15,13 @@ STARPORT_WIFI_DESCRIPTION = ("Experimental. Join the car's Wi-Fi on a second int
                        "phone hotspot during wireless StarPort. Applies from the next StarPort connection.")
 CALIBRATION_RESET = "reset_calibration"
 CALIBRATION_RESET_DESCRIPTION = "Clear camera and steering calibration. The device recalibrates on the next drive."
+STARPORT_HEADING_KEY = HEADING_PREFIX + "starport"
+STARPORT_NEW_SETUP_KEY = "StarPortNewSetup"
+STARPORT_NEW_SETUP_DESCRIPTION = ("Guided StarPort setup with a live checklist of what is being tried. Turn off to use the classic " +
+                                  "setup screens. Applies the next time the setup screen opens.")
+STARPORT_HEVC_KEY = "StarPortAllowHevc"
+STARPORT_HEVC_DESCRIPTION = ("Experimental. Only for a car that offers H.265 and no H.264 video. Cars that offer H.264 are not " +
+                             "affected. Applies from the next StarPort connection.")
 DRIVER_MONITORING_RESET = "reset_driver_monitoring"
 DRIVER_MONITORING_RESET_DESCRIPTION = "Clear saved wheel-side detection. Automatic detection restarts on the next drive."
 
@@ -25,13 +33,39 @@ class DeveloperSettingsOwner:
     self.panda_wake = panda_wake
     self.starport = starport  # returns the StarPort daemon client
 
-  def _starport_enabled(self):
+  def _starport_status(self):
     if self.starport is None:
       return None
     try:
-      return bool(self.starport().call("status")["status"].get("dedicated_wifi_interface"))
+      status = self.starport().call("status")["status"]
+      return status if isinstance(status, dict) else None
     except (OSError, RuntimeError, ValueError, KeyError, TypeError):
       return None  # the service is off; there is nothing to configure
+
+  def _starport_enabled(self):
+    status = self._starport_status()
+    return None if status is None else bool(status.get("dedicated_wifi_interface"))
+
+  def _starport_hevc(self):
+    status = self._starport_status()
+    return None if status is None else bool(status.get("allow_hevc"))
+
+  def _starport_rows(self, parked):
+    """The StarPort section. The switch back to classic setup is always listed; the daemon's settings only while it runs."""
+    new_setup_on = new_setup.enabled()
+    held = "Park the vehicle to change this setting."
+    rows = [FeatureRow(STARPORT_HEADING_KEY, "StarPort", "", available=False),
+            FeatureRow(STARPORT_NEW_SETUP_KEY, "StarPort: New pairing experience", "On" if new_setup_on else "Off",
+                       b"1" if new_setup_on else b"0", ("Off", "On"), available=parked,
+                       reason=STARPORT_NEW_SETUP_DESCRIPTION if parked else held, default_value="On")]
+    status = self._starport_status()
+    if status is not None:
+      enabled, hevc = bool(status.get("dedicated_wifi_interface")), bool(status.get("allow_hevc"))
+      rows.append(FeatureRow(STARPORT_WIFI_KEY, "StarPort: Stay on Wi-Fi", "On" if enabled else "Off", b"1" if enabled else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_WIFI_DESCRIPTION if parked else held, default_value="On"))
+      rows.append(FeatureRow(STARPORT_HEVC_KEY, "StarPort: Allow H.265 video", "On" if hevc else "Off", b"1" if hevc else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_HEVC_DESCRIPTION if parked else held, default_value="Off"))
+    return tuple(rows)
 
   def _driver_monitoring_reset_allowed(self):
     return self.authorized() and not self.params.get_bool("IsDriverViewEnabled")
@@ -62,11 +96,7 @@ class DeveloperSettingsOwner:
     firmware_rows = (() if self.panda_wake is None else
                      tuple(replace(item, vehicle_fingerprint=item.capability[0])
                            for item in self.panda_wake.rows(parked) if item.key == "IgnoreIgnitionLine"))
-    enabled = self._starport_enabled()
-    starport_rows = () if enabled is None else (
-      FeatureRow(STARPORT_WIFI_KEY, "StarPort: Stay on Wi-Fi", "On" if enabled else "Off", b"1" if enabled else b"0", ("Off", "On"),
-                 available=parked, reason=STARPORT_WIFI_DESCRIPTION if parked else "Park the vehicle to change this setting.",
-                 default_value="On"),)
+    starport_rows = self._starport_rows(parked)
     summary = "Changes apply next drive. Panda firmware changes require a device restart." if firmware_rows else "Changes apply next drive."
     return FeatureSettingsState("developer", "Developer driving options", summary,
                                 (row, reset_row, calibration_row, *firmware_rows, *starport_rows), parked)
@@ -96,6 +126,10 @@ class DeveloperSettingsOwner:
       return self.panda_wake is not None and self.panda_wake.apply(request)
     if request.key == STARPORT_WIFI_KEY:
       return self._apply_starport(request)
+    if request.key == STARPORT_HEVC_KEY:
+      return self._apply_hevc(request)
+    if request.key == STARPORT_NEW_SETUP_KEY:
+      return self._apply_new_setup(request)
     if request.key != KEY or request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
       return False
     result = commit_exact(self.params, key=request.key, max_bytes=8, raw=b"1" if request.value == "On" else b"0",
@@ -112,3 +146,20 @@ class DeveloperSettingsOwner:
     except (OSError, RuntimeError, ValueError):
       return False
     return self._starport_enabled() == (request.value == "On")
+
+  def _apply_hevc(self, request):
+    enabled, client = self._starport_hevc(), self.starport
+    if (enabled is None or client is None or request.value not in ("Off", "On") or request.expected != (b"1" if enabled else b"0") or
+        not self.authorized()):
+      return False
+    try:
+      client().call("set_allow_hevc", enabled=request.value == "On")
+    except (OSError, RuntimeError, ValueError):
+      return False
+    return self._starport_hevc() == (request.value == "On")
+
+  def _apply_new_setup(self, request):
+    current = new_setup.enabled()
+    if request.value not in ("Off", "On") or request.expected != (b"1" if current else b"0") or not self.authorized():
+      return False
+    return new_setup.set_enabled(request.value == "On")

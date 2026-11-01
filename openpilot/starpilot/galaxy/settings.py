@@ -27,7 +27,7 @@ from openpilot.starpilot.audio.alert_volume import SPECS as SOUND_SPECS
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.common.hardware import HARDWARE
 from openpilot.starpilot.ui.feature_settings_state import (
-  FeatureRow, FeatureSettingsRequest, FEATURE_CONFIRM_ACTIONS, is_long_confirm_action, row_change, row_default,
+  FeatureRow, FeatureSettingsRequest, FEATURE_CONFIRM_ACTIONS, is_heading, is_long_confirm_action, row_change, row_default,
 )
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.galaxy.developer_settings import CALIBRATION_RESET, DRIVER_MONITORING_RESET, DeveloperSettingsOwner
@@ -392,7 +392,8 @@ def _projection(row: FeatureRow) -> dict:
           "confirm": bool(row.key in CONFIRM_ACTIONS or is_long_confirm_action(row.key) or
                           row.key in (PIP_RESET, PIP_EDITOR, VASM_RESET, VASM_ANNOTATION) or row.key.startswith(PIP_FORMAT_PREFIX)),
           "repairValue": row.repair_value, "defaultValue": row.default_value, "resetAvailable": row_default(row) is not None,
-          "displayScale": "lane-strength" if row.key == "LaneCenteringStrength" else None}
+          "displayScale": "lane-strength" if row.key == "LaneCenteringStrength" else None,
+          "heading": is_heading(row.key)}
 
 
 def _question(row: FeatureRow, request: FeatureSettingsRequest) -> str:

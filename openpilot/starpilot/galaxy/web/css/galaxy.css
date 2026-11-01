@@ -1711,6 +1711,9 @@ input[type="checkbox"]:disabled { opacity: .4; cursor: not-allowed; }
 .gx-inset { margin: var(--sp-4); max-width: calc(100% - 2 * var(--sp-4)); }
 .gx-text-danger { color: var(--error); }
 .gx-row.gx-row--borderless { border-top: 0; }
+/* A section title inside a settings page: a label only, never dimmed like an unavailable control. */
+.gx-row.gx-row--heading, .gx-row.gx-row--heading.disabled { opacity: 1; padding-top: 1.25rem; }
+.gx-row--heading .gx-row__label { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; opacity: .75; }
 .gx-row--wrap { flex-wrap: wrap; }
 .gx-row__info.gx-row__info--wide { flex: 1 1 180px; }
 .gx-filter-field { flex: 1 1 14rem; min-width: 0; }

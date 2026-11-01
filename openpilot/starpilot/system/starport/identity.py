@@ -141,6 +141,7 @@ DEFAULT_CONFIG = {
   "render_profile_kb": 256,    # size cap per render_profile file
   "wifi_interface": "wlan0",
   "dedicated_wifi_interface": True,   # join the car on its own aa0 station so wlan0 stays on home Wi-Fi
+  "allow_hevc": False,         # offer H.265 when the car offers no usable H.264 mode (Galaxy Developer > StarPort)
   "device_name": "StarPilot",
   "version_status": 0,         # WifiVersionResponse status (0 = success) for receivers that negotiate a version
   "phone_class": True,         # while pairing/connecting, present as a phone: HFP gateway + smartphone Class of Device
@@ -189,6 +190,7 @@ def load_config(path: Path | None = None) -> dict:
   if config["usb_mode"] not in ("auto", "handshake", "direct"):
     config["usb_mode"] = "auto"
   config["bitrate_kbps"] = max(1000, min(12000, int(config["bitrate_kbps"])))
+  config["allow_hevc"] = config["allow_hevc"] is True
   if config["rate_control"] not in ("cbr", "vbr"):
     config["rate_control"] = "cbr"
   config["render_profile_kb"] = max(16, min(4096, int(config["render_profile_kb"])))

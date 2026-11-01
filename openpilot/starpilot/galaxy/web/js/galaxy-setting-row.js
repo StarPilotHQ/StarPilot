@@ -215,14 +215,14 @@ export const GalaxySettingRow = {
   },
   beforeUnmount() { this.clearHoldTimer() },
   template: `
-    <div class="gx-row" :class="{ disabled: dimmed, 'gx-row--stack': control === 'slider' }" :inert="busy || updating" :aria-busy="busy || updating || undefined">
+    <div class="gx-row" :class="{ disabled: dimmed, 'gx-row--stack': control === 'slider', 'gx-row--heading': row.heading }" :role="row.heading ? 'heading' : undefined" :aria-level="row.heading ? 3 : undefined" :inert="busy || updating" :aria-busy="busy || updating || undefined">
       <div class="gx-row__info">
         <span class="gx-row__label">{{ row.label }}</span>
-        <span v-if="presentedRow.reason" class="gx-row__desc">{{ ' ' + presentedRow.reason.replace('https://firestar.link/discord', '') }}</span>
+        <span v-if="presentedRow.reason && !row.heading" class="gx-row__desc">{{ ' ' + presentedRow.reason.replace('https://firestar.link/discord', '') }}</span>
         <a v-if="presentedRow.reason?.includes('https://firestar.link/discord')" class="gx-btn gx-btn--tonal" href="https://firestar.link/discord" target="_blank" rel="noopener">StarPilot Discord</a>
         <span v-if="control === 'group' || control === 'action'" class="gx-row__desc">{{ presentedRow.value }}</span>
       </div>
-      <button v-if="control !== 'slider' && showDefault" type="button"
+      <button v-if="control !== 'slider' && showDefault && !row.heading" type="button"
           class="gx-btn gx-btn--tonal gx-setting-default" :disabled="dimmed || !row.resetAvailable"
           :aria-label="'Reset ' + row.label + ' to default'" :title="'Default: ' + presentedRow.defaultValue"
           @click="$emit('reset-default', index)">Default</button>
@@ -249,6 +249,6 @@ export const GalaxySettingRow = {
       </GalaxySelect>
       <button v-else-if="control === 'group'" type="button" class="gx-btn gx-btn--tonal" :disabled="dimmed" @click="$emit('open', row.page)">Manage</button>
       <button v-else-if="control === 'action' && row.action" type="button" class="gx-btn gx-btn--tonal" :disabled="dimmed" @click="$emit('review', index, row.confirm ? 0 : 1)">{{ row.repairValue === 'Reset' || /reset|default/i.test(row.label) ? 'Reset' : row.repairValue ? 'Set ' + row.repairValue : row.label }}</button>
-      <span v-else class="gx-row__value gx-row__readout">{{ displayValue }}</span>
+      <span v-else-if="!row.heading" class="gx-row__value gx-row__readout">{{ displayValue }}</span>
     </div>`,
 }

@@ -90,6 +90,10 @@ DESCRIPTIONS = {
   'RemoteStartBootsComma': 'Wakes comma during GM remote start.',
   'HKGRemoteStartBootsComma': 'Wakes comma during Hyundai, Kia or Genesis remote climate operation.',
   'IgnoreIgnitionLine': 'Uses GM CAN ignition instead of the harness ignition signal.',
+  'heading:starport': 'Settings for connecting Android Auto to the car through StarPort.',
+  'StarPortNewSetup': 'Shows the guided StarPort setup with a live checklist instead of the classic setup screens.',
+  'StarPortAllowHevc': 'Lets a car that offers only H.265 video receive H.265; a car with an H.264 mode keeps H.264.',
+  'StarPortDedicatedWifi': "Joins the car's Wi-Fi on a second interface so the comma stays on its home Wi-Fi or phone hotspot.",
   'TeslaWakeOnCAN': 'Wakes comma when the Tesla wakes up, before you press the brake.',
   'RadarRecoveryAlert': 'Play a chime and show a brief message when a radar fault clears. You must re-engage manually.',
   'CameraView': 'Chooses the camera view shown on the driving screen.',
@@ -158,6 +162,9 @@ DESCRIPTIONS = {
 
 # These are initialization explanations, not a second defaults table.
 INITIALIZATION = {
+  'StarPortNewSetup': 'Applies the next time the setup screen opens.',
+  'StarPortAllowHevc': 'Applies from the next StarPort connection.',
+  'StarPortDedicatedWifi': 'Applies from the next StarPort connection.',
   'LateralControllerSelection': ('Applies when driving processes next start: the controller class, vehicle policy and ' +
     'PID/filter state are constructed together.'),
   'UseStarPilotLongitudinalPlanner': 'Applies when the planner next starts: each choice runs a different planner process with its own subscriptions and state.',

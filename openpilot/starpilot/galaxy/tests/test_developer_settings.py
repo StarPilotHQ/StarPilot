@@ -3,14 +3,18 @@
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 from typing import cast
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from openpilot.starpilot.galaxy.developer_settings import CALIBRATION_RESET, DRIVER_MONITORING_RESET, STARPORT_WIFI_KEY, DeveloperSettingsOwner
+from openpilot.starpilot.galaxy.developer_settings import (CALIBRATION_RESET, DRIVER_MONITORING_RESET, STARPORT_HEADING_KEY,
+                                                          STARPORT_HEVC_KEY, STARPORT_NEW_SETUP_KEY, STARPORT_WIFI_KEY,
+                                                          DeveloperSettingsOwner)
 from openpilot.starpilot.galaxy.settings import AuthorityContext, ContextSource, SettingsChanged, SettingsGateway
 from openpilot.starpilot.longitudinal.voacc import KEY, selected
+from openpilot.starpilot.system.starport import new_setup
 from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
 
 
@@ -40,7 +44,7 @@ class FileParams:
 
 class FakeStarPort:
   def __init__(self, enabled=False, running=True):
-    self.enabled, self.running = enabled, running
+    self.enabled, self.running, self.hevc = enabled, running, False
 
   def call(self, command, **payload):
     if not self.running:
@@ -48,7 +52,10 @@ class FakeStarPort:
     if command == "set_dedicated_wifi":
       self.enabled = payload["enabled"]
       return {"ok": True}
-    return {"ok": True, "status": {"dedicated_wifi_interface": self.enabled}}
+    if command == "set_allow_hevc":
+      self.hevc = payload["enabled"]
+      return {"ok": True}
+    return {"ok": True, "status": {"dedicated_wifi_interface": self.enabled, "allow_hevc": self.hevc}}
 
 
 class DeveloperSettingsTest(unittest.TestCase):
@@ -60,6 +67,11 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.cp = SimpleNamespace(openpilotLongitudinalControl=True, notCar=False, dashcamOnly=False, passive=False)
     self.parked = True
     self.owner = DeveloperSettingsOwner(self.params, lambda: self.parked)
+    flag = Path(directory.name) / "new_setup"
+    patch = mock.patch.object(new_setup, "FLAG_PATH", flag)
+    patch.start()
+    self.addCleanup(patch.stop)
+    self.flag = flag
 
   def test_default_off_strict_selection_and_vehicle_admission(self):
     self.assertEqual(self.owner.snapshot().rows[0].value, "Off")
@@ -172,6 +184,52 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(DRIVER_MONITORING_RESET, b"1", "confirm", confirmation=True)))
     self.assertTrue(Path(self.params.get_param_path("IsRhdDetected")).exists())
 
+  def test_starport_section_has_a_heading_and_the_escape_hatch_even_with_the_service_off(self):
+    rows = self.owner.snapshot().rows
+    keys = [row.key for row in rows]
+    heading = rows[keys.index(STARPORT_HEADING_KEY)]
+    self.assertEqual((heading.label, heading.value, heading.available, heading.choices), ("StarPort", "", False, ()))
+    self.assertEqual(keys[keys.index(STARPORT_HEADING_KEY) + 1], STARPORT_NEW_SETUP_KEY)  # the heading groups what follows
+    self.assertNotIn(STARPORT_WIFI_KEY, keys)
+    self.assertNotIn(STARPORT_HEVC_KEY, keys)
+    self.assertFalse(self.owner.apply(FeatureSettingsRequest(STARPORT_HEADING_KEY, b"", "On")))  # a heading is never a control
+
+  def test_new_pairing_experience_defaults_on_and_the_classic_screens_are_one_switch_away(self):
+    row = next(row for row in self.owner.snapshot().rows if row.key == STARPORT_NEW_SETUP_KEY)
+    self.assertEqual((row.value, row.source, row.choices, row.default_value, row.available), ("On", b"1", ("Off", "On"), "On", True))
+    self.assertFalse(self.owner.apply(FeatureSettingsRequest(STARPORT_NEW_SETUP_KEY, b"0", "On")))  # stale view
+    self.assertFalse(self.owner.apply(FeatureSettingsRequest(STARPORT_NEW_SETUP_KEY, b"1", "maybe")))
+    self.assertTrue(self.owner.apply(FeatureSettingsRequest(STARPORT_NEW_SETUP_KEY, b"1", "Off")))
+    self.assertFalse(new_setup.enabled())
+    self.assertEqual(next(r for r in self.owner.snapshot().rows if r.key == STARPORT_NEW_SETUP_KEY).value, "Off")
+    self.parked = False
+    self.assertFalse(self.owner.apply(FeatureSettingsRequest(STARPORT_NEW_SETUP_KEY, b"0", "On")))
+    self.parked = True
+    self.assertTrue(self.owner.apply(FeatureSettingsRequest(STARPORT_NEW_SETUP_KEY, b"0", "On")))
+    self.assertTrue(new_setup.enabled())
+
+  def test_unreadable_or_odd_flag_means_on(self):
+    self.flag.write_text("garbage")
+    self.assertTrue(new_setup.enabled())
+    self.flag.unlink()
+    self.assertTrue(new_setup.enabled())
+
+  def test_allow_h265_toggle_defaults_off_and_follows_the_daemon(self):
+    service = FakeStarPort()
+    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    rows = owner.snapshot().rows
+    keys = [row.key for row in rows]
+    self.assertEqual(keys[keys.index(STARPORT_HEADING_KEY):], [STARPORT_HEADING_KEY, STARPORT_NEW_SETUP_KEY, STARPORT_WIFI_KEY, STARPORT_HEVC_KEY])
+    row = rows[keys.index(STARPORT_HEVC_KEY)]
+    self.assertEqual((row.value, row.default_value, row.available), ("Off", "Off", True))
+    self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_HEVC_KEY, row.source, "On")))
+    self.assertTrue(service.hevc)
+    self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_HEVC_KEY, row.source, "Off")))  # stale view
+    self.parked = False
+    self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_HEVC_KEY, b"1", "Off")))
+    self.parked = True
+    service.running = False
+    self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_HEVC_KEY, b"1", "Off")))
 
 class CalibrationResetSettingsTest(unittest.TestCase):
   setUp = DeveloperSettingsTest.setUp
