@@ -260,7 +260,7 @@ class SelfdriveD:
       self.events.add(EventName.dashcamMode, static=True)
 
   def update_process_health(self) -> bool:
-    not_running = driving_process_failures(self.sm['managerState'].processes)
+    not_running = driving_process_failures(self.sm['managerState'].processes) - {'ui'}
     if self.sm.recv_frame['managerState'] and not_running:
       if not_running != self.not_running_prev:
         cloudlog.event("process_not_running", not_running=not_running, error=True)
