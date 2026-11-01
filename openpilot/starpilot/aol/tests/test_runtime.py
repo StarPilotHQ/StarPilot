@@ -839,7 +839,8 @@ class IpcAxisContractTests(unittest.TestCase):
     self.enterContext(mock.patch.object(card, 'sm', messaging.SubMaster(services, ignore_avg_freq=services), create=True))
     card.aol_process_fault_context = AolProcessFaultContext()
     card.aol_transport_feedback = TransportPauseFeedback(card.CP)
-    card.aol_card_intent = create_intent(cp, AolSettings(True, 0., 9, 0, (0, 0, 0), (0, 0, 0)))
+    card.aol_settings = AolSettings(True, 0., 9, 0, (0, 0, 0), (0, 0, 0))
+    card.aol_card_intent = create_intent(cp, card.aol_settings)
     cs = car_state()
     cs.cruiseState.available = True
     card.aol_card_intent.update(cs, now_ns=100)
@@ -2065,6 +2066,7 @@ class UiProcessIntentTests(unittest.TestCase):
 
     card = Car.__new__(Car)
     card.CP = stock(True)
+    card.aol_settings = None
     card.aol_card_intent = None  # Real Card initializes this when no optional owner is selected.
     card.aol_process_fault_context = AolProcessFaultContext()
     class SM:

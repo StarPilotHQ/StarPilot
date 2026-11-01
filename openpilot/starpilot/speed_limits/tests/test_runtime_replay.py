@@ -552,6 +552,8 @@ class RuntimeReplayTests(unittest.TestCase):
     from openpilot.cereal import messaging
     from openpilot.selfdrive.car import card
     now_ns = time.monotonic_ns()
+    # Advance logical source time explicitly below, independent of host scheduling.
+    self.enterContext(mock.patch.object(card.time, 'monotonic_ns', return_value=now_ns))
     observation = SimpleNamespace(status=Status.VALID, speed_mps=30.0, observed_ns=now_ns - 20_000_000,
                                   valid_until_ns=now_ns + 1_000_000_000, episode=4)
     state = messaging.new_message('slcState')

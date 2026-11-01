@@ -233,7 +233,8 @@ class _Ev6CancelCaller:
     self.card.sm = messaging.SubMaster(services, ignore_avg_freq=services)
     self.card.aol_transport_feedback = TransportPauseFeedback(self.cp)
     self.card.aol_process_fault_context = AolProcessFaultContext()
-    self.card.aol_card_intent = Ev6CardIntent(AolSettings(True, 0., AOL_TOGGLE, 0, (0, 0, 0), (0, 0, 0)))
+    self.card.aol_settings = AolSettings(True, 0., AOL_TOGGLE, 0, (0, 0, 0), (0, 0, 0))
+    self.card.aol_card_intent = Ev6CardIntent(self.card.aol_settings)
     self.sequence = 0
     self.last_now = 0
 

@@ -47,6 +47,7 @@ def armed_card(identity, *, pause_speed=0.):
   card.aol_process_fault_context = AolProcessFaultContext()
   card.slc_producer_session = PRODUCER
   settings = AolSettings(True, pause_speed, 0, 0, (0, 0, 0), (0, 0, 0))
+  card.aol_settings = settings
   card.aol_card_intent = create_intent(cp, settings, policy_for(cp))
   cs = structs.CarState(canValid=True, gearShifter='drive', vEgo=18., vEgoRaw=18.)
   cs.cruiseState.available = cs.cruiseState.enabled = True

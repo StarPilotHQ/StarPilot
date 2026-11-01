@@ -101,6 +101,7 @@ def test_actual_gm_sd_controls_and_card_keep_current_denials(case):
       card.aol_process_fault_context = AolProcessFaultContext()
       card.aol_transport_feedback = TransportPauseFeedback(card.CP)
       settings = AolSettings(True, 0., 9, 0, (0, 0, 0), (0, 0, 0))
+      card.aol_settings = settings
       card.aol_card_intent = create_intent(card.CP, settings, policy_for(card.CP))
       assert card.aol_card_intent is not None
       cs = car_state()

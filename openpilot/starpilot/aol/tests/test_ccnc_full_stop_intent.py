@@ -143,6 +143,7 @@ def test_actual_card_disarming_preserves_intent_then_brake_fallback(identity):
     card.aol_transport_feedback = TransportPauseFeedback(cp)
     card.aol_process_fault_context = AolProcessFaultContext()
     card.slc_producer_session = PRODUCER
+    card.aol_settings = settings
     card.aol_card_intent = create_intent(cp, settings, policy_for(cp))
     cs = structs.CarState(canValid=True, gearShifter='drive', vEgo=12., vEgoRaw=12.)
     cs.cruiseState.available = cs.cruiseState.enabled = True
