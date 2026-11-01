@@ -31,7 +31,7 @@ def test_actual_selfdrived_cancel_keeps_only_current_owned_lateral(identity, alt
   now = 4_000_000_000
   cp = params(identity, alternate=alternate)
   cp.safetyConfigs[-1].safetyParam |= policy_for(cp).safety_param_addition
-  admitted = not two_panda or (not alternate and identity in (CAR.KIA_EV6, CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN))
+  admitted = True  # Registered stock CAN-FD owners also qualify behind an inert companion.
   if two_panda:
     owner = structs.CarParams.SafetyConfig(safetyModel=str(cp.safetyConfigs[-1].safetyModel),
                                            safetyParam=int(cp.safetyConfigs[-1].safetyParam))

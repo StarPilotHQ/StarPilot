@@ -29,7 +29,6 @@ def test_longitudinal_cancel_assignment_keeps_lateral_actual_callers(identity, m
   _exercise_actual_family_callers(identity, monkeypatch, scenario='long_cancel', cancel_action=4)
 
 
-
 @pytest.fixture(scope='module')
 def armed_intent_decoder(tmp_path_factory):
   import capnproto
@@ -117,10 +116,12 @@ def _exercise_actual_family_callers(identity, monkeypatch, *, scenario='brake', 
         assert card.aol_card_intent.settings == sd.aol_settings
       soft_warning = [False]
       original_events = sd.update_events
+
       def warning_events(*args, **kwargs):
         original_events(*args, **kwargs)
         if soft_warning[0]:
           from openpilot.selfdrive.selfdrived.events import EventName
+          assert isinstance(warning, str)
           sd.events.add(getattr(EventName, warning))
       local_patch.setattr(sd, 'update_events', warning_events)
       assert sd.CP.to_dict() == card.CP.to_dict() == ci.CP.to_dict() == controls.CP.to_dict()
@@ -320,6 +321,8 @@ def _exercise_actual_family_callers(identity, monkeypatch, *, scenario='brake', 
         assert card.aol_card_intent.allowed_latch and axis.lateralActive and not axis.longitudinalActive
       if scenario == 'warning':
         from openpilot.selfdrive.selfdrived.events import EventName
+        assert isinstance(warning, str)
+        lateral_expected = warning == 'radarTempUnavailable'
         for _ in range(30):
           state, axis, host_state, command = step(brake=True)
         for _ in range(30):
@@ -329,12 +332,12 @@ def _exercise_actual_family_callers(identity, monkeypatch, *, scenario='brake', 
         for paused_tick in range(350):
           state, axis, host_state, command = step()
           if any(event.softDisable for event in card.sm['onroadEvents']):
-            assert card.aol_transport_feedback.ordinary_warning_qualified
+            assert card.aol_transport_feedback.ordinary_warning_qualified == (not lateral_expected)
           if paused_tick > 20:
-            assert safety.aol_get_request_mask() == safety.aol_get_permission_mask() == 0
+            assert safety.aol_get_request_mask() == safety.aol_get_permission_mask() == int(lateral_expected)
           assert card.aol_card_intent.allowed_latch, 'Ordinary warning erased armed Mazda lateral intent'
-          assert not command.latActive and not command.longActive
-          assert not axis.lateralActive and not axis.longitudinalActive
+          assert command.latActive == axis.lateralActive == lateral_expected
+          assert not command.longActive and not axis.longitudinalActive
           assert getattr(EventName, warning) in sd.events.names
         soft_warning[0] = False
         for _ in range(40):
@@ -347,17 +350,19 @@ def _exercise_actual_family_callers(identity, monkeypatch, *, scenario='brake', 
         return
       if scenario == 'warning_active':
         from openpilot.selfdrive.selfdrived.events import EventName
+        assert isinstance(warning, str)
+        lateral_expected = warning == 'radarTempUnavailable'
         assert card.aol_card_intent.allowed_latch and host_state.enabled and command.latActive
         soft_warning[0] = True
         for paused_tick in range(350):
           state, axis, host_state, command = step(engaged=True)
           if any(event.softDisable for event in card.sm['onroadEvents']):
-            assert card.aol_transport_feedback.ordinary_warning_qualified
+            assert card.aol_transport_feedback.ordinary_warning_qualified == (not lateral_expected)
           if paused_tick > 20:
-            assert safety.aol_get_request_mask() == safety.aol_get_permission_mask() == 0
+            assert safety.aol_get_request_mask() == safety.aol_get_permission_mask() == int(lateral_expected)
           assert card.aol_card_intent.allowed_latch, 'Ordinary warning erased armed Mazda lateral intent'
-          assert not command.latActive and not command.longActive
-          assert not axis.lateralActive and not axis.longitudinalActive
+          assert command.latActive == axis.lateralActive == lateral_expected
+          assert not command.longActive and not axis.longitudinalActive
           assert getattr(EventName, warning) in sd.events.names
         soft_warning[0] = False
         for _ in range(40):

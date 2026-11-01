@@ -124,7 +124,7 @@ def captured_context():
   [
     'retain',
     'settings_off',
-    'unmapped',
+    'default_buttons',
     'configured_cancel',
     'pause',
     'not_latched',
@@ -155,7 +155,7 @@ def test_shared_cancel_retains_only_original_current_reason_qualified_intent(cas
   source = now
   if case == 'settings_off':
     owner.settings = replace(owner.settings, enabled=False)
-  elif case == 'unmapped':
+  elif case == 'default_buttons':
     owner.settings = replace(owner.settings, lkas_action=0)
   elif case == 'configured_cancel':
     owner.settings = replace(owner.settings, cancel_actions=(3, 0, 0))
@@ -216,7 +216,7 @@ def test_shared_cancel_retains_only_original_current_reason_qualified_intent(cas
   before = deepcopy(vars(feedback))
   native_before = asdict(native)
   result = retained_shared_long_cancel_intent(cp, cs, sm, feedback, owner, cancel_source_ns=source, now_ns=now, producer='authority-card')
-  assert result == (case == 'retain')
+  assert result == (case in ('retain', 'default_buttons'))
   assert vars(feedback) == before  # No lease, output, source, baseline or identity renewal.
   assert asdict(native) == native_before
 

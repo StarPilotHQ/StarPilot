@@ -175,7 +175,7 @@ def configure_controller(CI, params):
 
 
 def observe_controller_can(CI, can_list):
-  controller = CI.CC
+  controller = getattr(CI, "CC", None)
   if controller is not None and CI.CP.brand == 'ford':
     from openpilot.starpilot.car.ford.bluepilot import FordBluePilotController
     if isinstance(getattr(controller, 'bp', None), FordBluePilotController):

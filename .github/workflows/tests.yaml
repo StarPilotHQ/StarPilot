@@ -258,7 +258,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
     steps:
     - uses: actions/checkout@v7
     - name: Provide JavaScript runtime for Galaxy contract tests
@@ -291,7 +291,7 @@ jobs:
       timeout-minutes: 15
       env:
         RAYLIB_BACKEND: headless
-      run: .venv/bin/python -m tools.ci.custom_pytest_shards run --index "${{ matrix.shard }}" --count 24 --output "ci-results/custom-pytest-${{ matrix.shard }}"
+      run: .venv/bin/python -m tools.ci.custom_pytest_shards run --index "${{ matrix.shard }}" --count 32 --output "ci-results/custom-pytest-${{ matrix.shard }}"
     - name: Save collection, every outcome, JUnit and durable worker diagnostics
       if: always()
       uses: actions/upload-artifact@v4
@@ -314,7 +314,7 @@ jobs:
         pattern: custom-pytest-*
         path: ci-results/custom-pytest-shards
     - name: Require every case passed or audited capability-unavailable
-      run: python3 -m tools.ci.custom_pytest_shards aggregate --directory ci-results/custom-pytest-shards --count 24 --output ci-results/custom-pytest-complete.json
+      run: python3 -m tools.ci.custom_pytest_shards aggregate --directory ci-results/custom-pytest-shards --count 32 --output ci-results/custom-pytest-complete.json
     - name: Save complete custom catalog verdict
       if: always()
       uses: actions/upload-artifact@v4

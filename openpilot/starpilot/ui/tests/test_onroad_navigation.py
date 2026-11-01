@@ -123,7 +123,7 @@ def test_slc_decision_keeps_its_touch_priority_only_where_it_overlaps():
   observed.customization['layouts']['compact']['speed_limit_actions']['y'] = 4
   observed.customization['layouts']['compact']['max_speed']['y'] = 58
   assert card.bounds(observed) is None
-  assert card.bounds(replace(observed, longitudinal_active=False)) is None
+  assert card.bounds(replace(observed, longitudinal_active=False)) is not None  # No confirmation chooser while LONG is disengaged.
   # SLC being on, with no decision on screen, leaves the directions up.
   assert card.bounds(replace(state(), longitudinal_active=True, speed_limit=SpeedLimitObservation(action_enabled=True))) is not None
   large = NavigationCard(Mock(profile=Profile.LARGE))

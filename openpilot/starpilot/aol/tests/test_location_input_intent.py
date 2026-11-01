@@ -134,7 +134,7 @@ def test_stock_location_input_retention_refuses_independent_faults(identity, fau
     # preserves intent, whereas the explicitly configured CANCEL still clears.
     baseline = (card.aol_transport_feedback.lateral_baseline_ns, card.aol_transport_feedback.lateral_native_ns)
     retained = receive(10_020_000_000, state=state, axis=proof.as_reader(), event=event.as_reader())
-    expected = fault in ('seatbelt', 'brake', 'regen')
+    expected = fault in ('seatbelt', 'brake', 'regen', 'physical_cancel')
     assert retained == expected, fault
     assert card.aol_card_intent.allowed_latch == expected
     assert not axis.lateralActive and not axis.longitudinalActive

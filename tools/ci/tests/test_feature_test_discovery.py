@@ -17,12 +17,12 @@ class TestFeatureTestDiscovery(unittest.TestCase):
     shards = jobs['custom_pytest']
     complete = jobs['custom_pytest_complete']
     matrix = re.search(r'^        shard: (\[.*\])$', shards, re.M)
-    self.assertIsNotNone(matrix)
-    self.assertEqual(ast.literal_eval(matrix[1]), list(range(24)))
+    assert matrix is not None
+    self.assertEqual(ast.literal_eval(matrix[1]), list(range(32)))
     self.assertIn('      fail-fast: false\n', shards)
     self.assertNotIn('continue-on-error:', shards + complete)
     self.assertIn('      run: .venv/bin/python -m tools.ci.custom_pytest_shards run '
-                  + '--index "${{ matrix.shard }}" --count 24 --output "ci-results/custom-pytest-${{ matrix.shard }}"\n', shards)
+                  + '--index "${{ matrix.shard }}" --count 32 --output "ci-results/custom-pytest-${{ matrix.shard }}"\n', shards)
     self.assertIn('        name: custom-pytest-${{ matrix.shard }}\n', shards)
     self.assertIn('        path: ci-results/custom-pytest-${{ matrix.shard }}/\n', shards)
     self.assertIn('        if-no-files-found: error\n', shards)
@@ -31,7 +31,7 @@ class TestFeatureTestDiscovery(unittest.TestCase):
     self.assertIn('        pattern: custom-pytest-*\n', complete)
     self.assertIn('        path: ci-results/custom-pytest-shards\n', complete)
     self.assertIn('      run: python3 -m tools.ci.custom_pytest_shards aggregate '
-                  + '--directory ci-results/custom-pytest-shards --count 24 --output ci-results/custom-pytest-complete.json\n', complete)
+                  + '--directory ci-results/custom-pytest-shards --count 32 --output ci-results/custom-pytest-complete.json\n', complete)
 
   def test_hosted_pytest_selection_covers_all_custom_function_tests(self):
     workflow = (ROOT / '.github/workflows/tests.yaml').read_text()
@@ -45,12 +45,12 @@ class TestFeatureTestDiscovery(unittest.TestCase):
 
   def test_missing_duplicate_or_mismatched_shards_are_rejected(self):
     workflow = (ROOT / '.github/workflows/tests.yaml').read_text()
-    matrix = 'shard: [' + ', '.join(map(str, range(24))) + ']'
-    for replacement in (list(range(23)), list(range(23)) + [22], list(range(25))):
+    matrix = 'shard: [' + ', '.join(map(str, range(32))) + ']'
+    for replacement in (list(range(31)), list(range(31)) + [30], list(range(33))):
       with self.subTest(matrix=replacement), self.assertRaises(AssertionError):
         self.assert_hosted_pytest_contract(workflow.replace(matrix, 'shard: ' + str(replacement)))
     with self.assertRaises(AssertionError):
-      self.assert_hosted_pytest_contract(workflow.replace('--count 24', '--count 23'))
+      self.assert_hosted_pytest_contract(workflow.replace('--count 32', '--count 31'))
 
   def test_completion_and_full_runner_cannot_be_bypassed(self):
     workflow = (ROOT / '.github/workflows/tests.yaml').read_text()
@@ -60,7 +60,7 @@ class TestFeatureTestDiscovery(unittest.TestCase):
       ('    if: always()\n', '    if: success()\n'),
       ('pattern: custom-pytest-*', 'pattern: custom-pytest-0'),
       ('if-no-files-found: error', 'if-no-files-found: ignore'),
-      ('--count 24 --output', '--count 24 -k selected --output'),
+      ('--count 32 --output', '--count 32 -k selected --output'),
       ('    needs: custom_pytest', '    continue-on-error: true\n    needs: custom_pytest'),
     ):
       with self.subTest(change=old), self.assertRaises(AssertionError):

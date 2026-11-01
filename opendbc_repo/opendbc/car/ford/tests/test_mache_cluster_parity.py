@@ -98,7 +98,7 @@ def test_shared_feature_ui_saves_opt_in_and_rejects_onroad_stale_or_wrong_vehicl
     owner = FeatureSettingsOwner(saved, lambda group: parked[0],
                                  vehicle_params=lambda: controller.CP,
                                  vehicle_fingerprint=lambda: str(controller.CP.carFingerprint))
-    row = next(r for r in owner.snapshot('torque', parked=True, system_long=True, lateral_context=True, metric=False).rows if r.key == KEY)
+    row = next(r for r in owner.snapshot('torque/bluepilot', parked=True, system_long=True, lateral_context=True, metric=False).rows if r.key == KEY)
     assert row.value == 'Off' and row.available
     request = row_change(row, 1)
     assert request is not None
@@ -109,5 +109,5 @@ def test_shared_feature_ui_saves_opt_in_and_rejects_onroad_stale_or_wrong_vehicl
     assert owner.apply(request)
     assert read_choice(saved)[0] == 1
     assert not owner.apply(request)
-    row = next(r for r in owner.snapshot('torque', parked=True, system_long=True, lateral_context=True, metric=False).rows if r.key == KEY)
+    row = next(r for r in owner.snapshot('torque/bluepilot', parked=True, system_long=True, lateral_context=True, metric=False).rows if r.key == KEY)
     assert row.value == 'On'

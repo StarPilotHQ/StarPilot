@@ -35,10 +35,12 @@ def test_all_dom_profiles_have_shared_setting_and_correct_active_status(identity
     assert qualified(controller.CP)
     owner = FeatureSettingsOwner(saved, lambda group: True, vehicle_params=lambda: controller.CP,
                                  vehicle_fingerprint=lambda: str(identity))
-    row = next(r for r in owner.snapshot('torque', parked=True, system_long=True, lateral_context=True, metric=False).rows if r.key == KEY)
+    row = next(r for r in owner.snapshot('torque/bluepilot', parked=True, system_long=True, lateral_context=True, metric=False).rows if r.key == KEY)
     assert row.available and row.value == 'Off'
     if enabled:
-      assert owner.apply(row_change(row, 1))
+      request = row_change(row, 1)
+      assert request is not None
+      assert owner.apply(request)
     configure_controller(SimpleNamespace(CP=controller.CP, CC=controller), saved)
     assert controller.hands_free_cluster_input.enabled == enabled
     command = structs.CarControl()
@@ -69,7 +71,7 @@ def test_non_canfd_fords_do_not_show_cluster_setting(identity):
     assert controller.hands_free_cluster_input is None
     owner = FeatureSettingsOwner(saved, lambda group: True, vehicle_params=lambda: controller.CP,
                                  vehicle_fingerprint=lambda: str(identity))
-    assert KEY not in {r.key for r in owner.snapshot('torque', parked=True, system_long=True, lateral_context=True, metric=False).rows}
+    assert KEY not in {r.key for r in owner.snapshot('torque/bluepilot', parked=True, system_long=True, lateral_context=True, metric=False).rows}
 
 
 def test_invalid_profile_does_not_enable_display_preference():
@@ -77,7 +79,7 @@ def test_invalid_profile_does_not_enable_display_preference():
     saved = Params()
     Path(saved.get_param_path(KEY)).write_bytes(b'1')
     controller, _ = setup()
-    controller.CP.safetyConfigs[0].safetyParam = 0
+    controller.CP.passive = True
     assert not qualified(controller.CP)
     configure_controller(SimpleNamespace(CP=controller.CP, CC=controller), saved)
     assert controller.hands_free_cluster_input is None

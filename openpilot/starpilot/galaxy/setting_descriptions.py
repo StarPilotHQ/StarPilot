@@ -53,6 +53,7 @@ DESCRIPTIONS = {
   'FasterLeadTakeoff': ('Improves launches from a stop and responds sooner when a lead starts moving. ' +
                         'Selected acceleration profiles, stop detection and vehicle limits still apply.'),
   'CustomPersonalities': 'Uses your following-time and jerk settings for the selected driving personality.',
+  'profile:stopped_gap': 'Adds this distance to the following gap behind a stopped lead vehicle.',
   'profile:global_acceleration': 'Chooses the acceleration curve used by personalities set to Selected Profile.',
   'profile:global_braking': 'Chooses the braking response used by personalities set to Selected Profile.',
   'reset_profiles': 'Restores the default acceleration, braking and following curves and presets.',
@@ -67,6 +68,7 @@ DESCRIPTIONS = {
   'SLCPriority1': 'Chooses the first source checked for a fresh speed limit.',
   'SLCPriority2': 'Chooses the source used when the primary source has no fresh speed limit.',
   'slc_reset': 'Resets saved speed-limit offsets while retaining valid configured speed ranges.',
+  'reset_calibration': 'Clears saved camera and steering calibration. The device recalibrates on the next drive.',
   'reset_driver_monitoring': 'Clear saved wheel-side detection. Automatic detection restarts on the next drive.',
   'AlwaysAllowUploads': 'Allows queued full logs and videos to upload over metered networks. This uses mobile data.',
   'UseVOACC': ('Use vision-only adaptive cruise control instead of radar-assisted lead detection. ' +

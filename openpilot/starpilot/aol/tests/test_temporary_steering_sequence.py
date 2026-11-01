@@ -122,6 +122,7 @@ def test_fresh_active_eps_never_masks_hard_fault_or_bad_original_provenance(faul
     elif fault == 'fault_session':
       proof.aolAxisState.faultSessionId = 'other-selfdrive'
     elif fault == 'cancel':
+      card.aol_card_intent.settings = replace(card.aol_card_intent.settings, cancel_actions=(9, 0, 0))
       temporary.buttonEvents = [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.cancel, pressed=True)]
     elif fault == 'settings_disabled':
       card.aol_card_intent.settings = replace(card.aol_card_intent.settings, enabled=False)
@@ -286,6 +287,7 @@ def test_pending_eps_join_cannot_extend_or_hide_faults(fault):
     elif fault == 'can_timeout':
       temporary.canTimeout = True
     elif fault == 'cancel':
+      card.aol_card_intent.settings = replace(card.aol_card_intent.settings, cancel_actions=(9, 0, 0))
       temporary.buttonEvents = [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.cancel, pressed=True)]
     elif fault == 'settings_disabled':
       card.aol_card_intent.settings = replace(card.aol_card_intent.settings, enabled=False)

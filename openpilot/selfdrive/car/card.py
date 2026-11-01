@@ -1363,7 +1363,8 @@ class Car:
     stamp, receipt = int(sm.logMonoTime['pandaStates']), int(sm.recv_time['pandaStates'] * 1e9)
     pandas = sm['pandaStates']
     owner = getattr(self.vehicle_startup, 'owner', None)
-    count = 2 if isinstance(owner, CapturedADRVStartup) and hyundai_canfd_config_index(owner.cp) == 1 else 1
+    count = 2 if (isinstance(owner, CapturedADRVStartup) and owner.continuity_required() and
+                  hyundai_canfd_config_index(owner.cp) == 1) else 1
     ignition_pandas = pandas
     if (count == 2 and len(pandas) == 2 and
         pandas[0].pandaType == log.PandaState.PandaType.dos and

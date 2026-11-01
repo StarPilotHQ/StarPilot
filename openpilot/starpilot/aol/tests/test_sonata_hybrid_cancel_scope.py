@@ -50,7 +50,7 @@ def test_hybrid_added_scope_preserves_existing_profile_vetoes(defect):
   assert cp.to_dict() == before
 
 
-@pytest.mark.parametrize('case', ['retain', 'settings_off', 'unmapped', 'configured_cancel', 'pause', 'not_latched',
+@pytest.mark.parametrize('case', ['retain', 'settings_off', 'default_buttons', 'configured_cancel', 'pause', 'not_latched',
   'no_raw_source', 'expired_original', 'old_native', 'native_lat_denied', 'native_long_allowed', 'no_long_request',
   'wrong_session', 'wrong_inventory', 'panda_rx', 'panda_fault', 'failed_feedback', 'changed_cp', 'producer',
   'wrong_epoch', 'nonfull', 'hard_fault', 'reverse', 'steer_fault', 'invalid_can', 'no_physical_cancel'])
