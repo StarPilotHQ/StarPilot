@@ -5,6 +5,7 @@ from copy import copy
 from unittest.mock import patch
 import unittest
 
+from opendbc.car.structs import car
 from openpilot.cereal import log
 from openpilot.starpilot.controllers.mode_actions import SwitchbackCooldown
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager
@@ -36,7 +37,7 @@ class TestLaneChangeAlert(unittest.TestCase):
     drive.events = Events()
     drive.events.add(EventName.preLaneChangeLeft)
     self.enterContext(patch.object(drive, "state_machine", SimpleNamespace(current_alert_types=[ET.WARNING], soft_disable_timer=0), create=True))
-    drive.CP = object()
+    drive.CP = car.CarParams.new_message()
     drive.personality = next(iter(log.LongitudinalPersonality.schema.enumerants.values()))
     drive.is_metric = False
     drive.enabled = False

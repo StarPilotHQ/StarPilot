@@ -13,7 +13,7 @@ from openpilot.starpilot.storage import starpilot_storage_root
 
 
 class WeatherSource:
-  def __init__(self, position=None, *, fetch=None, clock=time.monotonic, wall=time.time):
+  def __init__(self, position=None, *, fetch=None, clock=time.monotonic, wall=time.time):  # noqa: TID251 - Weather API timestamps are Unix time; retry intervals use monotonic.
     self.position = position or LastPositionStore(starpilot_storage_root() / 'navigation')
     self.fetch = fetch or self._fetch
     self.clock, self.wall = clock, wall
