@@ -11,14 +11,14 @@ from opendbc.bluepilot_lateral.core.values_ext import FORD_PINION_GEOMETRY_INDEX
 from opendbc.bluepilot_lateral.hosts.starpilot.safety_param import lateral_inputs_required
 from opendbc.bluepilot_lateral.params.manifest import SETTINGS
 from openpilot.starpilot.saved_source import read_saved
+from openpilot.starpilot.car.ford.controller_selection import (KEY as MODE, CHOICES as CONTROLLERS,
+                                                           default_controller, read_controller, encoded_choice)
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.ui.feature_settings_state import FeaturePage, FeatureRow
 
 MANIFEST = {setting.key: setting for setting in SETTINGS}
-MODE = "FordPrefLateralControl"
 PINION = "FordPrefSteerAngleCurvature"
 BLUEPILOT_VERSION, BLUEPILOT_COMMIT = files("opendbc.bluepilot_lateral").joinpath("VERSION").read_text().split()
-CONTROLLERS = ("BluePilot Curvature", "BluePilot Angle")
 SWITCH = ("Off", "On")
 CURVATURE, ANGLE = 0, 1
 
@@ -67,6 +67,9 @@ class FordBluePilotFeature:
 
   def read(self, key):
     """(number or None if invalid, saved raw bytes, readable). An unset key reads its params_keys.h default."""
+    if key == MODE:
+      choice, raw, readable = read_controller(self.owner.vehicle_params(), self.owner.params)
+      return float(choice) if choice is not None else None, raw, readable
     raw, readable = read_saved(self.owner.params, key, 16)
     if not readable:
       return None, raw, False
@@ -83,7 +86,7 @@ class FordBluePilotFeature:
 
   def mode(self):
     number, _, _ = self.read(MODE)
-    return ANGLE if number == 1.0 else CURVATURE
+    return int(number) if number is not None else CURVATURE
 
   def dependencies(self, key):
     safe, safe_readable = read_saved(self.owner.params, "SafeMode", 8)
@@ -138,7 +141,9 @@ class FordBluePilotFeature:
                       repair_value="" if number is not None else shown, reason=reason)
 
   def default(self, key):
-    """The params_keys.h default as a number (StarPilot's own: BluePilot is the default controller)."""
+    """Vehicle-specific controller defaults and the library defaults for its own tuning settings."""
+    if key == MODE:
+      return float(default_controller(self.owner.vehicle_params()))
     default = self.owner.params.get_default_value(key)
     return float(int(default)) if isinstance(default, bool) else float(default)
 
@@ -154,7 +159,7 @@ class FordBluePilotFeature:
   def encode(self, key, value):
     """The bytes to save for a requested display value, or None if it isn't one of the row's values."""
     if key == MODE:
-      return {CONTROLLERS[0]: b"0", CONTROLLERS[1]: b"1"}.get(value)
+      return encoded_choice(value)
     if is_switch(key):
       return {SWITCH[0]: b"0", SWITCH[1]: b"1"}.get(value)
     try:

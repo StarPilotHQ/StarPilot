@@ -139,8 +139,9 @@ DESCRIPTIONS = {
   'conditional:mode': 'Chooses Chill, Experimental or automatic switching based on the configured driving conditions.',
   'conditional:reset': 'Restores the default conditional driving-mode settings.',
   'conditional:manual_reset': 'Returns both remembered manual driving-mode choices to Automatic.',
-  'FordPrefLateralControl': ('Selects BluePilot Curvature or BluePilot Angle. Lane centering and in-lane offset use the global' +
-    ' StarPilot settings.'),
+  'FordPrefLateralControl': ('Chooses BluePilot Curvature, BluePilot Angle or StarPilot Controller. Mach-E and classic Explorer' +
+    ' default to StarPilot; other supported Fords default to BluePilot Curvature. Lane centering and offset use the global' +
+    ' StarPilot settings. Change while parked.'),
   'FordPrefSteerAngleCurvature': ('Measures curvature from the steering pinion angle instead of the yaw-rate sensor, in control and' +
     ' Panda safety. For Fords with a faulty yaw sensor.'),
   'enable_human_turn_detection_curv': 'Eases off steering while you turn the wheel through a turn yourself.',

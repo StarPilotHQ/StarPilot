@@ -37,3 +37,7 @@ Subaru angle support includes implementation maintained and integrated by **Jaco
 The inherited source covers Subaru angle platform/firmware definitions, `ES_Status` cruise state, angle controller/CAN integration, vehicle-model limits and native angle enforcement. StarPilot has additional platform-specific limits, driver handoff, discovery and AOL safety guards; this attribution does not claim identical tuning or complete parity with the reference fork. Original source commits, author names, emails and titles are recorded in [the Subaru origin history](opendbc_repo/opendbc/car/subaru/ORIGIN_HISTORY.tsv).
 
 The explicit StarPilot [jacobw Subaru adapter](opendbc_repo/opendbc/car/subaru/JACOBW.md) additionally integrates that branch's low-speed filter, target-first limiting and Crosstrek EPS envelope. Its preserved stricter guards and platform scope are documented alongside the code.
+
+## StarPilot Ford demand tuning
+
+The optional StarPilot Controller in `openpilot/starpilot/car/ford/starpilot_tuning.py` restores demand tuning from StarPilot `8da0c9d916^`, descended from BluePilot bp-7.0 `e1d051d7ba270261b4455068bd68f1a58db15a4a` through StarPilot `2efe6017bfe14cee4807833e05f9a7f6ba255cdb`. Contributors to that lineage include Alan Polk, John Christman, Jacob Neulight, tonesto7 and Haibin Wen. The current protocol adapter is maintained by StarPilot separately from the pinned BluePilot library; this attribution does not imply BluePilot maintains or endorses the adapted tune.

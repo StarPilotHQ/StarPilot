@@ -52,11 +52,11 @@ def change(o, key, value, row=None):
   return FordBluePilotFeature(o).apply(request)
 
 
-def test_compact_menu_has_two_controllers_and_versioned_options_page(tmp_path):
+def test_compact_menu_has_three_controllers_and_versioned_options_page(tmp_path):
   o = owner(tmp_path)
   primary, options = FordBluePilotFeature(o).rows(True)
   assert primary.key == MODE and primary.label == "Ford Controller"
-  assert primary.choices == ("BluePilot Curvature", "BluePilot Angle")
+  assert primary.choices == ("BluePilot Curvature", "BluePilot Angle", "StarPilot Controller")
   assert primary.value == primary.default_value == CONTROLLERS[0]
   assert options.label == "BluePilot Controller Options" and options.value == BLUEPILOT_VERSION
   assert options.page == FeaturePage.BLUEPILOT and options.available
@@ -219,3 +219,41 @@ def test_real_native_and_galaxy_owners_share_the_options_page(tmp_path):
     assert saved(o, 'enable_human_turn_detection_curv') == b'0'
   finally:
     gateway.close()
+
+
+@pytest.mark.parametrize('car,default', [
+  (CAR.FORD_MUSTANG_MACH_E_MK1, 'StarPilot Controller'),
+  (CAR.FORD_EXPLORER_MK6, 'StarPilot Controller'),
+  (CAR.FORD_F_150_MK14, 'BluePilot Curvature'),
+  (CAR.FORD_ESCAPE_MK4, 'BluePilot Curvature'),
+])
+def test_vehicle_defaults_and_explicit_controller_choices(tmp_path, car, default):
+  from openpilot.starpilot.car.ford.bluepilot import BluePilotInputs, startup_params
+  from openpilot.starpilot.car.ford.controller_selection import FordController
+  o = owner(tmp_path, car)
+  assert rows(o)[MODE].value == rows(o)[MODE].default_value == default
+  save(o, MODE, b'0')
+  assert rows(o)[MODE].value == default
+  for label, raw, choice, vendor_mode in (
+    ('BluePilot Curvature', b'2', FordController.BLUEPILOT_CURVATURE, b'0'),
+    ('BluePilot Angle', b'1', FordController.BLUEPILOT_ANGLE, b'1'),
+    ('StarPilot Controller', b'3', FordController.STARPILOT, b'0'),
+  ):
+    assert change(o, MODE, label)
+    assert saved(o, MODE) == raw and rows(o)[MODE].value == label
+    assert startup_params(o.params, enabled=True)['disable_BP_lat_UI'] == '0'
+    with patch('openpilot.starpilot.car.ford.bluepilot.messaging.SubMaster'):
+      reader = BluePilotInputs(o.params, o.cp)
+    settings = reader.read_settings()
+    assert reader.controller_choice == choice
+    assert next(p.value for p in settings if p.key == MODE) == vendor_mode
+  assert not any(k.endswith(('_curv', '_ang')) for k in rows(o))
+
+
+@pytest.mark.parametrize('raw', [b'4', b'-1', b'1.0', b'bad', b'\xff'])
+def test_invalid_controller_cannot_silently_enable_library(tmp_path, raw):
+  from openpilot.starpilot.car.ford.bluepilot import startup_params
+  o = owner(tmp_path)
+  save(o, MODE, raw)
+  assert rows(o)[MODE].value == 'Invalid saved value'
+  assert startup_params(o.params, enabled=True) == {'disable_BP_lat_UI': '1'}

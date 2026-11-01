@@ -30,9 +30,9 @@ def configure_controller(CI, params):
   from opendbc.bluepilot_lateral.hosts.starpilot.safety_param import lateral_inputs_required
   if controller is not None and lateral_inputs_required(cp) and hasattr(controller, "bluepilot_inputs"):
     from openpilot.starpilot.car.ford.bluepilot import BluePilotInputs, FordBluePilotController
-    controller.bluepilot_inputs = BluePilotInputs(params)
+    controller.bluepilot_inputs = BluePilotInputs(params, cp)
     if hasattr(controller, "bp") and controller.frame == 0:
-      controller.bp = FordBluePilotController(cp, controller.packer, controller.CAN)
+      controller.bp = FordBluePilotController(cp, controller.packer, controller.CAN, controller.bluepilot_inputs)
   if controller is not None and cp.brand == 'gm':
     from opendbc.car.gm.values import (is_bolt_euv_longitudinal, is_volt_longitudinal,
                                      camera_acc_pedal_profile, volt_cc_pedal_profile)

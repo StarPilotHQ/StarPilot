@@ -98,7 +98,7 @@ def ford_joined(identity, alpha, hands_free, monkeypatch, record_property):
     if hasattr(monkeypatch, 'ford_bluepilot'):
       saved.put_bool('disable_BP_lat_UI', not monkeypatch.ford_bluepilot, block=True)
     if hasattr(monkeypatch, 'ford_angle'):
-      saved.put('FordPrefLateralControl', int(monkeypatch.ford_angle), block=True)
+      saved.put('FordPrefLateralControl', 3 if getattr(monkeypatch, 'ford_starpilot', False) else 1 if monkeypatch.ford_angle else 2, block=True)
     if hasattr(monkeypatch, 'ford_pinion'):
       saved.put_bool('FordPrefSteerAngleCurvature', monkeypatch.ford_pinion, block=True)
 
@@ -219,6 +219,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
   lateral_name = 'LateralMotionControl2' if host.CP.flags & FordFlags.CANFD else 'LateralMotionControl'
   lateral_parser = CANParser(DBC[host.CP.carFingerprint][Bus.pt], [(lateral_name, 20)], 0)
   joined.nonzero_after_brake = 0
+  joined.path_angle_after_brake = 0
   joined.active_ui_frames = 0
   active_ui_parser = CANParser('ford_lincoln_base_pt', [('ACCDATA_3', 5)], 0)
 
@@ -598,6 +599,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
                     abs(decoded['LatCtlPath_An_Actl']) > 1e-7 or abs(decoded['LatCtlCurv_No_Actl']) > 1e-7):
                   nonzero_after_brake += 1
                   joined.nonzero_after_brake = nonzero_after_brake
+                  joined.path_angle_after_brake += int(abs(decoded['LatCtlPath_An_Actl']) > 1e-7)
             elif address == 0x186:
               long_parser.update([(source_ns, [(address, bytes(data), frame.src - joined.offset)])])
               active = bool(long_parser.vl['ACCDATA']['Cmbb_B_Enbl'])
