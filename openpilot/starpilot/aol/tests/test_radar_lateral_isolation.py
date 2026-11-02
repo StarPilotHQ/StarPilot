@@ -145,7 +145,7 @@ def test_dead_radard_does_not_hide_other_processes(names, expected):
   with ExitStack() as cleanup:
     sd, _, step = callers(cleanup, 'sdgm')
     step(0, native_request_long=False)
-    with mock.patch('openpilot.selfdrive.selfdrived.selfdrived.driving_process_failures', return_value=names):
+    with mock.patch('openpilot.selfdrive.selfdrived.selfdrived.driving_process_failures', return_value=set(names)):
       axis, _, command = step(1, native_request_long=False)
     assert expected in sd.events.names
     assert bool(axis.lateralActive and command.latActive) == (names == ['radard'])
