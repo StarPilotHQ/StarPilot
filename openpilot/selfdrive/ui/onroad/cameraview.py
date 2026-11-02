@@ -85,14 +85,14 @@ else:
 
 
 class CameraView(Widget):
+  FRAGMENT_SHADER = FRAME_FRAGMENT_SHADER
+
   def __init__(self, name: str, stream_type: VisionStreamType):
     super().__init__()
     self._name = name
-    # Reuse subscribers: destroying a VisionIpcClient doesn't reclaim its msgq reader slot.
-    self._clients = {stream: VisionIpcClient(name, stream, conflate=True) for stream in VisionStreamType}
-    self.client = self._clients[stream_type]
+    self._init_clients(name, stream_type)
     self._stream_type: VisionStreamType = stream_type
-    self.available_streams: set[VisionStreamType] = set()
+    self.available_streams: set[VisionStreamType] | list[VisionStreamType] = set()
 
     # Target stream for switching
     self._target_client: VisionIpcClient | None = None
@@ -101,12 +101,9 @@ class CameraView(Widget):
 
     self._texture_needs_update = True
     self.last_connection_attempt: float = 0.0
-    self.shader = rl.load_shader_from_memory(VERTEX_SHADER, FRAME_FRAGMENT_SHADER)
+    self.shader = rl.load_shader_from_memory(VERTEX_SHADER, self.FRAGMENT_SHADER)
     self._texture1_loc: int = rl.get_shader_location(self.shader, "texture1") if not COMMA_HARDWARE else -1
-    self._color_strength_loc = rl.get_shader_location(self.shader, "color_strength")
-    self._color_strength_val = np.zeros(1, dtype=np.float32)
-    self._road_camera_loc = rl.get_shader_location(self.shader, "road_camera")
-    self._road_camera_val = np.array([int(stream_type in ROAD_STREAMS)], dtype=np.int32)
+    self._init_color_uniforms(stream_type)
 
     self.frame: VisionBuf | None = None
     self.texture_y: rl.Texture | None = None
@@ -129,6 +126,17 @@ class CameraView(Widget):
       rl.unload_image(temp_image)
 
     ui_state.add_offroad_transition_callback(self._offroad_transition)
+
+  def _init_clients(self, name: str, stream_type: VisionStreamType):
+    # Reuse subscribers: destroying a VisionIpcClient doesn't reclaim its msgq reader slot.
+    self._clients = {stream: VisionIpcClient(name, stream, conflate=True) for stream in VisionStreamType}
+    self.client = self._clients[stream_type]
+
+  def _init_color_uniforms(self, stream_type: VisionStreamType):
+    self._color_strength_loc = rl.get_shader_location(self.shader, "color_strength")
+    self._color_strength_val = np.zeros(1, dtype=np.float32)
+    self._road_camera_loc = rl.get_shader_location(self.shader, "road_camera")
+    self._road_camera_val = np.array([int(stream_type in ROAD_STREAMS)], dtype=np.int32)
 
   def _offroad_transition(self):
     # Discard queued frames from the previous drive without recreating subscribers.
