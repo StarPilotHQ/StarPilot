@@ -9,7 +9,7 @@
     "opendbc_repo/opendbc/car/include/c++.capnp": "fb306076cd38c27af1aed20fac6395e9a46fbe5b5df6a248b5f1b6845a079c44",
     "opendbc_repo/opendbc/car/rlog.capnp": "76331a09f36764d08228ba1ed6c03419cc8cdfcc797db98c4d56fab52a6ac050"
   },
-  "log_sha256": "8a2891925ca8a2d0a59d98fd4dbe3585c77e16a2e02db6c8029cb0964b2dce84",
+  "log_sha256": "aa5d562b94a3452f067eb74299c7997716862b84e2276113786f80492f8f59f8",
   "custom_header": "using Cxx = import \"/include/c++.capnp\";\n$Cxx.namespace(\"cereal\");\nusing Car = import \"/car.capnp\";\n\n@0xb526ba661d550a59;\n\n# custom.capnp: a home for empty structs reserved for custom forks\n# These structs are guaranteed to remain reserved and empty in mainline\n# cereal, so use these if you want custom events in your fork.\n\n# DO rename the structs\n# DON'T change the identifier (e.g. @0x81c2f05a394cf4af)\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n# Automatic FLM adds children only to existing reserved fork carriers.\n# All evidence clocks are explicitly MONOTONIC; default/version0 is invalid.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n# Live tracking trials are a separate protocol, never ReplayValidation.\n\n\n\n\n\n\n\n\n",
   "historical_empty_slots": [],
   "historical_restored": {
@@ -376,5 +376,12 @@
     "schema_sha256": "495664ec8d6e9def2419d910399efc30dc1899930a50648d11812323a5d8cdf5",
     "generated_header_sha256": "e00c814e7828bf5eb4e38893a7eaaf6a9317b317bec7af23922eccb44b39d13f",
     "reason": "Review the already shipped Global FLM Auto Learn payload children and reserved Event @112 carrier. Existing upstream schemas, type IDs, field ordinals and exact helper bodies remain pinned."
+  },
+  "log_reference": {
+    "validated_fork_baseline_commit": "aa397cad544b52f27f1bf0364ac476c360adb44d",
+    "validated_baseline_sha256": "4036fc4a3e653d877eee57a902fe59776dca607d95c17d29ca46b0db4c9313d9",
+    "upstream_patch_commits": [
+      "e3761688184285e2ba960da4184b2b5beceed4d6"
+    ]
   }
 }
