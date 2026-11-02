@@ -2014,12 +2014,11 @@ progress { max-width: 100%; accent-color: var(--primary); }
   --g-track: color-mix(in srgb, var(--on-surface) 16%, var(--background));  /* opaque, so overlapping segments never show a seam */
   --g-accent: var(--primary);
   --g-done: var(--success);
-  --g-thumb: rgba(255, 255, 255, .18);
   display: grid; gap: var(--sp-5); padding: 28px 28px var(--sp-5); border-radius: var(--radius-lg); margin-block: var(--sp-4);
   font-family: var(--font-body);
   font-size: 16px; line-height: 1.4; color: var(--g-ink); -webkit-font-smoothing: antialiased;
+  background-image: radial-gradient(120% 38% at 50% 0, var(--primary-container), transparent 72%);   /* a soft purple wash behind the steps */
 }
-[data-theme="light"] .gx-card.gx-guided { --g-thumb: #fff; }
 
 /* The step track: three numbered nodes on a line that fills as the setup moves along. */
 .gx-guided__steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); }
@@ -2035,7 +2034,7 @@ progress { max-width: 100%; accent-color: var(--primary); }
   font-size: 15px; font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; background: var(--g-fill); color: var(--g-muted);
   transition: background var(--motion-base), color var(--motion-base), box-shadow var(--motion-base);
 }
-.gx-guided__step.is-current .gx-guided__node { background: var(--g-accent); color: var(--on-primary); box-shadow: 0 0 0 5px color-mix(in srgb, var(--g-accent) 24%, transparent); }
+.gx-guided__step.is-current .gx-guided__node { background: var(--g-accent); color: var(--on-primary); box-shadow: 0 0 0 5px color-mix(in srgb, var(--g-accent) 28%, transparent), 0 4px 16px var(--primary-glow); }
 .gx-guided__step.is-done .gx-guided__node { background: var(--g-done); color: var(--background); animation: gx-guided-pop var(--motion-slow); }
 .gx-guided__step-label { font-size: 13px; font-weight: var(--fw-bold); color: var(--g-muted); }
 .gx-guided__step.is-current .gx-guided__step-label { color: var(--g-ink); }
@@ -2084,6 +2083,8 @@ progress { max-width: 100%; accent-color: var(--primary); }
   flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: var(--radius-full); font-size: 14px; color: transparent;
   border: 1.5px solid color-mix(in srgb, var(--on-surface) 28%, transparent); transition: background var(--motion-base), border-color var(--motion-base);
 }
+.gx-guided__option[aria-checked="true"] { background: var(--primary-container); }
+.gx-guided__option[aria-checked="true"] .gx-guided__tile { background: var(--g-accent); color: var(--on-primary); box-shadow: 0 2px 10px var(--primary-glow); }
 .gx-guided__option[aria-checked="true"] .gx-guided__radio { background: var(--g-accent); border-color: var(--g-accent); color: var(--on-primary); }
 
 /* Segmented control for the adapter and app choices (Galaxy has none). */
@@ -2093,7 +2094,7 @@ progress { max-width: 100%; accent-color: var(--primary); }
   font: inherit; font-size: 15px; font-weight: var(--fw-medium); line-height: 1.2; text-wrap: balance; cursor: pointer;
   transition: background var(--motion-base), color var(--motion-base), box-shadow var(--motion-base);
 }
-.gx-guided__segmented button.is-selected { background: var(--g-thumb); color: var(--g-ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .22), 0 0 0 .5px rgba(0, 0, 0, .06); }
+.gx-guided__segmented button.is-selected { background: var(--g-accent); color: var(--on-primary); box-shadow: 0 2px 12px var(--primary-glow); }
 .gx-guided__segmented button:not(.is-selected):hover:not(:disabled) { color: var(--g-ink); }
 .gx-guided__segmented button:disabled { opacity: .6; cursor: default; }
 
@@ -2131,7 +2132,7 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-guided .gx-btn { min-height: 44px; border-radius: var(--radius-sm); font-size: 16px; font-weight: var(--fw-bold); letter-spacing: -.01em; padding-inline: 18px; box-shadow: none; }
 .gx-guided .gx-btn--tonal { background: var(--g-fill-hover); color: var(--g-ink); border: 0; }
 .gx-guided .gx-btn--tonal:hover:not(:disabled) { background: var(--g-line); }
-.gx-guided .gx-starport-cta { width: 100%; min-height: 54px; border-radius: var(--radius-md); font-size: 17px; }
+.gx-guided .gx-starport-cta { width: 100%; min-height: 54px; border-radius: var(--radius-md); font-size: 17px; box-shadow: 0 6px 22px var(--primary-glow); }
 .gx-guided__footer { display: grid; gap: var(--sp-3); justify-items: stretch; }
 .gx-guided__footer .gx-guided__hint { text-align: center; }
 .gx-guided__link { justify-self: center; padding: var(--sp-2) var(--sp-3); border: 0; background: none; color: var(--g-accent); font: inherit; font-size: 15px; font-weight: var(--fw-medium); cursor: pointer; }
