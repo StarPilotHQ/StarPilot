@@ -234,8 +234,11 @@ class Modem:
       return "unknown"
 
   @staticmethod
-  def _has_modem_manager() -> bool:
-    return os.path.isfile("/lib/systemd/system/ModemManager.service")
+  def _system_modem_service() -> str | None:
+    for service in ("modem", "ModemManager"):
+      if os.path.isfile(f"/lib/systemd/system/{service}.service"):
+        return service
+    return None
 
   def _is_roaming_allowed(self) -> bool:
     if self.S["iccid"].startswith(WEBBING_ICCID_PREFIX):
@@ -543,9 +546,7 @@ class Modem:
     return {}
 
   def _read_cellular_dns(self) -> list[str]:
-    v = self._atv(f"AT+CGCONTRDP={DIAL_CID}", "+CGCONTRDP:")
-    if not v:
-      return []
+    v = self._atv(f"AT+CGCONTRDP={DIAL_CID}", "+CGCONTRDP:") or ""
     # +CGCONTRDP: <cid>,<bearer_id>,<apn>,<local_addr>,<gw_addr>,<dns_prim>,<dns_sec>,...
     fields = [f.strip().strip('"') for f in v.split(",")]
     dns_servers = []
@@ -583,10 +584,9 @@ class Modem:
 
   def run(self):
     logging.info("starting")
+    if service := self._system_modem_service():
+      subprocess.run(["sudo", "systemctl", "mask", "--runtime", "--now", service], capture_output=True, check=True)
     self._publish_state(state=State.INITIALIZING.value)
-    if self._has_modem_manager():
-      subprocess.run(["sudo", "systemctl", "mask", "--runtime", "ModemManager"], capture_output=True)
-      subprocess.run(["sudo", "systemctl", "stop", "ModemManager"], capture_output=True)
     self._ppp.kill()
 
     state = State.INITIALIZING
@@ -620,9 +620,9 @@ class Modem:
       os.remove(STATE_PATH)
     except FileNotFoundError:
       pass
-    if self._has_modem_manager():
-      subprocess.run(["sudo", "systemctl", "unmask", "--runtime", "ModemManager"], capture_output=True)
-      subprocess.run(["sudo", "systemctl", "start", "ModemManager"], capture_output=True)
+    if service := self._system_modem_service():
+      subprocess.run(["sudo", "systemctl", "unmask", "--runtime", service], capture_output=True)
+      subprocess.run(["sudo", "systemctl", "start", service], capture_output=True)
 
 
 def main():
