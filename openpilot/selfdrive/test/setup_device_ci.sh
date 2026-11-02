@@ -61,6 +61,10 @@ sleep infinity
 EOF
 chmod +x "$CONTINUE_PATH"
 
+if pgrep -f launch_chffrplus.sh > /dev/null; then
+  sudo systemctl stop comma
+fi
+
 safe_checkout() {
   # completely clean TEST_DIR
 
