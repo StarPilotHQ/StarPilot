@@ -32,6 +32,9 @@ STEER_MIN_THRESHOLD = 0.02
 MIN_FILTER_DECAY = 50
 MAX_FILTER_DECAY = 250
 LAT_ACC_THRESHOLD = 1
+# Ioniq 6 makes ~4.5 m/s^2 per unit torque; the default cap empties its outer buckets
+IONIQ_6_LAT_ACC_THRESHOLD = 2.5
+IONIQ_6_FACTOR_SANITY = 0.5
 STEER_BUCKET_BOUNDS = [(-0.5, -0.3), (-0.3, -0.2), (-0.2, -0.1), (-0.1, 0), (0, 0.1), (0.1, 0.2), (0.2, 0.3), (0.3, 0.5)]
 MIN_BUCKET_POINTS = np.array([100, 300, 500, 500, 500, 500, 300, 100])
 MIN_ENGAGE_BUFFER = 2  # secs
@@ -72,6 +75,11 @@ class TorqueEstimator(ParameterEstimator):
       self.fit_points = FIT_POINTS_TOTAL
       self.factor_sanity = FACTOR_SANITY
       self.friction_sanity = FRICTION_SANITY
+
+    self.lat_acc_threshold = LAT_ACC_THRESHOLD
+    if str(CP.carFingerprint) == 'HYUNDAI_IONIQ_6':
+      self.lat_acc_threshold = IONIQ_6_LAT_ACC_THRESHOLD
+      self.factor_sanity = max(self.factor_sanity, IONIQ_6_FACTOR_SANITY)
 
     self.offline_friction = 0.0
     self.offline_latAccelFactor = 0.0
@@ -211,7 +219,7 @@ class TorqueEstimator(ParameterEstimator):
         steer = np.interp(t, self.raw_points['carOutput_t'], self.raw_points['steer_torque']).item()
         lateral_acc = (vego * yaw_rate) - (np.sin(roll) * ACCELERATION_DUE_TO_GRAVITY).item()
         if all(lat_active) and not any(steer_override) and (vego > MIN_VEL) and (abs(steer) > STEER_MIN_THRESHOLD):
-          if abs(lateral_acc) <= LAT_ACC_THRESHOLD:
+          if abs(lateral_acc) <= self.lat_acc_threshold:
             self.filtered_points.add_point(steer, lateral_acc)
 
           if self.track_all_points:

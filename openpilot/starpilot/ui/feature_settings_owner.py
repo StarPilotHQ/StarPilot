@@ -77,7 +77,7 @@ from openpilot.starpilot.controllers.toyota_cruise import capability as toyota_c
 GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, "DisengageOnAccelerator"))
 
 BOOL_DEFAULTS = {
-  "GMPedalLongitudinal": False, "ForceStops": False, "AlwaysAllowUploads": False, "TurnAssist": True,
+  "GMPedalLongitudinal": False, "ForceStops": False, "AlwaysAllowUploads": False, "TurnAssist": True, "HighwaySmoothing": False,
   "SubaruAvhStartup": False,
   "SubaruStopStartOff": False,
   "SubaruSNG": False,
@@ -806,6 +806,64 @@ class FeatureSettingsOwner:
                           authorized=authorized, temp_prefix=".turn-assist-")
     return result.committed and result.verified
 
+  def _highway_smoothing_capability(self) -> tuple | None:
+    from openpilot.starpilot.lateral.controller_selection import policy_for
+    cp = self.vehicle_params()
+    if cp is None or policy_for(cp) != 'ioniq6':
+      return None
+    return (cp.carFingerprint, cp.lateralTuning.which(), str(cp.steerControlType), cp.passive, cp.dashcamOnly, cp.notCar,
+            tuple((str(config.safetyModel), int(config.safetyParam)) for config in cp.safetyConfigs))
+
+  def _highway_smoothing_rows(self, configurable: bool) -> list[FeatureRow]:
+    from openpilot.selfdrive.controls.lib.highway_correction_gain import DEFAULT_GAIN, ENABLE_KEY, GAIN_KEY, MIN_GAIN
+    capability = self._highway_smoothing_capability()
+    allowed = configurable and self.authority("torque") and capability is not None
+    toggle = self._bool_row(ENABLE_KEY, "Highway Smoothing", allowed)
+    rows = [replace(toggle, capability=capability, vehicle_fingerprint=self.vehicle_fingerprint(), dependencies=(),
+                    reason=toggle.reason if toggle.value not in ("On", "Off") else
+                           ("Calms highway weave on straights and steady curves above 35 mph. Applies within one second."
+                            if capability is not None else "Highway Smoothing is available on the Ioniq 6"))]
+    if toggle.value != "On":
+      return rows
+    value, raw, valid = self._value(GAIN_KEY)
+    try:
+      number = DEFAULT_GAIN if raw is None else float(value)
+      valid = valid and self._readable(GAIN_KEY) and math.isfinite(number) and MIN_GAIN <= number <= 1.0
+    except ValueError:
+      valid, number = False, DEFAULT_GAIN
+    rows.append(FeatureRow(GAIN_KEY, "Strength", f"{number:.2f}" if valid else "Invalid saved value", raw,
+                           step=0.05 if valid else 0., minimum=MIN_GAIN, maximum=1.0,
+                           available=allowed and (valid or self.authority("parked_preferences") and self._readable(GAIN_KEY)),
+                           repair_value=str(DEFAULT_GAIN) if not valid else "", default_value=str(DEFAULT_GAIN),
+                           vehicle_fingerprint=self.vehicle_fingerprint(), capability=capability,
+                           reason="Lower values follow the model's quick back-and-forth corrections less. 1.00 matches off."))
+    return rows
+
+  def _apply_highway_smoothing(self, request: FeatureSettingsRequest) -> bool:
+    from openpilot.selfdrive.controls.lib.highway_correction_gain import ENABLE_KEY, MIN_GAIN
+    def authorized():
+      row = next((row for row in self._highway_smoothing_rows(self.authority("preferences")) if row.key == request.key), None)
+      return (row is not None and row.available and (not row.repair_value or request.value == row.repair_value) and
+              row.capability == request.capability and row.vehicle_fingerprint == request.vehicle_fingerprint and
+              row.source == request.expected and request.related_source is None and not request.direction)
+    if not authorized():
+      return False
+    if request.key == ENABLE_KEY:
+      if request.value not in ("Off", "On"):
+        return False
+      raw = b"1" if request.value == "On" else b"0"
+    else:
+      try:
+        number = float(request.value)
+      except ValueError:
+        return False
+      if not math.isfinite(number) or not MIN_GAIN <= number <= 1.0:
+        return False
+      raw = str(number).encode()
+    result = commit_exact(self.params, key=request.key, max_bytes=128, raw=raw, expected=request.expected,
+                          authorized=authorized, temp_prefix=".highway-smoothing-")
+    return result.committed and result.verified
+
   def snapshot(self, page: str, *, parked: bool, system_long: bool, lateral_context: bool, metric: bool,
                configure_while_driving: bool = False) -> FeatureSettingsState:
     selected_vehicle = self._vehicle_params_source()
@@ -838,6 +896,10 @@ class FeatureSettingsOwner:
               FeatureRow("", "Steering and Torque", "Select the steering controller and tune its response", page=FeaturePage.TORQUE, available=True),
               FeatureRow("", "Always On Lateral", "Keep steering assistance active independently of cruise control", page=FeaturePage.AOL, available=True),
               FeatureRow("", "Wheel Controls", "Assign steering-wheel buttons and cruise behavior", page=FeaturePage.WHEEL, available=True)]
+      if self._highway_smoothing_capability() is not None:
+        rows.insert(rows.index(next(row for row in rows if row.page == FeaturePage.TORQUE)) + 1,
+                    FeatureRow("", "Highway Smoothing", "Calm highway weave on straights and steady curves",
+                               page=FeaturePage.HIGHWAY_SMOOTHING, available=True))
       if (self._long_pitch_capability() is not None or self._bolt_disable_capability() is not None or
           self._auto_hold_capability() is not None or self._toyota_sng_capability() is not None or self._jeep_hold_capability() is not None or
           self._toyota_radar_capability() is not None or self._pedal_setup_capability() is not None or
@@ -1047,6 +1109,9 @@ class FeatureSettingsOwner:
       if learning_row is not None:
         rows.append(learning_row)
       rows.extend(numeric_rows)
+    elif page == FeaturePage.HIGHWAY_SMOOTHING:
+      title = "Highway Smoothing"
+      rows.extend(self._highway_smoothing_rows(configurable))
     elif page == FeaturePage.AOL:
       title = "Always On Lateral"
       rows.extend(self._lateral_pause_rows(configurable))
@@ -1366,6 +1431,8 @@ class FeatureSettingsOwner:
       return FordBluePilotFeature(self).apply(request)
     if key == "TurnAssist":
       return self._apply_turn_assist(request)
+    if key in ("HighwaySmoothing", "HighwayCorrectionGain"):
+      return self._apply_highway_smoothing(request)
     if key == 'LateralControllerSelection':
       return self.controller.apply(request)
     if key == SETUP_ACTION:

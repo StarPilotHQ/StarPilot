@@ -59,6 +59,7 @@ class FeaturePage(StrEnum):
   TORQUE = "torque"
   BLUEPILOT = "torque/bluepilot"
   AOL = "aol"
+  HIGHWAY_SMOOTHING = "highway_smoothing"
   WHEEL = "wheel"
   CONDITIONAL = "conditional"
   CONDITIONAL_CEM = "conditional/cem"
