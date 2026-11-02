@@ -22,6 +22,7 @@ from unittest.mock import patch
 
 for path in ("openpilot.selfdrive.ui.onroad.cameraview", "openpilot.selfdrive.ui.mici.onroad.cameraview"):
   module = import_module(path)
+  owner = import_module(module.CameraView._clear_textures.__module__)
   for hardware in (False, True):
     view = object.__new__(module.CameraView)
     view.texture_y, view.texture_uv = SimpleNamespace(id=11), SimpleNamespace(id=12)
@@ -32,9 +33,10 @@ for path in ("openpilot.selfdrive.ui.onroad.cameraview", "openpilot.selfdrive.ui
     view._clients = {}
     textures, shaders, images = [], [], []
     with patch.object(module, "COMMA_HARDWARE", hardware), \\
+         patch.object(owner, "COMMA_HARDWARE", hardware), \\
          patch.object(module.rl, "unload_texture", side_effect=lambda texture: textures.append(texture.id)), \\
          patch.object(module.rl, "unload_shader", side_effect=lambda shader: shaders.append(shader.id)), \\
-         patch.object(module, "destroy_egl_image", side_effect=images.append):
+         patch.object(owner, "destroy_egl_image", side_effect=images.append):
       try:
         view.close()
         view.close()
