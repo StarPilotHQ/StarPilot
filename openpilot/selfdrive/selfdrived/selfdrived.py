@@ -829,8 +829,10 @@ class SelfdriveD:
   def source_deadline_deferral_supported(self):
     from openpilot.starpilot.car.hyundai.aol import source_deadline_supported
     from openpilot.starpilot.car.toyota.aol import qualified as qualified_toyota
+    from opendbc.car.mazda.stock_aol import qualified as qualified_mazda
     return (qualified_ioniq6(self.CP) or qualified_gm(self.CP) or source_deadline_supported(self.CP) or
-            qualified_toyota(self.CP, marked_only=True) or self.ford_source_deadline_supported())
+            qualified_toyota(self.CP, marked_only=True) or qualified_mazda(self.CP, marked_only=True) or
+            self.ford_source_deadline_supported())
 
   def held_axis_override_wait(self, CS, proof, now_ns, *, fresh_successor=False):
     """Recognize an already applied override; never admit a new physical edge."""
