@@ -6,6 +6,8 @@ import pytest
 
 from openpilot.cereal import log, messaging
 from openpilot.common.prefix import OpenpilotPrefix
+from opendbc.car.hyundai.values import CAR
+from openpilot.starpilot.aol.tests.test_classic_long_profiles import params as classic_params
 from openpilot.starpilot.aol.runtime import current_native
 from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback
 from openpilot.starpilot.aol.wire import encode_safety
@@ -26,8 +28,8 @@ def wire(sd, now, *, health_controls=True, lateral=True):
   return message
 
 
-def callers(case):
-  return case._authority_callers(True, cp=ev6_params(), genuine_events=True)
+def callers(case, cp=None):
+  return case._authority_callers(True, cp=ev6_params() if cp is None else cp, genuine_events=True)
 
 
 def test_ev6_early_brake_mask_is_not_an_immediate_fault():
@@ -83,15 +85,18 @@ def test_card_feedback_accepts_only_existing_lateral_grant_during_early_long_dro
     assert not feedback.failed
 
 
+@pytest.mark.parametrize('identity', (None, CAR.HYUNDAI_ELANTRA_2021))
+@pytest.mark.parametrize('steering', (False, True))
 @pytest.mark.parametrize('fault', ('lateral_denied', 'invalid', 'rx', 'heartbeat', 'inventory', 'session', 'expired'))
-def test_early_long_classification_never_retains_denied_or_invalid_lateral(fault):
+def test_early_long_classification_never_retains_denied_or_invalid_lateral(fault, steering, identity):
   case = fixture.IoniqAvailabilityTests(methodName='runTest')
   with ExitStack() as cleanup:
     cleanup.callback(case.doCleanups)
     cleanup.enter_context(OpenpilotPrefix())
-    sd, _, drive = callers(case)
+    cp = ev6_params() if identity is None else classic_params(identity, lda=True)
+    sd, _, drive = callers(case, cp)
     for tick in range(2):
-      axis, _, command = drive(tick)
+      axis, _, command = drive(tick, steering=steering)
       assert axis.lateralActive and command.latActive and command.longActive
     now = BASE + 20_000_000
     event = wire(sd, now, lateral=fault != 'lateral_denied')
@@ -110,7 +115,7 @@ def test_early_long_classification_never_retains_denied_or_invalid_lateral(fault
       native = replace(native, observedMonoTime=now - 200_000_001, validUntilMonoTime=now - 1)
       event.logMonoTime = native.observedMonoTime
     event.aolSafetyWire = encode_safety(native)
-    axis, state, command = drive(2, native_request_lat=True, native_request_long=True,
+    axis, state, command = drive(2, steering=steering, native_request_lat=True, native_request_long=True,
       long_allowed=False, panda_controls_allowed=False, safety_message=event)
     assert not axis.lateralActive and not command.latActive
     assert not axis.longitudinalActive and not command.longActive
@@ -154,3 +159,90 @@ def test_exact_torque_long_profile_boundary(change):
   elif change == 'wrong_identity':
     cp.carFingerprint = 'KIA_EV9'
   assert early_native_long_withdrawal_supported(cp) == (change == 'none')
+
+
+@pytest.mark.parametrize('identity,health_controls', [
+  (identity, health) for identity in (CAR.HYUNDAI_ELANTRA_2021, CAR.HYUNDAI_SONATA, CAR.HYUNDAI_IONIQ, CAR.HYUNDAI_KONA_EV, None)
+  for health in (False, True)
+] + [(CAR.KIA_EV9, False), (CAR.HYUNDAI_IONIQ_5_PE, False)])
+@pytest.mark.parametrize('steering', (False, True))
+def test_fresh_native_long_withdrawal_preserves_lateral(identity, steering, health_controls):
+  case = fixture.IoniqAvailabilityTests(methodName='runTest')
+  with ExitStack() as cleanup:
+    cleanup.callback(case.doCleanups)
+    cleanup.enter_context(OpenpilotPrefix())
+    if identity in (CAR.KIA_EV9, CAR.HYUNDAI_IONIQ_5_PE):
+      from opendbc.car.hyundai.tests.test_ioniq5pe_stock import params as angle_params
+      from opendbc.car.hyundai.ev9_longitudinal import candidate as ev9_candidate
+      from opendbc.car.hyundai.ioniq5pe_long_profile import candidate as pe_candidate
+      candidate = ev9_candidate if identity == CAR.KIA_EV9 else pe_candidate
+      cp = candidate(angle_params(candidate=identity), enabled=True, is_release=False)
+      assert cp is not None
+    else:
+      cp = ev6_params() if identity is None else classic_params(identity, lda=True)
+    sd, _, drive = case._authority_callers(True, cp=cp, genuine_events=True)
+    for tick in range(10):
+      axis, state, command = drive(tick, steering=steering)
+      assert state.enabled and axis.lateralActive and axis.longitudinalActive
+      assert command.latActive and command.longActive
+    now = BASE + 100_000_000
+    native = wire(sd, now, health_controls=health_controls)
+    axis, state, command = drive(10, steering=steering, native_request_lat=True, native_request_long=True,
+      long_allowed=False, panda_controls_allowed=False, safety_message=native)
+    assert log.OnroadEvent.EventName.controlsMismatch not in sd.events.names, 'EARLY_LONG_WITHDRAWAL_WITH_STEERING_MISCLASSIFIED'
+    assert state.enabled and axis.lateralActive and command.latActive
+    assert not axis.longitudinalActive and not command.longActive
+    assert sd.mismatch_counter > 0
+    axis, state, command = drive(11, brake=True, steering=steering, native_request_lat=True, native_request_long=True,
+      long_allowed=False, panda_controls_allowed=False)
+    assert not state.enabled and not state.active
+    assert axis.lateralActive and command.latActive
+    assert not axis.longitudinalActive and not command.longActive
+    assert log.OnroadEvent.EventName.controlsMismatch not in sd.events.names
+
+
+def test_actual_classic_card_keeps_latch_through_steering_brake_and_cancel(monkeypatch):
+  from openpilot.common.params import Params
+  from openpilot.selfdrive.car import card as card_module
+  from openpilot.starpilot.aol.tests.classic_startup_test_helpers import prepared_classic_card
+  case = fixture.IoniqAvailabilityTests(methodName='runTest')
+  with ExitStack() as cleanup:
+    cleanup.callback(case.doCleanups)
+    cleanup.enter_context(OpenpilotPrefix())
+    saved = Params()
+    saved.put('LKASButtonControl', 9, block=True)
+    saved.put('MainCruiseButtonControl', 0, block=True)
+    def prepare_card(CI, RI, startup_owner=None):
+      from opendbc.car.hyundai.classic_long_aol import ordinary_word
+      cp = CI.CP.as_reader().as_builder()
+      cp.alternativeExperience = 0
+      cp.safetyConfigs[0].safetyParam = ordinary_word(cp)
+      return prepared_classic_card(cp)
+    monkeypatch.setattr(card_module, 'Car', prepare_card)
+    sd, _, drive, card, receive = case._ioniq_availability_callers(
+      full_op=True, cp=classic_params(CAR.HYUNDAI_ELANTRA_2021, lda=True))
+    cleanup.callback(card.vehicle_startup.close)
+    sd.aol_settings = card.aol_card_intent.settings
+    for tick in range(2, 10):
+      axis, _, _ = drive(tick, steering=True)
+      assert receive(BASE + tick * 10_000_000, state=sd.CS_prev.as_builder(),
+        axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
+    now = BASE + 100_000_000
+    axis, _, command = drive(10, steering=True, native_request_long=True, long_allowed=False,
+      panda_controls_allowed=False, safety_message=wire(sd, now))
+    assert axis.lateralActive and command.latActive and not command.longActive
+    assert receive(now, state=sd.CS_prev.as_builder(), axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
+    for tick, brake in ((11, True), (12, False)):
+      axis, state, command = drive(tick, steering=True, brake=brake, native_request_long=False,
+        long_allowed=False, panda_controls_allowed=False)
+      assert not state.enabled and axis.lateralActive and command.latActive and not command.longActive
+      assert receive(BASE + tick * 10_000_000, state=sd.CS_prev.as_builder(),
+        axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
+    cs = fixture.car_state()
+    cs.buttonEvents = [{'type': 'cancel', 'pressed': True}]
+    axis, state, command = drive(13, observed_state=cs, native_request_long=False,
+      long_allowed=False, panda_controls_allowed=False)
+    assert not state.enabled and axis.lateralActive and command.latActive and not command.longActive
+    assert receive(BASE + 130_000_000, state=sd.CS_prev.as_builder(),
+      axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
+    assert card.aol_card_intent.allowed_latch

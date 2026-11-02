@@ -1817,6 +1817,8 @@ class SelfdriveD:
     # publication, live LAT grant and every health/deadline check below still apply.
     ordinary_ford = bool(self.CP.brand == 'ford' and self.CP.openpilotLongitudinalControl and self.CP.safetyConfigs and
       ford_native_accepts_cp(self.CP, int(car.CarParams.SafetyModel.ford), self.CP.safetyConfigs[-1].safetyParam))
+    # Driver steering does not invalidate a still-current native LAT grant.
+    steering_override_allowed = ordinary_ford or self.CP.brand == 'hyundai'
     proof = getattr(self, 'aol_published_input_proof', None)
     prior = getattr(self, 'aol_published_input_native', None)
     anchor = getattr(self, 'aol_ordinary_source_anchor', None)
@@ -1835,10 +1837,10 @@ class SelfdriveD:
         proof[5] != companion.integrity_epoch or not ((intent.allowedLatch and intent.lateralArmed) or ordinary_ford) or
         not native.requestedLateral or not native.lateralAllowed or
         not native.requestedLongitudinal or native.longitudinalAllowed or not native.pandaInventory or
-        CS.brakePressed or CS.regenBraking or CS.gasPressed or CS.steeringPressed and not ordinary_ford or
+        CS.brakePressed or CS.regenBraking or CS.gasPressed or CS.steeringPressed and not steering_override_allowed or
         any(self.events.contains(kind) for kind in (ET.IMMEDIATE_DISABLE, ET.SOFT_DISABLE, ET.USER_DISABLE,
                                                   ET.OVERRIDE_LONGITUDINAL)) or
-        not ordinary_ford and self.events.contains(ET.OVERRIDE_LATERAL)):
+        not steering_override_allowed and self.events.contains(ET.OVERRIDE_LATERAL)):
       return False
     def identity(state):
       return (state.axisSessionId, state.pandaSerial, state.safetyModel, state.safetyParam,
