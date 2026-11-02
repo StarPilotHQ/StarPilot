@@ -136,6 +136,9 @@ def policy_for(CP) -> str | None:
     return 'bolt'
   if corolla_supported(CP):
     return 'corolla_tss2'
+  from openpilot.starpilot.lateral.prius_policy import supported_cp as prius_supported
+  if prius_supported(CP):
+    return 'prius'
   from openpilot.starpilot.lateral.rav4_tss2_policy import supported_cp as rav4_supported
   if rav4_supported(CP):
     return 'rav4_tss2'

@@ -160,13 +160,13 @@ class ToyotaTorqueFamilyTests(unittest.TestCase):
     eps = structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, fwVersion=b'other-prius-eps')
     cp = interface.get_params(car_id, gen_empty_fingerprint(), [eps], False, False, False)
     self.assertTrue(supported_cp(cp))
-    self.assertAlmostEqual(cp.lateralTuning.torque.steeringAngleDeadzoneDeg, 0.2)
+    self.assertAlmostEqual(cp.lateralTuning.torque.steeringAngleDeadzoneDeg, 0.3)
     with OpenpilotPrefix():
       host = TorqueHost(Params(), cp)
       self.assertEqual(host.vehicle.upstream_update(), (cp.lateralTuning.torque.latAccelFactor,
                                                        cp.lateralTuning.torque.latAccelOffset, cp.lateralTuning.torque.friction))
     controller = LatControlTorque(cp.as_reader(), interface(cp), DT_CTRL)
-    self.assertAlmostEqual(controller.steering_angle_deadzone_deg, 0.2)
+    self.assertAlmostEqual(controller.steering_angle_deadzone_deg, 0.3)
 
 
 if __name__ == '__main__':

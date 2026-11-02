@@ -156,6 +156,7 @@ AOL_LIFECYCLE_TARGETS = (
   "openpilot/starpilot/car/toyota/tests/test_prius_sdsu_filter.py",
   "openpilot/starpilot/car/toyota/tests/test_prius_sdsu_callers.py",
   "opendbc_repo/opendbc/car/toyota/tests/test_retrofit_discovery.py",
+  "openpilot/starpilot/lateral/tests/test_prius_policy.py",
   "openpilot/starpilot/galaxy/tests/test_prius_sng_settings.py",
   "openpilot/starpilot/car/toyota/tests/test_sng_resume.py",
   "openpilot/starpilot/car/toyota/tests/test_sng.py",

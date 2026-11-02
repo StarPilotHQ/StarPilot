@@ -40,6 +40,9 @@ def test_full_factory_cp_and_numeric_tunes(label):
   cp = factory(version, hardware=hardware, alpha=alpha)
   expected = deepcopy(BASE[label])
   expected['flags'] |= int(ToyotaFlags.HYBRID)
+  if version != b'8965B47060' + bytes(6):
+    expected['steerActuatorDelay'] = pytest.approx(.14)
+    expected['lateralTuning']['torque']['steeringAngleDeadzoneDeg'] = pytest.approx(.3)
   if hardware == 'none' and version != prius_sdsu.RETROFIT_EPS:
     expected['safetyConfigs'][0]['safetyParam'] = 0x6242
   owner = prius_sdsu if hardware == '2FF8' else prius_advert_filter

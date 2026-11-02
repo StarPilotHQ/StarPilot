@@ -106,9 +106,8 @@ class CarInterface(CarInterfaceBase):
       # Only give steer angle deadzone to for bad angle sensor prius
       for fw in car_fw:
         if fw.ecu == "eps" and not fw.fwVersion == b'8965B47060\x00\x00\x00\x00\x00\x00':
-          retrofit = candidate == CAR.TOYOTA_PRIUS_RETROFIT or smart_dsu
-          ret.steerActuatorDelay = 0.14 if retrofit else 0.25
-          CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning, steering_angle_deadzone_deg=0.3 if retrofit else 0.2)
+          ret.steerActuatorDelay = 0.14
+          CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning, steering_angle_deadzone_deg=0.3)
         # 2021+ TSS2 steering rack swapped into a TSS-P car, not supported
         if candidate == CAR.TOYOTA_PRIUS and not smart_dsu and fw.ecu == "eps" and fw.fwVersion == b'8965B47070\x00\x00\x00\x00\x00\x00':
           ret.dashcamOnly = True
