@@ -1,5 +1,4 @@
 from itertools import product
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -15,7 +14,8 @@ def test_radar_publication_retains_faults(can_error, radar_fault, wrong_config, 
   rd.errors.radarFault = radar_fault
   rd.errors.wrongConfig = wrong_config
   rd.errors.radarUnavailableTemporary = unavailable
-  owner = SimpleNamespace(pm=SimpleNamespace(send=Mock()))
+  owner = Car.__new__(Car)
+  owner.pm = Mock()
   Car.radar_publish(owner, rd)
   owner.pm.send.assert_called_once()
   service, message = owner.pm.send.call_args.args
@@ -25,6 +25,7 @@ def test_radar_publication_retains_faults(can_error, radar_fault, wrong_config, 
 
 
 def test_no_completed_radar_batch_does_not_publish():
-  owner = SimpleNamespace(pm=SimpleNamespace(send=Mock()))
+  owner = Car.__new__(Car)
+  owner.pm = Mock()
   Car.radar_publish(owner, None)
   owner.pm.send.assert_not_called()
