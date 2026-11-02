@@ -1,7 +1,13 @@
 from collections.abc import Callable
+from datetime import UTC
+from email.utils import parsedate_to_datetime
+import subprocess
+from threading import Event, Thread
 
 from openpilot.starpilot.ui.raylib import rl
 
+from openpilot.common.hardware import PC
+from openpilot.common.time_helpers import MIN_DATE, MAX_DATE
 from openpilot.selfdrive.ui.layouts.arabesque.theme import DEFAULT_THEME
 from openpilot.selfdrive.ui.layouts.arabesque.tools.browser import Browser
 from openpilot.selfdrive.ui.layouts.arabesque.tools.files import Files
@@ -27,6 +33,32 @@ class ArabesqueLayout(Widget):
     self._pressed_rect: rl.Rectangle | None = None
     self._active_tool: Widget | None = None
     self._active_name = ""
+    self._time_sync_thread: Thread | None = None
+    self._time_sync_cancelled = Event()
+
+  def show_event(self):
+    super().show_event()
+    if PC or not self._permitted() or self._time_sync_thread is not None and self._time_sync_thread.is_alive():
+      return
+    self._time_sync_cancelled = Event()
+    self._time_sync_thread = Thread(target=self._sync_time, args=(self._time_sync_cancelled,), daemon=True)
+    self._time_sync_thread.start()
+
+  def _sync_time(self, cancelled: Event):
+    try:
+      # shortcut: HTTP recovery time is unauthenticated, replace when an authenticated bootstrap source is available.
+      headers = subprocess.run(
+        ['curl', '-fsI', '-m', '10', '-H', 'Cache-Control: no-cache', 'http://www.google.com'],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=True, timeout=11,
+      ).stdout
+      date = next((line.partition(':')[2].strip() for line in headers.splitlines() if line.lower().startswith('date:')), '')
+      net_time = parsedate_to_datetime(date)
+      if net_time.tzinfo is None or not MIN_DATE < net_time.astimezone(UTC).replace(tzinfo=None) < MAX_DATE or cancelled.is_set():
+        return
+      subprocess.run(['sudo', '-n', 'date', '-u', '-s', net_time.isoformat()],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=2)
+    except (OSError, ValueError, TypeError, OverflowError, subprocess.SubprocessError):
+      pass
 
   def _update_layout_rects(self):
     rect = self._rect
@@ -67,10 +99,14 @@ class ArabesqueLayout(Widget):
       tool.hide_event()
 
   def hide_event(self):
+    # MainLayout also hides this view when offroad access is revoked.
+    self._time_sync_cancelled.set()
     super().hide_event()
     self._close_tool()
 
   def poll_runtime(self, awake: bool):
+    if self._time_sync_cancelled.is_set() and self._time_sync_thread is not None and not self._time_sync_thread.is_alive():
+      self.show_event()
     if isinstance(self._active_tool, Browser):
       self._active_tool.poll_runtime(awake)
 

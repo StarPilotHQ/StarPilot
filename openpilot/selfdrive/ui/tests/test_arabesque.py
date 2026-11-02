@@ -5,6 +5,8 @@ from dataclasses import replace
 from enum import IntEnum
 import gc
 from pathlib import Path
+import subprocess
+from threading import Event
 from types import SimpleNamespace as NS
 from unittest.mock import Mock
 import weakref
@@ -35,6 +37,7 @@ def layout_classes(path, names, namespace):
 @pytest.fixture
 def shell(monkeypatch):
   import openpilot.system.ui.widgets as widgets
+  monkeypatch.setattr(desktop, 'PC', True)
   monkeypatch.setattr(widgets, 'device', NS(awake=True))
   monkeypatch.setattr(gui_app, '_mouse_events', [])
   monkeypatch.setattr(gui_app, '_show_touches', False)
@@ -425,6 +428,7 @@ def test_authority_revocation_closes_tool_without_rendering(main, probe):
   main.layout.poll_arabesque()
   assert main.layout._current_mode == main.state.ONROAD
   assert view._active_tool is None
+  assert view._time_sync_cancelled.is_set()
   probe.hide_event.assert_called_once()
 
 
@@ -492,3 +496,68 @@ def test_star_large_routes_shell_and_uses_confirmed_offroad(main, probe):
   assert view._active_tool is None
   layout.star.close.assert_called_once()
   layout._native_onroad.close.assert_called_once()
+
+
+def test_time_sync_startup_cancellation_and_reentry(shell, monkeypatch):
+  thread, run = Mock(), Mock(return_value=NS(stdout='dAtE: Mon, 02 Nov 2026 18:00:00 GMT\r\n'))
+  monkeypatch.setattr(desktop, 'Thread', thread)
+  monkeypatch.setattr(desktop.subprocess, 'run', run)
+  shell.show_event()
+  thread.assert_not_called()
+  monkeypatch.setattr(desktop, 'PC', False)
+  shell._permitted = Mock(return_value=False)
+  shell.show_event()
+  thread.assert_not_called()
+  shell._permitted.return_value = True
+  shell.show_event()
+  run.assert_not_called()
+  assert thread.call_args.kwargs['daemon']
+  thread.return_value.start.assert_called_once()
+  shell.show_event()
+  thread.assert_called_once()
+  shell.hide_event()
+  shell.show_event()
+  shell.poll_runtime(True)
+  thread.assert_called_once()
+  thread.call_args.kwargs['target'](*thread.call_args.kwargs['args'])
+  assert run.call_count == 1  # Closing cancels the correction after the request returns.
+  thread.return_value.is_alive.return_value = False
+  shell._permitted.return_value = False
+  shell.poll_runtime(True)
+  thread.assert_called_once()
+  shell._permitted.return_value = True
+  shell.poll_runtime(True)
+  assert thread.call_count == 2
+  thread.call_args.kwargs['target'](*thread.call_args.kwargs['args'])
+  assert run.call_count == 3
+  fetch, apply = run.call_args_list[-2:]
+  assert fetch.args[0] == ['curl', '-fsI', '-m', '10', '-H', 'Cache-Control: no-cache', 'http://www.google.com']
+  assert fetch.kwargs['timeout'] == 11
+  assert apply.args[0] == ['sudo', '-n', 'date', '-u', '-s', '2026-11-02T18:00:00+00:00']
+  assert apply.kwargs['timeout'] == 2
+  assert apply.kwargs['stdout'] == apply.kwargs['stderr'] == subprocess.DEVNULL
+  shell.poll_runtime(True)
+  assert thread.call_count == 2
+
+
+@pytest.mark.parametrize('response', [
+  '', 'HTTP/1.1 200 OK\r\n', 'Date: invalid\r\n',
+  'Date: Sat, 01 Jan 2000 00:00:00 GMT\r\n', 'Date: Tue, 01 Jan 2036 00:00:00 GMT\r\n',
+  'Date: Mon, 02 Nov 2026 18:00:00\r\n',
+  subprocess.CalledProcessError(22, ['curl'], output='Date: Mon, 02 Nov 2026 18:00:00 GMT\r\n'),
+  subprocess.CalledProcessError(28, ['curl'], output='Date: Mon, 02 Nov 2026 18:00:00 GMT\r\n'),
+  subprocess.TimeoutExpired(['curl'], 11), FileNotFoundError('curl'),
+])
+def test_failed_or_invalid_time_sync_never_sets_clock(shell, monkeypatch, response):
+  run = Mock(side_effect=response) if isinstance(response, Exception) else Mock(return_value=NS(stdout=response))
+  monkeypatch.setattr(desktop.subprocess, 'run', run)
+  shell._sync_time(Event())
+  assert run.call_count == 1
+
+
+@pytest.mark.parametrize('error', [subprocess.CalledProcessError(1, ['sudo']), subprocess.TimeoutExpired(['sudo'], 2), FileNotFoundError('sudo')])
+def test_time_sync_permission_or_command_failures_stay_quiet(shell, monkeypatch, error):
+  run = Mock(side_effect=[NS(stdout='Date: Mon, 02 Nov 2026 18:00:00 GMT\r\n'), error])
+  monkeypatch.setattr(desktop.subprocess, 'run', run)
+  shell._sync_time(Event())
+  assert run.call_count == 2
