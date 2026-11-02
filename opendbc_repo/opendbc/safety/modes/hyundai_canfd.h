@@ -1483,7 +1483,6 @@ static safety_config hyundai_canfd_init_validated(uint16_t supplied_param) {
 
   hyundai_common_init(common_param);
 
-  gen_crc_lookup_table_16(0x1021, hyundai_canfd_crc_lut);
   hyundai_canfd_alt_buttons = GET_FLAG(param, HYUNDAI_PARAM_CANFD_ALT_BUTTONS);
   hyundai_canfd_carnival_alt_resume = !angle_requested && GET_FLAG(common_param, HYUNDAI_PARAM_CARNIVAL_ALT_RESUME) &&
                                      hyundai_canfd_alt_buttons && !GET_FLAG(common_param, HYUNDAI_PARAM_LONGITUDINAL) && !hyundai_longitudinal;
