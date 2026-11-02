@@ -74,19 +74,13 @@ _VLT_KAPPA_TAPER = 0.020             # 1/m — no extra lookahead above this cur
 # 0.40 rad/s (23 deg/s) unwind rate on this branch's actual 20Hz cadence.
 _PSCM_SAT_UNWIND_RATE = 0.02        # rad/call (0.02 * 20Hz = 0.40 rad/s)
 
-# Post-override stall blip. Road test 2026-07-14 (route 886240741b067740/000000bd--feb980680f)
-# showed that after driver-touch episodes the Mach-E PSCM keeps reporting InProgress but honors
-# path_angle at only ~0.56x (healthy hands-free delivery on the same route: ~0.95 median). The
-# current-curvature deviation clip below then pins kappa_cmd at measured + CURVATURE_ERROR, so the
-# command can never lead the car enough to overcome the attenuation -- a stall equilibrium the
-# driver reads as "not engaging" (wire path_angle flat at ~4 deg for 4.5 s while desired kappa
-# climbed to 3x measured, EPS motor current ~0 A). A short mode-0 pulse -- the identical
-# panda-clean wire pattern the human-turn override sends, no ford.h involvement -- resets the
-# PSCM's authority, after which path_angle ramps back in from zero through the soft ROC.
+# Reactive recovery: a sustained demand/measurement gap can persist while the deviation
+# clip binds. A bounded mode-0 pulse releases control, then the normal soft rate limit
+# ramps demand back in. Ordinary driver-pressure release is not a recovery trigger.
 _STEER_DT = CarControllerParams.STEER_STEP * DT_CTRL  # 20 Hz lateral tick (matches human_turn.py)
 _STALL_GAP_MIN = 2.0 * CarControllerParams.CURVATURE_ERROR  # desired must lead measured by 2x the clip tolerance
 _STALL_HOLD_S = 0.5          # accumulated clip-binding time before a pulse fires
-_STALL_BLIP_FRAMES = 6       # mode-0 pulse length (6 frames @ 20 Hz = 300 ms; PSCM acked mode 0 in ~150 ms on-road)
+_STALL_BLIP_FRAMES = 6       # mode-0 pulse length (6 frames @ 20 Hz = 300 ms)
 _STALL_COOLDOWN_S = 2.0      # re-arm delay after a pulse (release ramp + PSCM response time)
 _STALL_MAX_BLIPS = 3         # give up on a stuck episode; devLim telemetry keeps recording the stall
 # The pulse releases steering for 300 ms; never fire it in a curve.
@@ -372,8 +366,8 @@ class StarPilotFordController:
     # Exit-biased blend: near the PSCM authority limit or while the planner is actively
     # reducing curvature (exit detected), drop model prediction weight from 50% → 12.5%.
     # This lets the planner's natural unwind dominate instead of being diluted by a model
-    # prediction that still sees the curve (→ seg-14 slow unwind) or that snaps when its
-    # lookahead window crosses the curve exit (→ seg-17 snap + reverse PSCM hit).
+    # prediction that still sees the curve or changes abruptly as its lookahead crosses
+    # the curve exit.
     # Normal gentle curves are unaffected: no PSCM limit, no falling desired → full b=0.50.
     _pscm_lim = getattr(CS, 'lat_ctl_lim_stat', 0)
     # In angle mode, LatCtlLim_D_Stat (→ lat_ctl_lim_stat) does not fire.
@@ -521,10 +515,8 @@ class StarPilotFordController:
     # Not just telemetry: an actively-consumed value, unlike the removed *_kappa_cmd_raw stubs.
     # While the driver is pressing (before the human-turn override latches), the clipped planner
     # kappa can't follow the wheel: the driver moves the measured curvature faster than the
-    # deviation clip tracks it, so the shadow can exit ford.h's error band mid-curve -- the one
-    # in-drive lateral safety block observed across ~3h of replayed road-test routes was exactly
-    # this (driver fighting a sustained curve with the mode still enabled). The honest command
-    # during a press is the driver's actual curvature.
+    # deviation clip tracks it, so the shadow can exit ford.h's error band mid-curve.
+    # During a press, the shadow therefore follows the driver's actual curvature.
     self.bp_kappa_cmd = self.inputs.get_current_curvature(CS) if CS.out.steeringPressed else kappa_cmd
 
     # BluePilot: would the equivalent curvature (kappa_cmd) have been rate-limited by curvature-mode's
@@ -538,8 +530,8 @@ class StarPilotFordController:
     # Post-override stall detection (mechanism in the module constants' comment). Fires the mode-0
     # blip when, hands-free, desired curvature has led measured by more than 2x the deviation
     # clip's tolerance while the clip was actually binding for _STALL_HOLD_S accumulated seconds.
-    # devLim flickers mid-stall (~63% duty on the diagnosis route), so off frames hold the
-    # accumulator rather than resetting it; a closed gap or driver press ends the episode.
+    # Intermittent clip binding holds the accumulator; a closed gap or driver press
+    # ends the recovery episode.
     self.stall_blip_cooldown_s = max(0.0, self.stall_blip_cooldown_s - _STEER_DT)
     _stall_gap = desired_curvature - current_curvature
     _stalled = (not CS.out.steeringPressed and not self.lane_change and v_ego > 9.0

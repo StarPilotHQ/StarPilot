@@ -1,4 +1,4 @@
-"""Route0a13721d7a3cb316/00000024--f79244cffe: Mach-E stock ACC, flags3, AE32.
+"""Mach-E stock-ACC lifecycle configuration and event-order regressions.
 
 Captured configuration and event order; synthetic CAN/perception/USB transport.
 No VIN, location or native permission is injected. Physical acceptance is separate.
