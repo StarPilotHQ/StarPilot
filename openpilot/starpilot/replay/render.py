@@ -509,7 +509,7 @@ class Compositor:
     # Preserve the subscriber to avoid repeated seeks while paused.
     self.camera.client = client
     self.camera.frame = frame
-    self.camera.available_streams = available
+    self.camera.available_streams = list(available)
     if client is not None and client.is_connected():
       self.camera._initialize_textures()
     pip_client = self.pip_stream._client

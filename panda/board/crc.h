@@ -13,7 +13,7 @@ void crc32_init(void) {
   }
 }
 
-uint32_t crc32_update(uint32_t crc, const uint8_t *dat, uint32_t len) {
+static uint32_t crc32_update(uint32_t crc, const uint8_t *dat, uint32_t len) {
   uint32_t ret = crc;
   for (uint32_t i = 0U; i < len; i++) {
     ret = crc32_table[(ret ^ dat[i]) & 0xFFU] ^ (ret >> 8U);

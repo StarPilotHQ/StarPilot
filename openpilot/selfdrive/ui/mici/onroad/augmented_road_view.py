@@ -317,7 +317,7 @@ class AugmentedRoadView(CameraView):
     if not self._bookmark_icon.interacting():
       super()._handle_mouse_release(mouse_pos)
 
-  def _render(self, rect: rl.Rectangle, /, *, paint: bool = True, poll_camera: bool = True):
+  def _render(self, rect: rl.Rectangle, *, paint: bool = True, poll_camera: bool = True):
     if not paint:
       super()._render(rect, paint=False, poll_camera=poll_camera)
       return

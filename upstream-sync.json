@@ -2,7 +2,7 @@
   "schema_version": 1,
   "upstream": {
     "url": "https://github.com/commaai/openpilot.git",
-    "commit": "2ab952d5eb16020116d3354b83f30303db5a99b4"
+    "commit": "ad4c9cdf1857034bb06c12e4b0cfba093e6ae3d6"
   },
   "dependencies": [
     {

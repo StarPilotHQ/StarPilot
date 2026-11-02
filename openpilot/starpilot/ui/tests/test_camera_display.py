@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 import tempfile
 import unittest
+import numpy as np
 from unittest.mock import Mock, patch
 
 from openpilot.starpilot.ui.raylib import rl
@@ -250,10 +251,10 @@ class CameraDisplayTests(unittest.TestCase):
     camera = CameraViewWithoutResources.__new__(CameraViewWithoutResources)
     camera._stream_type = native_camera.NARROW_ROAD_CAM
     camera.client = object()
-    camera._engaged_val = [0]
-    camera._color_strength_val = [0.0]
+    camera._engaged_val = np.array([0], dtype=np.int32)
+    camera._color_strength_val = np.array([0.0], dtype=np.float32)
     camera._color_strength_loc = 3
-    camera._enhance_driver_val = [0]
+    camera._enhance_driver_val = np.array([0], dtype=np.int32)
     camera._engaged_loc = 1
     camera._enhance_driver_loc = 2
     camera.shader = object()

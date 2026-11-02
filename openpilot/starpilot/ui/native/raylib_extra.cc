@@ -48,8 +48,8 @@ NB_MODULE(_raylib_extra, module) {
     }, nb::is_implicit());
     nb::implicitly_convertible<nb::tuple, Vector2>();
     nb::implicitly_convertible<nb::list, Vector2>();
-    auto color = nb::borrow<nb::class_<Color>>(nb::type<Color>());
-    color.def("__init__", [](Color *self, nb::sequence values) {
+    auto color_type = nb::borrow<nb::class_<Color>>(nb::type<Color>());
+    color_type.def("__init__", [](Color *self, nb::sequence values) {
       if (nb::len(values) != 4) throw nb::value_error("Color requires four channels");
       new (self) Color{nb::cast<unsigned char>(values[0]), nb::cast<unsigned char>(values[1]), nb::cast<unsigned char>(values[2]), nb::cast<unsigned char>(values[3])};
     }, nb::is_implicit());
@@ -104,7 +104,7 @@ NB_MODULE(_raylib_extra, module) {
     if (!nb::hasattr(target, "init_audio_device")) target.def("init_audio_device", []() { symbol<decltype(&InitAudioDevice)>("InitAudioDevice")(); });
     if (!nb::hasattr(target, "close_audio_device")) target.def("close_audio_device", []() { symbol<decltype(&CloseAudioDevice)>("CloseAudioDevice")(); });
     if (!nb::hasattr(target, "is_audio_device_ready")) target.def("is_audio_device_ready", []() { return symbol<decltype(&IsAudioDeviceReady)>("IsAudioDeviceReady")(); });
-    if (!nb::hasattr(target, "load_sound")) target.def("load_sound", [](const char *path) { return symbol<decltype(&LoadSound)>("LoadSound")(path); });
+    if (!nb::hasattr(target, "load_sound")) target.def("load_sound", [](const char *sound_path) { return symbol<decltype(&LoadSound)>("LoadSound")(sound_path); });
     if (!nb::hasattr(target, "unload_sound")) target.def("unload_sound", [](Sound sound) { symbol<decltype(&UnloadSound)>("UnloadSound")(sound); });
     if (!nb::hasattr(target, "play_sound")) target.def("play_sound", [](Sound sound) { symbol<decltype(&PlaySound)>("PlaySound")(sound); });
     if (!nb::hasattr(target, "stop_sound")) target.def("stop_sound", [](Sound sound) { symbol<decltype(&StopSound)>("StopSound")(sound); });

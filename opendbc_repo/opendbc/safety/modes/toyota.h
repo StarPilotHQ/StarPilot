@@ -820,8 +820,8 @@ static safety_config toyota_init(uint16_t param) {
       bool eps_required = false;
       bool main_required = false;
       for (int i = 0; i < ret.rx_checks_len; i++) {
-        eps_required |= toyota_rx_checks[i].msg[0].addr == 0x262;
-        main_required |= toyota_rx_checks[i].msg[0].addr == (toyota_alt_cruise ? 0x365 : 0x1D3);
+        eps_required |= toyota_rx_checks[i].msg[0].addr == 0x262U;
+        main_required |= toyota_rx_checks[i].msg[0].addr == (toyota_alt_cruise ? 0x365U : 0x1D3U);
       }
       if (!eps_required) {
         const bool eps5 = (toyota_dsu_bypass && toyota_bypass_eps5) || toyota_aol_rav4h_filter ||

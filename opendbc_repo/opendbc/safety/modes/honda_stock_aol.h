@@ -149,9 +149,16 @@ static uint8_t honda_stock_aol_permission_mask(void) {
 
 static bool honda_stock_aol_selected(const CANPacket_t *msg, const RxCheck *check) {
   bool selected = false;
-  if ((check != NULL) && rx_status[check - honda_rx_workspace].msg_seen) {
-    const CanMsgCheck *source = &check->msg[rx_status[check - honda_rx_workspace].index];
-    selected = msg_matches(msg, source->addr, source->bus, source->len);
+  if (check != NULL) {
+    for (int i = 0; i < current_safety_config.rx_checks_len; i++) {
+      if (check == &honda_rx_workspace[i]) {
+        if (rx_status[i].msg_seen) {
+          const CanMsgCheck *source = &check->msg[rx_status[i].index];
+          selected = msg_matches(msg, source->addr, source->bus, source->len);
+        }
+        break;
+      }
+    }
   }
   return selected;
 }

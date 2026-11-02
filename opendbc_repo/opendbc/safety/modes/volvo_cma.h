@@ -613,7 +613,7 @@ static safety_config volvo_cma_init(uint16_t param) {
   }
   for (uint8_t i = 0U; i < VOLVO_CMA_RX_CHECK_COUNT; i++) {
     rx_workspace[i] = selected[i];
-    if (volvo_cma_lca2_mod15 && (rx_workspace[i].msg[0].addr == (int)VOLVO_CMA_PORT_LCA_2)) {
+    if (volvo_cma_lca2_mod15 && (rx_workspace[i].msg[0].addr == (unsigned int)VOLVO_CMA_PORT_LCA_2)) {
       rx_workspace[i].msg[0].max_counter = 14U;
     }
   }
