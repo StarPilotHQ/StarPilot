@@ -182,7 +182,6 @@ static bool hyundai_canfd_carnival_alt_resume = false;
 static bool hyundai_canfd_carnival_source_valid = false;
 static bool hyundai_canfd_carnival_previous_valid = false;
 static bool hyundai_canfd_carnival_counter_seen = false;
-static uint8_t hyundai_canfd_carnival_rx_counter = 0U;
 static bool hyundai_canfd_carnival_counter_consumed = false;
 static bool hyundai_canfd_angle_steering = false;
 static bool hyundai_canfd_angle_observed_adas = false;
@@ -701,6 +700,7 @@ static void hyundai_canfd_rx_hook(const CANPacket_t *msg) {
     }
   }
   if (hyundai_canfd_carnival_alt_resume && (msg_matches(msg, 0x1aaU, pt_bus))) {
+    static uint8_t hyundai_canfd_carnival_rx_counter = 0U;
     const bool source_fresh = !hyundai_canfd_carnival_counter_seen ||
       hyundai_canfd_button_counter_follows(hyundai_canfd_carnival_rx_counter, msg->data[2], 0xFFU);
     hyundai_canfd_carnival_counter_seen = true;
