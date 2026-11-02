@@ -2,7 +2,7 @@ import subprocess
 import unittest
 from unittest import mock
 
-from parameterized import parameterized
+from openpilot.common.parameterized import parameterized
 
 from openpilot.common.hardware.comma.modem import Modem
 
