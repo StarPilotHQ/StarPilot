@@ -1948,7 +1948,9 @@ class SelfdriveD:
       native = current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
       if native is None and self.initialized:
         lost_active_aol = self.aol_axis_decision.lateral_active or self.aol_axis_decision.longitudinal_active
-        self.events.add(EventName.controlsMismatch)
+        native_missing_at_startup = (not self.sm.seen['aolSafetyWire'] and not self.enabled and
+                                     not self.active and not lost_active_aol)
+        self.events.add(EventName.commIssue if native_missing_at_startup else EventName.controlsMismatch)
     self.aol_decision_native = native
     if self.aol_replay:
       previous_intent = getattr(self, 'aol_last_intent', None)

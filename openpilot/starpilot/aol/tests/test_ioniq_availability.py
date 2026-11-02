@@ -338,7 +338,7 @@ class IoniqAvailabilityTests(unittest.TestCase):
       return sd.pm.messages['aolAxisState'].aolAxisState, sd.pm.messages['selfdriveState'].selfdriveState, command
     return sd, controls, step
 
-  def _ioniq_availability_callers(self, full_op=True, *, initially_armed=True, stock_angle=False, cp=None):
+  def _ioniq_availability_callers(self, full_op=True, *, initially_armed=True, stock_angle=False, cp=None, cold_start=False, startup_owner=None):
     from opendbc.car.hyundai.interface import CarInterface
     from opendbc.car.hyundai.radar_interface import RadarInterface
     from openpilot.selfdrive.car.card import Car
@@ -363,8 +363,8 @@ class IoniqAvailabilityTests(unittest.TestCase):
       _, cp = candidate(True)
       cp.safetyConfigs[-1].safetyParam |= 0x0800
     sd, controls, step = self._authority_callers(full_op, cp=cp, genuine_events=True)
-    card_cp = cp.as_reader().as_builder()
-    card = Car(CI=CarInterface(card_cp), RI=RadarInterface(card_cp))
+    card_cp = cp.as_reader().as_builder() if startup_owner is None else startup_owner.owner.cp
+    card = Car(CI=CarInterface(card_cp), RI=RadarInterface(card_cp), startup_owner=startup_owner)
     self.assertEqual(card.CP.to_dict(), sd.CP.to_dict())
     self.assertEqual(card.CP.safetyConfigs[-1].safetyParam, cp.safetyConfigs[-1].safetyParam if stock_angle or supplied_profile else 0x8895)
     self.assertTrue(card.aol_card_intent.explicit_latch)
@@ -412,7 +412,7 @@ class IoniqAvailabilityTests(unittest.TestCase):
         kwargs['observed_state'] = state
       return step(tick, **kwargs)
 
-    for tick in (0, 1):
+    for tick in (() if cold_start else (0, 1)):
       axis, _, command = drive(tick)
       if full_op:
         self.assertTrue(axis.lateralActive and axis.longitudinalActive and command.latActive and command.longActive)
