@@ -90,8 +90,8 @@ struct lookup_t {
 
 typedef struct {
   int addr;
-  unsigned int bus;
-  int len;
+  uint8_t bus;
+  uint8_t len;
   bool check_relay;              // if true, trigger relay malfunction if existence on destination bus and block forwarding to destination bus
   bool disable_static_blocking;  // if true, static blocking is disabled so safety mode can dynamically handle it (e.g. selective AEB pass-through)
   bool check_relay_immediately;   // if true, skip the usual transition grace for this exact TX address and bus
@@ -178,14 +178,14 @@ typedef struct {
 } LongitudinalLimits;
 
 typedef struct {
-  int addr;
-  unsigned int bus;
-  int len;
-  uint32_t frequency;          // expected frequency of the message [Hz]
-  bool ignore_checksum;        // checksum check is not performed when set to true
-  bool ignore_counter;         // counter check is not performed when set to true
-  uint8_t max_counter;         // maximum value of the counter. 0 means that the counter check is skipped
-  bool ignore_quality_flag;    // true if quality flag check is skipped
+  const int addr;
+  const uint8_t bus;
+  const uint8_t len;
+  const uint16_t frequency;          // expected frequency of the message [Hz]
+  const bool ignore_checksum;        // checksum check is not performed when set to true
+  const bool ignore_counter;         // counter check is not performed when set to true
+  const uint8_t max_counter;         // maximum value of the counter. 0 means that the counter check is skipped
+  const bool ignore_quality_flag;    // true if quality flag check is skipped
 } CanMsgCheck;
 
 typedef struct {
