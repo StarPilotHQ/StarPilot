@@ -29,6 +29,7 @@ for path in ("openpilot.selfdrive.ui.onroad.cameraview", "openpilot.selfdrive.ui
     view.egl_texture = SimpleNamespace(id=13) if hardware else None
     view.egl_images = {1: "owned-image"} if hardware else {}
     view.frame, view.client, view.available_streams = None, None, set()
+    view._clients = {}
     textures, shaders, images = [], [], []
     with patch.object(module, "COMMA_HARDWARE", hardware), \\
          patch.object(module.rl, "unload_texture", side_effect=lambda texture: textures.append(texture.id)), \\
