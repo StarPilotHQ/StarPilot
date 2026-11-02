@@ -210,17 +210,21 @@ class ConditionalModePolicyTest(unittest.TestCase):
         stop = policy.step(12.2, ModeChoice.CEM, ManualIntent.NONE, AUTHORITY, scene(12.2, speed=10.0, stop_light_detected=True), settings)
         self.assertEqual((stop.reason, stop.status_code), (Reason.CEM_STOP, 8))
 
-  def test_cem_unknown_stop_and_scene_loss_clear_lifecycle_state(self):
+  def test_cem_unknown_standstill_scene_keeps_existing_stop_hold(self):
     policy = ConditionalModePolicy()
     settings = replace(ModeSettings(), cem_speed_mps=15.0)
+    cold = policy.step(9.95, ModeChoice.CEM, ManualIntent.NONE, AUTHORITY, scene(9.95, speed=0.0, standstill=True), settings)
+    self.assertEqual((cold.reason, cold.requested_experimental), (Reason.SCENE_UNAVAILABLE, False))
     policy.step(10.0, ModeChoice.CEM, ManualIntent.NONE, AUTHORITY, scene(10.0, speed=0.0, standstill=True, standstill_stop_hold=True), settings)
-    unknown = policy.step(10.05, ModeChoice.CEM, ManualIntent.NONE, AUTHORITY, scene(10.05, speed=0.0, standstill=True), settings)
-    self.assertEqual((unknown.reason, unknown.requested_experimental), (Reason.SCENE_UNAVAILABLE, False))
-    # Missing decisive stop evidence clears remembered latches, not an invented release.
-    resumed = policy.step(10.1, ModeChoice.CEM, ManualIntent.NONE, AUTHORITY, scene(10.1, speed=10.0), settings)
-    self.assertEqual(resumed.reason, Reason.CEM_SPEED)
-    policy.step(10.15, ModeChoice.CEM, ManualIntent.NONE, AUTHORITY, scene(9.0, speed=10.0), settings)
-    cleared = policy.step(10.2, ModeChoice.CEM, ManualIntent.NONE, AUTHORITY, scene(10.2, speed=20.0), settings)
+    for tick in range(1, 21):
+      now = 10.0 + tick * 0.05
+      unknown = policy.step(now, ModeChoice.CEM, ManualIntent.NONE, AUTHORITY, scene(now, speed=0.0, standstill=True), settings)
+      self.assertEqual((unknown.reason, unknown.requested_experimental), (Reason.CEM_STOP, True))
+    released = policy.step(11.05, ModeChoice.CEM, ManualIntent.NONE, AUTHORITY,
+                           scene(11.05, speed=0.0, standstill=True, standstill_stop_hold=False), settings)
+    self.assertFalse(released.requested_experimental)
+    policy.step(11.1, ModeChoice.CEM, ManualIntent.NONE, AUTHORITY, scene(9.0, speed=10.0), settings)
+    cleared = policy.step(11.15, ModeChoice.CEM, ManualIntent.NONE, AUTHORITY, scene(11.15, speed=20.0), settings)
     self.assertFalse(cleared.requested_experimental)
 
   def test_cem_manual_override_preserves_observed_stop_release_quiet_period(self):
