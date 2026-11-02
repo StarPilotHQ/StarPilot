@@ -1313,7 +1313,8 @@ class SelfdriveD:
     previous = self.aol_axis_decision
     was_enabled = self.enabled
     self.aol_axis_decision = AxisDecision()
-    if healthy_expiry and not was_enabled and self.cold_gm_main_readiness(CS, intent, now_ns):
+    if healthy_expiry and not was_enabled and (self.cold_gm_main_readiness(CS, intent, now_ns) or
+        self.cold_gm_main_readiness(CS, intent, now_ns, recovering=True)):
       self.aol_fault_reason = 'availabilityPause'
       self.aol_publication_retained_intent = intent
       return
@@ -1790,17 +1791,17 @@ class SelfdriveD:
     native = _healthy_transport_native(self.sm, self.CP, CS, self.aol_session_id, now_ns)
     return cold_park_readiness(self.CP, CS, native, self.events.to_msg())
 
-  def cold_gm_main_readiness(self, CS, intent, now_ns):
+  def cold_gm_main_readiness(self, CS, intent, now_ns, *, recovering=False):
     from openpilot.starpilot.car.gm.aol import cold_main_readiness
     from openpilot.starpilot.aol.transport_pause import _healthy_transport_native
     if (self.CP.brand != 'gm' or self.enabled or self.active or getattr(self, 'aol_ever_active', False) or self.aol_authority_lost or
-        not self.events.contains(ET.SOFT_DISABLE) or self.events.contains(ET.IMMEDIATE_DISABLE) or
+        not recovering and not self.events.contains(ET.SOFT_DISABLE) or self.events.contains(ET.IMMEDIATE_DISABLE) or
         intent is None or not intent.settingsQualified or not intent.allowedLatch or not intent.lateralArmed or
         not 0 < intent.carStateLogMonoTime <= intent.observedMonoTime <= now_ns <= intent.validUntilMonoTime or
         now_ns - intent.carStateLogMonoTime > SAFETY_MAX_AGE_NS):
       return False
     native = _healthy_transport_native(self.sm, self.CP, CS, self.aol_session_id, now_ns)
-    return cold_main_readiness(self.CP, CS, native, self.events.to_msg())
+    return cold_main_readiness(self.CP, CS, native, self.events.to_msg(), recovering=recovering)
 
   def ordinary_native_long_withdrawal(self, CS, native, previous, requested, intent, *, source_current, now_ns):
     """Keep the existing ordinary Panda mismatch owner for a LONG-only drop.
