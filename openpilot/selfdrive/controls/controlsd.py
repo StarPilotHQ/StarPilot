@@ -18,6 +18,7 @@ from openpilot.common.swaglog import cloudlog
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.vehicle_model import VehicleModel
 from openpilot.selfdrive.controls.lib.drive_helpers import clip_curvature
+from openpilot.selfdrive.controls.lib.highway_correction_gain import HighwayCorrectionGain, predicted_lateral_accels, read_gain
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.selfdrive.controls.lib.latcontrol_angle import STEER_ANGLE_SATURATION_THRESHOLD
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
@@ -101,6 +102,8 @@ class Controls:
     self.model_turn_assist = ModelTurnAssist()
     self.lane_centering_controller = (LaneCenteringController(body=interface_dimensions(self.CI, self.CP), body_required=True)
                                       if predict_lane_clearance else LaneCenteringController())
+    self.highway_correction_gain = HighwayCorrectionGain()
+    self.highway_gain = read_gain(self.params)
     self.lateral_pause = LateralPause(read_lateral_pause(self.params), self.params)
     self.lane_change_preferences = LiveLaneChangePolicy(self.params,
       now_ns=0 if os.getenv('REPLAY') == '1' else time.monotonic_ns())
@@ -413,6 +416,16 @@ class Controls:
       self.last_lane_centering_result = result
       if result.candidate_curvature is not None:
         new_desired_curvature = result.candidate_curvature
+    if self.sm.frame % 100 == 0:
+      self.highway_gain = read_gain(self.params)
+    predicted = None
+    if self.sm.all_checks(['modelV2']):
+      predicted = predicted_lateral_accels(model_v2.position.t, model_v2.velocity.x, model_v2.orientationRate.z)
+    new_desired_curvature = self.highway_correction_gain.update(
+      new_desired_curvature, CS.vEgo, CC.latActive, self.highway_gain,
+      bypass=bool(CS.leftBlinker or CS.rightBlinker or CS.steeringPressed or
+                  model_v2.meta.laneChangeState != LaneChangeState.off or self.sm.valid['lateralManeuverPlan']),
+      predicted=predicted)
     previous_curvature = self.desired_curvature
     lane_policy_now_ns = int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns()
     self.refresh_lane_change_policy(CS, model_v2, lane_policy_now_ns)
