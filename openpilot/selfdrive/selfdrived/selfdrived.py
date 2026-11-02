@@ -12,6 +12,7 @@ import openpilot.cereal.messaging as messaging
 from openpilot.cereal import log
 from opendbc.car.structs import car
 from opendbc.car.hyundai.ev6_aol import qualified as ev6_aol_qualified
+from opendbc.car.hyundai.values import HyundaiFlags
 from opendbc.car.honda.stock_aol import qualified as honda_aol_qualified, temporary_restriction as honda_temporary_restriction
 from openpilot.cereal.visionipc import VisionStreamType
 from msgq.visionipc import VisionIpcClient
@@ -83,6 +84,8 @@ AlertLevel = log.DriverMonitoringState.AlertLevel
 MonitoringPolicy = log.DriverMonitoringState.MonitoringPolicy
 
 IGNORED_SAFETY_MODES = (SafetyModel.silent, SafetyModel.noOutput)
+HKG_ANGLE_LIMIT_WARNING_DEG = 176.0
+HKG_ANGLE_LIMIT_WARNING_NS = 200_000_000
 
 
 class SelfdriveD:
@@ -227,6 +230,10 @@ class SelfdriveD:
     self.mismatch_counter = 0
     self.cruise_mismatch_counter = 0
     self.last_steering_pressed_frame = 0
+    self.hkg_angle_steering = bool(self.CP.brand == 'hyundai' and not self.CP.notCar and
+      self.CP.steerControlType == car.CarParams.SteerControlType.angle and
+      self.CP.flags & HyundaiFlags.CANFD and self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING)
+    self.hkg_angle_limit_since_ns = self.hkg_angle_limit_last_ns = 0
     self.distance_traveled = 0
     self.last_functional_fan_frame = 0
     self.events_prev = []
@@ -299,6 +306,31 @@ class SelfdriveD:
       self.steering_authority_unavailable = True
     if getattr(self, 'steering_authority_unavailable', False):
       self.events.add(EventName.controlsMismatch)
+
+  def _update_hkg_angle_limit_warning(self, CS):
+    if not getattr(self, 'hkg_angle_steering', False):
+      return
+    now_ns = time.monotonic_ns()
+    control_ns = int(self.sm.logMonoTime['carControl'])
+    source_ns = self.aol_car_state_log_ns
+    command = self.sm['carControl']
+    angle = command.actuators.steeringAngleDeg
+    over_limit = bool(self.conditional_car_state_valid and CS.canValid and not CS.canTimeout and
+      not CS.steeringPressed and not CS.steerFaultTemporary and not CS.steerFaultPermanent and
+      self.sm.seen['carControl'] and self.sm.valid['carControl'] and self.sm.alive['carControl'] and
+      0 < control_ns <= now_ns and now_ns - control_ns <= INTENT_MAX_AGE_NS and
+      0 < source_ns <= now_ns and now_ns - source_ns <= INTENT_MAX_AGE_NS and
+      command.latActive and math.isfinite(angle) and abs(angle) > HKG_ANGLE_LIMIT_WARNING_DEG)
+    if not over_limit:
+      self.hkg_angle_limit_since_ns = self.hkg_angle_limit_last_ns = 0
+      return
+    if (not self.hkg_angle_limit_since_ns or now_ns < self.hkg_angle_limit_last_ns or
+        now_ns - self.hkg_angle_limit_last_ns > INTENT_MAX_AGE_NS):
+      self.hkg_angle_limit_since_ns = now_ns
+    self.hkg_angle_limit_last_ns = now_ns
+    if (now_ns - self.hkg_angle_limit_since_ns >= HKG_ANGLE_LIMIT_WARNING_NS and
+        EventName.steerSaturated not in self.events.names):
+      self.events.add(EventName.steerSaturated)
 
   def _update_car_event_sample(self, CS, previous):
     # Block resume if cruise never previously enabled
@@ -679,6 +711,8 @@ class SelfdriveD:
       # TODO: lac.saturated includes speed and other checks, should be pulled out
       if undershooting and turning and lac.saturated:
         self.events.add(EventName.steerSaturated)
+
+    self._update_hkg_angle_limit_warning(CS)
 
     # Check for FCW
     stock_long_is_braking = self.enabled and not self.CP.openpilotLongitudinalControl and CS.aEgo < -1.25
@@ -1209,7 +1243,7 @@ class SelfdriveD:
       self.AM.alerts.pop('aolAvailability/warning', None)
     if getattr(self, 'jetlink_link_lost', False):
       alerts.append(jetlink_lost_alert())
-    if self.CP.brand == 'ford' and CS.steeringPressed:
+    if (self.CP.brand == 'ford' or getattr(self, 'hkg_angle_steering', False)) and CS.steeringPressed:
       # Saturation is already ignored during override; retire its held presentation too.
       alerts = [alert for alert in alerts if alert.alert_type != 'steerSaturated/warning']
       self.AM.alerts.pop('steerSaturated/warning', None)
@@ -2198,6 +2232,9 @@ class SelfdriveD:
     if (getattr(self, 'aol_fault_reason', 'none') == 'availabilityPause' and
         (self.enabled or intent is not None and intent.allowedLatch) and
         ET.WARNING not in self.state_machine.current_alert_types):
+      self.state_machine.current_alert_types.append(ET.WARNING)
+    if (getattr(self, 'hkg_angle_steering', False) and self.aol_axis_decision.lateral_active and
+        EventName.steerSaturated in self.events.names and ET.WARNING not in self.state_machine.current_alert_types):
       self.state_machine.current_alert_types.append(ET.WARNING)
     axis_published = bool(not REPLAY and self.aol_replay and self.axis_transport_required)
     if axis_published:
