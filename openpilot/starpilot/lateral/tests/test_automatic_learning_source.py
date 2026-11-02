@@ -7,6 +7,9 @@ import struct
 import unittest
 
 from opendbc.car.car_helpers import interfaces
+from opendbc.car.structs import car
+from openpilot.starpilot.lateral.learning_preferences import KEY as LEARNING_KEY, LEGACY_KEY as LEARNING_LEGACY_KEY, replace_preference
+from openpilot.system.manager.process_config import managed_processes
 from opendbc.car.gm.values import CAR as GM
 from opendbc.car.hyundai.values import CAR as HKG
 from opendbc.car.toyota.values import CAR as TOYOTA
@@ -236,3 +239,52 @@ class TestAutomaticLearningSource(unittest.TestCase):
       self.assertIsNone(conversion_identity(cp, ci, ControllerMode.STANDARD))
       cp, ci, _, _ = context(HKG.HYUNDAI_IONIQ_6)
       self.assertIsNone(conversion_identity(cp, ci, ControllerMode.STARPILOT))
+
+
+class TestDisabledLearnerProcess(unittest.TestCase):
+  def setUp(self):
+    self.prefix = OpenpilotPrefix()
+    self.prefix.__enter__()
+    self.addCleanup(self.prefix.__exit__, None, None, None)
+    self.params = Params()
+    self.cp = car.CarParams.new_message(brand='hyundai', carFingerprint='HYUNDAI_IONIQ_6')
+    self.process = managed_processes['steerlearnerd']
+
+  def test_default_still_runs_onroad(self):
+    assert self.process.should_run(True, self.params, self.cp)
+    assert not self.process.should_run(False, self.params, self.cp)
+    assert self.process.restart_on_exit
+
+  def test_explicit_off_does_not_start_learner(self):
+    self.params.put(LEARNING_KEY, replace_preference(None, self.cp, False), block=True)
+    assert not self.process.should_run(True, self.params, self.cp)
+
+  def test_toggle_can_stop_and_restart_learner(self):
+    for enabled in (False, True, False, True):
+      self.params.put(LEARNING_KEY, replace_preference(self.params.get(LEARNING_KEY), self.cp, enabled), block=True)
+      assert self.process.should_run(True, self.params, self.cp) is enabled
+
+  def test_legacy_off_does_not_start_learner(self):
+    self.params.put_bool(LEARNING_LEGACY_KEY, True, block=True)
+    assert not self.process.should_run(True, self.params, self.cp)
+
+  def test_scoped_on_retains_precedence_over_legacy_off(self):
+    self.params.put_bool(LEARNING_LEGACY_KEY, True, block=True)
+    self.params.put(LEARNING_KEY, replace_preference(None, self.cp, True), block=True)
+    assert self.process.should_run(True, self.params, self.cp)
+
+  def test_invalid_preference_does_not_start_learner(self):
+    for raw in (b'', b'not json', b'{"version":1,"vehicles":{"hyundai":{"HYUNDAI_IONIQ_6":1}}}'):
+      self.params.put(LEARNING_KEY, raw, block=True)
+      assert not self.process.should_run(True, self.params, self.cp)
+
+  def test_other_vehicle_preference_is_not_reused(self):
+    self.params.put(LEARNING_KEY, replace_preference(None, self.cp, False), block=True)
+    other = car.CarParams.new_message(brand='ford', carFingerprint='FORD_MUSTANG_MACH_E_MK1')
+    assert self.process.should_run(True, self.params, other)
+
+  def test_offroad_does_not_read_preferences(self):
+    class NoRead:
+      def get(self, *args, **kwargs):
+        raise AssertionError('Offroad learner should not read settings')
+    assert not self.process.should_run(False, NoRead(), self.cp)

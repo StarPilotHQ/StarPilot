@@ -62,6 +62,13 @@ def always_run(started: bool, params: Params, CP: car.CarParams) -> bool:
 def only_onroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started
 
+def steering_learning(started: bool, params: Params, CP: car.CarParams) -> bool:
+  if not started:
+    return False
+  from openpilot.starpilot.lateral.learning_preferences import read_preference
+  preference = read_preference(params, CP)
+  return preference.valid and preference.enabled
+
 def vision_slc_development(started: bool, params: Params, CP: car.CarParams) -> bool:
   from openpilot.starpilot.feature_runtime import enabled as feature_enabled
   return started and feature_enabled(params, CP, 'slc', os.environ) and feature_enabled(params, CP, 'vision', os.environ)
@@ -162,7 +169,7 @@ procs = [
   NativeProcess("_pandad", "openpilot/selfdrive/pandad", ["./pandad"], always_run, enabled=False),
   PythonProcess("calibrationd", "openpilot.selfdrive.locationd.calibrationd", only_onroad),
   PythonProcess("torqued", "openpilot.selfdrive.locationd.torqued", only_onroad),
-  PythonProcess("steerlearnerd", "openpilot.starpilot.flm.steerlearnerd", only_onroad, restart_on_exit=True),
+  PythonProcess("steerlearnerd", "openpilot.starpilot.flm.steerlearnerd", steering_learning, restart_on_exit=True),
   PythonProcess("controlsd", "openpilot.selfdrive.controls.controlsd", and_(not_joystick, iscar)),
   PythonProcess("joystickd", "openpilot.tools.joystick.joystickd", or_(joystick, notcar)),
   PythonProcess("selfdrived", "openpilot.selfdrive.selfdrived.selfdrived", only_onroad),
