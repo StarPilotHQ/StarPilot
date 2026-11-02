@@ -167,6 +167,13 @@ def input_view(buffer: Buffer, shape: tuple[int, ...], dtype: DType, offset: int
   return Tensor(UOp.from_buffer(view, dtype)).reshape(shape)
 
 
+def compile_copy(tensor: Tensor) -> Callable[[], Tensor]:
+  from tinygrad.engine.jit import CapturedJit
+  from tinygrad.engine.realize import compile_linear
+  jit = CapturedJit(tensor, compile_linear(tensor.schedule_linear()), [], [])
+  return lambda: jit([], {})
+
+
 class ModelState:
   lat_delay: float
   frame_drop_ratio: float
@@ -200,6 +207,7 @@ class ModelState:
       state = self.input_queues[name]
       assert all_int(state.shape)
       self.outputs[next_name] = input_view(state._buffer(), state.shape, state.dtype, 0)
+    self.copy_outputs = None if selected_legacy() else compile_copy(self.outputs['outputs'].to('CPU'))
     self.parser = Parser()
 
   def pack_inputs(self) -> None:
@@ -210,8 +218,15 @@ class ModelState:
                                    if name not in self.state_pairs and name != 'new_img'}
     npy_size = sum(round_up(math.prod(shape) * 4, 128) for shape in shapes.values())
     self.packed_input = np.zeros(npy_size + 2 * self.frame_copy_size, dtype=np.uint8)
-    self.input_host = Tensor(self.packed_input, device='NPY')._buffer()
-    self.input_device = Tensor(self.packed_input, device=self.model_device)._buffer()
+    if selected_legacy():
+      self.input_host = Tensor(self.packed_input, device='NPY')._buffer()
+      self.input_device = Tensor(self.packed_input, device=self.model_device)._buffer()
+    else:
+      host = Tensor(self.packed_input, device='NPY')
+      device = host.to(self.model_device)
+      self.copy_inputs = compile_copy(device)
+      self.copy_inputs()
+      self.input_host, self.input_device = host._buffer(), device._buffer()
     self.npy = {}
     offset = 0
     for name, shape in shapes.items():
@@ -237,7 +252,10 @@ class ModelState:
     self.npy['traffic_convention'][:] = inputs['traffic_convention']
     self.npy['action_t'][:] = inputs['action_t']
 
-    self.input_device.copy_from(self.input_host)
+    if selected_legacy():
+      self.input_device.copy_from(self.input_host)
+    else:
+      self.copy_inputs()
     self.input_queues['new_img'] = self.run_warp(**self.warp_inputs)
     self.run_model(output_buffers=self.outputs, **self.input_queues)
     if (self.chestnut and not selected_legacy() and
@@ -245,7 +263,11 @@ class ModelState:
       raise RuntimeError(f"chestnut failed with {err}")
     if after_enqueue is not None:
       after_enqueue()
-    model_output = self.outputs['outputs'].numpy()[0]
+    if selected_legacy():
+      model_output = self.outputs['outputs'].numpy()[0]
+    else:
+      assert self.copy_outputs is not None
+      model_output = self.copy_outputs().numpy()[0]
     if self.chestnut and not np.all(np.isfinite(model_output)):
       raise RuntimeError("model output not finite")
     outputs_dict = self.parser.parse_outputs(self.slice_outputs(model_output, self.output_slices))

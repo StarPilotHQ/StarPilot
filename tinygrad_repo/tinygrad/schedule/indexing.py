@@ -21,9 +21,7 @@ class IndexingContext:
     return UOp.range(s, next(self.range_idx)) if resolve(s!=1) else UOp.const(0)
 
 
-ALWAYS_CONTIGUOUS: set[Ops] = {Ops.AFTER, Ops.BUFFER, Ops.ALLOC,
-                      Ops.CONST, Ops.MSELECT, Ops.MSTACK, Ops.PARAM,
-                      Ops.LOAD, Ops.CALL}
+ALWAYS_CONTIGUOUS: set[Ops] = GroupOp.Defines|{Ops.AFTER, Ops.CONST, Ops.MSELECT, Ops.MSTACK, Ops.LOAD, Ops.CALL}
 
 def realize(ctx:IndexingContext, tr:UOp) -> None: ctx.realize_map[tr] = None
 
@@ -66,7 +64,7 @@ def broadcast_rngs(x:UOp, src:UOp, rngs:tuple[UOp, ...]) -> tuple[UOp, ...]:
 
 # TODO: srcs contain (real data srcs, something else, ranges) and the boundary is confusing. see range_start
 def data_srcs(op:Ops, src:tuple[UOp, ...]) -> tuple[UOp, ...]:
-  if op in {Ops.PARAM, Ops.BUFFER, Ops.ALLOC, Ops.RANGE, Ops.SPECIAL}: return ()
+  if op in GroupOp.Defines|{Ops.RANGE, Ops.SPECIAL}: return ()
   if op in GroupOp.Movement|{Ops.INDEX, Ops.STAGE, Ops.REDUCE, Ops.AFTER, Ops.END, Ops.BACKEDGE, Ops.COPY}: return src[:1]
   return src
 
@@ -77,7 +75,7 @@ def create_bufferize_and_index_srcs(ctx:IndexingContext, x:UOp) -> list[UOp]:
   for i, s in enumerate(x.src):
     new_src = s
     src_rngs = broadcast_rngs(x, s, ctx.range_map[x][0]) if x in ctx.range_map else ()
-    if s.op in {Ops.PARAM, Ops.BUFFER, Ops.ALLOC, Ops.MSTACK, Ops.MSELECT, Ops.AFTER}:
+    if s.op in GroupOp.Defines|{Ops.MSTACK, Ops.MSELECT, Ops.AFTER}:
       if x in ctx.range_map and i < data_src_count: new_src = new_src.index(*src_rngs)
     elif s in ctx.realize_map:
       assert isinstance(ctx.realize_map[s], list), "realize map must contain range list"
@@ -99,7 +97,8 @@ def create_bufferize_and_index_based_on_ranges(ctx:IndexingContext, x:UOp):
 
 def convert_pad_to_where_to_keep_behavior_local(ctx:IndexingContext, x:UOp):
   if x not in ctx.range_map: return None
-  bx = create_bufferize_and_index_based_on_ranges(ctx, x)
+  if x.op is Ops.INDEX and len(ctx.range_map[x][0]) == len(ctx.range_map[x][1]): return None
+  if (bx:=create_bufferize_and_index_based_on_ranges(ctx, x)).src[0] is x: return None
   valid: UOp = UOp.const(True).uprod([r.get_valid() for r in ctx.range_map[x][0]])
   return valid.where(bx.src[0], UOp.const(x.dtype.const(0)))
 
@@ -111,23 +110,18 @@ def convert_reduce_to_reduce_with_ranges(ctx:IndexingContext, x:UOp):
   new_ranges = list(ctx.range_map[x][0][:x.arg[1]])
   return UOp(Ops.REDUCE, src=(bx.src[0],)+tuple(new_ranges), arg=(x.arg[0], 0))
 
-def _stack_select(r0:UOp, srcs:list[UOp], lo:int, hi:int) -> UOp:
-  # Bound lookup depth for large constant tables, rather than building a linear chain of thousands of WHEREs.
-  if hi-lo <= 8:
-    ret = srcs[hi-1]
-    for k in range(hi-2, lo-1, -1): ret = r0.eq(k).where(srcs[k], ret)
-    return ret
-  mid = (lo+hi)//2
-  return (r0 < mid).where(_stack_select(r0, srcs, lo, mid), _stack_select(r0, srcs, mid, hi))
+def _stack_select(r0:UOp, srcs:list[UOp]) -> UOp:
+  # MSB-first bit tree
+  if len(srcs) == 1: return srcs[0]
+  half = 1 << ((len(srcs)-1).bit_length()-1)
+  return (r0 % (2*half) < half).where(_stack_select(r0, srcs[:half]), _stack_select(r0, srcs[half:]))
 
 def convert_stack_to_where(ctx:IndexingContext, x:UOp):
   # only data STACKs: shape tuple STACKs aren't in range_map
   if x not in ctx.range_map: return None
   # use the src list directly, a transient STACK of mid-rangeify srcs violates the spec shape rule
   srcs = create_bufferize_and_index_srcs(ctx, x)
-  r0 = ctx.range_map[x][1][0]
-  ret = _stack_select(r0, srcs, 0, len(srcs))
-  return (r0 < 0).where(srcs[-1], ret) if len(srcs) > 8 else ret
+  return _stack_select(ctx.range_map[x][1][0], srcs)
 
 def remove_movement_op_after_rangeify(ctx:IndexingContext, x:UOp):
   if x in ctx.range_map or x.src[0].op is Ops.INDEX: return x.src[0]
@@ -136,7 +130,7 @@ pm_apply_rangeify = PatternMatcher([
   # REDUCE(op, axis) -> REDUCE(op) with ranges
   (UPat(Ops.REDUCE, name="x"), convert_reduce_to_reduce_with_ranges),
   # PAD -> WHERE
-  (UPat(Ops.PAD, name="x"), convert_pad_to_where_to_keep_behavior_local),
+  (UPat((Ops.PAD, Ops.INDEX), name="x"), convert_pad_to_where_to_keep_behavior_local),
   # STACK -> WHERE select on the leading range
   (UPat(Ops.STACK, name="x"), convert_stack_to_where),
   # finally, apply_rangeify
@@ -289,6 +283,8 @@ def run_rangeify(tsink:UOp, debug:bool=False) -> UOp:
     if x.op in GroupOp.Movement: rngs = apply_movement_op(x.op, x.src[0].shape, x.marg, rngs)
     # STACK: the leading range selects the src, srcs get the trailing ranges
     if x.op is Ops.STACK: rngs = out_rngs[1:]
+    # when the index srcs and output ranges of INDEX address every axis of its src, the index srcs select the leading axes
+    if x.op is Ops.INDEX and len(x.src)-1+len(out_rngs) == x.src[0].ndim: rngs = x.src[1:]+out_rngs
     # if the EXPAND is used to inject a range, we don't mark it as ending_ranges. otherwise we do.
     # NOTE: this doesn't actually always end a range, but this is why convs are realized, so for now we need it
     if x.op is Ops.EXPAND and all(isinstance(y, int) or y.op is not Ops.RANGE for y in x.shape):

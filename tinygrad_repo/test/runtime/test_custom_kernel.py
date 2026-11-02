@@ -1,8 +1,10 @@
-import unittest
-from tinygrad import Tensor, UOp, GlobalCounters, Context, Device
+import unittest, functools
+from tinygrad import Tensor, UOp, GlobalCounters, Context, Device, Variable, TinyJit
+from tinygrad.engine.realize import run_linear, get_runtime
+from tinygrad.codegen import to_program
 import numpy as np
 from tinygrad.dtype import AddrSpace, dtypes, Invalid
-from tinygrad.helpers import getenv
+from tinygrad.helpers import getenv, DEV
 from tinygrad.schedule.rangeify import BufferizeOpts
 from tinygrad.uop.ops import KernelInfo, AxisType, Ops, uopfunc
 from tinygrad.codegen.opt import Opt, OptOps
@@ -34,6 +36,25 @@ def custom_ignore_first_kernel(C:UOp, A:UOp, B:UOp) -> UOp:
   C, B = C.flatten(), B.flatten()
   i = UOp.range(C.numel(), 0)
   return C[i].store(B[i] + 1).end(i).sink(arg=KernelInfo(name=f"ignore_first_{C.numel()}"))
+
+def custom_add_var_kernel(*srcs:UOp, n_slot:int) -> UOp:
+  C, *Bs = [s.flatten() for i,s in enumerate(srcs) if i != n_slot]
+  i = UOp.range(C.numel(), 0)
+  out = functools.reduce(lambda a,b: a+b, [B[i] for B in Bs]) + srcs[n_slot]
+  return C[i].store(out).end(i).sink(arg=KernelInfo(name=f"add_var_{n_slot}_{len(Bs)}"))
+
+def run_kernel_args(out:Tensor, name:str) -> list[str|None]:
+  linear, var_vals = out.linear_with_vars()
+  sink = [u for u in linear.toposort(enter_calls=True) if u.op is Ops.SINK and isinstance(u.arg, KernelInfo) and u.arg.name == name][0]
+  sig = to_program(sink, Device[Device.DEFAULT].renderer).to_elf().signature
+  run_linear(linear, var_vals)
+  return [nm for nm, *_ in sig]
+
+def custom_ignore_first_var_kernel(C:UOp, A:UOp, B:UOp, n:UOp) -> UOp:
+  C, B = C.flatten(), B.flatten()
+  k = UOp.variable("k", 0, 100, dtype=dtypes.int)
+  i = UOp.range(C.numel(), 0)
+  return C[i].store(B[i] + n + k).end(i).sink(arg=KernelInfo(name=f"ignore_first_var_{C.numel()}"))
 
 def custom_sum(B:UOp, A:UOp) -> UOp:
   i = UOp.range(A.shape[0], 0, axis_type=AxisType.LOOP)
@@ -180,6 +201,61 @@ class TestCustomKernel(unittest.TestCase):
     out = Tensor.custom_kernel(Tensor.empty(4), a, b, fxn=custom_ignore_first_kernel)[0]
     self.assertEqual(out.tolist(), [2, 3, 4, 5])
 
+  def test_scalar_arg_any_position(self):
+    for n_slot in range(3):
+      with self.subTest(n_slot=n_slot):
+        srcs = [Tensor.empty(4, dtype=dtypes.int), Tensor([1, 2, 3, 4], dtype=dtypes.int).realize()]
+        srcs.insert(n_slot, Tensor(Variable("n", 0, 100, dtypes.int).bind(5)))
+        out = Tensor.custom_kernel(*srcs, fxn=functools.partial(custom_add_var_kernel, n_slot=n_slot))[1 if n_slot == 0 else 0]
+        self.assertEqual(run_kernel_args(out, f"add_var_{n_slot}_1"), ["n" if i == n_slot else None for i in range(3)])
+        self.assertEqual(out.tolist(), [6, 7, 8, 9])
+
+  @unittest.skipIf(Device.DEFAULT == "PYTHON", "needs a device that isnt the default")
+  def test_scalar_arg_first_other_device(self):
+    srcs = [Tensor(Variable("n", 0, 100, dtypes.int).bind(5), device="PYTHON"), Tensor.empty(4, dtype=dtypes.int, device="PYTHON"),
+            Tensor([1, 2, 3, 4], dtype=dtypes.int, device="PYTHON").realize()]
+    out = Tensor.custom_kernel(*srcs, fxn=functools.partial(custom_add_var_kernel, n_slot=0))[1]
+    self.assertEqual(out.tolist(), [6, 7, 8, 9])
+
+  def test_scalar_arg_with_other_variable(self):
+    other = (Tensor([1, 2, 3, 4], dtype=dtypes.int) + Tensor(Variable("m", 0, 100, dtypes.int).bind(70))).contiguous()
+    srcs = [Tensor.empty(4, dtype=dtypes.int), Tensor([1, 2, 3, 4], dtype=dtypes.int).realize(), Tensor(Variable("n", 0, 100, dtypes.int).bind(5))]
+    out = Tensor.custom_kernel(*srcs, fxn=functools.partial(custom_add_var_kernel, n_slot=2))[0]
+    Tensor.realize(other, out)
+    self.assertEqual(out.tolist(), [6, 7, 8, 9])
+
+  def test_scalar_arg_past_registers(self):
+    # 9 inputs with the scalar between pointers, x86 passes the ones after the 6th (4th on windows) on the stack. every buffer differs
+    srcs = [Tensor.empty(4, dtype=dtypes.int)] + [Tensor([k, 2*k, 3*k, 4*k], dtype=dtypes.int).realize() for k in range(1, 8)]
+    srcs.insert(4, Tensor(Variable("n", 0, 100, dtypes.int).bind(5)))
+    out = Tensor.custom_kernel(*srcs, fxn=functools.partial(custom_add_var_kernel, n_slot=4))[0]
+    self.assertEqual(run_kernel_args(out, "add_var_4_7"), [None]*4 + ["n"] + [None]*4)
+    self.assertEqual(out.tolist(), [33, 61, 89, 117])
+
+  def test_unused_arg_then_var(self):
+    srcs = (Tensor.empty(4, dtype=dtypes.int), Tensor.empty(4, dtype=dtypes.int), Tensor([1, 2, 3, 4], dtype=dtypes.int).realize(),
+            Tensor(Variable("n", 0, 100, dtypes.int).bind(5)))
+    out = Tensor.custom_kernel(*srcs, fxn=custom_ignore_first_var_kernel)[0]
+    linear, var_vals = out.linear_with_vars()
+    run_linear(linear, {**var_vals, "k": 10})
+    self.assertEqual(out.tolist(), [16, 17, 18, 19])
+
+  def test_scalar_arg_jit(self):
+    # the scalar changes every call, a replay must not keep the value it was captured with
+    kernel = functools.partial(custom_add_var_kernel, n_slot=0)
+    jf = TinyJit(lambda B, n: Tensor.custom_kernel(Tensor(n), Tensor.empty(4, dtype=dtypes.int), B, fxn=kernel)[1].realize())
+    B, n = Tensor([1, 2, 3, 4], dtype=dtypes.int).realize(), Variable("n", 0, 100, dtypes.int)
+    for k in range(1, 6): self.assertEqual(jf(B, n.bind(k)).tolist(), [1+k, 2+k, 3+k, 4+k])
+
+  def test_scalar_arg_jit_fixed_bind(self):
+    # m is bound inside the jitted function so it's not an input, a replay keeps m=10 while the input n changes
+    kernel = functools.partial(custom_add_var_kernel, n_slot=0)
+    def f(B, n):
+      Bm = Tensor.custom_kernel(Tensor(Variable("m", 0, 100, dtypes.int).bind(10)), Tensor.empty(4, dtype=dtypes.int), B, fxn=kernel)[1]
+      return Tensor.custom_kernel(Tensor(n), Tensor.empty(4, dtype=dtypes.int), Bm, fxn=kernel)[1].realize()
+    jf, B, n = TinyJit(f), Tensor([1, 2, 3, 4], dtype=dtypes.int).realize(), Variable("n", 0, 100, dtypes.int)
+    for k in range(1, 6): self.assertEqual(jf(B, n.bind(k)).tolist(), [11+k, 12+k, 13+k, 14+k])
+
   def test_sum(self):
     a = Tensor([1.0, 2, 3, 4, 5])
     tst = Tensor.empty(1)
@@ -292,6 +368,13 @@ class TestCustomKernel(unittest.TestCase):
     a = Tensor([1., 2, 3, 4])
     self.assertEqual(Tensor.custom_kernel(Tensor.empty(4), a, fxn=kernel)[0].tolist(), [4., 5, 6, 7])
 
+  def test_range_bound_after_outer_range(self):
+    def kernel(C:UOp) -> UOp:
+      i = UOp.range(3, 0, AxisType.LOOP)
+      j = UOp.range(UOp.const(2, dtypes.weakint).after(i), 1, AxisType.LOOP)
+      return C[0].set(C.after(i, j)[0] + 1, end=(j, i)).sink(arg=KernelInfo())
+    self.assertEqual(Tensor.custom_kernel(Tensor.zeros(1, dtype=dtypes.int).contiguous(), fxn=kernel)[0].tolist(), [6])
+
   def test_gemm_multi(self):
     devs = ("CPU:0", "CPU:1")
     N = 16
@@ -366,6 +449,21 @@ class TestCustomKernel(unittest.TestCase):
   def test_multi_after_invalid_store_dep_removed(self):
     x = Tensor.empty(4).uop
     self.assertEqual(Tensor(x.after(x.store(5), x.store(Invalid))).tolist(), [5]*4)
+
+  def test_store_behind_value_after_kept(self):
+    def kernel(A:UOp, loop:bool) -> UOp:
+      x = UOp.const(1, dtypes.weakint).after(A[0].store(7))
+      return (A[(r:=UOp.range(x, 0))+1].store(9).end(r) if loop else A[x].store(9)).sink(arg=KernelInfo(opts_to_apply=()))
+    for loop in (False, True):
+      out = Tensor.custom_kernel(Tensor.zeros(2, dtype=dtypes.int).contiguous().realize(), fxn=functools.partial(kernel, loop=loop))[0]
+      self.assertEqual(out.tolist(), [7, 9])
+
+  def test_deleted_store_keeps_deps(self):
+    for f in (lambda a, s: s[1].store(s[1].load()), lambda a, s: s[UOp.invalid()].store(5),
+              lambda a, s: s[1].store(UOp.invalid()), lambda a, s: a[UOp.invalid()].store(s[1].load())):
+      out = Tensor.custom_kernel(Tensor.zeros(3, dtype=dtypes.int).contiguous(),
+                                 fxn=lambda a: f(a, a.after(a[0].store(7))).sink(arg=KernelInfo(opts_to_apply=())))[0]
+      self.assertEqual(out.tolist(), [7, 0, 0])
 
   def test_expand_view_invalid_assign_keeps_uncovered_reads(self):
     x = Tensor([[10., 11., 12., 13.], [20., 21., 22., 23.], [30., 31., 32., 33.], [40., 41., 42., 43.]]).realize()
@@ -454,18 +552,20 @@ class TestCustomKernel(unittest.TestCase):
   def test_custom_kernel_sched_copy(self): self.test_custom_kernel_sched(use_custom=True)
 
   @unittest.skipIf(Device.DEFAULT == "CPU", "test needs to copy from CPU to another device")
-  def test_custom_kernel_source_copy(self):
+  def test_call_to_program(self):
+    t = Tensor([-1]).realize()
+    # render a source string
     from tinygrad.codegen import do_to_program
+    source:str = do_to_program(custom_add_one_kernel(t.uop.param_like(0), t.uop.param_like(1)), Device[t.device].renderer).src[2].arg
+    assert isinstance(source, str)
+    # call to PROGRAM
     def custom_source(out:UOp, inp:UOp) -> UOp:
-      prg_uop = do_to_program(custom_add_one_kernel(out, inp), Device[out.device].renderer)
-      # construct a plain Ops.PROGRAM
       sink = UOp.sink(out.base, inp.base, arg=KernelInfo("add_one_1"))
-      return UOp(Ops.PROGRAM, src=(sink, UOp(Ops.LINEAR, src=tuple(sink.toposort())),)+prg_uop.src[2:])
-    out = Tensor([-1]).realize()
+      return UOp(Ops.PROGRAM, src=(sink, UOp(Ops.LINEAR, src=tuple(sink.toposort())), UOp(Ops.SOURCE, arg=source)))
     cpu_src = Tensor([2], device="CPU").realize()
-    out = Tensor.custom_kernel(out, cpu_src.to(out.device), fxn=custom_source)[0]
-    cp = out.to("CPU").realize()
-    self.assertEqual(out.tolist(), [3])
+    t = Tensor.custom_kernel(t, cpu_src.to(t.device), fxn=custom_source)[0]
+    cp = t.to("CPU").realize()
+    self.assertEqual(t.tolist(), [3])
     self.assertEqual(cp.tolist(), [3])
 
   def test_sliced_buffer_function(self):
@@ -481,19 +581,20 @@ class TestCustomKernel(unittest.TestCase):
     assert_kernel_count(2 if x[0].uop.contiguous_view() is None else 1)
     self.assertEqual(y.tolist(), [1, 2, 3, 4])
 
-  @unittest.skip("this shouldn't be expected to work")
   def test_inplace_transpose(self):
     def custom_assign_row_max_kernel(A:UOp) -> UOp:
       row = UOp.range(A.shape[0], 0)
       col = UOp.range(A.shape[1], 1)
-      return A[row, col].store(A[row].max(axis=0)).end(col).end(row).sink(arg=KernelInfo(name=f"assign_row_max_{A.numel()}"))
-    a = Tensor.arange(4).clone().realize()
-    a = Tensor.custom_kernel(a.reshape(2, 2).T, fxn=custom_assign_row_max_kernel)[0]
-    self.assertEqual(a.flatten().tolist(), [2, 2, 3, 3])
+      return A[row, col].store(A[row].max(axis=0)).end(col).end(row).sink(arg=KernelInfo(name=f"assign_row_max_{A.numel()}", opts_to_apply=()))
+    a = Tensor.arange(4).reshape(2, 2).clone().realize()
+    a = Tensor.custom_kernel(a.T, fxn=custom_assign_row_max_kernel)[0]
+    with self.assertRaises(AssertionError):
+      self.assertEqual(a.flatten().tolist(), [2, 2, 3, 3])
     self.assertEqual(a.shape, (2, 2))
 
   @unittest.skipUnless((isinstance(Device[Device.DEFAULT].renderer, CStyleLanguage) or Device.DEFAULT == "PYTHON") and
                        Device.DEFAULT != "WEBGPU", "binary not supported on this backend")
+  @unittest.skipIf(Device.DEFAULT == "AMD" and DEV.interface.startswith("MOCK"), "AMD emulator doesn't support direct pc read and write")
   def test_binary(self):
     payload = bytes(range(256))
     def kernel(out:UOp):
@@ -502,8 +603,13 @@ class TestCustomKernel(unittest.TestCase):
       return out[i].store(data[i]).end(i).sink(arg=KernelInfo(name="binary", opts_to_apply=()))
     self.assertEqual(Tensor.empty(len(payload), dtype=dtypes.uint8).custom_kernel(fxn=kernel)[0].tolist(), list(payload))
 
-@unittest.skipUnless(Device.DEFAULT == "CPU" and isinstance(Device[Device.DEFAULT].renderer, (CStyleLanguage, LLVMRenderer)),
-                     "calls in kernels render on CPU")
+  def test_one_lane_stack_runtime_index(self):
+    def kernel(A:UOp): return A[0].store(UOp.stack(UOp.const(42, dtypes.int)).index(A[1].load())).sink(arg=KernelInfo(opts_to_apply=()))
+    self.assertEqual(Tensor.zeros(2, dtype=dtypes.int).contiguous().custom_kernel(fxn=kernel)[0].tolist(), [42, 0])
+
+@unittest.skipUnless((Device.DEFAULT == "CPU" and isinstance(Device[Device.DEFAULT].renderer, (CStyleLanguage, LLVMRenderer)))
+                     or Device.DEFAULT == "AMD" and isinstance(Device[Device.DEFAULT].renderer, CStyleLanguage),
+                     "calls in kernel not implemented in this renderer")
 class TestCallInKernel(unittest.TestCase):
   def test_simple(self):
     N = getenv("N", 4)
@@ -569,6 +675,18 @@ class TestCallInKernel(unittest.TestCase):
     out = Tensor.custom_kernel(Tensor.zeros(4, dtype=dtypes.int).clone().realize(), a, fxn=kernel)[0]
     self.assertEqual(out.tolist(), [3, 6, 9, 12])
 
+  def test_call_scalar_arg(self):
+    @uopfunc
+    def add(out:UOp, src:UOp, val:UOp) -> UOp:
+      return out[0].store(src[0]+val).sink()
+
+    def kernel(out:UOp, src:UOp) -> UOp:
+      i = UOp.range(4, 0)
+      return add(out[i], src[i], i).end(i).sink(arg=KernelInfo(name="call_scalar_arg", opts_to_apply=()))
+
+    x = Tensor([1, 2, 3, 4], dtype=dtypes.int).realize()
+    self.assertEqual(Tensor.empty_like(x).custom_kernel(x, fxn=kernel)[0].tolist(), [1, 3, 5, 7])
+
   def test_call_with_gated_store(self):
     @uopfunc
     def gated_store(out:UOp, idx:UOp):
@@ -590,11 +708,11 @@ class TestCallInKernel(unittest.TestCase):
   def test_call_body_range_is_not_ours(self):
     @uopfunc
     def mul(out:UOp, A:UOp):
-      k = UOp.range(4, 0)
+      k = UOp.range(4, 0, AxisType.LOOP)
       return out[k].store(A[k]*3).end(k).sink()
 
     def kernel(C:UOp, A:UOp):
-      m, i, call = UOp.range(3, 1), UOp.range(4, 0), mul(C, A)
+      m, i, call = UOp.range(3, 1, AxisType.LOOP), UOp.range(4, 0, AxisType.LOOP), mul(C, A)
       self.assertIn(i, call.body.toposort())
       end_m = C.after(call)[m].store(A[m]).end(m)
       return C.after(end_m)[i].store(A[i]+1).end(i).sink(arg=KernelInfo(name="call_body_range", opts_to_apply=()))
@@ -626,17 +744,90 @@ class TestCallInKernel(unittest.TestCase):
   def test_uopfunc(self):
     @uopfunc
     def axpy(out:UOp, x:UOp, a:int) -> UOp: # a is a trace-time constant: two bodies, two C functions
-      i = UOp.range(x.shape[0], 0)
+      i = UOp.range(x.shape[0], 0, AxisType.LOOP)
       return out[i].store(out[i] + x[i] * a).end(i).sink()
 
+    @uopfunc
+    def triple(out:UOp, x:UOp): return axpy(out, x, 3).sink()
+
     def kernel(C:UOp, A:UOp) -> UOp:
-      C = C.after(axpy(C.after(axpy(C, A, 2)), A, 3))
-      i = UOp.range(A.shape[0], 1) # a loop after the calls
+      C = C.after(triple(C.after(axpy(C, A, 2)), A))
+      i = UOp.range(A.shape[0], 1, AxisType.LOOP) # a loop after the calls
       return C[i].store(C[i] + 1).end(i).sink(arg=KernelInfo(name="uopfunc", opts_to_apply=()))
 
     a = Tensor([1, 2, 3, 4], dtype=dtypes.int).realize()
     out = Tensor.custom_kernel(Tensor.zeros(4, dtype=dtypes.int).contiguous().realize(), a, fxn=kernel)[0]
     self.assertEqual(out.tolist(), [6, 11, 16, 21])
+
+  def test_copy_offset_slices(self):
+    @uopfunc
+    def copy_block(dst:UOp, src:UOp) -> UOp:
+      i = UOp.range(4, 0, AxisType.UPCAST)
+      return dst[i].store(src[i]).end(i).sink()
+
+    def kernel(dst:UOp, src:UOp) -> UOp:
+      return copy_block(dst[1:5], src[1:5]).sink(arg=KernelInfo(opts_to_apply=()))
+
+    src = Tensor([0., 1., 2., 3., 4.]).realize()
+    dst = Tensor([-1.] * 6).realize()
+    out = dst.custom_kernel(src, fxn=kernel)[0]
+    self.assertEqual(out.tolist(), [-1., 1., 2., 3., 4., -1.])
+
+  @unittest.skipIf(Device.DEFAULT == "CPU", "test needs to copy from CPU to another device")
+  def test_call_to_copy(self):
+    @uopfunc
+    def copy(out:UOp, A:UOp):
+      i = UOp.range(out.shape[0], 0, AxisType.LOOP)
+      return out[i].store(A[i]).end(i).sink()
+
+    def forward(out1:UOp, out2:UOp, A:UOp):
+      call = copy(out1, A)
+      i = UOp.range(out2.shape[0], 0, AxisType.LOOP)
+      inline = out2[i].store(A[i]).end(i).sink()
+      return UOp.group(call, inline).sink(arg=KernelInfo(name="forward", opts_to_apply=()))
+
+    x = Tensor([1, 2, 3, 4], device="CPU").realize().to(Device.DEFAULT)
+    y, z = x.empty_like(), x.empty_like()
+    y, z, _ = Tensor.custom_kernel(y, z, x, fxn=forward)
+    y, z = y.to("CPU"), z.to("CPU")
+    Tensor.realize(y, z)
+
+    self.assertEqual(y.tolist(), z.tolist())
+    self.assertEqual(x.tolist(), z.tolist())
+
+  @unittest.skipIf(Device[Device.DEFAULT].renderer.inline_prefix is not None, "backend inlines calls instead of linking")
+  def test_linker(self):
+    @uopfunc
+    def plus2(out:UOp, A:UOp): return out[0].store(A[0]+2).sink()
+
+    @uopfunc
+    def copy(out:UOp, A:UOp): return out[0].store(A[0]).sink()
+
+    def kernel(A:UOp, extra=False):
+      A = A.flatten()
+      i = UOp.range(A.shape[0], 0)
+      tmp = UOp.alloc_like(A, addrspace=AddrSpace.REG)
+      if extra: tmp = tmp.after(copy(tmp[i], A[i]))
+      return A[i].store(tmp[i].after(plus2(tmp[i], A[i]))).end(i).sink(arg=KernelInfo(name="test_kernel", opts_to_apply=()))
+
+    x = Tensor.custom_kernel(Tensor.arange(4).clone().realize(), fxn=kernel)[0]
+    run_linear(lin:=x.schedule_linear())
+
+    prg = to_program(lin.src[0].body, Device[Device.DEFAULT].renderer)
+    assert "+2" not in prg.src[2].arg, f"found callee body in caller kernel {prg.src[2].arg}"
+    call = next(u for u in prg.src[1].src if u.op is Ops.CALL)
+    first_binary = call.body.src[3]
+    call_runtime = get_runtime(Device.DEFAULT, call.body)
+    self.assertListEqual(x.tolist(), Tensor.arange(4).add(2).tolist())
+
+    # launch a different caller with the same callee
+    x = Tensor.custom_kernel(Tensor.arange(5).clone().realize(), fxn=lambda A: kernel(A, extra=True))[0]
+    run_linear(lin:=x.schedule_linear())
+    prg2 = to_program(lin.src[0].body, Device[Device.DEFAULT].renderer).src[1]
+    self.assertIs(call.body, next(u.body for u in prg2.src if u.op is Ops.CALL and u.arg.name == "plus2"))
+    self.assertIs(first_binary, next(u.body.src[3] for u in prg2.src if u.op is Ops.CALL and u.arg.name == "plus2"))
+    self.assertIs(call_runtime, get_runtime(Device.DEFAULT, call.body))
+    self.assertListEqual(x.tolist(), Tensor.arange(5).add(2).tolist())
 
 class TestCustomKernelInput(unittest.TestCase):
   def _test_mop(self, mop_fxn, max_kernels):
