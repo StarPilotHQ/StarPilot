@@ -151,7 +151,7 @@ def test_observed_availability_and_big_eligibility(monkeypatch, present, cable, 
   start = next(i for i, node in enumerate(body) if isinstance(node, ast.ImportFrom) and node.module == manager.__name__)
   end = next(i for i, node in enumerate(body) if ast.unparse(node) == "gc.disable()")
   params = Mock()
-  env: dict = {"chestnut_present": Mock(return_value=present), "cable_connected": Mock(return_value=cable),
+  env: dict = {"chestnut_present": Mock(return_value=present), "cable_connected": Mock(return_value=cable), "usb_host_connected": Mock(return_value=False),
          "chestnut_compiled": Mock(return_value=compiled), "Params": lambda: params,
          "jetlink_adapter": SimpleNamespace(link_on=lambda: link)}
   execute(body[start:end], env)

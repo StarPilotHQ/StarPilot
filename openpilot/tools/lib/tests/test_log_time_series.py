@@ -9,7 +9,7 @@ def test_union_columns_keep_rows_aligned_when_controller_changes():
   for stamp, branch, output in [(3, 'pidState', 0.25), (1, 'torqueState', 0.5), (2, 'pidState', 0.75)]:
     message = messaging.new_message('controlsState')
     message.logMonoTime = stamp * 10**9
-    getattr(message.controlsState.lateralControlState, 'init')(branch).output = output
+    message.controlsState.lateralControlState.init(branch).output = output
     messages.append(message)
   group = msgs_to_time_series(messages)['controlsState']
   assert group['t'].tolist() == [1., 2., 3.]
