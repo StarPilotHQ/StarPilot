@@ -1160,7 +1160,7 @@ static safety_config gm_init(uint16_t safety_param) {
   gm_extended_rx_checks[3].msg[0].addr = (gm_camera_pedal && !gm_camera_pedal_f1) ? 0xBEU : 0xF1U;
 
 
-  static RxCheck gm_rx_checks[] = {
+  static const RxCheck gm_rx_checks[] = {
     GM_COMMON_RX_CHECKS
   };
 #define GM_ASCM_INTERCEPT_RX_CHECKS \
@@ -1237,7 +1237,7 @@ static safety_config gm_init(uint16_t safety_param) {
     {.msg = {{0x1F5, 0, 8, 10U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
   };
 
-  static RxCheck gm_ev_rx_checks[] = {
+  static const RxCheck gm_ev_rx_checks[] = {
     GM_COMMON_RX_CHECKS
     {.msg = {{0xBD, 0, 7, 40U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
   };
