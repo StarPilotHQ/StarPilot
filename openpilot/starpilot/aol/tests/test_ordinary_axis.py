@@ -63,7 +63,7 @@ class TestOrdinaryAxis(unittest.TestCase):
     from openpilot.selfdrive.selfdrived.alertmanager import AlertManager
     sd.AM = AlertManager()
     sd.pm = Mock()
-    vars(sd)['sm'] = SimpleNamespace(frame=1)
+    vars(sd)['sm'] = SimpleNamespace(frame=1, seen={'aolSafetyWire': True})
     sd.experimental_mode = False
     sd.personality = 1
     sd.conditional_replay = False
