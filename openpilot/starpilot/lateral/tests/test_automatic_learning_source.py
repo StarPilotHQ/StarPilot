@@ -288,3 +288,44 @@ class TestDisabledLearnerProcess(unittest.TestCase):
     with patch('openpilot.starpilot.lateral.learning_preferences.read_preference',
                side_effect=AssertionError('Offroad learner should not read settings')):
       assert not self.process.should_run(False, self.params, self.cp)
+
+
+class TestLearningProjectionPreference(unittest.TestCase):
+  def make_car(self, vehicle, preference=None, legacy=False):
+    from openpilot.selfdrive.car.card import Car
+    params = Params()
+    params.put_bool('OpenpilotEnabledToggle', True, block=True)
+    params.put_bool(LEARNING_LEGACY_KEY, legacy, block=True)
+    cp = interfaces[vehicle].get_non_essential_params(vehicle)
+    if preference is not None:
+      raw = replace_preference(None, cp, preference) if type(preference) is bool else preference
+      params.put(LEARNING_KEY, raw, block=True)
+    ci = interfaces[vehicle](cp)
+    return Car(CI=ci, RI=interfaces[vehicle].RadarInterface(cp))
+
+  def test_explicit_off_skips_actual_factory_observer(self):
+    for vehicle in VEHICLES:
+      with self.subTest(vehicle=vehicle), OpenpilotPrefix():
+        host = self.make_car(vehicle, False)
+        assert host.learning_stamp_observer is None
+        assert getattr(host.CI.CC, 'learning_projection_observer', None) is None
+        assert host.learning_applied_evidence is None
+
+  def test_default_on_keeps_actual_factory_observer(self):
+    for vehicle in VEHICLES:
+      with self.subTest(vehicle=vehicle), OpenpilotPrefix():
+        host = self.make_car(vehicle)
+        assert host.learning_stamp_observer is not None
+        assert host.CI.CC.learning_projection_observer is not None
+
+  def test_scoped_on_still_overrides_legacy_off(self):
+    with OpenpilotPrefix():
+      host = self.make_car(HKG.HYUNDAI_IONIQ_6, True, legacy=True)
+      assert host.learning_stamp_observer is not None
+
+  def test_legacy_off_and_invalid_preference_do_not_install(self):
+    for preference, legacy in ((None, True), (b'not json', False)):
+      with self.subTest(preference=preference, legacy=legacy), OpenpilotPrefix():
+        host = self.make_car(HKG.HYUNDAI_IONIQ_6, preference, legacy)
+        assert host.learning_stamp_observer is None
+        assert getattr(host.CI.CC, 'learning_projection_observer', None) is None

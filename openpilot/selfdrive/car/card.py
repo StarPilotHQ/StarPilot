@@ -407,8 +407,11 @@ class Car:
     self.learning_car_state_source_ns = 0
     self.learning_applied_evidence = self.learning_previous_applied_evidence = None
     try:
-      from opendbc.car.steering_projection import install_observer
-      self.learning_stamp_observer = self.record_learning_send_stamp if install_observer(self.CI) else None
+      from openpilot.starpilot.lateral.learning_preferences import read_preference
+      preference = read_preference(self.params, self.CP)
+      if preference.valid and preference.enabled:
+        from opendbc.car.steering_projection import install_observer
+        self.learning_stamp_observer = self.record_learning_send_stamp if install_observer(self.CI) else None
     except Exception:
       pass  # Optional learning setup cannot stop native startup.
     self.aol_transport_feedback = TransportPauseFeedback(self.CP) if self.aol_replay else None
