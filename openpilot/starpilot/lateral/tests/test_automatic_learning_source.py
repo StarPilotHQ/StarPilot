@@ -284,7 +284,7 @@ class TestDisabledLearnerProcess(unittest.TestCase):
     assert self.process.should_run(True, self.params, other)
 
   def test_offroad_does_not_read_preferences(self):
-    class NoRead:
-      def get(self, *args, **kwargs):
-        raise AssertionError('Offroad learner should not read settings')
-    assert not self.process.should_run(False, NoRead(), self.cp)
+    from unittest.mock import patch
+    with patch('openpilot.starpilot.lateral.learning_preferences.read_preference',
+               side_effect=AssertionError('Offroad learner should not read settings')):
+      assert not self.process.should_run(False, self.params, self.cp)
