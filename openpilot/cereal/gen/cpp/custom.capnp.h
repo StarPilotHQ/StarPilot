@@ -650,7 +650,7 @@ struct StarPilotCarState {
   struct FeedbackPublication;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(f35cc4560bbf6ec2, 3, 6)
+    CAPNP_DECLARE_STRUCT_HEADER(f35cc4560bbf6ec2, 3, 7)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -3452,6 +3452,9 @@ public:
   inline bool hasToyotaCruise() const;
   inline  ::cereal::StarPilotCarState::ToyotaCruise::Reader getToyotaCruise() const;
 
+  inline bool hasSteeringLimitInfo() const;
+  inline  ::cereal::StarPilotCarControl::SteeringLimitInfo::Reader getSteeringLimitInfo() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -3621,6 +3624,13 @@ public:
   inline void adoptToyotaCruise(::capnp::Orphan< ::cereal::StarPilotCarState::ToyotaCruise>&& value);
   inline ::capnp::Orphan< ::cereal::StarPilotCarState::ToyotaCruise> disownToyotaCruise();
 
+  inline bool hasSteeringLimitInfo();
+  inline  ::cereal::StarPilotCarControl::SteeringLimitInfo::Builder getSteeringLimitInfo();
+  inline void setSteeringLimitInfo( ::cereal::StarPilotCarControl::SteeringLimitInfo::Reader value);
+  inline  ::cereal::StarPilotCarControl::SteeringLimitInfo::Builder initSteeringLimitInfo();
+  inline void adoptSteeringLimitInfo(::capnp::Orphan< ::cereal::StarPilotCarControl::SteeringLimitInfo>&& value);
+  inline ::capnp::Orphan< ::cereal::StarPilotCarControl::SteeringLimitInfo> disownSteeringLimitInfo();
+
 private:
   ::capnp::_::StructBuilder _builder;
   template <typename, ::capnp::Kind>
@@ -3645,6 +3655,7 @@ public:
   inline  ::cereal::LearningApplication::Pipeline getLearningApplication();
   inline  ::cereal::StarPilotCarState::FeedbackPublication::Pipeline getFeedbackPublication();
   inline  ::cereal::StarPilotCarState::ToyotaCruise::Pipeline getToyotaCruise();
+  inline  ::cereal::StarPilotCarControl::SteeringLimitInfo::Pipeline getSteeringLimitInfo();
 private:
   ::capnp::AnyPointer::Pipeline _typeless;
   friend class ::capnp::PipelineHook;
@@ -17589,6 +17600,45 @@ inline void StarPilotCarState::Builder::adoptToyotaCruise(
 inline ::capnp::Orphan< ::cereal::StarPilotCarState::ToyotaCruise> StarPilotCarState::Builder::disownToyotaCruise() {
   return ::capnp::_::PointerHelpers< ::cereal::StarPilotCarState::ToyotaCruise>::disown(_builder.getPointerField(
       ::capnp::bounded<5>() * ::capnp::POINTERS));
+}
+
+inline bool StarPilotCarState::Reader::hasSteeringLimitInfo() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotCarState::Builder::hasSteeringLimitInfo() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS).isNull();
+}
+inline  ::cereal::StarPilotCarControl::SteeringLimitInfo::Reader StarPilotCarState::Reader::getSteeringLimitInfo() const {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotCarControl::SteeringLimitInfo>::get(_reader.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS));
+}
+inline  ::cereal::StarPilotCarControl::SteeringLimitInfo::Builder StarPilotCarState::Builder::getSteeringLimitInfo() {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotCarControl::SteeringLimitInfo>::get(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS));
+}
+#if !CAPNP_LITE
+inline  ::cereal::StarPilotCarControl::SteeringLimitInfo::Pipeline StarPilotCarState::Pipeline::getSteeringLimitInfo() {
+  return  ::cereal::StarPilotCarControl::SteeringLimitInfo::Pipeline(_typeless.getPointerField(6));
+}
+#endif  // !CAPNP_LITE
+inline void StarPilotCarState::Builder::setSteeringLimitInfo( ::cereal::StarPilotCarControl::SteeringLimitInfo::Reader value) {
+  ::capnp::_::PointerHelpers< ::cereal::StarPilotCarControl::SteeringLimitInfo>::set(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS), value);
+}
+inline  ::cereal::StarPilotCarControl::SteeringLimitInfo::Builder StarPilotCarState::Builder::initSteeringLimitInfo() {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotCarControl::SteeringLimitInfo>::init(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS));
+}
+inline void StarPilotCarState::Builder::adoptSteeringLimitInfo(
+    ::capnp::Orphan< ::cereal::StarPilotCarControl::SteeringLimitInfo>&& value) {
+  ::capnp::_::PointerHelpers< ::cereal::StarPilotCarControl::SteeringLimitInfo>::adopt(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::cereal::StarPilotCarControl::SteeringLimitInfo> StarPilotCarState::Builder::disownSteeringLimitInfo() {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotCarControl::SteeringLimitInfo>::disown(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS));
 }
 
 inline  ::uint16_t StarPilotCarState::ToyotaCruise::Reader::getVersion() const {
