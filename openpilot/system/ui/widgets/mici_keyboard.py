@@ -365,10 +365,10 @@ class MiciKeyboard(Widget):
 
           # draw black circle behind selected key
           circle_alpha = int(self._selected_key_filter.x * 225)
-          if rl.RAYLIB_VERSION_MAJOR >= 6:
+          try:
             rl.draw_circle_gradient(rl.Vector2(key_x + key.rect.width / 2, key_y + key.rect.height / 2),
                                     SELECTED_CHAR_FONT_SIZE, rl.Color(0, 0, 0, circle_alpha), rl.BLANK)
-          else:  # AGNOS updater compatibility for raylib 5
+          except (TypeError, RuntimeError):
             rl.draw_circle_gradient(int(key_x + key.rect.width / 2), int(key_y + key.rect.height / 2),
                                     SELECTED_CHAR_FONT_SIZE, rl.Color(0, 0, 0, circle_alpha), rl.BLANK)
         else:
