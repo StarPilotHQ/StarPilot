@@ -1,6 +1,6 @@
 """Shared StarPilot torque bar with caller-qualified utilization."""
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.starpilot.ui.onroad_state import OnroadState

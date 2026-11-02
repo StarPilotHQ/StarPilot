@@ -4,7 +4,7 @@ from math import copysign
 from collections.abc import Callable
 import time
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui import clip
 from openpilot.starpilot.ui.feature_settings_state import (

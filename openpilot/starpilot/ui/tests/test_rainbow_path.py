@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.mici.onroad import model_renderer as compact
 from openpilot.selfdrive.ui.onroad import model_renderer as large

@@ -1,6 +1,6 @@
 """Lazy map resources for the native large screen; GPU preparation precedes drawing."""
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.system.starport.projection_map_lease import projection_map_active
 from openpilot.system.ui.lib.application import gui_app

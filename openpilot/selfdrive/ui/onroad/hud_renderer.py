@@ -1,4 +1,4 @@
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from dataclasses import dataclass
 from openpilot.common.constants import CV
 from openpilot.selfdrive.ui.onroad.exp_button import ExpButton

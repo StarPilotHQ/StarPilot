@@ -4,7 +4,7 @@ from collections.abc import Callable
 import math
 import time
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.layouts.arabesque.theme import DEFAULT_THEME
 from openpilot.selfdrive.ui.layouts.arabesque.tools.browser_session import BrowserSession, load_setup
@@ -208,22 +208,19 @@ class Browser(Widget):
         self._shader = rl.load_shader_from_memory(_VERTEX, _FRAGMENT)
         if not rl.is_shader_valid(self._shader) or self._shader.id == rl.rl_get_shader_id_default():
           raise RuntimeError('Firefox color shader failed')
-      pixels = rl.ffi.from_buffer('unsigned char[]', buffer, require_writable=False)
+      pixels = buffer
       if self._texture is None:
-        image = rl.ffi.new('Image *', {'data': pixels, 'width': session.width, 'height': session.height,
-                                     'mipmaps': 1, 'format': rl.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8})
-        self._texture = rl.load_texture_from_image(image[0])
+        image = rl.Image(pixels, session.width, session.height, 1, rl.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)
+        self._texture = rl.load_texture_from_image(image)
         if not rl.is_texture_valid(self._texture):
           raise RuntimeError('Firefox texture allocation failed')
         rl.set_texture_filter(self._texture, rl.TEXTURE_FILTER_BILINEAR)
       else:
-        rl.update_texture(self._texture, rl.ffi.cast('void *', pixels))
+        rl.update_texture(self._texture, pixels)
       session.uploaded(slot)
     except (OSError, TypeError, RuntimeError, ValueError) as e:
       failure = str(e)
     finally:
-      if pixels is not None:
-        rl.ffi.release(pixels)
       session.release(slot)
     if failure is not None:
       session.fail(failure)

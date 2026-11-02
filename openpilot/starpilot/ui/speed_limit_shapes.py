@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 
 ATLAS_PATH = Path(__file__).with_name('assets') / 'speed_limit_shapes.png'
@@ -37,7 +37,7 @@ class SpeedLimitShapes:
       raise RuntimeError('Speed-limit shapes require a graphics context')
     image = rl.load_image(str(ATLAS_PATH))
     try:
-      if image.data == rl.ffi.NULL or (image.width, image.height) != ATLAS_SIZE:
+      if image.data is None or (image.width, image.height) != ATLAS_SIZE:
         raise ValueError('Invalid speed-limit shape atlas')
       self.texture = rl.load_texture_from_image(image)
       if not self.texture.id:
@@ -49,7 +49,7 @@ class SpeedLimitShapes:
       self.close()
       raise
     finally:
-      if image.data != rl.ffi.NULL:
+      if image.data is not None:
         rl.unload_image(image)
 
   def _draw(self, name, x, y, color, rotation=0, *, scale=None):

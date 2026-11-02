@@ -1,4 +1,4 @@
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import numpy as np
 from dataclasses import dataclass
 from typing import Any, Optional, cast
@@ -119,12 +119,12 @@ class ShaderState:
       'mvp': None,
     }
 
-    # Pre-allocated FFI objects
-    self.fill_color_ptr = rl.ffi.new("float[]", [0.0, 0.0, 0.0, 0.0])
-    self.use_gradient_ptr = rl.ffi.new("int[]", [0])
-    self.color_count_ptr = rl.ffi.new("int[]", [0])
-    self.gradient_colors_ptr = rl.ffi.new("float[]", MAX_GRADIENT_COLORS * 4)
-    self.gradient_stops_ptr = rl.ffi.new("float[]", MAX_GRADIENT_COLORS)
+    # Pre-allocated uniform buffers
+    self.fill_color_ptr = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    self.use_gradient_ptr = np.array([0], dtype=np.int32)
+    self.color_count_ptr = np.array([0], dtype=np.int32)
+    self.gradient_colors_ptr = np.zeros(MAX_GRADIENT_COLORS * 4, dtype=np.float32)
+    self.gradient_stops_ptr = np.zeros(MAX_GRADIENT_COLORS, dtype=np.float32)
     # Last uploaded value per uniform: a program keeps its uniforms, so equal values need no upload.
     self.uniform_values: dict[str, tuple] = {}
 
@@ -230,7 +230,7 @@ def draw_polygon(origin_rect: rl.Rectangle, points: np.ndarray,
 
   # Triangulate via interleaving
   tri_strip = triangulate(pts)
-  vertices = rl.ffi.from_buffer("Vector2 *", tri_strip)
+  vertices = tri_strip
 
   if gradient is None:
     rl.draw_triangle_strip(vertices, len(tri_strip), color)

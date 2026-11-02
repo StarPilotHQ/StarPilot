@@ -2,7 +2,7 @@
 
 import math
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.starpilot.ui.feature_settings import DETAIL_SIZE, LABEL_SIZE

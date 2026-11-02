@@ -1,4 +1,4 @@
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.ui.lib.application import FontWeight

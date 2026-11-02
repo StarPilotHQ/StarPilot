@@ -3,7 +3,7 @@
 import math
 import random
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.spacepilot.state import Flight, Phase
 from openpilot.system.ui.lib.application import FontWeight, gui_app
@@ -29,7 +29,7 @@ class SpaceRenderer:
   def __init__(self):
     rng = random.Random(5683)
     self.stars = tuple((rng.uniform(0, 1072), rng.uniform(65, 435), rng.uniform(.8, 2.1), rng.uniform(4, 18)) for _ in range(64))
-    self.vector_gradient = len(rl.ffi.typeof(rl.rl.DrawCircleGradient).args) == 4
+    self.vector_gradient = True
 
   def gradient(self, x: int, y: int, radius: float, inner, outer) -> None:
     # Desktop and comma raylib expose different native gradient signatures.

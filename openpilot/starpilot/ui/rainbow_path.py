@@ -3,7 +3,7 @@
 import colorsys
 import math
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.system.ui.lib.shader_polygon import Gradient
 

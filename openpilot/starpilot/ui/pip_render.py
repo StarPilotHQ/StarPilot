@@ -1,11 +1,12 @@
 """Onroad PiP GPU owner: current cabin frame and independent side-camera placement."""
 
 from __future__ import annotations
+import numpy as np
 
 import time
 from typing import TYPE_CHECKING
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.hardware import COMMA_HARDWARE
 from openpilot.starpilot.ui.camera_availability import CameraAvailability
@@ -131,8 +132,8 @@ class PiPRenderer:
         return None
       y = data[:size[2] * size[1]]
       uv = data[uv_offset:uv_offset + size[2] * (size[1] // 2)]
-      rl.update_texture(self.texture_y, rl.ffi.cast("void *", rl.ffi.from_buffer(y)))
-      rl.update_texture(self.texture_uv, rl.ffi.cast("void *", rl.ffi.from_buffer(uv)))
+      rl.update_texture(self.texture_y, y)
+      rl.update_texture(self.texture_uv, uv)
       self._last_frame_id = frame.frame_id
     return self.texture_y
 
@@ -211,7 +212,7 @@ class PiPRenderer:
                           rl.ShaderUniformDataType.SHADER_UNIFORM_VEC2)
       rl.set_shader_value(shader, rl.get_shader_location(shader, "uCropSize"), crop_extent,
                           rl.ShaderUniformDataType.SHADER_UNIFORM_VEC2)
-      flip = rl.ffi.new("int[1]", [1 if invert else 0])
+      flip = np.array([1 if invert else 0], dtype=np.int32)
       rl.set_shader_value(shader, rl.get_shader_location(shader, "uFlipX"), flip,
                           rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
       if self.shape == "curved":

@@ -10,7 +10,7 @@ import tempfile
 import time
 import unicodedata
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.layouts.arabesque.theme import DEFAULT_THEME, Theme
 from openpilot.system.ui.lib.application import FONT_DIR, FONT_SCALE, FontWeight, gui_app, MousePos, TextAlignment

@@ -2,7 +2,7 @@
 
 import math
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.mici.onroad.driver_state import DriverStateRenderer
 from openpilot.selfdrive.ui.ui_state import ui_state

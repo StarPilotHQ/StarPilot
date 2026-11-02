@@ -3,7 +3,7 @@
 from collections import defaultdict
 from types import SimpleNamespace
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.selfdrive.ui.mici.widgets import button

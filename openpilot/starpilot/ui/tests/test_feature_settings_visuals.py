@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui import clip, feature_settings as view, settings_geometry as geometry
 from openpilot.starpilot.ui.feature_settings_state import (

@@ -66,7 +66,7 @@ def apply_plain_camera_look(camera, rl):
 
 
 def native_dependencies():
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   from openpilot.cereal.visionipc import VisionStreamType
   from openpilot.common.transformations.camera import view_frame_from_device_frame
   from openpilot.selfdrive.ui.onroad.augmented_road_view import AugmentedRoadView, BORDER_COLORS
@@ -122,13 +122,13 @@ def native_dependencies():
     """The StarPilot crescent, shrunk once on the CPU to its standby size; None if it cannot be loaded."""
     image = rl.load_image(str(STANDBY_LOGO))
     try:
-      if image.data == rl.ffi.NULL or image.width <= 0 or image.height <= 0:
+      if image.data is None or image.width <= 0 or image.height <= 0:
         return None
       if image.height > height:
         rl.image_resize(image, round(image.width * height / image.height), height)
       texture = rl.load_texture_from_image(image)
     finally:
-      if image.data != rl.ffi.NULL:
+      if image.data is not None:
         rl.unload_image(image)
     if texture.id == 0:
       return None

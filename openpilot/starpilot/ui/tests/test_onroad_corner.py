@@ -1,5 +1,5 @@
+import numpy as np
 import pytest
-import pyray as rl
 
 from openpilot.starpilot.ui.onroad_corner import _commands
 
@@ -14,11 +14,11 @@ def test_corner_geometry_tracks_layout_origin_without_changing_colors():
       if hasattr(old, "x"):
         assert new.x == pytest.approx(old.x + 29., abs=1e-4)
         assert new.y == pytest.approx(old.y + 21., abs=1e-4)
-      elif isinstance(old, rl.ffi.CData) and rl.ffi.typeof(old).kind == 'array':
+      elif isinstance(old, np.ndarray):
         assert len(old) == len(new) == 4
         for a, b in zip(old, new, strict=True):
-          assert b.x == pytest.approx(a.x + 29., abs=1e-4)
-          assert b.y == pytest.approx(a.y + 21., abs=1e-4)
+          assert b[0] == pytest.approx(a[0] + 29., abs=1e-4)
+          assert b[1] == pytest.approx(a[1] + 21., abs=1e-4)
       elif hasattr(old, "r"):
         assert (new.r, new.g, new.b, new.a) == (old.r, old.g, old.b, old.a)
       else:

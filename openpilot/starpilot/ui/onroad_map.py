@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.gps.acquisition import GpsAcquisition, acquisition_progress
 from openpilot.starpilot.gps.source import GPS_MAX_AGE_NS, PHONE_MAX_AGE_NS
@@ -424,7 +424,7 @@ class MapOverlay:
     self._widget_size: tuple[int, int] | None = None
     self._shader: rl.Shader | None = None
     self._uniforms: dict[str, int] = {}
-    self._uniform_values = (rl.ffi.new("Vector2 *"), rl.ffi.new("float *"), rl.ffi.new("float *"), rl.ffi.new("float *"))
+    self._uniform_values = (rl.Vector2(), np.zeros(1, dtype=np.float32), np.zeros(1, dtype=np.float32), np.zeros(1, dtype=np.float32))
     self._pending_at = -math.inf
     self.has_roads = False
     self._route_key: tuple | None = None
@@ -595,7 +595,7 @@ class MapOverlay:
       rl.begin_blend_mode(rl.BlendMode.BLEND_ALPHA_PREMULTIPLY)
       for color, strip in geometry.layers:
         strip = np.ascontiguousarray(strip, np.float32)
-        rl.draw_triangle_strip(rl.ffi.from_buffer("Vector2 *", strip), len(strip), color)
+        rl.draw_triangle_strip(strip, len(strip), color)
       rl.end_blend_mode()
     finally:
       rl.end_texture_mode()
@@ -660,7 +660,7 @@ class MapOverlay:
             rl.rl_translatef(-car_x, -car_y, 0)
             for color, strip in self._route_layers:
               strip = np.ascontiguousarray(strip, np.float32)
-              rl.draw_triangle_strip(rl.ffi.from_buffer("Vector2 *", strip), len(strip), color)
+              rl.draw_triangle_strip(strip, len(strip), color)
           finally:
             rl.rl_pop_matrix()
           if self.status == "live":

@@ -1,7 +1,7 @@
 """The Android Auto now-playing card; both live rendering and previews use this drawing."""
 import time
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.soloist.now_playing import elapsed_ms
 from openpilot.starpilot.system.starport.projection_layout import NOW_PLAYING_SIZE, NOW_PLAYING_WIDGET

@@ -6,7 +6,7 @@ model curvature sets its severity; absent curvature uses the base color.
 
 import math
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadState
 

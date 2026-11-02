@@ -9,7 +9,7 @@ from types import SimpleNamespace as NS, ModuleType
 import unittest
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.feature_settings_state import (
   FEATURE_ROW_TOP, FEATURE_ROW_HEIGHT, FeatureInput, FeatureUiAction, feature_row_top, value_buttons, value_done_rect,

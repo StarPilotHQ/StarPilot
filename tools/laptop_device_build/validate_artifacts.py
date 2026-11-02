@@ -28,6 +28,7 @@ ELF_FILES = (
   "openpilot/selfdrive/pandad/pandad",
   "openpilot/system/loggerd/loggerd",
   "openpilot/system/loggerd/encoderd",
+  "openpilot/starpilot/ui/native/_raylib_extra.so",
   "msgq_repo/msgq/ipc_pyx.so",
   "msgq_repo/msgq/visionipc/visionipc_pyx.so",
   "rednose_repo/rednose/helpers/ekf_sym_pyx.so",

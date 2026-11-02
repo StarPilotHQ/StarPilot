@@ -1,5 +1,5 @@
 """Jetlink status card shared by the native and Android Auto screens."""
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.models.jetlink_status import JetlinkStatus
 from openpilot.starpilot.ui.onroad_customization import JETLINK_SIZE, JETLINK_WIDGET

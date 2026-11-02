@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.cereal import log, messaging
@@ -812,7 +812,7 @@ class TestRuntimeSnapshot(unittest.TestCase):
     self.assertEqual(snapshot.home.model_label, "")
 
   def test_zero_speed_remains_visible_across_signed_filtered_estimates(self):
-    import pyray as rl
+    from openpilot.starpilot.ui.raylib import rl
     from openpilot.starpilot.ui.onroad_large_widgets import CurrentSpeedHud
 
     for metric in (False, True):

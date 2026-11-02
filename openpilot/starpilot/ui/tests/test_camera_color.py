@@ -1,3 +1,4 @@
+import numpy as np
 """State freshness and native uniform wiring for the selected Technicolor grade."""
 from types import SimpleNamespace as NS
 from unittest.mock import Mock
@@ -81,11 +82,11 @@ def test_both_native_renderers_send_float_blend_and_current_stream_flags(module,
   camera.shader = object()
   camera._stream_type = stream
   camera._color_strength_loc = 10
-  camera._color_strength_val = module.rl.ffi.new('float[1]')
+  camera._color_strength_val = np.zeros(1, dtype=np.float32)
   camera._road_camera_loc, camera._enhance_driver_loc, camera._engaged_loc = 11, 12, 13
-  camera._road_camera_val = module.rl.ffi.new('int[1]')
-  camera._enhance_driver_val = module.rl.ffi.new('int[1]')
-  camera._engaged_val = module.rl.ffi.new('int[1]')
+  camera._road_camera_val = np.zeros(1, dtype=np.int32)
+  camera._enhance_driver_val = np.zeros(1, dtype=np.int32)
+  camera._engaged_val = np.zeros(1, dtype=np.int32)
   calls = {}
   monkeypatch.setattr(module.rl, 'set_shader_value', lambda _shader, location, value, kind: calls.update({location: (value[0], kind)}))
   camera._update_texture_color_filtering()

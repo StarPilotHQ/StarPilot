@@ -357,6 +357,7 @@ scrub_mixed_arch_artifacts() {
     "${ROOT_DIR}/msgq_repo/msgq/"*.o \
     "${ROOT_DIR}/msgq_repo/libmsgq.a" \
     "${ROOT_DIR}/msgq_repo/libvisionipc.a" \
+    "${ROOT_DIR}/openpilot/starpilot/ui/native/_raylib_extra.so" \
     "${ROOT_DIR}/msgq_repo/msgq/ipc_pyx.so" \
     "${ROOT_DIR}/msgq_repo/msgq/visionipc/"*.os \
     "${ROOT_DIR}/msgq_repo/msgq/visionipc/"*.o \

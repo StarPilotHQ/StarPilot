@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 from PIL import Image
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile, default_font_directory, font_filename, font_path, validate_bitmap_font
@@ -327,7 +327,7 @@ def test_compact_preview_sprite_keeps_the_sign_offset_arrow_and_override_cross()
       image = rl.load_image_from_texture(canvas.target.texture)
       try:
         rl.image_flip_vertical(image)
-        direct = np.frombuffer(_straight_rgba(bytes(rl.ffi.buffer(image.data, 536*240*4))), np.uint8).reshape(240, 536, 4)
+        direct = np.frombuffer(_straight_rgba(bytes(image.data[:536*240*4])), np.uint8).reshape(240, 536, 4)
       finally:
         rl.unload_image(image)
       assert np.array_equal(direct[..., 3], np.asarray(rebuilt)[..., 3])

@@ -1,7 +1,7 @@
 import subprocess
 import threading
 import time
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from enum import IntEnum
 from collections.abc import Callable
 

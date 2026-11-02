@@ -2,7 +2,7 @@
 import os
 import argparse
 import coverage
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from tqdm import tqdm
 from typing import Literal

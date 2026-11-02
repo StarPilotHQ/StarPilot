@@ -3,7 +3,7 @@ from contextlib import ExitStack
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.selfdrive.ui.onroad import augmented_road_view as large

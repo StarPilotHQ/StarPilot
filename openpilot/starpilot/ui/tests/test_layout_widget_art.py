@@ -1,3 +1,4 @@
+import numpy as np
 from typing import cast
 import json
 import struct
@@ -120,7 +121,7 @@ def test_large_wheel_art_is_drawn_inside_its_crop_with_or_without_sidebar(monkey
   from pathlib import Path
   from types import SimpleNamespace as NS
   from unittest.mock import Mock
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   from openpilot.starpilot.ui import layout_preview_renderer as renderer
   from openpilot.starpilot.ui.onroad import OnroadView
   from openpilot.starpilot.ui.onroad_large_widgets import SteeringWheelWidget
@@ -146,11 +147,11 @@ def test_large_wheel_art_is_drawn_inside_its_crop_with_or_without_sidebar(monkey
   canvas.view = view
   monkeypatch.setattr(canvas, '_settle', lambda state: None)
   monkeypatch.setitem(renderer.RUNTIME_PREVIEW_WIDGETS, 'large', ('steering_wheel',))
-  monkeypatch.setattr(rl, 'rl', NS(rlSetBlendFactorsSeparate=Mock()))
+  monkeypatch.setattr(rl, 'rl_set_blend_factors_separate', Mock())
   for method in ('begin_texture_mode', 'clear_background', 'begin_blend_mode', 'end_blend_mode', 'end_texture_mode',
                  'image_format', 'image_flip_vertical', 'image_crop', 'unload_image', 'draw_circle', 'draw_ring', 'draw_texture_pro'):
     monkeypatch.setattr(rl, method, Mock())
-  pixels = rl.ffi.new('unsigned char[]', 192 * 192 * 4)
+  pixels = np.zeros(192 * 192 * 4, dtype=np.uint8)
   monkeypatch.setattr(rl, 'load_image_from_texture', Mock(return_value=NS(data=pixels)))
   monkeypatch.setattr(renderer, '_png_rgba', Mock(return_value=b'png'))
   state = renderer.sample_state('braking', document)

@@ -4,7 +4,7 @@ from dataclasses import replace
 import unittest
 from unittest.mock import patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.curve_speed.status import CurveObservation
 from openpilot.starpilot.ui.onroad_compact_widgets import MiciSidebarWidgets

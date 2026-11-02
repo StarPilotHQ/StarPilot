@@ -179,6 +179,10 @@
     "recipe": "openpilot/starpilot/flm/SConscript",
     "required_tracked": true
   },
+  "openpilot/starpilot/ui/native/_raylib_extra.so": {
+    "recipe": "openpilot/starpilot/ui/native/SConscript",
+    "required_tracked": true
+  },
   "openpilot/system/loggerd/bootlog": {
     "recipe": "openpilot/system/loggerd/SConscript",
     "required_tracked": true

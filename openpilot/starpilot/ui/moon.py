@@ -1,11 +1,12 @@
 """Small crescent built without an opaque cutout over the camera."""
 
 from __future__ import annotations
+import numpy as np
 
 import math
 from functools import lru_cache
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 
 _DISTANCE = math.hypot(.45, -.3)
@@ -23,9 +24,9 @@ _POINTS = tuple(point for i in range(25) for point in (
 def _vertices(x: float, y: float, width: float, height: float):
   radius = min(width, height) / 2
   cx, cy = x + width / 2, y + height / 2
-  return rl.ffi.new("Vector2[]", [(cx + px * radius, cy + py * radius) for px, py in _POINTS])
+  return np.array([(cx + px * radius, cy + py * radius) for px, py in _POINTS], dtype=np.float32)
 
 
 def draw_moon(rect: rl.Rectangle, color: rl.Color | None = None) -> None:
   points = _vertices(rect.x, rect.y, rect.width, rect.height)
-  rl.draw_triangle_strip(rl.ffi.cast("Vector2 *", points), len(_POINTS), color if color is not None else rl.Color(188, 132, 255, 255))
+  rl.draw_triangle_strip(points, len(_POINTS), color if color is not None else rl.Color(188, 132, 255, 255))

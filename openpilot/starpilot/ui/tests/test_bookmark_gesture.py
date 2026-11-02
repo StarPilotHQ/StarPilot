@@ -2,7 +2,7 @@ from openpilot.starpilot.ui.runtime_app import StarShellSession
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, PropertyMock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.selfdrive.ui.mici.onroad import augmented_road_view as road

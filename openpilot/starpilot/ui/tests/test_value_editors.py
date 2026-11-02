@@ -107,7 +107,7 @@ class ValueEditorTests(unittest.TestCase):
       self.assertIsNone(value_request(replace(editor, rows=(current,)), FeatureUiAction("change", current, 1)))
 
   def test_long_choices_and_precise_numbers_fit_the_existing_editor(self):
-    import pyray as rl
+    from openpilot.starpilot.ui.raylib import rl
     rows = (FeatureRow("choice", "Choice", "Use the selected vehicle controller", available=True,
                        choices=("Use the selected vehicle controller", "Use the other controller")),
             FeatureRow("number", "Number", "123.45678901234567", step=.01, minimum=0., maximum=200., available=True, unit="m/s²"))

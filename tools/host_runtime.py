@@ -328,7 +328,7 @@ class HostRuntime:
 
   def build(self, command, jobs):
     params = 'openpilot/common/libparams_c' + ('.dylib' if self.system == 'Darwin' else '.so')
-    targets = [params, 'msgq_repo/msgq/ipc_pyx.so', 'msgq_repo/msgq/visionipc/visionipc_pyx.so']
+    targets = ['openpilot/starpilot/ui/native/_raylib_extra.so', params, 'msgq_repo/msgq/ipc_pyx.so', 'msgq_repo/msgq/visionipc/visionipc_pyx.so']
     if command in ('c3', 'c4', 'onroad', 'galaxy', 'python', 'pytest', 'shell'):
       targets += ['rednose_repo/rednose/helpers/ekf_sym_pyx.so', 'openpilot/selfdrive/locationd',
                   'openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/acados_ocp_solver_pyx.so']

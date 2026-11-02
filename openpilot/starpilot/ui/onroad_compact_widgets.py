@@ -7,7 +7,7 @@ import json
 import time
 from pathlib import Path
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.starpilot.conditional_mode.policy import ModeChoice
@@ -31,7 +31,7 @@ def _line_points(x1: float, y1: float, x2: float, y2: float) -> tuple:
 def _line(x1: float, y1: float, x2: float, y2: float, color: rl.Color, width: float = 3) -> None:
   # The native primitive uses the same active GL transform as the Python API.
   # Keep geometry in logical coordinates and pass the current color every draw.
-  rl.rl.DrawLineEx(*_line_points(x1, y1, x2, y2), width, color)
+  rl.draw_line_ex(*_line_points(x1, y1, x2, y2), width, color)
 
 
 def _curve_center(t: float) -> tuple[float, float]:
@@ -118,14 +118,14 @@ class CompactHudRenderer:
       raise ValueError("Unreviewed compact wheel art")
     image = rl.load_image(str(path))
     try:
-      if image.data == rl.ffi.NULL:
+      if image.data is None:
         raise RuntimeError("Unable to load compact wheel art")
       rl.image_resize(image, 50, 50)
       self._wheel = rl.load_texture_from_image(image)
       if not self._wheel.id:
         raise RuntimeError("Unable to create compact wheel texture")
     finally:
-      if image.data != rl.ffi.NULL:
+      if image.data is not None:
         rl.unload_image(image)
 
   def render(self, state: OnroadState) -> None:

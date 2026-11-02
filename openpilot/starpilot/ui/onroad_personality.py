@@ -1,6 +1,6 @@
 """Shared compact/large personality artwork and longitudinal feedback."""
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadState, is_lane_change_notice, personality_bounds

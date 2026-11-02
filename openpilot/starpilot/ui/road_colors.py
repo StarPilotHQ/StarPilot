@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_customization import ROAD_COLORS
 from openpilot.system.ui.lib.shader_polygon import Gradient

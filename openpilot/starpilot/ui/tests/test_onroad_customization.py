@@ -7,7 +7,7 @@ from dataclasses import replace
 from types import SimpleNamespace as NS
 from unittest.mock import patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.starpilot.ui.appearance_preferences import OnroadAppearance

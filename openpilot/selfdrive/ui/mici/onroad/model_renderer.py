@@ -1,7 +1,7 @@
 import colorsys
 import math
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from openpilot.cereal import log, messaging
 from opendbc.car.structs import car
 from dataclasses import dataclass, field

@@ -329,6 +329,7 @@ SConscript([
   'openpilot/selfdrive/ui/SConscript',
   'openpilot/starpilot/audio/native/SConscript',
   'openpilot/starpilot/models/runtime_bridge/SConscript',
+  'openpilot/starpilot/ui/native/SConscript',
   'openpilot/starpilot/flm/SConscript',
 ])
 

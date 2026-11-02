@@ -1,4 +1,4 @@
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from openpilot.common.time_helpers import system_time_valid
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.widgets.pairing_dialog import PairingDialog

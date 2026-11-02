@@ -374,8 +374,7 @@ def test_padded_nv12_uses_actual_uv_offset_and_texture_stride():
   uploaded = []
   textures = iter((SimpleNamespace(id=1), SimpleNamespace(id=2)))
   def upload(texture, pointer):
-    import pyray as rl
-    uploaded.append((texture.id, bytes(rl.ffi.buffer(pointer, 16 if texture.id == 1 else 8))))
+    uploaded.append((texture.id, bytes(pointer[:16 if texture.id == 1 else 8])))
   with patch("openpilot.starpilot.ui.pip_render.COMMA_HARDWARE", False), \
        patch("openpilot.starpilot.ui.pip_render.rl.load_texture_from_image", side_effect=lambda image: next(textures)), \
        patch("openpilot.starpilot.ui.pip_render.rl.update_texture", side_effect=upload):

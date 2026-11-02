@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.system.ui.widgets.network import NetworkUI
 from openpilot.system.ui.widgets import Widget

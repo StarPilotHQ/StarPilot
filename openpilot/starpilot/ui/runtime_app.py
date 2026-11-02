@@ -16,7 +16,7 @@ import threading
 from typing import Any, cast
 from collections.abc import Callable
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import openpilot.cereal.messaging as messaging
 from opendbc.car.structs import car as car_schema
 

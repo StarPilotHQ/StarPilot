@@ -1,8 +1,9 @@
+import numpy as np
 from contextlib import contextmanager
 from types import SimpleNamespace as NS
 from unittest.mock import patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.starpilot.ui import onroad_torque_draw
@@ -17,7 +18,7 @@ def record_gpu():
   def upload(shader, location, values, kind):
     name = next(name for name, value in names.items() if value == location)
     data.uniforms[name] = tuple(values[0:4])
-    data.uploads.append((name, int(rl.ffi.cast('uintptr_t', values))))
+    data.uploads.append((name, int(np.asarray(values).ctypes.data)))
 
   def finish():
     data.frames.append(NS(uniforms=dict(data.uniforms), vertices=tuple(vertices), coordinates=tuple(coordinates)))
@@ -34,9 +35,9 @@ def record_gpu():
        patch.object(rl, 'rl_end', side_effect=finish), \
        patch.object(rl, 'unload_shader', side_effect=lambda shader: data.unloads.append(shader.id)), \
        patch.object(rl, 'is_window_ready', return_value=True), patch.object(rl, 'rl_get_shader_id_default', return_value=0):
-    native = NS(BeginShaderMode=rl.begin_shader_mode, EndShaderMode=rl.end_shader_mode,
-                SetShaderValue=rl.set_shader_value, rlSetTexture=rl.rl_set_texture,
-                rlBegin=rl.rl_begin, rlTexCoord2f=rl.rl_tex_coord2f, rlVertex2f=rl.rl_vertex2f, rlEnd=rl.rl_end)
+    native = NS(begin_shader_mode=rl.begin_shader_mode, end_shader_mode=rl.end_shader_mode,
+                set_shader_value=rl.set_shader_value, rl_set_texture=rl.rl_set_texture,
+                rl_begin=rl.rl_begin, rl_tex_coord2f=rl.rl_tex_coord2f, rl_vertex2f=rl.rl_vertex2f, rl_end=rl.rl_end)
     with patch.object(onroad_torque_draw, 'native_rl', native):
       yield data
 

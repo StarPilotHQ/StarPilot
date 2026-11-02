@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.layouts.arabesque.theme import DEFAULT_THEME
 from openpilot.selfdrive.ui.layouts.arabesque.tools.browser import Browser

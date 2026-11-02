@@ -1,6 +1,6 @@
 """Captured six-row large Software viewport drawn from supplied state."""
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui import clip
 

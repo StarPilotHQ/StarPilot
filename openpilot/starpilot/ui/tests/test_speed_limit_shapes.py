@@ -248,7 +248,7 @@ def test_native_confirmation_blends_once_and_pulses_only_below_the_speed(scale):
     image = rl.load_image_from_texture(target.texture)
     try:
       rl.image_flip_vertical(image)
-      return np.frombuffer(rl.ffi.buffer(image.data, image.width * image.height * 4), dtype=np.uint8).reshape(image.height, image.width, 4).copy()
+      return np.frombuffer(image.data[:image.width * image.height * 4], dtype=np.uint8).reshape(image.height, image.width, 4).copy()
     finally:
       rl.unload_image(image)
 

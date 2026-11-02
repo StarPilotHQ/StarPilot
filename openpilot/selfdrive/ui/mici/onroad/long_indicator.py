@@ -1,6 +1,6 @@
 """Native compact placement adapter for the shared personality renderer."""
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.cereal import log
 from openpilot.selfdrive.ui.ui_state import ui_state

@@ -1,6 +1,6 @@
 """Shared visual tokens for the StarPilot on-road control widgets."""
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_customization import rgba
 

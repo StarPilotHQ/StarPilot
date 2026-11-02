@@ -9,7 +9,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.device import DeviceView
 from openpilot.starpilot.ui.feature_settings import FeatureSettingsView

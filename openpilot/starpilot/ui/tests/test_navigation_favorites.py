@@ -18,8 +18,8 @@ def test_appearance_scales_ink_and_optional_background(key, display, background,
                                                       'display': display, 'opacity': opacity, 'background': background}}}},
              alert=NS(size='none'))
   # A missing favorite also exercises the status badge's opacity and background.
-  with patch('pyray.draw_rectangle_rounded') as fill, patch('pyray.draw_rectangle_rounded_lines_ex') as border, \
-       patch('pyray.draw_line_ex') as lines, patch('pyray.draw_circle') as badge:
+  with patch('raylib_nb.draw_rectangle_rounded') as fill, patch('raylib_nb.draw_rectangle_rounded_lines_ex') as border, \
+       patch('raylib_nb.draw_line_ex') as lines, patch('raylib_nb.draw_circle') as badge:
     card.render(key, state)
   assert fill.call_count == border.call_count == int(background)
   if background:
@@ -44,8 +44,8 @@ def test_bookmark_stays_visible_during_navigation_and_needs_no_favorite(display)
              alert=NS(size='none'))
   home = {'id': 'home', 'label': 'home'}
   card.document = {'favorites': [home], 'destination': home, 'enabled': True, 'token': 'key'}
-  with patch('pyray.draw_rectangle_rounded') as background, patch('pyray.draw_rectangle_rounded_lines_ex'), \
-       patch('pyray.draw_line_ex') as lines:
+  with patch('raylib_nb.draw_rectangle_rounded') as background, patch('raylib_nb.draw_rectangle_rounded_lines_ex'), \
+       patch('raylib_nb.draw_line_ex') as lines:
     card.render('bookmark', state)
   background.assert_not_called()
   assert [call.args[0] for call in fonts.draw.call_args_list] == (['Bookmark', 'Save event'] if display == 'words' else [])
@@ -66,7 +66,7 @@ def test_card_changes_to_end_navigation_only_for_its_destination(key):
   label = key.removeprefix('nav_')
   place = {'id': label, 'label': label}
   card.document = {'favorites': [place], 'destination': None, 'enabled': True, 'token': 'key'}
-  with patch('pyray.draw_rectangle_rounded'), patch('pyray.draw_rectangle_rounded_lines_ex'):
+  with patch('raylib_nb.draw_rectangle_rounded'), patch('raylib_nb.draw_rectangle_rounded_lines_ex'):
     card.render(key, state)
     assert [call.args[0] for call in fonts.draw.call_args_list] == ['Navigate', label.title()]
     assert fonts.draw.call_args_list[0].args[4] < fonts.draw.call_args_list[1].args[4]
@@ -91,7 +91,7 @@ def test_missing_favorite_shows_setup_hint():
   fonts.measure.return_value = NS(width=200)
   card = NavigationFavorites(fonts)
   state = NS(customization={'layouts': {'large': {'nav_home': {'x': 100, 'y': 200, 'enabled': True}}}}, alert=NS(size='none'))
-  with patch('pyray.draw_rectangle_rounded'), patch('pyray.draw_rectangle_rounded_lines_ex'):
+  with patch('raylib_nb.draw_rectangle_rounded'), patch('raylib_nb.draw_rectangle_rounded_lines_ex'):
     card.render('nav_home', state)
   assert [call.args[0] for call in fonts.draw.call_args_list] == ['Set in Galaxy', 'Home']
 
@@ -109,8 +109,8 @@ def test_icon_rendering_preserves_navigation_status_without_word_card(key, statu
   card.document = {'favorites': [] if status == 'missing' else [place], 'destination': place if status == 'active' else None,
                    'enabled': status != 'disabled', 'token': 'key'}
   card.error = 'Try again' if status == 'error' else ''
-  with patch('pyray.draw_rectangle_rounded') as background, patch('pyray.draw_rectangle_rounded_lines_ex'), \
-       patch('pyray.draw_line_ex') as lines, patch('pyray.draw_circle'):
+  with patch('raylib_nb.draw_rectangle_rounded') as background, patch('raylib_nb.draw_rectangle_rounded_lines_ex'), \
+       patch('raylib_nb.draw_line_ex') as lines, patch('raylib_nb.draw_circle'):
     card.render(key, state)
   rect = background.call_args.args[0]
   assert (rect.x, rect.y, rect.width, rect.height) == (100, 200, 110, 110)
@@ -132,8 +132,8 @@ def test_other_favorite_is_hidden_until_route_ends(active, display):
   places = [{'id': label, 'label': label} for label in ('home', 'work')]
   card.document = {'favorites': places, 'destination': next(p for p in places if p['id'] == active), 'enabled': True, 'token': 'key'}
   other = 'nav_work' if active == 'home' else 'nav_home'
-  with patch('pyray.draw_rectangle_rounded') as background, patch('pyray.draw_rectangle_rounded_lines_ex'), \
-       patch('pyray.draw_line_ex'):
+  with patch('raylib_nb.draw_rectangle_rounded') as background, patch('raylib_nb.draw_rectangle_rounded_lines_ex'), \
+       patch('raylib_nb.draw_line_ex'):
     card.render(other, state)
     background.assert_not_called()
     # Ending the route restores the other button without changing the saved layout.

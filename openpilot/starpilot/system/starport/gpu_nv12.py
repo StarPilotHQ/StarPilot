@@ -17,6 +17,7 @@ top-down flip and padding into these passes instead of copying a full RGBA frame
 """
 
 from __future__ import annotations
+import numpy as np
 
 import platform
 
@@ -85,7 +86,7 @@ def compose_rgba(source, target, margin_w: int, margin_h: int, *, fit: bool = Fa
   its RGB. Like the NV12 pass it never blends by the texture's alpha, which
   varies between frames; blending by it made bright areas flicker.
   """
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   rl.begin_texture_mode(target)
   rl.clear_background(rl.Color(6, 6, 15, 255))
   rl.rl_set_blend_factors(GL_ONE, GL_ZERO, GL_FUNC_ADD)
@@ -120,7 +121,7 @@ class Nv12Converter:
       raise ValueError("NV12 conversion needs a width divisible by 4 and an even height")
     if not 0 <= margin_w < width or not 0 <= margin_h < height:
       raise ValueError("NV12 margins must leave a visible image")
-    import pyray as rl
+    from openpilot.starpilot.ui.raylib import rl
     self.rl = rl
     self.width, self.height = width, height
     self.source_size = (width - margin_w, height - margin_h)
@@ -135,9 +136,9 @@ class Nv12Converter:
         # The old composition pass places floor(margin_h / 2) rows above the
         # flipped texture. Readback starts at the bottom, so an odd extra row
         # belongs at the start of the encoded image, matching that pass exactly.
-        offset = rl.ffi.new("int[]", [margin_w // 2 if content_left is None else content_left,
-                                      margin_h - margin_h // 2 if content_top is None else content_top])
-        compose_value = rl.ffi.new("int *", int(compose))
+        offset = np.array([margin_w // 2 if content_left is None else content_left,
+                                      margin_h - margin_h // 2 if content_top is None else content_top], dtype=np.int32)
+        compose_value = np.array([int(compose)], dtype=np.int32)
         rl.set_shader_value(shader, rl.get_shader_location(shader, "sourceOffset"), offset, rl.ShaderUniformDataType.SHADER_UNIFORM_IVEC2)
         rl.set_shader_value(shader, rl.get_shader_location(shader, "composeSource"), compose_value, rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
       self.targets = [rl.load_render_texture(width // 4, height), rl.load_render_texture(width // 4, height // 2)]

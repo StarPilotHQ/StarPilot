@@ -9,7 +9,7 @@ from pathlib import Path
 import stat
 from threading import Event
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.hardware import PC

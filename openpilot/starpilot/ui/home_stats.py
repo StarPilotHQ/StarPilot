@@ -1,7 +1,7 @@
 """Home statistics drawing with supplied data and native presentation resources."""
 from __future__ import annotations
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.home_state import DriveStatsData, DriveSummary
 from openpilot.starpilot.ui.home_geometry import outside_rounded_border

@@ -1,7 +1,7 @@
 import platform
 import time
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.cereal.visionipc import VisionStreamType
 from msgq.visionipc import VisionIpcClient, VisionBuf
@@ -131,11 +131,11 @@ class CameraView(Widget):
     self.shader = rl.load_shader_from_memory(VERTEX_SHADER, FRAME_FRAGMENT_SHADER)
     self._texture1_loc: int = rl.get_shader_location(self.shader, "texture1") if not COMMA_HARDWARE else -1
     self._engaged_loc = rl.get_shader_location(self.shader, "engaged")
-    self._engaged_val = rl.ffi.new("int[1]", [1])
+    self._engaged_val = np.array([1], dtype=np.int32)
     self._color_strength_loc = rl.get_shader_location(self.shader, "color_strength")
-    self._color_strength_val = rl.ffi.new("float[1]")
+    self._color_strength_val = np.zeros(1, dtype=np.float32)
     self._enhance_driver_loc = rl.get_shader_location(self.shader, "enhance_driver")
-    self._enhance_driver_val = rl.ffi.new("int[1]", [1 if stream_type == VisionStreamType.VISION_STREAM_CABIN else 0])
+    self._enhance_driver_val = np.array([1 if stream_type == VisionStreamType.VISION_STREAM_CABIN else 0], dtype=np.int32)
 
     self.frame: VisionBuf | None = None
     self.texture_y: rl.Texture | None = None
@@ -328,8 +328,8 @@ class CameraView(Widget):
       y_data = self.frame.data[: self.frame.uv_offset]
       uv_data = self.frame.data[self.frame.uv_offset:]
 
-      rl.update_texture(self.texture_y, rl.ffi.cast("void *", rl.ffi.from_buffer(y_data)))
-      rl.update_texture(self.texture_uv, rl.ffi.cast("void *", rl.ffi.from_buffer(uv_data)))
+      rl.update_texture(self.texture_y, y_data)
+      rl.update_texture(self.texture_uv, uv_data)
       self._texture_needs_update = False
 
     # Render with shader

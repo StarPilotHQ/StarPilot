@@ -167,7 +167,7 @@ def run(frames_path: str, touch_path: str | None = None, control_path: str | Non
   from openpilot.starpilot.system.starport.projection_bookmark import BookmarkSender, request_bookmark
   from openpilot.starpilot.system.starport.projection_onroad import ProjectionOnroad
   from openpilot.starpilot.system.starport.touch import TouchReceiver, DEFAULT_TOUCH_SOCKET
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   from openpilot.system.ui.lib.application import gui_app
   from openpilot.selfdrive.ui.ui_state import ui_state
 

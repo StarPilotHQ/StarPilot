@@ -3,7 +3,7 @@
 from dataclasses import replace
 import re
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.system.ui.lib.multilang import tr_display as tr
 from openpilot.system.ui.lib.display_translation import DisplayText

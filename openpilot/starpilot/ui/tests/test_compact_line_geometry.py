@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui import onroad_compact_widgets as widgets
 from openpilot.system.ui.lib.application import gui_app
@@ -16,7 +16,7 @@ class CompactLineGeometryTests(unittest.TestCase):
 
   def test_native_line_retains_fractional_points_width_and_current_color(self):
     native = Mock()
-    api = SimpleNamespace(Vector2=rl.Vector2, rl=SimpleNamespace(DrawLineEx=native))
+    api = SimpleNamespace(Vector2=rl.Vector2, draw_line_ex=native)
     first, second = rl.Color(20, 30, 40, 255), rl.Color(100, 110, 120, 63)
     with patch.object(widgets, "rl", api):
       widgets._line(-12.25, 3.5, 40.75, -6.25, first, 4.75)
@@ -31,7 +31,7 @@ class CompactLineGeometryTests(unittest.TestCase):
 
   def test_global_scaling_keeps_cached_points_in_logical_coordinates(self):
     native = Mock()
-    api = SimpleNamespace(Vector2=rl.Vector2, rl=SimpleNamespace(DrawLineEx=native))
+    api = SimpleNamespace(Vector2=rl.Vector2, draw_line_ex=native)
     with patch.object(widgets, "rl", api):
       for scale in (.5, 1., 2.):
         with patch.object(gui_app, "_scale", scale):

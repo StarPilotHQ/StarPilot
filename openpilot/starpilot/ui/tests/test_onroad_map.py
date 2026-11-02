@@ -239,7 +239,7 @@ def render_overlay(rl, tmp_path, bearing, width=560, height=420, opacity=1.0, ro
     rl.end_texture_mode()
     image = rl.load_image_from_texture(target.texture)
     rl.image_flip_vertical(image)
-    pixels = np.frombuffer(rl.ffi.buffer(image.data, width * height * 4), np.uint8).reshape(height, width, 4).copy()
+    pixels = np.frombuffer(image.data[:width * height * 4], np.uint8).reshape(height, width, 4).copy()
     rl.unload_image(image)
     rl.unload_render_texture(target)
     return pixels
@@ -260,7 +260,7 @@ def test_overlay_draws_heading_up_roads_route_and_soft_edges(gl, tmp_path):
   # The motorway runs north-south through the car: vertical when heading north, horizontal when heading east.
   if os.getenv("STARPILOT_MAP_PREVIEW_DIR"):
     for name, pixels in (("map_north.png", north), ("map_east.png", east)):
-      image = rl.Image(rl.ffi.from_buffer(np.ascontiguousarray(pixels)), width, height, 1, 7)
+      image = rl.Image(np.ascontiguousarray(pixels), width, height, 1, 7)
       rl.export_image(image, os.path.join(os.environ["STARPILOT_MAP_PREVIEW_DIR"], name))
   ys, xs = np.nonzero(yellow(north))
   assert len(xs) > 200 and np.ptp(ys) > height * 0.6 and np.ptp(xs) < 40
@@ -392,14 +392,14 @@ def test_map_feed_waiting_tracks_satellites_and_keeps_navigation_requested(monke
 @pytest.mark.parametrize('satellites', [None, 1, 3])
 @pytest.mark.parametrize('size', [(280, 200), (560, 420), (900, 600)])
 def test_gps_status_card_is_inside_bottom_of_map(tmp_path, active, satellites, size):
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   fonts = Mock()
   fonts.measure.side_effect = lambda text, _role, size: NS(width=len(text) * size * .65, height=size * 1.25)
   overlay = MapOverlay(tmp_path, fonts=fonts)
   try:
     overlay._advance(MapInput(None, navigation_active=active, satellites=satellites, gps_wait_seconds=75), 100)
     rect = rl.Rectangle(100, 200, *size)
-    with patch('pyray.draw_rectangle_rounded') as backgrounds:
+    with patch('raylib_nb.draw_rectangle_rounded') as backgrounds:
       overlay._draw_gps_status(rect)
     detail = ('Searching for satellites' if satellites is None else
               f"{satellites} satellite{'s' if satellites != 1 else ''} locked")
@@ -420,7 +420,7 @@ def test_gps_status_card_is_inside_bottom_of_map(tmp_path, active, satellites, s
 
 
 def test_gps_source_chip_is_solid_and_inside_the_widget(tmp_path):
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   fonts = Mock()
   fonts.measure.side_effect = lambda text, _role, size: NS(width=len(text) * size * .65, height=size * 1.25)
   overlay = MapOverlay(tmp_path, fonts=fonts)
@@ -429,7 +429,7 @@ def test_gps_source_chip_is_solid_and_inside_the_widget(tmp_path):
     for source, label in (("comma", "Comma GPS"), ("car", "Car GPS"), ("phone", "Phone GPS")):
       overlay._input = MapInput(MapFix(*CENTER, 0, 0, 100), source=source)
       fonts.draw.reset_mock()
-      with patch('pyray.draw_rectangle_rounded') as chip, patch('pyray.draw_rectangle_rounded_lines_ex'):
+      with patch('raylib_nb.draw_rectangle_rounded') as chip, patch('raylib_nb.draw_rectangle_rounded_lines_ex'):
         overlay._draw_source_chip(rect)
       assert [call.args[0] for call in fonts.draw.call_args_list] == [label]
       assert chip.call_args.args[3].a == 255 and fonts.draw.call_args.args[5].a == 255
@@ -444,27 +444,27 @@ def test_gps_source_chip_is_solid_and_inside_the_widget(tmp_path):
 
 
 def test_starting_navigation_overlay_until_route_is_drawn(tmp_path):
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   fonts = Mock()
   fonts.measure.side_effect = lambda text, _role, size: NS(width=len(text) * size * .65, height=size * 1.25)
   overlay = MapOverlay(tmp_path, fonts=fonts)
   try:
     rect = rl.Rectangle(100, 200, 560, 420)
     overlay._input = MapInput(MapFix(*CENTER, 0, 0, 100), navigation_active=True)
-    with patch('pyray.draw_rectangle_rounded') as card:
+    with patch('raylib_nb.draw_rectangle_rounded') as card:
       overlay._draw_starting_navigation(rect)
     assert [call.args[0] for call in fonts.draw.call_args_list] == ['Starting navigation', 'Finding your route…']
     assert card.call_args.args[3].a == 255, 'solid whatever the map opacity'
     assert all(call.args[5].a == 255 for call in fonts.draw.call_args_list)
     fonts.draw.reset_mock()
     overlay._input = MapInput(MapFix(*CENTER, 0, 0, 100), navigation_active=True, destination='Work')
-    with patch('pyray.draw_rectangle_rounded'):
+    with patch('raylib_nb.draw_rectangle_rounded'):
       overlay._draw_starting_navigation(rect)
     assert [call.args[0] for call in fonts.draw.call_args_list] == ['Starting navigation', 'to Work', 'Finding your route…']
     fonts.draw.reset_mock()
     overlay._input = MapInput(MapFix(*CENTER, 0, 0, 100), navigation_active=True, destination='A' * 40)
     overlay._route_world = np.zeros((2, 2))
-    with patch('pyray.draw_rectangle_rounded'):
+    with patch('raylib_nb.draw_rectangle_rounded'):
       overlay._draw_starting_navigation(rect)
     assert [call.args[0] for call in fonts.draw.call_args_list] == ['Starting navigation', 'to ' + 'A' * 31 + '…']
   finally:

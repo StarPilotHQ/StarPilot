@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 import math
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice

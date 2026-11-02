@@ -1,6 +1,6 @@
 from functools import cached_property
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import openpilot.cereal.messaging as messaging
 from openpilot.selfdrive.ui.mici.layouts.home import MiciHomeLayout
 from openpilot.selfdrive.ui.mici.layouts.settings.settings import SettingsLayout

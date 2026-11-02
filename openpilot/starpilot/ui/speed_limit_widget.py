@@ -3,7 +3,7 @@
 import time
 from typing import cast
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.large_speed_geometry import LARGE_SIGN_SCALE, CONFIRMATION_SCALE, CONFIRMATION_PADDING
 from openpilot.starpilot.ui.onroad_state import OnroadState, manual_slc_confirmation, speed_limit_bounds, slc_controls, slc_accept_available

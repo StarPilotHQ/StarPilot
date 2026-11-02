@@ -468,7 +468,8 @@ class ArtifactCheckTest(unittest.TestCase):
                       b"644".ljust(8) + b"200".ljust(10) + b"`\n")
     archive = b"!<arch>\n" + archive_header + bytes(obj)
 
-    for name in ("openpilot/starpilot/flm/_primitive_walk.so", "openpilot/common/libparams_c.so", "openpilot/selfdrive/pandad/pandad",
+    for name in ("openpilot/starpilot/ui/native/_raylib_extra.so", "openpilot/starpilot/flm/_primitive_walk.so",
+                 "openpilot/common/libparams_c.so", "openpilot/selfdrive/pandad/pandad",
                  "openpilot/system/loggerd/loggerd", "openpilot/system/loggerd/encoderd",
                  "msgq_repo/msgq/ipc_pyx.so", "msgq_repo/msgq/visionipc/visionipc_pyx.so",
                  "rednose_repo/rednose/helpers/ekf_sym_pyx.so", "openpilot/tools/replay/replay",
@@ -522,6 +523,22 @@ class ArtifactCheckTest(unittest.TestCase):
 
   def test_can_decoder_required_and_valid(self):
     name = "opendbc_repo/opendbc/can/_raw_value.so"
+    wrong = bytearray(self.elf)
+    struct.pack_into("<H", wrong, 18, 62)
+    for defect, data in (("missing", None), ("foreign", wrong), ("header_only", self.elf[:20])):
+      with self.subTest(defect=defect):
+        self.assertEqual(self.verify().returncode, 0)
+        if data is None:
+          (self.root / name).unlink()
+        else:
+          self.write(name, data)
+        result = self.verify()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(name, result.stderr)
+        self.write(name, self.elf)
+
+  def test_raylib_native_binding_required_and_valid(self):
+    name = "openpilot/starpilot/ui/native/_raylib_extra.so"
     wrong = bytearray(self.elf)
     struct.pack_into("<H", wrong, 18, 62)
     for defect, data in (("missing", None), ("foreign", wrong), ("header_only", self.elf[:20])):

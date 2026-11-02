@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import unittest
 import pytest
 from unittest.mock import patch
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from openpilot.cereal import log, messaging
 from openpilot.starpilot.speed_limits.runtime import Runtime
 from openpilot.starpilot.speed_limits.runtime_settings import parse

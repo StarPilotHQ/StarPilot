@@ -8,7 +8,7 @@ from pathlib import Path
 import hashlib
 import json
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_customization import offset, rgba, widget_size
 from openpilot.starpilot.ui.onroad_state import OnroadState, manual_slc_confirmation, speed_limit_bounds
@@ -150,7 +150,7 @@ class SteeringWheelWidget:
       raise ValueError("Unreviewed steering wheel art")
     image = rl.load_image(str(path))
     try:
-      if image.data == rl.ffi.NULL:
+      if image.data is None:
         raise RuntimeError("Unable to load steering wheel art")
       rl.image_resize(image, 144, 144)
       texture = rl.load_texture_from_image(image)
@@ -158,7 +158,7 @@ class SteeringWheelWidget:
         raise RuntimeError("Unable to create steering wheel texture")
       self._texture = texture
     finally:
-      if image.data != rl.ffi.NULL:
+      if image.data is not None:
         rl.unload_image(image)
 
   def render(self, content: rl.Rectangle, state: OnroadState) -> None:

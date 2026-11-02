@@ -191,7 +191,7 @@ def personality_session(native_session, monkeypatch):
 
 @pytest.mark.parametrize('profile', ['c4', 'c3'])
 def test_hidden_native_personality_owner_completes_three_distance_cycles(personality_session, monkeypatch, profile):
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
 
   from openpilot.selfdrive.ui.layouts.settings import common
   from openpilot.selfdrive.ui.layouts.settings import toggles as large
@@ -274,7 +274,7 @@ def test_personality_cache_rejects_unusable_selfdrive_state(personality_session,
 @pytest.mark.parametrize('profile', ['c4', 'c3'])
 @pytest.mark.parametrize('input_kind', ['wheel', 'tap'])
 def test_rapid_personality_cycles_accept_own_notice_and_reject_safety_alert(personality_session, monkeypatch, profile, input_kind):
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   from dataclasses import replace
   from openpilot.selfdrive.ui.layouts.settings import common
   from openpilot.selfdrive.ui.layouts.settings import toggles as large

@@ -2,7 +2,7 @@ from collections import OrderedDict
 from datetime import datetime, timedelta
 import hashlib
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
 from openpilot.starpilot.ui.navigation_icons import ASSETS, MANIFEST, icon_name

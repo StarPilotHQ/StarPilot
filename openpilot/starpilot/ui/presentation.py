@@ -8,7 +8,7 @@ import json
 
 import numpy as np
 from PIL import Image
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.system.ui.lib.multilang import TRANSLATIONS_DIR, multilang, tr_display as tr
 from openpilot.system.ui.lib.display_translation import native_text
@@ -156,8 +156,8 @@ class BitmapFonts:
       chars = set(map(chr, range(32, 127))) | set(text)
       chars.update(TRANSLATIONS_DIR.joinpath(f"app_{language}.po").read_text(encoding="utf-8"))
       points = sorted(map(ord, chars))
-      glyphs = rl.ffi.new("int[]", points)
-      font = rl.load_font_ex(str(directory / filename), 64, rl.ffi.cast("int *", glyphs), len(points))
+      glyphs = np.array(points, dtype=np.int32)
+      font = rl.load_font_ex(str(directory / filename), 64, glyphs, len(points))
       if font.texture.id in (0, rl.get_font_default().texture.id) or font.glyphCount == 0:
         raise RuntimeError(f"Unable to load language font {filename}")
       for previous in fonts.values():

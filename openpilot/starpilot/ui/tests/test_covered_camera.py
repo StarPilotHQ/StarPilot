@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 from unittest.mock import Mock
 
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.selfdrive.ui.mici.onroad import augmented_road_view as native

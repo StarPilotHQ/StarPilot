@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 import math
 from collections.abc import Callable
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
 from openpilot.starpilot.ui.onroad_customization import CEM_GAUGE_FRAME, CEM_GAUGE_INSET, PROFILES, widget_size

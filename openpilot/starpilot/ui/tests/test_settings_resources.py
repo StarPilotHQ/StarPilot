@@ -1,4 +1,5 @@
 """Native API imports with synthetic allocations for failure/ownership checks."""
+import numpy as np
 
 from contextlib import ExitStack
 import hashlib
@@ -9,7 +10,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.settings_assets import SettingsAssets
 
@@ -40,7 +41,7 @@ class TestSettingsResources(unittest.TestCase):
           assets = SettingsAssets(Path(directory))
           assets._pixel_scale = (pixel_scale, pixel_scale)
           assets._manifest = {"fixture.png": {"bytes": 7, "sha256": hashlib.sha256(b"fixture").hexdigest()}}
-          image = SimpleNamespace(data=rl.ffi.new("char[4]"), width=native[0], height=native[1])
+          image = SimpleNamespace(data=np.zeros(4, dtype=np.uint8), width=native[0], height=native[1])
           texture = SimpleNamespace(id=17, width=0, height=0)
           stack.enter_context(patch(f"{MODULE}.rl.load_image", return_value=image))
           stack.enter_context(patch(f"{MODULE}.rl.image_resize"))
@@ -72,7 +73,7 @@ class TestSettingsResources(unittest.TestCase):
         path.write_bytes(b"reviewed-fixture")
         assets = SettingsAssets(Path(directory))
         assets._manifest = {"fixture.png": {"bytes": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}}
-        image = SimpleNamespace(data=rl.ffi.NULL if failure == "empty_image" else rl.ffi.new("char[4]"), width=1, height=1)
+        image = SimpleNamespace(data=None if failure == "empty_image" else np.zeros(4, dtype=np.uint8), width=1, height=1)
         texture = SimpleNamespace(id=0 if failure == "gpu_upload" else 17)
         stack.enter_context(patch(f"{MODULE}.rl.load_image", return_value=image))
         upload = stack.enter_context(patch(f"{MODULE}.rl.load_texture_from_image", return_value=texture))

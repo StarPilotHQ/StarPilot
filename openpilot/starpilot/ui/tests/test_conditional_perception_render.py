@@ -2,7 +2,7 @@ from contextlib import ExitStack
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.conditional_mode.policy import ModeChoice
 from openpilot.starpilot.ui.conditional_status import ConditionalDisplay

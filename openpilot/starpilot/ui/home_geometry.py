@@ -1,6 +1,6 @@
 """Native geometry adjustments for the protected Home presentation."""
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 
 def outside_rounded_border(rect, roundness, segments, thickness, color):

@@ -13,7 +13,7 @@ from types import SimpleNamespace as NS
 from threading import Event, Thread
 from unittest.mock import Mock
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.selfdrive.ui.layouts.arabesque.tools import browser, browser_session as runtime

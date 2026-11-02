@@ -80,10 +80,10 @@ class DevicePreflightTests(unittest.TestCase):
 
   def test_probe_reports_failure_and_timeout_without_child_output(self):
     with patch.object(preflight.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, stderr=b"private traceback")):
-      result = preflight._probe_import(self.root, sys.executable, "pyray")
+      result = preflight._probe_import(self.root, sys.executable, "raylib_nb")
     self.assertEqual(result, {"status": "fail", "detail": "isolated import failed"})
     with patch.object(preflight.subprocess, "run", side_effect=subprocess.TimeoutExpired([], 8)):
-      result = preflight._probe_import(self.root, sys.executable, "pyray")
+      result = preflight._probe_import(self.root, sys.executable, "raylib_nb")
     self.assertEqual(result["detail"], "isolated import timed out")
 
   def test_editable_package_from_another_checkout_is_rejected(self):

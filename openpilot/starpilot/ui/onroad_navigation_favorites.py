@@ -1,7 +1,7 @@
 """Home, Work and Bookmark cards shared by the AA renderer and its layout preview."""
 from itertools import pairwise
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.presentation import FontRole
 from openpilot.starpilot.ui.navigation_favorites_state import favorite_visible

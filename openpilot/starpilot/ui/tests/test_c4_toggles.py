@@ -9,7 +9,7 @@ import time
 import unittest
 from unittest.mock import Mock, call, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui.layouts.settings import common

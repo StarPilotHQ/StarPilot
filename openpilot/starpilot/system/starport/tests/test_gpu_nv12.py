@@ -27,7 +27,7 @@ def test_invalid_margins_leave_no_gpu_resources(margins):
 def gpu():
   if os.getenv("STARPILOT_AUTO_GL_TEST") != "1":
     raise SkipTest("STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context")
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   with pytest.MonkeyPatch.context() as patch:
     if sys.platform == "darwin":
       gl = C.CDLL("/System/Library/Frameworks/OpenGL.framework/OpenGL")
@@ -49,7 +49,7 @@ def gpu():
         function = getattr(gl, name.decode(), None)
         return C.cast(function, C.c_void_p).value if function is not None else None
       loader = loader_type(address)
-      rl.rl_load_extensions(rl.ffi.cast("void *", C.cast(loader, C.c_void_p).value))
+      rl.rl_load_extensions(C.cast(loader, C.c_void_p).value)
       rl.rlgl_init(64, 64)
       rl.rl_set_framebuffer_width(64)
       rl.rl_set_framebuffer_height(64)
@@ -84,8 +84,8 @@ def test_composed_car_frame_converts_to_the_same_picture(gpu, width, height, mar
   rl = gpu
   logical_w, logical_h = 31, 18  # the projection's logical canvas, scaled to fit the visible area
   pixels = np.random.default_rng(11).integers(0, 256, (logical_h, logical_w, 4), dtype=np.uint8)
-  buffer = rl.ffi.from_buffer(pixels)
-  texture_id = rl.rl_load_texture(rl.ffi.cast("void *", buffer), logical_w, logical_h, 7, 1)
+  buffer = pixels
+  texture_id = rl.rl_load_texture(buffer, logical_w, logical_h, 7, 1)
   source = rl.Texture(texture_id, logical_w, logical_h, 1, 7)
   output = rl.load_render_texture(width, height)
   converter = gpu_nv12.Nv12Converter(width, height)
@@ -117,8 +117,8 @@ def assert_fused_frame(gpu, width, height, margin_w, margin_h, origin, asynchron
   rl = gpu
   visible_w, visible_h = width - margin_w, height - margin_h
   pixels = np.random.default_rng(17).integers(0, 256, (visible_h, visible_w, 4), dtype=np.uint8)
-  buffer = rl.ffi.from_buffer(pixels)
-  texture_id = rl.rl_load_texture(rl.ffi.cast("void *", buffer), visible_w, visible_h, 7, 1)
+  buffer = pixels
+  texture_id = rl.rl_load_texture(buffer, visible_w, visible_h, 7, 1)
   source = rl.Texture(texture_id, visible_w, visible_h, 1, 7)
   output = rl.load_render_texture(width, height)
   converter = gpu_nv12.Nv12Converter(width, height, margin_w=margin_w, margin_h=margin_h, compose=True, **placement)

@@ -3,7 +3,7 @@ from types import SimpleNamespace as NS
 from typing import cast
 from unittest.mock import Mock
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.selfdrive.ui.mici.onroad import long_indicator as native

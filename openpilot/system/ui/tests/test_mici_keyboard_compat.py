@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.system.ui.widgets.mici_keyboard import MiciKeyboard, SELECTED_CHAR_FONT_SIZE

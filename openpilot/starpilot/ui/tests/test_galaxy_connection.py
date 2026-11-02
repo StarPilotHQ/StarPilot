@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 from openpilot.starpilot.galaxy.access import AccessStatus, GalaxyAccessOwner
 from openpilot.starpilot.galaxy.remote import RemotePairing
 from openpilot.starpilot.galaxy.server import make_server
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui import galaxy_access
 from openpilot.starpilot.ui.galaxy_access import GalaxyAccessFlow, GalaxyConnectionPage, GalaxyConnectionView, RemoteStatus, connection_url

@@ -4,7 +4,7 @@ from collections.abc import Callable
 import math
 import time
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.hardware import HARDWARE
 from openpilot.common.swaglog import cloudlog

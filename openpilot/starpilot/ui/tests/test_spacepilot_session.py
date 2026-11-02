@@ -275,7 +275,7 @@ def test_offroad_witness_accepts_actual_schema_and_refuses_actual_thermal_faults
 @pytest.fixture
 def caller(setup, monkeypatch):
   """Actual UI before-frame/native page/session/owner with synthetic vehicle feeds."""
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   from openpilot.selfdrive.ui import ui as caller_ui
   from openpilot.starpilot.ui.spacepilot import native
   from openpilot.starpilot.ui.tests.test_spacepilot_state import mature_gate, read

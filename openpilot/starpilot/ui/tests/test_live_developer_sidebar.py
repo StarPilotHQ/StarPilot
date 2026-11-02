@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 from typing import cast
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.live_developer_sidebar import DeveloperMetrics, render_sidebar
 from openpilot.starpilot.ui.layout_preview_sidebar import metric_rects

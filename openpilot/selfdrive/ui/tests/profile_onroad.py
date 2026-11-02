@@ -2,7 +2,7 @@
 import os
 import time
 import cProfile
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import numpy as np
 
 from openpilot.cereal.visionipc import VisionStreamType

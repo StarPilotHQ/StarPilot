@@ -6,7 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.device_state import DeviceState
 from openpilot.starpilot.ui.onroad_state import ObservationKind, SpeedLimitObservation

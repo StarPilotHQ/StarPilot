@@ -278,7 +278,7 @@ class Compositor:
     self.context = HeadlessContext(width, height)
     self.resources.callback(self.context.close)
     try:
-      import pyray as rl
+      from openpilot.starpilot.ui.raylib import rl
       from openpilot.system.ui.lib.application import gui_app
       from openpilot.selfdrive.ui.ui_state import ui_state
       from openpilot.starpilot.ui.presentation import BitmapFonts, Profile, default_font_directory

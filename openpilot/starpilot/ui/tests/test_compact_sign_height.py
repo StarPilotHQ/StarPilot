@@ -1,7 +1,7 @@
 from dataclasses import replace
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.starpilot.ui.large_speed_geometry import LARGE_SIGN_SCALE

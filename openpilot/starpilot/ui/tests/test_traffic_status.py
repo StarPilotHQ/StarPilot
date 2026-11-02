@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace as NS
 from unittest import mock
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.hyundai.values import CAR, HyundaiFlags

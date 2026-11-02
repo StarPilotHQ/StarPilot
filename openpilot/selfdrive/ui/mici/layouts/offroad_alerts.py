@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import re
 import threading
 import time

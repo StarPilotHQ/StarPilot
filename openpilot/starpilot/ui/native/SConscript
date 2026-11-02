@@ -1,0 +1,20 @@
+import sysconfig
+from importlib.metadata import distribution
+from pathlib import Path
+import nanobind
+
+Import('env', 'arch')
+nb_dir = Path(nanobind.source_dir()).parent
+include = distribution('comma-deps-raylib').locate_file('raylib/install/include')
+native = env.Clone(LIBS=[])
+native.Append(CPPPATH=[sysconfig.get_paths()['include'], nanobind.include_dir(), str(nb_dir / 'ext/robin_map/include'), str(include)],
+              CCFLAGS=['-fvisibility=hidden', '-fno-strict-aliasing', '-DPy_LIMITED_API=0x030C0000'])
+if arch == 'Darwin':
+  native.Append(LINKFLAGS=['-bundle', '-undefined', 'dynamic_lookup'])
+else:
+  native['LINKFLAGS'] = [flag for flag in env['LINKFLAGS'] if flag != '-Wl,--no-undefined'] + ['-shared', '-pthread']
+  native.Append(LIBS=['dl'])
+runtime = native.Clone()
+runtime['CCFLAGS'] = [flag for flag in runtime['CCFLAGS'] if not flag.startswith('-Wshadow')]
+combined = runtime.SharedObject('nb_combined.os', str(nb_dir / 'src/nb_combined.cpp'))
+native.Program('_raylib_extra.so', ['raylib_extra.cc', combined])

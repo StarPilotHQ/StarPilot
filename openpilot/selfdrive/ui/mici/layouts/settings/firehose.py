@@ -1,7 +1,7 @@
 import requests
 import threading
 import time
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.api import api_get
 from openpilot.common.params import Params

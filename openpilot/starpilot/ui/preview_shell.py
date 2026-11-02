@@ -11,7 +11,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.device_state import DeviceState
 from openpilot.starpilot.ui.display_preferences import MASTER, SCREEN_OFF, SCREEN_OFF_DESCRIPTION
@@ -222,7 +222,7 @@ def main() -> None:
             path = args.output / f"{scene}.png"
             if not rl.export_image(image, str(path)):
               raise RuntimeError(f"Unable to export {scene}")
-            report["scenes"][scene] = hashlib.sha256(bytes(rl.ffi.buffer(image.data, width * height * 4))).hexdigest()
+            report["scenes"][scene] = hashlib.sha256(bytes(image.data[:width * height * 4])).hexdigest()
           finally:
             rl.unload_image(image)
         (args.output / "results.json").write_text(json.dumps(report, indent=2) + "\n")

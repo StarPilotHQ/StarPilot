@@ -2,7 +2,7 @@
 
 import math
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_state import ObservationKind, OnroadState, slc_accept_available
 from openpilot.starpilot.ui.unified_speed_presentation import displayed_limit_mps

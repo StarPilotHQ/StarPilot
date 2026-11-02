@@ -1,7 +1,7 @@
 """Controller-timed automatic pulses and the stationary manual confirmation rhythm."""
 from dataclasses import replace
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.starpilot.ui.onroad_state import ObservationKind, OnroadState, SpeedLimitObservation

@@ -7,7 +7,7 @@ from openpilot.system.ui.lib.multilang import tr_display as tr
 import math
 import random
 from functools import lru_cache
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from openpilot.starpilot.ui.home_geometry import outside_rounded_border
 from openpilot.starpilot.ui.presentation import FontRole
 from openpilot.starpilot.ui.feature_settings_state import FEATURE_HEADER_HEIGHT, FEATURE_BACK_WIDTH

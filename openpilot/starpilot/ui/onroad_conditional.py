@@ -1,6 +1,6 @@
 """Short, source-bound labels for accepted conditional mode receipts."""
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.conditional_mode.policy import ModeChoice, Reason
 from openpilot.starpilot.ui.onroad_state import AlertSize

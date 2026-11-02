@@ -4,7 +4,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_customization import PROFILES, default_document, validate_document, widget_size
 from openpilot.starpilot.ui.onroad_state import OnroadState, SpeedLimitObservation

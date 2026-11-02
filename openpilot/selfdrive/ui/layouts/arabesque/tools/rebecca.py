@@ -4,7 +4,7 @@ from importlib.resources import as_file
 from pathlib import Path
 import random
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.layouts.arabesque.theme import DEFAULT_THEME as THEME

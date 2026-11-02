@@ -5,7 +5,7 @@ from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.mici.onroad import model_renderer as native_model
 from openpilot.selfdrive.ui.ui_state import UIStatus

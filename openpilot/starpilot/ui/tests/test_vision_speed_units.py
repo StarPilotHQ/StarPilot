@@ -4,7 +4,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.cereal import messaging

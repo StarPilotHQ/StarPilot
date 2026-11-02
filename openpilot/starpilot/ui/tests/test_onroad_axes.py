@@ -7,7 +7,7 @@ from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui import onroad
 from openpilot.starpilot.ui.onroad import axis_status_color, clock_text, driving_mode_description

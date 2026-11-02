@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from openpilot.system.ui.lib.display_translation import DisplayText
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.layouts.settings.initial_cruise_speed import InitialCruiseSpeedControl
 from openpilot.starpilot.ui.clip import placed_at

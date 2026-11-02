@@ -1,7 +1,7 @@
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.starpilot.ui import onroad_alerts

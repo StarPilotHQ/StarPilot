@@ -21,7 +21,7 @@ class TestCornerHintCache(TestCase):
       patch.object(corner.rl, "begin_texture_mode"),
       patch.object(corner.rl, "end_texture_mode"),
       patch.object(corner.rl, "clear_background"),
-      patch.object(corner.rl, "rl", SimpleNamespace(rlSetBlendFactorsSeparate=Mock())),
+      patch.object(corner.rl, "rl_set_blend_factors_separate"),
       patch.object(corner.rl, "begin_blend_mode"),
       patch.object(corner.rl, "end_blend_mode"),
       patch.object(corner.rl, "draw_texture_pro"),
@@ -143,6 +143,6 @@ class TestCornerHintCache(TestCase):
     assert any(abs(a - b) > 0.01 for a, b in zip(direct, broken, strict=True))
     self.cache.get(self.rect)
     self.cache.prepare()
-    corner.rl.rl.rlSetBlendFactorsSeparate.assert_called_once_with(0x0302, 0x0303, 1, 0x0303, 0x8006, 0x8006)
+    corner.rl.rl_set_blend_factors_separate.assert_called_once_with(0x0302, 0x0303, 1, 0x0303, 0x8006, 0x8006)
     corner.rl.begin_blend_mode.assert_called_once_with(corner.rl.BlendMode.BLEND_CUSTOM_SEPARATE)
     corner.rl.end_blend_mode.assert_called_once()

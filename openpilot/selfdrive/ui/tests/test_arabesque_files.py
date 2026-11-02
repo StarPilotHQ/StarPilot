@@ -5,7 +5,7 @@ import time
 from types import SimpleNamespace as NS
 from unittest.mock import Mock
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.selfdrive.ui.layouts.arabesque import desktop

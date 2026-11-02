@@ -238,9 +238,9 @@ class HeadlessContext:
       raise RuntimeError(f"Headless EGL context priority is not LOW ({actual_priority.value:#x})")
     self._check(self.egl.eglMakeCurrent(self.display, self.surface, self.surface, self.context), "make current")
 
-    import pyray as rl
+    from openpilot.starpilot.ui.raylib import rl
     self.rl = rl
-    rl.rl_load_extensions(rl.ffi.cast("void *", C.cast(self.egl.eglGetProcAddress, C.c_void_p).value))
+    rl.rl_load_extensions(C.cast(self.egl.eglGetProcAddress, C.c_void_p).value)
     rl.rlgl_init(width, height)
     self._rlgl_ready = True
     rl.rl_set_framebuffer_width(width)

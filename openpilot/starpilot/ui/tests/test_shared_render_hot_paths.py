@@ -21,7 +21,7 @@ class TestShaderUniformCache:
     for name, ctype, size in (("fill_color_ptr", "float[]", 4), ("use_gradient_ptr", "int[]", 1), ("color_count_ptr", "int[]", 1),
                               ("gradient_colors_ptr", "float[]", shader_polygon.MAX_GRADIENT_COLORS * 4),
                               ("gradient_stops_ptr", "float[]", shader_polygon.MAX_GRADIENT_COLORS)):
-      setattr(state, name, shader_polygon.rl.ffi.new(ctype, size))
+      setattr(state, name, np.zeros(size, dtype=np.float32 if ctype.startswith("float") else np.int32))
     state.uniform_values = {}
     return shader_polygon, state, uploads
 
@@ -87,7 +87,7 @@ class TestExperimentalGradient:
   def renderer(dtype, count, seed):
     from openpilot.selfdrive.ui.mici.onroad.model_renderer import ModelPoints, ModelRenderer
     from openpilot.system.ui.lib.shader_polygon import Gradient
-    import pyray as rl
+    from openpilot.starpilot.ui.raylib import rl
     rng = np.random.default_rng(seed)
     result = object.__new__(ModelRenderer)
     result._experimental_mode = True

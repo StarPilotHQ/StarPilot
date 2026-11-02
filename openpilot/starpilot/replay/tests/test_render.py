@@ -242,7 +242,7 @@ def test_camera_poll_precedes_message_snapshot():
 def test_camera_paint_does_not_receive_or_switch_selected_frame(monkeypatch, profile):
   import importlib
   import numpy as np
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   from openpilot.cereal.visionipc import VisionStreamType
   module = importlib.import_module(f'openpilot.selfdrive.ui.{profile}.cameraview')
   monkeypatch.setattr(module, 'COMMA_HARDWARE', True)
@@ -840,7 +840,7 @@ def test_seek_waits_for_delivery_and_respects_new_commands(tmp_path, monkeypatch
 def test_replay_draw_retains_updates_until_stock_consumers_read_them(monkeypatch, profile):
   import importlib
   import numpy as np
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   from openpilot.cereal import messaging
   from openpilot.cereal.visionipc import VisionStreamType
   from openpilot.selfdrive.ui.ui_state import UIStatus

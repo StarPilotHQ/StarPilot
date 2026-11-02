@@ -1,4 +1,4 @@
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from openpilot.system.ui.lib.application import FONT_SCALE, font_fallback
 from openpilot.system.ui.lib.lru_cache import LRUCache
 

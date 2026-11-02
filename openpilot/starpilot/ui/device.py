@@ -1,6 +1,6 @@
 """Captured large Device panel presentation from explicitly supplied state."""
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui import clip
 

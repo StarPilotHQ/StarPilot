@@ -9,7 +9,7 @@ import json
 import math
 from pathlib import Path
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui import clip
 
@@ -61,7 +61,7 @@ class HomeView:
       path = validate_home_asset(self.assets, filename)
       image = rl.load_image(str(path))
       try:
-        if image.data == rl.ffi.NULL or image.width <= 0 or image.height <= 0:
+        if image.data is None or image.width <= 0 or image.height <= 0:
           raise ValueError(f"Invalid Home image: {filename}")
         target_width = min(int(width * self._pixel_scale[0]), image.width)
         target_height = min(int(height * self._pixel_scale[1]), image.height)
@@ -72,7 +72,7 @@ class HomeView:
         if texture.id == 0:
           raise RuntimeError(f"Unable to load Home texture: {filename}")
       finally:
-        if image.data != rl.ffi.NULL:
+        if image.data is not None:
           rl.unload_image(image)
       rl.set_texture_filter(texture, rl.TextureFilter.TEXTURE_FILTER_BILINEAR)
       rl.set_texture_wrap(texture, rl.TextureWrap.TEXTURE_WRAP_CLAMP)
@@ -197,10 +197,10 @@ class HomeView:
       path = validate_home_asset(self.assets, "icons_mici/experimental_mode.png")
       image = rl.load_image(str(path))
       try:
-        if image.data == rl.ffi.NULL or not 0 < image.width <= 4096 or not 0 < image.height <= 4096:
+        if image.data is None or not 0 < image.width <= 4096 or not 0 < image.height <= 4096:
           raise ValueError("Invalid mode atom image")
         rl.image_format(image, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)
-        pixels = bytearray(rl.ffi.buffer(image.data, image.width * image.height * 4))
+        pixels = bytearray(image.data[:image.width * image.height * 4])
         for row in range(image.height):
           for column in range(image.width):
             offset = (row * image.width + column) * 4
@@ -209,7 +209,7 @@ class HomeView:
             shade = 0.65 + max(pixels[offset:offset + 3]) / 255.0 * 0.35
             color = mode_atom_color(mode, column / max(image.width - 1, 1))
             pixels[offset:offset + 3] = bytes(round(value * shade) for value in (color.r, color.g, color.b))
-        rl.ffi.buffer(image.data, len(pixels))[:] = bytes(pixels)
+        image.data[:len(pixels)][:] = bytes(pixels)
         texture = rl.load_texture_from_image(image)
         if texture.id == 0:
           raise RuntimeError("Unable to load mode atom texture")
@@ -217,7 +217,7 @@ class HomeView:
         rl.set_texture_wrap(texture, rl.TextureWrap.TEXTURE_WRAP_CLAMP)
         self._mode_textures[mode] = texture
       finally:
-        if image.data != rl.ffi.NULL:
+        if image.data is not None:
           rl.unload_image(image)
     texture = self._mode_textures[mode]
     rl.draw_texture_pro(texture, rl.Rectangle(0, 0, texture.width, texture.height), rl.Rectangle(x, y, 48, 48), rl.Vector2(0, 0), 0, rl.WHITE)
