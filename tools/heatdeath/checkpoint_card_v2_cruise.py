@@ -60,14 +60,17 @@ def verify_cruise_evidence(args, repo, *, verify_source):
   # Independently prove these are the last two actual source samples before
   # this suffix, rather than trusting scalar claims beside an unrelated rlog.
   if verify_source:
-    from openpilot.tools.lib.logreader import LogReader
+    from local_rlog import local_events
 
-    recent = []
-    for event in LogReader(str(source)):
-      if event.which() == 'carState':
-        if int(event.logMonoTime) >= start:
-          break
-        recent = (recent + [event.as_builder().to_bytes()])[-2:]
+    recent, boundary_seen = [], False
+    with local_events(source) as events:
+      for event in events:
+        if event.which() == 'carState':
+          if int(event.logMonoTime) >= start:
+            boundary_seen = True
+            break
+          recent = (recent + [event.as_builder().to_bytes()])[-2:]
+    assert boundary_seen, 'Source ended before the cruise checkpoint'
     assert recent == raw_samples, 'Cruise memory does not match the last two source carState events'
   return {
     'checkpointSha256': args.cruise_checkpoint_sha256,

@@ -251,10 +251,11 @@ def build(args):
       '-nostdlib',
       '-fno-builtin',
       '-std=gnu11',
+      *(['-DALLOW_DEBUG'] if args.safety_build == 'debug' else []),
       '-Wfatal-errors',
       '-Wno-pointer-to-int-cast',
       '-g',
-      '-O0',
+      '-O2',
       '-fno-omit-frame-pointer',
       '-fsanitize=undefined',
       '-fno-sanitize-recover=undefined',
@@ -278,6 +279,7 @@ def build(args):
     out / 'receipt.json',
     {
       'sourceHead': info['sourceHead'],
+      'safetyBuild': args.safety_build,
       'commands': commands,
       'inputs': inputs,
       'outputs': {name: sha(out / name) for name in ('native_endpoint', 'libsafety.so')},
@@ -495,6 +497,8 @@ def main():
   prep.add_argument('--output', type=Path, required=True)
   compile_parser = commands.add_parser('build', help='Build the virtual native endpoint using existing compiled dependencies')
   compile_parser.add_argument('--bundle', type=Path, required=True)
+  compile_parser.add_argument('--safety-build', choices=('debug', 'release'), default='debug',
+                              help='Match the Panda firmware build; normal development builds use debug')
   execute = commands.add_parser('run', help='Run an offroad joined replay; no physical CAN I/O')
   execute.add_argument('--bundle', type=Path, required=True)
   execute.add_argument('--output', type=Path, required=True)
