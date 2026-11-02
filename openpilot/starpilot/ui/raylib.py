@@ -3,4 +3,8 @@ import raylib_nb as rl
 from raylib_nb._backend import native
 from openpilot.starpilot.ui.native import _raylib_extra
 
-_raylib_extra.install(rl, native.__file__)
+native_library_path = native.__file__
+if native_library_path is None:
+  raise RuntimeError("The active Raylib backend has no native library path")
+
+_raylib_extra.install(rl, native_library_path)

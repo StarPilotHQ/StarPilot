@@ -8,8 +8,7 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
-from openpilot.starpilot.ui.raylib import rl
-import sys
+from openpilot.starpilot.ui.raylib import native_library_path, rl
 
 from openpilot.starpilot.ui.home import HomeView
 from openpilot.starpilot.ui.home_state import DailyDistance, DriveStatsData, DriveSummary, HomeMode, HomeState, PersonalRecord
@@ -75,7 +74,7 @@ def main() -> None:
         report = {"profile": profile, "dimensions": [width, height], "context_dimensions": list(context_size),
                   "texture_pixel_scale": list(view._pixel_scale),
                   "native_library": {"version": importlib.metadata.version("comma-deps-raylib"),
-                                     "sha256": hashlib.sha256(Path(sys.modules[rl.Color.__module__].__file__).read_bytes()).hexdigest()},
+                                     "sha256": hashlib.sha256(Path(native_library_path).read_bytes()).hexdigest()},
                   "rgba_sha256": pixel_hash, "state": asdict(state), "submission_readback_ms": timings,
                   "scope": "paired records Home on native desktop only; device performance and full UI not qualified"}
         (args.output / f"{profile}.json").write_text(json.dumps(report, indent=2) + "\n")

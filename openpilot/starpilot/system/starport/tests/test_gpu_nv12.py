@@ -84,7 +84,7 @@ def test_composed_car_frame_converts_to_the_same_picture(gpu, width, height, mar
   rl = gpu
   logical_w, logical_h = 31, 18  # the projection's logical canvas, scaled to fit the visible area
   pixels = np.random.default_rng(11).integers(0, 256, (logical_h, logical_w, 4), dtype=np.uint8)
-  buffer = pixels
+  buffer = pixels.reshape(-1)
   texture_id = rl.rl_load_texture(buffer, logical_w, logical_h, 7, 1)
   source = rl.Texture(texture_id, logical_w, logical_h, 1, 7)
   output = rl.load_render_texture(width, height)
@@ -117,7 +117,7 @@ def assert_fused_frame(gpu, width, height, margin_w, margin_h, origin, asynchron
   rl = gpu
   visible_w, visible_h = width - margin_w, height - margin_h
   pixels = np.random.default_rng(17).integers(0, 256, (visible_h, visible_w, 4), dtype=np.uint8)
-  buffer = pixels
+  buffer = pixels.reshape(-1)
   texture_id = rl.rl_load_texture(buffer, visible_w, visible_h, 7, 1)
   source = rl.Texture(texture_id, visible_w, visible_h, 1, 7)
   output = rl.load_render_texture(width, height)

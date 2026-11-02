@@ -6,8 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from openpilot.starpilot.ui.raylib import rl
-import sys
+from openpilot.starpilot.ui.raylib import native_library_path, rl
 
 from openpilot.starpilot.ui.device import DeviceView
 from openpilot.starpilot.ui.device_state import DeviceState
@@ -71,7 +70,7 @@ def main() -> None:
           "state": asdict(state),
           "rgba_sha256": rgba_sha,
           "png_sha256": digest(args.output / "large.png"),
-          "native_raylib_sha256": digest(Path(sys.modules[rl.Color.__module__].__file__)),
+          "native_raylib_sha256": digest(Path(native_library_path)),
           "source_sha256": {name: digest(module / name) for name in (
             "device.py", "device_state.py", "preview_device.py", "settings.py", "settings_assets.py", "presentation.py",
             "settings-assets.json", "bitmap-fonts.json", "sora-brand-font.json", "dinish-speed-font.json")},

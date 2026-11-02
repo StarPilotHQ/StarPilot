@@ -12,8 +12,7 @@ import json
 from pathlib import Path
 import time
 
-from openpilot.starpilot.ui.raylib import rl
-import sys
+from openpilot.starpilot.ui.raylib import native_library_path, rl
 
 from openpilot.starpilot.ui.device import DeviceView
 from openpilot.starpilot.ui.device_state import DeviceInput
@@ -91,7 +90,7 @@ def main():
               rl.unload_image(pixels)
         report = {"profile": profile, "dimensions": [width, height], "snapshot": args.snapshot, "development_only": True,
                   "state": asdict(state), "rgba_sha256": rgba_hash, "submission_readback_ms": timings,
-                  "native_raylib_sha256": hashlib.sha256(Path(sys.modules[rl.Color.__module__].__file__).read_bytes()).hexdigest(),
+                  "native_raylib_sha256": hashlib.sha256(Path(native_library_path).read_bytes()).hexdigest(),
                   "scope": "static entry presentation; no compact motion, leaf panels, device services or performance qualification"}
         (args.output / f"{profile}.json").write_text(json.dumps(report, indent=2) + "\n")
         if args.interactive:
