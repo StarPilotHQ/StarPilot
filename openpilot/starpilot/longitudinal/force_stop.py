@@ -5,6 +5,9 @@ import math
 
 from openpilot.common.realtime import DT_MDL
 
+STANDSTILL_HOLD_NS = 2_000_000_000
+STANDSTILL_CLEAR_NS = 750_000_000
+
 
 @dataclass(frozen=True)
 class StopTune:
@@ -81,6 +84,7 @@ class ForceStop:
     self.activation_gate = False
     self.stop_seen_ns = 0
     self.standstill_since_ns = 0
+    self.standstill_clear_ns = 0
     self.standstill_reason = None
     self.previously_enabled = False
     self.distance = 0.0
@@ -88,6 +92,7 @@ class ForceStop:
 
   def _clear_standstill(self):
     self.standstill_since_ns = 0
+    self.standstill_clear_ns = 0
     self.standstill_reason = None
 
   def step(self, frame: StopFrame, tune: StopTune, offset_ft: int = 0) -> StopPlan:
@@ -131,8 +136,6 @@ class ForceStop:
       self.from_light = False
       self.light_clear_ns = 0
     stop_scene = available and (active or frame.raw_model_stopped)
-    # Reopened geometry may withdraw a moving approach; it cannot classify
-    # a stationary hold as a green light.
     go_scene = available and horizon >= 50.0 and not frame.raw_model_stopped and not frame.model_should_stop
     held_before = self.previously_enabled and self.standstill_reason is not None
     engaged_stopped = not self.previously_enabled and frame.standstill
@@ -140,12 +143,20 @@ class ForceStop:
       self.standstill_since_ns = now
       self.standstill_reason = 'unclassified'
       self.distance = 0
+    if self.standstill_reason is not None:
+      if not available or stop_scene:
+        self.standstill_clear_ns = 0
+      elif not self.standstill_clear_ns:
+        self.standstill_clear_ns = now
+    hold_expired = self.standstill_reason is not None and (
+      now - self.standstill_since_ns >= STANDSTILL_HOLD_NS or
+      self.standstill_clear_ns > 0 and now - self.standstill_clear_ns >= STANDSTILL_CLEAR_NS)
     if held_before and frame.standstill and frame.resume_requested:
       self.resume_until_ns = now + 6_000_000_000
     if abs(speed) >= 2.0 or frame.lead_present or frame.tracking_lead:
       self.resume_until_ns = 0
     driver_release = frame.pedal_override or frame.resume_requested
-    if self.standstill_reason is not None and driver_release:
+    if self.standstill_reason is not None and (driver_release or hold_expired):
       self.override_until_ns = now + 10_000_000_000
       self._clear_standstill()
     held = self.standstill_reason is not None
