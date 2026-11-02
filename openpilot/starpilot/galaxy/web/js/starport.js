@@ -90,6 +90,82 @@ const APP_SETUP = `
       <li>Tap Connect here, then tap the WiFi button in Open Headunit.</li>
     </ol>
   </div>`
+const PAIR_UI = `
+            <ol v-if="adapterSetup" class="gx-starport-list" aria-label="Adapter pairing">
+              <li class="gx-starport-row">
+                <i class="bi bi-usb-symbol" aria-hidden="true"></i>
+                <span class="gx-starport-row__text"><strong>Adapter</strong><small>{{ selected ? selected.name : 'Put it in pairing mode, then tap Find adapter.' }}</small></span>
+                <span class="gx-starport-pill" :class="selected ? 'gx-starport-pill--ready' : ''">{{ selected ? 'Paired' : 'Not paired' }}</span>
+              </li>
+            </ol>
+            <GxNotice v-if="!pairing?.active && runtime?.pairing_note" tone="warn">{{ runtime.pairing_note }}</GxNotice>
+            <ul v-if="!pairing?.active && receivers.length" class="gx-starport-list" aria-label="Paired cars">
+              <li v-for="car in receivers" :key="car.address" class="gx-starport-row">
+                <i class="bi bi-car-front" aria-hidden="true"></i>
+                <span class="gx-starport-row__text"><strong>{{ car.name }}</strong><small>{{ selected?.address === car.address ? 'Used for Android Auto' : 'Paired' }}</small></span>
+                <span v-if="selected?.address === car.address" class="gx-starport-pill gx-starport-pill--ready"><i class="bi bi-check-lg"></i> Selected</span>
+                <button v-else class="gx-btn gx-btn--tonal" :disabled="!setup.parked || linked" @click="useCar(car.address)">Use</button>
+              </li>
+            </ul>
+            <p v-else-if="!pairing?.active && selected" class="gx-starport-row"><i class="bi bi-car-front" aria-hidden="true"></i><span class="gx-starport-row__text"><strong>{{ selected.name }}</strong><small>Used for Android Auto</small></span></p>
+            <p v-if="!pairing?.active && endReason === 'canceled'" class="gx-note" role="status">Pairing canceled. Start again when your car is ready.</p>
+            <p v-else-if="!pairing?.active && endReason" class="gx-note" role="status">The pairing window ended without choosing a car. Try again when your car’s pairing screen is open.</p>
+            <ol v-if="showPairSteps" class="gx-starport-list" aria-label="Pairing progress">
+              <li v-for="step in pairSteps" :key="step.label" class="gx-starport-row" :class="'gx-starport-row--' + step.status" :aria-current="step.status === 'active' ? 'step' : undefined">
+                <i v-if="step.status === 'done'" class="bi bi-check-circle-fill gx-starport-ok" aria-hidden="true"></i>
+                <span v-else-if="step.status === 'active'" class="gx-spinner gx-starport-orbit gx-starport-orbit--small" aria-hidden="true"></span>
+                <i v-else class="bi bi-circle" aria-hidden="true"></i>
+                <span class="gx-starport-row__text"><strong>{{ step.label }}</strong></span>
+              </li>
+            </ol>
+            <p v-if="waitingForCar" role="status">{{ pairing.discovering ? "Searching for nearby cars and adapters…" : "Choose your car or wireless adapter below." }}</p>
+            <p v-else-if="pairing?.active && pairing.approved && (!pairing.state || pairing.state === 'idle')" role="status">Approved {{ pairing.receiver?.name }}. Finishing Bluetooth pairing…</p>
+            <p v-if="pairing?.state === 'pairing' && !pairing.prompt && !pairing.approved" role="status">Pairing with {{ pairing.receiver?.name || 'the selected device' }}…</p>
+            <p v-if="pairing?.state === 'connecting'" role="status">Connecting to {{ pairing.receiver?.name || 'the selected device' }}…</p>
+            <p v-if="['paired', 'connected'].includes(pairing?.state)" role="status"><i class="bi bi-check-circle-fill gx-starport-ok"></i> {{ pairing.receiver?.name || 'Device' }} {{ pairing.state === 'connected' ? 'connected' : 'paired' }}.</p>
+            <GxNotice tone="danger" v-if="pairing?.error">{{ pairing.error }}</GxNotice>
+            <ul v-if="pairing?.active" class="gx-starport-list" aria-label="Nearby devices">
+              <li v-if="!pairing.devices?.length && waitingForCar" class="gx-starport-row gx-note" role="status"><span class="gx-spinner" aria-hidden="true"></span>Nothing found yet. Keep your car’s pairing screen open.</li>
+              <li v-for="device in pairing.devices || []" :key="device.address" class="gx-starport-row">
+                <i :class="device.starport ? 'bi bi-car-front' : 'bi bi-bluetooth'" aria-hidden="true"></i>
+                <span class="gx-starport-row__text"><strong>{{ device.name }}</strong><small>{{ device.starport ? 'StarPort ready' : 'Bluetooth device' }} · {{ device.connected ? 'Connected' : device.paired ? 'Paired before' : 'Nearby' }}</small></span>
+                <button class="gx-btn gx-btn--tonal" :disabled="deviceSelectionBlocked" @click="selectDevice(device.address)">{{ device.paired ? 'Connect' : 'Pair' }}</button>
+              </li>
+            </ul>
+            <div v-if="pairing?.prompt" class="gx-starport-prompt" role="status"><strong>{{ pairing.receiver.name }}</strong>
+              <p>{{ pairing.prompt.kind === 'confirmation' ? 'Check that this code matches your car, then confirm.' :
+                pairing.prompt.kind === 'pin' ? 'Enter the PIN shown by your car.' :
+                pairing.prompt.kind === 'passkey' ? 'Enter your car’s passkey.' :
+                pairing.prompt.kind === 'authorization' ? 'Allow this car to pair?' : 'Enter this code in your car.' }}</p>
+              <strong v-if="pairing.prompt.value" class="gx-starport-prompt__code">{{ pairing.prompt.value }}</strong>
+              <input v-if="['pin','passkey'].includes(pairing.prompt.kind)" class="gx-field" type="text" maxlength="16" autocomplete="off"
+                :inputmode="pairing.prompt.kind === 'passkey' ? 'numeric' : 'text'" :aria-label="pairing.prompt.kind === 'pin' ? 'Car PIN' : 'Car passkey'" v-model="pairValue" />
+              <div v-if="!pairing.prompt.displayOnly" class="gx-driving__actions gx-actions">
+                <button class="gx-btn gx-btn--tonal" @click="respond(false)">Reject</button>
+                <button class="gx-btn" :disabled="!canRespond" @click="respond(true)">{{ pairing.prompt.kind === 'pin' ? 'Send PIN' : pairing.prompt.kind === 'passkey' ? 'Send Passkey' : 'Confirm' }}</button></div>
+            </div>
+            <p v-if="pairWhenReady" class="gx-note" role="status"><span class="gx-spinner" aria-hidden="true"></span> Turning on Android Auto, then searching…</p>
+            <p v-else-if="!pairing?.active && pairingReason" class="gx-note" role="status">{{ pairingReason }}</p>
+            <div class="gx-driving__actions gx-actions">
+              <button v-if="!pairing?.active" class="gx-btn" :class="{ 'gx-btn--tonal': !!selected }" :disabled="pairWhenReady || !!pairingReason" @click="beginPairing"><span v-if="starting" class="gx-spinner" aria-hidden="true"></span><i v-else class="bi bi-search"></i> {{ starting ? 'Starting search…' : selected ? 'Pair another ' + findLabel : 'Find ' + findLabel }}</button>
+              <button v-else class="gx-btn gx-btn--tonal" @click="cancelPairing">Cancel Search / Pairing</button>
+            </div>
+            <details class="gx-starport-wiki"><summary>Stuck pairing? Pairing order and wireless adapters</summary>
+              <ul>
+                <li><strong>Keep this page open while pairing</strong> so the car’s PIN or code doesn’t time out.</li>
+                <li><strong>Cars with built-in wireless Android Auto:</strong> open the car’s phone pairing screen, then tap <strong>Find car</strong> above. Choose your car, then confirm the code on both screens.</li>
+                <li><strong>Wireless adapter</strong> (AAWireless or Motorola MA1): choose Wireless adapter above, put the adapter in pairing mode and pair it here Your car doesn’t need to be paired. Adapter names often look like AndroidAuto-XXXX.</li>
+              </ul>
+              <p><strong>Start fresh:</strong></p>
+              <ol>
+                <li>Forget the car on the comma: Bluetooth under Tools → Forget.</li>
+                <li>Delete the comma from the car’s Bluetooth list.</li>
+                <li>Turn the car off and on (or unplug the adapter for 5 seconds).</li>
+                <li>Pair again here.</li>
+              </ol>
+              <a class="gx-btn gx-btn--tonal" href="#/bluetooth">Open Bluetooth</a>
+            </details>
+`
 export const CAR_TYPES = {
   builtin: "Built-in wireless", adapter: "Wireless adapter", usb: "Wired AA", app: "App"
 }
@@ -557,7 +633,9 @@ export const StarPortPage = {
     newSetup() { return this.setup?.newSetup !== false },
     guided() {
       return guidedState({ setup: this.setup, runtime: this.runtime, selected: this.selected, receivers: this.receivers, wired: this.wired,
-        app: this.app, carType: this.carType, setupDone: this.setupDone, pairingActive: !!this.pairing?.active, labels: this.carTypeLabels })
+        app: this.app, carType: this.carType, setupDone: this.setupDone, pairingActive: !!this.pairing?.active, editing: this.showSteps,
+        adapterModels: ADAPTER_MODELS, adapterKey: this.runtime?.car_profile_source === "override" ? this.runtime.car_profile : "",
+        appModels: HEAD_UNIT_APPS })
     },
     wiredStatus() {
       if (this.runtime?.wired_blocked) return { tone: "expired", label: "Wired StarPort not enabled", detail: this.runtime.wired_blocked }
@@ -695,6 +773,8 @@ export const StarPortPage = {
     },
     useCar(address) { return this.afterWaiting(() => this.control("select_receiver", { address })) },
     chooseType(key) { return this.saveCarType(0, this.carTypeLabels[key]) },
+    chooseAdapter(key) { return this.saveAdapter(0, ADAPTER_MODELS[key]) },
+    chooseApp(key) { return this.saveApp(0, HEAD_UNIT_APPS[key]) },
     useClassic() { return this.feed.setNewSetup(false) },
     useGuided() { return this.feed.setNewSetup(true) },
     saveCarType(index, value) {
@@ -875,9 +955,27 @@ export const StarPortPage = {
           </div>
         </section>
       <StarPortGuidedSetup v-if="setup && newSetup && guided.show" :state="guided" :busy="busy"
-        @choose-type="chooseType" @use-car="useCar" @classic="useClassic" />
+        @choose-type="chooseType" @choose-adapter="chooseAdapter" @choose-app="chooseApp" @use-car="useCar" @classic="useClassic" @done="showSteps = false">
+        <template #car>
+          <GxNotice v-if="wiredUnavailable" tone="warn">Wired AA is unavailable: {{ runtime.wired_blocked }}.</GxNotice>
+          <template v-if="carType === 'usb'">
+            ${WIRED_STATUS}
+          </template>
+          <template v-else-if="carType === 'app'">
+            ${APP_SETUP}
+          </template>
+          <template v-if="pairsHere">
+            ${PAIR_UI}
+          </template>
+        </template>
+        <template #connect>
+          ${AUTO_CONNECT}
+          ${CONNECT}
+          <p v-if="connectReason" class="gx-guided__hint" role="status">{{ connectReason }}</p>
+        </template>
+      </StarPortGuidedSetup>
       <p v-else-if="setup && !newSetup && !setupDone" class="gx-note"><button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="useGuided">Try the guided setup</button></p>
-      <ol v-if="setup" id="gx-starport-steps" class="gx-starport__steps">
+      <ol v-if="setup && !newSetup" id="gx-starport-steps" class="gx-starport__steps">
         <li v-show="!setupDone || showSteps" class="gx-card gx-starport-step" :class="{ 'gx-starport-step--done': !!selected && !pairing?.active }">
           <div class="gx-starport-step__head">
             <span class="gx-starport-step__num" aria-hidden="true"><i v-if="selected && !pairing?.active" class="bi bi-check-lg"></i><template v-else>2</template></span>
@@ -897,80 +995,7 @@ export const StarPortPage = {
               ${APP_SETUP}
             </template>
             <template v-if="pairsHere">
-            <ol v-if="adapterSetup" class="gx-starport-list" aria-label="Adapter pairing">
-              <li class="gx-starport-row">
-                <i class="bi bi-usb-symbol" aria-hidden="true"></i>
-                <span class="gx-starport-row__text"><strong>Adapter</strong><small>{{ selected ? selected.name : 'Put it in pairing mode, then tap Find adapter.' }}</small></span>
-                <span class="gx-starport-pill" :class="selected ? 'gx-starport-pill--ready' : ''">{{ selected ? 'Paired' : 'Not paired' }}</span>
-              </li>
-            </ol>
-            <GxNotice v-if="!pairing?.active && runtime?.pairing_note" tone="warn">{{ runtime.pairing_note }}</GxNotice>
-            <ul v-if="!pairing?.active && receivers.length" class="gx-starport-list" aria-label="Paired cars">
-              <li v-for="car in receivers" :key="car.address" class="gx-starport-row">
-                <i class="bi bi-car-front" aria-hidden="true"></i>
-                <span class="gx-starport-row__text"><strong>{{ car.name }}</strong><small>{{ selected?.address === car.address ? 'Used for Android Auto' : 'Paired' }}</small></span>
-                <span v-if="selected?.address === car.address" class="gx-starport-pill gx-starport-pill--ready"><i class="bi bi-check-lg"></i> Selected</span>
-                <button v-else class="gx-btn gx-btn--tonal" :disabled="!setup.parked || linked" @click="useCar(car.address)">Use</button>
-              </li>
-            </ul>
-            <p v-else-if="!pairing?.active && selected" class="gx-starport-row"><i class="bi bi-car-front" aria-hidden="true"></i><span class="gx-starport-row__text"><strong>{{ selected.name }}</strong><small>Used for Android Auto</small></span></p>
-            <p v-if="!pairing?.active && endReason === 'canceled'" class="gx-note" role="status">Pairing canceled. Start again when your car is ready.</p>
-            <p v-else-if="!pairing?.active && endReason" class="gx-note" role="status">The pairing window ended without choosing a car. Try again when your car’s pairing screen is open.</p>
-            <ol v-if="showPairSteps" class="gx-starport-list" aria-label="Pairing progress">
-              <li v-for="step in pairSteps" :key="step.label" class="gx-starport-row" :class="'gx-starport-row--' + step.status" :aria-current="step.status === 'active' ? 'step' : undefined">
-                <i v-if="step.status === 'done'" class="bi bi-check-circle-fill gx-starport-ok" aria-hidden="true"></i>
-                <span v-else-if="step.status === 'active'" class="gx-spinner gx-starport-orbit gx-starport-orbit--small" aria-hidden="true"></span>
-                <i v-else class="bi bi-circle" aria-hidden="true"></i>
-                <span class="gx-starport-row__text"><strong>{{ step.label }}</strong></span>
-              </li>
-            </ol>
-            <p v-if="waitingForCar" role="status">{{ pairing.discovering ? "Searching for nearby cars and adapters…" : "Choose your car or wireless adapter below." }}</p>
-            <p v-else-if="pairing?.active && pairing.approved && (!pairing.state || pairing.state === 'idle')" role="status">Approved {{ pairing.receiver?.name }}. Finishing Bluetooth pairing…</p>
-            <p v-if="pairing?.state === 'pairing' && !pairing.prompt && !pairing.approved" role="status">Pairing with {{ pairing.receiver?.name || 'the selected device' }}…</p>
-            <p v-if="pairing?.state === 'connecting'" role="status">Connecting to {{ pairing.receiver?.name || 'the selected device' }}…</p>
-            <p v-if="['paired', 'connected'].includes(pairing?.state)" role="status"><i class="bi bi-check-circle-fill gx-starport-ok"></i> {{ pairing.receiver?.name || 'Device' }} {{ pairing.state === 'connected' ? 'connected' : 'paired' }}.</p>
-            <GxNotice tone="danger" v-if="pairing?.error">{{ pairing.error }}</GxNotice>
-            <ul v-if="pairing?.active" class="gx-starport-list" aria-label="Nearby devices">
-              <li v-if="!pairing.devices?.length && waitingForCar" class="gx-starport-row gx-note" role="status"><span class="gx-spinner" aria-hidden="true"></span>Nothing found yet. Keep your car’s pairing screen open.</li>
-              <li v-for="device in pairing.devices || []" :key="device.address" class="gx-starport-row">
-                <i :class="device.starport ? 'bi bi-car-front' : 'bi bi-bluetooth'" aria-hidden="true"></i>
-                <span class="gx-starport-row__text"><strong>{{ device.name }}</strong><small>{{ device.starport ? 'StarPort ready' : 'Bluetooth device' }} · {{ device.connected ? 'Connected' : device.paired ? 'Paired before' : 'Nearby' }}</small></span>
-                <button class="gx-btn gx-btn--tonal" :disabled="deviceSelectionBlocked" @click="selectDevice(device.address)">{{ device.paired ? 'Connect' : 'Pair' }}</button>
-              </li>
-            </ul>
-            <div v-if="pairing?.prompt" class="gx-starport-prompt" role="status"><strong>{{ pairing.receiver.name }}</strong>
-              <p>{{ pairing.prompt.kind === 'confirmation' ? 'Check that this code matches your car, then confirm.' :
-                pairing.prompt.kind === 'pin' ? 'Enter the PIN shown by your car.' :
-                pairing.prompt.kind === 'passkey' ? 'Enter your car’s passkey.' :
-                pairing.prompt.kind === 'authorization' ? 'Allow this car to pair?' : 'Enter this code in your car.' }}</p>
-              <strong v-if="pairing.prompt.value" class="gx-starport-prompt__code">{{ pairing.prompt.value }}</strong>
-              <input v-if="['pin','passkey'].includes(pairing.prompt.kind)" class="gx-field" type="text" maxlength="16" autocomplete="off"
-                :inputmode="pairing.prompt.kind === 'passkey' ? 'numeric' : 'text'" :aria-label="pairing.prompt.kind === 'pin' ? 'Car PIN' : 'Car passkey'" v-model="pairValue" />
-              <div v-if="!pairing.prompt.displayOnly" class="gx-driving__actions gx-actions">
-                <button class="gx-btn gx-btn--tonal" @click="respond(false)">Reject</button>
-                <button class="gx-btn" :disabled="!canRespond" @click="respond(true)">{{ pairing.prompt.kind === 'pin' ? 'Send PIN' : pairing.prompt.kind === 'passkey' ? 'Send Passkey' : 'Confirm' }}</button></div>
-            </div>
-            <p v-if="pairWhenReady" class="gx-note" role="status"><span class="gx-spinner" aria-hidden="true"></span> Turning on Android Auto, then searching…</p>
-            <p v-else-if="!pairing?.active && pairingReason" class="gx-note" role="status">{{ pairingReason }}</p>
-            <div class="gx-driving__actions gx-actions">
-              <button v-if="!pairing?.active" class="gx-btn" :class="{ 'gx-btn--tonal': !!selected }" :disabled="pairWhenReady || !!pairingReason" @click="beginPairing"><span v-if="starting" class="gx-spinner" aria-hidden="true"></span><i v-else class="bi bi-search"></i> {{ starting ? 'Starting search…' : selected ? 'Pair another ' + findLabel : 'Find ' + findLabel }}</button>
-              <button v-else class="gx-btn gx-btn--tonal" @click="cancelPairing">Cancel Search / Pairing</button>
-            </div>
-            <details class="gx-starport-wiki"><summary>Stuck pairing? Pairing order and wireless adapters</summary>
-              <ul>
-                <li><strong>Keep this page open while pairing</strong> so the car’s PIN or code doesn’t time out.</li>
-                <li><strong>Cars with built-in wireless Android Auto:</strong> open the car’s phone pairing screen, then tap <strong>Find car</strong> above. Choose your car, then confirm the code on both screens.</li>
-                <li><strong>Wireless adapter</strong> (AAWireless or Motorola MA1): choose Wireless adapter above, put the adapter in pairing mode and pair it here Your car doesn’t need to be paired. Adapter names often look like AndroidAuto-XXXX.</li>
-              </ul>
-              <p><strong>Start fresh:</strong></p>
-              <ol>
-                <li>Forget the car on the comma: Bluetooth under Tools → Forget.</li>
-                <li>Delete the comma from the car’s Bluetooth list.</li>
-                <li>Turn the car off and on (or unplug the adapter for 5 seconds).</li>
-                <li>Pair again here.</li>
-              </ol>
-              <a class="gx-btn gx-btn--tonal" href="#/bluetooth">Open Bluetooth</a>
-            </details>
+            ${PAIR_UI}
             </template>
             ${CONNECTION_PROGRESS}
             ${CONNECT}
@@ -997,9 +1022,11 @@ export const StarPortPage = {
         </div>
         <div class="gx-starport-step__body">
           <p v-if="expiry.level === 'soon'" class="gx-starport-pill gx-starport-pill--soon" role="status">{{ expiry.label }}</p>
-          <GalaxySettingRow :row="carTypeRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveCarType" />
-          <GalaxySettingRow v-if="adapterSetup" :row="adapterRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveAdapter" />
-          <GalaxySettingRow v-if="app" :row="appRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveApp" />
+          <template v-if="!newSetup">
+            <GalaxySettingRow :row="carTypeRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveCarType" />
+            <GalaxySettingRow v-if="adapterSetup" :row="adapterRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveAdapter" />
+            <GalaxySettingRow v-if="app" :row="appRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveApp" />
+          </template>
           ${AUTO_CONNECT}
           <ul v-if="wirelessHome" class="gx-starport-list" aria-label="Setup steps">
             <li class="gx-starport-row"><i class="bi bi-shield-check" aria-hidden="true"></i>

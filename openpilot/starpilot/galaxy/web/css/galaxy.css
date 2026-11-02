@@ -1714,10 +1714,6 @@ input[type="checkbox"]:disabled { opacity: .4; cursor: not-allowed; }
 /* A section title inside a settings page: a label only, never dimmed like an unavailable control. */
 .gx-row.gx-row--heading, .gx-row.gx-row--heading.disabled { opacity: 1; padding-top: 1.25rem; }
 .gx-row--heading .gx-row__label { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; opacity: .75; }
-/* Guided StarPort setup: the one question about how the car connects. */
-.gx-starport-guided__choices { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
-.gx-starport-guided__choice { display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; text-align: left; height: auto; padding: .7rem .9rem; }
-.gx-starport-guided__choice small { font-weight: 400; opacity: .75; white-space: normal; }
 .gx-row--wrap { flex-wrap: wrap; }
 .gx-row__info.gx-row__info--wide { flex: 1 1 180px; }
 .gx-filter-field { flex: 1 1 14rem; min-width: 0; }
@@ -2004,4 +2000,167 @@ progress { max-width: 100%; accent-color: var(--primary); }
   .gx-tuner__parameter strong { font-size: .72rem; }
   .gx-tuner__diagnostics { grid-template-columns: 1fr; gap: 5px; }
   .gx-tuner__diagnostics dd { margin-bottom: 12px; }
+}
+
+/* Guided StarPort setup. Apple-style geometry and type on Galaxy's own colors, so light and dark both follow the theme. */
+.gx-card.gx-guided {
+  --g-ink: var(--on-surface);
+  --g-muted: var(--on-surface-variant);
+  --g-fill: color-mix(in srgb, var(--on-surface) 7%, transparent);
+  --g-fill-hover: color-mix(in srgb, var(--on-surface) 11%, transparent);
+  --g-line: color-mix(in srgb, var(--on-surface) 11%, transparent);
+  --g-track: color-mix(in srgb, var(--on-surface) 16%, var(--background));  /* opaque, so overlapping segments never show a seam */
+  --g-accent: var(--primary);
+  --g-done: #30d158;
+  --g-thumb: rgba(255, 255, 255, .18);
+  --g-ease: cubic-bezier(.32, .72, 0, 1);
+  display: grid; gap: 24px; padding: 28px 28px 24px; border-radius: 28px; margin-block: 16px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, "Segoe UI", sans-serif;
+  font-size: 16px; line-height: 1.4; color: var(--g-ink); -webkit-font-smoothing: antialiased;
+}
+[data-theme="light"] .gx-card.gx-guided { --g-done: #248a3d; --g-thumb: #fff; }
+
+/* The step track: three numbered nodes on a line that fills as the setup moves along. */
+.gx-guided__steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); position: relative; counter-reset: none; }
+.gx-guided__step { position: relative; display: grid; justify-items: center; gap: 8px; text-align: center; }
+.gx-guided__step::before, .gx-guided__step::after { content: ""; position: absolute; top: 15px; height: 2px; width: calc(50% - 8px); }
+.gx-guided__step::before { left: 0; background: var(--g-track); }
+.gx-guided__step::after  { right: 0; background: var(--g-track); }
+.gx-guided__step:first-child::before, .gx-guided__step:last-child::after { display: none; }
+.gx-guided__step.is-done::before, .gx-guided__step.is-done::after, .gx-guided__step.is-current::before { background: var(--g-done); }
+.gx-guided__step.is-done + .gx-guided__step::before { background: var(--g-done); }
+.gx-guided__node {
+  position: relative; z-index: 1; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; background: var(--g-fill); color: var(--g-muted);
+  transition: background .3s var(--g-ease), color .3s var(--g-ease), box-shadow .3s var(--g-ease), transform .3s var(--g-ease);
+}
+.gx-guided__step.is-current .gx-guided__node { background: var(--g-accent); color: var(--on-primary); box-shadow: 0 0 0 5px color-mix(in srgb, var(--g-accent) 24%, transparent); }
+.gx-guided__step.is-done .gx-guided__node { background: var(--g-done); color: #fff; animation: gx-guided-pop .35s var(--g-ease); }
+.gx-guided__step-label { font-size: 13px; font-weight: 600; letter-spacing: -.005em; color: var(--g-muted); }
+.gx-guided__step.is-current .gx-guided__step-label { color: var(--g-ink); }
+@keyframes gx-guided-pop { 0% { transform: scale(.7); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
+.gx-guided__sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.gx-guided__header { display: grid; gap: 6px; max-width: 34rem; }
+.gx-guided__title { margin: 0; font-size: 30px; line-height: 1.12; font-weight: 650; letter-spacing: -.024em; text-wrap: balance; }
+.gx-guided__lede { margin: 0; font-size: 17px; line-height: 1.45; color: var(--g-muted); text-wrap: pretty; }
+
+.gx-guided__section { display: grid; gap: 10px; }
+.gx-guided__subhead { margin: 0 0 0 4px; font-size: 15px; font-weight: 600; letter-spacing: -.01em; color: var(--g-muted); }
+.gx-guided__hint { margin: 0 4px; font-size: 14px; color: var(--g-muted); }
+
+/* Inset grouped lists, as in iOS Settings. */
+.gx-guided__group { list-style: none; margin: 0; padding: 0; background: var(--g-fill); border-radius: 18px; overflow: hidden; }
+.gx-guided__group > li { position: relative; }
+.gx-guided__group > li + li::before { content: ""; position: absolute; top: 0; left: 70px; right: 0; height: 1px; background: var(--g-line); }
+.gx-guided__option, .gx-guided__car, .gx-guided__checklist > li {
+  display: flex; align-items: center; gap: 14px; width: 100%; min-height: 60px; padding: 10px 16px; box-sizing: border-box;
+  background: none; border: 0; color: inherit; font: inherit; text-align: left;
+}
+.gx-guided__checklist > li { min-height: 52px; }
+.gx-guided__option { cursor: pointer; transition: background .2s var(--g-ease); }
+.gx-guided__option:hover:not(:disabled) { background: var(--g-fill-hover); }
+.gx-guided__option:active:not(:disabled) { background: var(--g-line); }
+.gx-guided__option:disabled { cursor: default; opacity: .6; }
+.gx-guided__option:focus-visible, .gx-guided__segmented button:focus-visible, .gx-guided__link:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--g-accent) 70%, transparent); outline-offset: -3px; border-radius: 14px;
+}
+.gx-guided__text { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.gx-guided__text strong { font-size: 16px; font-weight: 590; letter-spacing: -.01em; }
+.gx-guided__text small { font-size: 14px; line-height: 1.3; color: var(--g-muted); }
+.gx-guided__tile {
+  flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; color: #fff; font-size: 20px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
+}
+.gx-guided__tile.is-blue { background: linear-gradient(180deg, #4aa3ff, #0a84ff); }
+.gx-guided__tile.is-orange { background: linear-gradient(180deg, #ffb84a, #ff9f0a); }
+.gx-guided__tile.is-gray { background: linear-gradient(180deg, #a1a1a6, #7c7c82); }
+.gx-guided__tile.is-purple { background: linear-gradient(180deg, #d58cff, #bf5af2); }
+.gx-guided__radio {
+  flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-size: 14px; color: transparent;
+  border: 1.5px solid color-mix(in srgb, var(--on-surface) 28%, transparent); transition: background .25s var(--g-ease), border-color .25s var(--g-ease);
+}
+.gx-guided__option[aria-checked="true"] .gx-guided__radio { background: var(--g-accent); border-color: var(--g-accent); color: var(--on-primary); }
+.gx-guided__option[aria-checked="true"] .gx-guided__text strong { color: var(--g-ink); }
+
+/* Segmented control for the adapter and app choices. */
+.gx-guided__segmented { display: flex; gap: 2px; padding: 3px; background: var(--g-fill); border-radius: 12px; }
+.gx-guided__segmented button {
+  flex: 1; min-height: 44px; padding: 6px 8px; border: 0; border-radius: 9px; background: none; color: var(--g-muted);
+  font: inherit; font-size: 15px; font-weight: 560; line-height: 1.2; text-wrap: balance; cursor: pointer; transition: background .25s var(--g-ease), color .25s var(--g-ease), box-shadow .25s var(--g-ease);
+}
+.gx-guided__segmented button.is-selected { background: var(--g-thumb); color: var(--g-ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .22), 0 0 0 .5px rgba(0, 0, 0, .06); }
+.gx-guided__segmented button:disabled { opacity: .6; cursor: default; }
+.gx-guided__segmented button:not(.is-selected):hover:not(:disabled) { color: var(--g-ink); }
+
+/* Live checklist. */
+.gx-guided__mark { flex: none; display: grid; place-items: center; width: 28px; font-size: 22px; color: color-mix(in srgb, var(--on-surface) 30%, transparent); }
+.gx-guided__checklist > li.is-done .gx-guided__mark, .gx-guided__checklist > li.is-worked .gx-guided__mark { color: var(--g-done); animation: gx-guided-pop .35s var(--g-ease); }
+.gx-guided__checklist > li.is-active .gx-guided__mark, .gx-guided__checklist > li.is-current .gx-guided__mark, .gx-guided__checklist > li.is-retry .gx-guided__mark { color: var(--g-accent); }
+.gx-guided__checklist > li.is-failed .gx-guided__mark { color: var(--error); }
+.gx-guided__checklist > li.is-waiting .gx-guided__text strong, .gx-guided__checklist > li.is-skipped .gx-guided__text strong { color: var(--g-muted); font-weight: 500; }
+.gx-guided__spinner { width: 20px; height: 20px; }
+.gx-guided__checklist.gx-guided__group > li + li::before { left: 58px; }
+
+.gx-guided__disclosure { background: var(--g-fill); border-radius: 18px; overflow: hidden; }
+.gx-guided__disclosure > summary { list-style: none; cursor: pointer; padding: 14px 16px; font-size: 15px; font-weight: 590; display: flex; justify-content: space-between; align-items: center; }
+.gx-guided__disclosure > summary::-webkit-details-marker { display: none; }
+.gx-guided__disclosure > summary::after { content: "\203A"; font-size: 22px; color: var(--g-muted); transition: transform .25s var(--g-ease); }
+.gx-guided__disclosure[open] > summary::after { transform: rotate(90deg); }
+.gx-guided__disclosure .gx-guided__group { border-radius: 0; background: none; border-top: 1px solid var(--g-line); }
+
+.gx-guided__callout {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 0; padding: 14px 16px;
+  border-radius: 16px; background: color-mix(in srgb, var(--g-accent) 14%, transparent); font-size: 15px; line-height: 1.4;
+}
+.gx-guided__callout--quiet { background: var(--g-fill); color: var(--g-muted); display: block; }
+
+/* The page's own pairing, cable and app content arrives through the car slot; it takes the same look here. */
+.gx-guided__body { display: grid; gap: 14px; }
+.gx-guided__body:empty { display: none; }
+.gx-guided .gx-starport-list { list-style: none; margin: 0; padding: 0; background: var(--g-fill); border-radius: 18px; overflow: hidden; box-shadow: none; border: 0; }
+.gx-guided .gx-starport-row { display: flex; align-items: center; gap: 14px; min-height: 56px; padding: 10px 16px; background: none; border: 0; border-radius: 0; }
+.gx-guided .gx-starport-list > li + li, .gx-guided .gx-starport-list > .gx-starport-row + .gx-starport-row { border-top: 1px solid var(--g-line); }
+.gx-guided .gx-starport-row__text { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.gx-guided .gx-starport-row__text strong { font-size: 16px; font-weight: 590; }
+.gx-guided .gx-starport-row__text small { font-size: 14px; color: var(--g-muted); }
+.gx-guided .gx-starport-row > i.bi { font-size: 20px; color: var(--g-muted); }
+.gx-guided .gx-starport-ok { color: var(--g-done) !important; }
+.gx-guided .gx-starport-pill { border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: 600; background: var(--g-fill-hover); color: var(--g-muted); border: 0; }
+.gx-guided .gx-starport-pill--ready { background: color-mix(in srgb, var(--g-done) 20%, transparent); color: var(--g-done); }
+.gx-guided .gx-note, .gx-guided .gx-notice, .gx-guided .gx-starport-guide { margin: 0; padding: 14px 16px; border-radius: 16px; background: var(--g-fill); font-size: 15px; line-height: 1.45; border: 0; }
+.gx-guided .gx-starport-prompt { padding: 18px; border-radius: 18px; background: var(--g-fill); display: grid; gap: 10px; border: 0; }
+.gx-guided .gx-starport-prompt__code { font-size: 34px; letter-spacing: .12em; font-weight: 650; font-variant-numeric: tabular-nums; }
+.gx-guided .gx-starport-wiki { background: var(--g-fill); border-radius: 16px; padding: 0; border: 0; overflow: hidden; }
+.gx-guided .gx-starport-wiki > summary { padding: 14px 16px; font-size: 15px; font-weight: 560; cursor: pointer; color: var(--g-ink); }
+.gx-guided .gx-starport-wiki > :not(summary) { margin-inline: 16px; font-size: 14px; line-height: 1.5; }
+.gx-guided .gx-starport-wiki > :last-child { margin-bottom: 16px; }
+.gx-guided .gx-field { min-height: 44px; border-radius: 12px; }
+.gx-guided .gx-actions, .gx-guided .gx-driving__actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 0; }
+.gx-guided .gx-row { background: var(--g-fill); border: 0; border-radius: 18px; padding: 12px 16px; }
+
+/* Buttons: pill-shaped primary, soft tonal. */
+.gx-guided .gx-btn { min-height: 44px; border-radius: 12px; font-size: 16px; font-weight: 590; letter-spacing: -.01em; padding-inline: 18px; box-shadow: none; }
+.gx-guided .gx-btn--tonal { background: var(--g-fill-hover); color: var(--g-ink); border: 0; }
+.gx-guided .gx-btn--tonal:hover:not(:disabled) { background: var(--g-line); }
+.gx-guided .gx-starport-cta { width: 100%; min-height: 54px; border-radius: 16px; font-size: 17px; }
+.gx-guided__footer { display: grid; gap: 12px; justify-items: stretch; }
+.gx-guided__footer .gx-guided__hint { text-align: center; }
+.gx-guided__link { justify-self: center; padding: 8px 12px; border: 0; background: none; color: var(--g-accent); font: inherit; font-size: 15px; font-weight: 560; cursor: pointer; }
+.gx-guided__link:hover:not(:disabled) { text-decoration: underline; }
+.gx-guided__link:disabled { opacity: .5; cursor: default; }
+
+@media (max-width: 640px) {
+  .gx-card.gx-guided { padding: 22px 16px 18px; border-radius: 24px; gap: 20px; }
+  .gx-guided__title { font-size: 26px; }
+  .gx-guided__lede { font-size: 16px; }
+  .gx-guided__segmented button { font-size: 14px; }
+  .gx-guided__option, .gx-guided__car, .gx-guided__checklist > li { padding-inline: 14px; gap: 12px; }
+  .gx-guided__group > li + li::before { left: 66px; }
+  .gx-guided__checklist.gx-guided__group > li + li::before { left: 54px; }
+  .gx-guided .gx-starport-cta { min-height: 56px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gx-guided__node, .gx-guided__option, .gx-guided__radio, .gx-guided__segmented button, .gx-guided__disclosure > summary::after { transition: none; }
+  .gx-guided__step.is-done .gx-guided__node, .gx-guided__checklist > li.is-done .gx-guided__mark, .gx-guided__checklist > li.is-worked .gx-guided__mark { animation: none; }
 }
