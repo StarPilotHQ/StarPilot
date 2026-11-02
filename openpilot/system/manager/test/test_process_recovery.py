@@ -1,6 +1,9 @@
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
+from opendbc.car.structs import car
+from openpilot.common.params import Params
+from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.system.manager import process
 
 
@@ -22,6 +25,9 @@ class Child:
 
 class TestProcessRecovery(unittest.TestCase):
   def setUp(self):
+    self.enterContext(OpenpilotPrefix())
+    self.params = Params()
+    self.cp = car.CarParams.new_message(brand="hyundai", carFingerprint="HYUNDAI_IONIQ_6")
     self.now = 100.0
     self.enterContext(patch.object(process, "Process", Child))
     self.enterContext(patch.object(process.time, "monotonic", lambda: self.now))
@@ -33,7 +39,7 @@ class TestProcessRecovery(unittest.TestCase):
     return process.PythonProcess("ui", "ui", lambda started, params, cp: started, restart_on_exit=restart)
 
   def step(self, p, started=True, ignored=None):
-    process.ensure_running({p.name: p}.values(), started, Mock(), None, not_run=ignored)
+    process.ensure_running({p.name: p}.values(), started, self.params, self.cp, not_run=ignored)
 
   def test_crash_restarts_after_delay_and_reaps_child(self):
     p = self.make_process()
