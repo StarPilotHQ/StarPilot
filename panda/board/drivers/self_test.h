@@ -1,6 +1,7 @@
 #pragma once
 
 #include "board/crc.h"
+#include "board/crypto/rsa.h"
 
 // UM2331 CPU_SM_0, RAM_SM_0/7/8, FLASH_SM_0/7/9
 // at boot: all of RAM in board/stm32h7/self_test.s before the C runtime, then CPU, FPU and the whole flash image
@@ -219,7 +220,7 @@ static void ram_scrub_next(void) {
 // board/crypto/sign.py: length, image, crc32 of everything before it, version tag and version, signature
 static uint32_t flash_crc_len(void) {
   uint32_t len = (uint32_t)_app_start[0];
-  return ((len >= 12U) && (len < sizeof(_app_start))) ? (len - 12U) : 0U;
+  return ((len >= 12U) && (len <= (sizeof(_app_start) - RSANUMBYTES))) ? (len - 12U) : 0U;
 }
 
 static uint32_t flash_crc_stored(void) {

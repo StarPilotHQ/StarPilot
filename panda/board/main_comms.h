@@ -10,7 +10,11 @@ static bool panda_ignition_line(void) {
 }
 
 
+#ifdef STM32H7
+extern int _app_start[0x38000];
+#else
 extern int _app_start[0xc000]; // Only first 3 sectors of size 0x4000 are used
+#endif
 
 // Prototypes
 void set_safety_mode(uint16_t mode, uint16_t param);
