@@ -98,32 +98,33 @@ def test_actual_required_rx_refusal(matrix, address, kind):
   matrix.warm()
   assert matrix.safety.aol_get_permission_mask() == 1
   config = matrix.safety.current_safety_config
-  check = next(config.rx_checks[i] for i in range(config.rx_checks_len) if config.rx_checks[i].msg[0].addr == address)
-  original_timestamp = check.status.last_timestamp
+  index = next(i for i in range(config.rx_checks_len) if config.rx_checks[i].msg[0].addr == address)
+  check = config.rx_checks[index]
+  original_timestamp = matrix.safety.rx_status[index].last_timestamp
   matrix.tick(fault=(kind, address))
   if address == 0x260 and kind == 'length':
     # Generic required RX matches address, bus AND DLC. A wrong-DLC frame must
     # never renew the last good source; the unchanged native tick expires it.
     assert check.msg[0].frequency == 50
-    assert check.status.last_timestamp == original_timestamp
+    assert matrix.safety.rx_status[index].last_timestamp == original_timestamp
     for _ in range(19):
       matrix.tick(fault=(kind, address))
-      assert check.status.last_timestamp == original_timestamp
+      assert matrix.safety.rx_status[index].last_timestamp == original_timestamp
     # AOL's unchanged ten-period freshness bound is tighter than generic lag.
     assert matrix.now - original_timestamp == 200_000
-    assert not check.status.lagging and matrix.safety.aol_get_permission_mask() == 1
+    assert not matrix.safety.rx_status[index].lagging and matrix.safety.aol_get_permission_mask() == 1
     matrix.tick(fault=(kind, address))
     assert matrix.now - original_timestamp == 210_000
-    assert check.status.last_timestamp == original_timestamp and not check.status.lagging
+    assert matrix.safety.rx_status[index].last_timestamp == original_timestamp and not matrix.safety.rx_status[index].lagging
     assert matrix.safety.aol_get_permission_mask() == 0
     assert not matrix.tx('STEERING_LKA', {'STEER_TORQUE_CMD': 1, 'STEER_REQUEST': 1})
     for _ in range(79):
       matrix.tick(fault=(kind, address))
-      assert check.status.last_timestamp == original_timestamp
+      assert matrix.safety.rx_status[index].last_timestamp == original_timestamp
     assert matrix.now - original_timestamp == 1_000_000
-    assert not check.status.lagging and matrix.safety.aol_get_permission_mask() == 0
+    assert not matrix.safety.rx_status[index].lagging and matrix.safety.aol_get_permission_mask() == 0
     matrix.tick(fault=(kind, address))
-    assert check.status.last_timestamp == original_timestamp and check.status.lagging
+    assert matrix.safety.rx_status[index].last_timestamp == original_timestamp and matrix.safety.rx_status[index].lagging
     assert matrix.now - original_timestamp == 1_010_000
   # EPS/MAIN observer DLC and required-source checksum refusals are immediate.
   assert matrix.safety.aol_get_permission_mask() == 0

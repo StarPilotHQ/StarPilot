@@ -360,7 +360,7 @@ static bool hyundai_tx_hook(const CANPacket_t *msg) {
     bool rx_valid = hyundai_ray_pedal_healthy && !safety_rx_checks_invalid &&
                     (safety_get_ts_elapsed(microsecond_timer_get(), hyundai_ray_pedal_ts) <= 1000000U);
     for (int i = 0; i < current_safety_config.rx_checks_len; i++) {
-      const RxStatus *status = &current_safety_config.rx_checks[i].status;
+      const RxStatus *status = &rx_status[i];
       rx_valid &= status->msg_seen && status->valid_checksum && status->valid_quality_flag &&
                   (status->wrong_counters < MAX_WRONG_COUNTERS) && !status->lagging &&
                   (safety_get_ts_elapsed(microsecond_timer_get(), status->last_timestamp) <= 1000000U);
@@ -656,9 +656,6 @@ static safety_config hyundai_init(uint16_t param) {
   hyundai_blended_hda2 |= (param == 0x2014U);
 #endif
   hyundai_blended_stock |= hyundai_blended_alpha;
-  if (hyundai_blended_hda2) {
-    gen_crc_lookup_table_16(0x1021U, hyundai_canfd_crc_lut);
-  }
   hyundai_ray_pedal = param == 0x9805U;
   hyundai_ray_pedal_healthy = false;
   hyundai_ray_pedal_ts = 0U;
@@ -668,9 +665,88 @@ static safety_config hyundai_init(uint16_t param) {
   hyundai_legacy = false;
 
   safety_config ret;
-  if (hyundai_longitudinal) {
-    // Use CLU11 (buttons) to manage controls allowed instead of SCC cruise state
-    static const RxCheck hyundai_long_rx_checks[] = {
+#ifdef ALLOW_DEBUG
+  if (hyundai_blended_alpha) {
+    static const CanMsg alpha_hda1_tx[] = {
+      {0x340, 0, 8, .check_relay = true, .disable_static_blocking = true},
+      {0x485, 0, 8, .check_relay = true, .disable_static_blocking = true},
+      {0x364, 0, 8, .check_relay = true, .disable_static_blocking = true}, {0x420, 0, 8, .check_relay = true},
+      {0x421, 0, 8, .check_relay = true}, {0x389, 0, 8, .check_relay = true},
+      {0x7D0, 0, 8, .check_relay = false}, {0x363, 0, 8, .check_relay = false},
+      {0x398, 0, 8, .check_relay = false},
+    };
+    static const CanMsg alpha_hda2_tx[] = {
+      {0x50, 0, 16, .check_relay = true, .disable_static_blocking = true},
+      {0x2A4, 0, 24, .check_relay = true, .disable_static_blocking = true},
+      {0x51, 0, 32, .check_relay = false}, {0x730, 1, 8, .check_relay = false},
+      {0x340, 1, 8, .check_relay = true, .disable_static_blocking = true},
+      {0x485, 1, 8, .check_relay = true, .disable_static_blocking = true},
+      {0x420, 1, 8, .check_relay = true}, {0x421, 1, 8, .check_relay = true},
+      {0x389, 1, 8, .check_relay = true}, {0x38D, 1, 8, .check_relay = false},
+      {0x363, 1, 8, .check_relay = false},
+      {0x398, 1, 8, .check_relay = false}, {0x399, 1, 8, .check_relay = false},
+      {0x39A, 1, 8, .check_relay = false}, {0x39B, 1, 8, .check_relay = false},
+      {0x39C, 1, 8, .check_relay = false}, {0x43A, 1, 8, .check_relay = false},
+    };
+    if (hyundai_blended_hda2) {
+      static RxCheck alpha_hda2_rx[] = {
+        HYUNDAI_BLENDED_ALPHA_RX_CHECKS(1, 50U)
+        {.msg = {{0x2A4, 2, 24, 20U, .max_counter = 255U, .ignore_quality_flag = true}, {0}, {0}}},
+      };
+      ret = BUILD_SAFETY_CFG(alpha_hda2_rx, alpha_hda2_tx);
+    } else {
+      static RxCheck alpha_hda1_rx[] = {
+        HYUNDAI_BLENDED_ALPHA_RX_CHECKS(0, 100U)
+        {.msg = {{0x391, 0, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true},
+                 {0x50C, 0, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true},
+                 {0x50C, 1, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}}},
+      };
+      ret = BUILD_SAFETY_CFG(alpha_hda1_rx, alpha_hda1_tx);
+    }
+  } else
+#endif
+  if (hyundai_blended_stock) {
+    static const CanMsg blended_tx[] = {
+      {0x340, 0, 8, .check_relay = true},
+      {0x4F1, 0, 4, .check_relay = false},
+      {0x485, 0, 8, .check_relay = true},
+      {0x364, 0, 8, .check_relay = true},
+    };
+    static const CanMsg blended_hda2_tx[] = {
+      {0x50, 0, 16, .check_relay = true},
+      {0x4F1, 1, 4, .check_relay = false},
+      {0x2A4, 0, 24, .check_relay = true},
+      {0x485, 1, 8, .check_relay = false},
+    };
+    static const CanMsg blended_hda2_aol_tx[] = {
+      {0x50, 0, 16, .check_relay = true, .disable_static_blocking = true},
+      {0x4F1, 1, 4, .check_relay = false},
+      {0x2A4, 0, 24, .check_relay = true, .disable_static_blocking = true},
+      {0x485, 1, 8, .check_relay = false, .disable_static_blocking = true},
+    };
+    static const CanMsg blended_aol_tx_msgs[] = {
+      {0x340, 0, 8, .check_relay = true, .disable_static_blocking = true},
+      {0x4F1, 0, 4, .check_relay = false},
+      {0x485, 0, 8, .check_relay = true, .disable_static_blocking = true},
+      {0x364, 0, 8, .check_relay = true, .disable_static_blocking = true},
+    };
+    if (hyundai_blended_hda2) {
+      static RxCheck blended_hda2_rx[] = {
+        HYUNDAI_BLENDED_COMMON_RX_CHECKS(1, 50U)
+        {.msg = {{0x2A4, 2, 24, 20U, .max_counter = 255U, .ignore_quality_flag = true}, {0}, {0}}},
+      };
+      ret = blended_aol_enabled ? BUILD_SAFETY_CFG(blended_hda2_rx, blended_hda2_aol_tx) :
+                                BUILD_SAFETY_CFG(blended_hda2_rx, blended_hda2_tx);
+    } else {
+      static RxCheck blended_rx[] = {HYUNDAI_BLENDED_COMMON_RX_CHECKS(0, 100U)};
+      ret = blended_aol_enabled ? BUILD_SAFETY_CFG(blended_rx, blended_aol_tx_msgs) : BUILD_SAFETY_CFG(blended_rx, blended_tx);
+    }
+  } else if (hyundai_ray_pedal) {
+    static const CanMsg ray_tx_msgs[] = {
+      HYUNDAI_COMMON_TX_MSGS(0, true)
+      {0x200, 0, 6, .check_relay = false},
+    };
+    static RxCheck ray_rx_checks[] = {
       HYUNDAI_COMMON_RX_CHECKS(false)
       {.msg = {{0x592, 0, 8, 10U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, {0}, {0}}},
       HYUNDAI_LDA_BUTTON_ADDR_CHECK

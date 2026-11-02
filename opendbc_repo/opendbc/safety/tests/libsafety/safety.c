@@ -76,14 +76,16 @@ bool safety_test_rx_health_fixture(unsigned int variant, bool canfd) {
              .frequency = (variant == 2U) ? 9U : 100U,
              .ignore_checksum = false, .ignore_counter = false,
              .max_counter = 0U, .ignore_quality_flag = false}, {0}, {0}},
-    .status = {.msg_seen = true, .index = 0, .valid_checksum = true,
-               .valid_quality_flag = true, .last_timestamp = (variant == 3U) ? now - 100001U : now},
   };
   const safety_config original = current_safety_config;
+  const RxStatus saved_status = rx_status[0];
+  rx_status[0] = (RxStatus){.msg_seen = true, .index = 0, .valid_checksum = true,
+    .valid_quality_flag = true, .last_timestamp = (variant == 3U) ? now - 100001U : now};
   current_safety_config.rx_checks = (variant == 1U) ? NULL : &check;
   current_safety_config.rx_checks_len = (variant == 0U) ? 0 : 1;
   const bool healthy = canfd ? hyundai_canfd_ioniq6_rx_healthy() : aol_rx_healthy();
   current_safety_config = original;
+  rx_status[0] = saved_status;
   return healthy;
 }
 
@@ -376,7 +378,7 @@ bool safety_test_toyota_invalid_counter_status(void) {
   if ((current_safety_mode != SAFETY_TOYOTA) || (current_safety_config.rx_checks_len <= 0)) {
     return false;
   }
-  current_safety_config.rx_checks[0].status.wrong_counters = MAX_WRONG_COUNTERS;
+  rx_status[0].wrong_counters = MAX_WRONG_COUNTERS;
   return !safety_rx_checks_invalid;
 }
 

@@ -118,8 +118,9 @@ static bool subaru_avh_tx(const CANPacket_t *msg) {
   // Rejected required wheel-speed input must also invalidate its cached source.
   for (int i = 0; i < current_safety_config.rx_checks_len; i++) {
     const RxCheck *check = &current_safety_config.rx_checks[i];
-    if (((unsigned int)check->msg[check->status.index].addr == 0x13AU) && (check->msg[check->status.index].bus == 1U)) {
-      allowed &= check->status.valid_checksum && (check->status.wrong_counters < MAX_WRONG_COUNTERS);
+      const RxStatus *status = &rx_status[i];
+    if (((unsigned int)check->msg[status->index].addr == 0x13AU) && (check->msg[status->index].bus == 1U)) {
+      allowed &= status->valid_checksum && (status->wrong_counters < MAX_WRONG_COUNTERS);
     }
   }
 

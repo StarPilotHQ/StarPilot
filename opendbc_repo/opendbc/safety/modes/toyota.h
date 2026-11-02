@@ -86,7 +86,7 @@ static bool toyota_hold_gas_seen = false;
 static bool toyota_rx_ready(uint32_t now) {
   bool rx_valid = true;
   for (int i = 0; i < current_safety_config.rx_checks_len; i++) {
-    const RxStatus *status = &current_safety_config.rx_checks[i].status;
+    const RxStatus *status = &rx_status[i];
     rx_valid &= status->msg_seen && status->valid_checksum && status->valid_quality_flag &&
                 (status->wrong_counters < MAX_WRONG_COUNTERS) && !status->lagging &&
                 (safety_get_ts_elapsed(now, status->last_timestamp) <= 1000000U);
@@ -100,7 +100,7 @@ static bool toyota_legacy_main_current(void) {
     ready = false;
     if ((current_safety_config.rx_checks_len == 6) ||
         (toyota_pedal_composite && (current_safety_config.rx_checks_len > 6))) {
-      const RxStatus *main_status = &current_safety_config.rx_checks[5].status;
+      const RxStatus *main_status = &rx_status[5];
       ready = main_status->msg_seen && main_status->valid_checksum && main_status->valid_quality_flag &&
         !main_status->lagging && (main_status->wrong_counters < MAX_WRONG_COUNTERS) && acc_main_on &&
         (safety_get_ts_elapsed(microsecond_timer_get(), main_status->last_timestamp) <= 303031U);
@@ -734,27 +734,111 @@ static safety_config toyota_init(uint16_t param) {
     };
 
     SET_RX_CHECKS(toyota_secoc_rx_checks, ret);
-  } else if (toyota_lta) {
-    // Check the quality flag for angle measurement when using LTA, since it's not set on TSS-P cars
-    static const RxCheck toyota_lta_rx_checks[] = {
-      TOYOTA_RX_CHECKS(true)
-    };
-
-    SET_RX_CHECKS(toyota_lta_rx_checks, ret);
   } else {
-    static const RxCheck toyota_lka_rx_checks[] = {
+    // These profiles use the same four base checks. Share their mutable
+    // workspace; set_safety_hooks resets every active status on each switch.
+    static RxCheck toyota_rx_checks[] = {
       TOYOTA_RX_CHECKS(false)
       {.msg = {{0x2FF, 0, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = false}, { 0 }, { 0 }}},
       {.msg = {{0x365, 0, 7, 10U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
       {.msg = {{0x1D3, 0, 8, 10U, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
       {.msg = {{0x201, 0, 6, 50U, .max_counter = 15U, .ignore_quality_flag = false}, { 0 }, { 0 }}},
     };
-    static const RxCheck toyota_lka_alt_brake_rx_checks[] = {
-      TOYOTA_ALT_BRAKE_RX_CHECKS(false)
-    };
-
-    if (!toyota_alt_brake) {
-      SET_RX_CHECKS(toyota_lka_rx_checks, ret);
+    // LTA alone validates initialized measured angle. Preserve the existing
+    // alternate-brake selection only on non-LTA profiles.
+    toyota_rx_checks[1].msg[0].ignore_quality_flag = !toyota_lta;
+    toyota_rx_checks[3].msg[0].addr = (!toyota_lta && toyota_alt_brake) ? 0x224U : 0x226U;
+    const bool standalone_pedal = toyota_pedal && !toyota_pedal_composite;
+    toyota_rx_checks[4].msg[0] = (CanMsgCheck){.addr = toyota_alt_cruise ? 0x365 : (standalone_pedal ? 0x201 : 0x2FF),
+      .bus = 0U, .len = toyota_alt_cruise ? 7 : (standalone_pedal ? 6 : 8), .frequency = toyota_alt_cruise ? 10U : 50U,
+      .ignore_checksum = !standalone_pedal, .ignore_counter = !standalone_pedal,
+      .max_counter = standalone_pedal ? 15U : 0U, .ignore_quality_flag = toyota_alt_cruise};
+    if (toyota_legacy_sdsu) {
+      // Alternate DSU MAIN and smartDSU state are independent mandatory sources.
+      toyota_rx_checks[4].msg[0] = (CanMsgCheck){.addr = 0x2FF, .bus = 0U, .len = 8, .frequency = 50U,
+        .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = false};
+    }
+    // Restore the sixth row on every warm switch before specializing the new owner.
+    toyota_rx_checks[5].msg[0] = (CanMsgCheck){.addr = 0x365, .bus = 0U, .len = 7, .frequency = 10U,
+      .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true};
+    if (toyota_legacy_advert_param(base_param) || toyota_camera_2aa_param(base_param) || toyota_prius_advert_param(base_param) || (base_param == 856U)) {
+      toyota_rx_checks[4].msg[0] = (CanMsgCheck){.addr = 0x262, .bus = 0U, .len = (toyota_camera_2aa_param(base_param) || toyota_prius_advert_param(base_param)) ? 8 : 5, .frequency = 25U,
+        .ignore_counter = true, .ignore_quality_flag = true};
+      if (!toyota_alt_cruise) {
+        toyota_rx_checks[5].msg[0] = (CanMsgCheck){.addr = 0x1D3, .bus = 0U, .len = 8, .frequency = 10U,
+          .ignore_counter = true, .ignore_quality_flag = true};
+      }
+    }
+    if (toyota_prius_sdsu_param(base_param)) {
+      toyota_rx_checks[5].msg[0] = (CanMsgCheck){.addr = 0x262, .bus = 0U, .len = 8, .frequency = 25U,
+        .ignore_counter = true, .ignore_quality_flag = true};
+      toyota_rx_checks[6].msg[0] = (CanMsgCheck){.addr = 0x1D3, .bus = 0U, .len = 8, .frequency = 10U,
+        .ignore_counter = true, .ignore_quality_flag = true};
+    }
+    if (toyota_factory_stock) {
+      toyota_rx_checks[4].msg[0] = (CanMsgCheck){.addr = 0x262, .bus = 0U, .len = toyota_factory_eps5 ? 5 : 8,
+        .frequency = 25U, .ignore_counter = true, .ignore_quality_flag = true};
+      toyota_rx_checks[5].msg[0] = (CanMsgCheck){.addr = toyota_factory_alt_main ? 0x365 : 0x1D3, .bus = 0U,
+        .len = toyota_factory_alt_main ? 7 : 8, .frequency = 10U, .ignore_checksum = toyota_factory_alt_main,
+        .ignore_counter = true, .ignore_quality_flag = true};
+    }
+    ret.rx_checks = toyota_rx_checks;
+    ret.disable_forwarding = false;
+    if (toyota_factory_stock) {
+      ret.rx_checks_len = 6;
+    } else if (toyota_prius_sdsu_param(base_param)) {
+      ret.rx_checks_len = 7;
+    } else if ((toyota_legacy_sdsu && toyota_alt_cruise) || toyota_legacy_advert_param(base_param) || toyota_camera_2aa_param(base_param) || toyota_prius_advert_param(base_param) || (base_param == 856U)) {
+      ret.rx_checks_len = 6;
+    } else if (standalone_pedal || toyota_alt_cruise || toyota_sdsu_status) {
+      ret.rx_checks_len = 5;
+    } else {
+      ret.rx_checks_len = 4;
+    }
+    if (toyota_dsu_bypass) {
+      toyota_rx_checks[4].msg[0] = (CanMsgCheck){.addr = 0x343, .bus = 2U, .len = 8, .frequency = 33U,
+        .ignore_counter = true, .ignore_quality_flag = true};
+      toyota_rx_checks[5].msg[0] = (CanMsgCheck){.addr = 0x262, .bus = 0U, .len = toyota_bypass_eps5 ? 5 : 8, .frequency = 25U,
+        .ignore_counter = true, .ignore_quality_flag = true};
+      toyota_rx_checks[6].msg[0] = (CanMsgCheck){.addr = toyota_alt_cruise ? 0x365 : 0x1D3, .bus = 0U,
+        .len = toyota_alt_cruise ? 7 : 8, .frequency = 10U, .ignore_checksum = toyota_alt_cruise,
+        .ignore_counter = true, .ignore_quality_flag = true};
+      ret.rx_checks_len = 7;
+    }
+    if ((param == 0xB049U) || (param == 0xB249U)) {
+      // Keep all parent checks, including smartDSU status, independently required.
+      toyota_rx_checks[5].msg[0] = (CanMsgCheck){.addr = 0x201, .bus = 0U, .len = 6, .frequency = 50U,
+        .max_counter = 15U, .ignore_quality_flag = false};
+      toyota_rx_checks[6].msg[0] = (CanMsgCheck){.addr = 0x262, .bus = 0U, .len = 5, .frequency = 25U,
+        .ignore_counter = true, .ignore_quality_flag = true};
+      toyota_rx_checks[7].msg[0] = (CanMsgCheck){.addr = 0x1D3, .bus = 0U, .len = 8, .frequency = 10U,
+        .ignore_counter = true, .ignore_quality_flag = true};
+      ret.rx_checks_len = 8;
+    } else if (toyota_pedal_composite) {
+      // Append independent physical sources and pedal to the unchanged parent
+      // catalog. Eight rows cover the largest parent without shrinking buffers.
+      bool eps_required = false;
+      bool main_required = false;
+      for (int i = 0; i < ret.rx_checks_len; i++) {
+        eps_required |= toyota_rx_checks[i].msg[0].addr == 0x262;
+        main_required |= toyota_rx_checks[i].msg[0].addr == (toyota_alt_cruise ? 0x365 : 0x1D3);
+      }
+      if (!eps_required) {
+        const bool eps5 = (toyota_dsu_bypass && toyota_bypass_eps5) || toyota_aol_rav4h_filter ||
+                          toyota_legacy_sdsu || toyota_legacy_advert();
+        toyota_rx_checks[ret.rx_checks_len].msg[0] = (CanMsgCheck){.addr = 0x262, .bus = 0U,
+          .len = eps5 ? 5 : 8, .frequency = 25U, .ignore_counter = true, .ignore_quality_flag = true};
+        ret.rx_checks_len++;
+      }
+      if (!main_required) {
+        toyota_rx_checks[ret.rx_checks_len].msg[0] = (CanMsgCheck){.addr = toyota_alt_cruise ? 0x365 : 0x1D3,
+          .bus = 0U, .len = toyota_alt_cruise ? 7 : 8, .frequency = 10U, .ignore_checksum = toyota_alt_cruise,
+          .ignore_counter = true, .ignore_quality_flag = true};
+        ret.rx_checks_len++;
+      }
+      toyota_rx_checks[ret.rx_checks_len].msg[0] = (CanMsgCheck){.addr = 0x201, .bus = 0U, .len = 6,
+        .frequency = 50U, .max_counter = 15U, .ignore_quality_flag = false};
+      ret.rx_checks_len++;
     } else {
     }
   }

@@ -252,10 +252,10 @@ class TestRav4hFilterNative(unittest.TestCase):
         msg = check.msg[0]
         actual.append((msg.addr, msg.len, msg.frequency, bool(msg.ignore_quality_flag)))
         self.assertEqual(msg.bus, 0)
-        self.assertFalse(check.status.msg_seen)
-        self.assertEqual(check.status.last_timestamp, 0)
-        self.assertEqual(check.status.wrong_counters, 0)
-        self.assertFalse(check.status.lagging)
+        self.assertFalse(self.safety.rx_status[index].msg_seen)
+        self.assertEqual(self.safety.rx_status[index].last_timestamp, 0)
+        self.assertEqual(self.safety.rx_status[index].wrong_counters, 0)
+        self.assertFalse(self.safety.rx_status[index].lagging)
       self.assertEqual(actual, expected)
       self.base.physical(cruise=True)
       if word == 329:

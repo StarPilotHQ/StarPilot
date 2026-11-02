@@ -68,13 +68,13 @@ def _assert_profile(safety, profile):
     assert _message(check.msg[0]) == message
     assert _message(check.msg[1]) == (0, 0, 0, 0, False, False, 0, False)
     assert _message(check.msg[2]) == (0, 0, 0, 0, False, False, 0, False)
-    assert _status(check.status) == (False, 0, False, 0, False, 0, 0, False)
+    assert _status(safety.rx_status[index]) == (False, 0, False, 0, False, 0, 0, False)
 
 
 def _dirty_status(safety):
   config = safety.current_safety_config
   for index in range(config.rx_checks_len):
-    status = config.rx_checks[index].status
+    status = safety.rx_status[index]
     # Valid C values dirty every field, without relying on structure padding.
     status.msg_seen = True
     status.index = 2

@@ -416,7 +416,38 @@ static safety_config subaru_init(uint16_t raw_param) {
   }
 
   safety_config ret;
-  if (subaru_gen2) {
+  // Only one Subaru profile is active; share its mutable RX workspace.
+  static RxCheck subaru_rx_workspace[8];
+  int rx_count;
+  if (subaru_lkas_angle) {
+    static const RxCheck subaru_gen2_angle_rx_checks[] = {
+      SUBARU_GEN2_ANGLE_RX_CHECKS()
+      {.msg = {{MSG_SUBARU_ES_Distance, SUBARU_ALT_BUS, 8, 20U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+    };
+    rx_count = sizeof(subaru_gen2_angle_rx_checks) / sizeof(subaru_gen2_angle_rx_checks[0]);
+    for (int i = 0; i < rx_count; i++) {
+      subaru_rx_workspace[i] = subaru_gen2_angle_rx_checks[i];
+    }
+    // Only one Subaru angle profile is active. Rebind the complete topology
+    // on every init; the safety selector resets every selected RX status afterward.
+    subaru_rx_workspace[0].msg[0].bus = subaru_d_platform ? SUBARU_ALT_BUS : SUBARU_MAIN_BUS;
+    subaru_rx_workspace[3].msg[0].bus = subaru_forester_angle ? SUBARU_MAIN_BUS : SUBARU_ALT_BUS;
+    subaru_rx_workspace[4].msg[0].bus = subaru_forester_angle ? SUBARU_MAIN_BUS : SUBARU_ALT_BUS;
+    subaru_rx_workspace[5].msg[0].bus = subaru_forester_angle ? SUBARU_CAM_BUS : SUBARU_ALT_BUS;
+    ret = subaru_d_platform ? (stop_start ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_OUTBACK_STOP_START_TX_MSGS) :
+                                          BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_ASCENT_ANGLE_TX_MSGS_LIST)) :
+          subaru_forester_angle ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_FORESTER_ANGLE_TX_MSGS) :
+          avh ? (stop_start ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_AVH_STOP_START_TX_MSGS) :
+                              BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_AVH_TX_MSGS)) :
+          stop_start ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_STOP_START_TX_MSGS) :
+          ascent_alert ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_ASCENT_ALERT_TX_MSGS) :
+          subaru_angle_main_bus ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_ASCENT_ANGLE_TX_MSGS_LIST) :
+                                  BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_GEN2_ANGLE_TX_MSGS_LIST);
+    // Keep the original seven checks on other profiles; only MAIN arming needs ACC health.
+    if (!subaru_aol_main_arm) {
+      rx_count--;
+    }
+  } else if (subaru_gen2) {
     static const RxCheck subaru_gen2_rx_checks[] = {
       SUBARU_COMMON_RX_CHECKS(SUBARU_ALT_BUS)
     };

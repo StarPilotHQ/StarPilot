@@ -421,16 +421,17 @@ static bool hyundai_canfd_ioniq6_rx_healthy(void) {
   if (healthy) {
     for (int i = 0; i < current_safety_config.rx_checks_len; i++) {
       const RxCheck *check = &current_safety_config.rx_checks[i];
-      healthy = check->status.msg_seen && !check->status.lagging && check->status.valid_checksum &&
-                check->status.valid_quality_flag && (check->status.wrong_counters < MAX_WRONG_COUNTERS);
+      const RxStatus *status = &rx_status[i];
+      healthy = status->msg_seen && !status->lagging && status->valid_checksum &&
+                status->valid_quality_flag && (status->wrong_counters < MAX_WRONG_COUNTERS);
       if (healthy) {
-        const uint32_t frequency = check->msg[check->status.index].frequency;
+        const uint32_t frequency = check->msg[status->index].frequency;
         if (frequency < 10U) {
           healthy = false;
         } else {
           const uint32_t period_limit = 10000000U / frequency;
           const uint32_t max_age = (period_limit > 100000U) ? period_limit : 100000U;
-          healthy = safety_get_ts_elapsed(now, check->status.last_timestamp) <= max_age;
+          healthy = safety_get_ts_elapsed(now, status->last_timestamp) <= max_age;
         }
       }
       if (!healthy) {

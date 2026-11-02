@@ -92,9 +92,9 @@ static bool honda_stock_aol_sources_current(void) {
   bool current = false;
   if ((honda_stock_aol_eps_check() != NULL) && (honda_stock_aol_gear_check() != NULL)) {
     const uint32_t now = microsecond_timer_get();
-    current = honda_stock_aol_eps_check()->status.msg_seen && honda_stock_aol_gear_check()->status.msg_seen &&
-      (safety_get_ts_elapsed(now, honda_stock_aol_eps_check()->status.last_timestamp) <= 300000U) &&
-      (safety_get_ts_elapsed(now, honda_stock_aol_gear_check()->status.last_timestamp) <= 300000U) &&
+    current = rx_status[honda_stock_aol_eps_index].msg_seen && rx_status[honda_stock_aol_eps_index + 1U].msg_seen &&
+      (safety_get_ts_elapsed(now, rx_status[honda_stock_aol_eps_index].last_timestamp) <= 300000U) &&
+      (safety_get_ts_elapsed(now, rx_status[honda_stock_aol_eps_index + 1U].last_timestamp) <= 300000U) &&
       (safety_get_ts_elapsed(now, honda_stock_aol_main_ts) <= 300000U) &&
       (!honda_interceptor || (honda_interceptor_sensor_seen && honda_interceptor_sensor_valid &&
        (safety_get_ts_elapsed(now, honda_interceptor_sensor_us) <= 200000U)));
@@ -149,8 +149,8 @@ static uint8_t honda_stock_aol_permission_mask(void) {
 
 static bool honda_stock_aol_selected(const CANPacket_t *msg, const RxCheck *check) {
   bool selected = false;
-  if ((check != NULL) && check->status.msg_seen) {
-    const CanMsgCheck *source = &check->msg[check->status.index];
+  if ((check != NULL) && rx_status[check - honda_rx_workspace].msg_seen) {
+    const CanMsgCheck *source = &check->msg[rx_status[check - honda_rx_workspace].index];
     selected = msg_matches(msg, source->addr, source->bus, source->len);
   }
   return selected;

@@ -28,7 +28,7 @@ def test_copy_cannot_supply_primary_lease_or_clear_driver_gas(word):
 
   try:
     cfg = safety.current_safety_config
-    statuses = [cfg.rx_checks[i].status for i in range(cfg.rx_checks_len)
+    statuses = [safety.rx_status[i] for i in range(cfg.rx_checks_len)
                 if cfg.rx_checks[i].msg[0].addr == 0x201 and cfg.rx_checks[i].msg[0].bus == 0]
     assert len(statuses) == 1
     status = statuses[0]

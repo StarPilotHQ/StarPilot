@@ -71,7 +71,7 @@ uint64_t GET_BYTES_64_LE(const CANPacket_t *msg, int start, int len);
 extern const int MAX_WRONG_COUNTERS;
 #define MAX_ADDR_CHECK_MSGS 3U
 // max number of RX checks in a safety config; their dynamic state is shared by all safety modes
-#define MAX_RX_CHECKS 12U
+#define MAX_RX_CHECKS 17U
 #define MAX_SAMPLE_VALS 6
 // used to represent floating point vehicle speed in a sample_t
 #define VEHICLE_SPEED_FACTOR 1000.0
@@ -183,14 +183,14 @@ typedef struct {
 } LongitudinalLimits;
 
 typedef struct {
-  const unsigned int addr : 29;
-  const unsigned int bus : 3;
-  const unsigned int len : 7;
-  const unsigned int frequency : 7;   // expected frequency of the message [Hz]
-  const bool ignore_checksum : 1;     // checksum check is not performed when set to true
-  const bool ignore_counter : 1;      // counter check is not performed when set to true
-  const unsigned int max_counter : 8; // maximum value of the counter. 0 means that the counter check is skipped
-  const bool ignore_quality_flag : 1; // true if quality flag check is skipped
+  unsigned int addr : 29;
+  unsigned int bus : 3;
+  unsigned int len : 7;
+  unsigned int frequency : 7;   // expected frequency of the message [Hz]
+  bool ignore_checksum : 1;     // checksum check is not performed when set to true
+  bool ignore_counter : 1;      // counter check is not performed when set to true
+  unsigned int max_counter : 8; // maximum value of the counter. 0 means that the counter check is skipped
+  bool ignore_quality_flag : 1; // true if quality flag check is skipped
 } CanMsgCheck;
 
 // dynamic state of an RX check, reset on safety mode init
@@ -208,7 +208,7 @@ typedef struct {
 // params and flags about checksum, counter and frequency checks for each monitored address.
 // constant: the state of the current safety config's checks is in rx_status, indexed alike
 typedef struct {
-  const CanMsgCheck msg[MAX_ADDR_CHECK_MSGS];  // check either messages (e.g. honda steer)
+  CanMsgCheck msg[MAX_ADDR_CHECK_MSGS];  // check either messages (e.g. honda steer)
 } RxCheck;
 
 extern RxStatus rx_status[MAX_RX_CHECKS];

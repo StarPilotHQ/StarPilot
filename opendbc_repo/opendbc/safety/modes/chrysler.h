@@ -20,7 +20,7 @@ static bool chrysler_hold_ready(void) {
   const uint32_t now = microsecond_timer_get();
   bool healthy = !safety_rx_checks_invalid;
   for (int i = 0; i < current_safety_config.rx_checks_len; i++) {
-    const RxStatus *status = &current_safety_config.rx_checks[i].status;
+    const RxStatus *status = &rx_status[i];
     healthy &= status->msg_seen && status->valid_checksum && status->valid_quality_flag &&
                (status->wrong_counters < MAX_WRONG_COUNTERS) && !status->lagging &&
                (safety_get_ts_elapsed(now, status->last_timestamp) <= 1000000U);

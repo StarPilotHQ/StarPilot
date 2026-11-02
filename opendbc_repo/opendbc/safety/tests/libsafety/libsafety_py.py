@@ -57,6 +57,7 @@ safety_dir = Path(libsafety_dir).parents[1]
 ffi.cdef(cdef_from_file(safety_dir / "can.h"), packed=True)
 for path in (safety_dir / "declarations.h", safety_dir / "ignition.h", Path(libsafety_dir) / "safety.c"):
   ffi.cdef(cdef_from_file(path))
+ffi.cdef("extern RxStatus rx_status[MAX_RX_CHECKS];")
 
 def _can_packet_alignment() -> int:
   source = (safety_dir / "can.h").read_text()
