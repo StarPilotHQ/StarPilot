@@ -29,6 +29,11 @@
       "basis": "Scheduling estimate2s/case: actual188 shard3 ordinal577..648 (all inside140case stock-location module) took91.261s; incomplete module timing, not a full measurement. Fresh function-scoped fixture creates CP/state/feedback and private Params per case; no shared outcome dependence; full in-case timelines retained.",
       "estimated_seconds_per_case": 2.0,
       "independent_parameters": true
+    },
+    "openpilot/starpilot/tests/test_ford_bluepilot_library_lifecycle.py": {
+      "basis": "736580721a hosted shard7: 248 completed Ford lifecycle cases used573.067107459 phase seconds; slowest case4.394150353s. Round up to5s. Function-scoped library_settings and ford_joined create fresh Params, host/native safety per case and tear down each case; full in-case timelines remain unchanged.",
+      "estimated_seconds_per_case": 5.0,
+      "independent_parameters": true
     }
   },
   "independent_function_max_cases": 60,

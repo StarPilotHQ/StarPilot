@@ -15,6 +15,7 @@ from tools.ci.lifecycle_shards import build_identity, same_build_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
 HEAVY_MODULES = {
+  'openpilot/starpilot/tests/test_ford_bluepilot_library_lifecycle.py',
   'openpilot/starpilot/car/toyota/tests/test_camera_pedal_extension_callers.py',
   'openpilot/starpilot/car/toyota/tests/test_eps8_sdsu_callers.py',
   'openpilot/starpilot/car/toyota/tests/test_legacy_advert_callers.py',

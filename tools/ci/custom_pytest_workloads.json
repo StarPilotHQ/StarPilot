@@ -165,6 +165,10 @@
     "openpilot/starpilot/car/toyota/tests/test_prius_sdsu_callers.py": {
       "basis": "90 actual DEBUG/RELEASE caller cases passed in four bounded phases (186.885s combined wall time including startup). Scheduling estimate 3s/case; fresh per-case Params, raw CAN, native configuration and C++ host reset; no shared outcome dependence.",
       "seconds_per_case": 3.0
+    },
+    "openpilot/starpilot/tests/test_ford_bluepilot_library_lifecycle.py": {
+      "basis": "736580721a hosted shard7: 248 completed Ford lifecycle cases used573.067107459 phase seconds; slowest case4.394150353s. Round up to5s. Function-scoped library_settings and ford_joined create fresh Params, host/native safety per case and tear down each case; full in-case timelines remain unchanged.",
+      "seconds_per_case": 5.0
     }
   },
   "independent_max_cases": 60,
@@ -1982,12 +1986,6 @@
       "cases": 936,
       "seconds": 1.740757
     },
-    "openpilot/starpilot/system/starport/tests/test_starport.py": {
-      "basis": "Exact 65660a4 hosted main40623875380: all 72 nodes passed, 22.037476s setup/call/teardown; 25% estimate margin, retaining any higher same-source prior estimate. Scheduling only; no test deadline change.",
-      "blob": "c4c3d21bea7d749438afeb20886652bca06208bb",
-      "cases": 72,
-      "seconds": 27.546846
-    },
     "openpilot/starpilot/system/starport/tests/test_bugsink_report.py": {
       "basis": "Exact 65660a4 hosted main40623875380: all 33 nodes passed, 0.737380s setup/call/teardown; 25% estimate margin, retaining any higher same-source prior estimate. Scheduling only; no test deadline change.",
       "blob": "b759b5e8dc1c52623809ff957bc282ca31c7e539",
@@ -2005,6 +2003,12 @@
       "blob": "f764ed41b38f0316097995fa73640981f3942240",
       "cases": 30,
       "seconds": 0.161266
+    },
+    "openpilot/starpilot/system/starport/tests/test_starport.py": {
+      "basis": "Exact 65660a4 hosted main40623875380: all 72 nodes passed, 22.037476s setup/call/teardown; 25% estimate margin, retaining any higher same-source prior estimate. Scheduling only; no test deadline change.",
+      "blob": "c4c3d21bea7d749438afeb20886652bca06208bb",
+      "cases": 72,
+      "seconds": 27.546846
     },
     "openpilot/starpilot/tests/test_captured_adrv_diagnostic_startup.py": {
       "basis": "Exact 65660a4 hosted main40623875380: all 64 nodes passed, 12.454431s setup/call/teardown; 25% estimate margin, retaining any higher same-source prior estimate. Scheduling only; no test deadline change.",
