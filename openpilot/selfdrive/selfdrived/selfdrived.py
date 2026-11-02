@@ -2183,11 +2183,11 @@ class SelfdriveD:
       # Lateral-only operation keeps ordinary longitudinal faults visible.
       self.aol_soft_takeover_alert = True
     if (self.aol_replay and intent is not None and intent.lateralArmed and
-        CS.steerFaultTemporary and not CS.steerFaultPermanent and not CS.steeringPressed):
+        CS.steerFaultTemporary and not CS.steerFaultPermanent and (not CS.steeringPressed or self.CP.brand == 'hyundai')):
       # An armed AOL session still needs the ordinary temporary-steering warning
       # while actual steering is suspended and the stock state machine is off.
-      # Like CarSpecificEvents, skip it while the driver is steering: a hard
-      # override alone puts Honda EPS in NO_TORQUE_ALERT_1.
+      # HKG needs the event to retain intent through temporary EPS withdrawal.
+      # Other owners keep CarSpecificEvents' driver-override warning policy.
       if EventName.steerTempUnavailableSilent not in self.events.names:
         self.events.add(EventName.steerTempUnavailableSilent)
       if ET.WARNING not in self.state_machine.current_alert_types:

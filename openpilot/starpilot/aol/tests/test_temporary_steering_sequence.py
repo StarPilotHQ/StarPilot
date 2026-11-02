@@ -345,3 +345,62 @@ def test_axis_first_eps_join_uses_last_accepted_active_proof_without_renewing_le
     assert leases(feedback) == original
     assert receive(now + 100_000, event=event, state=temporary)
     assert card.aol_card_intent.allowed_latch and leases(feedback) == original
+
+
+@pytest.mark.parametrize('profile', ('g70', 'sonata', 'ev6', 'mixed_hdai', 'mixed_hdaii'))
+@pytest.mark.parametrize('fault', ('none', 'permanent_eps', 'invalid_can', 'invalid_native', 'relay_fault'))
+def test_hkg_steering_override_eps_then_brake_retains_only_valid_intent(profile, fault):
+  from opendbc.car.hyundai.values import CAR
+  from openpilot.common.params import Params
+  from openpilot.starpilot.aol.tests.test_classic_scc_profiles import params as classic_params
+  from openpilot.starpilot.aol.tests.test_canfd_stock_profiles import params as canfd_params
+  from opendbc.car.hyundai.tests.test_palisade_2023 import params as mixed_params
+
+  case = setup_case()
+  with ExitStack() as cleanup:
+    cleanup.callback(case.doCleanups)
+    cleanup.enter_context(OpenpilotPrefix())
+    Params().put('MainCruiseButtonControl', 9, block=True)
+    if profile.startswith('mixed_'):
+      cp = mixed_params(profile.removeprefix('mixed_'))
+    elif profile == 'ev6':
+      cp = canfd_params(CAR.KIA_EV6)
+    else:
+      cp = classic_params(CAR.GENESIS_G70 if profile == 'g70' else CAR.HYUNDAI_SONATA)
+    sd, _, drive, card, receive = case._ioniq_availability_callers(False, cp=cp, initially_armed=False)
+    arm = fixture.car_state()
+    arm.cruiseState.available = True
+    arm.buttonEvents = [car.CarState.ButtonEvent(type='mainCruise', pressed=True)]
+    card.aol_card_intent.update(arm, now_ns=10_015_000_000)
+    assert card.aol_card_intent.allowed_latch
+    for tick in range(2, 7):
+      axis, _, command = drive(tick, steering=True, native_request_long=False)
+      assert axis.lateralActive and command.latActive
+      assert receive(10_000_000_000 + tick * 10_000_000,
+                     axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
+    temporary = fixture.car_state()
+    temporary.steerFaultTemporary = temporary.steeringPressed = True
+    if fault == 'permanent_eps':
+      temporary.steerFaultPermanent = True
+    elif fault == 'invalid_can':
+      temporary.canValid = False
+    for tick in range(7, 21):
+      temporary.brakePressed = tick >= 16
+      axis, state, command = drive(tick, steering=True, brake=temporary.brakePressed, observed_state=temporary,
+        native_request_lat=tick == 7, allowed=tick == 7, native_request_long=False,
+        native_valid=fault != 'invalid_native', relay_fault=fault == 'relay_fault')
+      assert not axis.lateralActive and not command.latActive and not command.longActive
+      retained = receive(10_000_000_000 + tick * 10_000_000,
+                         axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'], state=temporary)
+      if fault != 'none':
+        assert not retained and not card.aol_card_intent.allowed_latch
+        break
+      assert retained and card.aol_card_intent.allowed_latch
+      assert state.alertType == 'steerTempUnavailableSilent/warning'
+      assert not state.enabled and not state.active
+      assert axis.validUntilMonoTime - axis.observedMonoTime == 30_000_000
+    if fault == 'none':
+      axis, _, command = drive(21, steering=True, brake=True, native_request_lat=True, native_request_long=False)
+      assert axis.lateralActive and command.latActive and not command.longActive
+      assert receive(10_210_000_000, axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
+      assert card.aol_card_intent.allowed_latch
