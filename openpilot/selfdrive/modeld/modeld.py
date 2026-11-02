@@ -33,7 +33,7 @@ from msgq.visionipc import VisionIpcClient, VisionBuf
 from opendbc.car.car_helpers import get_demo_car_params
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.params import Params
-from openpilot.common.hardware.usb import cable_connected
+from openpilot.common.hardware.usb import cable_connected, usb_host_connected
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import config_realtime_process, set_core_affinity, DT_MDL
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
@@ -310,7 +310,7 @@ def main(demo=False):
 
   from openpilot.starpilot.models.manager import resolve_runtime, requested_runtime_id
   # a Jetson, PC or phone on the port looks like a chestnut to cable_connected(): the cable counts with Jetlink off only
-  chestnut_available = chestnut_present() or (cable_connected() and not jetlink_adapter.link_on())
+  chestnut_available = chestnut_present() or (cable_connected() and not jetlink_adapter.link_on() and not usb_host_connected())
   recovery_small_only = os.getenv("STARPILOT_MODELD_RECOVERY_SMALL_ONLY") == "1"
   selection = resolve_runtime(chestnut_available=chestnut_available and not recovery_small_only, randomize=not recovery_small_only)
   requested_model_id = requested_runtime_id(chestnut_available)
