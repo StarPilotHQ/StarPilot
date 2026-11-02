@@ -301,3 +301,80 @@ def test_unselected_bluepilot_angle_packets_are_unchanged():
       assert baseline.step_lateral(cc, cs, cc.actuators, 0.) == host.step_lateral(cc, cs, cc.actuators, 0.)
     if frame % 3 == 0:
       assert baseline.step_lka(cc, cc.hudControl) == host.step_lka(cc, cc.hudControl)
+
+
+@pytest.mark.parametrize('speed', [3., 12., 30.])
+@pytest.mark.parametrize('pinion', [False, True])
+@pytest.mark.parametrize('curvature', [0., .0003])
+def test_ordinary_override_release_does_not_reset_steering(speed, pinion, curvature):
+  angle, cc, cs = controller(speed=speed, pinion=pinion)
+  set_curve(angle, cc, cs, curvature)
+  for tick in range(50):
+    cs.out.steeringPressed = 10 <= tick < 30
+    result = angle.update_angle_strategy(cc, cs, cc.actuators)
+    assert not angle.angle_human_turn_active
+    assert not angle.angle_stall_blip_active
+    assert angle.stall_blip_frames_left == angle.stall_blip_count == 0
+    assert math.isfinite(result.path_angle)
+
+
+def test_natural_deviation_recovery_remains_bounded_and_native_admitted():
+  from opendbc.can import CANPacker
+  from opendbc.car.ford.fordcan import CanBus
+  from opendbc.safety.tests.libsafety import libsafety_py
+  from openpilot.starpilot.car.ford.bluepilot import FordBluePilotController
+  from openpilot.starpilot.car.ford.controller_selection import FordController
+  angle, cc, cs = controller(speed=12.)
+  cp, speed = angle.CP, 12.
+  packer = CANPacker('ford_lincoln_base_pt')
+  source = SimpleNamespace(controller_choice=FordController.STARPILOT, current_inputs_valid=True)
+  host = FordBluePilotController(cp, packer, CanBus(cp), source)
+  road = StraightRoadInputs(settings(STARTUP['on'], True))
+  road.curvature = cc.actuators.curvature = .01
+  safety = libsafety_py.libsafety
+  safety.init_tests()
+  safety.set_alternative_experience(0)
+  assert safety.set_safety_hooks(structs.CarParams.SafetyModel.ford, int(cp.safetyConfigs[-1].safetyParam)) == 0
+  safety.set_controls_allowed(True)
+  applied, modes, deviation_seen = 0., [], False
+  try:
+    for frame in range(200):
+      safety.set_timer(1_000_000 + frame * 10_000)
+      messages: list[tuple[str, dict[str, float]]] = [
+        ('BrakeSysFeatures', {'Veh_V_ActlBrk': speed * 3.6, 'VehVActlBrk_D_Qf': 3, 'VehVActlBrk_No_Cnt': (frame // 2) % 16}),
+        ('EngVehicleSpThrottle2', {'Veh_V_ActlEng': speed * 3.6, 'VehVActlEng_D_Qf': 3}),
+        ('Yaw_Data_FD1', {'VehYaw_W_Actl': 0, 'VehYawWActl_D_Qf': 3, 'VehRollYaw_No_Cnt': frame % 256}),
+        ('DesiredTorqBrk', {'VehStop_D_Stat': 0}),
+        ('EngVehicleSpThrottle', {'ApedPos_Pc_ActlArb': 0}),
+        ('EngBrakeData', {'BpedDrvAppl_D_Actl': 1, 'CcStat_D_Actl': 5}),
+      ]
+      for name, values in messages:
+        if name in ('BrakeSysFeatures', 'EngVehicleSpThrottle2') and frame % 2:
+          continue
+        address, data, bus = packer.make_can_msg(name, 0, values)
+        assert safety.safety_rx_hook(libsafety_py.make_CANPacket(address, bus, data))
+      host.update(road.update(), frame)
+      cc.latActive = frame >= 15
+      packets = []
+      if frame % 5 == 0:
+        sends, applied = host.step_lateral(cc, cs, cc.actuators, applied)
+        packets.extend(sends)
+        deviation_seen |= host.shared.bp_curvature_deviation_limited
+        for address, data, _ in sends:
+          if address == 0x3D6 and cc.latActive:
+            mode = (data[0] >> 4) & 7
+            modes.append(mode)
+            if mode == 0:
+              assert deviation_seen and host.angle.angle_stall_blip_active
+              assert host.angle.bp_path_angle_final == 0.
+      if frame % 3 == 0:
+        packets.append(host.step_lka(cc, cc.hudControl))
+      for address, data, bus in packets:
+        assert safety.safety_tx_hook(libsafety_py.make_CANPacket(address, bus, data)), (frame, hex(address), data.hex())
+    zero_indices = [i for i, mode in enumerate(modes) if mode == 0]
+    assert len(zero_indices) == 6
+    assert zero_indices == list(range(zero_indices[0], zero_indices[0] + 6))
+    assert modes[-1] == 1 and host.angle.bp_path_angle_final > 0.
+    assert host.angle.stall_blip_count == 1 and host.angle.stall_blip_cooldown_s > 0.
+  finally:
+    safety.set_safety_hooks(structs.CarParams.SafetyModel.noOutput, 0)
