@@ -10,7 +10,7 @@ from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPl
 from openpilot.selfdrive.controls.plannerd import update_curve_frame
 from openpilot.starpilot.curve_speed.host import CurveHost
 from openpilot.starpilot.longitudinal.force_stop import StopPlan
-from openpilot.starpilot.longitudinal.force_stop_runtime import ForceStopRuntime
+from openpilot.starpilot.longitudinal.force_stop_runtime import ForceStopRuntime, dashboard_stop_sign
 from openpilot.starpilot.longitudinal.tests.test_cruise_ceiling import messages, snapshot
 from openpilot.starpilot.longitudinal.tests.test_stop_resume import event as button_event
 
@@ -359,6 +359,21 @@ class ForceStopRuntimeTests(unittest.TestCase):
                         force_stop_provider=lambda _, stamp=stamp: StopPlan(stamp, 0., 5., True, True, jerk_scale=.32))
         self.assertEqual(snapshot(original), snapshot(proposed))
         np.testing.assert_array_equal(original.mpc.params, proposed.mpc.params)
+
+  def test_dashboard_stop_sign_requires_fresh_valid_companion(self):
+    from openpilot.cereal import messaging
+    message = messaging.new_message('starpilotCarState')
+    message.starpilotCarState.dashboardStopSign = 1
+    for defect, expected in ((None, True), ('stale', False), ('invalid', False), ('unseen', False), ('missing', False)):
+      with self.subTest(defect=defect):
+        sm = Frame(0)
+        if defect != 'missing':
+          sm['starpilotCarState'] = message.starpilotCarState
+          sm.logMonoTime['starpilotCarState'] = sm.stamp
+          sm.valid['starpilotCarState'] = defect != 'invalid'
+        sm.seen = {'starpilotCarState': defect not in ('unseen', 'missing')}
+        now = sm.stamp + (150_000_001 if defect == 'stale' else 1_000_000)
+        self.assertEqual(dashboard_stop_sign(sm, now_ns=now, drive_id=DRIVE), expected)
 
 
 if __name__ == '__main__':

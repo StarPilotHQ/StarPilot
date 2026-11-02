@@ -17,6 +17,10 @@ def capable(cp):
 def compose(cp, parsed, state, message, *, car_state_stamp):
   if not capable(cp):
     return message
+  return write_stop_sign(parsed, state, message, car_state_stamp=car_state_stamp)
+
+
+def write_stop_sign(parsed, state, message, *, car_state_stamp):
   if message is None:
     message = messaging.new_message('starpilotCarState', valid=bool(state.canValid), logMonoTime=car_state_stamp)
     message.starpilotCarState.sourceCarStateMonoTime = car_state_stamp

@@ -199,6 +199,36 @@ class ForceStopTests(unittest.TestCase):
       self.assertFalse(release.forcing)
       self.assertFalse(release.should_stop)
 
+  def test_dashboard_sign_arms_only_slow_and_with_model_agreement(self):
+    for changes, armed in (({}, True), ({'speed_mps': 18.5}, False), ({'horizon_m': 60.}, False),
+                           ({'tracking_lead': True}, False)):
+      with self.subTest(changes=changes):
+        self.owner.reset()
+        for tick in range(6):
+          plan = self.owner.step(frame(tick, **{'speed_mps': 8., 'horizon_m': 45., 'light': False, 'sign': True, **changes}),
+                                 self.tune)
+        self.assertEqual(plan.forcing, armed)
+        if armed:
+          self.assertLessEqual(plan.tracked_distance_m, 27.)
+
+  def test_dashboard_sign_hold_waits_for_each_driver_action(self):
+    for action in ('pedal_override', 'resume_requested'):
+      with self.subTest(action=action):
+        self.owner.reset()
+        for tick in range(15):
+          self.owner.step(frame(tick, speed_mps=8., horizon_m=45., light=False, sign=True), self.tune)
+        for tick in range(15, 415):
+          plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=190., light=False, standstill=True), self.tune)
+          self.assertTrue(plan.manual_hold)
+          self.assertTrue(plan.should_stop)
+        released = self.owner.step(frame(415, speed_mps=0., horizon_m=190., light=False, standstill=True,
+                                         **{action: True}), self.tune)
+        self.assertFalse(released.manual_hold)
+        self.assertFalse(released.forcing)
+        for tick in range(416, 600):
+          plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=190., light=False, standstill=True), self.tune)
+          self.assertFalse(plan.forcing)
+
   def test_odometry_ceiling_bounds_reopened_model(self):
     for tick in range(15):
       self.owner.step(frame(tick), self.tune)
