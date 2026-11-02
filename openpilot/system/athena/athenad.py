@@ -667,6 +667,10 @@ def uploadFilesToUrls(files_data: list[UploadFileDict]) -> UploadFilesToUrlRespo
   items: list[UploadItemDict] = []
   failed: list[str] = []
   for file in files:
+    if len(file.fn) == 0 or file.fn[0] == '/' or '..' in file.fn or len(file.url) == 0:
+      failed.append(file.fn)
+      continue
+
     path = os.path.join(Paths.log_root(), file.fn)
     if not owns_recording(path, Paths.log_root()) or (not os.path.exists(path) and not os.path.exists(strip_zst_extension(path))):
       failed.append(file.fn)
@@ -722,6 +726,8 @@ def cancelUpload(upload_id: str | list[str]) -> dict[str, int | str]:
 
 @dispatcher.add_method(latitude=number(-90, 90), longitude=number(-180, 180))
 def setNavDestination(latitude: float, longitude: float) -> dict[str, int | str]:
+  if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+    return {"success": 0, "error": "Invalid destination coordinates"}
   Params().put("NavDestination", {"latitude": latitude, "longitude": longitude}, block=True)
   return {"success": 1}
 
@@ -753,6 +759,9 @@ def startLocalProxy(global_end_event: threading.Event, remote_ws_uri: str, local
     # migration, can be removed once 0.9.8 is out for a while
     if local_port == 8022:
       local_port = 22
+
+    if local_port not in LOCAL_PORT_WHITELIST:
+      raise Exception("Requested local port not whitelisted")
 
     cloudlog.debug("athena.startLocalProxy.starting")
 
