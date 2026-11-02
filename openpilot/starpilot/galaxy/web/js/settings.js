@@ -19,8 +19,8 @@ const post = (fetcher, path, body, signal) => fetcher(path, {
 // A settings request is a round trip over the Bluetooth bridge, which needs about
 // 0.4-0.9 s per ATT packet, and the first one also queues behind the encrypted
 // handshake and whatever polling is already in flight. Once the link is warm a
-// page answers in about 2 s, so only the first request of a page session gets the
-// longer deadline; the bridge itself allows 8 s to connect plus 10 s to read.
+// page answers in about 2 s, so requests keep the longer deadline until the first
+// reply of a page session arrives; the bridge itself allows 8 s to connect plus 10 s to read.
 export const FIRST_REQUEST_DEADLINE_MS = 12000
 export const REQUEST_DEADLINE_MS = 4000
 

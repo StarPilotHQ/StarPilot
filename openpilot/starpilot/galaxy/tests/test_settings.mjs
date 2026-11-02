@@ -199,6 +199,7 @@ assert.equal(timeout.states.at(-1).status, "unavailable")
 assert.match(timeout.states.at(-1).error, /Reconnecting/)
 assert.equal(timeout.requests[0].options.signal.aborted, true)
 timeout.feed.load("lane")
+assert.equal([...timeout.timers.values()][0].ms, FIRST_REQUEST_DEADLINE_MS) // No reply arrived, so the retry still races the cold link.
 await timeout.reply(1, { ...lane, view: "new-view" })
 await timeout.reply(0, { ...lane, view: "late-view" })
 assert.equal(timeout.states.at(-1).data.view, "new-view")
