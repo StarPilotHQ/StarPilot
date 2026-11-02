@@ -686,8 +686,9 @@ class GuiApplication:
 
         # Store all mouse events for the current frame
         self._mouse_events = self._mouse.get_events()
-        if len(self._mouse_events) > 0:
-          self._last_mouse_event = self._mouse_events[-1]
+        for mouse_event in self._mouse_events:
+          if mouse_event.slot == 0:
+            self._last_mouse_event = mouse_event
 
         if before_frame is not None:
           before_frame()
