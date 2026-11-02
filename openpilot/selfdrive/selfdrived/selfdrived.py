@@ -1408,9 +1408,14 @@ class SelfdriveD:
         if stock_lateral_role(self, CS, native, intent, allow_independent_cancel=True,
                               allow_independent_brake=True, allow_independent_gas=True, now_ns=now_ns):
           user_disable = False
+    from opendbc.car.hyundai.blended_stock_aol import qualified as blended_stock_qualified
     if (user_disable and fresh_successor and proof[6] and not proof[7] and proof[8] and not proof[9] and
         decision.desired_lateral and not decision.desired_longitudinal and not decision.longitudinal_active and
-        not self.enabled and not self.active and self.CP.brand == 'toyota' and toyota_qualified(self.CP, marked_only=True) and
+        not self.enabled and not self.active and (
+          self.CP.brand == 'toyota' and toyota_qualified(self.CP, marked_only=True) or
+          self.CP.brand == 'hyundai' and blended_stock_qualified(self.CP, marked_only=True) and
+          not physical_cancel(CS, self.CP) and not any(physical_cancel(sample, self.CP)
+            for sample, _ in getattr(self, 'car_state_samples', ()))) and
         CS.cruiseState.available and not CS.cruiseState.enabled and
         self.CS_prev.cruiseState.available and not self.CS_prev.cruiseState.enabled and
         all(valid and sample.cruiseState.available and not sample.cruiseState.enabled

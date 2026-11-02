@@ -787,3 +787,55 @@ def test_startup_native_wait_retains_fault_and_permission_checks(fault):
       assert axis.faultReason == 'critical'
     finally:
       case.doCleanups()
+
+
+@pytest.mark.parametrize('topology', ('hdai', 'hdaii'))
+@pytest.mark.parametrize('fault', ('none', 'native_denied', 'native_invalid', 'can_invalid', 'permanent_eps',
+                                 'rx_fault', 'relay_fault', 'old_intent', 'cancel', 'wrong_gear'))
+def test_mixed_stock_cruise_off_keeps_only_fresh_permitted_lateral(topology, fault):
+  from opendbc.car.hyundai.tests.test_palisade_2023 import params as blended_params
+
+  with OpenpilotPrefix():
+    case = caller_fixture.IoniqAvailabilityTests(methodName='runTest')
+    try:
+      cp = blended_params(topology)
+      sd, _, step, card, receive = case._ioniq_availability_callers(False, cp=cp)
+      axis, _, command = step(2, brake=True, native_request_lat=True, native_request_long=False)
+      assert axis.lateralActive and command.latActive
+      assert receive(10_020_000_000, axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
+      prior = sd.aol_published_input_proof
+      now = 10_061_516_362
+      assert now > prior[3]
+      observed = caller_fixture.car_state()
+      kwargs = {}
+      if fault == 'native_denied':
+        kwargs['allowed'] = False
+      elif fault == 'native_invalid':
+        kwargs['native_valid'] = False
+      elif fault == 'can_invalid':
+        observed.canValid = False
+      elif fault == 'permanent_eps':
+        observed.steerFaultPermanent = True
+      elif fault == 'rx_fault':
+        kwargs['panda_fault'] = True
+      elif fault == 'relay_fault':
+        kwargs['relay_fault'] = True
+      elif fault == 'old_intent':
+        kwargs['old_intent'] = True
+      elif fault == 'cancel':
+        observed.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
+      elif fault == 'wrong_gear':
+        observed.gearShifter = 'unknown'
+      axis, state, command = step(6, offset_ns=1_516_362, observed_state=observed,
+                                   native_request_lat=True, native_request_long=False, **kwargs)
+      assert not command.longActive and not axis.longitudinalActive and not state.enabled
+      if fault == 'none':
+        assert axis.lateralActive and command.latActive
+        assert axis.sourceCarStateMonoTime == now and axis.validUntilMonoTime == now + 30_000_000
+        assert str(axis.faultReason) == 'none'
+        assert receive(now, axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
+        assert card.aol_card_intent.allowed_latch
+      else:
+        assert not axis.lateralActive and not command.latActive
+    finally:
+      case.doCleanups()
