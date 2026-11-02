@@ -388,6 +388,14 @@ class TestRuntimeSnapshot(unittest.TestCase):
     self.assertEqual(adapter.build(ShellMode.SETTINGS, 'unknown').selected, Destination.STAR)
     self.assertEqual(adapter.build(ShellMode.HOME, Destination.BLUETOOTH).selected, Destination.STAR)
 
+  def test_fleet_dm_lock_is_visible_in_toggle_snapshot(self):
+    from openpilot.starpilot.ui.toggles_state import ToggleKey
+    ui = ui_fake()
+    original = ui.params.get_bool
+    ui.params.get_bool = lambda key: key == "AlwaysOnDMLock" or original(key)
+    snapshot = RuntimeSnapshotAdapter(ui).build(ShellMode.SETTINGS, Destination.TOGGLES)
+    self.assertIn(ToggleKey.ALWAYS_ON_DM, snapshot.toggles.unavailable)
+
   def test_home_keeps_live_fields_without_querying_leaf_panels(self):
     ui = ui_fake()
     ui.started = False

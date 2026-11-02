@@ -64,6 +64,9 @@ def manager_init() -> None:
   if params.get_bool("RecordFrontLock"):
     params.put_bool("RecordFront", True, block=True)
 
+  if params.get_bool("AlwaysOnDMLock"):
+    params.put_bool("AlwaysOnDM", True, block=True)
+
   drive_state = DriveStateOwner(params, starpilot_storage_root() / "drive-state")
   try:
     drive_state.initialize_manager()

@@ -32,7 +32,7 @@ if GetOption('extras') and arch == "comma_arm64":
   for name, branch in installers:
     d = {'BRANCH': f"'\"{branch}\"'"}
     if "internal" in name:
-      d['INTERNAL'] = "1"
+      d['COMMA_INTERNAL_INSTALLER'] = "1"
 
     obj = raylib_env.Object(f"installer/installers/installer_{name}.o", ["installer/installer.cc"], CPPDEFINES=d)
     f = raylib_env.Program(f"installer/installers/installer_{name}", [obj, cont, inter, inter_bold, inter_light], LIBS=raylib_libs)

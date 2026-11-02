@@ -11,6 +11,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"BluetoothEnabled", {PERSISTENT, BOOL}},
     {"DisableOpenpilotLongitudinal", {PERSISTENT, BOOL, "0"}},
     {"AlwaysOnDM", {PERSISTENT, BOOL}},
+    {"AlwaysOnDMLock", {PERSISTENT, BOOL}},
     {"WarningImmediateVolume", {PERSISTENT, INT}},
     {"WarningSoftVolume", {PERSISTENT, INT}},
     {"RefuseVolume", {PERSISTENT, INT}},

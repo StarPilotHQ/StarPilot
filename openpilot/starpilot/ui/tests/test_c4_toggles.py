@@ -100,6 +100,13 @@ class TestC4Toggles(unittest.TestCase):
     self.assertFalse(self.params.get_bool('IsRhdDetected'))
     self.assertFalse(self.params.get_bool('OnroadCycleRequested'))
 
+  def test_fleet_lock_disables_only_always_on_dm(self):
+    self.params.put_bool("AlwaysOnDMLock", True, block=True)
+    panel = toggles.TogglesLayoutMici()
+    dm = next(item for key, item in panel._refresh_toggles if key == "AlwaysOnDM")
+    self.assertFalse(dm.enabled)
+    self.assertTrue(self.audio.enabled)
+
   def test_release_queues_audio_before_restart_without_blocking_writes(self):
     with patch.object(self.params, "put_bool") as save:
       self.audio._handle_mouse_release(MousePos(0, 0))

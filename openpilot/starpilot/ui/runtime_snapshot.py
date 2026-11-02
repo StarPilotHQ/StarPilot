@@ -850,6 +850,7 @@ class RuntimeSnapshotAdapter:
                            record_front=_flag(params, "RecordFront"),
                            record_audio=_flag(params, "RecordAudio"), metric=bool(ui.is_metric), personality=persona,
                            unavailable=frozenset((ToggleKey.SAFE_MODE,)) | (
+                             frozenset((ToggleKey.ALWAYS_ON_DM,)) if _flag(params, "AlwaysOnDMLock") else frozenset()) | (
                              frozenset() if confirmed_offroad and not _flag(params, "IsDriverViewEnabled") else
                              frozenset((ToggleKey.RIGHT_HAND_DRIVING,))))
     snapshot = ShellSnapshot(mode, home, settings, onroad, device_state, software, toggles, selected)
