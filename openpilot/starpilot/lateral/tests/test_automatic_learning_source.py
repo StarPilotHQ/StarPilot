@@ -329,3 +329,50 @@ class TestLearningProjectionPreference(unittest.TestCase):
         host = self.make_car(HKG.HYUNDAI_IONIQ_6, preference, legacy)
         assert host.learning_stamp_observer is None
         assert getattr(host.CI.CC, 'learning_projection_observer', None) is None
+
+
+class TestControlsLearningPreference(unittest.TestCase):
+  def make_controls(self, vehicle, preference=None, legacy=False):
+    from openpilot.selfdrive.controls.controlsd import Controls
+    params = Params()
+    cp = interfaces[vehicle].get_non_essential_params(vehicle)
+    params.put('CarParams', cp.to_bytes(), block=True)
+    params.put_bool('OpenpilotEnabledToggle', True, block=True)
+    params.put_bool(LEARNING_LEGACY_KEY, legacy, block=True)
+    if preference is not None:
+      params.put(LEARNING_KEY, replace_preference(None, cp, preference) if type(preference) is bool else preference, block=True)
+    before = (params.get(LEARNING_KEY), params.get(TORQUE_KEY))
+    host = Controls()
+    assert before == (params.get(LEARNING_KEY), params.get(TORQUE_KEY))
+    return host
+
+  def test_saved_off_skips_actual_controls_learning_runtime(self):
+    from unittest.mock import patch
+    from openpilot.selfdrive.controls import controlsd
+    for vehicle in VEHICLES:
+      with self.subTest(vehicle=vehicle), OpenpilotPrefix(), patch.object(controlsd, 'GlobalRuntime', wraps=controlsd.GlobalRuntime) as runtime:
+        host = self.make_controls(vehicle, False)
+        assert host.global_learning is None
+        runtime.assert_not_called()
+
+  def test_default_and_explicit_on_keep_actual_runtime(self):
+    from unittest.mock import patch
+    from openpilot.selfdrive.controls import controlsd
+    for vehicle, preference in ((HKG.HYUNDAI_IONIQ_6, None), (GM.CHEVROLET_BOLT_CC_2018_2021, True),
+                                (TOYOTA.TOYOTA_COROLLA_TSS2, True)):
+      with self.subTest(vehicle=vehicle, preference=preference), OpenpilotPrefix(), \
+           patch.object(controlsd, 'GlobalRuntime', wraps=controlsd.GlobalRuntime) as runtime:
+        host = self.make_controls(vehicle, preference)
+        assert host.global_learning is not None and type(host.global_learning).__name__ == 'GlobalRuntime'
+        runtime.assert_called_once()
+
+  def test_scoped_on_wins_over_legacy_off(self):
+    with OpenpilotPrefix():
+      host = self.make_controls(HKG.HYUNDAI_IONIQ_6, True, legacy=True)
+      assert host.global_learning is not None
+
+  def test_legacy_off_and_invalid_preference_skip_runtime(self):
+    for preference, legacy in ((None, True), (b'not json', False)):
+      with self.subTest(preference=preference, legacy=legacy), OpenpilotPrefix():
+        host = self.make_controls(HKG.HYUNDAI_IONIQ_6, preference, legacy)
+        assert host.global_learning is None

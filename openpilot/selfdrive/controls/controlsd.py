@@ -136,10 +136,13 @@ class Controls:
                      "startupPidLimits": [self.LaC.pid.neg_limit, self.LaC.pid.pos_limit]})
 
     from openpilot.starpilot.flm.live_trial_store import load_confirmed_history
-    self.global_learning = GlobalRuntime(self.CP, self.CI, self.LaC, confirmed_live_history=load_confirmed_history(self.params))
+    from openpilot.starpilot.lateral.learning_preferences import read_preference
+    preference = read_preference(self.params, self.CP)
+    self.global_learning = (GlobalRuntime(self.CP, self.CI, self.LaC, confirmed_live_history=load_confirmed_history(self.params))
+                            if preference.valid and preference.enabled else None)
     # Load optional capture and live-trial code before the first control command.
     # Engagement must not compile/import replay and feedback modules in the loop.
-    if self.global_learning.descriptor is not None:
+    if self.global_learning is not None and self.global_learning.descriptor is not None:
       try:
         for module in ('controller_replay', 'physical_input_observation', 'feedback_wire', 'live_trial_wire', 'live_tracking_response'):
           importlib.import_module('openpilot.starpilot.flm.' + module)
