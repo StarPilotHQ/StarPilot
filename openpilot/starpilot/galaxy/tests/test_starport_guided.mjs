@@ -213,3 +213,27 @@ console.log("StarPort guided setup: Bluetooth-first hint passed")
   assert.match(StarPortGuidedSetup.template, /<slot name="connect" \/>/)
 }
 console.log("StarPort guided setup: steps, adapter and app choices, reopening and classic-only dropdowns passed")
+
+// Choosing a cable or an app finishes the setup at once; a choice made in the card must not close the card.
+{
+  const calls = []
+  const vm = { showSteps: false, carTypeLabels: { app: "App", usb: "Wired AA" },
+    saveCarType: (index, label) => calls.push(["type", label]), saveAdapter: (index, label) => calls.push(["adapter", label]),
+    saveApp: (index, label) => calls.push(["app", label]) }
+  StarPortPage.methods.chooseType.call(vm, "app")
+  assert.equal(vm.showSteps, true)
+  vm.showSteps = false
+  StarPortPage.methods.chooseApp.call(vm, "headunitpad")
+  assert.equal(vm.showSteps, true)
+  vm.showSteps = false
+  StarPortPage.methods.chooseAdapter.call(vm, "aawireless")
+  assert.equal(vm.showSteps, true)
+  assert.deepEqual(calls, [["type", "App"], ["app", "HeadunitPad"], ["adapter", "AAWireless"]])
+  // With the card held open by a choice, the finished setup is shown for editing with its Done button, not hidden.
+  const held = guidedState({ setup, runtime: { running: false, state: "idle", connection: "headunitpad" }, setupDone: true, editing: true, carType: "app", appModels, app: "HeadunitPad" })
+  assert.equal(held.show, true)
+  assert.equal(held.editing, true)
+  assert.equal(held.choices.find((choice) => choice.selected).key, "app")
+  assert.equal(held.apps.options.find((option) => option.selected).key, "headunitpad")
+}
+console.log("StarPort guided setup: a choice keeps the card open passed")

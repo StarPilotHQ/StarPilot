@@ -772,9 +772,11 @@ export const StarPortPage = {
       return stopping ? stopping.then((stopped) => stopped && next()) : next()
     },
     useCar(address) { return this.afterWaiting(() => this.control("select_receiver", { address })) },
-    chooseType(key) { return this.saveCarType(0, this.carTypeLabels[key]) },
-    chooseAdapter(key) { return this.saveAdapter(0, ADAPTER_MODELS[key]) },
-    chooseApp(key) { return this.saveApp(0, HEAD_UNIT_APPS[key]) },
+    // Choosing a cable or an app makes the setup count as done at once, which would close the card under the person's finger.
+    // A choice made in the card keeps it open (its Done button closes it), so the choice can still be changed.
+    chooseType(key) { this.showSteps = true; return this.saveCarType(0, this.carTypeLabels[key]) },
+    chooseAdapter(key) { this.showSteps = true; return this.saveAdapter(0, ADAPTER_MODELS[key]) },
+    chooseApp(key) { this.showSteps = true; return this.saveApp(0, HEAD_UNIT_APPS[key]) },
     useClassic() { return this.feed.setNewSetup(false) },
     useGuided() { return this.feed.setNewSetup(true) },
     saveCarType(index, value) {
@@ -1046,7 +1048,7 @@ export const StarPortPage = {
           <div class="gx-actions">
             <a class="gx-btn gx-btn--tonal" href="#/theme_maker/starport"><i class="bi bi-layout-text-window" aria-hidden="true"></i> Customize Layout</a>
             <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showSteps" aria-controls="gx-starport-steps" @click="showSteps = !showSteps">
-              <i :class="showSteps ? 'bi bi-chevron-up' : 'bi bi-gear'" aria-hidden="true"></i> {{ showSteps ? 'Hide Setup' : 'Setup and Pairing' }}</button>
+              <i :class="showSteps ? 'bi bi-chevron-up' : 'bi bi-gear'" aria-hidden="true"></i> {{ showSteps ? 'Hide Setup' : newSetup ? 'Change how your car connects' : 'Setup and Pairing' }}</button>
           </div>
         </div>
       </section>
