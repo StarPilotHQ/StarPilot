@@ -1226,7 +1226,7 @@ class Car:
   def radar_publish(self, RD):
     if RD is not None:
       tracks_msg = messaging.new_message('radarTracks')
-      tracks_msg.valid = not any(RD.errors.to_dict().values())
+      tracks_msg.valid = not RD.errors.canError
       tracks_msg.radarTracks = RD
       self.pm.send('radarTracks', tracks_msg)
 
