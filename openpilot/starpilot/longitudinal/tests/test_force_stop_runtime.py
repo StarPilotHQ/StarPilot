@@ -139,15 +139,13 @@ class ForceStopRuntimeTests(unittest.TestCase):
       plan = self.sample(sm)
       self.assertTrue(plan.should_stop)
       self.assertEqual(plan.speed_ceiling_mps, 0.)
-    for tick in range(100, 116):
-      plan = self.sample(Frame(tick, horizon=190., stopped=True))
     self.assertTrue(plan.forcing)
     self.assertTrue(plan.manual_hold)
-    now = BASE + 5_800_000_000 + 1_000_000
-    for item in (button_event(577), button_event(578, [('resumeCruise', True)]),
-                 button_event(579, [('resumeCruise', False)])):
+    now = BASE + 5_000_000_000 + 1_000_000
+    for item in (button_event(497), button_event(498, [('resumeCruise', True)]),
+                 button_event(499, [('resumeCruise', False)])):
       self.owner.resume.observe(item, now_ns=now, drive_id=DRIVE)
-    released = self.sample(Frame(116, horizon=190., stopped=True))
+    released = self.sample(Frame(100, horizon=190., stopped=True))
     self.assertFalse(released.manual_hold)
     self.assertFalse(released.forcing)
     self.assertIsNone(released.speed_ceiling_mps)
@@ -219,13 +217,14 @@ class ForceStopRuntimeTests(unittest.TestCase):
     self.assertTrue(output.forcing)
     self.assertTrue(output.should_stop)
     self.assertEqual(output.speed_ceiling_mps, 0.)
-    for tick in range(41, 101):
+    for tick in range(41, 80):
       output = self.sample(Frame(tick, stopped=True, horizon=30.))
       self.assertTrue(output.should_stop)
-    for tick in range(101, 201):
-      output = self.sample(Frame(tick, stopped=True, horizon=192.))
-    self.assertTrue(output.forcing)
-    self.assertTrue(output.manual_hold)
+      self.assertTrue(output.manual_hold)
+    for tick in range(80, 200):
+      output = self.sample(Frame(tick, stopped=True, horizon=30.))
+      self.assertFalse(output.forcing)
+      self.assertFalse(output.manual_hold)
 
   def test_manual_hold_publishes_dedicated_bit_and_release_withdraws_same_cycle(self):
     from types import SimpleNamespace
