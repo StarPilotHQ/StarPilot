@@ -39,7 +39,6 @@ tinygrad_model_runtime/** !filter !diff !merge -text
 *.a -text
 *.so -text
 *.so.* -text
-openpilot/cereal/messaging/bridge -text
 openpilot/selfdrive/pandad/pandad -text
 openpilot/tools/replay/replay -text
 openpilot/system/camerad/camerad -text

@@ -29,15 +29,15 @@
     {
       "path": "rednose_repo",
       "url": "https://github.com/commaai/rednose.git",
-      "commit": "8671c17c3a4cdc4be5df07a068039e2da5b94eaa",
-      "tree": "6ce3aa5c97c7cdb43c2cb046fc8f51e9c2518fe1",
+      "commit": "d7c66e80d2d28a63d0720692ccaa029d504751ba",
+      "tree": "9f000b8db090de568e6111f2d2861445708e7b27",
       "exclude": []
     },
     {
       "path": "teleoprtc_repo",
       "url": "https://github.com/commaai/teleoprtc.git",
-      "commit": "1aa8fc433bef1519a95c0700c96258c3be6dfb34",
-      "tree": "bd9739faee9e432d23f167c9134bd17eebdc0d9b",
+      "commit": "f19ceb4553d1d9ccd46cc86f47483564814423ec",
+      "tree": "e65e0df08e088daf80e8b4e570c9fa134c51efc3",
       "exclude": []
     },
     {

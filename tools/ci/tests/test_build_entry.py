@@ -88,7 +88,7 @@ exit "${HELPER_EXIT:-0}"
     self.assertEqual(self.args(), ["scons", "--no-scrub", "openpilot/common/libparams_c.so", "-j6"])
     self.assertEqual(self.run_build("--cereal").returncode, 0)
     self.assertEqual(self.args(), ["scons", "--no-scrub", "openpilot/cereal/libcereal.a",
-                                   "openpilot/cereal/libsocketmaster.a", "openpilot/cereal/messaging/bridge",
+                                   "openpilot/cereal/libsocketmaster.a",
                                    "openpilot/cereal/services.h"])
     self.assertEqual(self.run_build("--panda", "8").returncode, 0)
     self.assertEqual(self.args(), ["scons", "--no-scrub", "panda/board/obj/panda.bin.signed", "panda/board/obj/panda_h7.bin.signed",

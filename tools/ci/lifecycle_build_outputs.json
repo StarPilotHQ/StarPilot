@@ -27,10 +27,6 @@
     "recipe": "openpilot/cereal/SConscript",
     "required_tracked": true
   },
-  "openpilot/cereal/messaging/bridge": {
-    "recipe": "openpilot/cereal/SConscript",
-    "required_tracked": true
-  },
   "openpilot/common/libcommon.a": {
     "recipe": "openpilot/common/SConscript",
     "required_tracked": true

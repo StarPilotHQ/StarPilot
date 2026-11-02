@@ -74,7 +74,6 @@ openpilot/selfdrive/pandad/tests/test_aol_wire
 openpilot/selfdrive/pandad/tests/test_panda_usb
 openpilot/cereal/services.h
 openpilot/cereal/gen
-openpilot/cereal/messaging/bridge
 openpilot/selfdrive/ui/translations/tmp
 openpilot/selfdrive/car/tests/cars_dump
 openpilot/system/camerad/camerad

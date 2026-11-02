@@ -57,7 +57,7 @@ assert arch in [
   "Darwin",       # macOS arm64 (x86 not supported)
 ]
 
-pkg_names = ['acados', 'capnproto', 'ffmpeg', 'json11', 'ncurses', 'zeromq', 'zstd']
+pkg_names = ['acados', 'capnproto', 'ffmpeg', 'json11', 'ncurses', 'zstd']
 if arch != 'Darwin':
   pkg_names.append('libusb')
 pkgs = [importlib.import_module(name) for name in pkg_names]

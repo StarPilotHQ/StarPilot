@@ -352,7 +352,6 @@ scrub_mixed_arch_artifacts() {
     "${ROOT_DIR}/openpilot/cereal/gen/cpp/"*.capnp.h \
     "${ROOT_DIR}/openpilot/cereal/gen/cpp/"*.capnp.o \
     "${ROOT_DIR}/openpilot/cereal/messaging/"*.o \
-    "${ROOT_DIR}/openpilot/cereal/messaging/bridge" \
     "${ROOT_DIR}/msgq_repo/msgq/"*.os \
     "${ROOT_DIR}/msgq_repo/msgq/"*.o \
     "${ROOT_DIR}/msgq_repo/libmsgq.a" \

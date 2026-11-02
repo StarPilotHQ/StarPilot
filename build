@@ -77,7 +77,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --cereal|-cereal)
       shortcut_targets+=(openpilot/cereal/libcereal.a openpilot/cereal/libsocketmaster.a
-                         openpilot/cereal/messaging/bridge openpilot/cereal/services.h)
+                         openpilot/cereal/services.h)
       ;;
     -j|--jobs)
       passthrough_args+=("$1")

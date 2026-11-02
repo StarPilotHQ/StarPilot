@@ -52,7 +52,7 @@ def pub_sock(endpoint: str) -> PubSocket:
   return msgq.pub_sock(endpoint, segment_size)
 
 
-def sub_sock(endpoint: str, poller: Poller | None = None, addr: str = "127.0.0.1",
+def sub_sock(endpoint: str, poller: Poller | None = None,
              conflate: bool = False, timeout: int | None = None) -> SubSocket:
   service = SERVICE_LIST.get(endpoint)
   segment_size = service.queue_size if service else 0
@@ -180,7 +180,7 @@ class FrequencyTracker:
 class SubMaster:
   def __init__(self, services: list[str], poll: str | None = None,
                ignore_alive: list[str] | set[str] | None = None, ignore_avg_freq: list[str] | set[str] | None = None,
-               ignore_valid: list[str] | set[str] | None = None, addr: str = "127.0.0.1", frequency: float | None = None):
+               ignore_valid: list[str] | set[str] | None = None, frequency: float | None = None):
     self.frame = -1
     self.services = services
     self.seen = dict.fromkeys(services, False)
@@ -215,7 +215,7 @@ class SubMaster:
 
     for s in services:
       p = self.poller if s not in self.non_polled_services else None
-      self.sock[s] = sub_sock(s, poller=p, addr=addr, conflate=True)
+      self.sock[s] = sub_sock(s, poller=p, conflate=True)
 
       try:
         data = new_message(s)
