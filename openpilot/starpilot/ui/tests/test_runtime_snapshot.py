@@ -102,6 +102,23 @@ def ui_fake():
 
 class TestRuntimeSnapshot(unittest.TestCase):
 
+  def test_home_uses_shared_statistics_source_without_onroad_polling(self):
+    from openpilot.starpilot.ui.home_state import DriveStatsData, DriveSummary
+    data = DriveStatsData(DriveSummary(3, 10., 1.), DriveSummary(), DriveSummary(), (), ())
+    source = Mock(return_value=data)
+    ui = ui_fake()
+    adapter = RuntimeSnapshotAdapter(ui, home_stats=source)
+    self.assertIs(adapter.build(ShellMode.HOME, now_ns=NOW).home.stats, data)
+    source.assert_called_once_with(False)
+    source.reset_mock()
+    adapter.build(ShellMode.ONROAD, now_ns=NOW + 1)
+    adapter.build(ShellMode.SETTINGS, now_ns=NOW + 2)
+    source.assert_not_called()
+    ui.is_metric = True
+    adapter.build(ShellMode.HOME, now_ns=NOW + 3)
+    source.assert_called_once_with(True)
+
+
   def test_onroad_saved_display_flags_share_the_settings_refresh(self):
     ui = ui_fake()
     ui.params.values.update(NavigationEnabled="1", ShowCSCStatus="1")

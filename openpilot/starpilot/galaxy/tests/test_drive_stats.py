@@ -42,6 +42,22 @@ def analyzed(root, selected, permitted):
 
 
 class DriveStatsTest(unittest.TestCase):
+  def test_past_week_is_seven_calendar_dates_and_excludes_old_future_ignored_and_incomplete(self):
+    self.now[0] = datetime(2026, 11, 2, 12, tzinfo=UTC).timestamp()
+    owner = self.owner(permitted=lambda: False)
+    for identifier, offset in (('today', 0), ('boundary', 6), ('old', 7), ('future', -1)):
+      value = analyzed(self.root, route(identifier), lambda: True)
+      value.update(startTime=self.now[0] - offset * 86400, endTime=self.now[0] - offset * 86400 + 60,
+                   ignored=False, sourceSignature='fixture')
+      owner._records[identifier] = value
+    owner._records['ignored'] = dict(owner._records['today'], routeId='ignored', ignored=True)
+    owner._records['incomplete'] = dict(owner._records['today'], routeId='incomplete', complete=False)
+    snapshot = owner.snapshot()
+    self.assertEqual(snapshot['pastWeek']['drives'], 2)
+    self.assertEqual(snapshot['pastWeek']['distanceMeters'], 2000.)
+    self.assertEqual(snapshot['pastWeek']['durationSeconds'], 120.)
+    self.assertEqual(snapshot['totals']['drives'], 4)
+
   def setUp(self):
     self.temp = tempfile.TemporaryDirectory()
     self.addCleanup(self.temp.cleanup)

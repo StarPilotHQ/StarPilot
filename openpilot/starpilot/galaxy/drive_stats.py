@@ -496,6 +496,8 @@ class DriveStatsOwner:
               'aolPercent': round(100 * seconds / duration, 1) if duration else None,
               'aolDurationSeconds': duration, 'aolDrives': len(observed)}
     totals = sums(complete)
+    past_week = sums([r for r in complete if day - timedelta(days=6) <=
+                      datetime.fromtimestamp(r['startTime'], zone).date() <= day])
     totals.update(aol_sums(complete))
     week_totals = sums(week)
     week_result = {'days': [{'date': date, 'distanceMeters': daily[date]} for date in dates],
@@ -532,7 +534,7 @@ class DriveStatsOwner:
                                                        self.clock() - f['firstAt'] >= MAX_RETRY_AGE_SECONDS}
                                       for key, f in self._failures.items()],
                          'scanIncomplete': self._scan_incomplete},
-            'totals': totals, 'week': week_result, 'lastDrive': public(included_recent[0]) if included_recent else None,
+            'totals': totals, 'pastWeek': past_week, 'week': week_result, 'lastDrive': public(included_recent[0]) if included_recent else None,
             'recentDrives': [public(r) for r in recent[:RECENT_LIMIT]], 'records': records, 'models': models,
             'coverage': {'scope': 'analyzedLocalRoutes', 'timezone': timezone, 'partialHistory': True,
                          'scanIncomplete': self._scan_incomplete, 'scanned': self._scanned,

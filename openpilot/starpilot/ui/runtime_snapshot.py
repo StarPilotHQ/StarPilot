@@ -40,7 +40,7 @@ from openpilot.cereal.services import SERVICE_LIST
 from openpilot.tools.replay.display_clock import BOOT_TIME_SERVICES
 from opendbc.car.structs import car as car_schema
 from openpilot.starpilot.ui.device_state import DeviceRequest, DeviceState
-from openpilot.starpilot.ui.home_state import HomeMode, HomeState
+from openpilot.starpilot.ui.home_state import DriveStatsData, HomeMode, HomeState
 from openpilot.starpilot.models.jetlink_status import JetlinkStatusFeed
 from openpilot.starpilot.ui.onroad_state import conditional_lead_from_message
 from openpilot.starpilot.ui.onroad_state import (AlertSize, BorderSignals, ObservationKind, OnroadAlert,
@@ -302,11 +302,13 @@ class RuntimeSnapshotAdapter:
 
   def __init__(self, ui_state: Any, galaxy_access: GalaxyAccessOwner | None = None,
                bluetooth_powered: Callable[[], str | bool] | None = None,
-               *, mono_clock: Callable[[], int] = time.monotonic_ns,
+               *, home_stats: Callable[[bool], DriveStatsData | None] | None = None,
+               mono_clock: Callable[[], int] = time.monotonic_ns,
                boot_clock: Callable[[], int] = _boot_time_ns):
     self.ui_state = ui_state
     self.galaxy_access = galaxy_access
     self.bluetooth_powered = bluetooth_powered
+    self.home_stats = home_stats
     self._customization_value = default_document()
     self._appearance_value = OnroadAppearance()
     self._appearance_read_ns: int | None = None
@@ -764,7 +766,8 @@ class RuntimeSnapshotAdapter:
                            HomeMode.CONDITIONAL_CHILL if self._conditional_choice is ModeChoice.CCM else
                            HomeMode.EXPERIMENTAL if experimental else HomeMode.CHILL),
                      experimental_enabled=experimental, experimental_available=bool(ui.has_longitudinal_control),
-                     stats=None, paired=bool(ui.prime_state.is_paired()), network=network, network_strength=strength,
+                     stats=self.home_stats(bool(ui.is_metric)) if mode == ShellMode.HOME and self.home_stats is not None else None,
+                     paired=bool(ui.prime_state.is_paired()), network=network, network_strength=strength,
                      temperature_c=device.maxTempC if device is not None else None, metric=bool(ui.is_metric),
                      temperature_high=device is not None and device.thermalStatus != log.DeviceState.ThermalStatus.ok,
                      vehicle_online=panda_connected, connection=connection,

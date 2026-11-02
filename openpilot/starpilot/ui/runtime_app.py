@@ -195,10 +195,13 @@ class StarShellSession:
     except Exception:
       self.fonts.close()
       raise
+    from openpilot.starpilot.ui.home_stats_source import HomeStatsSource
+    self.home_stats_source = HomeStatsSource() if profile == Profile.LARGE else None
     self.galaxy_access = _galaxy_access_owner()
     self.bluetooth_source = BluetoothStatusSource() if profile == Profile.COMPACT else None
     self.adapter = RuntimeSnapshotAdapter(ui_state, self.galaxy_access,
-                                          self.bluetooth_source.snapshot if self.bluetooth_source is not None else None)
+                                          self.bluetooth_source.snapshot if self.bluetooth_source is not None else None,
+                                          home_stats=self.home_stats_source.snapshot if self.home_stats_source is not None else None)
     self.galaxy_flow = GalaxyAccessFlow(self.galaxy_access, self.confirmed_offroad)
     self.feature_owner = FeatureSettingsOwner(ui_state.params, self._feature_authority,
                                                vehicle_fingerprint=lambda: getattr(ui_state.CP, "carFingerprint", None),
@@ -1736,6 +1739,9 @@ class StarShellSession:
     self._aol_save_closed = True
     if pending := getattr(self, "_aol_save", None):
       pending.cancel.set()
+    if source := getattr(self, "home_stats_source", None):
+      source.close()
+      self.home_stats_source = None
     self.drive_state.physical.close()
     self.slc_actions = None
     self.galaxy_flow.close()
