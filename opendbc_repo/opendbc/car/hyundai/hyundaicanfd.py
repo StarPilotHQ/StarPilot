@@ -285,6 +285,17 @@ def create_ioniq6_blindspot_status(counter: int, status: BlindspotStatus) -> lis
 def create_ccnc(packer, CAN, openpilot_longitudinal, enabled, hud, left_blinker, right_blinker, msg_161, msg_162, msg_1b5,
                 is_metric, out, main_cruise_enabled, lfa_icon):
   if lfa_icon:
+    # The host owns lateral; keep unrelated faults and obstruction warnings.
+    for field in ("FAULT_LSS", "FAULT_HDA", "FAULT_DAS", "FAULT_LFA", "FAULT_DAW"):
+      if msg_162.get(field) == 1:
+        msg_162[field] = 0
+    if msg_161.get("ALERTS_2") == 5:
+      msg_161.update({"ALERTS_2": 0, "SOUNDS_2": 0})
+    if msg_161.get("ALERTS_3") == 17:
+      msg_161["ALERTS_3"] = 0
+    if msg_161.get("ALERTS_5") in (2, 5):
+      msg_161["ALERTS_5"] = 0
+    msg_161["DAW_ICON"] = 0
     lane_change_speed_min = 8.9408
     any_blinker = left_blinker or right_blinker
     curvature = {i: (31 if i == -1 else 13 - abs(i + 15)) if i < 0 else 15 + i for i in range(-15, 16)}

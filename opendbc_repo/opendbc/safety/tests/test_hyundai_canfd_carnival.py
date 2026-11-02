@@ -94,3 +94,56 @@ class TestCarnivalAltResumeNative(unittest.TestCase):
     self.assertTrue(receive("SCC_CONTROL", can.ECAN if hda2 else can.CAM, {"ACCMode": 0, "COUNTER": 2}))
     self.assertFalse(safety.get_controls_allowed())
     self.assertFalse(safety.safety_tx_hook(libsafety_py.make_CANPacket(address, bus, data)))
+
+  def test_resume_race_uses_once_only_the_immediately_preceding_source(self):
+    from opendbc.safety.tests.test_hyundai_shared_canfd_stock_aol import TestHyundaiSharedCanfdStockAol
+    from opendbc.car.hyundai.hyundaicanfd import create_carnival_alt_resume
+
+    for word in (0x2C28, 0x2C2A, 0x2830, 0x2832, 0x28B0, 0x28B2):
+      for fault in ('none', 'duplicate', 'counter_gap', 'driver_main', 'driver_set', 'driver_lkas',
+                    'bad_crc', 'wrong_field', 'expired', 'controls_off', 'rx_invalid'):
+        with self.subTest(word=hex(word), fault=fault):
+          f = TestHyundaiSharedCanfdStockAol()
+          f.setUp()
+          f.mode(word)
+          f.healthy(word)
+          pt = 1 if word & 0x10 else 0
+          safety = f.safety
+
+          def rx(values, f=f, pt=pt, safety=safety):
+            frame = f.packer.make_can_msg('CRUISE_BUTTONS_ALT', pt, values)
+            self.assertTrue(safety.safety_rx_hook(f.packet(frame)))
+          rx({'COUNTER': 7, 'CRUISE_BUTTONS': 2})
+          scc = f.packer.make_can_msg('SCC_CONTROL', 2 if word & 8 else pt, {'COUNTER': 7, 'ACCMode': 1})
+          self.assertTrue(safety.safety_rx_hook(f.packet(scc)))
+          self.assertTrue(safety.get_controls_allowed())
+          source = {'COUNTER': 8, 'SET_ME_1': 1}
+          rx(source)
+          cp = params(CAR.KIA_CARNIVAL_HEV_4TH_GEN if word & 2 else CAR.KIA_CARNIVAL_2025,
+                      hda2=bool(word & 0x10), alt_buttons=True, alt_lka=bool(word & 0x80))
+          frame = create_carnival_alt_resume(f.packer, cp, CanBus(cp), source)
+          values = {'COUNTER': 8 if fault == 'duplicate' else 10 if fault == 'counter_gap' else 9, 'SET_ME_1': 1,
+                    'ADAPTIVE_CRUISE_MAIN_BTN': int(fault == 'driver_main'), 'LDA_BTN': int(fault == 'driver_lkas'),
+                    'CRUISE_BUTTONS': 2 if fault == 'driver_set' else 0}
+          rx(values)
+          address, data, bus = frame
+          data = bytearray(data)
+          if fault == 'bad_crc':
+            data[0] ^= 1
+          elif fault == 'wrong_field':
+            data[6] ^= 1
+            data[:2] = hkg_can_fd_checksum(address, None, data).to_bytes(2, 'little')
+          elif fault == 'expired':
+            safety.set_timer(1_100_001)
+          elif fault == 'controls_off':
+            safety.set_controls_allowed(False)
+          elif fault == 'rx_invalid':
+            safety.set_timer(2_000_001)
+            rx({'COUNTER': 10, 'SET_ME_1': 1})
+            safety.safety_tick()
+            frame = create_carnival_alt_resume(f.packer, cp, CanBus(cp), {'COUNTER': 10, 'SET_ME_1': 1})
+            address, data, bus = frame
+            self.assertFalse(safety.safety_config_valid())
+          packet = libsafety_py.make_CANPacket(address, bus, data)
+          self.assertEqual(safety.safety_tx_hook(packet), fault == 'none')
+          self.assertFalse(safety.safety_tx_hook(packet))

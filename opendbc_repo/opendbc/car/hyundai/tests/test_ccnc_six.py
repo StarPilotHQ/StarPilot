@@ -131,7 +131,7 @@ class TestCcncSix(unittest.TestCase):
       safety.set_safety_hooks(CarParams.SafetyModel.hyundaiCanfd, cp.safetyConfigs[-1].safetyParam)
       safety.init_tests()
       bus = can.ECAN
-      source_values = {"COUNTER": 17, "SET_ME_1": 1, "CRUISE_BUTTONS": 0, "BYTE6": 0x55}
+      source_values: dict[str, float] = {"COUNTER": 17, "SET_ME_1": 1, "CRUISE_BUTTONS": 0, "BYTE6": 0x55}
       addr, raw, _ = packer.make_can_msg("CRUISE_BUTTONS_ALT", bus, source_values)
       data = bytearray(raw)
       data[0:2] = hkg_can_fd_checksum(addr, None, data).to_bytes(2, "little")
@@ -163,6 +163,12 @@ class TestCcncSix(unittest.TestCase):
       active_source[0:2] = hkg_can_fd_checksum(addr, None, active_source).to_bytes(2, "little")
       self.assertTrue(safety.safety_rx_hook(libsafety_py.make_CANPacket(addr, bus, active_source)))
       self.assertFalse(safety.safety_tx_hook(tx))
+      source["COUNTER"] = source_values["COUNTER"] = 19
+      _, raw, _ = packer.make_can_msg("CRUISE_BUTTONS_ALT", bus, source_values)
+      data = bytearray(raw)
+      data[0:2] = hkg_can_fd_checksum(addr, None, data).to_bytes(2, "little")
+      resume = create_carnival_alt_resume(packer, cp, can, source)
+      tx = libsafety_py.make_CANPacket(resume[0], resume[2], resume[1])
       self.assertTrue(safety.safety_rx_hook(libsafety_py.make_CANPacket(addr, bus, bytes(data))))
       wrong_counter = bytearray(resume[1])
       wrong_counter[2] += 1
@@ -177,8 +183,8 @@ class TestCcncSix(unittest.TestCase):
       safety.set_timer(0)
       self.assertTrue(safety.safety_tx_hook(tx))
 
-      source["COUNTER"] = 19
-      source_values["COUNTER"] = 19
+      source["COUNTER"] = 20
+      source_values["COUNTER"] = 20
       source_values["ADAPTIVE_CRUISE_MAIN_BTN"] = 1
       _, raw, _ = packer.make_can_msg("CRUISE_BUTTONS_ALT", bus, source_values)
       data = bytearray(raw)
@@ -226,3 +232,37 @@ class TestCcncSix(unittest.TestCase):
       wrap_resume = create_carnival_alt_resume(packer, cp, can, {**source, "COUNTER": 255, "CRUISE_BUTTONS": 0})
       self.assertEqual(wrap_resume[1][2], 0)
       self.assertTrue(safety.safety_tx_hook(libsafety_py.make_CANPacket(wrap_resume[0], wrap_resume[2], wrap_resume[1])))
+
+  def test_ccnc_owned_warnings_preserve_critical_and_obstruction_fields(self):
+    from opendbc.can import CANParser
+    from opendbc.car import structs
+    from opendbc.car.hyundai.hyundaicanfd import create_ccnc
+
+    packer = CANPacker('hyundai_canfd_generated')
+    cp = params(CAR.KIA_CARNIVAL_HEV_4TH_GEN, alt_buttons=True)
+    critical = ('FAULT_FSS', 'FAULT_FCA', 'FAULT_SCC', 'FAULT_ESS')
+    owned = ('FAULT_LSS', 'FAULT_HDA', 'FAULT_DAS', 'FAULT_LFA', 'FAULT_DAW')
+    for active in (False, True):
+      for fault_value in (1, 2, 3):
+        for alert in (5, 7, 8, 9, 10, 14, 21):
+          with self.subTest(active=active, fault_value=fault_value, alert=alert):
+            first = {name: 0 for name in packer.dbc.name_to_msg['CCNC_0x161'].sigs}
+            second = {name: 0 for name in packer.dbc.name_to_msg['CCNC_0x162'].sigs}
+            first.update(COUNTER=17, ALERTS_2=alert, SOUNDS_2=3, DAW_ICON=1, ALERTS_3=17, ALERTS_5=5)
+            second.update({name: fault_value for name in (*critical, *owned)})
+            second['COUNTER'] = 23
+            hud = structs.CarControl.HUDControl()
+            state = structs.CarState(vEgo=20., steeringAngleDeg=0.)
+            frames = create_ccnc(packer, CanBus(cp), False, active, hud, False, False,
+                                 first, second, None, True, state, True, active)
+            parser = CANParser('hyundai_canfd_generated', [('CCNC_0x161', 0), ('CCNC_0x162', 0)], CanBus(cp).ECAN)
+            parser.update((1_000_000_000, frames))
+            a, b = parser.vl['CCNC_0x161'], parser.vl['CCNC_0x162']
+            self.assertEqual(a['ALERTS_2'], 0 if active and alert == 5 else alert)
+            self.assertEqual(a['SOUNDS_2'], 0 if active and alert == 5 else 3)
+            self.assertEqual(a['DAW_ICON'], 0 if active else 1)
+            self.assertEqual((a['COUNTER'], b['COUNTER']), (17, 23))
+            for name in critical:
+              self.assertEqual(b[name], fault_value)
+            for name in owned:
+              self.assertEqual(b[name], 0 if active and fault_value == 1 else fault_value)
