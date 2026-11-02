@@ -198,7 +198,7 @@ export class SoftwareStatusFeed {
         return null
       }
       // A tunnel may return its own JSON error page with a successful HTTP status.
-      const deviceUnreachable = !payload?.code && [payload?.error, payload?.message].some(message =>
+      const deviceUnreachable = payload?.code === "connection_unavailable" || !payload?.code && [payload?.error, payload?.message].some(message =>
         typeof message === "string" && /^Your comma cannot be reached(?:\. Check your connection and try again\.?)?$/i.test(message.trim()))
       if (!response.ok || deviceUnreachable) {
         const error = new Error(payload?.error || payload?.message || "Software request failed. Refresh to try again.")

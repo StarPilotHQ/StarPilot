@@ -72,9 +72,10 @@ const state = reactive({
   theme: stored(THEME_KEY) === "light" ? "light" : "dark",
   searchPage: "",
 })
-const updateRestart = new UpdateRestart({ publish: waiting => {
+const updateRestart = new UpdateRestart({ publish: (waiting, error) => {
   state.updateRestarting = waiting
   if (waiting) showRestartScreen()
+  else if (error) showBootScreen("failed", error, true)
   else if (bootScreenMode() === "restart" && !state.loading) dismissBootScreen()
 } })
 const deviceRestart = new DeviceRestartWatch({ paused: () => state.updateRestarting })

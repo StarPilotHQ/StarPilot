@@ -608,7 +608,7 @@ for (const [state, outcome] of [['failed', undefined], ['complete', 'up_to_date'
 // Gateway error envelopes are not software snapshots, even when the tunnel uses HTTP 200.
 const unreachableMessage = 'Your comma cannot be reached. Check your connection and try again'
 for (const action of ['update', 'fast', 'rollback', 'install', 'version']) {
-  for (const status of [200, 400, 500, 503]) {
+  for (const status of [200, 400, 500, 503]) for (const code of [undefined, 'connection_unavailable']) {
     for (const field of ['error', 'message']) {
       for (const duringPoll of [false, true]) {
         const restarts = []
@@ -623,7 +623,7 @@ for (const action of ['update', 'fast', 'rollback', 'install', 'version']) {
           await f.reply(1, snapshot({ operations: { ...operations, request: request(action, 'pending', 'Dom') } }))
           f.fire(1000)
         }
-        await f.reply(duringPoll ? 2 : 1, { [field]: unreachableMessage }, status)
+        await f.reply(duringPoll ? 2 : 1, { [field]: unreachableMessage, code }, status)
         assert.ok(restarts.length, `${action} ${status} ${field} ${duringPoll ? 'poll' : 'POST'} must reconnect`)
         assert.equal(restarts.at(-1).action, action)
         assert.equal(f.feed.installBaseline.action, action)
@@ -637,7 +637,7 @@ for (const action of ['update', 'fast', 'rollback', 'install', 'version']) {
 for (const status of [200, 400, 500]) {
   const f = fixture(true, () => assert.fail('ordinary status failure must not show update recovery'))
   f.feed.start()
-  await f.reply(0, { message: unreachableMessage }, status)
+  await f.reply(0, { message: unreachableMessage, code: 'connection_unavailable' }, status)
   assert.equal(f.states.at(-1).error, unreachableMessage)
   f.feed.stop()
 }
