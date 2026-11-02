@@ -52,6 +52,7 @@ from openpilot.starpilot.ui.conditional_feature import BUTTON_PREFIX, Conditiona
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.wheel_feature import WheelFeature, PREFIX as WHEEL_PREFIX
 from openpilot.starpilot.longitudinal.output_max import KEY as OUTPUT_MAX_KEY
+from openpilot.starpilot.ui.tesla_coop_feature import TeslaCoopFeature
 from openpilot.starpilot.ui.tesla_screen_feature import TeslaScreenFeature, KEYS as TESLA_SCREEN_KEYS
 from openpilot.starpilot.ui.ford_bluepilot_feature import FordBluePilotFeature, KEYS as FORD_BLUEPILOT_KEYS
 from openpilot.starpilot.ui.ford_cluster_feature import FordClusterFeature
@@ -162,6 +163,7 @@ class FeatureSettingsOwner:
                                       configuration_longitudinal=self.configuration_longitudinal)
     self.long_profiles = LongProfileFeature(self)
     self.tesla_screen = TeslaScreenFeature(self)
+    self.tesla_coop = TeslaCoopFeature(self)
     from openpilot.starpilot.ui.gm_cancel_remap_feature import GmCancelRemapFeature
     self.gm_cancel_remap = GmCancelRemapFeature(self)
 
@@ -844,7 +846,7 @@ class FeatureSettingsOwner:
           self.subaru_smoothing.capability() is not None or
           self._subaru_avh_capability() is not None or self._subaru_startup_capability() is not None or self._subaru_sng_capability() is not None or
           self._subaru_software_capability() is not None or self._gm_stop_capability("VoltSNG") is not None or
-          self._gm_stop_capability("GMAutoHold") is not None or self.tesla_screen.capability() is not None or
+          self._gm_stop_capability("GMAutoHold") is not None or self.tesla_screen.capability() is not None or self.tesla_coop.capability() is not None or
           self.gm_tune.capability() is not None or self.gm_truck.capability() is not None or
           self.gm_ev_preset.capability() is not None or self.volt_radar.capability() is not None or
           self.panda_wake.capability() is not None or preap_radar_capability(self.vehicle_params()) is not None):
@@ -887,6 +889,7 @@ class FeatureSettingsOwner:
                              "Retains a cruise-controlled stop until you press a pedal or cancel cruise. Applies after the next startup")
         rows.append(replace(row, available=row.available and self._readable("JeepBrakeHold"), capability=jeep_capability))
       rows.extend(self.tesla_screen.rows(parked))
+      rows.extend(self.tesla_coop.rows(parked))
       rows.extend(self.gm_cancel_remap.rows(parked))
 
       rows.extend(self.preap_radar.rows())
@@ -1378,6 +1381,8 @@ class FeatureSettingsOwner:
       return self._apply_pedal_setup(request)
     if key in PREAP_RADAR_KEYS:
       return self.preap_radar.apply(request)
+    if key == "TeslaCoopSteering":
+      return self.tesla_coop.apply(request)
     if key in TESLA_SCREEN_KEYS:
       return self.tesla_screen.apply(request)
     if key == GM_TUNE_KEY:

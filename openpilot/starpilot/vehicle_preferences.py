@@ -37,6 +37,7 @@ class VehicleStartupPreferences:
   volt_sng: bool = False
   gm_auto_hold: bool = False
   volt_one_pedal: bool = False
+  tesla_cooperative: bool = field(default=False, kw_only=True)
   tesla_screen: bool = False
   tesla_screen_brake: bool = False
   gm_camera_pedal: bool = True
@@ -103,6 +104,8 @@ class VehicleStartupPreferences:
     screen = bool(enabled and readable and safe in (None, b"0") and
                   read_saved(params, 'AlwaysOnLateral', 8) == (b'1', True) and
                   read_saved(params, 'TeslaAOLScreenTap', 8) == (b'1', True))
+    cooperative = bool(enabled and readable and safe in (None, b"0") and
+                       read_saved(params, "TeslaCoopSteering", 8) == (b"1", True))
     screen_brake = read_saved(params, 'TeslaAOLDisengageOnBrake', 8) == (b'1', True)
     return cls(vw_stock_long=vw_stock_long,
                subaru_smoothing=smoothing, subaru_avh_startup=bool(enabled and readable and safe in (None, b"0") and
@@ -114,7 +117,7 @@ class VehicleStartupPreferences:
                subaru_software_cruise=bool(enabled and readable and safe in (None, b"0") and
                    read_saved(params, "SubaruRedneckCruise", 8) == (b"1", True)), toyota_radar_mode=toyota_radar_mode(params, enabled=enabled),
                ford_bluepilot=tuple(ford_bluepilot(params, enabled=enabled).items()), tesla_screen=screen,
-               tesla_screen_brake=screen_brake, toyota_auto_hold=toyota,
+               tesla_screen_brake=screen_brake, tesla_cooperative=cooperative, toyota_auto_hold=toyota,
                toyota_sng=bool(enabled and readable and safe in (None, b"0") and
                                read_saved(params, "SNGHack", 8) == (b"1", True)), jeep_brake_hold=jeep_hold,
                gm_longitudinal_tune=selected_tune(params, enabled=enabled),
@@ -193,6 +196,8 @@ class VehicleStartupPreferences:
     prepare_stock(cp, self.tesla_preap_stock, self.tesla_preap_radar, self.tesla_preap_pedal)
     from opendbc.car.tesla.screen_button import apply_screen_button
     apply_screen_button(cp, self.tesla_screen, self.tesla_screen_brake)
+    from openpilot.starpilot.car.tesla.coop_preferences import prepare
+    prepare(cp, self.tesla_cooperative)
     self._prepare_honda_radar(cp)
     from opendbc.car.chrysler.brake_hold import apply_brake_hold
     apply_brake_hold(cp, self.jeep_brake_hold)
@@ -236,6 +241,8 @@ class VehicleStartupPreferences:
     prepare_stock(cp, self.tesla_preap_stock, self.tesla_preap_radar, self.tesla_preap_pedal)
     from opendbc.car.tesla.screen_button import apply_screen_button
     apply_screen_button(cp, self.tesla_screen, self.tesla_screen_brake)
+    from openpilot.starpilot.car.tesla.coop_preferences import prepare
+    prepare(cp, self.tesla_cooperative)
     self._prepare_honda_radar(cp)
     from opendbc.car.chrysler.brake_hold import apply_brake_hold
     apply_brake_hold(cp, self.jeep_brake_hold)

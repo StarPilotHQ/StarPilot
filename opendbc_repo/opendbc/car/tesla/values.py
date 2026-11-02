@@ -132,6 +132,7 @@ class CarControllerParams:
 class TeslaSafetyFlags(IntFlag):
   LONG_CONTROL = 1
   HW1 = 16
+  COOP_STEERING = 256
   AOL_SCREEN_BUTTON = 512
   AOL_SCREEN_DISENGAGE_ON_BRAKE = 1024
 
@@ -153,3 +154,5 @@ class TeslaFlags(IntFlag):
 DBC = CAR.create_dbc_map()
 
 STEER_THRESHOLD = 1
+
+STEER_DISENGAGE_THRESHOLD = 5.0

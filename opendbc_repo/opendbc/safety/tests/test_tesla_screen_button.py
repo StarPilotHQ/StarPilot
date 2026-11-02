@@ -226,7 +226,7 @@ class TestTeslaScreenButton(unittest.TestCase):
     self.assertFalse(self.lib.safety_tx_hook(steering))
 
   def test_screen_namespace_excludes_hw1_neighbors_and_unknown_flags(self):
-    for word in (16 | 512, 1024, 514, 1538, 512 | 256, 0xFFFF):
+    for word in (16 | 512, 1024, 514, 1538, 512 | 2048, 16 | 256, 0xFFFF):
       self.assertEqual(self.lib.set_safety_hooks(10, word), -1, hex(word))
 
   def test_exact_long_words_debug_authority_and_release_rejection(self):

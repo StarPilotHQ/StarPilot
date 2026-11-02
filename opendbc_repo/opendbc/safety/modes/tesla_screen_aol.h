@@ -126,6 +126,7 @@ static void tesla_screen_rx(const CANPacket_t *msg, bool autopark) {
 }
 
 static bool tesla_screen_param_valid(uint16_t param) {
+  param &= ~256U;
   bool valid = (param == 512U) || (param == 1536U);
 #ifdef ALLOW_DEBUG
   valid = valid || (param == 513U) || (param == 1537U);
@@ -134,6 +135,7 @@ static bool tesla_screen_param_valid(uint16_t param) {
 }
 
 static void tesla_screen_configure(uint16_t param) {
+  param &= ~256U;
   tesla_screen_reset();
   tesla_screen_enabled = tesla_screen_param_valid(param);
   tesla_screen_enabled = tesla_screen_enabled && ((unsigned int)alternative_experience == 32U);

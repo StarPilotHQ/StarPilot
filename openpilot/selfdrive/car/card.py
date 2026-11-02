@@ -1100,6 +1100,13 @@ class Car:
       companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
       companion.starpilotCarState.lateralAuthorityUnavailable = bool(steering_authority.latched)
       companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
+    if self.CP.brand == 'tesla':
+      info = getattr(self.CI.CC, 'steering_limit_info', None)
+      if info:
+        if companion is None:
+          companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
+        companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
+        companion.starpilotCarState.steeringLimitInfo = info
     if getattr(self, 'learning_applied_evidence', None) is not None:
       try:
         from openpilot.starpilot.flm.evidence_hooks import applied_message

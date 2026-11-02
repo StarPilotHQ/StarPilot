@@ -44,7 +44,7 @@ class TestTeslaScreenSettings(unittest.TestCase):
 
   def test_detected_harness_exposes_preferences_without_granting_native_permission(self):
     page = self.page()
-    self.assertEqual({row['label'] for row in page['rows']}, {'Three-Finger AOL Tap', 'Disengage AOL on Brake', 'Alpha Longitudinal'})
+    self.assertEqual({row['label'] for row in page['rows']}, {'Three-Finger AOL Tap', 'Disengage AOL on Brake', 'Alpha Longitudinal', 'Tesla Co-op Steering'})
     self.assertTrue(all(row['available'] and row['value'] == 'Off' and row['defaultValue'] == 'Off' for row in page['rows']))
     self.assertIn('Vehicle Settings', {row['label'] for row in self.page('hub')['rows']})
     master = next(row for row in self.page('aol')['rows'] if row['label'] == 'Enable Always On Lateral')

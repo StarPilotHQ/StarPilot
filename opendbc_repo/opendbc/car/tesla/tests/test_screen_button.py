@@ -52,7 +52,7 @@ def test_no_harness_old_encoding_malformed_cp_or_reused_flags():
     before = cp.to_bytes()
     apply_screen_button(cp, True, True)
     assert cp.to_bytes() == before
-  for word in (2, 3, 16, 256, 1024, 514, 1538):
+  for word in (2, 3, 16, 258, 1024, 514, 1538):
     cp = screen_params()
     cp.safetyConfigs[0].safetyParam = word
     assert not screen_tap_supported(cp)

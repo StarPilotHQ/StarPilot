@@ -5,7 +5,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
 from opendbc.car.tesla.preap.stock import PreAPStockCarState, get_stock_parsers
 from opendbc.car.tesla.hw1 import HW1CarState, get_hw1_can_parsers
-from opendbc.car.tesla.values import CAR, DBC, CANBUS, GEAR_MAP, STEER_THRESHOLD, TeslaFlags
+from opendbc.car.tesla.values import CAR, DBC, CANBUS, GEAR_MAP, STEER_THRESHOLD, STEER_DISENGAGE_THRESHOLD, TeslaFlags, TeslaSafetyFlags
 
 class TeslaScreenCANParser(CANParser):
   def __init__(self):
@@ -31,6 +31,7 @@ class CarState(CarStateBase):
       self.hands_on_level = 0
       self.das_control = {}
       return
+    self.cooperative_steering = CP.carFingerprint == CAR.TESLA_MODEL_3 and bool(CP.safetyConfigs[0].safetyParam & TeslaSafetyFlags.COOP_STEERING)
     self.can_define = CANDefine(DBC[CP.carFingerprint][Bus.party])
     self.shifter_values = self.can_define.dv["DI_systemStatus"]["DI_gear"]
 
@@ -102,7 +103,8 @@ class CarState(CarStateBase):
     # FSD disengages using union of handsOnLevel (slow overrides) and high angle rate faults (fast overrides, high speed)
     eac_error_code = self.can_define.dv["EPAS3S_sysStatus"]["EPAS3S_eacErrorCode"].get(int(epas_status["EPAS3S_eacErrorCode"]), None)
     ret.steeringDisengage = self.hands_on_level >= 3 or (eac_status == "EAC_INHIBITED" and
-                                                         eac_error_code == "EAC_ERROR_HIGH_ANGLE_RATE_SAFETY")
+                                                         eac_error_code == "EAC_ERROR_HIGH_ANGLE_RATE_SAFETY") or (
+                                                           self.cooperative_steering and abs(ret.steeringTorque) > STEER_DISENGAGE_THRESHOLD)
 
     # Cruise state
     cruise_state = self.can_define.dv["DI_state"]["DI_cruiseState"].get(int(cp_party.vl["DI_state"]["DI_cruiseState"]), None)

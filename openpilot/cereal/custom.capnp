@@ -214,6 +214,7 @@ struct StarPilotCarState @0xf35cc4560bbf6ec2 {
   fordLearningEvidence @35 :FordLearningEvidence;
   learningApplication @36 :LearningApplication;
   feedbackPublication @37 :FeedbackPublication;
+  steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo;
   toyotaCruise @38 :ToyotaCruise;
 
   struct ToyotaCruise {
