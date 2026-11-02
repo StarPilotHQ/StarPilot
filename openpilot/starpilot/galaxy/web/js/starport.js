@@ -124,7 +124,7 @@ const PAIR_UI = `
             <p v-if="pairing?.state === 'connecting'" role="status">Connecting to {{ pairing.receiver?.name || 'the selected device' }}…</p>
             <p v-if="['paired', 'connected'].includes(pairing?.state)" role="status"><i class="bi bi-check-circle-fill gx-starport-ok"></i> {{ pairing.receiver?.name || 'Device' }} {{ pairing.state === 'connected' ? 'connected' : 'paired' }}.</p>
             <GxNotice tone="danger" v-if="pairing?.error">{{ pairing.error }}</GxNotice>
-            <ul v-if="pairing?.active" class="gx-starport-list" aria-label="Nearby devices">
+            <ul v-if="pairing?.active && !deviceChosen" class="gx-starport-list" aria-label="Nearby devices">
               <li v-if="!pairing.devices?.length && waitingForCar" class="gx-starport-row gx-note" role="status"><span class="gx-spinner" aria-hidden="true"></span>Nothing found yet. Keep your car’s pairing screen open.</li>
               <li v-for="device in pairing.devices || []" :key="device.address" class="gx-starport-row">
                 <i :class="device.starport ? 'bi bi-car-front' : 'bi bi-bluetooth'" aria-hidden="true"></i>
@@ -132,7 +132,7 @@ const PAIR_UI = `
                 <button class="gx-btn gx-btn--tonal" :disabled="deviceSelectionBlocked" @click="selectDevice(device.address)">{{ device.paired ? 'Connect' : 'Pair' }}</button>
               </li>
             </ul>
-            <div v-if="pairing?.prompt" class="gx-starport-prompt" role="status"><strong>{{ pairing.receiver.name }}</strong>
+            <div v-if="pairing?.prompt" ref="pairPrompt" class="gx-starport-prompt" role="status"><strong>{{ pairing.receiver.name }}</strong>
               <p>{{ pairing.prompt.kind === 'confirmation' ? 'Check that this code matches your car, then confirm.' :
                 pairing.prompt.kind === 'pin' ? 'Enter the PIN shown by your car.' :
                 pairing.prompt.kind === 'passkey' ? 'Enter your car’s passkey.' :
@@ -595,7 +595,11 @@ export const StarPortPage = {
   watch: {
     mode() { if (!document.hidden) this.begin(); else this.feed?.stop(true) },
     localAccess() { if (!document.hidden) this.begin(); else this.feed?.stop(true) },
-    'pairing.prompt.id'() { this.pairValue = "" },
+    'pairing.prompt.id'(id) {
+      this.pairValue = ""
+      // Bring the code into view: the list above it can be long.
+      if (id !== undefined) this.$nextTick(() => this.$refs.pairPrompt?.scrollIntoView?.({ behavior: "smooth", block: "center" }))
+    },
     'pairing.active'(active, was) { if (was && !active) this.loadReceivers() },
     // Find car on a fresh device turns Android Auto on first, then searches once the service is up.
     'setup.serviceReady'() { this.resumePairing() },
@@ -758,6 +762,11 @@ export const StarPortPage = {
     waitingForCar() {
       return this.pairing?.active && !this.pairing?.receiver && !this.pairing?.prompt && !this.pairing?.approved &&
         !["pairing", "connecting", "paired", "connected", "failed"].includes(this.pairing?.state)
+    },
+    // Once a device is picked the list only gets in the way of the code; it returns if pairing fails.
+    deviceChosen() {
+      const p = this.pairing
+      return !!(p?.receiver || p?.prompt || p?.approved || ["pairing", "connecting", "paired", "connected"].includes(p?.state))
     },
     deviceSelectionBlocked() {
       return !!this.pairingReason || !this.pairing?.active ||
