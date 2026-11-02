@@ -162,7 +162,7 @@ class TestCalibrationIdentity(OpenpilotTestCase):
             put_cache(params, 'CarParamsPrevRoute', old, block=True)
         captured = []
 
-        def capture(**kwargs):
+        def capture(captured=captured, **kwargs):
           captured.append(real_calibrator(**kwargs))
           raise StartupCaptured
 
