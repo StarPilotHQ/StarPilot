@@ -237,7 +237,7 @@ def test_vehicle_defaults_and_explicit_controller_choices(tmp_path, car, default
   for label, raw, choice, vendor_mode in (
     ('BluePilot Curvature', b'2', FordController.BLUEPILOT_CURVATURE, b'0'),
     ('BluePilot Angle', b'1', FordController.BLUEPILOT_ANGLE, b'1'),
-    ('StarPilot Controller', b'3', FordController.STARPILOT, b'0'),
+    ('StarPilot Controller', b'3', FordController.STARPILOT, b'1'),
   ):
     assert change(o, MODE, label)
     assert saved(o, MODE) == raw and rows(o)[MODE].value == label

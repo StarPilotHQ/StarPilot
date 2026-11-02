@@ -1,6 +1,7 @@
 """BluePilot lateral: StarPilot's startup settings and the per-frame inputs its Ford CarController reads
 (opendbc bluepilot_lateral/hosts/starpilot)."""
 from collections import deque
+from dataclasses import replace
 import math
 import numpy as np
 
@@ -12,6 +13,8 @@ from opendbc.bluepilot_lateral.core.values_ext import BP_LATERAL_PARAMS
 from opendbc.bluepilot_lateral.hosts.starpilot.lateral import BluePilotLateral, FrameInputs
 from opendbc.bluepilot_lateral.core.lateral_curv_ext import PrimaryLateralControl, MAX_LATERAL_ACCEL
 from opendbc.bluepilot_lateral.core.values_ext import BP_ANGLE_LIMITS
+from opendbc.bluepilot_lateral.core.lateral_angle_ext import LateralAngleExt
+from opendbc.bluepilot_lateral.core.lateral_inputs import lateral_inputs_complete
 from opendbc.bluepilot_lateral.can.fordcan_ext import lat_ctl2_checksum, create_lat_ctl2_msg
 from opendbc.car.ford.values import CarControllerParams, FordFlags
 from opendbc.car import structs
@@ -62,6 +65,7 @@ class BluePilotInputs:
     self.params = params
     self.cp = cp
     self.controller_choice = FordController.BLUEPILOT_CURVATURE
+    self.current_inputs_valid = False
     self.sm = messaging.SubMaster(["modelV2", "vehicleParameters", "lateralDelay"])
     self.frames = 0
     self.settings = []
@@ -73,7 +77,7 @@ class BluePilotInputs:
     for key in BP_LATERAL_PARAMS:
       try:
         if key == "FordPrefLateralControl":
-          value = int(self.controller_choice == FordController.BLUEPILOT_ANGLE)
+          value = int(self.controller_choice in (FordController.BLUEPILOT_ANGLE, FordController.STARPILOT))
         elif key == "disable_BP_lat_UI" and self.controller_choice is None:
           value = True
         else:
@@ -97,6 +101,7 @@ class BluePilotInputs:
     li, md, vp = frame.lateralInputs, self.sm["modelV2"], self.sm["vehicleParameters"]
     li.valid = bool(self.sm.seen["modelV2"] and self.sm.seen["vehicleParameters"] and
                     len(md.laneLines) >= 3 and len(md.laneLineProbs) >= 3 and len(md.laneLineStds) >= 3)
+    self.current_inputs_valid = bool(li.valid and self.sm.all_checks(["modelV2", "vehicleParameters"]))
     if li.valid:
       li.pathYawRate = list(md.orientationRate.z)
       li.pathX = list(md.position.x)
@@ -125,6 +130,9 @@ class FordBluePilotController(BluePilotLateral):
     self.inputs_source = inputs_source
     self.starpilot_controller = None
     self.starpilot_selected = False
+    self.starpilot_frame_valid = False
+    self.lateral_active = False
+    self.last_measured_curvature = 0.0
     self.speed_history = deque(maxlen=6)
     self.measured_history = deque([0] * 6, maxlen=6)
     self.measured_speed = 0
@@ -151,20 +159,32 @@ class FordBluePilotController(BluePilotLateral):
           self.measured_seen = True
 
   def update(self, frame_inputs, frame):
-    active = super().update(frame_inputs, frame)
     selected = (self.inputs_source is not None and
                 self.inputs_source.controller_choice == FordController.STARPILOT)
+    if selected != self.starpilot_selected and self.lateral_active:
+      # Apply a controller change only after an inactive steering frame, never mid-maneuver.
+      selected = self.starpilot_selected
+      mode = int(self.curv.primary_lateral_control == PrimaryLateralControl.angle)
+      frame_inputs = replace(frame_inputs, params=[
+        FrameInputs.Param(p.key, str(mode).encode()) if p.key == "FordPrefLateralControl" else p
+        for p in frame_inputs.params])
     if selected != self.starpilot_selected:
-      self.starpilot_controller = None
+      from openpilot.starpilot.car.ford.starpilot_controller import StarPilotFordController
+      self.angle = (StarPilotFordController if selected else LateralAngleExt)(self.CP, self.inputs, self.shared)
+      self.angle.bp_kappa_cmd = self.last_measured_curvature
+      self.shared.human_turn_detector.reset()
+      self.starpilot_controller = self.angle if selected else None
     self.starpilot_selected = selected
-    return active
+    self.starpilot_frame_valid = bool(frame_inputs.lateralInputs.valid and lateral_inputs_complete(frame_inputs.lateralInputs) and
+                                      getattr(self.inputs_source, "current_inputs_valid", False))
+    return super().update(frame_inputs, frame)
 
   def step_lateral(self, CC, CS, actuators, apply_curvature_last):
-    if self.starpilot_selected:
-      if self.starpilot_controller is None:
-        from openpilot.starpilot.car.ford.starpilot_controller import StarPilotFordController
-        self.starpilot_controller = StarPilotFordController(self.CP, self.inputs.get_current_curvature)
-      return self.starpilot_controller.step(self, CC, CS, actuators, apply_curvature_last)
+    measured = self.inputs.get_current_curvature(CS)
+    self.last_measured_curvature = measured if math.isfinite(measured) else 0.0
+    self.lateral_active = bool(CC.latActive)
+    if self.starpilot_selected and (not self.starpilot_frame_valid or not self.angle.inputs_valid(CS, actuators)):
+      CC = structs.CarControl.new_message(latActive=False)
     packets, applied = super().step_lateral(CC, CS, actuators, apply_curvature_last)
     return self._constrain_curvature(CC, CS, actuators, apply_curvature_last, packets, applied)
 
