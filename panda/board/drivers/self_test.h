@@ -133,7 +133,7 @@ static bool ram_test_block(uint32_t addr, uint32_t words, uint32_t start, uint32
   __attribute__((section(".sram12"))) static volatile uint32_t ram_test_backup[RAM_TEST_BLOCK_WORDS];
   volatile uint32_t *p = (uint32_t *)addr;
   volatile uint32_t *alias[RAM_TEST_ALIASES] = {NULL};
-  uint32_t alias_val[RAM_TEST_ALIASES] = {0U};
+  uint32_t alias_val[RAM_TEST_ALIASES] = {0};
   uint8_t aliases = 0U;
   for (uint32_t bit = RAM_TEST_BLOCK_WORDS * 4U; (bit < (end - start)) && (aliases < RAM_TEST_ALIASES); bit <<= 1U) {
     uint32_t a = addr ^ bit;
@@ -220,7 +220,7 @@ static void ram_scrub_next(void) {
 // board/crypto/sign.py: length, image, crc32 of everything before it, version tag and version, signature
 static uint32_t flash_crc_len(void) {
   uint32_t len = (uint32_t)_app_start[0];
-  return ((len >= 12U) && (len <= (sizeof(_app_start) - RSANUMBYTES))) ? (len - 12U) : 0U;
+  return ((len >= 12U) && (len <= (sizeof(_app_start) - (uint32_t)RSANUMBYTES))) ? (len - 12U) : 0U;
 }
 
 static uint32_t flash_crc_stored(void) {
