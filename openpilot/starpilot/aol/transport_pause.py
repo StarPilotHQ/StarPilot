@@ -122,6 +122,9 @@ def stock_lateral_off(cp, cs, native, *, allow_independent_cancel=False, allow_i
 
   from openpilot.starpilot.car.toyota.aol import qualified as toyota_qualified
 
+  from opendbc.car.gm.aol import qualified_gm
+
+  gm_stock_gas = bool(cp.brand == 'gm' and qualified_gm(cp) and cp.pcmCruise and not cp.openpilotLongitudinalControl)
   independent_angle = angle_qualified(cp, marked_only=True)
   independent_brake = independent_angle or (allow_independent_brake and (
     toyota_qualified(cp, marked_only=True) and not cs.cruiseState.enabled or
@@ -132,7 +135,7 @@ def stock_lateral_off(cp, cs, native, *, allow_independent_cancel=False, allow_i
     not cs.accFaulted and not cs.doorOpen and not cs.seatbeltUnlatched and
     (not cs.brakePressed or independent_brake and allow_independent_brake) and
     not cs.regenBraking and (not cs.gasPressed or independent_angle or
-      allow_independent_gas and (toyota_qualified(cp, marked_only=True) or
+      allow_independent_gas and (gm_stock_gas or toyota_qualified(cp, marked_only=True) or
         cp.brand == 'hyundai' and stock_canfd_qualified(cp, marked_only=True))) and
     (not physical_cancel(cs, cp) or independent_angle and allow_independent_cancel) and
     native is not None and native.requestedLateral and native.lateralAllowed and not native.requestedLongitudinal)
@@ -870,11 +873,15 @@ class TransportPauseFeedback:
     toyota_pedal = bool(toyota_qualified(cp, marked_only=True) and cs.brakePressed != cs.gasPressed and
       not cs.regenBraking and self.lateral_only_baseline and
       not native.requestedLongitudinal and not native.longitudinalAllowed)
+    from opendbc.car.gm.aol import qualified_gm
+    gm_stock_gas = bool(cp.brand == 'gm' and qualified_gm(cp) and cp.pcmCruise and not cp.openpilotLongitudinalControl and
+      cs.gasPressed and not cs.brakePressed and not cs.regenBraking and self.lateral_only_baseline and
+      not native.requestedLongitudinal and not native.longitudinalAllowed)
     stock_user = stock_lateral_user_event(cp)
     stock_lateral = bool(reason == 'availabilityPause' and axis.sourceCarStateMonoTime == 0 and
       not axis.lateralActive and not axis.longitudinalActive and not axis.desiredLongitudinal and
       stock_lateral_off(cp, cs, native, allow_independent_brake=toyota_pedal,
-                        allow_independent_gas=toyota_pedal and cs.gasPressed) and previous is not None and
+                        allow_independent_gas=gm_stock_gas or toyota_pedal and cs.gasPressed) and previous is not None and
       previous[0] == self.session and previous[7] == self.session and
       previous[14] == intent_producer_session and previous[15] == self.availability_epoch and
       (previous[11] and not previous[12] and previous[13] and not previous[10] and
