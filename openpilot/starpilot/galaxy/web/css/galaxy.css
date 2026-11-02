@@ -2013,13 +2013,13 @@ progress { max-width: 100%; accent-color: var(--primary); }
   --g-line: color-mix(in srgb, var(--on-surface) 11%, transparent);
   --g-track: color-mix(in srgb, var(--on-surface) 16%, var(--background));  /* opaque, so overlapping segments never show a seam */
   --g-accent: var(--primary);
-  --g-done: #30d158;
+  --g-done: var(--success);
   --g-thumb: rgba(255, 255, 255, .18);
   display: grid; gap: var(--sp-5); padding: 28px 28px var(--sp-5); border-radius: var(--radius-lg); margin-block: var(--sp-4);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, "Segoe UI", sans-serif;
+  font-family: var(--font-body);
   font-size: 16px; line-height: 1.4; color: var(--g-ink); -webkit-font-smoothing: antialiased;
 }
-[data-theme="light"] .gx-card.gx-guided { --g-done: #248a3d; --g-thumb: #fff; }
+[data-theme="light"] .gx-card.gx-guided { --g-thumb: #fff; }
 
 /* The step track: three numbered nodes on a line that fills as the setup moves along. */
 .gx-guided__steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); }
@@ -2032,21 +2032,21 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-guided__step.is-done + .gx-guided__step::before { background: var(--g-done); }
 .gx-guided__node {
   position: relative; z-index: 1; display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-full);
-  font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; background: var(--g-fill); color: var(--g-muted);
+  font-size: 15px; font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; background: var(--g-fill); color: var(--g-muted);
   transition: background var(--motion-base), color var(--motion-base), box-shadow var(--motion-base);
 }
 .gx-guided__step.is-current .gx-guided__node { background: var(--g-accent); color: var(--on-primary); box-shadow: 0 0 0 5px color-mix(in srgb, var(--g-accent) 24%, transparent); }
-.gx-guided__step.is-done .gx-guided__node { background: var(--g-done); color: #fff; animation: gx-guided-pop var(--motion-slow); }
-.gx-guided__step-label { font-size: 13px; font-weight: 600; color: var(--g-muted); }
+.gx-guided__step.is-done .gx-guided__node { background: var(--g-done); color: var(--background); animation: gx-guided-pop var(--motion-slow); }
+.gx-guided__step-label { font-size: 13px; font-weight: var(--fw-bold); color: var(--g-muted); }
 .gx-guided__step.is-current .gx-guided__step-label { color: var(--g-ink); }
 @keyframes gx-guided-pop { 0% { transform: scale(.7); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
 .gx-guided__sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .gx-guided__header { display: grid; gap: 6px; max-width: 34rem; }
-.gx-guided__title { margin: 0; font-size: 30px; line-height: 1.12; font-weight: 650; letter-spacing: -.024em; text-wrap: balance; }
+.gx-guided__title { margin: 0; font-size: 30px; line-height: 1.12; font-weight: var(--fw-bold); letter-spacing: -.02em; text-wrap: balance; }
 .gx-guided__lede { margin: 0; font-size: 17px; line-height: 1.45; color: var(--g-muted); text-wrap: pretty; }
 .gx-guided__section { display: grid; gap: 10px; }
-.gx-guided__subhead { margin: 0 0 0 var(--sp-1); font-size: 15px; font-weight: 600; color: var(--g-muted); }
+.gx-guided__subhead { margin: 0 0 0 var(--sp-1); font-size: 15px; font-weight: var(--fw-bold); color: var(--g-muted); }
 .gx-guided__hint { margin: 0 var(--sp-1); font-size: 14px; color: var(--g-muted); }
 
 /* Inset grouped lists, as in iOS Settings: the page's .gx-starport-list and .gx-starport-row, restyled once, here, for the pairing
@@ -2058,11 +2058,11 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-guided .gx-starport-list .gx-starport-row { background: none; box-shadow: none; }
 .gx-guided .gx-starport-row { min-height: 56px; padding: 10px var(--sp-4); gap: 14px; border: 0; border-radius: 0; flex-wrap: nowrap; }
 .gx-guided .gx-starport-row__text { flex: 1 1 0; }
-.gx-guided .gx-starport-row__text strong { font-size: 16px; font-weight: 590; letter-spacing: -.01em; }
+.gx-guided .gx-starport-row__text strong { font-size: 16px; font-weight: var(--fw-bold); letter-spacing: -.01em; }
 .gx-guided .gx-starport-row__text small { font-size: 14px; line-height: 1.3; color: var(--g-muted); }
 .gx-guided .gx-starport-row > i { color: var(--g-muted); font-size: 20px; }
 .gx-guided .gx-starport-ok { color: var(--g-done); }
-.gx-guided .gx-starport-pill { border: 0; background: var(--g-fill-hover); color: var(--g-muted); font-size: 13px; font-weight: 600; }
+.gx-guided .gx-starport-pill { border: 0; background: var(--g-fill-hover); color: var(--g-muted); font-size: 13px; font-weight: var(--fw-bold); }
 .gx-guided .gx-starport-pill--ready { background: color-mix(in srgb, var(--g-done) 20%, transparent); color: var(--g-done); }
 
 /* Connection options: a radio row with a coloured icon tile, as in iOS Settings. */
@@ -2078,14 +2078,7 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-guided__option:focus-visible, .gx-guided__segmented button:focus-visible, .gx-guided__link:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--g-accent) 70%, transparent); outline-offset: -3px; border-radius: var(--radius-sm);
 }
-.gx-guided__tile {
-  flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; color: #fff; font-size: 20px;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
-}
-.gx-guided__tile.is-blue { background: linear-gradient(180deg, #4aa3ff, #0a84ff); }
-.gx-guided__tile.is-orange { background: linear-gradient(180deg, #ffb84a, #ff9f0a); }
-.gx-guided__tile.is-gray { background: linear-gradient(180deg, #a1a1a6, #7c7c82); }
-.gx-guided__tile.is-purple { background: linear-gradient(180deg, #d58cff, #bf5af2); }
+.gx-guided__tile { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--primary-container); color: var(--primary); font-size: 20px; }
 .gx-guided__cars { --g-inset: 70px; }
 .gx-guided__radio {
   flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: var(--radius-full); font-size: 14px; color: transparent;
@@ -2097,7 +2090,7 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-guided__segmented { display: flex; gap: 2px; padding: 3px; background: var(--g-fill); border-radius: var(--radius-sm); }
 .gx-guided__segmented button {
   flex: 1; min-height: 44px; padding: 6px 8px; border: 0; border-radius: calc(var(--radius-sm) - 3px); background: none; color: var(--g-muted);
-  font: inherit; font-size: 15px; font-weight: 560; line-height: 1.2; text-wrap: balance; cursor: pointer;
+  font: inherit; font-size: 15px; font-weight: var(--fw-medium); line-height: 1.2; text-wrap: balance; cursor: pointer;
   transition: background var(--motion-base), color var(--motion-base), box-shadow var(--motion-base);
 }
 .gx-guided__segmented button.is-selected { background: var(--g-thumb); color: var(--g-ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .22), 0 0 0 .5px rgba(0, 0, 0, .06); }
@@ -2124,9 +2117,9 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-guided__body:empty { display: none; }
 .gx-guided .gx-note, .gx-guided .gx-notice, .gx-guided .gx-starport-guide { margin: 0; padding: 14px var(--sp-4); border: 0; border-radius: var(--radius-sm); background: var(--g-fill); font-size: 15px; line-height: 1.45; }
 .gx-guided .gx-starport-prompt { padding: 18px; border-radius: var(--radius-md); background: var(--g-fill); }
-.gx-guided .gx-starport-prompt__code { font-size: 34px; font-weight: 650; }
+.gx-guided .gx-starport-prompt__code { font-size: 34px; font-weight: var(--fw-bold); }
 .gx-guided .gx-starport-wiki { background: var(--g-fill); border: 0; border-radius: var(--radius-sm); padding: 0; overflow: hidden; color: var(--g-muted); }
-.gx-guided .gx-starport-wiki > summary { padding: 14px var(--sp-4); font-size: 15px; font-weight: 560; color: var(--g-ink); }
+.gx-guided .gx-starport-wiki > summary { padding: 14px var(--sp-4); font-size: 15px; font-weight: var(--fw-medium); color: var(--g-ink); }
 .gx-guided .gx-starport-wiki > :not(summary) { margin-inline: var(--sp-4); font-size: 14px; line-height: 1.5; }
 .gx-guided .gx-starport-wiki > :last-child { margin-bottom: var(--sp-4); }
 .gx-guided .gx-starport-wiki > .gx-starport-list { margin-inline: 0; margin-top: 0; border-radius: 0; background: none; border-top: 1px solid var(--g-line); }
@@ -2135,13 +2128,13 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-guided .gx-row { background: var(--g-fill); border: 0; border-radius: var(--radius-md); padding: var(--sp-3) var(--sp-4); }
 
 /* Buttons: soft tonal, and a large primary. */
-.gx-guided .gx-btn { min-height: 44px; border-radius: var(--radius-sm); font-size: 16px; font-weight: 590; letter-spacing: -.01em; padding-inline: 18px; box-shadow: none; }
+.gx-guided .gx-btn { min-height: 44px; border-radius: var(--radius-sm); font-size: 16px; font-weight: var(--fw-bold); letter-spacing: -.01em; padding-inline: 18px; box-shadow: none; }
 .gx-guided .gx-btn--tonal { background: var(--g-fill-hover); color: var(--g-ink); border: 0; }
 .gx-guided .gx-btn--tonal:hover:not(:disabled) { background: var(--g-line); }
 .gx-guided .gx-starport-cta { width: 100%; min-height: 54px; border-radius: var(--radius-md); font-size: 17px; }
 .gx-guided__footer { display: grid; gap: var(--sp-3); justify-items: stretch; }
 .gx-guided__footer .gx-guided__hint { text-align: center; }
-.gx-guided__link { justify-self: center; padding: var(--sp-2) var(--sp-3); border: 0; background: none; color: var(--g-accent); font: inherit; font-size: 15px; font-weight: 560; cursor: pointer; }
+.gx-guided__link { justify-self: center; padding: var(--sp-2) var(--sp-3); border: 0; background: none; color: var(--g-accent); font: inherit; font-size: 15px; font-weight: var(--fw-medium); cursor: pointer; }
 .gx-guided__link:hover:not(:disabled) { text-decoration: underline; }
 .gx-guided__link:disabled { opacity: .5; cursor: default; }
 

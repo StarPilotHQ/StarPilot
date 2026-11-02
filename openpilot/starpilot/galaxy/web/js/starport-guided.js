@@ -11,10 +11,10 @@ export const BLUETOOTH_FIRST = /connect your paired car in galaxy bluetooth firs
 export const BLUETOOTH_HINT = { text: "Connect your car in Bluetooth first, then come back and tap Connect.", href: "#/bluetooth", label: "Open Bluetooth" }
 
 const CHOICES = [
-  { key: "builtin", title: "Built-in wireless", detail: "Your car has wireless Android Auto.", icon: "car-front-fill", tone: "blue" },
-  { key: "adapter", title: "Wireless adapter", detail: "AAWireless, Motorola MA1 or similar, plugged into the car.", icon: "usb-plug-fill", tone: "orange" },
-  { key: "usb", title: "USB cable", detail: "A data cable from the car to your comma.", icon: "usb-c-fill", tone: "gray" },
-  { key: "app", title: "Tablet app", detail: "An iPad or Android tablet shows the dashboard.", icon: "tablet-fill", tone: "purple" },
+  { key: "builtin", title: "Built-in wireless", detail: "Your car has wireless Android Auto.", icon: "car-front" },
+  { key: "adapter", title: "Wireless adapter", detail: "AAWireless, Motorola MA1 or similar, plugged into the car.", icon: "usb-symbol" },
+  { key: "usb", title: "USB cable", detail: "A data cable from the car to your comma.", icon: "usb-c" },
+  { key: "app", title: "Tablet app", detail: "An iPad or Android tablet shows the dashboard.", icon: "tablet" },
 ]
 
 const INSTRUCTIONS = {
@@ -148,7 +148,7 @@ export const StarPortGuidedSetup = {
           <li v-for="choice in state.choices" :key="choice.key">
             <button type="button" class="gx-guided__option" role="radio" :aria-checked="choice.selected ? 'true' : 'false'"
                 :disabled="busy" @click="$emit('choose-type', choice.key)">
-              <span class="gx-guided__tile" :class="'is-' + choice.tone" aria-hidden="true"><i :class="'bi bi-' + choice.icon"></i></span>
+              <span class="gx-guided__tile" aria-hidden="true"><i :class="'bi bi-' + choice.icon"></i></span>
               <span class="gx-starport-row__text"><strong>{{ choice.title }}</strong><small>{{ choice.detail }}</small></span>
               <span class="gx-guided__radio" aria-hidden="true"><i v-if="choice.selected" class="bi bi-check-lg"></i></span>
             </button>
@@ -178,7 +178,7 @@ export const StarPortGuidedSetup = {
         <h3 class="gx-guided__subhead">Paired cars</h3>
         <ul class="gx-starport-list gx-guided__cars" aria-label="Paired cars that offer Android Auto">
           <li v-for="car in state.candidates" :key="car.address" class="gx-starport-row">
-            <span class="gx-guided__tile is-blue" aria-hidden="true"><i class="bi bi-car-front-fill"></i></span>
+            <span class="gx-guided__tile" aria-hidden="true"><i class="bi bi-car-front"></i></span>
             <span class="gx-starport-row__text"><strong>{{ car.name }}</strong><small>Paired and offers Android Auto</small></span>
             <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="$emit('use-car', car.address)">Use</button>
           </li>
