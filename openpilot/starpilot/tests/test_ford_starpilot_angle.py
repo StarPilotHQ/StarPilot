@@ -15,8 +15,8 @@ from opendbc.car.ford.values import CAR
 from openpilot.starpilot.car.ford.starpilot_controller import CurvatureConditioner, StarPilotFordController
 
 
-def controller(kind=StarPilotFordController, speed=20.0, pinion=False):
-  cp = CarInterface.get_params(CAR.FORD_MUSTANG_MACH_E_MK1, gen_empty_fingerprint(), [], False, False, False)
+def controller(kind=StarPilotFordController, speed=20.0, pinion=False, car=CAR.FORD_MUSTANG_MACH_E_MK1):
+  cp = CarInterface.get_params(car, gen_empty_fingerprint(), [], False, False, False)
   init_ford_safety_param_starpilot(cp, STARTUP['on+pinion' if pinion else 'on'])
   inputs = InputTracker(cp, bp_safety_param(cp))
   inputs.update(StraightRoadInputs(settings(STARTUP['on'], True)).update().lateralInputs)
@@ -39,35 +39,36 @@ def test_small_signal_smoothing_has_no_dc_bias_or_unbounded_lag():
   targets = np.array([.0003 + (-1) ** i * .0001 for i in range(200)])
   outputs = np.array([filt.update(float(x), 25.) for x in targets])
   assert np.mean(np.abs(np.diff(outputs[20:]))) < .4 * np.mean(np.abs(np.diff(targets[20:])))
-  assert np.max(np.abs(outputs - targets)) * 25. ** 2 <= .08 + 1e-12
+  assert np.max(np.abs(outputs - targets)) * 25. ** 2 <= .04 + 1e-12
   for _ in range(100):
     output = filt.update(.0003, 25.)
   assert output == pytest.approx(.0003, abs=1e-12)
 
 
 @pytest.mark.parametrize('sign', [-1., 1.])
-def test_meaningful_unwind_and_reversal_do_not_carry_filter_history(sign):
+def test_unwind_is_bounded_and_reversal_or_zero_clears_filter_history(sign):
   filt = CurvatureConditioner()
   filt.update(sign * .002, 20.)
-  assert filt.update(sign * .001, 20.) == sign * .001
+  assert abs(filt.update(sign * .001, 20.) - sign * .001) * 20. ** 2 <= .04 + 1e-12
   assert filt.update(-sign * .001, 20.) == -sign * .001
   assert filt.update(0., 20.) == 0.
 
 
-def test_large_curve_demand_and_driver_lane_change_bypass_filter():
+def test_large_curve_has_bounded_lag_and_driver_lane_change_bypass_filter():
   filt = CurvatureConditioner()
   filt.update(0., 20.)
-  assert filt.update(.004, 20.) == .004
+  assert abs(filt.update(.004, 20.) - .004) * 20. ** 2 <= .04 + 1e-12
   assert filt.update(.0001, 20., bypass=True) == .0001
   filt.reset()
   assert filt.update(-.0002, 20.) == -.0002
 
 
 @pytest.mark.parametrize('speed', [3., 10., 20., 30.])
-def test_passthrough_conditioner_matches_pinned_angle_strategy(speed):
+def test_passthrough_conditioner_matches_planner_primary_pinned_limit_chain(speed):
   candidate, cc, cs = controller(speed=speed)
   baseline, baseline_cc, baseline_cs = controller(LateralAngleExt, speed=speed)
   candidate.conditioner.update = lambda target, speed, bypass=False: target
+  baseline.path_angle_blend_ratio = 0.0
   for i in range(300):
     curve = .004 * math.sin(i / 30.)
     set_curve(candidate, cc, cs, curve)
@@ -107,7 +108,7 @@ def test_override_inactive_and_pulse_clear_conditioner():
     assert result.path_angle == 0. and angle.conditioner.curvature is None
   cc.latActive = False
   angle.update_angle_strategy(cc, cs, cc.actuators)
-  assert angle.conditioner.curvature is None and angle._desired_curvature_last == 0.
+  assert angle.conditioner.curvature is None and angle.shared.path_angle_last == 0.
 
 
 @pytest.mark.parametrize('field,value', [

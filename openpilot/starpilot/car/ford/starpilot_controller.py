@@ -5,39 +5,27 @@ Source: BluePilot 2b9dc6cc784faac47a1885d0bda0561f7b76f74d, core/lateral_angle_e
 Copyright (c) 2020, Comma.ai, Inc.; (c) 2024-2026, BluePilot contributors;
 (c) 2026, firestar5683 and StarPilot contributors. MIT terms and contributor
 credits remain in THIRD_PARTY_NOTICES.md and the pinned BluePilot LICENSE.
-StarPilot owns the bounded demand conditioning; BluePilot does not maintain this adaptation.
+StarPilot owns this adaptation; BluePilot does not maintain it.
 
-Ford's path-angle signal (radians), not a steering-wheel angle, remains the sole
-actuator: kappa_cmd * speed * the BluePilot platform gain. Planner/model prediction,
-human-turn handling, reactive recovery, saturation and wire limits retain the pinned strategy.
-Ordinary steering-pressure release does not trigger a reset; measured-deviation recovery remains.
-StarPilot conditions small blended-curvature corrections before those limiters; it
-adds no integral, lane-position controller, torque field or extra wire authority.
-
-**Human-turn override**: while the driver manually turns (same sustained-press + angle criteria
-as ``lateral_curv_ext``, via the shared ``HumanTurnDetector``), lateral is forced inactive (mode
-0, all-zero signals) instead of winding path_angle into a stale command the PSCM has to reconcile
-on release -- on the Mach-E's PSCM that reconciliation cost 2-3 s of dead time before control
-resumed. Mode 0 is panda-clean by construction: every ford.h check has a legitimate
-!steer_control_enabled branch. On release, path_angle ramps back in from zero through the soft
-ROC below (no jump seed) -- generous at human-turn speeds, and admitted by ford.h's path_angle
-ROC check (2% looser).
+The planner owns desired curvature and optional lane centering. StarPilot smooths
+small corrections without averaging that demand with a second model trajectory.
+Ford path angle remains kappa_cmd * speed * the BluePilot platform gain, not a
+steering-wheel angle. Native measurement envelopes, manual-turn handling, reactive
+recovery, saturation, rate limits and zero curvature/offset wire fields are retained.
+No additional feedback loop, integral, torque field or wire authority is introduced.
 """
 import math
 
-import numpy as np
 from numpy import clip, interp
 
 from opendbc.car import DT_CTRL
 from opendbc.car.lateral import apply_std_steer_angle_limits
 from opendbc.car.ford.values import CarControllerParams
 from opendbc.bluepilot_lateral.core.lateral_curv_ext import LateralResult
-from opendbc.bluepilot_lateral.core.lane_center_trim import LaneCenterTrim
 from opendbc.bluepilot_lateral.core.values_ext import (
   ANGLE_GAIN_CAN, ANGLE_GAIN_CANFD_BOF, ANGLE_GAIN_CANFD_BOF_CARS, ANGLE_GAIN_CANFD_SUV, ANGLE_GAIN_CANFD_SUV_CARS,
   BP_ANGLE_LIMITS, LANE_CHANGE_FACTOR_BP, LANE_CHANGE_FACTOR_LOW,
 )
-from opendbc.bluepilot_lateral.core.values_ext import MODEL_T_IDXS
 from opendbc.bluepilot_lateral.params.manifest import default
 
 # The host negates path angle before packing the DBC range [-0.5, 0.5235] rad.
@@ -45,21 +33,6 @@ from opendbc.bluepilot_lateral.params.manifest import default
 FORD_PATH_ANGLE_MIN = -0.5235
 FORD_PATH_ANGLE_MAX = 0.5
 
-
-# Default blend ratio validated on F-150 fleet data (0.5s lookup time).
-_FORD_PATH_ANGLE_BLEND_RATIO_DEFAULT = 0.50
-
-# Variable lookup time (VLT): curvature_lookup_time adapts to speed and curvature magnitude.
-# t_lookup = t_base + t_extra_max × speed_factor(v) × kappa_factor(|κ|)
-# t_base = liveDelay.lateralDelay + DT_MDL — always matches the planner's pre-compensation floor.
-# Extra lookahead collapses toward zero at high speed (PSCM responds faster)
-# and at large curvature (prevents blend importing a "start unwinding" signal too early).
-_DT_MDL = 0.05                       # model loop period (matches common/realtime.py)
-_VLT_T_EXTRA_MAX = 0.10              # max extra lookahead above t_base
-_VLT_V_LOW_MS   = 25.0 * 0.44704    # 25 mph — full extra lookahead at or below this speed
-_VLT_V_HIGH_MS  = 55.0 * 0.44704    # 55 mph — no extra lookahead at or above this speed
-_VLT_KAPPA_FULL  = 0.005             # 1/m — full extra lookahead below this curvature (200m+ radius)
-_VLT_KAPPA_TAPER = 0.020             # 1/m — no extra lookahead above this curvature (50m radius)
 
 # Rate cap on path_angle magnitude DECREASE during PSCM LimitReached (rad/call = 0.40 rad/s).
 # Both model and planner naturally drop path_angle ~0.36 rad/s at a sharp 90° apex, while the PSCM is
@@ -94,14 +67,15 @@ ANGLE_SETTINGS = (
   ("high_speed_curv_factor", "FordHighSpeedFactor_ang"),
   ("user_dampening_factor", "FordHighSpeedDampening_ang"),
   ("lane_change_factor_high_ang", "lane_change_factor_high_ang"),
-  ("enable_lane_positioning_ang", "enable_lane_positioning_ang"),  # the lane centering trim (lane_center_trim.py)
+  # Retained interface defaults; secondary lane-position control is disabled.
+  ("enable_lane_positioning_ang", "enable_lane_positioning_ang"),
   ("custom_path_offset_ang", "custom_path_offset_ang"),
   ("lane_centering_strength_ang", "lane_centering_strength_ang"),
 )
 
 
 class CurvatureConditioner:
-  """Bounded small-signal smoothing, with no integral or persistent offset."""
+  """Symmetric first-order smoothing with bounded request error and no integral."""
 
   def __init__(self):
     self.curvature = None
@@ -113,15 +87,14 @@ class CurvatureConditioner:
     previous = self.curvature
     speed_squared = max(speed, 1.0) ** 2
     magnitude = max(abs(target), abs(previous or 0.0)) * speed_squared
-    reversing = previous is not None and previous * target < 0.0 and magnitude >= 0.10
-    unwinding = previous is not None and abs(target) < abs(previous) and magnitude >= 0.25
-    if previous is None or bypass or reversing or unwinding:
+    reversing = previous is not None and previous * target <= 0.0 and magnitude >= 0.10
+    if previous is None or bypass or reversing:
       self.curvature = target
     else:
-      # Filter only small corrections; large curves retain the original angle authority.
-      tau = float(interp(abs(target) * speed_squared, [0.25, 1.0], [0.10, 0.0]))
-      filtered = previous + _STEER_DT / (_STEER_DT + tau) * (target - previous)
-      max_lag = 0.08 / speed_squared
+      # A constant coefficient avoids treating each downward ripple as a curve exit.
+      # At 20 Hz, alpha=0.5 gives 50 ms low-frequency group delay before bounding.
+      filtered = previous + 0.5 * (target - previous)
+      max_lag = 0.04 / speed_squared  # curvature * speed² request-error budget, not measured acceleration
       self.curvature = float(clip(filtered, target - max_lag, target + max_lag))
     return self.curvature
 
@@ -136,10 +109,6 @@ class StarPilotFordController:
     # BluePilotLateral's LateralInputs (read) and SharedLateralState (read and written), common to both strategies
     self.inputs = inputs
     self.shared = shared
-    # Predicted-curvature blend for path_angle: pred * b + desired * (1-b); b is this fixed default
-    self.path_angle_blend_ratio = _FORD_PATH_ANGLE_BLEND_RATIO_DEFAULT
-    # Max extra VLT above t_base (fixed)
-    self.vlt_extra_max = _VLT_T_EXTRA_MAX
     # Telemetry: final path_angle (rad) after limits (for the BluePilot UI's bp_card_publisher)
     self.bp_path_angle_final = 0.0
     # High-speed gain factors: set per-platform via carFingerprint in update_angle_params.
@@ -150,11 +119,8 @@ class StarPilotFordController:
     # Telemetry copies of the user "feel" multipliers (ANGLE_SETTINGS)
     self.bp_low_speed_curv_factor = 1.0
     self.bp_high_speed_curv_factor = 1.0
-    # BluePilot: angle-mode lane centering trim (advanced lane positioning) -- see
-    # lane_center_trim.py and the module docstring above.
-    self.lane_center_trim = LaneCenterTrim()
-    # Telemetry: variable curvature lookup time used this frame (s)
-    self.bp_curvature_lookup_time = _VLT_T_EXTRA_MAX + 0.3725  # warm start at ~0.5s
+    # No additional forecast lookup; the planner owns prediction and centering.
+    self.bp_curvature_lookup_time = 0.0
     # BluePilot: error-clipped kappa path_angle was derived from -- carcontroller_ext.py reads this as
     # shadow_curvature for ford.h's angle-mode deviation check. Actively consumed, not telemetry.
     self.bp_kappa_cmd = 0.0
@@ -162,12 +128,8 @@ class StarPilotFordController:
     self.bp_angle_rate_limited = False      # path_angle soft-ROC clip actually bit this frame
     self.bp_curvature_rate_limited = False  # equivalent curvature would be rate-limited by curv-mode logic (sim)
     self.sim_curvature_last = 0.0           # shadow curvature-mode last for the curvatureRateLimited sim
-    # Exit detection: track previous desired curvature to sense when planner is actively reducing
-    self._desired_curvature_last = 0.0
-    # Human-turn override: while the driver manually turns, lateral is forced inactive (mode 0,
-    # all-zero signals) instead of winding path_angle into a stale command the PSCM can't cleanly
-    # reconcile on release (2-3 s re-engage dead time observed on Mach-E). See module docstring.
-    # The detector itself is in BluePilotLateral's shared state: one detector serves both modes.
+    # Manual turns release lateral instead of retaining stale path-angle demand.
+    # One shared detector serves both modes; release ramps from zero.
     self.angle_human_turn_active = False  # read by BluePilotLateral.step_lateral to force mode 0
     # Post-override stall blip state (see module constants). angle_stall_blip_active is read by
     # BluePilotLateral.step_lateral to force mode 0, exactly like angle_human_turn_active.
@@ -202,9 +164,9 @@ class StarPilotFordController:
 
   def update_angle_strategy(self, CC, CS, actuators):
     """
-    BluePilot prediction and bounded small-signal demand → Ford path_angle.
+    Planner demand and bounded symmetric smoothing → Ford path_angle.
     Path offset, wire curvature and curvature rate stay zero; native limits are unchanged.
-    Blended κ is not passed through Ford c2 rate / DBC limits (those target the curvature actuator).
+    κ is not passed through Ford c2 rate / DBC limits (those target the curvature actuator).
     """
     v_ego = float(CS.out.vEgoRaw)
 
@@ -219,7 +181,6 @@ class StarPilotFordController:
     active = CC.latActive and self.inputs_valid(CS, actuators)
     if not active:
       self.conditioner.reset()
-      self._desired_curvature_last = 0.0
       self.shared.path_angle_last = 0.0
       self.bp_path_angle_final = 0.0
       self.bp_angle_rate_limited = False
@@ -237,7 +198,6 @@ class StarPilotFordController:
       self.bp_kappa_cmd = measured if math.isfinite(measured) else 0.0
       self.shared.human_turn_detector.reset()
       self.angle_human_turn_active = False
-      self.lane_center_trim.reset()
       self.stall_blip_hold_s = 0.0
       self.stall_blip_frames_left = 0
       self.stall_blip_cooldown_s = 0.0
@@ -275,9 +235,6 @@ class StarPilotFordController:
       # there): the driver is steering, so the honest command is the car's actual curvature,
       # and the panda-latched shadow stays current for the re-engage frame.
       self.bp_kappa_cmd = self.inputs.get_current_curvature(CS)
-      # Keep exit detection current so resume doesn't compare against a stale pre-turn value.
-      self._desired_curvature_last = float(actuators.curvature)
-      self.lane_center_trim.reset()
       # A human turn ends any prior recovery episode; its existing mode 0 supplies the reset.
       self.stall_blip_hold_s = 0.0
       self.stall_blip_frames_left = 0
@@ -312,8 +269,6 @@ class StarPilotFordController:
       self.sim_curvature_last = 0.0
       # Truthful shadow during the blip (see the inactive-path comment).
       self.bp_kappa_cmd = self.inputs.get_current_curvature(CS)
-      self._desired_curvature_last = float(actuators.curvature)
-      self.lane_center_trim.reset()
       self.shared.precision_type = 1
       if self.stall_blip_frames_left <= 0:
         self.stall_blip_cooldown_s = _STALL_COOLDOWN_S
@@ -332,65 +287,13 @@ class StarPilotFordController:
     precision = 1
     desired_curvature = float(actuators.curvature)
 
-    # Variable lookup time: t_base tracks planner pre-compensation; extra tapers on high speed and large curves.
-    # Cap liveDelay at 0.15s for VLT purposes. liveDelay can calibrate up to ~420ms on some runs, which inflates
-    # VLT to 0.6s and pushes the model lookahead 5m into the curve. At that depth the model sees full peak
-    # curvature, kappa_entering stays True, and the exit-biased blend is permanently disabled — causing the car
-    # to command max path_angle through the entire apex. 0.15s gives t_base ≤ 0.20s and VLT ≤ 0.33s, restoring
-    # the 2.8m lookahead that kept kappa_entering False at the apex in successful earlier runs.
-    _t_base = float(clip(self.inputs.lateral_delay, 0.1, 0.15)) + _DT_MDL
-    _speed_factor = float(interp(v_ego, [_VLT_V_LOW_MS, _VLT_V_HIGH_MS], [1.0, 0.0]))
-    # Direction-aware kappa factor: on curve ENTRY (model shows more curvature at t_base than planner now),
-    # keep full lookahead so pre-steering begins early. On exit/apex, taper by magnitude to prevent unwind.
-    _kappa_at_t_base = 0.0
-    if self.inputs.model is not None and len(self.inputs.model.orientationRate.z) >= 17:
-      _curvatures_ref = np.array(self.inputs.model.orientationRate.z) / max(0.01, v_ego)
-      _kappa_at_t_base = abs(float(interp(_t_base, MODEL_T_IDXS, _curvatures_ref)))
-    _kappa_entering = _kappa_at_t_base > abs(desired_curvature)
-    if _kappa_entering:
-      _kappa_factor = 1.0  # curve deepening ahead: full extra lookahead for gradual entry
-    else:
-      _kappa_factor = float(interp(abs(desired_curvature), [_VLT_KAPPA_FULL, _VLT_KAPPA_TAPER], [1.0, 0.0]))
-    curvature_lookup_time = _t_base + self.vlt_extra_max * _speed_factor * _kappa_factor
-    self.bp_curvature_lookup_time = curvature_lookup_time
-
-    predicted_curvature = 0.0
-    if self.inputs.model is not None and len(self.inputs.model.orientationRate.z) >= 17:
-      curvatures = np.array(self.inputs.model.orientationRate.z) / max(0.01, v_ego)
-      predicted_curvature = float(
-        interp(curvature_lookup_time, MODEL_T_IDXS, curvatures)
-      )
-
-    b = float(self.path_angle_blend_ratio)
-    b = float(clip(b, 0.0, 1.0))
-
-    # Exit-biased blend: near the PSCM authority limit or while the planner is actively
-    # reducing curvature (exit detected), drop model prediction weight from 50% → 12.5%.
-    # This lets the planner's natural unwind dominate instead of being diluted by a model
-    # prediction that still sees the curve or changes abruptly as its lookahead crosses
-    # the curve exit.
-    # Normal gentle curves are unaffected: no PSCM limit, no falling desired → full b=0.50.
+    # Keep the complete planner command, including any shared centering correction.
+    # A separate absolute model-curvature blend would attenuate planner-only changes.
+    requested_curvature = desired_curvature
     _pscm_lim = getattr(CS, 'lat_ctl_lim_stat', 0)
-    # In angle mode, LatCtlLim_D_Stat (→ lat_ctl_lim_stat) does not fire.
-    # Previously used angleState.saturated (CtrSat) as a proxy, but CtrSat fires whenever the car
-    # lags the commanded path_angle by > 2.5° — which happens during any normal curve entry.
-    # That caused a positive-feedback flat-line: under-steer → CtrSat → path_angle frozen → more under-steer.
-    # Use DBC-limit proximity instead: only block when path_angle is already near the ±0.5 rad CAN limits,
-    # which is the only condition where the anti-snap unwind rate cap makes physical sense.
     _dbc_sat = (self.shared.path_angle_last >= FORD_PATH_ANGLE_MAX * 0.90 or
                 self.shared.path_angle_last <= FORD_PATH_ANGLE_MIN * 0.90)
     _in_hard_sat = _pscm_lim >= 2 or _dbc_sat
-    # BluePilot: per-call delta threshold. The original 0.002 was authored 2026-05-07 on
-    # bp-sid-simple (9c3d000fd), which ran STEER_STEP=1 (true 100Hz, switched 2026-04-22) -- so it
-    # was tuned to trigger on planner unwind faster than 0.2 (1/m)/s. Scaled x5 here to restore
-    # that same real-world trigger rate on this branch's actual 20Hz cadence; unscaled it fired at
-    # 0.04 (1/m)/s, collapsing the model blend on mild straightening instead of genuine exits.
-    # Same bug class and fix as _PSCM_SAT_UNWIND_RATE and _soft_roc above.
-    _desired_falling = abs(desired_curvature) < abs(self._desired_curvature_last) - 0.010
-    _on_exit_near_limit = not _kappa_entering and (_pscm_lim >= 1 or _in_hard_sat or _desired_falling)
-    b_blend = float(clip(b * 0.25, 0.0, 1.0)) if _on_exit_near_limit else b
-    requested_curvature = predicted_curvature * b_blend + desired_curvature * (1.0 - b_blend)
-    self._desired_curvature_last = desired_curvature
 
     if self.inputs.model is not None:
       self.lane_change = self.inputs.model.meta.laneChangeState in (1, 2, 3)
@@ -409,18 +312,8 @@ class StarPilotFordController:
         precision = 0
     self.shared.precision_type = precision
 
-    # Use planner / predicted κ directly for the κ → path_angle map; we are not sending κ on CAN.
+    # Shared centering is applied upstream; there is no second lane-position controller.
     kappa_cmd = float(requested_curvature)
-
-    # BluePilot: lane centering trim (advanced lane positioning) -- nudges kappa_cmd toward true
-    # lane-line center + user offset, gated on lane-line confidence and disabled during lane
-    # changes (see lane_center_trim.py). Applied here, before the deviation clip below, so the
-    # trimmed value inherits every limiter this file already applies to kappa_cmd instead of
-    # bypassing them.
-    kappa_cmd = self.lane_center_trim.update(
-      kappa_cmd, self.inputs.model, v_ego, self.enable_lane_positioning_ang,
-      self.custom_path_offset_ang, self.lane_centering_strength_ang,
-      CC.latActive, self.lane_change)
 
     kappa_cmd = self.conditioner.update(
       kappa_cmd, v_ego, bypass=bool(CS.out.steeringPressed or self.lane_change or _pscm_lim >= 1 or _in_hard_sat))
@@ -466,7 +359,7 @@ class StarPilotFordController:
     # PSCM authority limit clamp.
     # On CANFD Fords in angle mode, LatCtlLim_D_Stat does not fire, so _pscm_lim stays 0.
     # _in_hard_sat (computed above) combines _pscm_lim >= 2 with _dbc_sat (path_angle near ±0.5 rad limit).
-    # LimitClose (_pscm_lim >= 1 only): block magnitude increases — exit-biased blend provides unwind.
+    # LimitClose (_pscm_lim >= 1 only): block magnitude increases; planner demand provides unwind.
     # Hard saturation (_in_hard_sat): block increases AND rate-limit decreases to _PSCM_SAT_UNWIND_RATE.
     #   Without the decrease cap, model+planner drop path_angle at ~0.36 rad/s at a sharp apex,
     #   driving desired steering 30°+ ahead of actual while the PSCM is pinned, causing a snap when released.
