@@ -110,7 +110,7 @@ static void tesla_screen_rx(const CANPacket_t *msg, bool autopark) {
       const unsigned int state = (msg->data[1] >> 4U) & 7U;
       const bool cruise = ((state == 2U) || (state == 3U) || (state == 4U) || (state == 6U) || (state == 7U)) && !tesla_screen_autopark;
       const bool main_available = ((state == 1U) || cruise) && !tesla_screen_autopark;
-      if ((cruise && !tesla_screen_cruise) || (main_available && !tesla_screen_main)) {
+      if (cruise && !tesla_screen_cruise) {
         tesla_screen_override = 0;
       }
       if (tesla_screen_main && !main_available && !brake_pressed) {

@@ -140,3 +140,44 @@ def test_screen_existing_intent_survives_known_gear_pause_without_new_arm(gear):
   cs.gearShifter = 'drive'
   owner.update(cs.as_reader(), now_ns=8, fault_active=False)
   assert not owner.allowed_latch
+
+
+@pytest.mark.parametrize('withdrawal', ['screen_off', 'can_timeout', 'native_rejection', 'cancel', 'brake'])
+def test_availability_cycle_cannot_undo_an_explicit_or_fault_off(withdrawal):
+  owner = intent(brake=withdrawal == 'brake')
+  owner.update(state(available=False).as_reader(), now_ns=10)
+  owner.update(state(available=False, press=True).as_reader(), now_ns=20)
+  owner.update(state(available=True, press=False).as_reader(), now_ns=30)
+  assert owner.allowed_latch
+  cs = state()
+  kwargs = {}
+  if withdrawal == 'screen_off':
+    cs = state(press=True)
+  elif withdrawal == 'can_timeout':
+    cs.canTimeout = True
+  elif withdrawal == 'native_rejection':
+    kwargs['native_rejection_ns'] = 40
+  elif withdrawal == 'cancel':
+    cs.buttonEvents = [structs.CarState.ButtonEvent(type=ButtonType.cancel, pressed=True)]
+  else:
+    cs.brakePressed = True
+  owner.update(cs.as_reader(), now_ns=50, **kwargs)
+  assert not owner.allowed_latch
+  owner.update(state(press=False).as_reader(), now_ns=60)
+  for index, available in enumerate((False, True, False, True)):
+    owner.update(state(available=available).as_reader(), now_ns=70 + index)
+    assert not owner.allowed_latch
+  owner.update(state(press=True).as_reader(), now_ns=80)
+  assert owner.allowed_latch
+
+
+def test_availability_off_still_allows_a_new_ordinary_cruise_engagement():
+  owner = intent()
+  owner.update(state().as_reader(), now_ns=10)
+  owner.update(state(press=True).as_reader(), now_ns=20)
+  assert not owner.allowed_latch
+  owner.update(state(available=False, press=False).as_reader(), now_ns=30)
+  owner.update(state(available=True).as_reader(), now_ns=40)
+  assert not owner.allowed_latch
+  owner.update(state(enabled=True).as_reader(), now_ns=50)
+  assert owner.allowed_latch and owner.screen_override is None

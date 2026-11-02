@@ -75,7 +75,7 @@ class TestTeslaScreenButton(unittest.TestCase):
     self.touch(3)
     self.assertEqual(self.permission(), 0)
 
-  def test_cruise_baseline_screen_override_and_main_cycle(self):
+  def test_cruise_baseline_screen_override_and_real_engagement(self):
     self.feed(state=1)
     self.assertEqual(self.permission(), 1)
     self.touch(0)
@@ -88,7 +88,33 @@ class TestTeslaScreenButton(unittest.TestCase):
     self.assertEqual(self.permission(), 0)
     self.feed(state=0)
     self.feed(state=1)
+    self.assertEqual(self.permission(), 0, 'availability is not a new driver engagement')
+    self.feed(state=2)
     self.assertEqual(self.permission(), 1)
+
+  def test_availability_cycles_cannot_rearm_a_cleared_permission(self):
+    for word in (512, 1536):
+      for fault in ({'door': True}, {'eps': 3}, {'hands': 3}, {'gear': 0}):
+        with self.subTest(word=word, fault=fault):
+          self.start(word)
+          self.arm()
+          self.feed(state=1)
+          self.feed(state=1, **fault)
+          self.assertEqual(self.permission(), 0)
+          for state in (0, 1, 0, 1):
+            self.feed(state=state)
+            self.assertEqual(self.permission(), 0)
+          self.arm()
+
+  def test_brake_disengagement_cannot_be_undone_by_availability(self):
+    self.start(1536)
+    self.arm()
+    self.feed(state=1, brake=True)
+    self.assertEqual(self.permission(), 0)
+    for state in (0, 1, 0, 1):
+      self.feed(state=state)
+      self.assertEqual(self.permission(), 0)
+    self.arm()
 
   def test_brake_word_and_physical_faults_withdraw(self):
     for word in (512, 1536):

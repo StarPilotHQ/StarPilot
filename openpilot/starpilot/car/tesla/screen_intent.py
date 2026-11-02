@@ -22,7 +22,7 @@ class TeslaScreenCardIntent(AolCardIntent):
     engaged = bool(CS.cruiseState.enabled)
     available = bool(CS.cruiseState.available)
     if (engaged and not self.previous_enabled) or (self.previous_available and not available and not CS.brakePressed):
-      self.screen_override = None
+      self.screen_override = None if engaged and not self.previous_enabled else False
       self.brake_blocked = False
       self.pause_lateral = False
     cancel = any(event.type == ButtonType.cancel and event.pressed for event in CS.buttonEvents)
