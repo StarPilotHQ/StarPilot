@@ -410,6 +410,8 @@ class RuntimeSnapshotAdapter:
         now_ns - self._appearance_read_ns >= 1_000_000_000):
       self._customization_value = read_customization(self.ui_state.params)
       self._appearance_value = onroad_appearance(self.ui_state.params)
+      self._navigation_enabled = _flag(self.ui_state.params, "NavigationEnabled")
+      self._show_curve_status = _flag(self.ui_state.params, "ShowCSCStatus")
       if self.appearance_override is not None:
         self._appearance_value = self.appearance_override(self._appearance_value)
       self._appearance_read_ns = now_ns
@@ -462,7 +464,7 @@ class RuntimeSnapshotAdapter:
     from openpilot.starpilot.navigation.wire import navigation_state
     navigation = navigation_state(_message_at_age(sm, "starpilotNavigation", now_ns, after, 3_000_000_000)) if started else None
     displayed_navigation = navigation_display(navigation, now_ns=now_ns, drive_id=drive_id)
-    if displayed_navigation is None and started and _flag(params, "NavigationEnabled"):
+    if displayed_navigation is None and started and self._navigation_enabled:
       displayed_navigation = official_navigation_display(
         _message_at_age(sm, "navInstruction", now_ns, after, 3_000_000_000),
         _message_at_age(sm, "navRoute", now_ns, after, 30_000_000_000),
@@ -709,7 +711,7 @@ class RuntimeSnapshotAdapter:
                          stock_cruise_active=stock_cruise,
                          slc_system_long_available=system_long,
                          slc_wheel_confirmation_available=wheel_confirmation,
-                         curve=curve, show_curve_status=_flag(params, "ShowCSCStatus"),
+                         curve=curve, show_curve_status=self._show_curve_status,
                          conditional_configured=self._conditional_choice, conditional_effective=conditional,
                          conditional_perception=perception,
                          conditional_lead=conditional_lead_from_message(display_radar) if display_car_valid else None,

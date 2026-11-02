@@ -101,6 +101,35 @@ def ui_fake():
 
 
 class TestRuntimeSnapshot(unittest.TestCase):
+
+  def test_onroad_saved_display_flags_share_the_settings_refresh(self):
+    ui = ui_fake()
+    ui.params.values.update(NavigationEnabled="1", ShowCSCStatus="1")
+    original = ui.params.get_bool
+    reads = []
+    def get_bool(key):
+      if key in ("NavigationEnabled", "ShowCSCStatus"):
+        reads.append(key)
+      return original(key)
+    ui.params.get_bool = get_bool
+    adapter = RuntimeSnapshotAdapter(ui)
+    self.assertTrue(adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.show_curve_status)
+    self.assertEqual(reads, ["NavigationEnabled", "ShowCSCStatus"])
+    ui.params.values.update(NavigationEnabled="0", ShowCSCStatus="0")
+    for tick in range(1, 60):
+      ui.sm.frame += 1
+      self.assertTrue(adapter.build(ShellMode.ONROAD, now_ns=NOW + tick * 16_000_000).onroad.show_curve_status)
+    self.assertEqual(reads, ["NavigationEnabled", "ShowCSCStatus"])
+    self.assertFalse(adapter.build(ShellMode.ONROAD, now_ns=NOW + 1_000_000_000).onroad.show_curve_status)
+    self.assertEqual(reads, ["NavigationEnabled", "ShowCSCStatus"] * 2)
+    ui.params.values.update(NavigationEnabled="1", ShowCSCStatus="1")
+    self.assertTrue(adapter.build(ShellMode.ONROAD, now_ns=NOW - 1).onroad.show_curve_status)
+    self.assertEqual(reads, ["NavigationEnabled", "ShowCSCStatus"] * 3)
+    ui.params.values.update(NavigationEnabled="0", ShowCSCStatus="0")
+    adapter.invalidate_appearance()
+    self.assertFalse(adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.show_curve_status)
+    self.assertEqual(reads, ["NavigationEnabled", "ShowCSCStatus"] * 4)
+
   def test_switchback_display_uses_payload_reader_with_original_source_metadata(self):
     from opendbc.car.structs import CarParams
     ui = ui_fake()
@@ -446,7 +475,7 @@ class TestRuntimeSnapshot(unittest.TestCase):
     reads.clear()
     ui.params.values['UpdaterState'] = 'downloading'
     same_second = adapter.build(ShellMode.ONROAD, now_ns=NOW + 10_000_000)
-    self.assertEqual(len(reads), 3)
+    self.assertEqual(reads, ['LongitudinalPersonality'])
     self.assertEqual(same_second.software, first.software)
     refreshed = adapter.build(ShellMode.ONROAD, now_ns=NOW + 1_000_000_000)
     self.assertNotEqual(refreshed.software, first.software)
