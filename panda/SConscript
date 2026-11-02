@@ -21,6 +21,15 @@ else:
   cert_fn = File("./board/crypto/certs/debug").srcnode().relpath
   common_flags += ["-DALLOW_DEBUG"]
 
+fault_injection = os.getenv("PANDA_FAULT_INJECTION", "0")
+if fault_injection not in ("0", "1"):
+  raise ValueError("PANDA_FAULT_INJECTION must be 0 or 1")
+if fault_injection == "1":
+  if BUILD_TYPE != "DEBUG":
+    raise ValueError("Fault injection requires a dedicated debug bench build")
+  common_flags += ["-DPANDA_FAULT_INJECTION"]
+  BUILD_TYPE += "-FAULTTEST"
+
 def objcopy(source, target, env, for_signature):
     return '$OBJCOPY -O binary %s %s' % (source[0], target[0])
 
@@ -88,6 +97,7 @@ def build_project(project_name, project, main, extra_flags):
     "-fmax-errors=1",
     f"-T{File(project['LINKER_SCRIPT']).srcnode().relpath}",
     "-fsingle-precision-constant",
+    "-fdata-sections",
     "-Os",
     "-g",
   ]
@@ -128,6 +138,7 @@ def build_project(project_name, project, main, extra_flags):
   # Build + sign main (aka app)
   main_elf = env.Program(f"{project_dir}/main.elf", [
     startup,
+    *([env.Object("./board/stm32h7/self_test.s")] if "-DSTM32H7" in project["FLAGS"] else []),
     main
   ], LINKFLAGS=[f"-Wl,--section-start,.isr_vector={project['APP_START_ADDRESS']}"] + flags)
   main_bin = env.Objcopy(f"{project_dir}/main.bin", main_elf)

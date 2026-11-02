@@ -225,6 +225,7 @@ jobs:
         openpilot/selfdrive/pandad/tests/test_pandad_canprotocol
         openpilot/selfdrive/pandad/tests/test_aol_protocol
         openpilot/selfdrive/pandad/tests/test_aol_wire
+        openpilot/selfdrive/pandad/tests/test_panda_faults
         openpilot/selfdrive/pandad/tests/test_producer_timing
         openpilot/selfdrive/pandad/tests/test_producer_sink
     - name: Test map provider to host messaging

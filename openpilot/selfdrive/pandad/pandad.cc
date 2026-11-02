@@ -17,7 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <bitset>
+#include "openpilot/selfdrive/pandad/panda_faults.h"
 #include <cassert>
 #include <cerrno>
 #include <cstring>
@@ -276,18 +276,7 @@ std::optional<bool> send_panda_states(PubMaster *pm, const std::vector<Panda *> 
       fill_panda_can_state(cs[j], can_health[j]);
     }
 
-    // Convert faults bitset to capnp list
-    std::bitset<sizeof(health.faults_pkt) * 8> fault_bits(health.faults_pkt);
-    auto faults = ps.initFaults(fault_bits.count());
-
-    size_t j = 0;
-    for (size_t f = size_t(cereal::PandaState::FaultType::RELAY_MALFUNCTION);
-         f <= size_t(cereal::PandaState::FaultType::HEARTBEAT_LOOP_WATCHDOG); f++) {
-      if (fault_bits.test(f)) {
-        faults.set(j, cereal::PandaState::FaultType(f));
-        j++;
-      }
-    }
+    fill_panda_faults(ps, health.faults_pkt);
   }
   if (snapshot && evt.getValid()) {
     snapshot->source_mono_time = evt.getLogMonoTime();

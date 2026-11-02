@@ -37,7 +37,7 @@ def commands(output, cache, download=False):
                '--cache', str(cache), '--output', str(output / f'recorded-{variant}'), *(['--download'] if download else [])])
               for variant in ('debug', 'release')]
   native = [(name, [str(ROOT / 'openpilot/selfdrive/pandad/tests' / name)])
-            for name in ('test_panda_usb', 'test_pandad_canprotocol', 'test_aol_protocol', 'test_aol_wire')]
+            for name in ('test_panda_usb', 'test_pandad_canprotocol', 'test_aol_protocol', 'test_aol_wire', 'test_panda_faults')]
   if platform.system() == 'Linux':
     native.extend((name, [str(ROOT / 'openpilot/selfdrive/pandad/tests' / name)])
                   for name in ('test_producer_timing', 'test_producer_sink'))

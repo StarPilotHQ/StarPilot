@@ -186,7 +186,17 @@ bool can_check_checksum(CANPacket_t *packet) {
 }
 
 void can_send(CANPacket_t *to_push, uint8_t bus_number, bool skip_tx_hook) {
-  if (skip_tx_hook || safety_tx_hook(to_push) != 0) {
+  bool tx_allowed = skip_tx_hook;
+  if (!tx_allowed) {
+    #ifdef STM32H7
+    mpu_safety_open();
+    #endif
+    tx_allowed = safety_tx_hook(to_push) != 0;
+    #ifdef STM32H7
+    mpu_safety_close();
+    #endif
+  }
+  if (tx_allowed) {
     if (bus_number < PANDA_CAN_CNT) {
       // add CAN packet to send queue
       tx_buffer_overflow += can_push(can_queues[bus_number], to_push) ? 0U : 1U;

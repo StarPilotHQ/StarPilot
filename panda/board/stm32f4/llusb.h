@@ -3,11 +3,11 @@
 USB_OTG_GlobalTypeDef *USBx = USB_OTG_FS;
 
 static void OTG_FS_IRQ_Handler(void) {
-  NVIC_DisableIRQ(OTG_FS_IRQn);
+  nvic_disable(OTG_FS_IRQn);
   //__disable_irq();
   usb_irqhandler();
   //__enable_irq();
-  NVIC_EnableIRQ(OTG_FS_IRQn);
+  nvic_enable(OTG_FS_IRQn);
 }
 
 void usb_init(void) {
@@ -76,5 +76,5 @@ void usb_init(void) {
   USBx_DEVICE->DCTL = 0;
 
   // enable the IRQ
-  NVIC_EnableIRQ(OTG_FS_IRQn);
+  nvic_enable(OTG_FS_IRQn);
 }
