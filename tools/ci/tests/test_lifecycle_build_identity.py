@@ -38,7 +38,7 @@ class BuildIdentityTests(unittest.TestCase):
 
   def test_only_named_outputs_can_differ_with_identical_inputs(self):
     first = helper.build_identity(self.root)
-    (self.root / 'msgq_repo/msgq/ipc_pyx.so').write_bytes(b'independent genuine build')
+    (self.root / 'msgq_repo/msgq/_ipc.so').write_bytes(b'independent genuine build')
     second = helper.build_identity(self.root)
     self.assertTrue(helper.same_build_inputs(first, second))
     self.assertNotEqual(first['declared_outputs'], second['declared_outputs'])
@@ -143,7 +143,7 @@ class BuildIdentityTests(unittest.TestCase):
       path.write_bytes(original)
 
   def test_missing_declared_artifact_is_denied(self):
-    (self.root / 'msgq_repo/msgq/ipc_pyx.so').unlink()
+    (self.root / 'msgq_repo/msgq/_ipc.so').unlink()
     with self.assertRaises(ValueError):
       helper.build_identity(self.root)
 

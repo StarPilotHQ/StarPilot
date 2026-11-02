@@ -229,6 +229,7 @@ def test_big_worker_waits_before_load_and_failure_requests_fresh_small_process(c
          "release_compile_pool": Mock(), "gc": Mock()}
   wrapper = ast.parse("def startup():\n  pass").body[0]
   wrapper.body = body[start:end] + [ast.Return(value=ast.Call(func=ast.Name(id="locals", ctx=ast.Load()), args=[], keywords=[]))]
+  env["cam_w"], env["cam_h"] = env["vipc_client_main"].width, env["vipc_client_main"].height
   execute([wrapper], env)
   if timeout:
     from openpilot.starpilot.models.recovery import STARTUP_FALLBACK_EXIT
@@ -373,6 +374,7 @@ def test_failed_selected_small_uses_only_verified_rdf_or_refuses_startup(monkeyp
          'vipc_client_main': SimpleNamespace(width=1928, height=1208), 'load_verified_model': loader,
          'ModelState': stock, 'modeld_pkl_path': stock, 'cloudlog': Mock(), 'BY_ID': BY_ID,
          'DEFAULT_SMALL': DEFAULT_SMALL, 'DEFAULT_SMALL_SHA256': DEFAULT_SMALL_SHA256}
+  env["cam_w"], env["cam_h"] = env["vipc_client_main"].width, env["vipc_client_main"].height
   execute([function], env)
   if fallback_failure is None:
     assert env['load_small']() == (rdf, 'rdf-prepared', True)

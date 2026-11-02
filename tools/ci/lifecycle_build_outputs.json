@@ -7,11 +7,11 @@
     "recipe": "msgq_repo/SConscript",
     "required_tracked": true
   },
-  "msgq_repo/msgq/ipc_pyx.so": {
+  "msgq_repo/msgq/_ipc.so": {
     "recipe": "msgq_repo/SConscript",
     "required_tracked": true
   },
-  "msgq_repo/msgq/visionipc/visionipc_pyx.so": {
+  "msgq_repo/msgq/visionipc/_visionipc.so": {
     "recipe": "msgq_repo/SConscript",
     "required_tracked": true
   },

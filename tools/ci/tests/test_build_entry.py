@@ -471,7 +471,7 @@ class ArtifactCheckTest(unittest.TestCase):
     for name in ("openpilot/starpilot/ui/native/_raylib_extra.so", "openpilot/starpilot/flm/_primitive_walk.so",
                  "openpilot/common/libparams_c.so", "openpilot/selfdrive/pandad/pandad",
                  "openpilot/system/loggerd/loggerd", "openpilot/system/loggerd/encoderd",
-                 "msgq_repo/msgq/ipc_pyx.so", "msgq_repo/msgq/visionipc/visionipc_pyx.so",
+                 "msgq_repo/msgq/_ipc.so", "msgq_repo/msgq/visionipc/_visionipc.so",
                  "rednose_repo/rednose/helpers/ekf_sym_pyx.so", "openpilot/tools/replay/replay",
                  "openpilot/tools/replay/libmedia_mux.so", "opendbc_repo/opendbc/can/_raw_value.so"):
       self.write(name, self.elf)

@@ -628,19 +628,26 @@ name = "msgq-ipc"
 version = "1.1"
 source = { virtual = "msgq_repo" }
 
+[package.optional-dependencies]
+build = [
+    { name = "nanobind" },
+    { name = "scons" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "codespell", marker = "extra == 'dev'" },
     { name = "cppcheck", marker = "extra == 'dev'" },
     { name = "cpplint", marker = "extra == 'dev'" },
-    { name = "cython", marker = "extra == 'dev'" },
     { name = "lefthook", marker = "extra == 'dev'" },
+    { name = "msgq-ipc", extras = ["build"], marker = "extra == 'dev'" },
+    { name = "nanobind", marker = "extra == 'build'", specifier = ">=2.12" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "scons", marker = "extra == 'dev'" },
+    { name = "scons", marker = "extra == 'build'" },
     { name = "setuptools", marker = "extra == 'dev'" },
     { name = "ty", marker = "extra == 'dev'" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["build", "dev"]
 
 [[package]]
 name = "nanobind"
@@ -769,7 +776,7 @@ tools = [
 vendored = [
     { name = "nanobind" },
     { name = "jetlink" },
-    { name = "msgq-ipc" },
+    { name = "msgq-ipc", extra = ["build"] },
     { name = "opendbc" },
     { name = "pandacan" },
     { name = "rednose" },
@@ -806,7 +813,7 @@ requires-dist = [
     { name = "jeepney" },
     { name = "jetlink", marker = "extra == 'vendored'", editable = "jetlink_repo" },
     { name = "matplotlib", marker = "extra == 'tools'" },
-    { name = "msgq-ipc", marker = "extra == 'vendored'", virtual = "msgq_repo" },
+    { name = "msgq-ipc", extras = ["build"], marker = "extra == 'vendored'", virtual = "msgq_repo" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "opendbc", marker = "extra == 'vendored'", editable = "opendbc_repo" },
     { name = "pandacan", marker = "extra == 'vendored'", editable = "panda" },

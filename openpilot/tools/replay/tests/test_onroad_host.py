@@ -169,7 +169,7 @@ class TestOnroadHost(unittest.TestCase):
   def test_actual_private_alert_pubsub_shows_then_clears(self):
     import importlib.machinery
     import capnp.lib.capnp as native_capnp
-    import msgq.ipc_pyx as native_ipc
+    import msgq._ipc as native_ipc
     from openpilot.cereal import messaging
     from openpilot.starpilot.ui.runtime_snapshot import current_message, _alert
 

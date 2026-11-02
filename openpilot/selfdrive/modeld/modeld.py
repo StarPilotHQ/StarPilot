@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, cast
 import base64
 import ctypes
@@ -224,7 +224,7 @@ class ModelState:
   def slice_outputs(self, model_outputs: np.ndarray, output_slices: dict[str, slice]) -> dict[str, np.ndarray]:
     return {k: model_outputs[np.newaxis, v] for k,v in output_slices.items()}
 
-  def run(self, bufs: dict[str, VisionBuf], transforms: dict[str, np.ndarray],
+  def run(self, bufs: Mapping[str, VisionBuf | np.ndarray], transforms: dict[str, np.ndarray],
           inputs: dict[str, np.ndarray], after_enqueue: Callable[[], None] | None = None) -> dict[str, np.ndarray]:
     for i, key in enumerate(self.vision_input_names):
       np.copyto(self.frames[i], np.frombuffer(bufs[key].data, dtype=np.uint8, count=self.frame_copy_size))
@@ -324,7 +324,9 @@ def main(demo=False):
   while use_extra_client and not vipc_client_extra.connect(False):
     time.sleep(0.1)
 
-  cloudlog.warning(f"connected main cam with buffer size: {vipc_client_main.buffer_len} ({vipc_client_main.width} x {vipc_client_main.height})")
+  cam_w, cam_h = vipc_client_main.width, vipc_client_main.height
+  assert cam_w is not None and cam_h is not None
+  cloudlog.warning(f"connected main cam with buffer size: {vipc_client_main.buffer_len} ({cam_w} x {cam_h})")
   if use_extra_client:
     cloudlog.warning(f"connected extra cam with buffer size: {vipc_client_extra.buffer_len} ({vipc_client_extra.width} x {vipc_client_extra.height})")
 
@@ -347,7 +349,7 @@ def main(demo=False):
   def load_small():
     if selection.small_path is not None:
       try:
-        selected, prepared = load_verified_model(vipc_client_main.width, vipc_client_main.height,
+        selected, prepared = load_verified_model(cam_w, cam_h,
                                                  selection.small_path, selection.small_version, False,
                                                  selection.small_id, selection.small_sha256, coherent_warp=coherent_warp)
         return selected, prepared, False
@@ -357,7 +359,7 @@ def main(demo=False):
     path = shipped_default()
     if path is None:
       raise RuntimeError("Shipped RDFv4 is missing or corrupt")
-    fallback, prepared = load_verified_model(vipc_client_main.width, vipc_client_main.height,
+    fallback, prepared = load_verified_model(cam_w, cam_h,
                                              path, BY_ID[DEFAULT_SMALL].version, False,
                                              DEFAULT_SMALL, DEFAULT_SMALL_SHA256, coherent_warp=coherent_warp)
     return fallback, prepared, selection.small_id != DEFAULT_SMALL
@@ -380,10 +382,10 @@ def main(demo=False):
           wait_for_chestnut_power(CP, timeout=min(30., BIG_MODEL_TIMEOUT / 2))
         set_core_affinity([7])
         if selection.big_path is not None:
-          m, prepared = load_verified_model(vipc_client_main.width, vipc_client_main.height,
+          m, prepared = load_verified_model(cam_w, cam_h,
                                             big_path, selection.big_version, True, selection.big_id, selection.big_sha256)
         else:
-          m = ModelState(vipc_client_main.width, vipc_client_main.height, True)
+          m = ModelState(cam_w, cam_h, True)
           m.warmup()
           prepared = receipt_owner.prepare(big_path, big_artifact_identity)
         big_prepared = prepared

@@ -47,7 +47,7 @@ jobs:
       id: setup
     - name: Build native dependencies for packaging tests
       id: build
-      run: scons -j2 openpilot/common/libparams_c.so msgq_repo/msgq/ipc_pyx.so
+      run: scons -j2 openpilot/common/libparams_c.so msgq_repo/msgq/_ipc.so
     - name: Test dependency tools
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
       run: python3 -m unittest discover -s tools/vendor/tests -v
