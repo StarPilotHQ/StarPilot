@@ -399,8 +399,11 @@ class RuntimeSnapshotAdapter:
                       mono_clock=self._mono_clock, boot_clock=self._boot_clock)
         self._replay_epoch = replay.epoch
       now_ns = replay.now_ns if replay is not None and replay.valid else 0
+      traffic_clock = (replay.now_ns, replay.boot_ns) if replay is not None and replay.valid and replay.boot_ns is not None else None
     else:
       now_ns = time.monotonic_ns() if now_ns is None else now_ns
+      # Pair the Traffic clocks before settings reads and snapshot work can delay them.
+      traffic_clock = paired_clocks_ns()
     if mode != ShellMode.ONROAD or self._last_mode != ShellMode.ONROAD:
       self._onroad_ancillary = None
       self._onroad_view_ancillary = None
@@ -546,14 +549,10 @@ class RuntimeSnapshotAdapter:
         except (AttributeError, OSError, TypeError, ValueError):
           self._traffic_profile_valid = False
         self._traffic_context_ns = now_ns
-      if getattr(ui, "replay_clock", None) is not None:
-        pair = (replay.now_ns, replay.boot_ns) if replay is not None and replay.valid and replay.boot_ns is not None else None
-      else:
-        pair = paired_clocks_ns()
-      if pair is not None and abs(pair[0] - now_ns) <= 10_000_000:
+      if traffic_clock is not None and abs(traffic_clock[0] - now_ns) <= 10_000_000:
         fingerprint = settings_fingerprint(self._traffic_settings.refresh(now_ns))
         traffic = self._traffic.project(
-          traffic_envelope, now_mono_ns=now_ns, now_boot_ns=pair[1],
+          traffic_envelope, now_mono_ns=now_ns, now_boot_ns=traffic_clock[1],
           drive_id=drive_id,
           settings_fingerprint=fingerprint, map_fingerprint=self._traffic_map_fingerprint,
           map_assigned=self._traffic_map_assigned,

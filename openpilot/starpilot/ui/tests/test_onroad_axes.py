@@ -281,8 +281,17 @@ class TestOnroadAxes(unittest.TestCase):
       (OnroadAlert(size=AlertSize.SMALL, text1='Steering Paused'), (10, 186, 181, 255)),
       (OnroadAlert(size=AlertSize.MID), (10, 186, 181, 255)),
       (OnroadAlert(size=AlertSize.FULL), blue), (OnroadAlert(size=AlertSize.SMALL, critical=True), blue))]
-    for lateral, longitudinal, override, alert, compact_color, latched in cases:
-      state = replace(self.state(lateral, longitudinal), driver_override_active=override, alert=alert, aol_latched=latched)
+    cases = [(*case, False) for case in cases]
+    cases += [(True, True, override, alert, color, None, True) for override, alert, color in (
+      (False, OnroadAlert(), (201, 34, 49, 255)),
+      (False, OnroadAlert(size=AlertSize.SMALL, critical=True), blue),
+      (False, OnroadAlert(), (201, 34, 49, 255)),
+      (True, OnroadAlert(), gray),
+      (False, OnroadAlert(size=AlertSize.FULL), blue),
+      (False, OnroadAlert(), (201, 34, 49, 255)))]
+    for lateral, longitudinal, override, alert, compact_color, latched, traffic in cases:
+      state = replace(self.state(lateral, longitudinal), driver_override_active=override, alert=alert,
+                      aol_latched=latched, traffic_mode=traffic)
       for layout in state.customization['layouts'].values():
         layout[MODE_WIDGET]['enabled'] = True
       for profile in (Profile.LARGE, Profile.COMPACT):
