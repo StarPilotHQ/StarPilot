@@ -17,6 +17,7 @@ from openpilot.starpilot.lateral.pause import KEYS as LATERAL_PAUSE_KEYS
 from openpilot.starpilot.lateral.lane_centering import STRENGTH_BASELINE, STRENGTH_MAX
 
 from opendbc.car.structs import car
+from openpilot.common.hardware import HARDWARE
 from openpilot.common.params import UnknownKeyName
 from openpilot.starpilot.longitudinal.accel_profile import A_CRUISE_MAX_VALS_TRAFFIC_ALL, interpolate_accel_profile
 from openpilot.starpilot.longitudinal.profile_runtime import TRAFFIC_CRUISE_BRAKE_MAGNITUDE
@@ -74,7 +75,10 @@ from openpilot.starpilot.curve_speed.actions import ACTION_KEYS as CURVE_ACTION_
 from openpilot.starpilot.controllers.toyota_cruise import capability as toyota_cruise_capability
 
 
-GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, "DisengageOnAccelerator"))
+AGGRESSIVE_COOLING_KEY = "AggressiveCoolingEnabled"
+AGGRESSIVE_COOLING_DESCRIPTION = ("Runs the fan sooner and harder to keep the device 10-16 °C cooler on hot days, " +
+                                  "at the cost of more fan noise.")
+GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, "DisengageOnAccelerator", AGGRESSIVE_COOLING_KEY))
 
 DRIVE_MODE_KEYS = ("DriveModeProfiles", "DriveModeAcceleration", "DriveModeDeceleration")
 
@@ -96,6 +100,7 @@ BOOL_DEFAULTS = {
   LEAD_TAKEOFF_KEY: False,
   NUDGE_KEY: True,
   "DisengageOnAccelerator": False,
+  AGGRESSIVE_COOLING_KEY: False,
   CURVE_MASTER_KEY: False, CURVE_NO_LEAD_KEY: False,
   "ShowCSCStatus": False,
   "ForceAutoTuneOff": False, "AlwaysOnLateral": True, "NostalgiaMode": False,
@@ -895,6 +900,11 @@ class FeatureSettingsOwner:
       title = "Data Uploads"
       rows = [self._bool_row("AlwaysAllowUploads", "Always Allow Uploads", self.authority("preferences"),
                              "Allow queued full logs and videos on metered networks. Uses mobile data.")]
+    elif page == "cooling":
+      title = "Cooling"
+      if HARDWARE.get_device_type() in ("tici", "tizi"):
+        rows = [self._bool_row(AGGRESSIVE_COOLING_KEY, "Aggressive Cooling", self.authority("preferences"),
+                               AGGRESSIVE_COOLING_DESCRIPTION)]
     elif page == FeaturePage.HUB:
       rows = [FeatureRow("", "Curve Speed Controller", "Adjust how speed is reduced for curves ahead", page=FeaturePage.CURVE, available=True),
               FeatureRow("", "Speed Limit Controller", "Choose speed-limit sources, offsets, and confirmation behavior", page=FeaturePage.SLC, available=True),

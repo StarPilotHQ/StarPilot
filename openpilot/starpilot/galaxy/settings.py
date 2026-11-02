@@ -41,7 +41,7 @@ from openpilot.starpilot.ui.vasm_owner import ANNOTATION as VASM_ANNOTATION, RES
 
 PAGES = frozenset(("hub", "localization", "developer", "vehicle", "slc", "lane", "lane_change", "profiles", "personalities",
                    "traffic", "aggressive", "standard", "relaxed",
-                   "curve", "torque", "torque/bluepilot", "highway_smoothing", "aol", "wheel", "appearance", "display", "data", "power", "sounds", "pip", "sentry", "vasm",
+                   "curve", "torque", "torque/bluepilot", "highway_smoothing", "aol", "wheel", "appearance", "display", "data", "power", "cooling", "sounds", "pip", "sentry", "vasm",
                    "conditional", "conditional/cem", "conditional/ccm",
                    *(f"{name}/{category}" for name in ("traffic", "aggressive", "standard", "relaxed")
                      for category in ("acceleration", "braking", "following"))))
@@ -58,7 +58,7 @@ CAR_CONTROL_SECTIONS = (
   ("wheel", "Wheel Controls", ("wheel",)),
   ("visual", "Visual (Display & UI)", ("appearance", "pip")),
   ("sounds", "Sounds & Alerts", ("sounds",)),
-  ("device", "Device & Data", ("display", "data")),
+  ("device", "Device & Data", ("display", "data", "cooling")),
   ("localization", "Localization", ("localization",)),
   ("developer", "Developer", ("developer",)),
 )
@@ -684,6 +684,7 @@ class SettingsGateway:
     scope = hashlib.sha256(_session_key(token) + generation + (ctx.cp_raw or b"")).digest()
     result = {"page": page, "title": state.title, "subtitle": state.subtitle, "parked": state.parked,
               "vehicleIdentified": bool(ctx.cp is not None and getattr(ctx.cp, "carFingerprint", None)),
+              "coolingAvailable": HARDWARE.get_device_type() in ("tici", "tizi"),
               "rows": [{**_projection(row), "revision": hashlib.sha256(scope + repr(row).encode()).hexdigest()}
                        for row in state.rows], "view": view_id}
     if page == "hub" or any(row.page for row in state.rows):

@@ -194,7 +194,7 @@ for (const id of ["wheel", "sounds", "localization"]) {
 }
 
 const deviceData = SETTINGS_SECTIONS.find((item) => item.id === "device")
-assert.deepEqual(deviceData.pages, ["power", "display", "data"])
+assert.deepEqual(deviceData.pages, ["power", "display", "data", "cooling"])
 assert.equal(SettingsPage.computed.atSectionRoot.call({ activeSection: deviceData,
   state: { data: { page: "hub" } } }), true)
 assert.equal(SettingsPage.computed.atSectionRoot.call({ activeSection: deviceData,
@@ -203,6 +203,9 @@ assert.equal(SettingsPage.computed.atSectionRoot.call({ activeSection: deviceDat
 const dataLinks = SettingsPage.computed.visibleRows.call({ initialPage: "hub", activeSection: deviceData,
   state: { query: "", data: { page: "hub", rows: [] } } })
 assert.deepEqual(dataLinks.map(({ row }) => row.page), ["power", "display", "data"])
+const coolingLinks = SettingsPage.computed.visibleRows.call({ initialPage: "hub", activeSection: deviceData,
+  state: { query: "", data: { page: "hub", rows: [], coolingAvailable: true } } })
+assert.deepEqual(coolingLinks.map(({ row }) => row.page), ["power", "display", "data", "cooling"])
 
 assert.equal(SettingsPage.computed.atSectionRoot.call({initialPage:'hub',state:{data:null,parents:[]}}),true,
   'section tabs stay mounted while loading a new section')
