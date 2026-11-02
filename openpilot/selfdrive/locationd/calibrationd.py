@@ -276,7 +276,7 @@ def main() -> NoReturn:
   params_reader = Params()
   CP = messaging.log_from_bytes(params_reader.get("CarParams", block=True), car.CarParams)
 
-  last_carparams_data = params_reader.get("CarParamsPrevRoute")
+  last_carparams_data = get_cache(params_reader, "CarParamsPrevRoute")
   if last_carparams_data is not None:
     with car.CarParams.from_bytes(last_carparams_data) as last_CP:
       if last_CP.carFingerprint != CP.carFingerprint and "mock" not in (last_CP.brand, CP.brand):
