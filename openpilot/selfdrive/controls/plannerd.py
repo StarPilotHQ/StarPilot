@@ -15,6 +15,7 @@ from openpilot.cereal.services import SERVICE_LIST
 from openpilot.starpilot.speed_limits import history as slc_history
 from openpilot.starpilot.speed_limits.runtime import Action as SlcAction, CruiseEvent as SlcCruiseEvent, Runtime as SlcRuntime
 from openpilot.starpilot.longitudinal.profile_runtime import ProfileHost
+from openpilot.starpilot.longitudinal.drive_mode import observe as observe_drive_mode
 from openpilot.starpilot.longitudinal.lane_change_gap import LaneGapPreferences
 from openpilot.starpilot.longitudinal.experimental_release import ConditionalHandoff
 from openpilot.starpilot.longitudinal.lead_approach import LeadApproachKey
@@ -591,7 +592,8 @@ def starpilot_main():
         # selected response supersedes the old global-only channel.
         global_braking_response = None
         selected_profiles = (profile_host.sample_selected(now_ns, sm['selfdriveState'].personality,
-                              sm['carState'].vEgo, CP, traffic_mode=traffic_mode, legacy=profile_tuning)
+                              sm['carState'].vEgo, CP, traffic_mode=traffic_mode, legacy=profile_tuning,
+                              drive_mode=observe_drive_mode(sm, now_ns=now_ns))
                              if profile_replay and profile_host is not None and
                              _profile_frame_valid(sm, now_ns) else None)
         lane_change_policy = lane_gap_preferences.sample(now_ns) if lane_gap_preferences is not None else None

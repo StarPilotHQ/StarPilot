@@ -8,9 +8,11 @@ from dataclasses import astuple, dataclass
 from openpilot.common.constants import CV
 from opendbc.car.structs import car
 from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX
+from openpilot.starpilot.longitudinal import drive_mode as drive_mode_profiles
 from openpilot.starpilot.longitudinal.accel_profile import A_CRUISE_MAX_VALS_TRAFFIC_ALL, interpolate_accel_profile
 from openpilot.starpilot.longitudinal.profile_document import (
-  DEFAULT_DECELERATION_PROFILE, active_personality_id, interpolate_category_curve, is_truck_fingerprint,
+  DEFAULT_DECELERATION_PROFILE, active_personality_id, default_personality_profiles, interpolate_category_curve,
+  is_truck_fingerprint, profile_document,
 )
 from openpilot.starpilot.longitudinal.profile_preferences import (
   FOLLOW_MIN_SECONDS, FOLLOW_MAX_SECONDS, NAMES, SCALARS, TRAFFIC_JERK_SUFFIXES,
@@ -368,6 +370,7 @@ class ProfileHost:
     self.disabled = False
     self.selected_document: dict | None = None
     self.selected_powertrain: GlobalPowertrainPreset | None = None
+    self.selected_drive_mode = False
     self.selected_attempt_ns = -self.REFRESH_NS
     self.selected_success_ns = -1
     self.settings: ProfileSettings | TrafficSettings | None = None
@@ -380,10 +383,12 @@ class ProfileHost:
     self.global_last_success_ns = -1
 
   def sample_selected(self, now_ns: int, personality, v_ego: float, CP, *, traffic_mode: bool | None = False,
-                      legacy: ProfileTuning | None = None) -> SelectedProfileTuning | None:
+                      legacy: ProfileTuning | None = None, drive_mode: str | None = None) -> SelectedProfileTuning | None:
+    from openpilot.starpilot.saved_source import read_saved
     if now_ns < 0 or now_ns < self.selected_attempt_ns:
       self.selected_document = None
       self.selected_powertrain = None
+      self.selected_drive_mode = False
       self.selected_attempt_ns = now_ns - self.REFRESH_NS
       self.selected_success_ns = -1
     if now_ns - self.selected_attempt_ns >= self.REFRESH_NS:
@@ -392,14 +397,21 @@ class ProfileHost:
         saved = read_document_value(self.params)
         self.selected_document = saved.value if saved.valid and isinstance(saved.value, dict) else None
         self.selected_powertrain = read_global_powertrain_preset(self.params, CP)
+        self.selected_drive_mode = read_saved(self.params, drive_mode_profiles.KEY, 8) == (b'1', True)
         self.selected_success_ns = now_ns if saved.valid else -1
       except (OSError, RuntimeError, ValueError, TypeError, KeyError):
         self.selected_document = None
         self.selected_powertrain = None
+        self.selected_drive_mode = False
         self.selected_success_ns = -1
     if self.selected_success_ns < 0 or now_ns - self.selected_success_ns > self.MAX_AGE_NS:
       return None
-    return resolve_selected_profiles(self.selected_document, personality, v_ego, CP,
+    document = self.selected_document
+    if self.selected_drive_mode and traffic_mode is False and drive_mode in drive_mode_profiles.PROFILES:
+      if document is None:
+        document = profile_document(default_personality_profiles(False), enabled=False)
+      document = drive_mode_profiles.apply(document, drive_mode)
+    return resolve_selected_profiles(document, personality, v_ego, CP,
                                      traffic_mode=traffic_mode, legacy=legacy, global_powertrain=self.selected_powertrain)
 
   def sample_global_braking(self, now_ns: int) -> str | None:
