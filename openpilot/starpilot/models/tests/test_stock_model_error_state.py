@@ -105,6 +105,8 @@ class TestStockModelErrorState(unittest.TestCase):
 
     model.run_warp, model.run_model = run_warp, run_model
     model.outputs = {'outputs': Output()}
+    model.copy_inputs = lambda: model.input_device.copy_from(model.input_host)
+    model.copy_outputs = lambda: model.outputs['outputs']
     model.output_slices = {'fixture': slice(0, 2)}
     parsed = {'fixture': np.array([[1., 2.]], dtype=np.float32)}
 

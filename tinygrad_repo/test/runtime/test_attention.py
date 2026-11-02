@@ -3,7 +3,7 @@ import numpy as np
 from tinygrad import Tensor, dtypes, nn
 from tinygrad.llm.model import (
   GatedDeltaNetBlock, SSMConfig, TransformerBlock, TransformerConfig, MLATransformerBlock, Indexer, IndexerConfig,
-  HyperConnection, HCConfig,
+  HyperConnection, HCConfig, AttentionResidual,
   apply_rope as apply_rope_new, precompute_freqs_cis, pairwise_topk,
 )
 from test.helpers import slow
@@ -83,6 +83,14 @@ class TestAttention(unittest.TestCase):
         self.assertIs(returned_mask, mask)
         np.testing.assert_allclose(actual.numpy(), expected, rtol=1e-6, atol=1e-7)
 
+  def test_attention_residual(self):
+    # rmsnorm makes the streams [1, -3] into scores [log 3, -log 3], softmax [9/10, 1/10] mixes them to 0.6, the sublayer squares it
+    for new_block, expected in ((True, [1, -3, 0.36]), (False, [1, -3 + 0.36])):
+      res = AttentionResidual(self._make_config(dim=1), new_block)
+      res.weight = Tensor([np.log(3)])
+      actual, _ = res(Tensor([[[[1.], [-3.]]]]), lambda x: (x.square(), None))
+      np.testing.assert_allclose(actual.numpy().flatten(), expected, rtol=1e-5)
+
   def test_indexer(self):
     indexer = Indexer(self._make_config(dim=2, q_lora_rank=2, indexer=IndexerConfig(n_heads=1, head_dim=2, top_k=2, kpool=2, norm_eps=1e-6)))
     indexer.attn_q_b.weight, indexer.attn_k.weight = Tensor.eye(2), Tensor.eye(2)
@@ -131,7 +139,8 @@ class TestGatedDeltaNetBlock(unittest.TestCase):
     return TransformerConfig(**({"num_blocks":1, "dim":8, "hidden_dim":16, "n_heads":1, "n_kv_heads":1,
                                  "norm_eps":1e-5, "vocab_size":32, "head_dim":8, "rope_theta":10000.0,
                                  "rope_dim":8, "v_head_dim":8, "max_context":4, "ssm_layers":(True,),
-                                 "ssm":SSMConfig(conv_kernel=2, state_size=4, group_count=1, time_step_rank=1, inner_size=4)} | kwargs))
+                                 "ssm":SSMConfig(conv_kernel=2, state_size=4, group_count=1, time_step_rank=1, inner_size=4,
+                                                 silu_gate=True)} | kwargs))
 
   def _make_block(self, config:TransformerConfig) -> GatedDeltaNetBlock:
     block = GatedDeltaNetBlock(config, config.ssm)
@@ -319,7 +328,7 @@ class TestGatedDeltaNetBlock(unittest.TestCase):
     # full prefill is proven equivalent to decode by test_gatedeltanet_reference_and_reset (delta rule) and
     # test_kda_prefill_matches_decode (kda), so use it as the baseline and only exercise multi-chunk handoffs here
     for kda in (False, True):
-      ssm = SSMConfig(conv_kernel=2, state_size=4, group_count=1, time_step_rank=1, inner_size=4, kda=kda)
+      ssm = SSMConfig(conv_kernel=2, state_size=4, group_count=1, time_step_rank=1, inner_size=4, kda=kda, silu_gate=not kda)
       config = self._make_config(ssm=ssm)
       if kda:
         block = GatedDeltaNetBlock(config, config.ssm)

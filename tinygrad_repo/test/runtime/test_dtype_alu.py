@@ -5,6 +5,7 @@ from tinygrad.helpers import EMULATED_DTYPES, DEV, getenv
 from tinygrad.tensor import _to_np_dtype
 from tinygrad.runtime.ops_python import from_storage_scalar
 from tinygrad.renderer.ptx import PTXRenderer
+from tinygrad.renderer.cstyle import CUDARenderer
 from tinygrad.renderer.nir import NIRRenderer
 from tinygrad.renderer.llvmir import CPULLVMRenderer
 from tinygrad.renderer.x86 import X86Renderer
@@ -334,6 +335,28 @@ class TestDTypeALU(unittest.TestCase):
     self.assertEqual(((t+t*(2**31-1))//2).tolist(), [-2**30, 0])
     self.assertEqual((((u+t*(2**31-1))+t)//2).tolist(), [-2**30, 0])
 
+  @unittest.skipIf(isinstance(Device[Device.DEFAULT].renderer, CUDARenderer), "nvrtc 11.5 reassociates (x+c)+y<d and folds it to True")
+  def test_reassociate_no_overflow(self):
+    t, c = Tensor.arange(3, dtype=dtypes.int32), Tensor([False, True])
+    a, b, x, y = (Tensor(v, dtype=dtypes.int32) for v in ([1, 0], [1, 1], [2, 0], [2**30, 1]))
+    self.assertEqual((((t*2**29-2**30)+t*2**29) < 2**29).tolist(), [True, True, False])
+    self.assertEqual((((t-2**30)+t*(2**30-1)) < 2**29).tolist(), [True, True, False])
+    self.assertEqual((((a*2**30-2**30)+b*2**30) < 2**29).tolist(), [False, True])
+    self.assertEqual((((x*-1)*y) < -1).tolist(), [True, False])
+    self.assertEqual((((c.where(0, b*2**30)-2**30)+c.where(0, b*2**30)) < 2**29).tolist(), [False, True])
+
+  def test_float_reassociate(self):
+    x, y, c = Tensor([1e8]), Tensor([3.]), Tensor([True])
+    self.assertEqual(((x-1e8)+Tensor([1.])).tolist(), [1.])
+    self.assertEqual(((Tensor([1e30])*1e10)*Tensor([1e-30])).tolist(), [math.inf])
+    self.assertEqual(((x+y)+y).tolist(), [1e8])
+    self.assertEqual(((Tensor([1.])+(z:=Tensor([1e38]))*4)+z*-3).tolist(), [math.inf])
+    self.assertEqual(((Tensor([1.])+z*-3.5)+z).tolist(), [-math.inf])
+    self.assertEqual(((Tensor([1.])+c.where(1e8, x))+c.where(-1e8, x)).tolist(), [0.])
+
+  @unittest.skipIf(Device.DEFAULT == "WEBGPU" or isinstance(Device[Device.DEFAULT].renderer, NIRRenderer), "backend compiler reassociates floats")
+  def test_float_reassociate_consts(self): self.assertEqual(((Tensor([1.])+1e8)-1e8).tolist(), [0.])
+
   def test_fused_div_matches_unfused(self):
     x, y, z = Tensor([3e38, 1e30, 1.7]), Tensor([1e20, 1e30, 1.3]), Tensor([1e20, 1e10, 3.1])
     for f, g in ((lambda: x*y, lambda p: p/y), (lambda: x/y, lambda p: p/z), (lambda: z*z, lambda p: 1/p), (lambda: z*z*z, lambda p: 1/p)):
@@ -409,6 +432,11 @@ class TestDTypeALU(unittest.TestCase):
 
   def test_shl(self): self._test_shl()
   def test_shr(self): self._test_shr()
+  def test_shr_long_of_small_value(self):
+    self.assertEqual((Tensor([-1, 5], dtype=dtypes.int8).cast(dtypes.int64) >> 32).tolist(), [-1, 0])
+  def test_mod_long_of_int_min(self):
+    a, b = Tensor([-2**31, 5], dtype=dtypes.int32).cast(dtypes.int64), Tensor([-1, -2], dtype=dtypes.int8).minimum(-1).cast(dtypes.int64)
+    self.assertEqual((a % b).tolist(), [0, -1])
 
   @Context(EMULATED_DTYPES="long")
   def test_emulated_shl(self): self._test_shl()

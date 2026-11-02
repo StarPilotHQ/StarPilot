@@ -166,7 +166,7 @@ def dtype_from_uop(op:Ops, src:tuple[UOp,...], arg:Any) -> DType:
       if not all(dtypes.is_int(x.dtype) or x.base.is_invalid for x in src):
         raise RuntimeError(f"shift operands must be int, got {[x.dtype for x in src]}")
       return src[0].dtype
-    case Ops.BUFFER | Ops.ALLOC | Ops.PARAM:
+    case Ops.BUFFER | Ops.ALLOC | Ops.PARAM | Ops.REFPARAM:
       assert isinstance(arg, ParamArg), f"{op} must have ParamArg"
       return arg.dtype
     case Ops.BINARY:
@@ -347,7 +347,7 @@ class UOp(RandMixin, metaclass=UOpMetaClass):
       case Ops.GETADDR: return ()
       case Ops.RANGE | Ops.SPECIAL: return ()
       case Ops.BINARY: return (len(self.arg),)
-      case Ops.BUFFER | Ops.ALLOC | Ops.PARAM:
+      case Ops.BUFFER | Ops.ALLOC | Ops.PARAM | Ops.REFPARAM:
         assert len(self.src[0].as_shape) <= 1
         if (img:=self.arg.image) is not None: return (img[0], img[1], 4)
         return self.src[0].as_shape
@@ -501,7 +501,7 @@ class UOp(RandMixin, metaclass=UOpMetaClass):
     assert isinstance(vmin, expected_type), f"vmin is wrong dtype {type(vmin)} != {expected_type}"
     return vmin
   def __bool__(self): return self._eval((dtypes.bool,), bool)
-  def __int__(self): return self._eval(dtypes.ints+(dtypes.weakint,), int)
+  def __int__(self): return self._eval(dtypes.wints, int)
   def __float__(self): return float(self._eval(dtypes.floats+(dtypes.weakfloat,), float))
   def substitute(self, dvars:dict[UOp, UOp], name:str|None=None, extra_pm:PatternMatcher|None=None, walk:bool=False, enter_calls:bool=False):
     dvars = {k:v for k,v in dvars.items() if k is not v}
@@ -733,7 +733,7 @@ class UOp(RandMixin, metaclass=UOpMetaClass):
   def mstack(self, *srcs: UOp) -> UOp: return UOp(Ops.MSTACK, src=(self,)+srcs) if len(srcs) else self
 
   # little helpers
-  def on_disk(self:UOp): return isinstance(self.device, str) and self.device.startswith("DISK")
+  def on_disk(self:UOp): return isinstance(self.device, str) and is_disk_device(self.device)
   def on_creation_device(self:UOp): return isinstance(self.device, str) and self.device.startswith(("DISK", "NPY", "PYTHON"))
   def needs_storage(self:UOp) -> bool: return not self.is_virtual and (self.storage_base.op is Ops.ALLOC or not self.has_buffer_identity())
 
@@ -870,8 +870,7 @@ class UOp(RandMixin, metaclass=UOpMetaClass):
   def addrspace(self) -> AddrSpace|None:
     # anything that has dtype void has no memory backing, it lives in the ALU
     if self.dtype is dtypes.void: return AddrSpace.ALU
-    if self.op is Ops.PARAM: return self.arg.addrspace
-    if self.op in {Ops.BUFFER, Ops.ALLOC}: return self.arg.addrspace
+    if self.op in {Ops.PARAM, Ops.REFPARAM, Ops.BUFFER, Ops.ALLOC}: return self.arg.addrspace
     if self.op in {Ops.SPECIAL, Ops.RANGE, Ops.CONST}: return AddrSpace.ALU
     if self.op is Ops.BINARY: return AddrSpace.GLOBAL
     if self.op is Ops.LOAD: return AddrSpace.ALU # LOAD brings things into the ALU
@@ -1112,7 +1111,8 @@ class UOp(RandMixin, metaclass=UOpMetaClass):
       smin, smax = self.src[0]._min_max
       trunc = truncate.get(self.dtype) if dtypes.is_float(self.dtype) else math.trunc if dtypes.is_int(self.dtype) else None
       if trunc is not None: smin, smax = (trunc(v) if math.isfinite(v) else v for v in (smin, smax))
-      if dtypes.is_unsigned(self.dtype) and 0 <= smin and smax <= self.dtype.max: return smin, smax
+      if dtypes.is_int(self.dtype) and self.dtype.min <= smin and smax <= self.dtype.max: return smin, smax
+      if dtypes.is_int(self.src[0].dtype) and dtypes.is_int(self.dtype): return self.dtype.min, self.dtype.max
       # a signed or float destination holds the part of the source that overlaps it: overflow is undefined, a nan bound overlaps nothing
       if self.dtype in dtypes.floats+dtypes.sints+dtypes.weaks and smin <= self.dtype.max and self.dtype.min <= smax:
         return max(self.dtype.min, smin), min(smax, self.dtype.max)
@@ -1267,8 +1267,8 @@ class UOp(RandMixin, metaclass=UOpMetaClass):
 
   @functools.cached_property
   def kernel_params(self) -> tuple[UOp, ...]:
-    # the kernel's params in its arg order, which is slot order. the LINEAR keeps two IMAGE params of one slot in order, x86 isel replaces every PARAM
-    params = [u for u in self.src[1].src if u.op is Ops.PARAM]
+    # the kernel's params in slot order. the LINEAR keeps two IMAGE params of one slot in order, isel and packing replace PARAMs
+    params = [u for u in self.src[1].src if u in self.arg.params]
     params += [p for p in self.arg.params if p.arg.slot not in {u.arg.slot for u in params}]
     return tuple(sorted(params, key=lambda p: p.arg.slot))
 
@@ -1299,6 +1299,7 @@ class KernelInfo:
   estimates: Estimates|None = None
   beam: int = 0
   optimized: bool = False       # the AST has been through the optimizer, skip re-optimization
+  kernel: bool = True           # launched by the runtime, not called from another kernel
   @property
   def function_name(self): return to_function_name(self.name)
 

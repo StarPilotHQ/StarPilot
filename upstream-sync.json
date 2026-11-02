@@ -43,8 +43,8 @@
     {
       "path": "tinygrad_repo",
       "url": "https://github.com/tinygrad/tinygrad.git",
-      "commit": "d39227beebd0c3a340dc42b2cdc1e3db1c36aed9",
-      "tree": "b02c108aacae57aea75b417c43b1e1caa22ee609",
+      "commit": "ec91b74b5b6b0fc924b72d3f27689679ca2438b9",
+      "tree": "1cb22a40b0aa242b2e432fc7b88f8b85fc391f81",
       "exclude": [
         "AGENTS.md"
       ]

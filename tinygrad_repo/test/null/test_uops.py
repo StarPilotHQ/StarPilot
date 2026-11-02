@@ -73,6 +73,26 @@ class TestDTypeFromUOp(unittest.TestCase):
     type_verify(out.sink(), spec_program)
 
 class TestMemoryCoalescing(unittest.TestCase):
+  def test_store_deps_ignore_reg_stores(self):
+    buf, reg = UOp.param(0, dtypes.int, 2), UOp.placeholder((2,), dtypes.int, 1, addrspace=AddrSpace.REG)
+    lanes = [buf.index(i).store(UOp.const(i, dtypes.int).after(reg.index(i).store(i))) for i in range(2)]
+    sink = memory_coalescing(UOp.sink(*lanes), Renderer(Target()))
+    self.assertEqual(sum(u.op is Ops.STORE and u.src[0].addrspace is AddrSpace.GLOBAL for u in sink.toposort()), 1)
+
+  def test_store_deps_ignore_local_stores(self):
+    buf, local = UOp.param(0, dtypes.int, 4), UOp.placeholder((4,), dtypes.int, 1, addrspace=AddrSpace.LOCAL)
+    lanes = [buf.index(0).store(0)]+[buf.index(i).store(UOp.const(i, dtypes.int).after(local.index(i).store(i))) for i in range(1, 4)]
+    sink = memory_coalescing(UOp.sink(*lanes), Renderer(Target()))
+    self.assertEqual(sum(u.op is Ops.STORE and u.src[0].addrspace is AddrSpace.GLOBAL for u in sink.toposort()), 1)
+
+  def test_store_deps_local_waits_on_global_stores(self):
+    buf, local = UOp.param(0, dtypes.int, 2), UOp.placeholder((2,), dtypes.int, 1, addrspace=AddrSpace.LOCAL)
+    # the GLOBAL stores coalesce, so the LOCAL stores must not: t1 waits on s1 and s0 waits on t0
+    s1, t0 = buf.index(1).store(5), local.index(0).store(7)
+    s0, t1 = buf.index(0).store(local.after(t0).index(0).load()), local.index(1).store(buf.after(s1).index(1).load())
+    sink = memory_coalescing(UOp.sink(s0, s1, t0, t1), Renderer(Target()))
+    self.assertEqual(sum(u.op is Ops.STORE and u.src[0].addrspace is AddrSpace.LOCAL for u in sink.toposort()), 2)
+
   def test_volatile_view_not_coalesced(self):
     buf = UOp.param(0, dtypes.uint32, 4, volatile=True).bitcast(dtypes.int32)
     sink = memory_coalescing(UOp.sink(*(buf.index(i).load() for i in range(4))), Renderer(Target()))
@@ -106,6 +126,20 @@ class TestSafeCast(unittest.TestCase):
     a = UOp.variable("a", 1, 10, dtype=dtypes.uint8)
     self.assertEqual(a.cast(dtypes.int64).cast(dtypes.uint8).simplify(), a)
     self.assertEqual(a.cast(dtypes.uint32).cast(dtypes.uint8).simplify(), a)
+
+  def test_const_float_to_int(self):
+    for dtype in dtypes.ints:
+      for value, expected in ((math.nan, 0), (math.inf, dtype.max), (-math.inf, dtype.min), (1.9, 1)):
+        with self.subTest(dtype=dtype, value=value):
+          self.assertEqual(UOp.const(value).cast(dtype).ssimplify(), expected)
+
+  def test_const_float_to_int_wraps(self):
+    for value, dtype, expected in ((128.0, dtypes.int8, -128), (256.0, dtypes.uint8, 0), (-1.0, dtypes.uint8, 255)):
+      with self.subTest(dtype=dtype, value=value):
+        self.assertEqual(UOp.const(value).cast(dtype).ssimplify(), expected)
+
+  def test_const_nan_to_int_tensor(self):
+    self.assertEqual(Tensor(math.nan).cast(dtypes.int32).item(), 0)
 
   def test_remove_intermediate_cast(self):
     a = UOp.variable("a", 0., 100., dtype=dtypes.half)
