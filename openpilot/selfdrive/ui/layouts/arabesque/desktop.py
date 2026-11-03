@@ -53,12 +53,15 @@ class ArabesqueLayout(Widget):
   def _sync_time(self, cancelled: Event, net_time: datetime | None = None):
     try:
       if net_time is None:
-        # shortcut: HTTP recovery time is unauthenticated, replace when an authenticated bootstrap source is available.
-        headers = subprocess.run(
-          ['curl', '-fsI', '-m', '10', '-H', 'Cache-Control: no-cache', 'http://www.google.com'],
+        # shortcut: TLS needs a roughly correct clock. Use manual recovery if certificate validation fails.
+        response = subprocess.run(
+          ['curl', '-q', '-fsI', '-m', '10', '-H', 'Cache-Control: no-cache', '-o', '/dev/null',
+           '-w', '%{response_code}|%header{age}|%header{date}', 'https://www.google.com/generate_204'],
           stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=True, timeout=11,
         ).stdout
-        date = next((line.partition(':')[2].strip() for line in headers.splitlines() if line.lower().startswith('date:')), '')
+        status, age, date = response.split('|', 2)
+        if status != '204' or age not in ('', '0'):
+          return
         net_time = parsedate_to_datetime(date)
       if net_time.tzinfo is None or not MIN_DATE < net_time.astimezone(UTC).replace(tzinfo=None) < MAX_DATE or cancelled.is_set():
         return

@@ -68,7 +68,7 @@ def commands(since: float) -> dict[str, list[str]]:
     "journal_bluetooth.log": [*journal, "-u", "bluetooth"],
     "journal_kernel.log": [*journal, "-k"],
     "dmesg.log": ["dmesg", "-T"],
-    "processes.txt": ["ps", "-eo", "pid,psr,ni,pcpu,pmem,rss,etime,stat,comm", "--sort=-pcpu"],
+    "processes.txt": ["ps", "-eo", "pid,psr,ni,pcpu,pmem,rss,etime,stat,args", "--sort=-pcpu"],
     "wifi_link.txt": ["nmcli", "-t", "-f", "DEVICE,ACTIVE,CHAN,FREQ,SIGNAL", "device", "wifi", "list", "--rescan", "no"],
     "network_devices.txt": ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device"],
     "disk.txt": ["df", "-h", "/data"],
