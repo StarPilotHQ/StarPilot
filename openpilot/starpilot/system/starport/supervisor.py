@@ -61,6 +61,8 @@ ENCODER_RECOVERIES = 3       # hardware encoder reopens allowed per window befor
 ENCODER_RECOVERY_WINDOW = 10.0
 CAR_LINK_HOLD = 10.0         # a hands-free connection from the car counts as "car present" this long
 HFP_FRESH = 3.0              # a hands-free link from the car this recent still means "the car is reaching out now"
+COMMA_PAGE_WINDOW = 6.0         # a hands-free link this soon after we paged the car is ours; later is the car's
+RFCOMM_BUSY_WAITS = (1.0, 2.0)   # the kernel can still hold the last session's channel for a moment
 CAR_FIRST_WAIT = 8.0         # at ignition, give the car this long to open hands-free before the comma pages it
 NO_STARPORT_WAIT = 8.0    # a paired device must offer wireless projection within this long
 USB_HANDSHAKE_WAIT = 10.0    # the car connected but sent no AOA START this long -> present as an accessory directly
@@ -429,6 +431,8 @@ class Supervisor:
     self._pairing_attempt: PairingAttempt | None = None
     self._pairing_seen: tuple = ()
     self._car_seen_at = -CAR_LINK_HOLD
+    self._paged_at = -COMMA_PAGE_WINDOW   # when this comma last asked BlueZ to connect to the car
+    self._attempt_ended_at: float | None = None
     self._hfp_link = threading.Event()  # set when the chosen car opens the hands-free link
     self._modern_reply: dict[str, bool] = {}  # car address -> answer its v4+ version request like a current phone
     self._ladder = setup_ladder.SetupLadder(identity_store.CONFIG_PATH.with_name("setup_state.json"))   # which handshake to try for each car, and which one last worked
@@ -1110,7 +1114,10 @@ class Supervisor:
 
   def _hfp_connected(self, address: str) -> None:
     if address.upper() in (self.config["receiver_address"].upper(), self.config.get("companion_address", "").upper()):
-      self._car_seen_at = time.monotonic()
+      now = time.monotonic()
+      since_page = now - self._paged_at
+      self.log("hfp_initiator", initiator="comma" if since_page < COMMA_PAGE_WINDOW else "car", since_page_s=round(since_page, 1))
+      self._car_seen_at = now
       self._hfp_link.set()
 
   def _release_phone(self) -> None:
@@ -1327,6 +1334,7 @@ class Supervisor:
             car_first = True  # the car pages right back once its link drops; let it, rather than crossing it again
         finally:
           self._close_sockets()
+          self._attempt_ended_at = time.monotonic()
           try:
             lease.release(restore=False)
           except Exception as error:
@@ -1402,6 +1410,7 @@ class Supervisor:
     if delay := car_profiles.tuning(config)["connect_delay_s"]:
       self.log("car_profile_connect_delay", seconds=delay)
       self._wait(delay)
+    self._paged_at = time.monotonic()
     bluez.connect_device(address)
     self._wait(1.0)
 
@@ -1426,7 +1435,7 @@ class Supervisor:
              channel_type=strategy.channel_type, patience=strategy.patience, experiments=strategy.experiments)
     try:
       self._stage("rfcomm", f"channel {channel}")
-      rfcomm = self._track(bt_sockets.connect_rfcomm(address, channel))
+      rfcomm = self._connect_rfcomm(address, channel)
       boot = WirelessBootstrap(rfcomm, self._bootstrap_log, device_serial=config["device_name"],
                                version_status=int(config.get("version_status", 0)),
                                experiment="all" if car_profiles.tuning(config)["bootstrap_experiments"] or strategy.experiments else "",
@@ -1465,6 +1474,33 @@ class Supervisor:
     finally:
       keepalive_stop.set()
 
+  def _connect_rfcomm(self, address: str, channel: int):
+    from openpilot.starpilot.system.starport import bt_sockets
+    ended = self._attempt_ended_at
+    since_end = round(time.monotonic() - ended, 1) if ended is not None else None
+    waited = 0.0
+    for tries, delay in enumerate(RFCOMM_BUSY_WAITS, 1):
+      try:
+        sock = self._track(bt_sockets.connect_rfcomm(address, channel))
+      except OSError as error:
+        if error.errno != errno.EBUSY:
+          raise
+        self.log("rfcomm_busy_retry", channel=channel, wait_s=delay, since_last_attempt_s=since_end)
+        self._wait(delay)
+        waited += delay
+        continue
+      if tries > 1:
+        self.log("rfcomm_busy_cleared", channel=channel, tries=tries, waited_s=waited, since_last_attempt_s=since_end)
+      return sock
+    try:
+      sock = self._track(bt_sockets.connect_rfcomm(address, channel))
+    except OSError as error:
+      if error.errno == errno.EBUSY:
+        self.log("rfcomm_busy_gave_up", channel=channel, waited_s=waited, since_last_attempt_s=since_end)
+      raise
+    self.log("rfcomm_busy_cleared", channel=channel, tries=len(RFCOMM_BUSY_WAITS) + 1, waited_s=waited, since_last_attempt_s=since_end)
+    return sock
+
   def _discover_channel(self, address: str) -> int:
     from openpilot.starpilot.system.starport import bt_sockets, sdp
     last_error: Exception | None = None
@@ -1478,7 +1514,7 @@ class Supervisor:
         if _stray_link(error):
           raise StrayLinkError(f"Bluetooth link to the car is stuck: {error}") from error  # retrying cannot clear it
         last_error = error
-        self.log("sdp_retry", error=str(error), settle=settle)
+        self.log("sdp_retry", error=str(error), settle=settle, **({"record_hex": error.raw.hex()[:400]} if getattr(error, "raw", b"") else {}))
         self._wait(0.35)
     raise RuntimeError(f"Could not find the car's Android Auto service: {last_error}")
 

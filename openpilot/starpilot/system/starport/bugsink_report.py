@@ -27,8 +27,8 @@ MAX_FAILURES = 5           # distinct failures detailed per drive report
 MAX_BREADCRUMBS = 100
 TRACE_QUIET = frozenset({"nav_guidance_sent", "nav_focus", "nav_focus_requested", "nav_status_state", "media_key", "media_audio_state",
                          "media_audio_focus", "media_status_state", "hfp_command", "video_focus"})
-TRACE_SESSION_BYTES = 40 << 10   # per failed session; the oldest events go first
-TRACE_TOTAL_BYTES = 160 << 10    # all traces in one report, well under the sender's event cap
+TRACE_SESSION_BYTES = 64 << 10   # per failed session; the middle goes first
+TRACE_TOTAL_BYTES = 200 << 10    # all traces in one report, well under the sender's event cap
 EVENT_BUDGET = 400 << 10         # a report is shed down to this before sending; the sender refuses more than 512 KB
 MAX_ATTENTION = 6                # sessions per report that get a trace and a device slice
 SERIES_KEYS = ("fps", "encode_ms", "frame_age_p95_ms", "wifi_dbm", "wifi_link", "wifi_noise", "load1", "mem_available_mb",
@@ -151,15 +151,19 @@ def quiet_counts(events: list[dict]) -> dict:
 
 
 def bounded_trace(trace: list[dict], limit: int) -> dict:
-  """The newest events that fit in ``limit`` bytes of JSON, with how many older ones were left out."""
-  kept, size = [], 0
-  for event in reversed(trace):
-    size += len(json.dumps(event, default=str)) + 2
-    if size > limit:
-      break
-    kept.append(event)
-  kept.reverse()
-  return {"events": kept, "omitted": len(trace) - len(kept)}
+  """The first quarter and the newest events that fit in ``limit`` bytes of JSON, with how many in between were left out."""
+  sizes = [len(json.dumps(event, default=str)) + 2 for event in trace]
+  if sum(sizes) <= limit:
+    return {"events": list(trace), "omitted": 0}
+  head_end, used = 0, 0
+  while head_end < len(trace) and used + sizes[head_end] <= limit // 4:
+    used += sizes[head_end]
+    head_end += 1
+  tail_start = len(trace)
+  while tail_start > head_end and used + sizes[tail_start - 1] <= limit:
+    tail_start -= 1
+    used += sizes[tail_start]
+  return {"events": trace[:head_end] + trace[tail_start:], "omitted": tail_start - head_end, "head": head_end}
 
 
 MAX_OFFERED_MODES = 16

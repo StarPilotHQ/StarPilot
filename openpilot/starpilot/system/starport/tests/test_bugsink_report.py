@@ -515,3 +515,15 @@ def test_report_says_how_the_rfcomm_channel_was_found(tmp_path):
   events.insert(2, (0, 2, "rfcomm_channel", {"channel": 8, "source": "sdp"}))
   assert br.session_record(write_session(tmp_path, 1, events))["sdp"] == {"channel": 8, "source": "sdp", "retries": 1}
   assert br.session_record(write_session(tmp_path, 2, STREAMED))["sdp"] == {}
+
+
+def test_trace_keeps_how_the_session_started_as_well_as_how_it_ended(tmp_path):
+  noisy = [(0, 0, "session_start", {}), (0, 1, "hfp_initiator", {"initiator": "car"})]
+  noisy += [(i // 60, i % 60, "sdp_retry", {"error": "x" * 250, "n": i}) for i in range(2, 400)]
+  noisy.append((9, 0, "attempt_failed", {"stage": "discovering", "error": "gone", "kind": "RuntimeError"}))
+  event = br.drive_event([br.session_record(write_session(tmp_path, 1, noisy))])
+  trace = event["contexts"]["starport_trace_session_1"]
+  names = [e["event"] for e in trace["events"]]
+  assert names[:2] == ["session_start", "hfp_initiator"] and names[-2:] == ["attempt_failed", "session_stop"]
+  assert trace["omitted"] > 0 and 0 < trace["head"] < len(names)
+  assert len(json.dumps(trace)) <= br.TRACE_SESSION_BYTES + 1024
