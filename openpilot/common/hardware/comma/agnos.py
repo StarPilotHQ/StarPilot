@@ -37,6 +37,21 @@ def check_manifest_compatibility(update: list[dict]) -> None:
     raise RuntimeError("Cannot identify supported hardware for this AGNOS bootloader")
 
 
+def load_manifest(manifest_path: str) -> list[dict]:
+  path = Path(manifest_path)
+  try:
+    model = DEVICE_MODEL_PATH.read_text().rstrip('\0\n')
+  except FileNotFoundError:
+    model = None
+  c3_path = path.with_name('agnos-c3.json')
+  if model == 'comma tici' and path.name == 'agnos.json' and c3_path.is_file():
+    path = c3_path
+  with path.open() as manifest:
+    update = json.load(manifest)
+  check_manifest_compatibility(update)
+  return update
+
+
 def phone_uplink_active() -> bool:
   try:
     from openpilot.starpilot.galaxy.companion import phone_uplink_active as active
@@ -249,8 +264,7 @@ def flash_partition(target_slot_number: int, partition: dict, cloudlog, standalo
 
 
 def swap(manifest_path: str, target_slot_number: int, cloudlog) -> None:
-  update = json.load(open(manifest_path))
-  check_manifest_compatibility(update)
+  update = load_manifest(manifest_path)
   for partition in update:
     if not partition.get('full_check', False):
       clear_partition_hash(target_slot_number, partition)
@@ -265,8 +279,7 @@ def swap(manifest_path: str, target_slot_number: int, cloudlog) -> None:
 
 
 def flash_agnos_update(manifest_path: str, target_slot_number: int, cloudlog, standalone=False) -> None:
-  update = json.load(open(manifest_path))
-  check_manifest_compatibility(update)
+  update = load_manifest(manifest_path)
 
   cloudlog.info(f"Target slot {target_slot_number}")
 
@@ -295,8 +308,7 @@ def flash_agnos_update(manifest_path: str, target_slot_number: int, cloudlog, st
 
 
 def verify_agnos_update(manifest_path: str, target_slot_number: int) -> bool:
-  update = json.load(open(manifest_path))
-  check_manifest_compatibility(update)
+  update = load_manifest(manifest_path)
   return all(verify_partition(target_slot_number, partition) for partition in update)
 
 
@@ -329,3 +341,4 @@ if __name__ == "__main__":
     swap(args.manifest, target_slot_number, logging)
   else:
     flash_agnos_update(args.manifest, target_slot_number, logging, standalone=True)
+

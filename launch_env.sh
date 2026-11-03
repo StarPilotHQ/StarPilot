@@ -26,17 +26,18 @@ fi
 export QCOM_PRIORITY=12
 
 if [ -z "$AGNOS_VERSION" ]; then
-  export AGNOS_VERSION="20.2-starpilot.1"
+  export AGNOS_VERSION="20.2.1"
 fi
 
 export AGNOS_UPDATE_POLICY="auto"
-# The current ABL rejects the original comma 3 before Linux can start.
-# Retain the OS unless device identity is positively supported by this bundle.
+# C3 selects its complete matching firmware chain in the AGNOS manifest loader.
+# Unknown hardware retains its installed OS.
 if [ -f /AGNOS ] || [ -e /sys/firmware/devicetree/base/model ]; then
   case "$(tr -d '\0' 2>/dev/null < /sys/firmware/devicetree/base/model)" in
-    "comma tizi"|"comma mici") ;;
+    "comma tici"|"comma tizi"|"comma mici") ;;
     *) export AGNOS_UPDATE_POLICY="retain" ;;
   esac
 fi
 
 export STAGING_ROOT="/data/safe_staging"
+

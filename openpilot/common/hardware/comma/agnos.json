@@ -70,16 +70,16 @@
   },
   {
     "name": "system",
-    "url": "https://files.firestar.link/x/5944qawka2uo/system31.img.xz",
-    "hash": "cbd0398bb9df52aa85951430ad90afbb9a007c0ee0bd5d7eb1ee2b2fece912e4",
-    "hash_raw": "18599dbe151709d65b28cc07c19461cb26779f1e9f22529619928cb3f94fbed9",
+    "url": "https://files.firestar.link/x/h1abg6uz6t3a/system32.img.xz",
+    "hash": "d1e8aa1854513a5e8abafa78346f6608748d0d3099246e6c38fcea85f3163e12",
+    "hash_raw": "c1ac3bfb5aaa8151272392d1d2b354c8d2782ddfb4cf36c3e91941771e5189ec",
     "size": 4718592000,
     "sparse": true,
     "full_check": false,
     "has_ab": true,
-    "ondevice_hash": "d64d5354f3d8b6173729894c53376ef53b71649d2c9db3207eb8dec76fa4e70d",
+    "ondevice_hash": "14937ae1fa2eef00643d154a48ce967e0aff8068393702aae6cb4f7bb54828f0",
     "fallback_urls": [
-      "https://files-east.firestar.link/x/113kkqx7bwrp/system31.img.xz"
+      "https://files-east.firestar.link/x/1jisyjusij9q/system32.img.xz"
     ]
   }
 ]
