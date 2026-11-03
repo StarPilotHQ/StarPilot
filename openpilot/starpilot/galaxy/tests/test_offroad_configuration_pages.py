@@ -57,6 +57,8 @@ class TestOffroadConfigurationPages(unittest.TestCase):
             current = self.editable_inventory(self.page(name))
             expected = saved[name]
             if name == 'developer':
+              # gated by Park, not by the vehicle
+              expected, current = ([row for row in rows if row[0] != 'StarPort: New pairing experience'] for rows in (expected, current))
               self.assertEqual([row[0] for row in expected], ['Use VOACC'])
               self.assertEqual([row[1] for row in expected], [False])
               self.assertEqual([row[1] for row in current], [True])
