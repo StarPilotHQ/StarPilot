@@ -1878,12 +1878,11 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-tuner__hero-meta { display: grid; gap: 7px; max-width: 170px; border-left: 1px solid var(--glass-border); padding-left: 24px; font-size: .75rem; line-height: 1.5; }
 .gx-tuner__hero-meta small { color: var(--text-muted); }
 .gx-tuner__current-job { display: flex; gap: 8px; color: var(--on-primary-container); }
-.gx-tuner__tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--glass-border); }
+.gx-tuner__tabs { overflow-x: auto; display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--glass-border); }
 .gx-tuner__tabs > button { position: relative; min-height: 48px; padding: 0 16px 14px; border: 0; background: transparent; color: var(--on-surface-variant); font: inherit; font-size: .86rem; cursor: pointer; white-space: nowrap; }
 .gx-tuner__tabs > button[aria-selected="true"] { color: var(--on-surface); font-weight: 600; }
 .gx-tuner__tabs > button[aria-selected="true"]::after { position: absolute; content: ""; bottom: -1px; left: 15px; right: 15px; height: 3px; border-radius: 3px 3px 0 0; background: var(--primary); }
 .gx-tuner__tabs > button:focus-visible, .gx-tuner__groups > button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; border-radius: var(--radius-sm); }
-.gx-tuner__tabs > .gx-tuner__plots-link { margin-left: auto; padding-right: 0; color: var(--on-surface-variant); font-size: .78rem; }
 .gx-tuner__count { display: inline-block; margin-left: 7px; padding: 1px 6px; border: 1px solid var(--glass-border); border-radius: var(--radius-full); font-size: .62rem; color: var(--on-surface-variant); vertical-align: middle; }
 .gx-tuner__panel { display: grid; gap: var(--sp-5); min-width: 0; }
 .gx-tuner__metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); }
@@ -1976,7 +1975,6 @@ progress { max-width: 100%; accent-color: var(--primary); }
   .gx-tuner__hero-icon { display: none; }
   .gx-tuner__hero-meta { grid-column: 1; font-size: .64rem; }
   .gx-tuner__tabs > button { padding: 0 11px 12px; font-size: .76rem; }
-  .gx-tuner__tabs > .gx-tuner__plots-link { font-size: .68rem; }
   .gx-tuner__count { font-size: .56rem; margin-left: 4px; padding: 1px 4px; }
   .gx-tuner__metrics { gap: 8px; }
   .gx-card.gx-tuner__metric { padding: 15px 11px; gap: 8px; }
@@ -1995,3 +1993,5 @@ progress { max-width: 100%; accent-color: var(--primary); }
   .gx-tuner__diagnostics { grid-template-columns: 1fr; gap: 5px; }
   .gx-tuner__diagnostics dd { margin-bottom: 12px; }
 }
+
+.gx-tuner__manual .gx-row { padding-inline: 0; }

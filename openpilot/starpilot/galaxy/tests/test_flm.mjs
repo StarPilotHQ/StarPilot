@@ -59,18 +59,18 @@ assert.match(FlmPage.template, /Applied now/)
 assert.match(FlmPage.template, /PID unsupported/)
 assert.deepEqual(SURFACE_GROUPS.flatMap(group => group.names).sort(), [...SURFACE_NAMES].sort())
 const app = readFileSync(new URL("../web/js/app.js", import.meta.url), "utf8")
-assert(app.includes("['/tuning', '/tuning/flm'].includes(route.path)"))
+assert(app.includes("['/tuning', '/tuning/flm', '/tuning/plots'].includes(route.path)"))
 assert.match(app, /<FlmPage v-else-if/)
-assert.match(app, /<PlotsPage v-else-if="route.path === '\/tuning\/plots'"/)
+assert.match(app, /:initial-view="route.path === '\/tuning\/plots' \? 'plots' : 'overview'"/)
 assert.doesNotMatch(app, /<FlmPage embedded/)
 const catalog = JSON.parse(readFileSync(new URL("../web/data/catalog.json", import.meta.url), "utf8"))
-assert(catalog.tools.some(tool => tool.path === "/tuning" && tool.name === "StarPilot Tuner"))
+assert(catalog.tools.some(tool => tool.path === "/tuning" && tool.name === "Tuning and Analysis"))
 assert.equal(catalog.tools.filter(tool => tool.path.startsWith('/tuning')).length, 1)
 const driving = readFileSync(new URL('../web/js/driving.js', import.meta.url), 'utf8')
 assert.match(driving, /go\('\/tuning'\)/)
 assert.match(driving, /go\('\/tuning\/plots'\)/)
 assert.doesNotMatch(readFileSync(new URL('../web/js/flm.js', import.meta.url), 'utf8'), /PlotsFeed|api\/plots/)
-for (const view of ['overview', 'tune', 'activity']) assert(FlmPage.template.includes(`view === '${view}'`))
+for (const view of ['overview', 'tune', 'activity', 'plots']) assert(FlmPage.template.includes(`view === '${view}'`))
 const choice = { version: 1, valid: true, enabled: true, parked: true, vehicle: 'HYUNDAI_IONIQ_6' }
 assert(validLearningPreference(choice))
 assert.equal(tunerStatus({ ...value, preference: choice }, false, true).key, 'parked')
@@ -121,9 +121,9 @@ try {
   vm.report = value
   const focused = []
   const event = { key: 'ArrowRight', preventDefault() {}, currentTarget: { parentElement: { querySelectorAll: () =>
-    ['overview', 'tune', 'activity'].map(name => ({ focus: () => focused.push(name) })) } } }
+    ['overview', 'tune', 'activity', 'plots'].map(name => ({ focus: () => focused.push(name) })) } } }
   vm.tabKey(event); assert.equal(vm.view, 'tune'); assert.deepEqual(focused, ['tune'])
-  event.key = 'End'; vm.tabKey(event); assert.equal(vm.view, 'activity')
+  event.key = 'End'; vm.tabKey(event); assert.equal(vm.view, 'plots')
   event.key = 'Home'; vm.tabKey(event); assert.equal(vm.view, 'overview')
   globalThis.fetch = async () => { throw new TypeError("offline") }
   await vm.load(); assert(!vm.currentApplied); assert.equal(vm.report, value)
@@ -138,3 +138,8 @@ try {
   clearTimeout(vm.freshnessTimer)
 } finally { globalThis.fetch = originalFetch; globalThis.document = originalDocument }
 console.log("Auto Learn canonical routing, exact full30 data, missing/stale application, auth and cancellation contracts passed")
+
+assert.doesNotMatch(FlmPage.template, /Steering settings|One change\. A fair comparison\.|Comparable driving windows establish/)
+assert.match(FlmPage.template, /Tuning and Analysis/)
+assert.match(FlmPage.template, /<PlotsPage[^>]+:active="view === 'plots'"[^>]+embedded/)
+assert.doesNotMatch(FlmPage.template, /gx-tuner__plots-link/)

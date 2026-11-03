@@ -18,8 +18,8 @@ const app = readFileSync(new URL("../web/js/app.js", import.meta.url), "utf8")
 assert.match(app, /drivingSettingsPage\(\) \{ return drivingPage\(route\.path\) \}/)
 assert.match(app, /<SettingsPage[^>]* v-else-if="drivingSettingsPage"[^>]*:initial-page="drivingSettingsPage"/)
 assert.match(app, /<DrivingPage[^>]* v-else-if="route\.path === '\/driving'"/)
-assert(app.includes("<FlmPage v-else-if=\"['/tuning', '/tuning/flm'].includes(route.path)\""))
-assert(app.includes('<PlotsPage v-else-if="route.path === \'/tuning/plots\'" :mode="state.monitorMode"'))
+assert(app.includes("<FlmPage v-else-if=\"['/tuning', '/tuning/flm', '/tuning/plots'].includes(route.path)\""))
+assert(app.includes(':initial-view="route.path === \'/tuning/plots\' ? \'plots\' : \'overview\'"'))
 
 for (const page of ["aol", "conditional", "curve", "slc", "torque", "profiles", "traffic"]) {
   const requests = []

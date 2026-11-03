@@ -1,11 +1,13 @@
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
+import { SettingsFeed, settingsBusy } from "./settings.js"
+import { GalaxySettingRow, settingControl } from "./galaxy-setting-row.js"
 import { PollTimer, connectionError } from "./polling.js"
 import { requestJson } from "./startup.js"
-import { PlotGraph, chartGeometry } from "./plots.js"
+import { PlotGraph, PlotsPage, chartGeometry } from "./plots.js"
 import { validTrainingResults, readable, detailText, surfaceRows, coordinateText, trackingView, measurementText, validTrackingValues, trackingPlotView, sourceSeconds, validLearningPreference, SURFACE_GROUPS, tunerStatus, learningReason, sourceCaptureCounts, historyTitle } from "./flm-training-results.js"
 
-const VIEWS = ["overview", "tune", "activity"]
+const VIEWS = ["overview", "tune", "activity", "plots"]
 const PARAMETER_LABELS = {
   ff_gain_left: "Left steering gain", ff_gain_right: "Right steering gain",
   turn_in_boost_left: "Left turn-in boost", turn_in_boost_right: "Right turn-in boost",
@@ -27,13 +29,18 @@ const PARAMETER_LABELS = {
 
 export const FlmPage = {
   name: "FlmPage",
-  components: { GxState, GxNotice, PlotGraph },
-  props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
+  components: { GxState, GxNotice, PlotGraph, PlotsPage, GalaxySettingRow },
+  props: { initialView: { type: String, default: "overview" }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, default: path => { window.location.hash = path } } },
   data: () => ({ report: null, error: "", loading: false, request: null, receivedAt: 0, now: 0,
+    manualState: { status: "idle", data: null, pending: null, error: "" },
     view: "overview", group: "balance", showAllHistory: false, groups: SURFACE_GROUPS }),
+  watch: { initialView(view) { this.selectView(view) }, mode() { this.syncManualControls() } },
   mounted() {
     this.activePage = true
+    this.manualFeed = new SettingsFeed({ publish: update => Object.assign(this.manualState, update), unauthorized: this.unauthorized })
+    this.selectView(this.initialView)
+    this.syncManualControls()
     this.poller = new PollTimer({ read: () => this.load(), interval: 1000 })
     this.visibility = () => {
       this.now = Date.now()
@@ -44,10 +51,12 @@ export const FlmPage = {
     if (this.mode === "local") { this.poller.start(); this.load() }
   },
   beforeUnmount() {
-    this.activePage = false; clearTimeout(this.freshnessTimer); this.poller?.stop(); this.request?.abort(); this.request = null
+    this.activePage = false; this.manualFeed?.stop(); clearTimeout(this.freshnessTimer); this.poller?.stop(); this.request?.abort(); this.request = null
     document.removeEventListener("visibilitychange", this.visibility)
   },
   computed: {
+    manualRows() { return (this.manualState.data?.rows || []).map((row, index) => ({ row, index })).filter(({ row }) => settingControl(row) === "slider") },
+    manualBusy() { return settingsBusy(this.manualState) },
     current() { return this.report?.current },
     preference() { return validLearningPreference(this.report?.preference) ? this.report.preference : null },
     choiceLive() { return !this.error && !!this.preference && Math.max(0, this.now - this.receivedAt) <= 2000 },
@@ -95,7 +104,20 @@ export const FlmPage = {
       const count = this.rows.filter(row => group.names.includes(row.name) && row.accepted !== null && row.accepted !== 0).length
       return count ? `${count} accepted` : "Baseline"
     },
-    selectView(view) { if (VIEWS.includes(view)) this.view = view },
+    selectView(view) { if (VIEWS.includes(view)) { this.view = view; return this.syncManualControls() } },
+    syncManualControls() {
+      if (!this.manualFeed) return
+      if (this.activePage && this.mode === "local" && this.view === "tune") {
+        if (!this.manualFeed.active) return this.manualFeed.start("torque")
+      } else this.manualFeed.stop()
+    },
+    async saveManual(index, value) {
+      const row = this.manualState.data?.rows?.[index]
+      if (this.view !== "tune" || !this.manualFeed?.active || this.manualBusy || this.manualState.error ||
+          !row?.available || !row.action || settingControl(row) !== "slider") return false
+      await this.manualFeed.previewValue(index, value)
+      return !this.manualState.error && this.manualState.status === "ready"
+    },
     tabKey(event) {
       const delta = { ArrowRight: 1, ArrowLeft: -1, Home: -VIEWS.length, End: VIEWS.length }[event.key]
       if (delta === undefined) return
@@ -128,8 +150,7 @@ export const FlmPage = {
     },
   },
   template: `<div class="gx-view gx-tuner">
-    <header class="gx-page-header gx-settings__header gx-tuner__heading"><div><p class="gx-tuner__eyebrow">STEERING · AUTO LEARN</p><h2>StarPilot Tuner</h2><p>{{ vehicle }}</p></div>
-      <button type="button" class="gx-btn gx-btn--tonal" @click="go('/driving/torque')"><i class="bi bi-sliders" aria-hidden="true"></i> Steering settings</button></header>
+    <header class="gx-page-header gx-settings__header gx-tuner__heading"><div><p class="gx-tuner__eyebrow">STEERING · AUTO LEARN</p><h2>Tuning and Analysis</h2><p>{{ vehicle }}</p></div></header>
     <GxState v-if="mode !== 'local'">Connect to your device to see its steering tune.</GxState>
     <template v-else>
       <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
@@ -142,8 +163,7 @@ export const FlmPage = {
         <div class="gx-tuner__hero-meta"><span>{{ currentApplied ? 'Controller acknowledged' : live ? 'No correction acknowledged' : 'Current application unknown' }}</span><small>{{ reportAge === null ? 'No learner report yet' : 'Learner report ' + reportAge.toFixed(1) + 's old' }}</small></div>
       </section>
       <nav class="gx-tuner__tabs" role="tablist" aria-label="Tuner views">
-        <button v-for="tab in ['overview', 'tune', 'activity']" :key="tab" type="button" role="tab" :id="'tuner-tab-' + tab" :aria-controls="'tuner-panel-' + tab" :aria-selected="view === tab" :tabindex="view === tab ? 0 : -1" @click="selectView(tab)" @keydown="tabKey">{{ tab === 'overview' ? 'Overview' : tab === 'tune' ? 'Your tune' : 'Activity' }}<span v-if="tab === 'tune'" class="gx-tuner__count">30</span></button>
-        <button type="button" class="gx-tuner__plots-link" @click="go('/tuning/plots')">Live plots <i class="bi bi-arrow-up-right" aria-hidden="true"></i></button>
+        <button v-for="tab in ['overview', 'tune', 'activity', 'plots']" :key="tab" type="button" role="tab" :id="'tuner-tab-' + tab" :aria-controls="'tuner-panel-' + tab" :aria-selected="view === tab" :tabindex="view === tab ? 0 : -1" @click="selectView(tab)" @keydown="tabKey">{{ tab === 'overview' ? 'Overview' : tab === 'tune' ? 'Your tune' : tab === 'activity' ? 'Activity' : 'Live plots' }}<span v-if="tab === 'tune'" class="gx-tuner__count">30</span></button>
       </nav>
       <section v-if="view === 'overview'" id="tuner-panel-overview" role="tabpanel" aria-labelledby="tuner-tab-overview" class="gx-tuner__panel">
         <div class="gx-tuner__metrics"><div class="gx-card gx-tuner__metric"><span>Applied parameters</span><strong>{{ amount(appliedCount) }}<small v-if="appliedCount !== null"> / 30</small></strong><p>{{ appliedCount === null ? 'Requires current controller evidence' : 'Nonzero corrections acknowledged now' }}</p></div>
@@ -153,15 +173,24 @@ export const FlmPage = {
           <template v-if="trackingPlot"><PlotGraph :chart="pairedTrackingChart" title="Requested and measured steering acceleration, paired using the learner's measured delay" /><div class="gx-tuner__legend"><span class="gx-tuner__requested">Requested</span><span class="gx-tuner__measured">Measured</span><small>m/s² · delay aligned</small></div><p class="gx-tuner__caption">{{ trackingPlot.totalEndpoints }} measured endpoints · {{ trackingPlot.age.toFixed(1) }}s since the last pose</p></template>
           <div v-else class="gx-tuner__empty"><i class="bi bi-activity" aria-hidden="true"></i><h4>Real measurements go here</h4><p>A completed steering window will show the requested response beside what the car actually did.</p></div>
         </section>
-        <section class="gx-card gx-tuner__section"><div class="gx-tuner__section-heading"><div><p class="gx-tuner__eyebrow">{{ live ? 'THE CURRENT EXPERIMENT' : 'LAST REPORTED EXPERIMENT' }}</p><h3>{{ tracking?.acknowledged && tracking.status === 'trial_active' ? 'Does the correction help?' : 'One change. A fair comparison.' }}</h3></div></div>
-          <p v-if="tracking">{{ learningReason(tracking.reason) }}</p><p v-else>Comparable driving windows establish the baseline before a small correction can be evaluated.</p>
+        <section class="gx-card gx-tuner__section"><div class="gx-tuner__section-heading"><div><p class="gx-tuner__eyebrow">{{ live ? 'THE CURRENT EXPERIMENT' : 'LAST REPORTED EXPERIMENT' }}</p><h3>{{ tracking?.acknowledged && tracking.status === 'trial_active' ? 'Trial in progress' : 'Trial results' }}</h3></div></div>
+          <p v-if="tracking">{{ learningReason(tracking.reason) }}</p><p v-else>Waiting for driving samples. Auto Learn compares steering error before and during a trial.</p>
           <div class="gx-tuner__comparison"><div><span>Before</span><strong>{{ measurementText(tracking?.baselineErrorRms ?? null) }}</strong></div><i class="bi bi-arrow-right" aria-hidden="true"></i><div><span>Trial</span><strong>{{ measurementText(tracking?.futureErrorRms ?? null) }}</strong></div></div><p class="gx-tuner__caption">Tracking error RMS · m/s² · lower is better</p>
           <p v-if="improvement !== null" class="gx-tuner__observed">{{ Math.abs(improvement).toFixed(1) }}% {{ improvement >= 0 ? 'lower' : 'higher' }} observed error<small>{{ state.key === 'confirmed' ? 'Comparison passed; controller acknowledged' : 'Observation so far, not a confirmed improvement' }}</small></p>
           <div v-if="quota" class="gx-tuner__quota"><div><span>Comparable trial windows</span><strong>{{ quota.completed }} / {{ quota.required }}</strong></div><div class="gx-tuner__progress" role="progressbar" aria-label="Comparable trial windows" :aria-valuenow="quota.completed" :aria-valuemax="quota.required" aria-valuemin="0"><span :style="{ width: quota.percent + '%' }"></span></div></div>
-          <p class="gx-tuner__caption">A worse or interrupted trial rolls back. A candidate, an applied correction and a saved tune are different results.</p>
+          <p class="gx-tuner__caption">Changes that make steering worse are rolled back. Accepted and saved values are shown separately.</p>
         </section></div>
       </section>
-      <section v-if="view === 'tune'" id="tuner-panel-tune" role="tabpanel" aria-labelledby="tuner-tab-tune" class="gx-tuner__panel"><div class="gx-tuner__section-heading"><div><h3>Your steering tune</h3><p>Thirty correction parameters, organized around how the car steers.</p></div><span class="gx-tuner__pill">Read-only · automatic corrections</span></div>
+      <section v-if="view === 'tune'" id="tuner-panel-tune" role="tabpanel" aria-labelledby="tuner-tab-tune" class="gx-tuner__panel">
+        <section class="gx-card gx-tuner__section gx-settings__section gx-tuner__manual"><div class="gx-tuner__section-heading"><div><h3>Steering controls</h3><p>Adjust your saved vehicle tune.</p></div></div>
+          <GxNotice v-if="manualState.error" tone="danger">{{ manualState.error }}</GxNotice>
+          <p v-if="!manualState.data" class="gx-tuner__caption">{{ manualState.status === 'loading' ? 'Loading steering controls…' : 'Steering controls unavailable. Reconnecting…' }}</p>
+          <template v-else><p class="gx-tuner__caption">{{ manualState.data.subtitle }}</p>
+            <GalaxySettingRow v-for="{ row, index } in manualRows" :key="index" :row="row" :index="index" :busy="manualBusy" :disabled="!!manualState.error" :save-value="saveManual" @reset-default="index => manualFeed.resetDefault(index)" />
+            <p v-if="!manualRows.length" class="gx-tuner__caption">No manual numeric controls are available for this vehicle.</p>
+          </template>
+        </section>
+        <div class="gx-tuner__section-heading"><div><h3>Auto Learn corrections</h3><p>Thirty automatic correction values, grouped by steering behavior.</p></div><span class="gx-tuner__pill">Reported corrections</span></div>
         <div class="gx-tuner__tune-layout"><nav class="gx-tuner__groups" aria-label="Steering parameter groups"><button v-for="item in groups" :key="item.id" type="button" :aria-pressed="group === item.id" @click="group = item.id"><i :class="['bi', item.icon]" aria-hidden="true"></i><span>{{ item.label }}<small>{{ item.names.length }} parameters · {{ groupChanges(item) }}</small></span><i class="bi bi-chevron-right" aria-hidden="true"></i></button></nav>
           <section class="gx-card gx-tuner__section gx-tuner__parameters"><div class="gx-tuner__section-heading"><div><h3>{{ selectedGroup.label }}</h3><p>{{ selectedGroup.description }}</p></div></div>
             <div class="gx-tuner__parameter-head" aria-hidden="true"><span>Parameter</span><span>{{ trackingValues ? 'Accepted' : 'Proposal' }}</span><span>Trial</span><span>Applied now</span></div>
@@ -169,6 +198,7 @@ export const FlmPage = {
             <details class="gx-tuner__disclosure"><summary>How to read these values</summary><p>Zero is the original baseline. These are correction coordinates, not raw degrees or torque. Speed-window coordinates scale the original speed range; deadband and angle assistance use the controller's physical normalizer. A trial is an offer, not proof of application. All 30 stages exist for torque; 26 exist for torque-actuated PID.</p></details>
           </section></div>
       </section>
+      <section v-show="view === 'plots'" id="tuner-panel-plots" role="tabpanel" aria-labelledby="tuner-tab-plots" class="gx-tuner__panel"><PlotsPage :mode="mode" :unauthorized="unauthorized" :active="view === 'plots'" embedded /></section>
       <section v-if="view === 'activity'" id="tuner-panel-activity" role="tabpanel" aria-labelledby="tuner-tab-activity" class="gx-tuner__panel"><section class="gx-card gx-tuner__section"><div class="gx-tuner__section-heading"><div><p class="gx-tuner__eyebrow">LEARNING ACTIVITY</p><h3>What the tuner found</h3></div><span class="gx-tuner__pill">Reported observations</span></div>
           <ol v-if="historyRows.length" class="gx-tuner__timeline"><li v-for="(row, index) in historyRows" :key="index"><span class="gx-tuner__timeline-dot" :class="{ 'gx-tuner__timeline-dot--applied': row.applied }"></span><div><strong>{{ historyTitle(row.status) }}</strong><p>{{ learningReason(row.reason) }}</p><small>{{ row.time }}<template v-if="row.applied"> · Applied at that time</template></small></div></li></ol>
           <div v-else class="gx-tuner__empty"><i class="bi bi-clock-history" aria-hidden="true"></i><h4>No findings reported yet</h4><p>This will show real collection, trial and rollback events as the learner reports them.</p></div>

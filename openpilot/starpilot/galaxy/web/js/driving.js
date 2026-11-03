@@ -51,7 +51,7 @@ export const DrivingPage = {
         </section>
         <div class="gx-driving__extras gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="go('/driving/longitudinal-curves')">Edit longitudinal curves</button>
           <button type="button" class="gx-btn gx-btn--tonal" @click="go('/tuning/plots')">Live plots</button>
-          <button type="button" class="gx-btn gx-btn--tonal" @click="go('/tuning')">StarPilot Tuner</button></div>
+          <button type="button" class="gx-btn gx-btn--tonal" @click="go('/tuning')">Tuning and Analysis</button></div>
       </template>
     </section>`,
 }
