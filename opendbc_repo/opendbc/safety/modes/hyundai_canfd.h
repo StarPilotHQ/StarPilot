@@ -2,6 +2,7 @@
 
 #include "opendbc/safety/declarations.h"
 #include "opendbc/safety/modes/hyundai_common.h"
+#include "opendbc/safety/modes/hyundai_daw.h"
 #include "opendbc/safety/modes/hyundai_canfd_aol.h"
 #include "opendbc/safety/modes/hyundai_canfd_angle_aol.h"
 
@@ -527,6 +528,7 @@ static void hyundai_canfd_ioniq6_optional_rx_hook(const CANPacket_t *msg) {
 }
 
 static void hyundai_canfd_optional_rx_hook(const CANPacket_t *msg) {
+  hyundai_daw_rx(msg);
   if (hyundai_canfd_ioniq6_long && (msg->bus == 1U)) {
     hyundai_canfd_ioniq6_optional_rx_hook(msg);
   }
@@ -1272,7 +1274,7 @@ static bool hyundai_canfd_tx_hook(const CANPacket_t *msg) {
     }
   }
   if (ordinary_angle_valid && !((hyundai_canfd_ioniq6_long || hyundai_canfd_ccnc_ev_long) && safety_rx_checks_invalid)) {
-    tx = hyundai_canfd_tx_hook_valid(msg);
+    tx = (msg->addr == 0x11AU) ? hyundai_daw_tx(msg) : hyundai_canfd_tx_hook_valid(msg);
   }
   if ((hyundai_ordinary_angle_stock && !hyundai_angle_aol_enabled && (msg->addr == 0x110U) && tx) ||
       (independent_command && independent_active && tx)) {
@@ -2221,6 +2223,7 @@ static safety_config hyundai_canfd_init_validated(uint16_t supplied_param) {
 }
 
 static safety_config hyundai_canfd_init(uint16_t param) {
+  hyundai_daw_init(true, false);
   hyundai_canfd_reset_ioniq6_state();
   hyundai_ordinary_angle_reset();
 #ifdef ALLOW_DEBUG
@@ -2239,6 +2242,9 @@ static safety_config hyundai_canfd_init(uint16_t param) {
                             (param == 0x8815U) || (param == 0x8895U);
   if (valid && marker_valid) {
     ret = hyundai_canfd_init_validated(param);
+    const bool daw_profile = (param == 0x0011U) || (param == 0x0091U) || (param == 0x0811U) || (param == 0x0891U) ||
+                             (param == 0x8015U) || (param == 0x8095U) || (param == 0x8815U) || (param == 0x8895U);
+    ret = hyundai_daw_configure(ret, true, daw_profile);
   }
   return ret;
 }

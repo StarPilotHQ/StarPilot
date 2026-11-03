@@ -396,6 +396,9 @@ class CarInterface(CarInterfaceBase):
     return ret
 
   def update(self, can_packets):
+    if self.CS.daw.enabled:
+      can_packets = list(can_packets)
+      self.CS.daw.update(can_packets)
     recovery = getattr(getattr(self, 'CC', None), 'angle_tx_recovery', None)
     if recovery is not None:
       can_packets = list(can_packets)
