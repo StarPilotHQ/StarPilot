@@ -160,6 +160,17 @@ const filtered = SettingsPage.computed.visibleRows.call({ state: { query: "lane"
 ] } } })
 assert.deepEqual(filtered.map(({ index }) => index), [1]) // Filter keeps the original owner row index.
 
+const developerRows = [{ label: "Use VOACC", value: "Off", reason: "" }, { label: "StarPort", value: "", reason: "", heading: true },
+  { label: "Stay on Wi-Fi", value: "On", reason: "" }, { label: "Allow H.265 video", value: "Off", reason: "" }]
+const cardsFor = (query) => {
+  const view = { state: { query, data: { rows: developerRows } }, initialPage: "developer", activeSection: {} }
+  view.visibleRows = SettingsPage.computed.visibleRows.call(view)
+  return SettingsPage.computed.rowCards.call(view).map(({ title, entries }) => [title, entries.map(({ index }) => index)])
+}
+assert.deepEqual(cardsFor(""), [["", [0]], ["StarPort", [2, 3]]], "a heading row starts its own card")
+assert.deepEqual(cardsFor("h.265"), [["", []], ["StarPort", [3]]], "search keeps a row in its card when the heading is filtered out")
+assert.deepEqual(cardsFor("voacc"), [["", [0]]], "an emptied card is not shown")
+
 const conditional = fixture()
 conditional.feed.start()
 await conditional.reply(0, { ...lane, page: "hub", rows: [{ label: "Conditional driving modes", page: "conditional",

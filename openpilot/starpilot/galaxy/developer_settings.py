@@ -55,15 +55,15 @@ class DeveloperSettingsOwner:
     new_setup_on = new_setup.enabled()
     held = "Park the vehicle to change this setting."
     rows = [FeatureRow(STARPORT_HEADING_KEY, "StarPort", "", available=False),
-            FeatureRow(STARPORT_NEW_SETUP_KEY, "StarPort: New pairing experience", "On" if new_setup_on else "Off",
+            FeatureRow(STARPORT_NEW_SETUP_KEY, "New pairing experience", "On" if new_setup_on else "Off",
                        b"1" if new_setup_on else b"0", ("Off", "On"), available=parked,
                        reason=STARPORT_NEW_SETUP_DESCRIPTION if parked else held, default_value="On")]
     status = self._starport_status()
     if status is not None:
       enabled, hevc = bool(status.get("dedicated_wifi_interface")), bool(status.get("allow_hevc"))
-      rows.append(FeatureRow(STARPORT_WIFI_KEY, "StarPort: Stay on Wi-Fi", "On" if enabled else "Off", b"1" if enabled else b"0",
+      rows.append(FeatureRow(STARPORT_WIFI_KEY, "Stay on Wi-Fi", "On" if enabled else "Off", b"1" if enabled else b"0",
                              ("Off", "On"), available=parked, reason=STARPORT_WIFI_DESCRIPTION if parked else held, default_value="On"))
-      rows.append(FeatureRow(STARPORT_HEVC_KEY, "StarPort: Allow H.265 video", "On" if hevc else "Off", b"1" if hevc else b"0",
+      rows.append(FeatureRow(STARPORT_HEVC_KEY, "Allow H.265 video", "On" if hevc else "Off", b"1" if hevc else b"0",
                              ("Off", "On"), available=parked, reason=STARPORT_HEVC_DESCRIPTION if parked else held, default_value="Off"))
     return tuple(rows)
 
