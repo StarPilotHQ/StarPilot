@@ -510,7 +510,7 @@ def test_star_large_routes_shell_and_uses_confirmed_offroad(main, probe):
 
 
 def test_time_sync_startup_cancellation_and_reentry(shell, monkeypatch):
-  thread, run = Mock(), Mock(return_value=NS(stdout='dAtE: Mon, 02 Nov 2026 18:00:00 GMT\r\n'))
+  thread, run = Mock(), Mock(return_value=NS(stdout='204||Mon, 02 Nov 2026 18:00:00 GMT'))
   monkeypatch.setattr(desktop, 'Thread', thread)
   monkeypatch.setattr(desktop.subprocess, 'run', run)
   shell.show_event()
@@ -544,7 +544,8 @@ def test_time_sync_startup_cancellation_and_reentry(shell, monkeypatch):
   thread.call_args.kwargs['target'](*thread.call_args.kwargs['args'])
   assert run.call_count == 3
   fetch, apply = run.call_args_list[-2:]
-  assert fetch.args[0] == ['curl', '-fsI', '-m', '10', '-H', 'Cache-Control: no-cache', 'http://www.google.com']
+  assert fetch.args[0] == ['curl', '-q', '-fsI', '-m', '10', '-H', 'Cache-Control: no-cache', '-o', '/dev/null',
+                          '-w', '%{response_code}|%header{age}|%header{date}', 'https://www.google.com/generate_204']
   assert fetch.kwargs['timeout'] == 11
   assert apply.args[0] == ['sudo', '-n', 'date', '-u', '-s', '2026-11-02T18:00:00+00:00']
   assert apply.kwargs['timeout'] == 2
@@ -554,11 +555,12 @@ def test_time_sync_startup_cancellation_and_reentry(shell, monkeypatch):
 
 
 @pytest.mark.parametrize('response', [
-  '', 'HTTP/1.1 200 OK\r\n', 'Date: invalid\r\n',
-  'Date: Sat, 01 Jan 2000 00:00:00 GMT\r\n', 'Date: Tue, 01 Jan 2036 00:00:00 GMT\r\n',
-  'Date: Mon, 02 Nov 2026 18:00:00\r\n',
-  subprocess.CalledProcessError(22, ['curl'], output='Date: Mon, 02 Nov 2026 18:00:00 GMT\r\n'),
-  subprocess.CalledProcessError(28, ['curl'], output='Date: Mon, 02 Nov 2026 18:00:00 GMT\r\n'),
+  '', '204||', '204||invalid', '204||Sat, 01 Jan 2000 00:00:00 GMT', '204||Tue, 01 Jan 2036 00:00:00 GMT',
+  '204||Mon, 02 Nov 2026 18:00:00', '200||Fri, 02 Oct 2026 18:00:00 GMT', '302||Fri, 02 Oct 2026 18:00:00 GMT',
+  '204|2678400|Fri, 02 Oct 2026 18:00:00 GMT',
+  subprocess.CalledProcessError(22, ['curl'], output='204||Mon, 02 Nov 2026 18:00:00 GMT'),
+  subprocess.CalledProcessError(28, ['curl'], output='204||Mon, 02 Nov 2026 18:00:00 GMT'),
+  subprocess.CalledProcessError(60, ['curl']),
   subprocess.TimeoutExpired(['curl'], 11), FileNotFoundError('curl'),
 ])
 def test_failed_or_invalid_time_sync_never_sets_clock(shell, monkeypatch, response):
@@ -570,7 +572,7 @@ def test_failed_or_invalid_time_sync_never_sets_clock(shell, monkeypatch, respon
 
 @pytest.mark.parametrize('error', [subprocess.CalledProcessError(1, ['sudo']), subprocess.TimeoutExpired(['sudo'], 2), FileNotFoundError('sudo')])
 def test_time_sync_permission_or_command_failures_stay_quiet(shell, monkeypatch, error):
-  run = Mock(side_effect=[NS(stdout='Date: Mon, 02 Nov 2026 18:00:00 GMT\r\n'), error])
+  run = Mock(side_effect=[NS(stdout='204|0|Mon, 02 Nov 2026 18:00:00 GMT'), error])
   monkeypatch.setattr(desktop.subprocess, 'run', run)
   shell._sync_time(Event())
   assert run.call_count == 2

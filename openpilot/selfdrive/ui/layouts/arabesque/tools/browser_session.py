@@ -1012,6 +1012,8 @@ def worker_main():
     preferences = {'browser.shell.checkDefaultBrowser': False, 'browser.startup.homepage_override.mstone': 'ignore',
                    'browser.warnOnQuitShortcut': False,
                    'browser.startup.page': 3,
+                   'browser.link.open_newwindow': 3, 'browser.link.open_newwindow.restriction': 0,
+                   'browser.tabs.loadDivertedInBackground': False,
                    'browser.cache.disk.capacity': 65536, 'browser.cache.disk.smart_size.enabled': False,
                    'browser.download.dir': str(STATE / 'downloads'), 'browser.download.folderList': 2,
                    'gfx.webrender.software': True, 'layers.acceleration.disabled': True,
