@@ -134,7 +134,7 @@ export const StarPortGuidedSetup = {
         <li v-for="(step, index) in state.steps" :key="step.id" class="gx-guided__step" :class="'is-' + step.state"
             :aria-current="step.state === 'current' ? 'step' : undefined">
           <span class="gx-guided__node" aria-hidden="true"><i v-if="step.state === 'done'" class="bi bi-check-lg"></i><template v-else>{{ index + 1 }}</template></span>
-          <span class="gx-guided__step-label">{{ step.label }}<span class="gx-guided__sr">{{ step.state === 'done' ? ', done' : step.state === 'current' ? ', current step' : '' }}</span></span>
+          <span class="gx-guided__step-label">{{ step.label }}<span class="gx-sr-only">{{ step.state === 'done' ? ', done' : step.state === 'current' ? ', current step' : '' }}</span></span>
         </li>
       </ol>
 

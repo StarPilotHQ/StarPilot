@@ -5,6 +5,7 @@ read and change with the StarPort service down or broken, and it needs no device
 """
 from pathlib import Path
 
+from openpilot.common.utils import atomic_write
 from openpilot.starpilot.system.starport.identity import DATA_DIR
 
 FLAG_PATH = DATA_DIR / "new_setup"
@@ -22,9 +23,8 @@ def set_enabled(value: bool, path: Path | None = None) -> bool:
   target = path or FLAG_PATH
   try:
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    temporary = target.with_name(f".{target.name}.tmp")
-    temporary.write_text("1" if value else "0")
-    temporary.replace(target)
+    with atomic_write(str(target), overwrite=True) as handle:
+      handle.write("1" if value else "0")
   except OSError:
     return False
   return enabled(target) == value

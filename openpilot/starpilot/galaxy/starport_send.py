@@ -11,15 +11,14 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import re
-import tempfile
 import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from openpilot.common.utils import atomic_write
 from openpilot.starpilot.system.starport import identity as identity_store
 
 MESSAGE_LIMIT = 60
@@ -148,15 +147,8 @@ def _response_json(response) -> dict:
 def _save_thread_id(path: Path, key: str, thread_id: str) -> None:
   path.parent.mkdir(parents=True, exist_ok=True)
   # A power loss during a write must not truncate the previous cache entry.
-  with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as temporary:
-    temporary_path = Path(temporary.name)
-    try:
-      json.dump({"key": key, "thread_id": thread_id}, temporary)
-      temporary.flush()
-      os.fsync(temporary.fileno())
-      os.replace(temporary_path, path)
-    finally:
-      temporary_path.unlink(missing_ok=True)
+  with atomic_write(str(path), overwrite=True) as handle:
+    json.dump({"key": key, "thread_id": thread_id}, handle)
 
 
 def send(data: bytes, name: str, note: str, summary: dict, url: str | None = None, post=None,

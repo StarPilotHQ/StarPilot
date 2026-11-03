@@ -109,3 +109,13 @@ def test_an_unreadable_bluetooth_service_is_reported_once(sup):
   for tick in range(4):
     sup._adopt_only_car(1000.0 + 25 * tick)
   assert names(sup).count("car_adopt_unavailable") == 1
+
+
+def test_a_bluetooth_error_while_choosing_the_car_is_reported_not_raised(sup):
+  sup._phone().paired_devices = [(CAR, "Civic", True)]
+
+  def rejected(address, name=""):
+    raise Exception("Bluetooth rejected")
+  sup.select_receiver = rejected
+  sup._adopt_only_car(1000.0)
+  assert "car_adopt_failed" in names(sup) and sup.config["receiver_address"] == ""

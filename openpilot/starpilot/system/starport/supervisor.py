@@ -258,19 +258,14 @@ class LinkWatch:
 class SharedRadioWatch:
   """Notices the comma's own Wi-Fi joining or roaming while the car is on aa0; both share one radio.
 
-  The link going down or up bumps carrier_changes, a plain sysfs read. The network's name comes from
-  NetworkManager on this thread, never the streaming one.
+  The link going down or up bumps carrier_changes, a plain sysfs read. The network's name is never read or logged.
   """
 
   def __init__(self, log: Callable[..., None], interface: str = "wlan0", interval: float = RADIO_CHECK_INTERVAL,
-               counter: Path | None = None, name: Callable[[str], str] | None = None):
+               counter: Path | None = None):
     self.log, self.interface, self.interval = log, interface, interval
-    if name is None:
-      from openpilot.starpilot.system.starport.network import wifi_network_name as name
-    self.name = name
     self.counter = counter or Path(f"/sys/class/net/{interface}/carrier_changes")
     self.changed_at: float | None = None
-    self.network = ""
     self._stop = threading.Event()
     self._thread = threading.Thread(target=self._run, name="aa_radio_watch", daemon=True)
 
@@ -281,11 +276,11 @@ class SharedRadioWatch:
   def stop(self) -> None:
     self._stop.set()
 
-  def recent(self, now: float | None = None) -> str | None:
-    """The other network's name if it changed within RADIO_CHANGE_WINDOW ("" if unnamed), else None."""
+  def recent(self, now: float | None = None) -> bool:
+    """Whether the other network joined or roamed within RADIO_CHANGE_WINDOW."""
     changed_at = self.changed_at
     now = time.monotonic() if now is None else now
-    return self.network if changed_at is not None and now - changed_at <= RADIO_CHANGE_WINDOW else None
+    return changed_at is not None and now - changed_at <= RADIO_CHANGE_WINDOW
 
   def _read(self) -> str | None:
     try:
@@ -300,13 +295,8 @@ class SharedRadioWatch:
       if current is None or current == last:
         continue
       last = current
-      self.network = ""  # named below; D-Bus can be slow, and the change must count from now
       self.changed_at = time.monotonic()
-      try:
-        self.network = self.name(self.interface)
-      except Exception:
-        self.network = ""
-      self.log("other_wifi_changed", interface=self.interface, network=self.network)
+      self.log("other_wifi_changed", interface=self.interface)
 
 
 class EventLog:
@@ -597,11 +587,11 @@ class Supervisor:
       cache, replies = dict(self.config["rfcomm_cache"]), dict(self.config.get("modern_reply_cache", {}))
       cached = cache.pop(address, None) is not None
       cached = replies.pop(address, None) is not None or cached
-      if not (chosen or companion or cached):
+      learned = self._ladder.forget(address)
+      if not (chosen or companion or cached or learned):
         return False  # nothing of this device was kept
       self.config.update(rfcomm_cache=cache, modern_reply_cache=replies)
       self._modern_reply.pop(address, None)
-      self._ladder.forget(address)
       if chosen:
         if self._bluez is not None:
           self._bluez.release()
@@ -846,7 +836,7 @@ class Supervisor:
       return
     self._adopt_at = now
     try:
-      car, candidates = choose_only_car(self._phone().devices())
+      car, candidates = choose_only_car(self.devices())
     except Exception as error:
       self._adopt_note("car_adopt_unavailable", kind=type(error).__name__, error=str(error)[:120])
       return
@@ -860,7 +850,7 @@ class Supervisor:
       return
     try:
       self.select_receiver(car["address"], car.get("name") or "")
-    except (RuntimeError, ValueError) as error:
+    except Exception as error:
       self._adopt_note("car_adopt_failed", error=str(error))
       return
     finally:
@@ -1369,7 +1359,7 @@ class Supervisor:
           reach = reachability.classify(stage, type(error).__name__, f"{message} {error}")
           self.log("attempt_failed", stage=stage, error=message, kind=type(error).__name__, where=_where(error), reach=reach)
           if isinstance(error, SharedRadioStall):
-            reconnect_notice.write(reconnect_notice.shared_radio_text(error.network))
+            reconnect_notice.write(reconnect_notice.SHARED_RADIO_TEXT)
           if isinstance(error, StrayLinkError):
             self._clear_stray_link()
             car_first = True  # the car pages right back once its link drops; let it, rather than crossing it again
@@ -1414,8 +1404,7 @@ class Supervisor:
     if isinstance(error, AuthenticationRejected):
       return "The car rejected the Android Auto identity; it may have expired"
     if isinstance(error, SharedRadioStall):
-      joined = f"joined {error.network}" if error.network else "was switching networks"
-      return f"The car's Wi-Fi stalled while the comma's own Wi-Fi {joined}; reconnecting"
+      return "The car's Wi-Fi stalled while the comma's own Wi-Fi was switching networks; reconnecting"
     text = str(error) or type(error).__name__
     if stage == "authenticating" and "certificate" in text.lower():
       text += " (set verify_head_unit false in config.json to test without verifying the car)"

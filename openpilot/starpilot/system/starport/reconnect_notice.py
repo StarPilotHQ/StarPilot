@@ -3,31 +3,22 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 
+from openpilot.common.utils import atomic_write
 from openpilot.starpilot.system.starport import identity as identity_store
 
 NOTICE_PATH = identity_store.DATA_DIR / "reconnect_notice.json"
 NOTICE_FRESH_S = 120.0  # a notice older than this is about an earlier drive or reconnect (monotonic: same boot only)
-NAME_MAX = 24
-
-
-def shared_radio_text(network: str) -> str:
-  """The car-screen line for a drop caused by the comma's own Wi-Fi joining or roaming."""
-  name = network.strip()
-  if len(name) > NAME_MAX:
-    name = name[:NAME_MAX - 3].rstrip() + "..."  # plain dots: the car-screen fonts may lack an ellipsis glyph
-  return f"Reconnected: comma Wi-Fi Joined {name}" if name else "Reconnected: comma Wi-Fi Was Switching Networks"
+SHARED_RADIO_TEXT = "Reconnected: comma Wi-Fi Was Switching Networks"  # on the car screen after a drop caused by the comma's own Wi-Fi
 
 
 def write(text: str, path: Path = NOTICE_PATH, now: float | None = None) -> None:
   try:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"text": text, "written": time.monotonic() if now is None else now}))
-    os.replace(temporary, path)
+    with atomic_write(str(path), overwrite=True) as handle:
+      json.dump({"text": text, "written": time.monotonic() if now is None else now}, handle)
   except OSError:
     pass  # the notice is a courtesy; projection never depends on it
 

@@ -2039,7 +2039,6 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-guided__step-label { font-size: 13px; font-weight: var(--fw-bold); color: var(--g-muted); }
 .gx-guided__step.is-current .gx-guided__step-label { color: var(--g-ink); }
 @keyframes gx-guided-pop { 0% { transform: scale(.7); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
-.gx-guided__sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .gx-guided__header { display: grid; gap: 6px; max-width: 34rem; }
 .gx-guided__title { margin: 0; font-size: 30px; line-height: 1.12; font-weight: var(--fw-bold); letter-spacing: -.02em; text-wrap: balance; }

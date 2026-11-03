@@ -185,16 +185,3 @@ def test_version_four_head_units_get_a_phone_shaped_version_reply():
 def test_older_head_units_and_the_first_try_keep_the_reply_that_works_today():
   for reply in (version_reply(FORD_V16), version_reply(KIA_V41, modern=False)):
     assert reply[4] == [0] and 5 not in reply and 6 not in reply
-
-
-def test_only_a_silent_v4_head_unit_asks_for_the_other_reply():
-  timeout = bs.BootstrapTimeout("wifi_start", "head unit did not answer in time")
-  boot, _ = scripted([])
-  boot.version_major = 4
-  assert boot.silent_after_modern_version(timeout)
-  boot.car_started = True
-  assert not boot.silent_after_modern_version(timeout)
-  boot.car_started, boot.version_major = False, 1
-  assert not boot.silent_after_modern_version(timeout)
-  boot.version_major = 4
-  assert not boot.silent_after_modern_version(bs.BootstrapTimeout("wifi_info", "head unit did not answer in time"))

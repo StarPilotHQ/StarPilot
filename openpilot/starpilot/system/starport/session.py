@@ -118,12 +118,6 @@ class PeerRequestedStop(EOFError):
 
 class SharedRadioStall(TimeoutError):
   """The car stopped acknowledging video while the comma's other Wi-Fi network was joining or roaming."""
-
-  def __init__(self, message: str, network: str):
-    super().__init__(message)
-    self.network = network
-
-
 START_CODE = re.compile(b"\x00\x00(?:\x00)?\x01")
 
 
@@ -659,12 +653,10 @@ class ProjectionSession(Session):
   MAX_WINDOW = 2
   nav = None
   grace_frame: float | None = None  # send time of the frame whose late ack is being waited out
-  grace_network = ""
   grace_focus_lost = False
 
-  # Replaced by the supervisor: the comma's other Wi-Fi network's name if it joined or roamed in the last few
-  # seconds ("" when unnamed), else None.
-  radio_change: Callable[..., str | None] = staticmethod(lambda: None)
+  # Replaced by the supervisor: whether the comma's other Wi-Fi joined or roamed in the last few seconds.
+  radio_change: Callable[..., bool] = staticmethod(lambda: False)
 
   # HeadunitPad acknowledges every fragment (codec config included) rather than every frame.
   fragment_acks = False
@@ -965,7 +957,7 @@ class ProjectionSession(Session):
     self.acked += count
     self.epoch_acked += count
     if self.grace_frame is not None and (not self.pending or self.pending[0] != self.grace_frame):
-      self.event("ack_grace_recovered", network=self.grace_network, gap_ms=round((now - self.grace_frame) * 1000))
+      self.event("ack_grace_recovered", gap_ms=round((now - self.grace_frame) * 1000))
       self.grace_frame = None
     self._confirm_video()
 
@@ -991,7 +983,7 @@ class ProjectionSession(Session):
     measured = now is None
     now = time.monotonic() if measured else now
     if self.grace_focus_lost:
-      raise SharedRadioStall("The car took its screen back while the comma's Wi-Fi was switching networks", self.grace_network)
+      raise SharedRadioStall("The car took its screen back while the comma's Wi-Fi was switching networks")
     if self._ack_overdue(now):
       # ACKs that arrived while this loop was busy (a slow encode, a CPU burst) still sit in the socket; the
       # streaming loop drains only a bounded batch per pass, so read what is there before calling the car silent.
@@ -1010,18 +1002,13 @@ class ProjectionSession(Session):
   def _wait_out_radio_change(self, now: float) -> None:
     """The oldest frame is past ACK_TIMEOUT: give up, unless the comma's other Wi-Fi just changed networks."""
     oldest = self.pending[0]
-    if self.grace_frame == oldest:
-      network = self.grace_network
-    else:
-      changed = self.radio_change()
-      if changed is None:
+    if self.grace_frame != oldest:
+      if not self.radio_change():
         raise TimeoutError(f"Video acknowledgement older than {self.ACK_TIMEOUT:.1f} s")
-      self.grace_frame, self.grace_network = oldest, changed
-      self.event("ack_grace", network=changed, after_ms=round((now - oldest) * 1000))
-      network = changed
+      self.grace_frame = oldest
+      self.event("ack_grace", after_ms=round((now - oldest) * 1000))
     if now - oldest > self.ACK_GRACE_TIMEOUT:
-      message = f"Video acknowledgement older than {self.ACK_GRACE_TIMEOUT:.1f} s while the comma's Wi-Fi was switching networks"
-      raise SharedRadioStall(message, network)
+      raise SharedRadioStall(f"Video acknowledgement older than {self.ACK_GRACE_TIMEOUT:.1f} s while the comma's Wi-Fi was switching networks")
 
   def send_frame(self, data: bytes, timestamp_us: int, *, keyframe: bool) -> None:
     if not self.can_send():

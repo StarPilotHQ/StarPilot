@@ -275,7 +275,6 @@ class WirelessBootstrap:
     self.patience = patience                # stage timeouts a car that keeps saying "not ready" gets (setup ladder)
     self.channel_override = channel_override  # Wi-Fi band to answer with inside the phone-style reply; None keeps the car's own
     self.version_major = 0
-    self.car_started = False
     self.flags = EXPERIMENTS[self.experiment][1] if self.experiment else set()
     self.initial_kick_delay = initial_kick_delay
     self.join_ping_interval = join_ping_interval
@@ -346,11 +345,6 @@ class WirelessBootstrap:
              field(5, selected) + field(6, session))
     self.log("bootstrap_version_reply", style="modern", channel_type=selected, hex=reply.hex())
     return reply
-
-  def silent_after_modern_version(self, error: BaseException) -> bool:
-    """A v4+ head unit took our version reply but never started; the other reply style may suit it."""
-    return (isinstance(error, BootstrapTimeout) and error.stage == "wifi_start" and self.version_major >= MODERN_MAJOR
-            and not self.car_started)
 
   def service(self, message_id: int, payload: bytes) -> bool:
     """Handle stage-independent frames; returns True when consumed."""
@@ -423,7 +417,6 @@ class WirelessBootstrap:
         if start_request_at is None:
           start_request_at = time.monotonic() + self.start_request_delay
       elif message_id == WIFI_START_REQUEST:
-        self.car_started = True
         parsed = parse_endpoint(payload)
         if parsed is None:
           raise BootstrapError(self.stage, "WifiStartRequest has no valid IPv4 endpoint")
@@ -431,7 +424,6 @@ class WirelessBootstrap:
         if "start_response_first" in self.flags:
           self.send(WIFI_START_RESPONSE, field(3, STATUS_SUCCESS))
       elif message_id == WIFI_START_RESPONSE:
-        self.car_started = True
         # The car's answer to our WifiStartRequest (2025 Honda): ip=1, port=2, status=3 once it is
         # ready, or a negative status alone before then (it may follow up on its own; ask again anyway).
         status = signed(one(parse_fields(payload), 3, STATUS_SUCCESS))

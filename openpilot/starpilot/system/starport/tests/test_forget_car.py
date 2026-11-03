@@ -77,3 +77,11 @@ def test_the_version_reply_a_car_started_with_is_kept_and_forgotten_with_it(sup)
   assert saved()["modern_reply_cache"] == {ADAPTER: True}
   daemon.handle(sup, {"command": "forget_receiver", "address": ADAPTER})
   assert saved()["modern_reply_cache"] == {} and ADAPTER not in sup._modern_reply
+
+
+def test_a_car_known_only_to_the_setup_ladder_is_still_forgotten(sup):
+  sup._ladder.strategy(OTHER, False)
+  sup._ladder.failed(OTHER, sup._ladder.strategy(OTHER, False), ladder_failure=True, video_seen=False, version_major=4, adapter=False)
+  assert OTHER.upper() in sup._ladder.cars
+  daemon.handle(sup, {"command": "forget_receiver", "address": OTHER})
+  assert OTHER.upper() not in sup._ladder.cars

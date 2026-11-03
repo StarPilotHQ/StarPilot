@@ -17,7 +17,7 @@ assert.equal(validPromptInput({ kind: "pin" }, "1234"), true)
 assert.equal(validPromptInput({ kind: "pin" }, "\n"), false)
 assert.equal(validPromptInput({ kind: "passkey" }, "1234567"), false)
 assert.equal(validPromptInput(prompt, ""), true)
-assert.match(StarPortPage.template, /Check that this code matches your car/)
+assert.match(StarPortPage.template, /Check that this code matches your/)
 assert.match(StarPortPage.template, /Cancel Search \/ Pairing/)
 assert.doesNotMatch(StarPortPage.template, /:row="wiredRow"/)
 assert.match(StarPortPage.template, /Read the Android Auto troubleshooting guide/)
@@ -484,6 +484,9 @@ typed.runtime = { car_type: 'adapter' }
 assert.equal(typed.adapterSetup, true)
 assert.equal(typed.pairsHere, true)
 assert.equal(typed.findLabel, 'adapter')
+assert.equal(typed.deviceWord, 'adapter', 'the pairing prompts name the adapter, not the car')
+typed.runtime = { car_type: 'builtin' }
+assert.equal(typed.deviceWord, 'car')
 typed.runtime = { car_type: 'usb' }
 assert.equal(typed.pairsHere, false, 'a USB cable needs no Bluetooth pairing')
 typed.runtime = { running: false, connection: 'wired' }

@@ -15,12 +15,11 @@ The first pass for a car is exactly what ran before (rung ``standard``); the lat
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from openpilot.common.utils import atomic_write
 from openpilot.starpilot.system.starport.bootstrap import CHANNEL_24GHZ, CHANNEL_DUAL, MODERN_MAJOR, REFUSAL_PATIENCE
 from openpilot.starpilot.system.starport.identity import DATA_DIR
 
@@ -152,17 +151,8 @@ class SetupLadder:
     self.cars = ordered
     try:
       self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-      fd, temporary = tempfile.mkstemp(dir=self.path.parent, prefix=".setup-state-")
-      try:
-        with os.fdopen(fd, "w") as handle:
-          json.dump({"version": STATE_VERSION, "cars": ordered}, handle, separators=(",", ":"))
-          handle.flush()
-          os.fsync(handle.fileno())
-        os.chmod(temporary, 0o600)
-        os.replace(temporary, self.path)
-      finally:
-        if os.path.exists(temporary):
-          os.unlink(temporary)
+      with atomic_write(str(self.path), overwrite=True) as handle:
+        json.dump({"version": STATE_VERSION, "cars": ordered}, handle, separators=(",", ":"))
     except OSError:
       return False  # progress is a convenience; a read-only disk must never stop a connection
     return True
