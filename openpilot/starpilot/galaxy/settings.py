@@ -458,6 +458,8 @@ def _question(row: FeatureRow, request: FeatureSettingsRequest) -> str:
   if key in ("profile:global_acceleration", "profile:global_braking"):
     return (f"Save {row.label.lower()} as {request.value}? Personalities set to Selected Profile follow this choice; " +
             "explicit personality overrides stay unchanged.")
+  if key == "torque:surface:reset":
+    return "Remove the thirty manual overrides for this vehicle? Saved Auto Learn history is kept."
   if key == "torque_gain_rebase":
     return "Apply the saved steering response to the selected controller and current vehicle tune? Friction and other models stay unchanged."
   if key == "torque_rebase":

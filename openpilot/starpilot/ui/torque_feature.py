@@ -69,7 +69,7 @@ class TorqueFeature:
           f"{100 * values[name]:.4f}", step=.25, minimum=100 * low, maximum=100 * high, unit="%",
           available=allowed and matches, reason=reason, default_value="0", **common))
       if saved is not None:
-        rows.append(FeatureRow("torque:surface:reset", "Reset manual tune", "", choices=("Reset",),
+        rows.append(FeatureRow("torque:surface:reset", "Reset manual tune", "Reset", choices=("Reset",),
           available=allowed, reason="Remove only the thirty manual overrides. Accepted Auto Learn history is preserved.", **common))
       return tuple(rows)
     except (AttributeError, KeyError, TypeError, ValueError, OverflowError, UnicodeError):

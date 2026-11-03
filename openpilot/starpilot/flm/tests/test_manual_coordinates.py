@@ -226,3 +226,16 @@ def test_source_change_under_native_lock_is_not_overwritten(tmp_path, cp, monkey
   assert not editor.apply(request(row, 1.))
   assert read_saved(params, DOCUMENT_KEY, 16384) == (other, True)
   assert not list(tmp_path.glob('.manual-steering-*'))
+
+
+def test_reset_all_uses_original_row_request_and_requires_confirmation(tmp_path, cp):
+  from openpilot.starpilot.ui.feature_settings_state import row_change
+  params = PrivateParams(tmp_path)
+  save(params, cp, manual(cp, ff_gain_left=.01, center_taper_max=.01))
+  editor, capability = feature(cp, params, {'parked': True})
+  reset = replace(editor.manual_rows(capability, True)[-1], vehicle_fingerprint=str(cp.carFingerprint))
+  unconfirmed = row_change(reset)
+  assert unconfirmed is not None and unconfirmed.value == 'Reset'
+  assert not editor.apply(unconfirmed)
+  assert editor.apply(replace(unconfirmed, confirmation=True))
+  assert parse_document(read_saved(params, DOCUMENT_KEY, 16384)[0])[str(cp.carFingerprint)].manual_coordinates is None
