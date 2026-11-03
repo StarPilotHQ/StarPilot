@@ -104,7 +104,7 @@ class GenericHDA2Startup(RadarHDA2Startup):
       raise RuntimeError('Ordinary HDA-II startup does not admit this AOL configuration')
     expected: Any = deepcopy(self.prepared_cp)
     configs = expected.get('safetyConfigs', [])
-    allowed_words = (*tuple(word | 4 for word in STOCK_WORDS), 0x20B4) if long_aol else STOCK_WORDS
+    allowed_words = (*tuple(word | 4 for word in STOCK_WORDS), 0x20B4) if long_aol else (*STOCK_WORDS, 0x20B0)
     if (len(configs) != 1 or configs[0]['safetyModel'] != 'hyundaiCanfd' or
         configs[0]['safetyParam'] not in allowed_words or expected['alternativeExperience'] != 0):
       raise RuntimeError('Ordinary HDA-II prepared stock profile cannot be finalized')

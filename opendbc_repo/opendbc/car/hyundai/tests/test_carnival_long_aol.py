@@ -180,3 +180,36 @@ def test_actual_card_defers_carnival_until_initialized_and_then_native_rx(scenar
       assert card.CP.to_dict() == original_cp
     finally:
       holder.close()
+
+
+def test_refused_takeover_preserves_exact_stock_aol_and_sends_no_disable():
+  from opendbc.car.hyundai.ioniq6_handoff import TimestampedCanPacket
+  from opendbc.car.hyundai.generic_hda2_startup import GenericHDA2Startup
+  from opendbc.car.hyundai.canfd_stock_aol import qualified as stock_qualified
+
+  cp = params(CAR.KIA_CARNIVAL_2025, hda2=True, alt_buttons=True, alpha=True, adas=True, alt_lka=True)
+  now, tick, emitted = [100_000_000_000], [0], []
+  startup = None
+
+  def receive():
+    tick[0] += 1
+    now[0] += 10_000_000
+    return [TimestampedCanPacket(source_frames(startup.ci, tick[0]), now[0])]
+
+  with patch('time.clock_gettime_ns', side_effect=lambda clock: now[0]), \
+       patch('time.monotonic', side_effect=lambda: now[0] / 1e9), patch('time.sleep'):
+    startup = GenericHDA2Startup(cp, (receive, emitted.extend), clock=lambda: now[0] / 1e9, keeper_factory=Keeper)
+    prepared = startup.prepare_when_controls_ready(admission=lambda: False)
+    assert not prepared.openpilotLongitudinalControl and prepared.pcmCruise and not emitted
+    ci = CarInterface(prepared)
+    try:
+      startup.configure(ci)
+      assert startup.ready and ci.CS.out.canValid and startup.sources_current(ci, now[0])
+      ci.CP.safetyConfigs[0].safetyParam |= 0x800
+      assert ci.CP.safetyConfigs[0].safetyParam == 0x28B0 and stock_qualified(ci.CP, marked_only=True)
+      startup.finalize_aol_configuration(ci)
+      startup.seal_publication()
+      assert startup.prepared_for(ci.CP) and not emitted
+      assert startup.outcome is Outcome.STOCK_UNTOUCHED and startup.keeper is None
+    finally:
+      startup.close()
