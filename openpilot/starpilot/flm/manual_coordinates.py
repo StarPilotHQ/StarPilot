@@ -40,7 +40,7 @@ class ManualCoordinates:
         raise ValueError('Manual coordinate outside the selected envelope')
     # Validate the complete composed surface as well as each individual value.
     from openpilot.starpilot.flm.canonical_surface_adapter import CanonicalSurfaceEffects
-    CanonicalSurfaceEffects((self.values[0],), self.digest(), accumulated=dict(self.values))
+    CanonicalSurfaceEffects(dict(self.values[:1]), self.digest(), accumulated=dict(self.values))
     return self
 
   def digest(self):
@@ -67,7 +67,7 @@ class ManualEffects:
       raise ValueError('Typed manual coordinates required')
     profile.validate()
     self.profile = profile
-    self.source = CanonicalSurfaceEffects((profile.values[0],), profile.digest(), accumulated=dict(profile.values))
+    self.source = CanonicalSurfaceEffects(dict(profile.values[:1]), profile.digest(), accumulated=dict(profile.values))
     self.original_effect_anchor = self.source.original_effect_anchor
 
   def begin_frame(self):
