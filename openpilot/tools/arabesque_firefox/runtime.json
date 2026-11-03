@@ -1,6 +1,6 @@
 {
   "bundle_format": 1,
-  "bundle_revision": 1,
+  "bundle_revision": 2,
   "version": "153.6.0esr",
   "agnos": "19.8.1",
   "packages": [
@@ -147,6 +147,186 @@
       "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/pixman/libpixman-1-0_0.42.2-1build1_arm64.deb",
       "size": 204208,
       "sha256": "81065c180e30302950a1bd39428d335797126ef89dc2922f89216678720d4eca"
+    },
+    {
+      "name": "graphics-libxcomposite1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxcomposite/libxcomposite1_0.4.5-1build3_arm64.deb",
+      "size": 6336,
+      "sha256": "94f0d6d602d00e9ac53d307509897672f1132c875e2576a06fd9f3dcd00dd81e"
+    },
+    {
+      "name": "graphics-libxcursor1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxcursor/libxcursor1_1.2.1-1build1_arm64.deb",
+      "size": 21066,
+      "sha256": "c059273cab51ca26f4776ce169dbfa8d4a442ea15fd1e478b0683156eb430e6b"
+    },
+    {
+      "name": "graphics-libxdamage1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxdamage/libxdamage1_1.1.6-1build1_arm64.deb",
+      "size": 6236,
+      "sha256": "6f54865fd13492e6bd9045e18c48270cd6c422c447c5531a17358a26748e5d50"
+    },
+    {
+      "name": "graphics-libxfixes3.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxfixes/libxfixes3_6.0.0-2build1_arm64.deb",
+      "size": 11206,
+      "sha256": "884fc6560c5a8bc91fb6b7d067f557d8088ccee86ad1974b6a57085ac121e8de"
+    },
+    {
+      "name": "graphics-libxi6.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxi/libxi6_1.8.1-1build1_arm64.deb",
+      "size": 31924,
+      "sha256": "aeeb74a6ff6ea16312fd8eb1988b1ddf32afbb4503ab7121763530ee700058e3"
+    },
+    {
+      "name": "graphics-libxinerama1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxinerama/libxinerama1_1.1.4-3build1_arm64.deb",
+      "size": 6394,
+      "sha256": "d93a71ccaced2ccac4efb25c23238ceee7b4fc352118f105a1265be7b55c638b"
+    },
+    {
+      "name": "graphics-libxrandr2.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxrandr/libxrandr2_1.5.2-2build1_arm64.deb",
+      "size": 19610,
+      "sha256": "7470632764f1fde987e760850c2be58973e265f41b2bb8015c415d247898d2c4"
+    },
+    {
+      "name": "graphics-libxrender1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxrender/libxrender1_0.9.10-1.1build1_arm64.deb",
+      "size": 18800,
+      "sha256": "0a3aedab15d9b0d7a74b0b043676f0caacc104f188be16a008196dbc20e9e2e2"
+    },
+    {
+      "name": "graphics-libatk1.0-0t64.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/a/at-spi2-core/libatk1.0-0t64_2.52.0-1build1_arm64.deb",
+      "size": 55122,
+      "sha256": "8939633b3912c6476f3f501c2e8aa0fcc681dbd343b0a8138bf0ed5af8e9a77a"
+    },
+    {
+      "name": "graphics-libcairo-gobject2.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/c/cairo/libcairo-gobject2_1.18.0-3build1_arm64.deb",
+      "size": 126542,
+      "sha256": "413153d7898f726cd993a4e0f2f80d412ac42c8d717d49041d71342cc1d581cb"
+    },
+    {
+      "name": "graphics-libcairo2.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/c/cairo/libcairo2_1.18.0-3build1_arm64.deb",
+      "size": 554800,
+      "sha256": "d7820deae45510a3ca1c1f6e32baa2e8b12a234a410d185e42e75e9dd5fcd6da"
+    },
+    {
+      "name": "graphics-libfontconfig1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/f/fontconfig/libfontconfig1_2.15.0-1.1ubuntu2_arm64.deb",
+      "size": 141868,
+      "sha256": "4df2aefa7395140499033b339a96164925f1fd3039df52669b87acb6bec20f19"
+    },
+    {
+      "name": "graphics-libfreetype6.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/f/freetype/libfreetype6_2.13.2+dfsg-1ubuntu0.2_arm64.deb",
+      "size": 393340,
+      "sha256": "d334b74c57a7c7b7847c1851161ead832a66e4160cf8393bbd142bd3864ee75e"
+    },
+    {
+      "name": "graphics-libfribidi0.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/f/fribidi/libfribidi0_1.0.13-3build1_arm64.deb",
+      "size": 26502,
+      "sha256": "52d3d13602ec19e01932d653b53ea9fe43252ff39aa196b81f96b69006e4c3a2"
+    },
+    {
+      "name": "graphics-libgdk-pixbuf-2.0-0.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gdk-pixbuf/libgdk-pixbuf-2.0-0_2.42.10+dfsg-3ubuntu3.3_arm64.deb",
+      "size": 145752,
+      "sha256": "c6ccee122fe76846e04e0dbb9789bee63e1f3a9ab3dc1c383ff2087f941fdf90"
+    },
+    {
+      "name": "graphics-libharfbuzz0b.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/h/harfbuzz/libharfbuzz0b_8.3.0-2build2_arm64.deb",
+      "size": 463200,
+      "sha256": "f6917480f6e2df79563398f4fcfc25167fcaa512f35fe1f595a6e3fa7b78a46d"
+    },
+    {
+      "name": "graphics-libpango-1.0-0.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/pango1.0/libpango-1.0-0_1.52.1+ds-1build1_arm64.deb",
+      "size": 227646,
+      "sha256": "4964bc4c61df425e41a32108e58a493cf311a8366a9cb2522e8ca07e30a81eb4"
+    },
+    {
+      "name": "graphics-libpangocairo-1.0-0.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/pango1.0/libpangocairo-1.0-0_1.52.1+ds-1build1_arm64.deb",
+      "size": 27354,
+      "sha256": "702129315e19f1bbf04a03d8c68c740b147b4d04ab677207e4b725c5ea174478"
+    },
+    {
+      "name": "graphics-libpangoft2-1.0-0.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/pango1.0/libpangoft2-1.0-0_1.52.1+ds-1build1_arm64.deb",
+      "size": 42022,
+      "sha256": "2fd4f45be306fbd8c9479a5180b496c9a98a33e5eee57d46e0e839a9cdb2b7c9"
+    },
+    {
+      "name": "graphics-libwayland-cursor0.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/w/wayland/libwayland-cursor0_1.22.0-2.1build1_arm64.deb",
+      "size": 10256,
+      "sha256": "ee69ed1d5ff3c430cb09173809b73dfb044a9c3595e21ee1a31f67f9d5c07451"
+    },
+    {
+      "name": "graphics-libwayland-egl1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/w/wayland/libwayland-egl1_1.22.0-2.1build1_arm64.deb",
+      "size": 5622,
+      "sha256": "50e4ac8e2714b9eb84a47b8fe84d51a806104ec998530c61de349ec5b659ff43"
+    },
+    {
+      "name": "graphics-libxkbcommon0.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxkbcommon/libxkbcommon0_1.6.0-1build1_arm64.deb",
+      "size": 122198,
+      "sha256": "4ef68b9d56971a3119f40684f52a200be5c7c1bf8c5ef430a2d502e910bf8b61"
+    },
+    {
+      "name": "graphics-libbrotli1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/b/brotli/libbrotli1_1.1.0-2ubuntu0.1_arm64.deb",
+      "size": 339950,
+      "sha256": "911411fb6fdfb4ab91dd4242f5a0a5e1f47b38e003a25c8dc7730238cb323e18"
+    },
+    {
+      "name": "graphics-libpng16-16t64.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpng1.6/libpng16-16t64_1.6.43-5ubuntu0.7_arm64.deb",
+      "size": 186982,
+      "sha256": "6e724abe81e94ff73d9b28b545a13329c0b7e4ea6fd8022ecbcd2b3492d0117d"
+    },
+    {
+      "name": "graphics-fontconfig-config.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/f/fontconfig/fontconfig-config_2.15.0-1.1ubuntu2_arm64.deb",
+      "size": 37396,
+      "sha256": "86ea76c38d2168989fbcf22792ca1e786643a971ffb87248ca9dfcf0c3c7d1e1"
+    },
+    {
+      "name": "graphics-fonts-liberation.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/f/fonts-liberation/fonts-liberation_2.1.5-3_all.deb",
+      "size": 1603290,
+      "sha256": "065c2ab1abc9108b17d401016dc594b79750904390f095845c93bb06e1153acc"
+    },
+    {
+      "name": "graphics-libgraphite2-3.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/graphite2/libgraphite2-3_1.3.14-2ubuntu0.24.04.1_arm64.deb",
+      "size": 71078,
+      "sha256": "52fbc13dfd5e756cda8e033d5f225e733e7b83e908e508703cedeb029bd02a9c"
+    },
+    {
+      "name": "graphics-libthai0.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libt/libthai/libthai0_0.1.29-2build1_arm64.deb",
+      "size": 18168,
+      "sha256": "c4c01317f90cec985253f360451df9cf3f45ef68cf409c8e21ab5d379ee1e883"
+    },
+    {
+      "name": "graphics-libxcb-render0.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxcb/libxcb-render0_1.15-1ubuntu2_arm64.deb",
+      "size": 16580,
+      "sha256": "de6dafb552bab55a848b4017087eb0d9ce25fc0e1fd083a4fca5f71de9058934"
+    },
+    {
+      "name": "graphics-libdatrie1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libd/libdatrie/libdatrie1_0.2.13-3build1_arm64.deb",
+      "size": 19158,
+      "sha256": "cb148b2bb3c4ee4be7c1316ba4970e60d9aade63d71d41ae5b2897f5004704d0"
     }
   ]
 }

@@ -437,7 +437,7 @@ The manifest is the authority for versions, filenames, byte counts and hashes. I
 | `libepoxy0` | Graphics-library dispatch dependency; does not enable browser hardware acceleration |
 | `libxcb-damage0`, `libxcb-xtest0` | Native damage notifications and input injection |
 
-The browser bundle now extracts prebuilt ARM64 Xvfb, xauth, keyboard data and their private dependencies. The transient worker exposes the bundled xkbcomp at its expected path through a read-only service-local extension. AGNOS supplies Python, systemd, setpriv, timeout, `dpkg-deb` and schema-compilation tools. Legacy bundles can still use the host Xvfb and xauth when present.
+The browser bundle extracts prebuilt ARM64 Xvfb, xauth, keyboard data and the graphics libraries missing from AGNOS 20.2.1. Xvfb and Firefox share the pinned FreeType and Pixman libraries. Firefox uses private Fontconfig settings and fallback fonts. The transient worker exposes xkbcomp through a read-only service-local extension. AGNOS supplies Python, systemd, setpriv, timeout, `dpkg-deb` and schema-compilation tools.
 
 ## Validation and measured results
 

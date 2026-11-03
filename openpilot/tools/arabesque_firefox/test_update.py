@@ -39,7 +39,7 @@ def installed(tmp_path, monkeypatch):
   root.mkdir(mode=0o755)
   current = setup.approved()
   current.update(bundle_revision=0, packages=[
-    package for package in current['packages'] if not package['name'].startswith('display-')])
+    package for package in current['packages'] if not package['name'].startswith(('display-', 'graphics-'))])
   target = deepcopy(current)
   target.update(version='153.7.0esr', bundle_revision=1)
   bundle(root / 'runtime', current)
@@ -382,17 +382,28 @@ def test_local_detection_legacy_current_component_update_and_no_downgrade(instal
     setup.inspect()
 
 
-def test_same_engine_display_repair_is_automatic_and_preserves_profile(installed, monkeypatch):
+@pytest.mark.parametrize('private_display', [False, True])
+def test_same_engine_display_repair_is_automatic_and_preserves_profile(installed, monkeypatch, tmp_path, private_display):
   monkeypatch.setattr(setup, 'host_display', lambda: False)
+  monkeypatch.setattr(setup, 'Path', lambda path: tmp_path / 'missing' if path == '/usr/lib/aarch64-linux-gnu/libfreetype.so.6' else Path(path))
+  display_package = dict(installed.current['packages'][0], name=setup.DISPLAY_PACKAGE)
+  if private_display:
+    installed.current['bundle_revision'] = 1
+    installed.current['packages'].append(display_package)
+    (installed.root / 'runtime/ready.json').write_text(json.dumps(installed.current))
+    installed.target['bundle_revision'] = 2
+    installed.target['packages'].append(display_package)
   assert not setup.inspect()['repair']
-  installed.target['packages'].append(dict(installed.current['packages'][0], name=setup.DISPLAY_PACKAGE))
+  if not private_display:
+    installed.target['packages'].append(display_package)
+  installed.target['packages'].append(dict(installed.current['packages'][0], name=setup.FREETYPE_PACKAGE))
   assert not setup.inspect()['repair']
   installed.target['version'] = installed.current['version']
   assert setup.inspect()['repair']
   update(installed)
   assert (installed.root / 'state/profile/prefs.js').read_text() == 'before update'
   assert not setup.inspect()['restorable']
-  with pytest.raises(RuntimeError, match='requires Xvfb and xauth'):
+  with pytest.raises(RuntimeError, match='missing display dependencies'):
     setup.maintain('restore', '', installed.job)
 
 

@@ -22,6 +22,7 @@ BROWSER_UID = 61234
 FORMAT = 1
 FLOOR = 6 * 1024**3
 DISPLAY_PACKAGE = 'display-xvfb.deb'
+FREETYPE_PACKAGE = 'graphics-libfreetype6.deb'
 SUPPORTED_AGNOS = ('19.8.1', '20.2-starpilot.1', '20.2.1')
 PHASES = {'staging', 'copying', 'qualifying', 'activate', 'committed', 'restore-copy', 'restore', 'restored'}
 
@@ -36,7 +37,7 @@ def manifest(value):
       type(value['bundle_format']) is not int or value['bundle_format'] != FORMAT or
       type(value['bundle_revision']) is not int or value['bundle_revision'] < 0 or
       not isinstance(value['version'], str) or not re.fullmatch(r'\d+\.\d+(?:\.\d+)?esr', value['version']) or
-      value['agnos'] != '19.8.1' or not isinstance(value['packages'], list) or not 1 <= len(value['packages']) <= 32):
+      value['agnos'] != '19.8.1' or not isinstance(value['packages'], list) or not 1 <= len(value['packages']) <= 64):
     raise ValueError('Unsupported Firefox bundle receipt')
   names = set()
   for package in value['packages']:
@@ -129,12 +130,18 @@ def update_record(value):
   return value
 
 
-def private_display(bundle):
-  return any(package['name'] == DISPLAY_PACKAGE for package in bundle['packages'])
+def has_package(bundle, name):
+  return any(package['name'] == name for package in bundle['packages'])
 
 
 def host_display():
   return all(os.access(path, os.X_OK) for path in ('/usr/bin/Xvfb', '/usr/bin/xauth', '/usr/bin/xkbcomp'))
+
+
+def display_available(bundle):
+  if has_package(bundle, DISPLAY_PACKAGE):
+    return has_package(bundle, FREETYPE_PACKAGE) or Path('/usr/lib/aarch64-linux-gnu/libfreetype.so.6').is_file()
+  return host_display()
 
 
 def inspect():
@@ -161,12 +168,12 @@ def inspect():
   def version(value):
     return tuple((list(map(int, value.removesuffix('esr').split('.'))) + [0, 0])[:3])
   newer = target['bundle_revision'] > current['bundle_revision'] and version(target['version']) >= version(current['version'])
-  repair = (newer and not host_display() and not private_display(current) and private_display(target) and
+  repair = (newer and not display_available(current) and has_package(target, DISPLAY_PACKAGE) and display_available(target) and
             current['version'] == target['version'] and all(package in target['packages'] for package in current['packages']) and
-            all(package in current['packages'] or package['name'].startswith('display-') for package in target['packages']))
+            all(package in current['packages'] or package['name'].startswith(('display-', 'graphics-')) for package in target['packages']))
   restorable = bool(record and record['phase'] == 'committed' and not (ROOT / 'recovery').exists() and
                     not (ROOT / 'recovery-state').exists() and
-                    (private_display(record['previous']) or host_display()) and
+                    display_available(record['previous']) and
                     (ROOT / 'updates' / record['id'] / 'previous').is_dir() and
                     (ROOT / 'updates' / record['id'] / 'profile-backup').is_dir())
   return {'action': 'update' if newer else 'browse', 'target': target, 'current': current, 'restorable': restorable, 'repair': repair}
@@ -246,7 +253,7 @@ def unpack(path, destination):
 
 def check_host(target):
   # Keep the receipt compatible with older checkouts while qualifying the private display on newer images.
-  supported = SUPPORTED_AGNOS if private_display(target) else (target['agnos'],)
+  supported = SUPPORTED_AGNOS if has_package(target, DISPLAY_PACKAGE) else (target['agnos'],)
   if os.geteuid() != 0 or platform.machine() != 'aarch64' or Path('/VERSION').read_text().strip() not in supported:
     raise RuntimeError(f'Prepare this runtime as root on ARM64 AGNOS {", ".join(supported)}')
 
@@ -324,8 +331,10 @@ def build(manifest, staging):
     archive = download(package, cache)
     safe(archive)
     report('Unpacking Firefox…' if package['name'].startswith('firefox-') else 'Preparing browser libraries…')
-    unpack(archive, staging / 'display' if package['name'].startswith('display-') else staging)
-  if private_display(manifest):
+    # Cairo and Xvfb both need the pinned Pixman library.
+    display_only = package['name'].startswith('display-') and package['name'] != 'display-libpixman-1-0.deb'
+    unpack(archive, staging / 'display' if display_only else staging)
+  if has_package(manifest, DISPLAY_PACKAGE):
     # Ubuntu Xvfb resolves xkbcomp at /usr/bin. Expose just that helper through a unit-local /usr overlay.
     extension = staging / 'isolation/xkb/usr'
     (extension / 'bin').mkdir(parents=True)
@@ -333,6 +342,17 @@ def build(manifest, staging):
     release.mkdir(parents=True)
     (release / 'extension-release.xkb').write_text('ID=_any\n')
     (staging / 'display/usr/bin/xkbcomp').rename(extension / 'bin/xkbcomp')
+  fonts = staging / 'etc/fonts/fonts.conf'
+  if fonts.is_file():
+    # The stock config and its links target the system tree when installed by dpkg.
+    fonts.write_text(fonts.read_text().replace('<dir>/usr/share/fonts</dir>',
+                                              '<dir prefix="relative">../../usr/share/fonts</dir>\n\t<dir>/usr/share/fonts</dir>'))
+    for link in (fonts.parent / 'conf.d').glob('*.conf'):
+      if link.is_symlink():
+        target = link.readlink()
+        if target.parent == Path('/usr/share/fontconfig/conf.avail'):
+          link.unlink()
+          link.symlink_to(Path('../../../usr/share/fontconfig/conf.avail') / target.name)
   schemas = staging / 'usr/share/glib-2.0/schemas'
   for source in Path('/usr/share/glib-2.0/schemas').glob('*.xml'):
     if not (schemas / source.name).exists():
@@ -540,8 +560,8 @@ def maintain(operation, expected, job):
       if (not record or record['phase'] != 'committed' or
           (ROOT / 'recovery').exists() or (ROOT / 'recovery-state').exists()):
         raise RuntimeError('No complete previous Firefox pair is available, or a saved recovery already exists')
-      if not private_display(record['previous']) and not host_display():
-        raise RuntimeError('Previous Firefox requires Xvfb and xauth from AGNOS')
+      if not display_available(record['previous']):
+        raise RuntimeError('Previous Firefox is missing display dependencies on this AGNOS image')
       tx = ROOT / 'updates' / record['id']
       if not matches(ROOT / 'runtime', record['target']) or not matches(tx / 'previous', record['previous']):
         raise RuntimeError('Firefox no longer matches its recorded backup')

@@ -968,11 +968,14 @@ def worker_main():
     private_x = RUNTIME / 'display/usr'
     bundled = private_x.is_dir()
     x_bin = private_x / 'bin' if bundled else Path('/usr/bin')
-    x_env = dict(env, LD_LIBRARY_PATH=str(private_x / 'lib/aarch64-linux-gnu')) if bundled else env
+    x_env = dict(env, LD_LIBRARY_PATH=f'{private_x}/lib/aarch64-linux-gnu:{env["LD_LIBRARY_PATH"]}') if bundled else env
     xkb = ['-xkbdir', str(private_x / 'share/X11/xkb')] if bundled else []
     subprocess.run([str(x_bin / 'xauth'), '-f', str(auth), 'add', display, '.', cookie], env=x_env, check=True, timeout=2,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     env.update(DISPLAY=display, XAUTHORITY=str(auth))
+    fonts = RUNTIME / 'etc/fonts/fonts.conf'
+    if fonts.is_file():
+      env['FONTCONFIG_FILE'] = str(fonts)
     os.environ['XAUTHORITY'] = str(auth)
     xvfb = subprocess.Popen([str(x_bin / 'Xvfb'), display, '-screen', '0', f'{width}x{height}x24', '-nolisten', 'tcp',
                              '-nolisten', 'local', '-auth', str(auth), '-noreset', '-extension', 'GLX', *xkb], env=x_env,
