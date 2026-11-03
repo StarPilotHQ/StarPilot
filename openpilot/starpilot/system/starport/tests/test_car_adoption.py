@@ -44,7 +44,8 @@ def test_the_only_candidate_is_chosen_trusted_and_the_projection_role_given_back
   sup._adopt_only_car(1000.0)
   assert sup.config["receiver_address"] == CAR and sup.config["receiver_name"] == "Civic"
   assert identity_store.load_config()["receiver_address"] == CAR
-  assert bluez.trusted[-1] == CAR and bluez.acquired == sup.baseline + 1 and bluez.class_restored >= 1  # the phone look is given back; the standby gateway stays
+  # the phone look is given back; the standby gateway stays
+  assert bluez.trusted[-1] == CAR and bluez.acquired == sup.baseline + 1 and bluez.class_restored >= 1
   assert "car_adopted" in names(sup) and sup._candidates == []
 
 

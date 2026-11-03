@@ -435,7 +435,7 @@ class Supervisor:
     self._attempt_ended_at: float | None = None
     self._hfp_link = threading.Event()  # set when the chosen car opens the hands-free link
     self._modern_reply: dict[str, bool] = {}  # car address -> answer its v4+ version request like a current phone
-    self._ladder = setup_ladder.SetupLadder(identity_store.CONFIG_PATH.with_name("setup_state.json"))   # which handshake to try for each car, and which one last worked
+    self._ladder = setup_ladder.SetupLadder(identity_store.CONFIG_PATH.with_name("setup_state.json"))  # handshake to try per car
     self._strategy: setup_ladder.Strategy | None = None   # the one this attempt runs
     self._video_seen = False                    # video was acknowledged in this session: later failures say nothing about the handshake
     self._run_started = 0.0
@@ -1455,7 +1455,6 @@ class Supervisor:
     bluez.connect_device(address)
     self._wait(1.0)
 
-    from openpilot.starpilot.system.starport import bt_sockets
     channel = int(config.get("rfcomm_channel") or 0)
     source = "config"
     if not channel:

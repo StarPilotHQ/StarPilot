@@ -102,6 +102,7 @@ def test_watch_reports_a_carrier_change_with_the_network_name(tmp_path, monkeypa
       assert time.monotonic() < deadline
       time.sleep(0.01)
     assert logged == [("other_wifi_changed", {"interface": "wlan0", "network": "Huckleberrys House"})]
+    assert watch.changed_at is not None
     assert watch.recent(now=watch.changed_at + supervisor_module.RADIO_CHANGE_WINDOW + 0.1) is None
   finally:
     watch.stop()

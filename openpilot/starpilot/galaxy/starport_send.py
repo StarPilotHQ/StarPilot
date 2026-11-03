@@ -279,7 +279,7 @@ class StarPortLogSender:
         left_out = " The device snapshot was left out to fit Discord's 10 MB limit."
       self._set(message="Sending logs")
       warning = self._sender(data, name, note, summary)
-      self._set(state="sent", message=f"Logs sent.{left_out} {warning or 'Thanks!'}".strip(), sentAt=int(time.time()))
+      self._set(state="sent", message=f"Logs sent.{left_out} {warning or 'Thanks!'}".strip(), sentAt=int(time.time()))  # noqa: TID251 shown as a wall-clock time
     except SendRejected as error:
       self._set(state="failed", message=str(error)[:400])
     except Exception as error:

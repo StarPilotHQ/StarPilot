@@ -40,6 +40,7 @@ class TestChooseOnlyCar(unittest.TestCase):
   def test_exactly_one_paired_android_auto_device_is_adopted(self):
     from openpilot.starpilot.system.starport.supervisor import choose_only_car
     only, candidates = choose_only_car([self.car("A"), self.car("B", starport=False), self.car("C", paired=False)])
+    assert only is not None
     self.assertEqual((only["address"], [c["address"] for c in candidates]), ("A", ["A"]))
 
   def test_two_candidates_or_none_are_never_guessed(self):

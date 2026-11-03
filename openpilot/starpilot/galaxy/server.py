@@ -97,7 +97,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                 sounds=None, software_operations=None, drive_stats=None, layout_preview_socket=None, controllers_socket=None,
                 remote_pairing=None, parked=None, camera_snapshot=None, clock=time.monotonic, starport_setup=None,
                 starport_client=None, navigation=None, offline_maps=None, drive_state=None, cloud_provider=None, cloud_offroad=None, projection_layout=None,
-                local_access=None, tmux_live=None, starport_logs=None, starport_log_sender=None, hotspot=None, toyota_tools=None, replay_client=None, replay_root=None,
+                local_access=None, tmux_live=None, starport_logs=None, starport_log_sender=None, hotspot=None, toyota_tools=None,
+                replay_client=None, replay_root=None,
                 spotify_setup=None, companion=None, phone_location=None, reverse_proxy=None):
   from openpilot.starpilot.galaxy.companion import CompanionRegistry, APK_PATH
   from openpilot.starpilot.gps.phone import PhoneGpsPublisher

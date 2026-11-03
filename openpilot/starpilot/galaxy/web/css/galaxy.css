@@ -2064,7 +2064,7 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-guided .gx-starport-pill { border: 0; background: var(--g-fill-hover); color: var(--g-muted); font-size: 13px; font-weight: var(--fw-bold); }
 .gx-guided .gx-starport-pill--ready { background: color-mix(in srgb, var(--g-done) 20%, transparent); color: var(--g-done); }
 
-/* Connection options: a radio row with a coloured icon tile, as in iOS Settings. */
+/* Connection options: a radio row with a colored icon tile, as in iOS Settings. */
 .gx-guided__options { --g-inset: 70px; }
 .gx-guided__options > li { display: block; }
 .gx-guided__option {

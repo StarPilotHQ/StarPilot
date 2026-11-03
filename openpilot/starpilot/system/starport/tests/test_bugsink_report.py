@@ -450,7 +450,7 @@ OFFER = {"channels": [{"id": 3, "video_configs": [
 
 
 def adapter_session():
-  events = [list(item) for item in STREAMED]
+  events: list = [list(item) for item in STREAMED]
   events[0] = (0, 0, "session_start", {"receiver": "AAWireless", "trigger": "auto",
                                        "setup": {"type": "adapter", "profile": "aawireless", "profile_source": "override"}})
   events[5] = (0, 10, "discovered", {**OFFER, "head_unit": STREAMED[5][3]["head_unit"]})
@@ -479,7 +479,7 @@ def test_report_keeps_setup_offered_modes_and_the_working_strategy(tmp_path):
 
 
 def test_report_records_that_the_address_was_not_sent_and_old_logs_still_report(tmp_path):
-  events = [list(item) for item in STREAMED]
+  events: list = [list(item) for item in STREAMED]
   events.insert(6, (0, 10, "bluetooth_opened", {"channel": 6, "phone_address": ""}))
   assert br.drive_event([br.session_record(write_session(tmp_path, 1, events))])["tags"]["aa.phone_address_sent"] == "no"
   old = br.session_record(write_session(tmp_path, 2, STREAMED))  # a log written before these fields existed
@@ -489,14 +489,14 @@ def test_report_records_that_the_address_was_not_sent_and_old_logs_still_report(
 
 
 def test_unknown_setup_values_are_dropped(tmp_path):
-  events = [list(item) for item in STREAMED]
+  events: list = [list(item) for item in STREAMED]
   events[0] = (0, 0, "session_start", {"setup": {"type": "<script>", "profile": "x" * 90, "profile_source": "guess"}})
   setup = br.session_record(write_session(tmp_path, 1, events))["setup"]
   assert "type" not in setup and "profile_source" not in setup and len(setup["profile"]) <= 40
 
 
 def test_report_shows_what_the_ladder_tried_and_what_worked(tmp_path):
-  events = [list(item) for item in STREAMED]
+  events: list = [list(item) for item in STREAMED]
   events.insert(1, (0, 1, "ladder_strategy", {"rung": "standard", "learned": False}))
   events.insert(2, (0, 5, "ladder_failed", {"outcome": "advanced", "rung": "standard", "next": "other_reply"}))
   events.insert(3, (0, 6, "ladder_strategy", {"rung": "other_reply", "learned": False}))
@@ -510,7 +510,7 @@ def test_report_shows_what_the_ladder_tried_and_what_worked(tmp_path):
 
 
 def test_report_says_how_the_rfcomm_channel_was_found(tmp_path):
-  events = [list(item) for item in STREAMED]
+  events: list = [list(item) for item in STREAMED]
   events.insert(1, (0, 1, "sdp_retry", {"error": "x"}))
   events.insert(2, (0, 2, "rfcomm_channel", {"channel": 8, "source": "sdp"}))
   assert br.session_record(write_session(tmp_path, 1, events))["sdp"] == {"channel": 8, "source": "sdp", "retries": 1}

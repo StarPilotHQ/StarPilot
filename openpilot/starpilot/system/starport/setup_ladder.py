@@ -133,7 +133,7 @@ def _clean(entry) -> dict:
 
 
 class SetupLadder:
-  def __init__(self, path: Path | None = None, boot_id=_boot_id, clock=time.time):
+  def __init__(self, path: Path | None = None, boot_id=_boot_id, clock=time.time):  # noqa: TID251 persisted timestamps
     self.path = path or STATE_PATH
     self.boot_id, self.clock = boot_id, clock
     self.cars: dict[str, dict] = {}

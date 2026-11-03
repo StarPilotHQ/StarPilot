@@ -11,7 +11,7 @@ FLAG_PATH = DATA_DIR / "new_setup"
 
 
 def enabled(path: Path | None = None) -> bool:
-  """Absent, unreadable or unrecognised means on; only an explicit 0 turns the new flow off."""
+  """Absent, unreadable or unrecognized means on; only an explicit 0 turns the new flow off."""
   try:
     return (path or FLAG_PATH).read_text().strip() != "0"
   except (OSError, UnicodeError):

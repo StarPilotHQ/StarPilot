@@ -18,7 +18,7 @@ def ladder(tmp_path):
 
 
 def refuse(ladder, strategy, **overrides):
-  values = dict(ladder_failure=True, video_seen=False, version_major=4, adapter=False)
+  values = {"ladder_failure": True, "video_seen": False, "version_major": 4, "adapter": False}
   values.update(overrides)
   return ladder.failed(CAR, strategy, **values)
 
@@ -157,11 +157,11 @@ def test_only_sixteen_cars_are_kept_newest_first(tmp_path):
 
 
 # ---- the supervisor's use of it -------------------------------------------------------------------------------------
-import time as _time  # noqa: E402
-from types import SimpleNamespace  # noqa: E402
+import time as _time
+from types import SimpleNamespace
 
-from openpilot.starpilot.system.starport.tests.fake_head_unit import make_identity  # noqa: E402
-from openpilot.starpilot.system.starport.tests.test_starport import make_supervisor  # noqa: E402
+from openpilot.starpilot.system.starport.tests.fake_head_unit import make_identity
+from openpilot.starpilot.system.starport.tests.test_starport import make_supervisor
 
 RECEIVER = "AA:BB:CC:DD:EE:01"  # the car make_supervisor selects
 

@@ -662,11 +662,9 @@ class ProjectionSession(Session):
   grace_network = ""
   grace_focus_lost = False
 
-  @staticmethod
-  def radio_change() -> str | None:
-    """Replaced by the supervisor: the comma's other Wi-Fi network's name if it joined or roamed in the last few
-    seconds ("" when unnamed), else None."""
-    return None
+  # Replaced by the supervisor: the comma's other Wi-Fi network's name if it joined or roamed in the last few
+  # seconds ("" when unnamed), else None.
+  radio_change: Callable[..., str | None] = staticmethod(lambda: None)
 
   # HeadunitPad acknowledges every fragment (codec config included) rather than every frame.
   fragment_acks = False

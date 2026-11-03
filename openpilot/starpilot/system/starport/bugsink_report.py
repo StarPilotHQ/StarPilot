@@ -170,6 +170,11 @@ MAX_OFFERED_MODES = 16
 SETUP_TYPES = ("builtin", "adapter", "usb", "app")
 
 
+def _config_field(config: dict, number: int, default=None):
+  values = config.get(str(number), config.get(number))
+  return values[0] if isinstance(values, list) and values and isinstance(values[0], int) else default
+
+
 def offered_modes(events: list[dict]) -> list[str]:
   """Every video mode the head unit offered, e.g. "1280x720 H.264 margins 0x240", from its service discovery.
 
@@ -182,14 +187,11 @@ def offered_modes(events: list[dict]) -> list[str]:
       if not isinstance(config, dict):
         continue
 
-      def field(number, default=None):
-        values = config.get(str(number), config.get(number))
-        return values[0] if isinstance(values, list) and values and isinstance(values[0], int) else default
-
-      resolution, codec = field(1), field(10, CODEC_H264_BP)
+      resolution, codec = _config_field(config, 1), _config_field(config, 10, CODEC_H264_BP)
       text = f"{RESOLUTION_NAMES.get(resolution, f'resolution {resolution}')} {CODEC_NAMES.get(codec, f'codec {codec}')}"
-      if field(3, 0) or field(4, 0):
-        text += f" margins {field(3, 0)}x{field(4, 0)}"
+      margins = _config_field(config, 3, 0), _config_field(config, 4, 0)
+      if any(margins):
+        text += f" margins {margins[0]}x{margins[1]}"
       modes.append(text)
   return modes[:MAX_OFFERED_MODES]
 
