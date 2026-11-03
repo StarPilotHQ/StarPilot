@@ -935,7 +935,7 @@ class GlobalRuntime:
       and application.binding == live_owner.binding
       and application.control_ns == self.now_ns
       and 0 <= control_ns - application.control_ns <= 30_000_000
-      and current_offer.observed_ns <= control_ns <= current_offer.expires_ns
+      and current_offer.observed_ns <= application.control_ns <= current_offer.expires_ns
       and self.source.observed_ns <= control_ns <= self.source.expires_ns
       and active and self.healthy and self.eligible and self.reason == 'qualified'
       and self.source.enabled and not (self.source.manual or self.live_manual)

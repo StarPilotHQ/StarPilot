@@ -394,23 +394,17 @@ def test_actual_control_evidence_keeps_owner_vm_anchor_and_typed_wire_bounds():
     assert not any(fixture.runtime.live_trial_owner.applied_full.values())
 
 
-@pytest.mark.parametrize('lease_ns,publication_delay_ns', [(10_000_000, 20_000_000), (100_000_000, 30_000_001)])
-def test_consumed_live_map_without_current_publication_proof_is_absent_not_neutral(lease_ns, publication_delay_ns):
+def test_consumed_live_map_without_same_frame_publication_is_absent_not_neutral():
   with live_controls() as fixture:
     proposal = fixture.initial_offer()
-    now, command = fixture.frame(proposal, lease_ns=lease_ns)
+    now, command = fixture.frame(proposal, lease_ns=100_000_000)
     fixture.assert_applied()
     actual = fixture.runtime.outcome.applied
     assert any(value != 0.0 for _, value in actual)
     assert fixture.runtime.live_trial_owner.used
     assert fixture.runtime.live_trial_owner.frame_complete(fixture.runtime.descriptor.domain)
-    # The first case expires its real offer before publication within30ms;
-    # the second still has an offer lease but misses same-frame publication.
-    publication_ns = now + publication_delay_ns
-    if lease_ns < publication_delay_ns:
-      assert publication_ns > fixture.latest.expires_ns
-    else:
-      assert publication_ns <= fixture.latest.expires_ns
+    publication_ns = now + 30_000_001
+    assert publication_ns <= fixture.latest.expires_ns
     evidence = fixture.runtime.capture_evidence(control_ns=publication_ns,
       state_ns=int(fixture.controls.sm.logMonoTime['carState']), active=bool(command.latActive), limited=False)
     assert evidence is None
@@ -466,3 +460,59 @@ def test_pending_rejection_never_bypasses_current_consumer_faults(fault):
     outcome = fixture.runtime.outcome
     assert type(outcome) is not LiveTrialApplication
     assert fixture.controls.params.get('AutomaticSteeringLiveTrials') is None
+
+
+@pytest.mark.parametrize('publication_delay_ns', (0, 2_000_000, 3_036_210, 30_000_000))
+def test_consumed_live_map_evidence_uses_consumption_lease_with_bounded_publication(publication_delay_ns):
+  with live_controls() as fixture:
+    proposal = fixture.initial_offer()
+    consumed, command = fixture.frame(proposal, lease_ns=2_000_000)
+    fixture.assert_applied()
+    assert fixture.latest.observed_ns == consumed and fixture.latest.expires_ns == consumed + 2_000_000
+    evidence = fixture.runtime.capture_evidence(control_ns=consumed + publication_delay_ns,
+      state_ns=int(fixture.controls.sm.logMonoTime['carState']), active=bool(command.latActive), limited=False)
+    assert evidence is not None
+    assert evidence.effect_prepare_ns == consumed and evidence.control_ns == consumed + publication_delay_ns
+    assert evidence.live_applied_coordinates == tuple(value for _, value in fixture.runtime.outcome.applied)
+    assert any(evidence.live_applied_coordinates)
+    assert fixture.runtime.live_trial_owner.offer.expires_ns == consumed + 2_000_000  # Never renewed or restamped.
+
+
+@pytest.mark.parametrize('refusal', ('late_publication', 'source_expired', 'native_expired', 'unconsumed_stage'))
+def test_consumed_evidence_still_requires_current_source_native_and_an_actual_stage(refusal):
+  from types import SimpleNamespace
+  with live_controls() as fixture:
+    consumed, command = fixture.frame(fixture.initial_offer(), lease_ns=2_000_000)
+    fixture.assert_applied()
+    runtime = fixture.runtime
+    delay = 30_000_001 if refusal == 'late_publication' else 3_000_000
+    if refusal == 'source_expired':
+      runtime.source = replace(runtime.source, expires_ns=consumed + 2_000_000)
+    elif refusal == 'native_expired':
+      original = runtime.native_witness
+      # Denial-only input: shorten the actual witness; never manufacture a grant.
+      runtime.native_witness = SimpleNamespace(observedMonoTime=original.observedMonoTime,
+        validUntilMonoTime=consumed + 2_000_000, requestedLateral=original.requestedLateral,
+        lateralAllowed=original.lateralAllowed)
+    elif refusal == 'unconsumed_stage':
+      runtime.outcome = replace(runtime.outcome, status='neutral', reason='live_stage_not_used')
+    evidence = runtime.capture_evidence(control_ns=consumed + delay,
+      state_ns=int(fixture.controls.sm.logMonoTime['carState']), active=bool(command.latActive), limited=False)
+    if refusal == 'native_expired':
+      assert evidence is not None and not evidence.native_allowed and not evidence.valid
+      assert not evidence.live_applied_coordinates
+      assert type(runtime.outcome) is not LiveTrialApplication
+      assert runtime.reason == 'native_lease_unavailable'
+    else:
+      assert evidence is None
+
+
+def test_expired_offer_cannot_be_consumed_again_after_an_evidence_capture():
+  with live_controls() as fixture:
+    proposal = fixture.initial_offer()
+    consumed, command = fixture.frame(proposal, lease_ns=2_000_000)
+    fixture.assert_applied()
+    assert fixture.runtime.capture_evidence(control_ns=consumed + 3_000_000,
+      state_ns=int(fixture.controls.sm.logMonoTime['carState']), active=bool(command.latActive), limited=False) is not None
+    fixture.frame(proposal, publish=False)
+    fixture.assert_neutral()
