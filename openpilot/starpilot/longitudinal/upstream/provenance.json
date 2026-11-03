@@ -7,8 +7,8 @@
     "plannerd.py": {
       "upstream_path": "openpilot/selfdrive/controls/plannerd.py",
       "upstream_sha256": "9c1591c78522e0f89794eb7301113fc616ec6ac079e576a3c9f9ebec64bcbfde",
-      "adapted_sha256": "d337b242b0406330e51749c9b6ffb2bfa03d64142d45561e0d2451bd0dc1855c",
-      "adaptation": "Only planner/MPC import paths redirected; no arithmetic/state/publisher changes"
+      "adapted_sha256": "0af78b0030a2219f3224e28592715a50bc5620a1e644b75c13eeb0cbeeb2afd5",
+      "adaptation": "Planner/MPC imports redirected; independent existing conditional-mode owner and bounded transport connected outside unchanged upstream planner/MPC arithmetic"
     },
     "planner.py": {
       "upstream_path": "openpilot/selfdrive/controls/lib/longitudinal_planner.py",
