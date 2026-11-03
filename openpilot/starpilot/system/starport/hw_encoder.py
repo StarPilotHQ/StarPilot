@@ -23,11 +23,14 @@ from pathlib import Path
 from openpilot.starpilot.system.starport.encoder import MAX_ACCESS_UNIT, START_CODE, H264Encoder, nal_types
 
 LIBRARY = Path(__file__).with_name("hw") / "libstarport_encoder.so"
-ABI = 3
-SUPPORTED_ABIS = (2, 3)
+ABI = 4
+SUPPORTED_ABIS = (2, 3, 4)
 OPTION_CBR = 1
+OPTION_HEVC = 2          # ABI 4: H.265 Main profile instead of H.264 baseline
 MAX_WIDTH, MAX_HEIGHT, HW_FPS = 1280, 720, 30
+HEVC_MAX_WIDTH, HEVC_MAX_HEIGHT = 1920, 1080
 AUD = b"\x00\x00\x00\x01\x09\xf0"
+HEVC_AUD = b"\x00\x00\x00\x01\x46\x01\x50"
 
 
 def normalize_access_unit(data: bytes, *, keyframe: bool) -> bytes:
@@ -52,16 +55,51 @@ def normalize_access_unit(data: bytes, *, keyframe: bool) -> bytes:
   return result
 
 
+def hevc_nal_kinds(data: bytes) -> list[int]:
+  return [(data[match.end()] >> 1) & 0x3F for match in START_CODE.finditer(data) if match.end() < len(data)]
+
+
+def normalize_access_unit_hevc(data: bytes, *, keyframe: bool) -> bytes:
+  """H.265 counterpart of normalize_access_unit: exactly one leading AUD, one picture, VPS/SPS/PPS on keyframes.
+
+  A picture NAL is a VCL unit (types 0-9 and 16-21); an IDR is type 19 or 20. The comma's encoder splits every H.265
+  picture into two slices (measured on the device: [19, 19] and [1, 1]), so one or more VCL units make a picture.
+  Separate from the H.264 function so that path is unchanged."""
+  if not data.startswith((b"\x00\x00\x01", b"\x00\x00\x00\x01")) or len(data) > MAX_ACCESS_UNIT:
+    raise RuntimeError("Expected a bounded Annex B hardware frame")
+  starts = list(START_CODE.finditer(data))
+  units = []
+  for index, match in enumerate(starts):
+    end = starts[index + 1].start() if index + 1 < len(starts) else len(data)
+    if match.end() + 1 >= end:
+      raise RuntimeError("Empty hardware NAL unit")
+    units.append(((data[match.end()] >> 1) & 0x3F, data[match.start():end]))
+  kinds = [kind for kind, _ in units]
+  pictures = [kind for kind in kinds if kind <= 9 or 16 <= kind <= 21]
+  if not pictures or len({kind in (19, 20) for kind in pictures}) != 1:  # slices of one picture are all IDR or none are
+    raise RuntimeError("Hardware encoder did not produce one picture")
+  if keyframe and not ({19, 20} & set(kinds) and {32, 33, 34}.issubset(kinds)):
+    raise RuntimeError("Hardware encoder did not produce an independently decodable keyframe")
+  result = HEVC_AUD + b"".join(unit for kind, unit in units if kind != 35)
+  if len(result) > MAX_ACCESS_UNIT:
+    raise RuntimeError("Hardware access unit too large")
+  return result
+
+
 # ANDROID AUTO VIDEO PERFORMANCE GUARDRAIL: Hardware encoding and bounded frame submission avoid CPU stalls and encoder backlog.
 # Altering this can degrade video smoothness or introduce lag on Android Auto.
 # Do not change it autonomously; require an explicit user request specifically for this video optimization.
 class HardwareH264Encoder:
   backend = "qcom-v4l2"
+  codec = "h264"
+  max_width, max_height = MAX_WIDTH, MAX_HEIGHT   # level 3.1 baseline is a 720p30 session
+  codec_options = 0
+  required_abi = 2
 
   def __init__(self, width: int, height: int, fps: int = HW_FPS, bitrate_kbps: int = 6000, margin_height: int = 0,
                library: Path = LIBRARY, rate_control: str = "cbr"):
-    if not (0 < width <= MAX_WIDTH and 0 < height <= MAX_HEIGHT) or width % 2 or height % 2 or fps != HW_FPS:
-      raise ValueError("Hardware encoder supports even sizes up to 1280x720 at 30 fps")
+    if not (0 < width <= self.max_width and 0 < height <= self.max_height) or width % 2 or height % 2 or fps != HW_FPS:
+      raise ValueError(f"Hardware encoder supports even sizes up to {self.max_width}x{self.max_height} at 30 fps")
     if margin_height % 4:
       margin_height = 0  # only chroma-aligned black margins may be skipped
     self.width, self.height, self.fps = width, height, fps
@@ -71,7 +109,7 @@ class HardwareH264Encoder:
     self.lib = ctypes.CDLL(str(library))
     self.lib.starport_encoder_abi.restype = ctypes.c_int
     self.abi = self.lib.starport_encoder_abi()
-    if self.abi not in SUPPORTED_ABIS:
+    if self.abi not in SUPPORTED_ABIS or self.abi < self.required_abi:
       raise RuntimeError("libstarport_encoder.so ABI mismatch; rebuild")
     pointer = ctypes.c_void_p
     encode_args = [pointer, pointer, ctypes.c_size_t, ctypes.c_int, pointer, ctypes.c_size_t, pointer, ctypes.c_size_t]
@@ -88,7 +126,7 @@ class HardwareH264Encoder:
     self.lib.starport_encoder_destroy.restype = None
     self.error = ctypes.create_string_buffer(512)
     self.output = ctypes.create_string_buffer(MAX_ACCESS_UNIT)
-    options = (OPTION_CBR if self.rate_control == "cbr" else 0,) if self.abi >= 3 else ()
+    options = ((OPTION_CBR if self.rate_control == "cbr" else 0) | self.codec_options,) if self.abi >= 3 else ()
     self._create_args = (width, height, fps, int(bitrate_kbps) * 1000, margin_height, *options)
     self._open()
 
@@ -127,15 +165,57 @@ class HardwareH264Encoder:
     if size > len(self.output):
       raise RuntimeError("Hardware access unit too large")
     # .raw copies the entire 2 MiB capacity, even for a small inter frame.
-    data = normalize_access_unit(ctypes.string_at(self.output, size), keyframe=force)
+    data = self.normalize(ctypes.string_at(self.output, size), keyframe=force)
     self.frame_index += 1
     self.last_encode_ms = (time.monotonic() - started) * 1000
-    return data, {5, 7, 8}.issubset(nal_types(data))
+    return data, self.is_keyframe(data)
+
+  def normalize(self, data: bytes, *, keyframe: bool) -> bytes:
+    return normalize_access_unit(data, keyframe=keyframe)
+
+  def is_keyframe(self, data: bytes) -> bool:
+    return {5, 7, 8}.issubset(nal_types(data))
 
   def close(self) -> None:
     handle, self.handle = self.handle, None
     if handle:
       self.lib.starport_encoder_destroy(handle)
+
+
+class HardwareHevcEncoder(HardwareH264Encoder):
+  """H.265 for a head unit that offers nothing else (Allow H.265 video). Hardware only: there is no software fallback."""
+  backend = "qcom-v4l2-hevc"
+  codec = "h265"
+  max_width, max_height = HEVC_MAX_WIDTH, HEVC_MAX_HEIGHT
+  codec_options = OPTION_HEVC
+  required_abi = 4
+
+  def normalize(self, data: bytes, *, keyframe: bool) -> bytes:
+    return normalize_access_unit_hevc(data, keyframe=keyframe)
+
+  def is_keyframe(self, data: bytes) -> bool:
+    kinds = set(hevc_nal_kinds(data))
+    return bool({19, 20} & kinds) and {32, 33, 34}.issubset(kinds)
+
+
+def create_hevc_encoder(width: int, height: int, *, bitrate_kbps: int, margin_height: int, log,
+                        rate_control: str = "cbr") -> tuple[object, int]:
+  """Return ``(encoder, fps)`` for an H.265 session. The car was told H.265, so a stand-in codec would send it a stream it
+  cannot decode: if the hardware encoder cannot open, the session fails with the reason."""
+  encoder = None
+  try:
+    if not LIBRARY.is_file():
+      raise RuntimeError(f"{LIBRARY.name} not built")
+    encoder = HardwareHevcEncoder(width, height, bitrate_kbps=max(bitrate_kbps, 4000), margin_height=margin_height,
+                                  rate_control=rate_control)
+    encoder.encode_rgba(bytes(width * height * 4), keyframe=True)  # exercise the driver and the keyframe contract
+  except Exception as error:
+    if encoder is not None:
+      encoder.close()
+    raise RuntimeError(f"The car needs H.265 and the hardware encoder could not start it: {error}") from error
+  log("encoder", backend=encoder.backend, codec=encoder.codec, fps=HW_FPS, abi=encoder.abi, rate_control=encoder.rate_control,
+      nv12=encoder.supports_nv12)
+  return encoder, HW_FPS
 
 
 # ANDROID AUTO VIDEO PERFORMANCE GUARDRAIL: Backend selection and frame-rate budgets are part of the low-latency video pipeline.

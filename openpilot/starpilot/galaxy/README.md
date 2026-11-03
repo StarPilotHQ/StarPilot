@@ -31,6 +31,8 @@ Browser JavaScript tests use Node 24; set `STARPILOT_NODE` to an existing Node
 24 executable when needed. A static preview can serve `web/` over loopback;
 it labels its sample System Monitor data and cannot edit a device.
 
+StarPort log uploads use the built-in developer Discord webhook.
+
 ## Pages and owners
 
 | Page | Current source and operations |

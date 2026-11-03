@@ -13,8 +13,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from openpilot.starpilot.system.starport import identity as identity_store, system_slice
-from openpilot.starpilot.system.starport.bugsink_diagnosis import attempt_records, diagnosis, elapsed, sanitize
+from openpilot.starpilot.system.starport import identity as identity_store, reachability, system_slice
+from openpilot.starpilot.system.starport.bugsink_diagnosis import attempt_records, diagnosis, elapsed, sanitize, stream_loss_kind
 from openpilot.starpilot.system.starport.bugsink_summary import batch_summary, failure_summary, pairing_summary, session_timeline, software_tags
 
 STATE_PATH = identity_store.DATA_DIR / "bugsink_report.json"
@@ -27,8 +27,8 @@ MAX_FAILURES = 5           # distinct failures detailed per drive report
 MAX_BREADCRUMBS = 100
 TRACE_QUIET = frozenset({"nav_guidance_sent", "nav_focus", "nav_focus_requested", "nav_status_state", "media_key", "media_audio_state",
                          "media_audio_focus", "media_status_state", "hfp_command", "video_focus"})
-TRACE_SESSION_BYTES = 40 << 10   # per failed session; the oldest events go first
-TRACE_TOTAL_BYTES = 160 << 10    # all traces in one report, well under the sender's event cap
+TRACE_SESSION_BYTES = 64 << 10   # per failed session; the middle goes first
+TRACE_TOTAL_BYTES = 200 << 10    # all traces in one report, well under the sender's event cap
 EVENT_BUDGET = 400 << 10         # a report is shed down to this before sending; the sender refuses more than 512 KB
 MAX_ATTENTION = 6                # sessions per report that get a trace and a device slice
 SERIES_KEYS = ("fps", "encode_ms", "frame_age_p95_ms", "wifi_dbm", "wifi_link", "wifi_noise", "load1", "mem_available_mb",
@@ -103,6 +103,7 @@ def video_summary(events: list[dict]) -> dict:
     "screen": f"{mode['width'] - (mode.get('margin_width') or 0)}x{mode['height'] - (mode.get('margin_height') or 0)}"
               if mode.get("width") and mode.get("height") else None,
     "density_dpi": mode.get("density") or None,
+    "codec": mode.get("codec"),  # present only for H.265; H.264 reports are unchanged
     "target_fps": pipeline.get("target_fps"),
     "encoder": pipeline.get("encoder"),
     "nv12": pipeline.get("nv12"),
@@ -150,15 +151,103 @@ def quiet_counts(events: list[dict]) -> dict:
 
 
 def bounded_trace(trace: list[dict], limit: int) -> dict:
-  """The newest events that fit in ``limit`` bytes of JSON, with how many older ones were left out."""
-  kept, size = [], 0
-  for event in reversed(trace):
-    size += len(json.dumps(event, default=str)) + 2
-    if size > limit:
-      break
-    kept.append(event)
-  kept.reverse()
-  return {"events": kept, "omitted": len(trace) - len(kept)}
+  """The first quarter and the newest events that fit in ``limit`` bytes of JSON, with how many in between were left out."""
+  sizes = [len(json.dumps(event, default=str)) + 2 for event in trace]
+  if sum(sizes) <= limit:
+    return {"events": list(trace), "omitted": 0}
+  head_end, used = 0, 0
+  while head_end < len(trace) and used + sizes[head_end] <= limit // 4:
+    used += sizes[head_end]
+    head_end += 1
+  tail_start = len(trace)
+  while tail_start > head_end and used + sizes[tail_start - 1] <= limit:
+    tail_start -= 1
+    used += sizes[tail_start]
+  return {"events": trace[:head_end] + trace[tail_start:], "omitted": tail_start - head_end, "head": head_end}
+
+
+MAX_OFFERED_MODES = 16
+SETUP_TYPES = ("builtin", "adapter", "usb", "app")
+
+
+def _config_field(config: dict, number: int, default=None):
+  values = config.get(str(number), config.get(number))
+  return values[0] if isinstance(values, list) and values and isinstance(values[0], int) else default
+
+
+def offered_modes(events: list[dict]) -> list[str]:
+  """Every video mode the head unit offered, e.g. "1280x720 H.264 margins 0x240", from its service discovery.
+
+  Kept for working pairings too, so the choice of mode can later be replayed against real cars."""
+  from openpilot.starpilot.system.starport.session import CODEC_H264_BP, CODEC_NAMES, RESOLUTION_NAMES
+  found = next((event for event in events if event["event"] == "discovered"), {})
+  modes: list[str] = []
+  for channel in found.get("channels") or []:
+    for config in (channel.get("video_configs") or []) if isinstance(channel, dict) else []:
+      if not isinstance(config, dict):
+        continue
+
+      resolution, codec = _config_field(config, 1), _config_field(config, 10, CODEC_H264_BP)
+      text = f"{RESOLUTION_NAMES.get(resolution, f'resolution {resolution}')} {CODEC_NAMES.get(codec, f'codec {codec}')}"
+      margins = _config_field(config, 3, 0), _config_field(config, 4, 0)
+      if any(margins):
+        text += f" margins {margins[0]}x{margins[1]}"
+      modes.append(text)
+  return modes[:MAX_OFFERED_MODES]
+
+
+def session_sdp(events: list[dict]) -> dict:
+  """How the car's Android Auto RFCOMM channel was found: where it came from, and how many SDP retries it took."""
+  found = next((event for event in events if event["event"] == "rfcomm_channel"), {})
+  retries = sum(1 for event in events if event["event"] == "sdp_retry")
+  if not found and not retries:
+    return {}
+  return {key: value for key, value in (("channel", found.get("channel") if isinstance(found.get("channel"), int) else None),
+                                         ("source", str(found["source"])[:12] if found.get("source") else None),
+                                         ("retries", retries or None)) if value is not None}
+
+
+def session_setup(events: list[dict]) -> dict:
+  """The setup type and profile the owner chose, as recorded when the session started."""
+  start = next((event for event in events if event["event"] == "session_start"), {})
+  setup = start.get("setup") if isinstance(start.get("setup"), dict) else {}
+  kind = setup.get("type")
+  return {key: value for key, value in (
+    ("type", kind if kind in SETUP_TYPES else None),
+    ("profile", scrub(setup.get("profile", ""), 40) or None),
+    ("profile_source", setup.get("profile_source") if setup.get("profile_source") in ("override", "detected", "standard") else None),
+  ) if value}
+
+
+def session_ladder(events: list[dict]) -> list[dict]:
+  """The handshake strategies tried in a session, in order, and how each ended (advanced, wrapped, exhausted, counted,
+  dropped, or worked). Kept for working pairings too: it is what shows which strategy a head unit likes."""
+  tried: list[dict] = []
+  for event in events:
+    name = event["event"]
+    if name == "ladder_strategy":
+      tried.append({"rung": str(event.get("rung", ""))[:24], "learned": bool(event.get("learned")),
+                    "at_s": elapsed(events[0], event)})
+    elif name == "ladder_failed" and tried:
+      tried[-1]["outcome"] = str(event.get("outcome", ""))[:16]
+    elif name == "ladder_worked" and tried:
+      tried[-1].update(outcome="worked", streamed_s=event.get("streamed_s"), t_ready_s=event.get("t_ready_s"))
+  return [{key: value for key, value in item.items() if value is not None} for item in tried[-12:]]
+
+
+def session_strategy(events: list[dict], setup: dict) -> dict:
+  """What a streaming session ran with; the raw material for "this head unit usually likes this profile"."""
+  if not any(event["event"] == "video_acknowledged" for event in events):
+    return {}
+  ready = next((event for event in reversed(events) if event["event"] == "video_setup"), {})
+  reply = next((event for event in events if event["event"] == "bootstrap_version_reply"), {})
+  mode = ready.get("mode") if isinstance(ready.get("mode"), dict) else {}
+  # Only a wireless bootstrap has a version reply; the modern one is logged, the standard one is its absence.
+  style = reply.get("style") or ("standard" if any(event["event"] == "bootstrap_start_response" for event in events) else None)
+  strategy = {"profile": setup.get("profile"), "window_offered": ready.get("window"), "window_used": ready.get("used_window"),
+              "reply_style": style, "channel_type": reply.get("channel_type"),
+              "config_index": mode.get("config_index")}
+  return {key: value for key, value in strategy.items() if value is not None}
 
 
 def session_record(path: Path) -> dict:
@@ -184,7 +273,16 @@ def session_record(path: Path) -> dict:
   car = report["car"]
   start = next((e for e in events if e["event"] == "session_start"), {})
   software, settings = start.get("software", {}), start.get("settings")
+  setup = session_setup(events)
+  opened = next((e for e in events if e["event"] == "bluetooth_opened"), None)
   record = {
+    "setup": setup,
+    "offered_modes": offered_modes(events),
+    # True when the comma's address went to the car in the pairing request; None when the car never opened that channel.
+    "phone_address_sent": bool(opened.get("phone_address")) if opened is not None else None,
+    "strategy": session_strategy(events, setup),
+    "ladder": session_ladder(events),
+    "sdp": session_sdp(events),
     "software": {key: str(software.get(key) or "unknown") for key in ("commit", "branch")} if isinstance(software, dict) else {},
     "settings": settings if isinstance(settings, dict) else {},
     "seq": _session_number(path),
@@ -196,6 +294,9 @@ def session_record(path: Path) -> dict:
     "furthest_stage": report["furthest_stage"],
     "failed_stage": str(last_failure.get("failed_stage", "")),
     "error_kind": str(last_failure.get("error_kind", "")),
+    "reach": str(last_failure.get("reach", "")) or (reachability.classify(
+      str(last_failure.get("failed_stage", "")), str(last_failure.get("error_kind", "")), str(last_failure.get("error", "")))
+      if last_failure else ""),
     "error": scrub(last_failure.get("error", "")),
     "failures": len(failures),
     "drops": len(drops),
@@ -339,7 +440,8 @@ def failure_detail(session: dict) -> dict:
     "title": f"{assessment['category']} at {stage}: {kind}",
     "session": session["seq"],
     "attempt": session.get("failed_attempt"),
-    "cause": assessment["category"], "stage": stage, "error_kind": kind,
+    "cause": assessment["category"], "stage": stage, "error_kind": kind, "reach": session.get("reach", ""),
+    "loss": stream_loss_kind(session.get("error", "")) if assessment["category"] == "projection_interrupted" else "",
     "summary": sanitize(failure_summary(assessment), names),
     "diagnosis": sanitize(assessment, names),
   }
@@ -395,6 +497,10 @@ def drive_event(sessions: list[dict]) -> dict:
   head_unit = next((s["head_unit"] for s in reversed(sessions) if s["head_unit"]), {})
   video = next((s["video"] for s in reversed(sessions) if s["video"].get("resolution")), {})
   label = _head_unit_label(head_unit)
+  setup = next((s["setup"] for s in reversed(sessions) if s.get("setup")), {})
+  sent = next((s["phone_address_sent"] for s in reversed(sessions) if s.get("phone_address_sent") is not None), None)
+  ladder = next((s["ladder"][-1] for s in reversed(sessions) if s.get("ladder")), {})
+  strategy = next((s["strategy"] for s in reversed(sessions) if s.get("strategy")), {})
   failures = [failure_detail(failure) for failure in drive_failures(sessions)]
   failed = [session for session in sessions if session["seq"] in {failure["session"] for failure in failures}]
   heading = "failures" if failures else "sessions"
@@ -425,8 +531,18 @@ def drive_event(sessions: list[dict]) -> dict:
              "aa.encoder": video.get("encoder", "unknown"),
              "aa.fps": str(summary["fps_avg"]) if summary["fps_avg"] is not None else "none",
              "aa.failures": str(len(failures)),
+             # Low-cardinality choices only; long values (offered modes, strategy) live in the contexts below.
+             **({"aa.setup_type": setup["type"]} if setup.get("type") else {}),
+             **({"aa.adapter_model": setup["profile"]} if setup.get("profile") else {}),
+             **({"aa.profile_source": setup["profile_source"]} if setup.get("profile_source") else {}),
+             **({"aa.phone_address_sent": "yes" if sent else "no"} if sent is not None else {}),
+             **({"aa.reply_style": strategy["reply_style"]} if strategy.get("reply_style") else {}),
+             **({"aa.wifi_channel_type": str(strategy["channel_type"])} if strategy.get("channel_type") else {}),
+             **({"aa.ladder_rung": ladder["rung"], "aa.ladder_learned": "yes" if ladder.get("learned") else "no"} if ladder else {}),
              **({"aa.attention": ",".join(reasons)[:190]} if reasons else {}),
-             **({"aa.cause": latest["cause"], "aa.stage": latest["stage"], "aa.error_kind": latest["error_kind"]} if latest else {})},
+             **({"aa.cause": latest["cause"], "aa.stage": latest["stage"], "aa.error_kind": latest["error_kind"]} if latest else {}),
+             **({"aa.reach_class": latest["reach"]} if latest and latest.get("reach") else {}),
+             **({"aa.loss_kind": latest["loss"]} if latest and latest.get("loss") else {})},
     "breadcrumbs": {"values": attempt_breadcrumbs(sessions)},
     "contexts": {"starport_drive": summary, "starport_head_unit": head_unit,
                  **{f"starport_session_{index + 1}": _public(session) for index, session in enumerate(sessions)},

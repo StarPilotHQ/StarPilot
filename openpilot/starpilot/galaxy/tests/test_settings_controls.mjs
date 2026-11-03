@@ -227,3 +227,15 @@ for (const row of [{ value: "30", minimum: 1, maximum: 30, step: 1, unit: "h" },
                    { value: "11.8", minimum: 11.8, maximum: 12.5, step: .1, unit: "V" }]) {
   assert.equal(settingControl(row), "slider")
 }
+
+// A section heading (for example "StarPort" on the Developer page) is a label only: no control, no readout, no default button.
+{
+  const heading = { label: "StarPort", value: "", heading: true, available: false, choices: [], key: "heading:starport" }
+  assert.equal(settingControl(heading), "readout")
+  const template = GalaxySettingRow.template
+  assert.match(template, /'gx-row--heading': row\.heading/)
+  assert.match(template, /v-else-if="!row\.heading" class="gx-row__value gx-row__readout"/)
+  assert.match(template, /showDefault && !row\.heading/)
+  assert.match(template, /presentedRow\.reason && !row\.heading/)
+}
+console.log("Settings controls: section headings render as labels only")

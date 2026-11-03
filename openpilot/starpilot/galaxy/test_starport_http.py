@@ -524,3 +524,29 @@ def test_on_device_browser_api_is_gone(api):
   cookie = headers['Set-Cookie'].split(';', 1)[0]
   start = {'operation': 'start', 'email': 'user@example.com', 'remember': False}
   assert request('POST', '/api/starport/google-browser', json.dumps(start), cookie=cookie, content_type='application/json')[0] != 200
+
+
+def test_classic_setup_switch_needs_a_session_and_park_but_not_the_service(api, tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import new_setup
+  monkeypatch.setattr(new_setup, 'FLAG_PATH', tmp_path / 'new_setup')
+  request, _, state, client = api
+  body = json.dumps({'action': 'new_setup', 'enabled': False})
+  assert request('POST', '/api/starport/control', body, content_type='application/json')[0] == 401
+  code, _, headers = request('POST', '/api/auth/login', json.dumps({'password': 'password123'}), content_type='application/json')
+  assert code == 200
+  cookie = headers['Set-Cookie'].split(';', 1)[0]
+  assert new_setup.enabled()
+  state['parked'] = False
+  assert request('POST', '/api/starport/control', body, cookie=cookie, content_type='application/json')[0] == 403
+  assert new_setup.enabled()
+  state['parked'] = True
+  client.calls.clear()
+  code, result, _ = request('POST', '/api/starport/control', body, cookie=cookie, content_type='application/json')
+  assert (code, result) == (200, {'newSetup': False}) and not new_setup.enabled()
+  assert client.calls == []   # the daemon was never asked: this is the way back when it is down
+  assert request('GET', '/api/starport/setup', cookie=cookie)[1]['newSetup'] is False
+  code, result, _ = request('POST', '/api/starport/control', json.dumps({'action': 'new_setup', 'enabled': True}),
+                            cookie=cookie, content_type='application/json')
+  assert (code, result) == (200, {'newSetup': True}) and new_setup.enabled()
+  for bad in ({'action': 'new_setup'}, {'action': 'new_setup', 'enabled': 'no'}, {'action': 'new_setup', 'enabled': True, 'x': 1}):
+    assert request('POST', '/api/starport/control', json.dumps(bad), cookie=cookie, content_type='application/json')[0] == 400

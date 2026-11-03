@@ -830,6 +830,7 @@ class LeaseAwarePhone:
   def devices(self): return self.phone.devices()
   def device(self, address): return self.phone.device(address)
   def snapshot(self, address): return self.phone.snapshot(address)
+  def adapter(self): return self.phone.adapter()  # this comma's address, for the head unit's pairing request
 
   def acquire(self, phone_class: bool = True) -> None:
     if self.lease is None:

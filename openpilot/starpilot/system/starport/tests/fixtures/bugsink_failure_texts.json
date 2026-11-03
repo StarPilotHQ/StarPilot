@@ -1,0 +1,329 @@
+{
+ "source": "Bugsink Android Auto project, failure reports pulled 2026-11-01 (sanitized by the reporter)",
+ "failures": [
+  {
+   "stage": "discovering",
+   "kind": "RuntimeError",
+   "evidence": "Could not find the car's Android Auto service: [Errno 112] Host is down",
+   "count": 116
+  },
+  {
+   "stage": "wifi_start",
+   "kind": "BootstrapTimeout",
+   "evidence": "wifi_start: head unit did not answer in time",
+   "count": 59
+  },
+  {
+   "stage": "rfcomm",
+   "kind": "ConnectionResetError",
+   "evidence": "[Errno 104] Connection reset by peer",
+   "count": 53
+  },
+  {
+   "stage": "streaming",
+   "kind": "TimeoutError",
+   "evidence": "Video acknowledgement older than 2.5 s",
+   "count": 41
+  },
+  {
+   "stage": "streaming",
+   "kind": "TimeoutError",
+   "evidence": "Head unit stopped answering for 15 s",
+   "count": 37
+  },
+  {
+   "stage": "connecting_bluetooth",
+   "kind": "RuntimeError",
+   "evidence": "org.bluez.Error.Failed: br-connection-page-timeout",
+   "count": 36
+  },
+  {
+   "stage": "rfcomm",
+   "kind": "OSError",
+   "evidence": "[Errno 112] Host is down",
+   "count": 35
+  },
+  {
+   "stage": "rfcomm",
+   "kind": "ConnectionRefusedError",
+   "evidence": "[Errno 111] Connection refused",
+   "count": 35
+  },
+  {
+   "stage": "connecting_bluetooth",
+   "kind": "TimeoutError",
+   "evidence": "TimeoutError",
+   "count": 27
+  },
+  {
+   "stage": "connecting_bluetooth",
+   "kind": "RuntimeError",
+   "evidence": "Connect your paired car in Galaxy Bluetooth first to select it for this Android Auto adapter",
+   "count": 20
+  },
+  {
+   "stage": "streaming",
+   "kind": "EOFError",
+   "evidence": "Head unit disconnected after 0/4 bytes",
+   "count": 18
+  },
+  {
+   "stage": "wifi_info",
+   "kind": "ConnectionResetError",
+   "evidence": "getting car wi-fi: [Errno 104] Connection reset by peer",
+   "count": 18
+  },
+  {
+   "stage": "joining_wifi",
+   "kind": "BootstrapError",
+   "evidence": "joining car wi-fi: joining_wifi: AddAndActivateConnection2 failed: Connection 'starpilot-android-auto' is not available on device wlan0 because device is strictly unmanaged",
+   "count": 14
+  },
+  {
+   "stage": "authenticating",
+   "kind": "EOFError",
+   "evidence": "Head unit disconnected after 0/4 bytes",
+   "count": 14
+  },
+  {
+   "stage": "discovering",
+   "kind": "RuntimeError",
+   "evidence": "Could not find the car's Android Auto service: [Errno 111] Connection refused",
+   "count": 13
+  },
+  {
+   "stage": "rfcomm",
+   "kind": "TimeoutError",
+   "evidence": "timed out",
+   "count": 12
+  },
+  {
+   "stage": "wifi_info",
+   "kind": "BootstrapTimeout",
+   "evidence": "getting car wi-fi: wifi_info: head unit did not answer in time",
+   "count": 11
+  },
+  {
+   "stage": "authenticating",
+   "kind": "TimeoutError",
+   "evidence": "timed out",
+   "count": 10
+  },
+  {
+   "stage": "rfcomm",
+   "kind": "OSError",
+   "evidence": "[Errno 16] Device or resource busy",
+   "count": 10
+  },
+  {
+   "stage": "negotiating",
+   "kind": "TimeoutError",
+   "evidence": "timed out",
+   "count": 10
+  },
+  {
+   "stage": "joining_wifi",
+   "kind": "BootstrapError",
+   "evidence": "joining car wi-fi: joining_wifi: ",
+   "count": 6
+  },
+  {
+   "stage": "discovering",
+   "kind": "RuntimeError",
+   "evidence": "Could not find the car's Android Auto service: Head unit does not advertise Android Auto Wireless (SDP record missing)",
+   "count": 6
+  },
+  {
+   "stage": "joining_wifi",
+   "kind": "BootstrapError",
+   "evidence": "joining car wi-fi: joining_wifi: The projection network connection was removed (wrong key or out of range?)",
+   "count": 5
+  },
+  {
+   "stage": "negotiating",
+   "kind": "EOFError",
+   "evidence": "Head unit disconnected after 0/4 bytes",
+   "count": 5
+  },
+  {
+   "stage": "streaming",
+   "kind": "ConnectionResetError",
+   "evidence": "[Errno 104] Connection reset by peer",
+   "count": 5
+  },
+  {
+   "stage": "rfcomm",
+   "kind": "OSError",
+   "evidence": "[Errno 38] Function not implemented",
+   "count": 5
+  },
+  {
+   "stage": "discovering",
+   "kind": "RuntimeError",
+   "evidence": "Could not find the car's Android Auto service: timed out",
+   "count": 5
+  },
+  {
+   "stage": "connecting_tcp",
+   "kind": "RuntimeError",
+   "evidence": "Car did not accept the projection connection: [Errno 111] Connection refused",
+   "count": 5
+  },
+  {
+   "stage": "joining_wifi",
+   "kind": "BootstrapError",
+   "evidence": "joining car wi-fi: joining_wifi: AddAndActivateConnection2 failed: Connection 'starpilot-starport' is not available on device wlan0 because device is strictly unmanaged",
+   "count": 5
+  },
+  {
+   "stage": "negotiating",
+   "kind": "ValueError",
+   "evidence": "Head unit did not advertise a supported H.264 video mode (offered 1440x2560 H.265 margins 288x1378, 1080x1920 H.265 margins 0x811, 720x1280 H.265 margins 0x541, 1920x1080 H.265 margins 0x360 (display 1))",
+   "count": 4
+  },
+  {
+   "stage": "streaming",
+   "kind": "NativeFocusHeld",
+   "evidence": "Car kept its own screen for 15 s; reconnecting",
+   "count": 4
+  },
+  {
+   "stage": "discovering",
+   "kind": "RuntimeError",
+   "evidence": "Could not find the car's Android Auto service: [Errno 104] Connection reset by peer",
+   "count": 3
+  },
+  {
+   "stage": "connecting_bluetooth",
+   "kind": "RuntimeError",
+   "evidence": "org.bluez.Error.Failed: br-connection-unknown",
+   "count": 3
+  },
+  {
+   "stage": "connecting_bluetooth",
+   "kind": "BluetoothRejected",
+   "evidence": "Bluetooth adapter is busy in another process",
+   "count": 3
+  },
+  {
+   "stage": "negotiating",
+   "kind": "ValueError",
+   "evidence": "Hardware encoder supports even sizes up to 1280x720 at 30 fps",
+   "count": 3
+  },
+  {
+   "stage": "rfcomm",
+   "kind": "TimeoutError",
+   "evidence": "[Errno 110] Connection timed out",
+   "count": 3
+  },
+  {
+   "stage": "connecting_tcp",
+   "kind": "RuntimeError",
+   "evidence": "Car did not accept the projection connection: [Errno 99] Cannot assign requested address",
+   "count": 2
+  },
+  {
+   "stage": "discovering",
+   "kind": "RuntimeError",
+   "evidence": "Could not find the car's Android Auto service: [Errno 114] Operation already in progress",
+   "count": 2
+  },
+  {
+   "stage": "authenticating",
+   "kind": "ValueError",
+   "evidence": "Expected authentication status; got 0/0x3",
+   "count": 2
+  },
+  {
+   "stage": "waiting_for_usb",
+   "kind": "RuntimeError",
+   "evidence": "plug into the car's usb: The car did not finish USB setup. Use its Android Auto data port and a data-capable cable",
+   "count": 2
+  },
+  {
+   "stage": "streaming",
+   "kind": "TimeoutError",
+   "evidence": "timed out",
+   "count": 2
+  },
+  {
+   "stage": "discovering",
+   "kind": "RuntimeError",
+   "evidence": "Could not find the car's Android Auto service: [Errno 38] Function not implemented",
+   "count": 2
+  },
+  {
+   "stage": "connecting_bluetooth",
+   "kind": "RuntimeError",
+   "evidence": "org.bluez.Error.Failed: br-connection-refused",
+   "count": 2
+  },
+  {
+   "stage": "joining_wifi",
+   "kind": "BootstrapError",
+   "evidence": "joining car wi-fi: joining_wifi: Timed out joining the projection network after 30 s",
+   "count": 2
+  },
+  {
+   "stage": "rfcomm",
+   "kind": "PermissionError",
+   "evidence": "[Errno 13] Permission denied",
+   "count": 2
+  },
+  {
+   "stage": "connecting_bluetooth",
+   "kind": "BluetoothRejected",
+   "evidence": "org.freedesktop.systemd1.NoSuchUnit",
+   "count": 1
+  },
+  {
+   "stage": "joining_wifi",
+   "kind": "BootstrapError",
+   "evidence": "joining car wi-fi: joining_wifi: Joined the projection network but received no IPv4 address",
+   "count": 1
+  },
+  {
+   "stage": "authenticating",
+   "kind": "SSLCertVerificationError",
+   "evidence": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: format error in certificate's notBefore field (_ssl.c:1000) (set verify_head_unit false in config.json to test without verifying the car)",
+   "count": 1
+  },
+  {
+   "stage": "streaming",
+   "kind": "RuntimeError",
+   "evidence": "Lost the car's Wi-Fi network",
+   "count": 1
+  },
+  {
+   "stage": "rfcomm",
+   "kind": "BlockingIOError",
+   "evidence": "[Errno 114] Operation already in progress",
+   "count": 1
+  },
+  {
+   "stage": "negotiating",
+   "kind": "TimeoutError",
+   "evidence": "Head unit did not send 0/0x6",
+   "count": 1
+  },
+  {
+   "stage": "streaming",
+   "kind": "TimeoutExpired",
+   "evidence": "Command '['/usr/local/venv/bin/python3', '-m', 'openpilot.starpilot.system.android_auto.current_car_ui', '--frames', '/dev/shm/starpilot_android_auto_car_frame', '--touch', '/tmp/starpilot-android-auto-touch.sock', '--control', '/tmp/starpi",
+   "count": 1
+  },
+  {
+   "stage": "authenticating",
+   "kind": "ConnectionResetError",
+   "evidence": "[Errno 104] Connection reset by peer",
+   "count": 1
+  },
+  {
+   "stage": "connecting_tcp",
+   "kind": "RuntimeError",
+   "evidence": "Car did not accept the projection connection: timed out",
+   "count": 1
+  }
+ ]
+}

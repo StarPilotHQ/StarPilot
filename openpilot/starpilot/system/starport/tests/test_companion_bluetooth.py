@@ -295,6 +295,9 @@ class CompanionTests(unittest.TestCase):
     host.stop.assert_called_once_with()
     self.owner.request.assert_called_once_with('forget', address=ADAPTER.lower())
     host.forget_receiver.assert_called_once_with(ADAPTER.lower())
+    host.forget_receiver.side_effect = OSError('Cannot save config')
+    with self.assertRaisesRegex(OSError, 'Cannot save config'):
+      host.companion_bluetooth_action('forget', ADAPTER, SESSION)
 
   def test_forgetting_the_selected_car_waits_out_pairing_and_expired_sessions(self):
     from openpilot.starpilot.system.starport.supervisor import Supervisor

@@ -80,6 +80,7 @@ BLUETOOTH_AUTH_DATA = 0x8003
 SENSOR_NIGHT, SENSOR_DRIVING_STATUS = 10, 13
 
 CODEC_H264_BP = 3
+CODEC_H265 = 7          # MediaCodecType VIDEO_H265, offered by some head units instead of H.264
 SETUP_STATUS_READY = 2
 FOCUS_PROJECTED = 1
 FOCUS_NATIVE = 2
@@ -115,6 +116,8 @@ class PeerRequestedStop(EOFError):
   pass
 
 
+class SharedRadioStall(TimeoutError):
+  """The car stopped acknowledging video while the comma's other Wi-Fi network was joining or roaming."""
 START_CODE = re.compile(b"\x00\x00(?:\x00)?\x01")
 
 
@@ -141,6 +144,39 @@ def wire_frame(access_unit: bytes, *, drop_config: bool) -> bytes:
   return b"".join(units) or access_unit
 
 
+# H.265 handling is kept apart from the H.264 functions above so the H.264 path stays byte-for-byte what it was.
+# A NAL header is two bytes; the type is bits 1-6 of the first (ITU-T H.265 7.3.1.2).
+HEVC_PARAMETER_SETS = (32, 33, 34)   # VPS, SPS, PPS
+HEVC_AUD = 35
+
+
+def hevc_nal_type(first_byte: int) -> int:
+  return (first_byte >> 1) & 0x3F
+
+
+def codec_config_hevc(access_unit: bytes) -> bytes:
+  """The VPS, SPS and PPS NAL units of an H.265 keyframe, as the codec-config buffer carries them."""
+  starts = list(START_CODE.finditer(access_unit))
+  units = []
+  for index, match in enumerate(starts):
+    end = starts[index + 1].start() if index + 1 < len(starts) else len(access_unit)
+    if match.end() < end and hevc_nal_type(access_unit[match.end()]) in HEVC_PARAMETER_SETS:
+      units.append(b"\x00\x00\x00\x01" + access_unit[match.end():end])
+  return b"".join(units)
+
+
+def wire_frame_hevc(access_unit: bytes, *, drop_config: bool) -> bytes:
+  """The H.265 picture NAL units without the access unit delimiter, and without parameter sets once they went separately."""
+  starts = list(START_CODE.finditer(access_unit))
+  drop = {HEVC_AUD, *HEVC_PARAMETER_SETS} if drop_config else {HEVC_AUD}
+  units = []
+  for index, match in enumerate(starts):
+    end = starts[index + 1].start() if index + 1 < len(starts) else len(access_unit)
+    if match.end() < end and hevc_nal_type(access_unit[match.end()]) not in drop:
+      units.append(b"\x00\x00\x00\x01" + access_unit[match.end():end])
+  return b"".join(units) or access_unit
+
+
 @dataclass(frozen=True)
 class VideoMode:
   channel: int
@@ -153,6 +189,7 @@ class VideoMode:
   content_left: int | None = None
   content_top: int | None = None
   density: int = 0  # dpi the head unit reports; 0 when it does not say
+  codec: int = CODEC_H264_BP
 
   @property
   def content_width(self) -> int:
@@ -166,6 +203,7 @@ class VideoMode:
     return {"channel": self.channel, "config_index": self.config_index, "width": self.width, "height": self.height,
             "fps": self.fps, "margin_width": self.margin_width, "margin_height": self.margin_height,
             "density": self.density,
+            **({"codec": CODEC_NAMES[self.codec]} if self.codec != CODEC_H264_BP else {}),
             **({"content_left": self.content_left, "content_top": self.content_top} if self.content_left is not None else {})}
 
 
@@ -188,14 +226,18 @@ def describe_video_configs(channels: list[dict]) -> str:
   return ", ".join(offered) or "no video"
 
 
-def choose_video_mode(channels: list[dict]) -> VideoMode:
-  """Pick a negotiated H.264 mode the software encoder can sustain."""
+def choose_video_mode(channels: list[dict], allow_hevc: bool = False) -> VideoMode:
+  """Pick a negotiated H.264 mode the software encoder can sustain.
+
+  H.265 is considered only when the owner allows it and the car offered no usable H.264 mode, so a car that works on
+  H.264 is never changed."""
   candidates = []
+  hevc_candidates = []
   for channel in channels:
     for index, config in enumerate(channel.get("video_configs", [])):
       resolution = one(config, 1)
       codec = one(config, 10, CODEC_H264_BP)
-      if resolution not in RESOLUTIONS or codec != CODEC_H264_BP:
+      if resolution not in RESOLUTIONS or codec not in (CODEC_H264_BP, CODEC_H265):
         continue
       width, height = RESOLUTIONS[resolution]
       margin_width, margin_height = int(one(config, 3, 0) or 0), int(one(config, 4, 0) or 0)
@@ -215,10 +257,13 @@ def choose_video_mode(channels: list[dict]) -> VideoMode:
               top_edge + bottom == margin_height and left_edge + right == margin_width):
             left, top = left_edge, top_edge
       mode = VideoMode(int(channel["id"]), index, width, height, fps, margin_width, margin_height, left, top,
-                       int(one(config, 5, 0) or 0))
-      candidates.append((RESOLUTION_PREFERENCE.index(resolution), fps != 30, index, mode))
+                       int(one(config, 5, 0) or 0), codec)
+      (candidates if codec == CODEC_H264_BP else hevc_candidates).append((RESOLUTION_PREFERENCE.index(resolution), fps != 30, index, mode))
+  if not candidates and allow_hevc:
+    candidates = hevc_candidates
   if not candidates:
-    raise ValueError(f"Head unit did not advertise a supported H.264 video mode (offered {describe_video_configs(channels)})")
+    hint = "; this car offers H.265, which can be turned on in Developer > StarPort" if hevc_candidates else ""
+    raise ValueError(f"Head unit did not advertise a supported H.264 video mode (offered {describe_video_configs(channels)}){hint}")
   return min(candidates, key=lambda item: item[:3])[3]
 
 
@@ -601,9 +646,18 @@ class ProjectionSession(Session):
   # held it ~1 s on 2026-10-01 while the car kept acking in 27-219 ms. Stays under the 3 s after which a Honda takes
   # its screen back without video.
   ACK_TIMEOUT = 2.5
+  # The radio is shared with the comma's own Wi-Fi (aa0 + wlan0): joining or roaming there stalled the car's acks past
+  # 2.5 s on 2026-11-02 (hotspot join, home join, mesh roam). While that happens, wait this long before reconnecting.
+  ACK_GRACE_TIMEOUT = 8.0
   ACK_DRAIN_SECONDS = 0.1  # before calling an ACK late, read what already arrived, for at most this long
   MAX_WINDOW = 2
   nav = None
+  grace_frame: float | None = None  # send time of the frame whose late ack is being waited out
+  grace_focus_lost = False
+
+  # Replaced by the supervisor: whether the comma's other Wi-Fi joined or roamed in the last few seconds.
+  radio_change: Callable[..., bool] = staticmethod(lambda: False)
+
   # HeadunitPad acknowledges every fragment (codec config included) rather than every frame.
   fragment_acks = False
 
@@ -629,8 +683,10 @@ class ProjectionSession(Session):
     self.config_ack_slack = 0  # codec-config messages a head unit may acknowledge like frames
     self.epoch_acked = 0
     self.video_confirmed = False
+    self.video_confirmed_at = 0.0
     self.input_channel: int | None = None
     self.max_window = self.MAX_WINDOW  # raised by the supervisor for adapters that need the car's full window
+    self.allow_hevc = False  # the owner's Allow H.265 video setting; used only when the car offers no H.264 mode
     self.phone_services = False  # open the car-data and Bluetooth channels like a phone (adapter profile)
     self.phone_frames = False  # send picture NAL units only (adapter profile)
     self.phone_address = ""  # this comma's Bluetooth address, for the pairing request
@@ -652,7 +708,7 @@ class ProjectionSession(Session):
 
   def start(self, device_name: str, device_brand: str) -> VideoMode:
     self.channels = self.discover(device_name, device_brand)
-    self.mode = choose_video_mode(self.channels)
+    self.mode = choose_video_mode(self.channels, self.allow_hevc)
     self.open_video()
     self.open_input()
     if self.phone_services:
@@ -667,7 +723,7 @@ class ProjectionSession(Session):
     opened = parse_fields(self.wait_for(mode.channel, MSG_CHANNEL_OPEN_RESPONSE))
     if signed(one(opened, 1)) != 0:
       raise ValueError(f"Head unit rejected opening the video channel: {json_fields(opened)}")
-    self.send(mode.channel, AV_SETUP_REQUEST, field(1, CODEC_H264_BP))
+    self.send(mode.channel, AV_SETUP_REQUEST, field(1, mode.codec))
     setup = parse_fields(self.wait_for(mode.channel, AV_SETUP_RESPONSE))
     window = int(one(setup, 2, 0) or 0)
     if one(setup, 1) != SETUP_STATUS_READY or window < 1:  # the window is capped to MAX_WINDOW below; MIB3 offers 100
@@ -840,6 +896,8 @@ class ProjectionSession(Session):
     granted = focus in (FOCUS_PROJECTED, FOCUS_PROJECTED_NO_INPUT)
     self.focused = granted and self.allow_projection
     self.event("video_focus", focus=focus, unsolicited=unsolicited, focused=self.focused)
+    if was_focused and not self.focused and self.grace_frame is not None:
+      self.grace_focus_lost = True  # the car gave up on the stalled video: reconnect rather than wait unfocused
     if was_focused and not self.focused and self.touch is not None:
       self.touch_events.extend(self.touch.reset())
     if self.focused and not was_focused:
@@ -898,6 +956,9 @@ class ProjectionSession(Session):
     self.unacked -= count
     self.acked += count
     self.epoch_acked += count
+    if self.grace_frame is not None and (not self.pending or self.pending[0] != self.grace_frame):
+      self.event("ack_grace_recovered", gap_ms=round((now - self.grace_frame) * 1000))
+      self.grace_frame = None
     self._confirm_video()
 
   def _confirm_video(self) -> None:
@@ -906,6 +967,7 @@ class ProjectionSession(Session):
     # bound on acknowledged frames without changing flow-control credit.
     if not self.video_confirmed and self.epoch_acked > self.config_ack_slack:
       self.video_confirmed = True
+      self.video_confirmed_at = time.monotonic()
       self.event("video_acknowledged", session=self.session_id, ack_ms=round(self.max_ack_seconds * 1000))
 
   # ANDROID AUTO VIDEO PERFORMANCE GUARDRAIL: Receiver ACK flow control bounds in-flight video; extra buffering increases latency.
@@ -920,6 +982,8 @@ class ProjectionSession(Session):
   def check_progress(self, now: float | None = None) -> None:
     measured = now is None
     now = time.monotonic() if measured else now
+    if self.grace_focus_lost:
+      raise SharedRadioStall("The car took its screen back while the comma's Wi-Fi was switching networks")
     if self._ack_overdue(now):
       # ACKs that arrived while this loop was busy (a slow encode, a CPU burst) still sit in the socket; the
       # streaming loop drains only a bounded batch per pass, so read what is there before calling the car silent.
@@ -929,11 +993,22 @@ class ProjectionSession(Session):
       if measured:
         now = time.monotonic()
       if self._ack_overdue(now):
-        raise TimeoutError(f"Video acknowledgement older than {self.ACK_TIMEOUT:.1f} s")
+        self._wait_out_radio_change(now)
     # Only a receiver known to answer pings can be declared dead by silence; for
     # others a lost link surfaces as a socket error or a dropped Wi-Fi lease.
     if self.ping_responses and now - self.last_rx > 15.0:
       raise TimeoutError("Head unit stopped answering for 15 s")
+
+  def _wait_out_radio_change(self, now: float) -> None:
+    """The oldest frame is past ACK_TIMEOUT: give up, unless the comma's other Wi-Fi just changed networks."""
+    oldest = self.pending[0]
+    if self.grace_frame != oldest:
+      if not self.radio_change():
+        raise TimeoutError(f"Video acknowledgement older than {self.ACK_TIMEOUT:.1f} s")
+      self.grace_frame = oldest
+      self.event("ack_grace", after_ms=round((now - oldest) * 1000))
+    if now - oldest > self.ACK_GRACE_TIMEOUT:
+      raise SharedRadioStall(f"Video acknowledgement older than {self.ACK_GRACE_TIMEOUT:.1f} s while the comma's Wi-Fi was switching networks")
 
   def send_frame(self, data: bytes, timestamp_us: int, *, keyframe: bool) -> None:
     if not self.can_send():
@@ -944,13 +1019,13 @@ class ProjectionSession(Session):
     fragments = 0
     config = b""
     if self.needs_keyframe:
-      config = codec_config(data)
+      config = codec_config_hevc(data) if self.mode.codec == CODEC_H265 else codec_config(data)
       if config:
         fragments += self.send(self.mode.channel, AV_MEDIA_CODEC_CONFIG, config)
         if not self.fragment_acks:
           self.config_ack_slack += 1
     if self.phone_frames:
-      data = wire_frame(data, drop_config=bool(config))
+      data = (wire_frame_hevc if self.mode.codec == CODEC_H265 else wire_frame)(data, drop_config=bool(config))
     fragments += self.send(self.mode.channel, AV_MEDIA_WITH_TIMESTAMP, struct.pack(">Q", timestamp_us) + data)
     if self.fragment_acks:
       self.frame_fragments.append(fragments)

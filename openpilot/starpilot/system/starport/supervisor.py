@@ -33,16 +33,17 @@ from pathlib import Path
 from typing import Any
 
 from openpilot.common.hardware import COMMA_HARDWARE
-from openpilot.starpilot.system.starport import car_profiles, device_health, identity as identity_store, system_slice
+from openpilot.starpilot.system.starport import car_profiles, device_health, identity as identity_store, new_setup, reachability, setup_ladder, system_slice
+from openpilot.starpilot.system.starport import reconnect_notice
 from openpilot.starpilot.system.starport.auto_connect import AutoConnectPolicy
-from openpilot.starpilot.system.starport.bootstrap import NAMES, BootstrapError, WirelessBootstrap
+from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, BootstrapError, BootstrapTimeout, WirelessBootstrap
 from openpilot.starpilot.system.starport.bugsink_report import PairingAttempt
 from openpilot.starpilot.system.starport.frame_source import (DEFAULT_PATH as DEFAULT_FRAME_PATH, FLAG_ASYNC_READBACK, FLAG_NV12,
                                                                   FORMAT_NV12, FrameRequest)
 from openpilot.starpilot.system.starport.projection_control import DEFAULT_CONTROL_SOCKET, NATIVE_FOCUS
 from openpilot.starpilot.system.starport.touch import DEFAULT_TOUCH_SOCKET
 from openpilot.starpilot.system.starport.view import CAR_FRAME_PATH, ViewSource, renderer_available
-from openpilot.starpilot.system.starport.session import AuthenticationRejected, PeerRequestedStop, ProjectionSession
+from openpilot.starpilot.system.starport.session import CODEC_H265, AuthenticationRejected, PeerRequestedStop, ProjectionSession, SharedRadioStall
 
 BACKOFF_SECONDS = (2.0, 4.0, 8.0, 15.0, 30.0)
 STABLE_SESSION_SECONDS = 30.0
@@ -60,6 +61,8 @@ ENCODER_RECOVERIES = 3       # hardware encoder reopens allowed per window befor
 ENCODER_RECOVERY_WINDOW = 10.0
 CAR_LINK_HOLD = 10.0         # a hands-free connection from the car counts as "car present" this long
 HFP_FRESH = 3.0              # a hands-free link from the car this recent still means "the car is reaching out now"
+COMMA_PAGE_WINDOW = 6.0         # a hands-free link this soon after we paged the car is ours; later is the car's
+RFCOMM_BUSY_WAITS = (1.0, 2.0)   # the kernel can still hold the last session's channel for a moment
 CAR_FIRST_WAIT = 8.0         # at ignition, give the car this long to open hands-free before the comma pages it
 NO_STARPORT_WAIT = 8.0    # a paired device must offer wireless projection within this long
 USB_HANDSHAKE_WAIT = 10.0    # the car connected but sent no AOA START this long -> present as an accessory directly
@@ -67,9 +70,11 @@ USB_CONFIGURE_WAIT = 15.0    # slower receivers need time to enumerate after the
 LINK_CHECK_INTERVAL = 1.0    # how often the link watcher asks whether the car's Wi-Fi is still up
 LINK_CHECK_SLOW = 1.0        # a link check slower than this is logged (NetworkManager answers over D-Bus)
 STREAM_STALL_LOG = 1.0       # a streaming loop pass slower than this is logged
+RADIO_CHECK_INTERVAL = 0.5   # how often the comma's own Wi-Fi is checked for a join or roam (a sysfs read)
+RADIO_CHANGE_WINDOW = 15.0   # a join or roam this recent can still stall the car (11-02: stall came 7.5 s after a roam)
 REPORTED_SETTINGS = ("connection", "usb_mode", "view", "encoder", "fps", "bitrate_kbps", "rate_control", "gpu_nv12",
                      "async_readback", "wifi_interface", "dedicated_wifi_interface", "verify_head_unit", "version_status",
-                     "rfcomm_channel", "phone_class", "auto_connect")
+                     "rfcomm_channel", "phone_class", "auto_connect", "allow_hevc")
 
 
 def encoder_preference(configured: str) -> str:
@@ -177,6 +182,26 @@ def car_never_answered(error: BaseException) -> bool:
   return not (isinstance(error, OSError) and error.errno in LOCAL_SOCKET_ERRORS)
 
 
+ADOPT_INTERVAL = 20.0         # how often housekeeping looks for a paired car that was never chosen
+
+
+def choose_only_car(devices: list[dict]) -> tuple[dict | None, list[dict]]:
+  """(the car to adopt, every candidate). A car is adopted only when exactly one paired device offers Android Auto Wireless.
+
+  Reads the cached BlueZ service list, so it never pages a device. Two candidates are never guessed between."""
+  candidates = [device for device in devices if device.get("paired") and device.get("starport")]
+  return (candidates[0] if len(candidates) == 1 else None), candidates
+
+
+def drops_cached_channel(stage: str, error: BaseException) -> bool:
+  """Forget the cached RFCOMM channel only when the car answered nothing there for a reason about the channel.
+
+  A sleeping car (page timeout, host down) or this comma's own busy Bluetooth says nothing about which channel is right."""
+  if stage not in ("rfcomm", "wifi_start") or not car_never_answered(error):
+    return False
+  return not reachability.keeps_cached_channel(reachability.classify(stage, type(error).__name__, str(error)))
+
+
 def _where(error: BaseException, depth: int = 4) -> list[str]:
   """The innermost frames of a failure, so a bare exception still says which call raised it."""
   frames = traceback.extract_tb(error.__traceback__)[-depth:]
@@ -228,6 +253,50 @@ class LinkWatch:
           self.log("link_lost", reason=self.lost, wifi_dbm=self.wifi_dbm)
           return
       self._stop.wait(self.interval)
+
+
+class SharedRadioWatch:
+  """Notices the comma's own Wi-Fi joining or roaming while the car is on aa0; both share one radio.
+
+  The link going down or up bumps carrier_changes, a plain sysfs read. The network's name is never read or logged.
+  """
+
+  def __init__(self, log: Callable[..., None], interface: str = "wlan0", interval: float = RADIO_CHECK_INTERVAL,
+               counter: Path | None = None):
+    self.log, self.interface, self.interval = log, interface, interval
+    self.counter = counter or Path(f"/sys/class/net/{interface}/carrier_changes")
+    self.changed_at: float | None = None
+    self._stop = threading.Event()
+    self._thread = threading.Thread(target=self._run, name="aa_radio_watch", daemon=True)
+
+  def start(self) -> SharedRadioWatch:
+    self._thread.start()
+    return self
+
+  def stop(self) -> None:
+    self._stop.set()
+
+  def recent(self, now: float | None = None) -> bool:
+    """Whether the other network joined or roamed within RADIO_CHANGE_WINDOW."""
+    changed_at = self.changed_at
+    now = time.monotonic() if now is None else now
+    return changed_at is not None and now - changed_at <= RADIO_CHANGE_WINDOW
+
+  def _read(self) -> str | None:
+    try:
+      return self.counter.read_text().strip()
+    except OSError:
+      return None
+
+  def _run(self) -> None:
+    last = self._read()
+    while not self._stop.wait(self.interval):
+      current = self._read()
+      if current is None or current == last:
+        continue
+      last = current
+      self.changed_at = time.monotonic()
+      self.log("other_wifi_changed", interface=self.interface)
 
 
 class EventLog:
@@ -352,7 +421,14 @@ class Supervisor:
     self._pairing_attempt: PairingAttempt | None = None
     self._pairing_seen: tuple = ()
     self._car_seen_at = -CAR_LINK_HOLD
+    self._paged_at = -COMMA_PAGE_WINDOW   # when this comma last asked BlueZ to connect to the car
+    self._attempt_ended_at: float | None = None
     self._hfp_link = threading.Event()  # set when the chosen car opens the hands-free link
+    self._modern_reply: dict[str, bool] = {}  # car address -> answer its v4+ version request like a current phone
+    self._ladder = setup_ladder.SetupLadder(identity_store.CONFIG_PATH.with_name("setup_state.json"))  # handshake to try per car
+    self._strategy: setup_ladder.Strategy | None = None   # the one this attempt runs
+    self._video_seen = False                    # video was acknowledged in this session: later failures say nothing about the handshake
+    self._run_started = 0.0
     self.auto = AutoConnectPolicy()
     self._companion_retry_at = 0.0
     self.log = EventLog()
@@ -395,6 +471,10 @@ class Supervisor:
     status["pairing_ready"] = self._pairing_active()
     status["auto_connect"] = bool(self.config["auto_connect"])
     status["dedicated_wifi_interface"] = bool(self.config["dedicated_wifi_interface"])
+    status["allow_hevc"] = bool(self.config["allow_hevc"])
+    status["car_candidates"] = list(getattr(self, "_candidates", []))[:8]  # paired Android Auto devices to choose between
+    status["new_setup"] = new_setup.enabled()
+    status["setup_ladder"] = self._ladder.snapshot(self.config["receiver_address"], self.car_type() == "adapter")
     status["auto_paused"] = self.auto.suppressed
     status["recent"] = list(self.log.recent)[-8:]
     return status
@@ -422,6 +502,13 @@ class Supervisor:
       self.config["dedicated_wifi_interface"] = bool(enabled)
       identity_store.save_config(self.config)
     self.log("dedicated_wifi_selected", enabled=bool(enabled))
+
+  def set_allow_hevc(self, enabled: bool) -> None:
+    """Let a car that offers only H.265 get H.265 video; used from the next session. Cars with an H.264 mode never change."""
+    with self._lock:
+      self.config["allow_hevc"] = bool(enabled)
+      identity_store.save_config(self.config)
+    self.log("allow_hevc_selected", enabled=bool(enabled))
 
   def _adapter_choice_needed(self) -> bool:
     return self.car_type() == "adapter" and not self.config.get("car_profile_override")
@@ -497,11 +584,14 @@ class Supervisor:
       self.stop()
     with self._lock:
       companion = self.config.get("companion_address", "").upper() == address
-      cache = dict(self.config["rfcomm_cache"])
+      cache, replies = dict(self.config["rfcomm_cache"]), dict(self.config.get("modern_reply_cache", {}))
       cached = cache.pop(address, None) is not None
-      if not (chosen or companion or cached):
+      cached = replies.pop(address, None) is not None or cached
+      learned = self._ladder.forget(address)
+      if not (chosen or companion or cached or learned):
         return False  # nothing of this device was kept
-      self.config["rfcomm_cache"] = cache
+      self.config.update(rfcomm_cache=cache, modern_reply_cache=replies)
+      self._modern_reply.pop(address, None)
       if chosen:
         if self._bluez is not None:
           self._bluez.release()
@@ -729,7 +819,61 @@ class Supervisor:
         self._end_pairing("expired")
         if not self._session_alive():
           self._release_phone()
+    self._adopt_only_car(now)
     self._auto_connect(now)
+
+  def _adopt_only_car(self, now: float) -> None:
+    """A car that is paired and offers Android Auto but was never chosen (the pairing window closed first, or it was
+    paired in Bluetooth settings) becomes the chosen car when it is the only one. Never during a pairing window or session,
+    and never a car the owner uses as the Bluetooth audio output: choosing it as the receiver would unselect that, and this
+    runs with nobody at the screen (the setup screen's Use button is where that choice is made)."""
+    config = self.config
+    if (config["receiver_address"] or config["connection"] != "wireless" or self.car_type() == "adapter"
+        or not self._projection_enabled() or self._pairing_active() or self._session_alive()
+        or now - getattr(self, "_adopt_at", -ADOPT_INTERVAL) < ADOPT_INTERVAL):
+      if config["receiver_address"]:
+        self._candidates = []
+      return
+    self._adopt_at = now
+    try:
+      car, candidates = choose_only_car(self.devices())
+    except Exception as error:
+      self._adopt_note("car_adopt_unavailable", kind=type(error).__name__, error=str(error)[:120])
+      return
+    self._candidates = [{"address": device["address"], "name": device.get("name") or device["address"]} for device in candidates]
+    if car is None:
+      if len(candidates) > 1:
+        self._adopt_note("car_adopt_ambiguous", count=len(candidates))
+      return
+    if self._is_audio_car(car["address"]):
+      self._adopt_note("car_adopt_skipped", reason="selected as the Bluetooth audio output")
+      return
+    try:
+      self.select_receiver(car["address"], car.get("name") or "")
+    except Exception as error:
+      self._adopt_note("car_adopt_failed", error=str(error))
+      return
+    finally:
+      if not self._session_alive():
+        self._release_phone()    # select_receiver took the projection role; nothing is connecting, so give it back
+    self._candidates = []
+    self._adopt_last = None
+    self.log("car_adopted", car=car.get("name") or "", reason="only paired Android Auto device")
+
+  def _adopt_note(self, name: str, **values) -> None:
+    """Housekeeping runs every 20 s: say what is wrong once, and again only when it changes."""
+    signature = (name, tuple(sorted(values.items())))
+    if signature != getattr(self, "_adopt_last", None):
+      self._adopt_last = signature
+      self.log(name, **values)
+
+  def _is_audio_car(self, address: str) -> bool:
+    if self._bt_client is None:
+      return False
+    try:
+      return self._bt_client.status().selected_audio.upper() == address.upper()
+    except Exception:
+      return True   # cannot tell, so leave the owner's audio setup alone
 
   def _auto_connect(self, now: float) -> None:
     config = self.config
@@ -776,7 +920,8 @@ class Supervisor:
         self._set(error=f'Waiting for selected car: {error}'[:300])
     car_link = bool(car_device and car_device["connected"]) or now - self._car_seen_at < CAR_LINK_HOLD
     onroad = self._onroad()
-    action = self.auto.decide(now, enabled=True, onroad=onroad, car_link=car_link,
+    linked = car_profiles.tuning(self.config)["stay_while_projecting"] and self._status.get("state") in ("streaming", "suspended")
+    action = self.auto.decide(now, enabled=True, onroad=onroad, car_link=car_link, linked=linked,
                               ready=adapter_ready and bool(device and device["paired"]) and (not companion or car_link), running=running)
     self._apply_auto_action(now, action, onroad)
 
@@ -910,6 +1055,8 @@ class Supervisor:
       return None
     if operation == 'forget' and self.config['receiver_address'].upper() == address.upper():
       return self._forget_selected_car(owner, address, session)
+    if operation == 'disconnect' and self.config['receiver_address'].upper() == address.upper():
+      return self._disconnect_selected_car(owner, address, session)
     # select_receiver takes the supervisor lock before releasing an owner lease.
     # Keep that same order through connection, save and admission pruning so an
     # old adapter's successful action cannot save its car under a new adapter.
@@ -942,6 +1089,26 @@ class Supervisor:
         identity_store.save_config(self.config)
       return result
 
+  def _disconnect_selected_car(self, owner, address: str, session: tuple):
+    """Disconnect the chosen car and keep auto-connect from reconnecting it until the next drive or a manual Start."""
+    from openpilot.starpilot.bluetooth.owner import BluetoothRejected
+    lease = owner.phone_lease
+    if not owner.session_valid(session):
+      raise BluetoothRejected('Galaxy session expired', code='session_expired')
+    if lease is not None and not lease.released and lease.session is not None:
+      raise BluetoothRejected('Finish Android Auto pairing first', code='busy')
+    self.auto.hold()
+    self.stop()
+    if self._session_alive():
+      raise BluetoothRejected('Android Auto is still stopping', code='busy')
+    lease = owner.phone_lease
+    if lease is None or lease.released:
+      return None
+    device = lease.phone.device(address)
+    if device is not None and device['connected']:
+      lease.phone._call(device['path'], 'org.bluez.Device1', 'Disconnect', timeout=12.0)
+    return owner.snapshot(session=session)
+
   def _forget_selected_car(self, owner, address: str, session: tuple):
     """Forget the chosen car even while auto-connect is retrying it: stop the attempt, then delete the pairing."""
     from openpilot.starpilot.bluetooth.owner import BluetoothRejected
@@ -954,13 +1121,31 @@ class Supervisor:
     self.stop()
     if self._session_alive():
       raise BluetoothRejected('Android Auto is still stopping', code='busy')
-    result = owner.request('forget', address=address)
+    try:
+      result = owner.request('forget', address=address)
+    except Exception as error:
+      self.log("forget_car_error", error=repr(error)[:300])
+      result = self._forgotten_snapshot(owner, address, session, error)
     self.forget_receiver(address)
     return result
 
+  def _forgotten_snapshot(self, owner, address: str, session: tuple, error: Exception):
+    """The pairing may already be gone when a later step fails: report success then, else re-raise."""
+    from openpilot.starpilot.bluetooth.owner import BluetoothRejected
+    try:
+      owner._client()._device_path(address)
+    except BluetoothRejected:
+      return owner.snapshot(session=session)
+    except Exception:
+      pass
+    raise error
+
   def _hfp_connected(self, address: str) -> None:
     if address.upper() in (self.config["receiver_address"].upper(), self.config.get("companion_address", "").upper()):
-      self._car_seen_at = time.monotonic()
+      now = time.monotonic()
+      since_page = now - self._paged_at
+      self.log("hfp_initiator", initiator="comma" if since_page < COMMA_PAGE_WINDOW else "car", since_page_s=round(since_page, 1))
+      self._car_seen_at = now
       self._hfp_link.set()
 
   def _release_phone(self) -> None:
@@ -985,6 +1170,21 @@ class Supervisor:
       bluez.acquire()
     else:
       bluez.restore_class()
+
+  def _remember_reply(self, address: str, modern: bool) -> None:
+    """Keep the version reply a v4+ head unit started with, so the next session leads with it."""
+    with self._lock:
+      self._modern_reply[address] = modern
+      replies = dict(self.config.get("modern_reply_cache", {}))
+      if modern == replies.get(address, False):
+        return
+      if modern:
+        replies[address] = True
+      else:
+        replies.pop(address, None)
+      self.config["modern_reply_cache"] = replies
+      identity_store.save_config(self.config)
+    self.log("bootstrap_reply_remembered", modern=modern)
 
   def _remember_channel(self, address: str, channel: int | None) -> None:
     with self._lock:
@@ -1114,18 +1314,27 @@ class Supervisor:
     connection = self.config["connection"]
     wireless = connection == "wireless"
     receiver = {"wired": "usb", "headunitpad": "headunitpad", "openheadunit": "openheadunit"}.get(connection, self.config["receiver_name"])
+    self._video_seen, self._strategy = False, None
+    if trigger == "onroad" and wireless:   # a new drive: the ladder's passes are per ignition, and the comma can stay on between drives
+      self._ladder.begin_cycle(self.config["receiver_address"])
     from openpilot.starpilot.system.starport.bugsink_transport import device_metadata
     software = device_metadata()
+    profile, profile_source = car_profiles.resolve(self.config)
     self.log("session_start", receiver=receiver, generation=generation, trigger=trigger,
              software={key: software.get(key, "unknown") for key in ("commit", "branch")},
-             settings={key: self.config.get(key) for key in REPORTED_SETTINGS})
+             settings={key: self.config.get(key) for key in REPORTED_SETTINGS},
+             # What the owner chose, so a report can tell a built-in unit from a dongle and say which profile applied.
+             setup={"type": {"wired": "usb", "headunitpad": "app", "openheadunit": "app"}.get(connection) or self.car_type(),
+                    "profile": profile, "profile_source": profile_source})
     lease = self._lease() if wireless else NoLease()
     attempt = 0
     car_first = trigger == "onroad" and wireless
     try:
       while not self._stop.is_set():
         started = time.monotonic()
+        self._run_started = started
         peer_stopped = False
+        reach = reachability.OTHER  # set by a failed attempt; a clean end or a car-ended session keeps the standard wait
         self.log("attempt_start")
         try:
           if car_first:
@@ -1145,12 +1354,16 @@ class Supervisor:
           stage = error.stage if isinstance(error, BootstrapError) else self._status["last_stage"]
           message = self._describe_error(stage, error)
           self._set(error=message)
-          self.log("attempt_failed", stage=stage, error=message, kind=type(error).__name__, where=_where(error))
+          reach = reachability.classify(stage, type(error).__name__, f"{message} {error}")
+          self.log("attempt_failed", stage=stage, error=message, kind=type(error).__name__, where=_where(error), reach=reach)
+          if isinstance(error, SharedRadioStall):
+            reconnect_notice.write(reconnect_notice.SHARED_RADIO_TEXT)
           if isinstance(error, StrayLinkError):
             self._clear_stray_link()
             car_first = True  # the car pages right back once its link drops; let it, rather than crossing it again
         finally:
           self._close_sockets()
+          self._attempt_ended_at = time.monotonic()
           try:
             lease.release(restore=False)
           except Exception as error:
@@ -1159,6 +1372,7 @@ class Supervisor:
           break
         attempt = 0 if time.monotonic() - started > STABLE_SESSION_SECONDS else attempt + 1
         delay = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
+        delay = reachability.retry_delay(reach, attempt, delay)
         if peer_stopped:
           delay = max(delay, PEER_STOP_RETRY_SECONDS)  # the car ended projection itself; do not bounce straight back
         self._set(state="backoff", attempt=attempt, retry_in=delay, mode=None)
@@ -1187,6 +1401,8 @@ class Supervisor:
   def _describe_error(stage: str, error: Exception) -> str:
     if isinstance(error, AuthenticationRejected):
       return "The car rejected the Android Auto identity; it may have expired"
+    if isinstance(error, SharedRadioStall):
+      return "The car's Wi-Fi stalled while the comma's own Wi-Fi was switching networks; reconnecting"
     text = str(error) or type(error).__name__
     if stage == "authenticating" and "certificate" in text.lower():
       text += " (set verify_head_unit false in config.json to test without verifying the car)"
@@ -1202,6 +1418,7 @@ class Supervisor:
     config = self.config
     address = config["receiver_address"]
     ident = identity_store.load_identity()
+    self._strategy = None
 
     self._stage("connecting_bluetooth", config["receiver_name"])
     bluez = self._phone()
@@ -1221,10 +1438,10 @@ class Supervisor:
     if delay := car_profiles.tuning(config)["connect_delay_s"]:
       self.log("car_profile_connect_delay", seconds=delay)
       self._wait(delay)
+    self._paged_at = time.monotonic()
     bluez.connect_device(address)
     self._wait(1.0)
 
-    from openpilot.starpilot.system.starport import bt_sockets
     channel = int(config.get("rfcomm_channel") or 0)
     source = "config"
     if not channel:
@@ -1234,17 +1451,39 @@ class Supervisor:
       channel, source = self._discover_channel(address), "sdp"
     self.log("rfcomm_channel", channel=channel, source=source)
 
+    boot = None
+    adapter = self.car_type() == "adapter"
+    # The ladder decides how to answer this car: what worked before, else the first rung (today's behavior), moving on
+    # only when a car that answered the handshake keeps refusing it before any video.
+    base_modern = self._modern_reply.get(address, config.get("modern_reply_cache", {}).get(address, False))
+    strategy = self._strategy = self._ladder.strategy(address, base_modern)
+    learned = self._ladder.snapshot(address, adapter)["learned"]
+    self.log("ladder_strategy", rung=strategy.rung, label=strategy.label, learned=learned, modern_reply=strategy.modern_reply,
+             channel_type=strategy.channel_type, patience=strategy.patience, experiments=strategy.experiments)
     try:
       self._stage("rfcomm", f"channel {channel}")
-      rfcomm = self._track(bt_sockets.connect_rfcomm(address, channel))
+      rfcomm = self._connect_rfcomm(address, channel)
       boot = WirelessBootstrap(rfcomm, self._bootstrap_log, device_serial=config["device_name"],
-                               version_status=int(config.get("version_status", 0)))
+                               version_status=int(config.get("version_status", 0)),
+                               experiment="all" if car_profiles.tuning(config)["bootstrap_experiments"] or strategy.experiments else "",
+                               modern_reply=strategy.modern_reply, channel_override=strategy.channel_type,
+                               # a car that once took 70 s to be ready gets more than the standard wait for the Wi-Fi handshake
+                               patience=max(strategy.patience, self._ladder.ready_patience(address, 20.0)))
       self._set(state="wifi_start")
       result = boot.run(lambda credentials: lease.acquire(credentials, cancelled=boot.join_is_cancelled), cancelled=self._stop.is_set)
     except Exception as error:
       if _stray_link(error):
         raise StrayLinkError(f"Bluetooth link to the car is stuck: {error}") from error  # says nothing about the cached channel
-      if source == "cache" and not self._stop.is_set() and self._status["last_stage"] in ("rfcomm", "wifi_start") and car_never_answered(error):
+      # A car that answered the version exchange and then went silent or refused the Wi-Fi setup says something about the
+      # handshake; every other failure (asleep, local Bluetooth trouble, after video) says nothing and leaves the ladder alone.
+      ladder_failure = (boot is not None and boot.version_major > 0 and isinstance(error, BootstrapTimeout)
+                        and error.stage in ("wifi_start", "wifi_info") and not self._stop.is_set())
+      outcome = self._ladder.failed(address, strategy, ladder_failure=ladder_failure, video_seen=self._video_seen,
+                                    version_major=boot.version_major if boot is not None else 0, adapter=adapter)
+      if outcome:
+        self.log("ladder_failed", outcome=outcome, rung=strategy.rung, next=self._ladder.strategy(address, base_modern).rung,
+                 version_major=boot.version_major)
+      if source == "cache" and not self._stop.is_set() and drops_cached_channel(self._status["last_stage"], error):
         self._remember_channel(address, None)  # the car never answered there; ask it over SDP next time
         self.log("rfcomm_cache_dropped", channel=channel)
       raise
@@ -1259,6 +1498,35 @@ class Supervisor:
       self._project(result, lease, ident)
     finally:
       keepalive_stop.set()
+      if boot.version_major >= MODERN_MAJOR and self._ladder.snapshot(address, adapter)["learned"]:
+        self._remember_reply(address, boot.modern_reply)
+
+  def _connect_rfcomm(self, address: str, channel: int):
+    from openpilot.starpilot.system.starport import bt_sockets
+    ended = self._attempt_ended_at
+    since_end = round(time.monotonic() - ended, 1) if ended is not None else None
+    waited = 0.0
+    for tries, delay in enumerate(RFCOMM_BUSY_WAITS, 1):
+      try:
+        sock = self._track(bt_sockets.connect_rfcomm(address, channel))
+      except OSError as error:
+        if error.errno != errno.EBUSY:
+          raise
+        self.log("rfcomm_busy_retry", channel=channel, wait_s=delay, since_last_attempt_s=since_end)
+        self._wait(delay)
+        waited += delay
+        continue
+      if tries > 1:
+        self.log("rfcomm_busy_cleared", channel=channel, tries=tries, waited_s=waited, since_last_attempt_s=since_end)
+      return sock
+    try:
+      sock = self._track(bt_sockets.connect_rfcomm(address, channel))
+    except OSError as error:
+      if error.errno == errno.EBUSY:
+        self.log("rfcomm_busy_gave_up", channel=channel, waited_s=waited, since_last_attempt_s=since_end)
+      raise
+    self.log("rfcomm_busy_cleared", channel=channel, tries=len(RFCOMM_BUSY_WAITS) + 1, waited_s=waited, since_last_attempt_s=since_end)
+    return sock
 
   def _discover_channel(self, address: str) -> int:
     from openpilot.starpilot.system.starport import bt_sockets, sdp
@@ -1273,7 +1541,7 @@ class Supervisor:
         if _stray_link(error):
           raise StrayLinkError(f"Bluetooth link to the car is stuck: {error}") from error  # retrying cannot clear it
         last_error = error
-        self.log("sdp_retry", error=str(error), settle=settle)
+        self.log("sdp_retry", error=str(error), settle=settle, **({"record_hex": error.raw.hex()[:400]} if getattr(error, "raw", b"") else {}))
         self._wait(0.35)
     raise RuntimeError(f"Could not find the car's Android Auto service: {last_error}")
 
@@ -1463,7 +1731,9 @@ class Supervisor:
     """This comma's Bluetooth address for the head unit's pairing request; empty when BlueZ is not up."""
     try:
       return str(self._bluez.adapter()[1].get("Address", "")).upper() if self._bluez is not None else ""
-    except Exception:  # DBus errors vary; the pairing request is optional
+    except Exception as error:  # DBus errors vary; the pairing request is optional
+      # Never silent: a missing adapter() once left every wireless session without the request (no address, no picture).
+      self.log("adapter_address_unavailable", kind=type(error).__name__, error=str(error)[:120])
       return ""
 
   def _project(self, result, lease, ident, connect=None, fragment_acks: bool = False) -> None:
@@ -1475,6 +1745,7 @@ class Supervisor:
     tuning = car_profiles.tuning(config)
     session.max_window = tuning["max_window"]
     session.phone_frames = tuning["phone_frames"]
+    session.allow_hevc = bool(config["allow_hevc"])
     if tuning["phone_services"]:
       session.phone_services = True
       session.phone_address = self._adapter_address()
@@ -1490,16 +1761,20 @@ class Supervisor:
     except (OSError, ValueError, TypeError, KeyError) as error:
       self.log("screen_profile_error", error=str(error))
 
-    from openpilot.starpilot.system.starport.hw_encoder import create_encoder
+    from openpilot.starpilot.system.starport.hw_encoder import create_encoder, create_hevc_encoder
     # ANDROID AUTO VIDEO PERFORMANCE GUARDRAIL: Encoder cadence and pipeline flags are tuned together for Android Auto video.
     # Altering this can degrade video smoothness or introduce lag on Android Auto.
     # Do not change it autonomously; require an explicit user request specifically for this video optimization.
     software_fps = min(SOFTWARE_FPS, config["fps"]) if config["fps"] else SOFTWARE_FPS
-    encoder, fps = create_encoder(mode.width, mode.height, preference=encoder_preference(config["encoder"]),
-                                  bitrate_kbps=config["bitrate_kbps"],
-                                  margin_height=mode.margin_height if mode.content_top in (None, mode.margin_height // 2) else 0,
-                                  software_fps=software_fps, log=self.log,
-                                  rate_control=config["rate_control"])
+    margin_height = mode.margin_height if mode.content_top in (None, mode.margin_height // 2) else 0
+    if mode.codec == CODEC_H265:  # only a car with no H.264 mode, and only with Allow H.265 video on
+      encoder, fps = create_hevc_encoder(mode.width, mode.height, bitrate_kbps=config["bitrate_kbps"], margin_height=margin_height,
+                                         log=self.log, rate_control=config["rate_control"])
+    else:
+      encoder, fps = create_encoder(mode.width, mode.height, preference=encoder_preference(config["encoder"]),
+                                    bitrate_kbps=config["bitrate_kbps"], margin_height=margin_height,
+                                    software_fps=software_fps, log=self.log,
+                                    rate_control=config["rate_control"])
     fps = min(fps, mode.fps, config["fps"] or fps)
     interval = 1.0 / fps
     flags = (FLAG_NV12 if config["gpu_nv12"] and getattr(encoder, "supports_nv12", False) else 0) | \
@@ -1517,6 +1792,10 @@ class Supervisor:
                         renderer_log=identity_store.LOG_DIR / "car_ui.log")
     self._set(view=source.label, encoder=getattr(encoder, "backend", "libx264"), target_fps=fps)
     watch = LinkWatch(lease, self.log).start()
+    radio = None
+    if getattr(lease, "dedicated", False) and getattr(lease, "interface", "wlan0") != "wlan0":
+      radio = SharedRadioWatch(self.log).start()
+      session.radio_change = radio.recent
     try:
       from openpilot.starpilot.system.starport.media_audio import MediaAudio, music_control
       from openpilot.starpilot.system.starport.media_status import MediaStatus
@@ -1534,11 +1813,14 @@ class Supervisor:
     try:
       self._stream(session, encoder, source, watch, interval)
     finally:
+      self._note_streamed(session)
       if session.audio is not None:
         session.audio.close()
       if getattr(session, "nav", None) is not None:
         session.nav.close()
       watch.stop()
+      if radio is not None:
+        radio.stop()
       source.close()
       encoder.close()
       if self._stop.is_set():
@@ -1546,6 +1828,20 @@ class Supervisor:
           session.shutdown()
         except Exception:
           pass
+
+  def _note_streamed(self, session: ProjectionSession) -> None:
+    """Video was acknowledged: later failures in this session say nothing about the handshake. A session that streamed for
+    a minute without a handshake failure makes the strategy it ran with the one this car starts with next time."""
+    if not session.video_confirmed:
+      return
+    self._video_seen = True
+    strategy, address = self._strategy, self.config["receiver_address"]
+    streamed = time.monotonic() - session.video_confirmed_at
+    if strategy is None or not address or streamed < setup_ladder.CLEAN_SECONDS:
+      return
+    self._ladder.worked(address, strategy, t_ready_s=session.video_confirmed_at - self._run_started)
+    self.log("ladder_worked", rung=strategy.rung, streamed_s=round(streamed, 1),
+             t_ready_s=round(session.video_confirmed_at - self._run_started, 1))
 
   # ANDROID AUTO VIDEO PERFORMANCE GUARDRAIL: The bounded ACK/input drain and conditional waits keep video and touches responsive.
   # Altering this can degrade video smoothness or introduce lag on Android Auto.

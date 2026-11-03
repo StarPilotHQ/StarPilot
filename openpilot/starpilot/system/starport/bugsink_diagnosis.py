@@ -86,7 +86,7 @@ def attempt_records(events):
     if name == "attempt_failed":
       current.update(failed_stage=str(event.get("stage", "")), error_kind=str(event.get("kind", "")),
                      error=sanitize(str(event.get("error", ""))), failed_at_s=elapsed(start, event),
-                     where=sanitize(event.get("where", [])[-4:]))
+                     where=sanitize(event.get("where", [])[-4:]), reach=str(event.get("reach", "")))
     if name == "session_ended":
       current["ended_by_car"] = str(event.get("reason", "")).startswith("Head unit ended projection")
       shutdown = shutdown or current["ended_by_car"]
@@ -95,6 +95,27 @@ def attempt_records(events):
         current["streamed_s"] = elapsed(first_frame, event)
       current = first_frame = None
   return attempts
+
+
+STREAM_LOSS = {
+  "shared_radio": ("comma's own Wi-Fi", "The car stopped acknowledging video while the comma's own Wi-Fi joined or roamed; both share one radio.",
+                   ["Check the other_wifi_changed and ack_grace events for when it changed and how long acks stopped.",
+                    "Repeated drops at home or on a hotspot mean the 8 s grace is too short or the car takes its screen back first."]),
+  "stalled": ("Video acknowledgement older than", "The car kept the link but stopped acknowledging video for too long, so the stream was ended.",
+              ["Compare the Wi-Fi signal, frame age and encoder recoveries around the stall.",
+               "If it repeats at the same place or speed, look for the comma stalling (CPU, thermal) rather than the car."]),
+  "silent": ("Head unit stopped answering", "The head unit stopped answering protocol messages while the link looked up.",
+             ["Check whether the car's screen turned off or switched source at that time.",
+              "Compare with other drives on the same head unit before changing timings."]),
+  "disconnected": ("Head unit disconnected", "The head unit closed the connection, which is what a car shutdown or a source change looks like.",
+                   ["Check whether the drive ended or the driver changed source on the head unit.",
+                    "Only investigate further if it happened while the car stayed on and Android Auto was showing."]),
+}
+
+
+def stream_loss_kind(error: str) -> str:
+  """Why a stream ended, from the logged error text: stalled, silent, disconnected or other."""
+  return next((kind for kind, (marker, _, _) in STREAM_LOSS.items() if marker.lower() in error.lower()), "other")
 
 
 def diagnosis(session):
@@ -125,16 +146,39 @@ def diagnosis(session):
     explanation = "Authentication did not complete. A timeout alone does not prove a bad certificate."
     actions = ["Check whether TLS completed and whether the head unit replied to authentication.",
                "Retry with the head unit fully awake; compare with any successful attempt in this session."]
-  elif stage in ("connecting_bluetooth", "rfcomm", "bootstrap"):
+  elif stage in ("wifi_start", "wifi_info"):
+    category, confidence = "head_unit_bootstrap_stalled", "observed"
+    explanation = "Bluetooth connected and the version exchange ran, but the head unit stopped answering the Wi-Fi setup."
+    actions = ["Read the attached handshake trace for the last messages the head unit sent and the ones it ignored.",
+               "Compare the head unit make, model and protocol version with other reports before changing timings."]
+  elif stage in ("connecting_bluetooth", "discovering", "rfcomm", "bootstrap"):
     category, confidence = "head_unit_unavailable", "suspected"
     explanation = "The Bluetooth/bootstrap exchange did not complete; the head unit may still be waking or already off."
     actions = ["Confirm the selected car is awake and inspect Bluetooth/bootstrap responses in the bundle.",
                "Retry while parked before considering re-pairing; preserve existing bonds for diagnosis."]
+    reach = session.get("reach", "")
+    if reach == "asleep":
+      category = "car_asleep"
+      explanation = "The car did not answer the Bluetooth page at all. Its radio is off or still waking, so waiting is the fix."
+      actions = ["Wait for the car to finish waking and let the retry run; the saved pairing and RFCOMM channel were kept.",
+                 "Only re-pair if the car is awake with its Bluetooth screen open and pages still go unanswered."]
+    elif reach == "not_ready":
+      category = "car_not_ready"
+      explanation = "The car answered Bluetooth but its Android Auto service refused or dropped the connection; it is not ready yet."
+      actions = ["Let the retry run; the car usually accepts a few seconds later.",
+                 "If it repeats on every drive, compare the head unit make and model with other reports."]
+    elif reach == "local":
+      category = "bluetooth_stack_busy"
+      explanation = "This comma's own Bluetooth stack was busy or refused, which says nothing about the car."
+      actions = ["Check for another process or a second pairing attempt holding the controller.",
+                 "Retry once the controller is idle; preserve existing bonds."]
   elif stage == "streaming":
     category, confidence = "projection_interrupted", "observed"
     explanation = "Projection was interrupted. EOF or a timeout alone cannot distinguish a car shutdown from link loss."
     actions = ["Compare video acknowledgments, Wi-Fi signal, stalls, encoder recoveries and head-unit shutdown events.",
                "Retry while parked and verify sustained acknowledged frames, not just a streaming status."]
+    if (loss := stream_loss_kind(session.get("error", ""))) != "other":
+      explanation, actions = STREAM_LOSS[loss][1], STREAM_LOSS[loss][2]
   return {"category": category, "confidence": confidence, "summary": explanation,
           "evidence": session.get("error", ""), "recovered": session.get("outcome") == "recovered",
           "next_steps": actions, "log_file": session.get("name", ""),

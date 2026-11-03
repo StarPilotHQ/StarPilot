@@ -179,3 +179,108 @@ def test_disconnect_stray_link_without_a_handle_only_logs(monkeypatch):
   phone, commands, events = _phone_with(monkeypatch, {"journalctl": ("", 0)})
   assert phone.disconnect_stray_link() is None
   assert len(commands) == 1 and events == ["stray_link_not_found"]
+
+
+def _rfcomm_attempts(sup, monkeypatch, outcomes):
+  from openpilot.starpilot.system.starport import bt_sockets
+  calls = []
+
+  def connect(*args, **kwargs):
+    calls.append(args)
+    outcome = outcomes[min(len(calls), len(outcomes)) - 1]
+    if isinstance(outcome, int):
+      raise OSError(outcome, "boom")
+    return outcome
+
+  monkeypatch.setattr(bt_sockets, "connect_rfcomm", connect)
+  return calls
+
+
+def test_busy_rfcomm_channel_is_retried_in_the_same_attempt(identity, tmp_path, monkeypatch):
+  sup, _ = make_supervisor(identity, tmp_path, monkeypatch, lambda *a, **k: socket.socketpair()[0])
+  _virtual_time(sup, monkeypatch)
+  good = socket.socketpair()[0]
+  calls = _rfcomm_attempts(sup, monkeypatch, [errno.EBUSY, good])
+  assert sup._connect_rfcomm(CAR, 6) is good
+  assert len(calls) == 2 and len(_events(sup, "rfcomm_busy_retry")) == 1
+
+
+def test_busy_rfcomm_channel_gives_up_after_the_waits(identity, tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import supervisor
+  sup, _ = make_supervisor(identity, tmp_path, monkeypatch, lambda *a, **k: socket.socketpair()[0])
+  _virtual_time(sup, monkeypatch)
+  calls = _rfcomm_attempts(sup, monkeypatch, [errno.EBUSY])
+  with pytest.raises(OSError) as raised:
+    sup._connect_rfcomm(CAR, 6)
+  assert raised.value.errno == errno.EBUSY and len(calls) == len(supervisor.RFCOMM_BUSY_WAITS) + 1
+
+
+def test_other_rfcomm_errors_are_not_retried(identity, tmp_path, monkeypatch):
+  sup, _ = make_supervisor(identity, tmp_path, monkeypatch, lambda *a, **k: socket.socketpair()[0])
+  _virtual_time(sup, monkeypatch)
+  calls = _rfcomm_attempts(sup, monkeypatch, [errno.ECONNRESET])
+  with pytest.raises(OSError):
+    sup._connect_rfcomm(CAR, 6)
+  assert len(calls) == 1 and not _events(sup, "rfcomm_busy_retry")
+
+
+def test_a_retried_busy_channel_logs_how_it_ended(identity, tmp_path, monkeypatch):
+  sup, _ = make_supervisor(identity, tmp_path, monkeypatch, lambda *a, **k: socket.socketpair()[0])
+  now = _virtual_time(sup, monkeypatch)
+  sup._attempt_ended_at = now[0] - 4.0
+  _rfcomm_attempts(sup, monkeypatch, [errno.EBUSY, errno.EBUSY, socket.socketpair()[0]])
+  sup._connect_rfcomm(CAR, 6)
+  assert _events(sup, "rfcomm_busy_cleared")[0]["tries"] == 3
+  assert _events(sup, "rfcomm_busy_retry")[0]["since_last_attempt_s"] == 4.0
+
+
+def test_a_channel_that_stays_busy_logs_that_it_gave_up(identity, tmp_path, monkeypatch):
+  sup, _ = make_supervisor(identity, tmp_path, monkeypatch, lambda *a, **k: socket.socketpair()[0])
+  _virtual_time(sup, monkeypatch)
+  _rfcomm_attempts(sup, monkeypatch, [errno.EBUSY])
+  with pytest.raises(OSError):
+    sup._connect_rfcomm(CAR, 6)
+  assert _events(sup, "rfcomm_busy_gave_up")[0]["waited_s"] == 3.0
+
+
+def test_hands_free_logs_who_started_the_link(identity, tmp_path, monkeypatch):
+  sup, _ = make_supervisor(identity, tmp_path, monkeypatch, lambda *a, **k: socket.socketpair()[0])
+  now = _virtual_time(sup, monkeypatch)
+  sup._paged_at = now[0] - 1.0
+  sup._hfp_connected(CAR)
+  sup._paged_at = now[0] - 60.0
+  sup._hfp_connected(CAR)
+  assert [e["initiator"] for e in _events(sup, "hfp_initiator")] == ["comma", "car"]
+
+
+def test_unusable_sdp_record_is_logged_with_what_the_car_sent(identity, tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import bt_sockets, sdp
+  sup, _ = make_supervisor(identity, tmp_path, monkeypatch, lambda *a, **k: socket.socketpair()[0])
+  _virtual_time(sup, monkeypatch)
+  monkeypatch.setattr(bt_sockets, "connect_l2cap", lambda *a, **k: socket.socketpair()[0])
+
+  def query(_):
+    raise sdp.SdpError("Android Auto Wireless SDP record has no RFCOMM channel", b"\x35\x03\x19\x11\x1f")
+
+  monkeypatch.setattr(sdp, "query_channel", query)
+  with pytest.raises(RuntimeError):
+    sup._discover_channel(CAR)
+  assert _events(sup, "sdp_retry")[0]["record_hex"] == "350319111f"
+
+
+def test_readiness_time_starts_over_after_a_failed_attempt(identity, tmp_path, monkeypatch):
+  sup, _ = make_supervisor(identity, tmp_path, monkeypatch, lambda *a, **k: None)
+  now = _virtual_time(sup, monkeypatch)
+  elapsed = []
+
+  def attempt(lease):
+    elapsed.append(now[0] - sup._run_started)
+    now[0] += 90.0
+    if len(elapsed) == 1:
+      raise RuntimeError("Car not ready")
+    sup._stop.set()
+
+  monkeypatch.setattr(sup, "_attempt", attempt)
+  monkeypatch.setattr(sup, "_wait_backoff", lambda delay, **kwargs: sup._wait(delay))
+  sup._run(1, trigger="manual")
+  assert elapsed == [0.0, 0.0]

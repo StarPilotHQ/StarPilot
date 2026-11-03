@@ -1060,6 +1060,9 @@ button.gx-chip:hover {
 .gx-starport-log__download { flex: none; width: var(--touch-target); height: var(--touch-target); border: 1px solid var(--glass-border); background: var(--primary-container); color: var(--on-primary-container); }
 .gx-starport-log__download:hover { background: var(--primary); color: var(--on-primary); }
 .gx-starport-logs__section-title { margin: var(--sp-6) 0 var(--sp-3); }
+.gx-starport-send__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
+.gx-starport-send__row .gx-field { flex: 1 1 220px; min-width: 0; }
+.gx-starport-send__count { font-size: var(--fs-xs); opacity: .7; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 700px) {
   .gx-starport-log { gap: var(--sp-3); padding: var(--sp-3); }
@@ -1708,6 +1711,9 @@ input[type="checkbox"]:disabled { opacity: .4; cursor: not-allowed; }
 .gx-inset { margin: var(--sp-4); max-width: calc(100% - 2 * var(--sp-4)); }
 .gx-text-danger { color: var(--error); }
 .gx-row.gx-row--borderless { border-top: 0; }
+/* A section title inside a settings page: a label only, never dimmed like an unavailable control. */
+.gx-row.gx-row--heading, .gx-row.gx-row--heading.disabled { opacity: 1; padding-top: var(--sp-5); }
+.gx-row--heading .gx-row__label { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; opacity: .75; }
 .gx-row--wrap { flex-wrap: wrap; }
 .gx-row__info.gx-row__info--wide { flex: 1 1 180px; }
 .gx-filter-field { flex: 1 1 14rem; min-width: 0; }
@@ -1995,3 +2001,52 @@ progress { max-width: 100%; accent-color: var(--primary); }
 }
 
 .gx-tuner__manual .gx-row { padding-inline: 0; }
+
+/* Guided setup layout and emphasis; shared rows, buttons, fields and notices keep Galaxy defaults. */
+.gx-card.gx-guided { display: grid; gap: var(--sp-5); padding: var(--panel-padding); background-image: radial-gradient(120% 38% at 50% 0, var(--primary-container), transparent 72%); }
+.gx-guided__steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); }
+.gx-guided__step { position: relative; display: grid; justify-items: center; gap: var(--sp-2); text-align: center; }
+.gx-guided__step::before, .gx-guided__step::after { content: ""; position: absolute; top: 15px; height: 2px; width: calc(50% - 8px); background: var(--outline); }
+.gx-guided__step::before { left: 0; }
+.gx-guided__step::after { right: 0; }
+.gx-guided__step:first-child::before, .gx-guided__step:last-child::after { display: none; }
+.gx-guided__step.is-done::before, .gx-guided__step.is-done::after, .gx-guided__step.is-current::before,
+.gx-guided__step.is-done + .gx-guided__step::before { background: var(--success); }
+.gx-guided__node { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-full); background: var(--surface-container-high); color: var(--on-surface-variant); font-weight: var(--fw-bold); }
+.gx-guided__step.is-current .gx-guided__node { background: var(--primary); color: var(--on-primary); box-shadow: 0 0 0 var(--sp-1) var(--primary-container), 0 var(--sp-1) var(--sp-4) var(--primary-glow); }
+.gx-guided__step.is-done .gx-guided__node { background: var(--success); color: var(--background); }
+.gx-guided__step-label, .gx-guided__hint { font-size: var(--fs-sm); color: var(--on-surface-variant); }
+.gx-guided__header, .gx-guided__section, .gx-guided__body { display: grid; gap: var(--sp-3); min-width: 0; }
+.gx-guided__header > *, .gx-guided__subhead, .gx-guided__hint { margin: 0; }
+.gx-guided__header { max-width: 34rem; gap: var(--sp-2); }
+.gx-guided__title { font-size: clamp(1.625rem, 2.5vw, 1.875rem); line-height: 1.15; letter-spacing: -.02em; text-wrap: balance; }
+.gx-guided__lede { color: var(--on-surface-variant); font-size: var(--fs-base); line-height: 1.5; }
+.gx-guided__subhead { font-size: var(--fs-base); color: var(--on-surface-variant); }
+.gx-guided__body:empty { display: none; }
+.gx-guided__option { display: flex; align-items: center; gap: var(--sp-3); min-height: var(--touch-target); padding: var(--sp-3) var(--sp-4); cursor: pointer; }
+.gx-guided__option:hover:not(:has(:disabled)) { background: var(--glass-bg-hover); }
+.gx-guided__option:has(:checked) { background: var(--primary-container); color: var(--on-primary-container); }
+.gx-guided__option:has(:disabled), .gx-guided__choice:has(:disabled) { opacity: .6; cursor: default; }
+.gx-guided__option:focus-within, .gx-guided__choice:focus-within { outline: 2px solid var(--primary); outline-offset: -2px; }
+.gx-guided__options { background: var(--surface-container); }
+.gx-guided__options > li + li { border-top: 1px solid var(--outline); }
+.gx-guided__option input { flex: none; order: 1; width: var(--sp-5); height: var(--sp-5); margin: 0; accent-color: var(--primary); }
+.gx-guided__option:has(:checked) .gx-guided__tile { background: var(--primary); color: var(--on-primary); }
+.gx-guided__segmented { display: flex; flex-wrap: wrap; gap: var(--sp-1); padding: var(--sp-1); border-radius: var(--radius-sm); background: var(--surface-container-high); }
+.gx-guided__choice { flex: 1 1 7rem; min-width: 0; min-height: var(--touch-target); padding: var(--sp-2); border-radius: calc(var(--radius-sm) - var(--sp-1)); text-align: center; text-wrap: balance; box-shadow: none; background: transparent; color: var(--on-surface-variant); }
+.gx-guided__choice:has(:checked) { background: var(--primary); color: var(--on-primary); }
+.gx-guided__choice:has(:checked):hover { background: var(--primary-hover); }
+.gx-guided__tile { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--radius-sm); background: var(--primary-container); color: var(--primary); font-size: var(--fs-lg); }
+.gx-guided__mark { flex: none; display: grid; place-items: center; width: 28px; font-size: var(--fs-lg); color: var(--on-surface-variant); }
+.gx-guided__checklist > li.is-done .gx-guided__mark, .gx-guided__checklist > li.is-worked .gx-guided__mark { color: var(--success); }
+.gx-guided__checklist > li.is-active .gx-guided__mark, .gx-guided__checklist > li.is-current .gx-guided__mark, .gx-guided__checklist > li.is-retry .gx-guided__mark { color: var(--primary); }
+.gx-guided__checklist > li.is-failed .gx-guided__mark { color: var(--error); }
+.gx-guided__callout { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin: 0; padding: var(--sp-4); border-radius: var(--radius-sm); background: var(--primary-container); }
+.gx-guided__callout--quiet { background: var(--surface-container); color: var(--on-surface-variant); }
+.gx-guided__footer { display: grid; gap: var(--sp-3); }
+.gx-guided .gx-starport-cta { min-height: calc(var(--touch-target) + var(--sp-2)); border-radius: var(--radius-md); font-size: var(--fs-base); }
+.gx-guided__footer .gx-guided__hint { text-align: center; }
+.gx-guided__link { justify-self: center; padding: var(--sp-2) var(--sp-3); border: 0; border-radius: var(--radius-sm); background: none; color: var(--primary); font: inherit; cursor: pointer; }
+.gx-guided__link:hover:not(:disabled) { text-decoration: underline; }
+.gx-guided__link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.gx-guided__link:disabled { opacity: .5; cursor: default; }

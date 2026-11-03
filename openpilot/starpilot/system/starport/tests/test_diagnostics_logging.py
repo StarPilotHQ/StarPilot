@@ -231,6 +231,23 @@ def test_bundle_has_logs_reports_and_settings_without_addresses(tmp_path):
     assert "AA:BB:CC:DD:EE:FF" not in shared and json.loads(shared)["rfcomm_cache"] == [5]
     assert "projected, then failed" in archive.read("REPORT.txt").decode()
     assert not any(name.endswith((".pem", ".key")) for name in names)
+    # The bundle (and so the Discord send) carries what a Bugsink report carries: tags, and per-session detail.
+    report = json.loads(archive.read("report.json"))
+    assert report["tags"]["aa.report"] == "drive" and "aa.head_unit" in report["tags"]
+    assert report["sessions"][0]["offered_modes"] is not None and "setup" in report["sessions"][0]
+    assert "AA:BB:CC:DD:EE:FF" not in archive.read("report.json").decode()
+
+
+def test_bundle_still_builds_when_the_report_cannot(tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import bugsink_report
+  logs = tmp_path / "logs"
+  logs.mkdir()
+  write_log(logs, "session-000025-20260928-141351.jsonl", CIVIC_SESSION)
+  monkeypatch.setattr(bugsink_report, "session_record", lambda path: (_ for _ in ()).throw(RuntimeError("broken")))
+  config = tmp_path / "config.json"
+  config.write_text("{}")
+  with zipfile.ZipFile(io.BytesIO(compat_report.bundle(logs, config))) as archive:
+    assert "REPORT.txt" in archive.namelist() and "report.json" not in archive.namelist()
 
 
 def test_report_tool_prints_a_log(tmp_path, monkeypatch, capsys):

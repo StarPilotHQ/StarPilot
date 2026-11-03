@@ -441,3 +441,89 @@ def test_pairing_that_failed_carries_a_device_slice_but_success_does_not(tmp_pat
   assert event["contexts"]["starport_pairing_system"]["bluetooth"]["lines"] == ["bt '<name>' up"]
   assert calls[0][1] - calls[0][0] == 30
   assert "starport_pairing_system" not in br.pairing_event({**record, "result": "paired"}, collector)["contexts"]
+
+
+OFFER = {"channels": [{"id": 3, "video_configs": [
+  {"1": [2], "10": [3], "3": [0], "4": [240]},
+  {"1": [8], "10": [7], "3": [288], "4": [1378]},
+  {"1": [7], "10": [7], "3": [0], "4": [811]}]}], "head_unit": {"2": ["Honda"]}}
+
+
+def adapter_session():
+  events: list = [list(item) for item in STREAMED]
+  events[0] = (0, 0, "session_start", {"receiver": "AAWireless", "trigger": "auto",
+                                       "setup": {"type": "adapter", "profile": "aawireless", "profile_source": "override"}})
+  events[5] = (0, 10, "discovered", {**OFFER, "head_unit": STREAMED[5][3]["head_unit"]})
+  events.insert(6, (0, 10, "bootstrap_start_response", {}))
+  events.insert(7, (0, 10, "bootstrap_version_reply", {"style": "modern", "channel_type": 1}))
+  events.insert(8, (0, 10, "bluetooth_opened", {"channel": 6, "phone_address": "39:90:21:64:07:00"}))
+  events.insert(9, (0, 11, "video_setup", {"mode": {"config_index": 0}, "window": 30, "used_window": 30}))
+  return events
+
+
+def test_report_keeps_setup_offered_modes_and_the_working_strategy(tmp_path):
+  record = br.session_record(write_session(tmp_path, 1, adapter_session()))
+  assert record["setup"] == {"type": "adapter", "profile": "aawireless", "profile_source": "override"}
+  assert record["offered_modes"] == ["1280x720 H.264 margins 0x240", "1440x2560 H.265 margins 288x1378", "1080x1920 H.265 margins 0x811"]
+  assert record["phone_address_sent"] is True
+  assert record["strategy"] == {"profile": "aawireless", "window_offered": 30, "window_used": 30,
+                                "reply_style": "modern", "channel_type": 1, "config_index": 0}
+  event = br.drive_event([record])
+  tags = event["tags"]
+  assert (tags["aa.setup_type"], tags["aa.adapter_model"], tags["aa.profile_source"], tags["aa.phone_address_sent"]) == (
+    "adapter", "aawireless", "override", "yes")
+  assert (tags["aa.reply_style"], tags["aa.wifi_channel_type"]) == ("modern", "1")
+  context = event["contexts"]["starport_session_1"]
+  assert context["offered_modes"] == record["offered_modes"] and context["strategy"]["reply_style"] == "modern"
+  assert "39:90:21:64:07:00" not in json.dumps(event)  # the comma's own address is sanitized from every field
+
+
+def test_report_records_that_the_address_was_not_sent_and_old_logs_still_report(tmp_path):
+  events: list = [list(item) for item in STREAMED]
+  events.insert(6, (0, 10, "bluetooth_opened", {"channel": 6, "phone_address": ""}))
+  assert br.drive_event([br.session_record(write_session(tmp_path, 1, events))])["tags"]["aa.phone_address_sent"] == "no"
+  old = br.session_record(write_session(tmp_path, 2, STREAMED))  # a log written before these fields existed
+  assert old["setup"] == {} and old["offered_modes"] == [] and old["phone_address_sent"] is None and old["strategy"] == {}
+  tags = br.drive_event([old])["tags"]
+  assert not any(key in tags for key in ("aa.setup_type", "aa.adapter_model", "aa.profile_source", "aa.phone_address_sent"))
+
+
+def test_unknown_setup_values_are_dropped(tmp_path):
+  events: list = [list(item) for item in STREAMED]
+  events[0] = (0, 0, "session_start", {"setup": {"type": "<script>", "profile": "x" * 90, "profile_source": "guess"}})
+  setup = br.session_record(write_session(tmp_path, 1, events))["setup"]
+  assert "type" not in setup and "profile_source" not in setup and len(setup["profile"]) <= 40
+
+
+def test_report_shows_what_the_ladder_tried_and_what_worked(tmp_path):
+  events: list = [list(item) for item in STREAMED]
+  events.insert(1, (0, 1, "ladder_strategy", {"rung": "standard", "learned": False}))
+  events.insert(2, (0, 5, "ladder_failed", {"outcome": "advanced", "rung": "standard", "next": "other_reply"}))
+  events.insert(3, (0, 6, "ladder_strategy", {"rung": "other_reply", "learned": False}))
+  events.append((1, 50, "ladder_worked", {"rung": "other_reply", "streamed_s": 62.0, "t_ready_s": 14.5}))
+  record = br.session_record(write_session(tmp_path, 1, events))
+  assert record["ladder"] == [{"rung": "standard", "learned": False, "at_s": 1.0, "outcome": "advanced"},
+                              {"rung": "other_reply", "learned": False, "at_s": 6.0, "outcome": "worked", "streamed_s": 62.0, "t_ready_s": 14.5}]
+  tags = br.drive_event([record])["tags"]
+  assert (tags["aa.ladder_rung"], tags["aa.ladder_learned"]) == ("other_reply", "no")
+  assert br.session_record(write_session(tmp_path, 2, STREAMED))["ladder"] == []   # older logs report nothing, without error
+
+
+def test_report_says_how_the_rfcomm_channel_was_found(tmp_path):
+  events: list = [list(item) for item in STREAMED]
+  events.insert(1, (0, 1, "sdp_retry", {"error": "x"}))
+  events.insert(2, (0, 2, "rfcomm_channel", {"channel": 8, "source": "sdp"}))
+  assert br.session_record(write_session(tmp_path, 1, events))["sdp"] == {"channel": 8, "source": "sdp", "retries": 1}
+  assert br.session_record(write_session(tmp_path, 2, STREAMED))["sdp"] == {}
+
+
+def test_trace_keeps_how_the_session_started_as_well_as_how_it_ended(tmp_path):
+  noisy = [(0, 0, "session_start", {}), (0, 1, "hfp_initiator", {"initiator": "car"})]
+  noisy += [(i // 60, i % 60, "sdp_retry", {"error": "x" * 250, "n": i}) for i in range(2, 400)]
+  noisy.append((9, 0, "attempt_failed", {"stage": "discovering", "error": "gone", "kind": "RuntimeError"}))
+  event = br.drive_event([br.session_record(write_session(tmp_path, 1, noisy))])
+  trace = event["contexts"]["starport_trace_session_1"]
+  names = [e["event"] for e in trace["events"]]
+  assert names[:2] == ["session_start", "hfp_initiator"] and names[-2:] == ["attempt_failed", "session_stop"]
+  assert trace["omitted"] > 0 and 0 < trace["head"] < len(names)
+  assert len(json.dumps(trace)) <= br.TRACE_SESSION_BYTES + 1024

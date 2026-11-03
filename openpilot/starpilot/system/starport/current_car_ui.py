@@ -188,12 +188,14 @@ def run(frames_path: str, touch_path: str | None = None, control_path: str | Non
     gui_app._width, gui_app._height = geometry.logical_width, geometry.logical_height
     gui_app._scale = 1.0
     gui_app._render_texture = None
+    from openpilot.starpilot.system.starport import reconnect_notice
     from openpilot.starpilot.system.starport.identity import certificate_days_left
     from openpilot.starpilot.system.starport.projection_layout_runtime import ProjectionLayoutWatcher, comma_display_seed
     viewport = (geometry.logical_width, geometry.logical_height)
     watcher = ProjectionLayoutWatcher(viewport, display_seed=comma_display_seed)
     layout = ProjectionOnroad(viewport=viewport, customization=watcher.load(),
-                              certificate_days=certificate_days_left(), layout_watcher=watcher)
+                              certificate_days=certificate_days_left(), layout_watcher=watcher,
+                              reconnect_notice=reconnect_notice.take())
     resources.callback(layout.close)
     watcher.start()
     resources.callback(watcher.close)
