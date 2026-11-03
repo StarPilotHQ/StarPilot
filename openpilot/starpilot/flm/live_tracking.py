@@ -506,11 +506,41 @@ class LiveTrackingOptimizer:
     self.comparison: list[TrackingEpisode] = []
     self.settled_ns: int | None = None
     self.paused_intent: tuple[TrialState, tuple[TrackingEpisode, ...], tuple[TrackingEpisode, ...]] | None = None
+    self.paused_demand_context: tuple[LiveTrialBinding, ResponseCertificate, str] | None = None
+    self.paused_baseline_ns = 0
     self.status, self.reason = 'collecting', 'qualified_tracking_episodes_required'
     self.model_status = 'unavailable'
 
   def _hash(self, values: dict[str, float] | tuple[tuple[str, float], ...]) -> str:
     return full_profile_sha256(self.binding.baseline_revision, values)
+
+  def _drop_paused(self) -> None:
+    self.paused_intent = self.paused_demand_context = None
+    self.paused_baseline_ns = 0
+
+  def _check_paused_demand(self, now_ns: int) -> None:
+    if self.paused_demand_context is not None and (
+      self.paused_intent is None
+      or self.paused_demand_context != (self.binding, self.certificate, self.domain)
+      or self.paused_intent[0]['baseline'] != self.accepted
+      or now_ns >= self.paused_intent[0]['deadline_ns']
+    ):
+      self._drop_paused()
+
+  def _resume_paused(self, control_ns: int) -> None:
+    assert self.paused_intent is not None
+    intent, before, future = self.paused_intent
+    self._drop_paused()
+    self.sequence += 1
+    resumed = intent.copy()
+    resumed['trial_id'] = hashlib.sha256(repr((intent['trial_id'], self.sequence, control_ns)).encode()).hexdigest()
+    resumed['target_sequence'] = self.sequence
+    resumed['published'] = False
+    resumed['prior_accepted'] = self.offer_state
+    self.offer_state = resumed
+    self.before, self.future = before, list(future)
+    self.settled_ns = None
+    self.status, self.reason = 'trial_pending', 'fresh_target_application_after_evidence_gap_required'
 
   def interrupt(self, reason: str, *, context_changed: bool = False) -> None:
     # Retain only inert numerical study intent on missing/stale evidence. The
@@ -525,7 +555,7 @@ class LiveTrackingOptimizer:
       'fresh_physical_residual_window_required',
     )
     if not transient:
-      self.paused_intent = None
+      self._drop_paused()
     elif ((reason in ('acknowledged_trial_profile_withdrawn', 'expired_response_witness') or self.rmse is None and transient) and self.offer_state is not None
         and self.offer_state['phase'] == 'trial' and not self.offer_state.get('accepted', False) and self.before):
       # Source-only transient gaps retain completed numerical study rows,
@@ -750,6 +780,7 @@ class LiveTrackingOptimizer:
     self.last_episode_end_ns = max(self.last_episode_end_ns, episode.end_ns)
     state = self.offer_state
     if state is None or state.get('accepted', False):
+      self._check_paused_demand(now_ns)
       if episode.profile_sha256 != self._hash(self.accepted):
         return False
       # Planning-only evidence retains completed accepted-profile geometry,
@@ -757,6 +788,24 @@ class LiveTrackingOptimizer:
       # supplies the scored baseline or any future trial outcome.
       if not self.planning_history or episode.start_ns > self.planning_history[-1].end_ns:
         self.planning_history.append(episode)
+      if self.paused_demand_context is not None:
+        # A whole accepted-baseline window is an input-only resume trigger,
+        # never another scored row. Match the ORIGINAL demand, not a newer
+        # anchor. Fresh ACKs cannot move the first restored-baseline boundary.
+        assert self.paused_intent is not None
+        intent, before, _future = self.paused_intent
+        if (
+          state is not None
+          and state.get('accepted', False)
+          and self.paused_baseline_ns > 0
+          and episode.start_ns > self.paused_baseline_ns + self.lag_ns
+          and self.last_ack is not None
+          and self.last_ack[:4] == (state['trial_id'], state.get('target_sequence', self.sequence), state['phase'], self._hash(self.accepted))
+          and 0 <= now_ns - self.last_ack[-1] <= 100_000_000
+          and _matches_demand(intent.get('demand', _demand(before[0])), episode)
+        ):
+          self._resume_paused(self.last_ack[-1])
+        return False
       self._current_selector(now_ns)
       if self.selector_pending and self._revalidate_selector(episode, now_ns):
         return False
@@ -1238,13 +1287,21 @@ class LiveTrackingOptimizer:
     )
 
   def _rollback(self, reason: str) -> None:
-    self.paused_intent = None  # An actual scored rejection is terminal.
+    self._drop_paused()  # An actual scored rejection is terminal.
     if self.offer_state is None:
       raise ValueError('rollback requires a pending live trial')
     state = self.offer_state.copy()
     if state['phase'] == 'trial' and state.get('published', True) is False:
       self.interrupt(reason)
       return
+    if (reason == 'trial_input_regime_ended' and self.rmse is None and state['phase'] == 'trial'
+        and self.settled_ns is not None and self.before and len(self.future) < state['required_episodes']):
+      # Completed immutable episodes may wait for this same input regime.
+      # Roll back now; this saved arithmetic carries no application lease.
+      self.paused_intent = (state.copy(), self.before, tuple(self.future))
+      self.paused_demand_context = (self.binding, self.certificate, self.domain)
+      self.before, self.future = (), []
+      self.settled_ns = None
     if (
       state['phase'] == 'trial'
       and self.before
@@ -1325,21 +1382,21 @@ class LiveTrackingOptimizer:
         self.offer_state = accepted
         if self.selector_pending:
           self.selector_after_ns = max(self.selector_after_ns, control_ns)
-      paused, self.paused_intent = self.paused_intent, None
+      self._check_paused_demand(now_ns)
+      if phase == 'rollback' and self.paused_demand_context is not None:
+        self.paused_baseline_ns = control_ns
+        self.baseline.clear()
+        self.future.clear()
+        self.settled_ns = None
+        self.status, self.reason = 'collecting', 'original_input_regime_after_baseline_ack_required'
+        return True
+      paused = self.paused_intent
       if phase == 'rollback' and paused is not None:
         intent, before, future = paused
         if now_ns < intent['deadline_ns'] and intent['baseline'] == self.accepted:
-          self.sequence += 1
-          resumed = intent.copy()
-          resumed['trial_id'] = hashlib.sha256(repr((intent['trial_id'], self.sequence, control_ns)).encode()).hexdigest()
-          resumed['target_sequence'] = self.sequence
-          resumed['published'] = False
-          resumed['prior_accepted'] = self.offer_state
-          self.offer_state = resumed
-          self.before, self.future = before, list(future)
-          self.settled_ns = None
-          self.status, self.reason = 'trial_pending', 'fresh_target_application_after_evidence_gap_required'
+          self._resume_paused(control_ns)
           return True
+      self._drop_paused()
       self.baseline.clear()
       self.future.clear()
       self.settled_ns = None
@@ -1366,6 +1423,7 @@ class LiveTrackingOptimizer:
   def offer(self, now_ns: int, *, publication=True) -> LiveTrialOffer | None:
     from openpilot.starpilot.flm.live_tracking_response import validate_response_witness
 
+    self._check_paused_demand(now_ns)
     try:
       validate_response_witness(self.response_witness, self.binding, now_ns)
     except (TypeError, ValueError):

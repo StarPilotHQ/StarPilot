@@ -134,7 +134,8 @@ class SourceActiveRegime(unittest.TestCase):
     assert not o.observe_episode(e, now_ns=e.end_ns)
     assert o.offer_state['phase'] == 'rollback' and o.reason == 'trial_input_regime_ended'
     assert not any(o.accepted.values()) and o.offer_state['target'] == state['baseline']
-    assert o.selector_hint is None and o.paused_intent is None
+    assert o.selector_hint is None and o.paused_intent is not None
+    assert len(o.paused_intent[2]) == 2 and not o.before and not o.future
 
 
 class SourceRampFreshness(unittest.TestCase):
