@@ -43,7 +43,8 @@ export function appendPlotSample(history, payload, observedAt) {
   if (payload.sampleIndex === (history.at(-1)?.index ?? 0)) return history
   if (payload.sampleIndex < (history.at(-1)?.index ?? 0)) history = []
   const sample = { ...payload.values, sessionId: payload.sessionId, index: payload.sampleIndex,
-    at: observedAt - payload.sampleAgeSeconds * 1000 }
+    // Chart client observations; source age remains a separate freshness check.
+    at: observedAt }
   return [...history, sample].slice(-MAX_POINTS)
 }
 
@@ -146,7 +147,7 @@ export class PlotsFeed {
       const displayGeneration = ++this.displayGeneration
       const remaining = data.sampleAgeSeconds === null ? 0 : 1500 - data.sampleAgeSeconds * 1000 - elapsed
       if (data.state === 'current' && remaining > 0) {
-        this.history = appendPlotSample(this.history, data, this.now() - elapsed)
+        this.history = appendPlotSample(this.history, data, this.now())
         this.lastData = data
         this.publish({ status: 'current', data, history: this.history, error: '' })
         this.expiry = this.later(() => {
