@@ -31,7 +31,7 @@ vm.manualFeed = new SettingsFeed({ publish: update => Object.assign(vm.manualSta
 await vm.selectView('overview')
 assert.equal(calls.length, 0)
 await vm.selectView('tune')
-assert.equal(calls[0].path, './api/settings/tuning')
+assert.equal(calls[0].path, './api/settings/pages/tuning')
 assert.equal(vm.manualRows.length, vm.selectedGroup.names.length, 'Only the selected group is shown')
 assert.equal(await vm.saveManual(locked, 1), false, 'Unavailable controls cannot dispatch edits')
 assert.equal(await vm.saveManual(selected, 1), true)
