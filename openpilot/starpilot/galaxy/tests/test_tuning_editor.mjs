@@ -42,6 +42,17 @@ assert.equal(vm.manualResetRequested, false, 'Numeric save does not open the res
 vm.manualState.error = 'Saved settings changed'
 assert.equal(await vm.saveManual(selected, 2), false)
 assert.equal(calls.length, 3)
+vm.manualState.error = ''
+const resetIndex = vm.manualState.data.rows.length
+vm.manualState.data.rows.push({ label: 'Reset manual tune', value: 'Reset', choices: ['Reset'], confirm: true, available: true, action: true })
+await vm.reviewManualReset(resetIndex, 1)
+assert.equal(vm.manualResetRequested, true)
+assert(vm.manualState.pending, 'Reset is held for explicit confirmation')
+assert.deepEqual(calls.at(-1).body, { view: 'saved-view', row: resetIndex, direction: 1 })
+vm.cancelManualReset()
+assert.equal(vm.manualState.pending, null)
+assert.equal(vm.manualResetRequested, false)
+assert.equal(vm.manualState.data.rows[selected].value, '1', 'Cancel preserves the saved manual value')
 await vm.selectView('plots')
 assert.equal(vm.manualFeed.active, false)
 assert.equal(timers.size, 0)
