@@ -384,6 +384,17 @@ class Controls:
     elif getattr(self, 'model_turn_assist', None) is not None:
       self.model_turn_assist.reset()
       self.model_turn_assist.twitch_guard_remaining = update_twitch_guard(0., CS.vEgo, CS.standstill)
+    if self.sm.frame % 100 == 0:
+      self.highway_gain = read_gain(self.params)
+    predicted = None
+    if self.sm.all_checks(['modelV2']):
+      predicted = predicted_lateral_accels(model_v2.position.t, model_v2.velocity.x, model_v2.orientationRate.z)
+    # before lane centering so its guard measures only its own correction against the smoothed base
+    new_desired_curvature = self.highway_correction_gain.update(
+      new_desired_curvature, CS.vEgo, CC.latActive, self.highway_gain,
+      bypass=bool(CS.leftBlinker or CS.rightBlinker or CS.steeringPressed or
+                  model_v2.meta.laneChangeState != LaneChangeState.off or self.sm.valid['lateralManeuverPlan']),
+      predicted=predicted)
     lane_base_curvature = new_desired_curvature
     self.lane_centering_applied = 0.0
     self.lane_centering_inactive_reason = 'inactive'
@@ -416,16 +427,6 @@ class Controls:
       self.last_lane_centering_result = result
       if result.candidate_curvature is not None:
         new_desired_curvature = result.candidate_curvature
-    if self.sm.frame % 100 == 0:
-      self.highway_gain = read_gain(self.params)
-    predicted = None
-    if self.sm.all_checks(['modelV2']):
-      predicted = predicted_lateral_accels(model_v2.position.t, model_v2.velocity.x, model_v2.orientationRate.z)
-    new_desired_curvature = self.highway_correction_gain.update(
-      new_desired_curvature, CS.vEgo, CC.latActive, self.highway_gain,
-      bypass=bool(CS.leftBlinker or CS.rightBlinker or CS.steeringPressed or
-                  model_v2.meta.laneChangeState != LaneChangeState.off or self.sm.valid['lateralManeuverPlan']),
-      predicted=predicted)
     previous_curvature = self.desired_curvature
     lane_policy_now_ns = int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns()
     self.refresh_lane_change_policy(CS, model_v2, lane_policy_now_ns)
