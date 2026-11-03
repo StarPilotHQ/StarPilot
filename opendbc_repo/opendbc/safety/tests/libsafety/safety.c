@@ -598,3 +598,9 @@ int safety_test_honda_configuration_bounds(unsigned int count, unsigned int pt_b
   set_safety_hooks(SAFETY_NOOUTPUT, 0U);
   return result;
 }
+
+// Mazda TI2 health (modes/mazda.h), for the panda/CarState parity test: whether
+// the interceptor is unhealthy (fault, latch, unproven or stale), and whether a
+// 0x02 pause or its recovery window is withholding lateral torque.
+bool get_mazda_ti_unhealthy(void) { return mazda_ti_unhealthy(); }
+bool get_mazda_ti_lateral_paused(void) { return mazda_ti_lateral_paused(); }

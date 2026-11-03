@@ -52,6 +52,22 @@ class TI_STATE:
   RUN = 3
 
 
+class TI2_HEALTH:
+  """GEN2 TI2 health model shared with panda (safety/modes/mazda.h).
+
+  Each value mirrors a panda constant, except RELEASE_GRACE_NS, which only the
+  host needs. test_mazda_gen2_ti2_parity.py keeps the two models in step.
+  """
+  VIOL_TRANSIENT = 0x02                  # MAZDA_TI_VIOL_TRANSIENT
+  RECOVERY_FRAMES = 10                   # MAZDA_TI_RECOVERY_FRAMES
+  FEEDBACK_TIMEOUT_NS = 200_000_000      # MAZDA_TI_FEEDBACK_TIMEOUT_US
+  PAUSE_MAX_NS = 30_000_000_000          # MAZDA_TI_PAUSE_MAX_US
+  # Panda restores lateral on the last recovery frame, but the AOL host may still
+  # judge a denial sampled before then for up to SAFETY_MAX_AGE_NS (200 ms,
+  # starpilot/aol/runtime.py). Keep the restriction until such samples are stale.
+  RELEASE_GRACE_NS = 250_000_000
+
+
 @dataclass
 class MazdaCarDocs(CarDocs):
   package: str = "All"

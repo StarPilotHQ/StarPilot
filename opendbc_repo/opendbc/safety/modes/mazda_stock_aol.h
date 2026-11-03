@@ -1,6 +1,7 @@
 #pragma once
 
 static bool mazda_ti_unhealthy(void);
+static bool mazda_ti_lateral_paused(void);
 
 static bool mazda_aol_enabled = false;
 static bool mazda_aol_startup_pending = true;
@@ -103,7 +104,8 @@ static uint8_t mazda_aol_permission(void) {
   if (acc_main_on && (mazda_aol_sources == 1U) && !mazda_ti_unhealthy()) {
     // Only lateral has a standstill restriction. Ordinary openpilot
     // longitudinal must retain HOLD/RESUME authority while stopped.
-    if (vehicle_moving && (controls_allowed || mazda_aol_token)) {
+    // A TI2 0x02 pause withholds lateral without revoking the token, like standstill.
+    if (vehicle_moving && !mazda_ti_lateral_paused() && (controls_allowed || mazda_aol_token)) {
       permission = request & 1U;
     }
     if (controls_allowed) {
