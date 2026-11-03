@@ -125,9 +125,20 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
   stock_volkswagen_eps = bool(volkswagen_temporary_eps_restriction(cp, cs) and
     all(not event.userDisable or event.name == log.OnroadEvent.EventName.pcmDisable and
         not event.softDisable and not event.immediateDisable for event in events))
+  from opendbc.car.subaru.stock_aol import temporary_restriction as subaru_temporary_restriction
+  subaru_predecessor = bool(previous is not None and
+    0 < previous[8] <= previous[2] <= now_ns <= previous[4] and
+    now_ns - previous[8] <= AXIS_MAX_AGE_NS and
+    (previous[9] and previous[11] and previous[13] or
+     self.temporary_eps_event_ns and previous[6] == self.temporary_eps_event_ns))
+  stock_subaru_eps = bool(subaru_temporary_restriction(cp, cs) and subaru_predecessor and
+    cs.gearShifter == structs.CarState.GearShifter.drive and not cs.doorOpen and
+    not cs.vehicleSensorsInvalid and not cs.steeringDisengage and not cs.buttonEvents and
+    all(not event.userDisable or event.name == log.OnroadEvent.EventName.pcmDisable and
+        not event.softDisable and not event.immediateDisable for event in events))
   ford_alpha_eps = bool(stock_ford_eps and cp.openpilotLongitudinalControl)
   restricted_eps = bool((temporary_eps_restriction(cp, cs) or stock_ford_eps or stock_mazda_eps or stock_rivian_eps or
-                        stock_volkswagen_eps) and self.lateral_only_baseline and
+                        stock_volkswagen_eps or stock_subaru_eps) and self.lateral_only_baseline and
     not axis.desiredLongitudinal and not axis.longitudinalActive) or ford_alpha_eps
   native = _configured_transport_native(sm, cp, self.session, now_ns,
     require_longitudinal=not ford_alpha_eps or axis.longitudinalActive, allow_restricted_lateral=restricted_eps)
