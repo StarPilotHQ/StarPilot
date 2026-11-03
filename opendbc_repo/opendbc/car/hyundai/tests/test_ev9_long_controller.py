@@ -271,16 +271,16 @@ class TestEV9FreshMetadataQualification(unittest.TestCase):
       cp.safetyConfigs[0].safetyParam ^= 1
       self.assertTrue(qualified(cp))
 
-  def test_valid_builder_avoids_copy_and_reader_keeps_copy_contract(self):
+  def test_typed_builder_and_reader_avoid_copy_with_original_semantics(self):
     from unittest.mock import patch
     from opendbc.car.hyundai import ev9_longitudinal
     cp = self.base()
     with patch.object(ev9_longitudinal, 'stock_copy', side_effect=AssertionError('unexpected whole CP copy')):
       self.assertTrue(qualified(cp))
     with structs.CarParams.from_bytes(cp.to_bytes()) as reader:
-      with patch.object(ev9_longitudinal, 'stock_copy', wraps=ev9_longitudinal.stock_copy) as copied:
-        self.assertTrue(qualified(reader))
-        self.assertEqual(copied.call_count, 1)
+      expected = self.original(reader)
+      with patch.object(ev9_longitudinal, 'stock_copy', side_effect=AssertionError('unexpected whole CP copy')):
+        self.assertEqual(qualified(reader), expected)
 
   def test_custom_owner_keeps_original_access_and_copy_behavior(self):
     cp = self.base()

@@ -45,6 +45,7 @@ AOL_LIFECYCLE_TARGETS = (
   'openpilot/starpilot/aol/tests/test_hkg_early_long_withdrawal.py',
   'openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py',
   'opendbc_repo/opendbc/car/hyundai/tests/test_angle_fault_recovery.py',
+  'opendbc_repo/opendbc/car/hyundai/tests/test_ccnc_long_validation.py',
   'opendbc_repo/opendbc/car/hyundai/tests/test_daw.py',
   'openpilot/starpilot/aol/tests/test_hkg_angle_limit_warning.py',
   'openpilot/starpilot/car/toyota/tests/test_prius_retrofit_stock.py',
