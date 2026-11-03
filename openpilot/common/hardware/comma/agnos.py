@@ -3,6 +3,7 @@ import hashlib
 import json
 import lzma
 import os
+from pathlib import Path
 import struct
 import subprocess
 import time
@@ -13,6 +14,27 @@ import requests
 SPARSE_CHUNK_FMT = struct.Struct('H2xI4x')
 
 AGNOS_MANIFEST_FILE = "openpilot/common/hardware/comma/agnos.json"
+
+
+INCOMPATIBLE_C3_ABL = "29fd7ed1c012e599420764840f9f11286d34dbff4adaf102a447f06d8c5e0b35"
+AGNOS_MARKER = Path("/AGNOS")
+DEVICE_MODEL_PATH = Path("/sys/firmware/devicetree/base/model")
+
+
+def check_manifest_compatibility(update: list[dict]) -> None:
+  if not any(p.get('name') == 'abl' and p.get('hash_raw', '').lower() == INCOMPATIBLE_C3_ABL for p in update):
+    return
+  try:
+    model = DEVICE_MODEL_PATH.read_text().rstrip('\0\n')
+  except FileNotFoundError:
+    # Non-device hosts have no device tree.
+    if not AGNOS_MARKER.exists():
+      return
+    raise RuntimeError("Cannot identify hardware for AGNOS firmware update") from None
+  if model == 'comma tici':
+    raise RuntimeError("This AGNOS bootloader is incompatible with comma 3. No firmware write or slot activation was attempted.")
+  if model not in ('comma tizi', 'comma mici'):
+    raise RuntimeError("Cannot identify supported hardware for this AGNOS bootloader")
 
 
 def phone_uplink_active() -> bool:
@@ -228,6 +250,7 @@ def flash_partition(target_slot_number: int, partition: dict, cloudlog, standalo
 
 def swap(manifest_path: str, target_slot_number: int, cloudlog) -> None:
   update = json.load(open(manifest_path))
+  check_manifest_compatibility(update)
   for partition in update:
     if not partition.get('full_check', False):
       clear_partition_hash(target_slot_number, partition)
@@ -243,6 +266,7 @@ def swap(manifest_path: str, target_slot_number: int, cloudlog) -> None:
 
 def flash_agnos_update(manifest_path: str, target_slot_number: int, cloudlog, standalone=False) -> None:
   update = json.load(open(manifest_path))
+  check_manifest_compatibility(update)
 
   cloudlog.info(f"Target slot {target_slot_number}")
 
@@ -272,6 +296,7 @@ def flash_agnos_update(manifest_path: str, target_slot_number: int, cloudlog, st
 
 def verify_agnos_update(manifest_path: str, target_slot_number: int) -> bool:
   update = json.load(open(manifest_path))
+  check_manifest_compatibility(update)
   return all(verify_partition(target_slot_number, partition) for partition in update)
 
 
