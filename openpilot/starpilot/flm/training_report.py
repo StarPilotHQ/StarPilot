@@ -344,10 +344,13 @@ class TrainingReporter:
     live = getattr(collector, 'live_tracking', None) if collector is not None else None
     if live is not None:
       current.update(tracking_objects(live.report(now_ns), fresh=True))
-    state = (status, reason, application['applied'], None if fit is None else (fit['status'], fit['reason']))
+    tracking = current.get('tracking')
+    history_status, history_reason = (tracking['status'], tracking['reason']) if tracking is not None else (status, reason)
+    state = (history_status, history_reason, application['applied'], None if tracking is None else tracking['trialId'],
+             None if fit is None else (fit['status'], fit['reason']))
     if state != self.last_state:
-      self.history.append({'time': f'{(now_ns - self.started) / 1e9:.1f} s', 'status': status,
-                           'reason': reason, 'applied': application['applied']})
+      self.history.append({'time': f'{(now_ns - self.started) / 1e9:.1f} s', 'status': history_status,
+                           'reason': history_reason, 'applied': application['applied']})
       self.last_state = state
     payload = {'version': 1, 'observedMonoTime': now_ns, 'vehicle': self.vehicle,
                'session': '' if collector is None else collector.session, 'current': current, 'history': list(self.history)}

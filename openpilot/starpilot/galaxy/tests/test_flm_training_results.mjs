@@ -24,3 +24,29 @@ for (const mutate of [value => value.current.progress.blocks = -1,
   const value = report(); mutate(value); assert(!validTrainingResults(value))
 }
 console.log("Training wire validation, bounded details and stale/no-data labels passed")
+
+// The live producer's full30 flat acknowledgement and nested refusal schema
+// must not be rejected as generic oversized/deep diagnostic objects.
+const receiver = Object.fromEntries(['deviceMotion','extrinsicsCalibration','carState','driverMonitoringState'].map(name => [name,
+  {seen:true,alive:true,valid:true,freqOk:false,sourceEventMonoTime:1,receivedMonoTime:2}]))
+const snapshot = {reason:'receiver_health',observedMonoTime:3,readyPairs:4,currentNative:true,
+  controlMonoTime:1,applyMonoTime:2,originalNativeObservedMonoTime:1,originalNativeValidUntilMonoTime:3,receiver}
+const sourceRefusals = {publisherRefusal:'unknown_not_transmitted',scope:'learner receiver only; not the Controls publisher admission reason',
+  counts:{receiver_health:1},lastRefusal:{reason:'receiver_health',observedMonoTime:3},lastException:null,
+  firstRefusal:snapshot,firstReadyPairRefusal:snapshot}
+const actualShape=report();actualShape.current.details['GLOBAL source observation refusals']=sourceRefusals
+actualShape.current.details['Applied correction coordinates']=Array(30).fill(0)
+assert(validTrainingResults(actualShape))
+for(const mutate of [v=>v.current.details['Applied correction coordinates'].pop(),
+  v=>v.current.details['Applied correction coordinates'].push(0),
+  v=>v.current.details['Applied correction coordinates'][0]=.251,
+  v=>v.current.details['Applied correction coordinates'][0]=true,
+  v=>v.current.details['GLOBAL source observation refusals'].firstRefusal.receiver.carState.freqOk=1,
+  v=>v.current.details['GLOBAL source observation refusals'].counts.receiver_health=-1,
+  v=>v.current.details['GLOBAL source observation refusals'].firstRefusal.receiver.unknown={},
+  v=>v.current.details['GLOBAL source observation refusals'].firstRefusal.unexpected=0]) {
+ const invalid=structuredClone(actualShape);mutate(invalid);assert(!validTrainingResults(invalid))
+}
+const alias=report();alias.current.details['GLOBAL source observation refusals ']=sourceRefusals
+assert(!validTrainingResults(alias),'No generic nesting or alias relaxation')
+console.log('Exact live full30 acknowledgement and bounded source-refusal telemetry accepted; malformed and unknown fields refused')

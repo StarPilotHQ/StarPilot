@@ -205,3 +205,42 @@ def test_mode_or_choice_change_during_read_is_unknown(tmp_path, monkeypatch, key
   monkeypatch.setattr(saved_source, 'read_saved', changed)
   actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['preference']
   assert actual['valid'] is False and actual['enabled'] is None
+
+
+def tracking_report(status='trial_pending', trial='a' * 64):
+  return {'version': 1, 'status': status, 'reason': 'awaiting_current_application', 'group': 'center',
+          'names': ['center_taper_max'], 'trialId': trial, 'phase': 'trial', 'requiredEpisodes': 3,
+          'beforeEpisodes': 3, 'futureEpisodes': 0, 'modelStatus': 'valid', 'lagMs': 170.,
+          'baselineErrorRms': .1, 'futureErrorRms': None, 'baselineReversalHz': .2, 'futureReversalHz': None,
+          'applicationAcknowledged': False, 'bindingCurrent': True,
+          'applicationSettledMonoTime': None, 'lastCorrectionMonoTime': None}
+
+
+def test_live_trial_history_does_not_use_legacy_fitter_state(tmp_path):
+  from types import SimpleNamespace as NS
+  from openpilot.starpilot.flm.training_report import TrainingReporter
+  path = tmp_path / 'live.json'
+  state = tracking_report()
+  live = NS(latest_offer=None, report=lambda _now: {'tracking': dict(state)})
+  collector = NS(adapter=NS(raw_collection=False, event_collection=False), blocks=(), points=(), sealed=False,
+                 ready=(None,) * 128, live_tracking=live, original_source_capture=NS(rows=(None,) * 1731),
+                 session='live-unit', training_interruptions={}, dropped=0, reason='no_current_learning_evidence')
+  message = NS(autoSteeringLearning=NS(learning=NS(status='collecting', reason='legacy')))
+  source = NS(enabled=True, calibration_generation='', observed_ns=NOW)
+  reporter = TrainingReporter('HYUNDAI_IONIQ_6', path=path)
+  def publish(now):
+    reporter.publish(now_ns=now, message=message, collector=collector, source=source, objective=None,
+                     pending=False, native_current=False)
+    return FlmTrainingResults(path, clock=lambda: now).snapshot()
+
+  first = publish(NOW)
+  assert first['current']['progress']['samples'] == 0  # Original legacy contract is preserved.
+  assert first['history'][-1]['status'] == 'trial_pending'
+  assert not first['current']['application']['applied']  # Telemetry never creates an acknowledgement.
+  state['trialId'] = 'b' * 64
+  second = publish(NOW + 1_000_000_000)
+  assert len(second['history']) == 2  # Same status, distinct original trial.
+  state.update(status='rollback', phase='rollback', reason='trial_future_support_timeout')
+  final = publish(NOW + 2_000_000_000)
+  assert final['history'][-1]['status'] == 'rollback'
+  assert final['current']['details']['Fit attempts'] == 0

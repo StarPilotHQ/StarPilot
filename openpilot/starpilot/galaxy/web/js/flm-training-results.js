@@ -1,5 +1,32 @@
 const text = (value, limit = 240) => typeof value === "string" && value.length <= limit
 const count = value => value === null || Number.isSafeInteger(value) && value >= 0
+const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+const keysAre = (value, keys) => record(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key))
+const stamp = value => Number.isSafeInteger(value) && value >= 0
+const REFUSAL_SERVICES = ['deviceMotion', 'extrinsicsCalibration', 'carState', 'driverMonitoringState']
+function refusalSnapshot(value) {
+  return value === null || keysAre(value, ['reason', 'observedMonoTime', 'readyPairs', 'currentNative', 'controlMonoTime',
+    'applyMonoTime', 'originalNativeObservedMonoTime', 'originalNativeValidUntilMonoTime', 'receiver']) &&
+    text(value.reason) && stamp(value.observedMonoTime) && stamp(value.readyPairs) && typeof value.currentNative === 'boolean' &&
+    ['controlMonoTime', 'applyMonoTime', 'originalNativeObservedMonoTime', 'originalNativeValidUntilMonoTime'].every(key => value[key] === null || stamp(value[key])) &&
+    keysAre(value.receiver, REFUSAL_SERVICES) && REFUSAL_SERVICES.every(service => {
+      const row = value.receiver[service]
+      return keysAre(row, ['seen', 'alive', 'valid', 'freqOk', 'sourceEventMonoTime', 'receivedMonoTime']) &&
+        ['seen', 'alive', 'valid', 'freqOk'].every(key => typeof row[key] === 'boolean') &&
+        stamp(row.sourceEventMonoTime) && stamp(row.receivedMonoTime)
+    })
+}
+export function validSourceRefusals(value) {
+  return keysAre(value, ['publisherRefusal', 'scope', 'counts', 'lastRefusal', 'lastException', 'firstRefusal', 'firstReadyPairRefusal']) &&
+    value.publisherRefusal === 'unknown_not_transmitted' &&
+    value.scope === 'learner receiver only; not the Controls publisher admission reason' &&
+    record(value.counts) && Object.keys(value.counts).length <= 24 &&
+    Object.entries(value.counts).every(([key, amount]) => text(key, 96) && stamp(amount)) &&
+    (value.lastRefusal === null || keysAre(value.lastRefusal, ['reason', 'observedMonoTime']) && text(value.lastRefusal.reason) && stamp(value.lastRefusal.observedMonoTime)) &&
+    (value.lastException === null || keysAre(value.lastException, ['observedMonoTime', 'type', 'message']) &&
+      stamp(value.lastException.observedMonoTime) && text(value.lastException.type, 96) && text(value.lastException.message, 192)) &&
+    refusalSnapshot(value.firstRefusal) && refusalSnapshot(value.firstReadyPairRefusal)
+}
 const detailValue = (value, depth = 0) => value === null || typeof value === "boolean" ||
   typeof value === "number" && Number.isFinite(value) || text(value, 500) ||
   depth < 2 && (Array.isArray(value) ? value.length <= 16 && value.every(item => detailValue(item, depth + 1)) :
@@ -22,8 +49,10 @@ export function validTrainingResults(value) {
   if (row.trackingPlot !== undefined && row.trackingPlot !== null && !validTrackingPlot(row.trackingPlot)) return false
   return row.details === undefined || row.details && typeof row.details === "object" && !Array.isArray(row.details) &&
     Object.keys(row.details).length <= 64 && Object.entries(row.details).every(([key, item]) => text(key, 80) &&
-      (["Full surface coordinates", "Actual full surface coordinates"].includes(key) ?
-        fullCoordinates(item) !== null : detailValue(item)))
+      (["Full surface coordinates", "Actual full surface coordinates"].includes(key) ? fullCoordinates(item) !== null :
+        key === 'Applied correction coordinates' && Array.isArray(item) && item.length === 30 ?
+          item.every(number => typeof number === 'number' && Number.isFinite(number) && Math.abs(number) <= .25) :
+        key === 'GLOBAL source observation refusals' ? validSourceRefusals(item) : detailValue(item)))
 }
 const labels = { collecting: "Gathering driving examples", unavailable: "Waiting for usable driving data",
   qualifiedFit: "Fit passed validation", qualified: "Fit passed validation", rejected: "Fit did not pass validation",
@@ -127,6 +156,40 @@ export const SURFACE_GROUPS = Object.freeze([
   { id: "speed", label: "Speed ranges", icon: "bi-sliders", description: "Where turn-in and unwind shaping take effect.", names: ["curvy_speed_min", "curvy_speed_max", "curvy_turn_in_trim_speed_min", "curvy_turn_in_trim_speed_max"] },
 ])
 
+const REASONS = {
+  controller_collection_required: "Waiting for active steering before collecting samples.",
+  fresh_physical_residual_window_required: "Checking the car's current steering response.",
+  qualified_tracking_episodes_required: "Collecting complete, comparable steering windows.",
+  uncensored_independent_comparison_baseline_required: "Measuring comparable driving before testing a correction.",
+  qualified_consistent_hook_sensitivity_required: "Collecting repeated examples before choosing an adjustment.",
+  stale_control: "Steering samples arrived late. Fresh data is required before learning can continue.",
+  stale_applied_output: "Applied steering data arrived late. Those samples cannot be used.",
+  invalid_applied_output: "The reported steering output could not be verified.",
+  independent_baseline_trial_power_insufficient: "More comparable driving is needed to distinguish a correction from normal variation.",
+  fresh_selected_native_probe_required: "Checking the proposed adjustment against the current steering commands.",
+  genuine_native_sensitivity_unavailable: "The effect of this adjustment has not been verified yet.",
+  consistent_later_tracking_improved: "Later comparable driving showed lower steering error.",
+  independent_future_tracking_improved: "Independent trial windows showed lower steering error.",
+  matched_tracking_not_consistently_improved: "The trial did not show a consistent improvement.",
+  trial_tracking_or_oscillation_worse: "The trial increased steering error or oscillation, so it was rolled back.",
+  trial_oscillation_batch_worse: "Comparable trial windows showed more oscillation, so the correction was rolled back.",
+  predeclared_independent_future_look_required: "Collecting the next planned set of comparison windows.",
+  prior_accepted_baseline_restored: "The controller returned to its prior baseline.",
+  scoring_later_matched_whole_episodes: "Comparing new steering windows with the baseline.",
+  accepted_target_currently_acknowledged: "The controller acknowledged the accepted correction.",
+}
+export const learningReason = reason => Object.hasOwn(REASONS, reason) ? REASONS[reason] : "The device's detailed report is available in Activity."
+export function sourceCaptureCounts(report) {
+  const value = report?.current?.details?.['GLOBAL original source capture']
+  return validTrackingResults(report?.current?.tracking) && value &&
+    ['poses', 'readyPairs'].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0) ?
+    { capturedPoses: value.poses, readyPairs: value.readyPairs } : null
+}
+const HISTORY_LABELS = { collecting: 'Collecting samples', calibrating: 'Measuring response',
+  not_identifiable: 'More evidence needed', ready: 'Adjustment selected', trial_pending: 'Trial offered',
+  trial_active: 'Evaluating a trial', confirmed: 'Correction confirmed', rollback: 'Returning to baseline', paused: 'Learning paused' }
+export const historyTitle = status => Object.hasOwn(HISTORY_LABELS, status) ? HISTORY_LABELS[status] : readable(status)
+
 export function tunerStatus(report, live = false, choiceLive = false, error = "") {
   const preference = choiceLive && validLearningPreference(report?.preference) ? report.preference : null
   const current = report?.current
@@ -138,12 +201,16 @@ export function tunerStatus(report, live = false, choiceLive = false, error = ""
   if (!current) return { key: "waiting", tone: "muted", title: "Waiting for the learner", description: preference?.enabled ? "Auto Learn is on, but no learner report has arrived yet." : preference ? "The device has not identified a current vehicle and Auto Learn setting." : "Connect to your device to see its learning activity and steering tune." }
   if (!live) return { key: "stale", tone: "muted", title: "No current learner report", description: "These are earlier observations. They do not establish a correction being applied now." }
   const tracking = trackingView(report, live)
+  if ((tracking?.reason || current.reason) === "controller_collection_required")
+    return { key: "waiting", tone: "muted", title: "Waiting for active steering", description: learningReason("controller_collection_required") }
+  if (tracking && !tracking.bindingCurrent)
+    return { key: "paused", tone: "warning", title: "Learning paused", description: "The steering context changed. A fresh qualified window is required." }
   if (tracking?.acknowledged && tracking.status === "confirmed") return { key: "confirmed", tone: "success", title: "Correction applied", description: "The comparison passed and the controller acknowledged this correction. Disk saving is a separate result." }
   if (tracking?.acknowledged && tracking.status === "trial_active") return { key: "testing", tone: "active", title: "Testing a small correction", description: "The controller acknowledged the trial. Comparable new driving windows decide whether to keep it." }
   if (tracking?.status === "trial_pending") return { key: "pending", tone: "active", title: "Waiting for the controller", description: "A trial was offered. It has not yet been acknowledged as applied." }
   if (tracking?.status === "rollback") return { key: "rollback", tone: "warning", title: "Returning to the baseline", description: tracking.acknowledged ? "The controller acknowledged the rollback." : "A rollback was requested. Current application is not yet acknowledged." }
-  if (tracking?.status === "paused" || current.status === "unavailable") return { key: "paused", tone: "warning", title: "Learning paused", description: readable(tracking?.reason || current.reason) }
-  return { key: "collecting", tone: "active", title: tracking?.status === "calibrating" ? "Measuring steering response" : "Collecting driving samples", description: readable(tracking?.reason || current.reason) }
+  if (tracking?.status === "paused" || current.status === "unavailable") return { key: "paused", tone: "warning", title: "Learning paused", description: learningReason(tracking?.reason || current.reason) }
+  return { key: "collecting", tone: "active", title: tracking?.status === "calibrating" ? "Measuring steering response" : "Collecting driving samples", description: learningReason(tracking?.reason || current.reason) }
 }
 
 

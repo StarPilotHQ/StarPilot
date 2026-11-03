@@ -194,6 +194,15 @@ assert(!liveText.toLowerCase().includes('invalid applied output'), 'Live learner
 assert(!liveText.includes('Collection & fitting'), 'Legacy fitter cards must not describe the live empirical learner')
 delete ctx.report.current.tracking
 const legacyText = text(render.call(ctx,ctx,[]))
-assert(legacyText.toLowerCase().includes('invalid applied output'))
+assert(legacyText.includes('The reported steering output could not be verified'))
 assert(legacyText.includes('Collecting driving samples'))
 console.log('Actual Vue render keeps live learner progress separate and preserves legacy report fallback')
+
+const countsReport=report();countsReport.current.details['GLOBAL original source capture']={poses:1731,readyPairs:128}
+const progressContext={...FlmPage.data(),report:countsReport}
+for(const [name,get] of Object.entries(FlmPage.computed))Object.defineProperty(progressContext,name,{get:()=>get.call(progressContext)})
+assert.equal(progressContext.measurements,1731,'Live source observations are independent of legacy fitter counts')
+countsReport.current.details['GLOBAL original source capture'].poses=-1
+assert.equal(progressContext.trackingProgress,null,'Invalid original counts stay unknown')
+assert.equal(progressContext.measurements,null,'Missing live counts cannot be replaced with legacy zero')
+console.log('Live pose count uses existing producer data, without extra telemetry or an eligibility claim')

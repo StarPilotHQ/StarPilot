@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { compile } from "../web/vendor/vue/vue.esm-browser.js"
 import { FlmPage } from "../web/js/flm.js"
-import { SURFACE_NAMES, PID_UNSUPPORTED, fullCoordinates, surfaceRows, validTrainingResults, coordinateText, SURFACE_GROUPS, validLearningPreference, tunerStatus } from "../web/js/flm-training-results.js"
+import { SURFACE_NAMES, PID_UNSUPPORTED, fullCoordinates, surfaceRows, validTrainingResults, coordinateText, SURFACE_GROUPS, validLearningPreference, tunerStatus, learningReason } from "../web/js/flm-training-results.js"
 
 const report = () => ({ version: 1, history: [], current: { fresh: true, ageSeconds: .1, enabled: true,
   status: "collecting", reason: "capturing_steering_evidence", progress: { samples: 120, blocks: 3, requiredBlocks: 16 },
@@ -77,6 +77,10 @@ assert.equal(tunerStatus({ ...value, preference: choice }, false, true).key, 'pa
 assert.equal(tunerStatus({ ...value, preference: { ...choice, enabled: false } }, true, true).key, 'off')
 assert.equal(tunerStatus({ ...value, preference: choice }, false, false).key, 'stale')
 assert.equal(tunerStatus({ ...value, preference: choice }, true, true, 'offline').key, 'offline')
+const inactive = report(); inactive.current.reason = 'controller_collection_required'
+assert.equal(tunerStatus(inactive, true).title, 'Waiting for active steering')
+assert.match(learningReason('stale_control'), /arrived late/)
+assert.equal(learningReason('unknown_internal_reason'), "The device's detailed report is available in Activity.")
 for (const invalid of [null, {}, { ...choice, version: true }, { ...choice, valid: false, enabled: true },
   { ...choice, enabled: 'yes' }, { ...choice, parked: 1 }, { ...choice, vehicle: 'x'.repeat(257) }]) {
   assert(!validLearningPreference(invalid))
