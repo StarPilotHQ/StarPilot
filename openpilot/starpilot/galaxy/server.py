@@ -102,7 +102,10 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
   from openpilot.starpilot.galaxy.companion import CompanionRegistry, APK_PATH
   from openpilot.starpilot.gps.phone import PhoneGpsPublisher
   companion_source = companion if companion is not None else CompanionRegistry()
-  training_results_source = training_results if training_results is not None else FlmTrainingResults()
+  if training_results is None:
+    from openpilot.common.params import Params
+    training_results = FlmTrainingResults(params=Params())
+  training_results_source = training_results
   phone_location_source = phone_location if phone_location is not None else PhoneGpsPublisher()
   cloud = cloud_provider
   hotspot_source = hotspot

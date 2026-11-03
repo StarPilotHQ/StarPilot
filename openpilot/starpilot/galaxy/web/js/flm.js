@@ -2,65 +2,105 @@ import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
 import { PollTimer, connectionError } from "./polling.js"
 import { requestJson } from "./startup.js"
-import { PlotGraph, PlotsFeed, chartGeometry } from "./plots.js"
-import { validTrainingResults, trainingSummary, readable, detailText, surfaceRows, coordinateText, trackingView, measurementText, validTrackingValues, trackingPlotView, sourceSeconds } from "./flm-training-results.js"
+import { PlotGraph, chartGeometry } from "./plots.js"
+import { validTrainingResults, readable, detailText, surfaceRows, coordinateText, trackingView, measurementText, validTrackingValues, trackingPlotView, sourceSeconds, validLearningPreference, SURFACE_GROUPS, tunerStatus } from "./flm-training-results.js"
+
+const VIEWS = ["overview", "tune", "activity"]
+const PARAMETER_LABELS = {
+  ff_gain_left: "Left steering gain", ff_gain_right: "Right steering gain",
+  turn_in_boost_left: "Left turn-in boost", turn_in_boost_right: "Right turn-in boost",
+  unwind_taper_left: "Left unwind taper", unwind_taper_right: "Right unwind taper",
+  center_taper_max: "Center taper", highway_center_taper_max: "Highway center taper",
+  center_deadband_crawl_deg: "Crawl center deadband", center_deadband_low_deg: "Low-speed center deadband",
+  center_deadband_mid_deg: "Mid-speed center deadband", center_deadband_fast_deg: "Fast center deadband",
+  center_deadband_highway_deg: "Highway center deadband",
+  turn_in_threshold_reduction_left: "Left turn-in threshold", turn_in_threshold_reduction_right: "Right turn-in threshold",
+  unwind_threshold_increase_left: "Left unwind threshold", unwind_threshold_increase_right: "Right unwind threshold",
+  crawl_turn_in_ff_boost_left: "Left crawl turn-in boost", crawl_turn_in_ff_boost_right: "Right crawl turn-in boost",
+  low_speed_angle_assist_max_torque: "Low-speed angle assistance",
+  curvy_speed_min: "Unwind range · lower speed", curvy_speed_max: "Unwind range · upper speed",
+  curvy_turn_in_trim_speed_min: "Turn-in range · lower speed", curvy_turn_in_trim_speed_max: "Turn-in range · upper speed",
+  curvy_turn_in_trim_left: "Left turn-in trim", curvy_turn_in_trim_right: "Right turn-in trim",
+  curvy_unwind_floor_relief_left: "Left unwind floor relief", curvy_unwind_floor_relief_right: "Right unwind floor relief",
+  curvy_unwind_extra_reduction_left: "Left extra unwind relief", curvy_unwind_extra_reduction_right: "Right extra unwind relief",
+}
 
 export const FlmPage = {
   name: "FlmPage",
   components: { GxState, GxNotice, PlotGraph },
-  props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true }, embedded: { type: Boolean, default: false } },
+  props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
+    go: { type: Function, default: path => { window.location.hash = path } } },
   data: () => ({ report: null, error: "", loading: false, request: null, receivedAt: 0, now: 0,
-    status: "idle", data: null, history: [], plotError: "", showPlots: true }),
-  created() {
-    if (this.embedded) this.showPlots = false
-    this.feed = new PlotsFeed({ publish: update => {
-      const { error, ...values } = update
-      Object.assign(this.$data, values, { plotError: error })
-    }, unauthorized: this.unauthorized })
-  },
+    view: "overview", group: "balance", showAllHistory: false, groups: SURFACE_GROUPS }),
   mounted() {
     this.activePage = true
     this.poller = new PollTimer({ read: () => this.load(), interval: 1000 })
     this.visibility = () => {
       this.now = Date.now()
-      if (document.hidden) { this.request?.abort(); this.feed.stop() }
-      else { this.load(); if (this.showPlots && this.mode === "local") this.feed.start() }
+      if (document.hidden) this.request?.abort()
+      else this.load()
     }
     document.addEventListener("visibilitychange", this.visibility)
-    if (this.mode === "local") { this.poller.start(); this.load(); if (this.showPlots && !document.hidden) this.feed.start() }
+    if (this.mode === "local") { this.poller.start(); this.load() }
   },
   beforeUnmount() {
-    this.activePage = false; clearTimeout(this.freshnessTimer); this.poller?.stop(); this.request?.abort(); this.request = null; this.feed.stop()
+    this.activePage = false; clearTimeout(this.freshnessTimer); this.poller?.stop(); this.request?.abort(); this.request = null
     document.removeEventListener("visibilitychange", this.visibility)
   },
   computed: {
     current() { return this.report?.current },
-    live() { return !this.error && !!this.current?.fresh && this.current.ageSeconds + Math.max(0, this.now - this.receivedAt) / 1000 <= 2 },
-    summary() { return trainingSummary(this.report, this.error || (this.current && !this.live ? "stale" : "")) },
-    currentApplied() { return this.live && this.current?.application?.applied === true },
+    preference() { return validLearningPreference(this.report?.preference) ? this.report.preference : null },
+    choiceLive() { return !this.error && !!this.preference && Math.max(0, this.now - this.receivedAt) <= 2000 },
+    live() { return !this.error && !!this.current?.fresh && this.current.ageSeconds + Math.max(0, this.now - this.receivedAt) / 1000 <= 2 &&
+      !(this.choiceLive && (this.preference.enabled === false || this.preference.parked === true)) },
+    state() { return tunerStatus(this.report, this.live, this.choiceLive, this.error) },
+    vehicle() { return this.preference?.vehicle ? this.preference.vehicle.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) : "Your steering, measured" },
+    currentApplied() { return this.live && this.current?.enabled === true && this.current?.application?.applied === true },
     rows() { return surfaceRows(this.report, this.live) },
     tracking() { return trackingView(this.report, this.live) },
     trackingValues() { return validTrackingValues(this.current?.trackingValues) ? this.current.trackingValues : null },
     trackingPlot() { return trackingPlotView(this.report, this.now - this.receivedAt) },
-    pairedTrackingChart() { return chartGeometry(this.trackingPlot?.points || [], ['desiredForceAccel', 'measuredForceAccel']) },
-    pairedErrorChart() { return chartGeometry(this.trackingPlot?.points || [], ['errorForceAccel']) },
-    readiness() { return this.current?.details?.["Snapshot readiness"] },
+    pairedTrackingChart() { return chartGeometry(this.trackingPlot?.points || [], ["desiredForceAccel", "measuredForceAccel"]) },
+    pairedErrorChart() { return chartGeometry(this.trackingPlot?.points || [], ["errorForceAccel"]) },
     details() { return Object.entries(this.current?.details || {}) },
+    reportAge() { return this.current ? this.current.ageSeconds + Math.max(0, this.now - this.receivedAt) / 1000 : null },
+    appliedCount() { return this.currentApplied && this.rows.every(row => row.applied !== null) ? this.rows.filter(row => row.applied !== 0).length : null },
+    acceptedCount() { return this.trackingValues ? this.rows.filter(row => row.accepted !== null && row.accepted !== 0).length : null },
+    groupRows() { return this.rows.filter(row => this.selectedGroup.names.includes(row.name)) },
+    selectedGroup() { return this.groups.find(group => group.id === this.group) || this.groups[0] },
+    historyRows() { return this.showAllHistory ? this.report?.history || [] : (this.report?.history || []).slice(0, 6) },
+    improvement() {
+      const before = this.tracking?.baselineErrorRms, after = this.tracking?.futureErrorRms
+      return Number.isFinite(before) && before > 0 && Number.isFinite(after) ? (before - after) / before * 100 : null
+    },
+    quota() {
+      const required = this.tracking?.requiredEpisodes, completed = this.tracking?.futureEpisodes
+      return Number.isSafeInteger(required) && required > 0 ? { required, completed, percent: Math.min(100, completed / required * 100) } : null
+    },
     losses() {
       const d = this.current?.details || {}, baseline = d["Fit baseline loss"], learned = d["Fit candidate loss"]
       return typeof baseline === "number" && Number.isFinite(baseline) && baseline >= 0 &&
         typeof learned === "number" && Number.isFinite(learned) && learned >= 0 ? { baseline, learned } : null
     },
-    lateralChart() { return chartGeometry(this.history, ["desiredLateralAccel", "actualLateralAccel"]) },
-    termsChart() { return chartGeometry(this.history, ["lateralP", "lateralI", "lateralD", "lateralF"]) },
   },
   methods: {
     readable, detailText, coordinateText, measurementText, sourceSeconds,
-    amount(value) { return value === null || value === undefined ? "Not reported" : value.toLocaleString() },
-    togglePlots() {
-      this.showPlots = !this.showPlots
-      if (this.showPlots && this.mode === "local" && !document.hidden) this.feed.start()
-      else this.feed.stop()
+    amount(value) { return value === null || value === undefined ? "—" : value.toLocaleString() },
+    parameterLabel(name) { return PARAMETER_LABELS[name] || readable(name) },
+    groupChanges(group) {
+      if (!this.trackingValues) return "Not reported"
+      const count = this.rows.filter(row => group.names.includes(row.name) && row.accepted !== null && row.accepted !== 0).length
+      return count ? `${count} accepted` : "Baseline"
+    },
+    selectView(view) { if (VIEWS.includes(view)) this.view = view },
+    tabKey(event) {
+      const delta = { ArrowRight: 1, ArrowLeft: -1, Home: -VIEWS.length, End: VIEWS.length }[event.key]
+      if (delta === undefined) return
+      event.preventDefault()
+      const index = VIEWS.indexOf(this.view)
+      const next = event.key === "Home" ? 0 : event.key === "End" ? VIEWS.length - 1 : (index + delta + VIEWS.length) % VIEWS.length
+      this.view = VIEWS[next]
+      event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[next]?.focus()
     },
     async load() {
       this.now = Date.now()
@@ -73,8 +113,8 @@ export const FlmPage = {
         if (!validTrainingResults(value)) throw new Error("The device returned an unsupported training report.")
         this.report = value; this.error = ""; this.receivedAt = this.now = Date.now()
         clearTimeout(this.freshnessTimer)
-        if (value.current?.fresh) this.freshnessTimer = setTimeout(() => { this.now = Date.now() },
-          Math.max(0, 2000 - value.current.ageSeconds * 1000) + 1)
+        const age = value.current?.fresh ? value.current.ageSeconds * 1000 : 0
+        this.freshnessTimer = setTimeout(() => { this.now = Date.now() }, Math.max(0, 2000 - age) + 1)
       } catch (error) {
         if (this.request !== controller || !this.activePage) return
         if (error.status === 401 || ["access_unavailable", "setup_required"].includes(error.code)) this.unauthorized()
@@ -84,84 +124,56 @@ export const FlmPage = {
       }
     },
   },
-  template: `<div class="gx-view gx-flm gx-stack">
-    <header class="gx-settings__header gx-page-header"><div><h3 v-if="embedded">StarPilot Auto Learn</h3><h2 v-else>StarPilot Auto Learn</h2>
-      <p>Learned steering corrections, collection progress and current application.</p></div>
-      </header>
-    <GxState v-if="mode !== 'local'">Auto Learn results require authenticated local Galaxy access.</GxState>
+  template: `<div class="gx-view gx-tuner">
+    <header class="gx-page-header gx-settings__header gx-tuner__heading"><div><p class="gx-tuner__eyebrow">STEERING · AUTO LEARN</p><h2>StarPilot Tuner</h2><p>{{ vehicle }}</p></div>
+      <button type="button" class="gx-btn gx-btn--tonal" @click="go('/driving/torque')"><i class="bi bi-sliders" aria-hidden="true"></i> Steering settings</button></header>
+    <GxState v-if="mode !== 'local'">Connect to your device to see its steering tune.</GxState>
     <template v-else>
-      <section class="gx-card gx-flm__panel"><div class="gx-section__header"><i class="bi bi-activity" aria-hidden="true"></i><span class="gx-section__title" role="status">{{ tracking?.label || summary }}</span></div>
-        <GxState v-if="loading && !report" loading>Reading learning results…</GxState>
-        <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
-        <template v-if="current"><p v-if="!tracking">{{ readable(current.reason) }}</p>
-          <dl class="gx-flm__facts"><div><dt>Auto Learn</dt><dd>{{ !live ? 'Last reported: ' : '' }}{{ current.enabled === null ? 'Unknown' : current.enabled ? 'On' : 'Off' }}</dd></div>
-            <div v-if="!tracking"><dt>Collection</dt><dd>{{ amount(current.progress.samples) }} samples · {{ amount(current.progress.blocks) }} retained blocks</dd></div>
-            <div><dt>Current application</dt><dd>{{ currentApplied ? 'Correction reported applied' : live && current.application ? 'No correction reported applied' : 'Unknown — waiting for a current report' }}</dd></div>
-          </dl><p class="gx-note">Last controller report: {{ current.ageSeconds.toFixed(1) }} seconds old when read.</p>
-          <p v-if="live && current.application">{{ readable(current.application.reason) }}</p>
-        </template>
-        <template v-if="tracking">
-          <p>{{ readable(tracking.reason) }}</p>
-          <p v-if="tracking.changedParameters">Parameters under evaluation: {{ tracking.changedParameters }}</p>
-          <p>Comparable episodes: {{ tracking.beforeEpisodes }} before · {{ tracking.futureEpisodes }} after<template v-if="tracking.requiredEpisodes !== null"> · {{ tracking.requiredEpisodes }} future episodes required</template>.</p>
-          <p>Steering input checks: {{ readable(tracking.modelStatus) }} · Steering delay: {{ measurementText(tracking.lagMs) }}<template v-if="tracking.lagMs !== null"> ms</template></p>
-          <div class="gx-flm__table-wrap"><table class="gx-flm__table" aria-label="Observed tracking before and after the correction trial">
-            <thead><tr><th scope="col">Observed measurement</th><th scope="col">Before trial</th><th scope="col">Future trial episodes</th></tr></thead>
-            <tbody><tr v-for="row in tracking.measurements" :key="row.label"><th scope="row">{{ row.label }}</th><td data-label="Before trial">{{ measurementText(row.before) }}</td><td data-label="Future trial episodes">{{ measurementText(row.future) }}</td></tr></tbody>
-          </table></div>
-          <div v-if="trackingPlot">
-            <h4>Latest completed delay-paired steering episode</h4>
-            <p>{{ trackingPlot.points.length }} original endpoints<template v-if="trackingPlot.sampled"> selected from {{ trackingPlot.totalEndpoints }}</template> · {{ trackingPlot.age.toFixed(1) }} seconds since the last measured pose · Alignment delay {{ (trackingPlot.lagNs / 1e6).toFixed(1) }} ms.</p>
-            <p v-if="!live || !trackingPlot.bindingCurrent" class="gx-note">Earlier episode only; the current steering context is not established by this plot.</p>
-            <div class="gx-plots__grid"><div><h5>Requested / measured lateral acceleration · m/s²</h5><PlotGraph :chart="pairedTrackingChart" title="Paired requested and measured lateral acceleration" /></div>
-              <div><h5>Delay-paired error: requested minus measured · m/s²</h5><PlotGraph :chart="pairedErrorChart" title="Actual delay-paired steering tracking error" /></div></div>
-            <p class="gx-note">Each requested value is paired by the learner with its genuine later measured pose. The horizontal axis uses those pose timestamps; selected endpoints are not resampled or upsampled. Blue is requested, orange is measured.</p>
-            <details><summary>Episode source timestamps</summary><p>Latest control / applied output / measured pose: {{ sourceSeconds(trackingPlot.points.at(-1).controlMonoTime) }} / {{ sourceSeconds(trackingPlot.points.at(-1).applyMonoTime) }} / {{ sourceSeconds(trackingPlot.points.at(-1).poseMonoTime) }} monotonic seconds. Episode {{ trackingPlot.episodeId }} · Applied profile {{ trackingPlot.profileSha256 }}.</p></details>
-          </div>
-          <p v-else class="gx-note">No delay-paired steering episode plot has been reported yet.</p>
-          <p class="gx-note">The live desired/observed plots show sampled controller telemetry; they are not actuator-delay aligned.</p>
-          <p class="gx-note">Before and after use separate completed, comparable driving episodes. Unmeasured values remain “Not measured”. Passing future checks does not itself confirm controller application or saving; currently applied values require fresh controller evidence.</p>
-        </template>
+      <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
+      <section class="gx-card gx-tuner__hero" :data-tone="state.tone" aria-label="Auto Learn status">
+        <div class="gx-tuner__hero-icon" aria-hidden="true"><i class="bi bi-sliders2"></i></div>
+        <div class="gx-tuner__hero-copy"><div class="gx-tuner__eyebrow"><span class="gx-tuner__status-dot"></span>{{ loading && !report ? 'CONNECTING' : state.key === 'off' ? 'DISABLED' : choiceLive || live ? 'DEVICE CONNECTED' : 'WAITING FOR DATA' }}</div>
+          <h3 role="status">{{ loading && !report ? 'Reading your tuner…' : state.title }}</h3><p>{{ state.description }}</p>
+          <p v-if="tracking?.changedParameters && live" class="gx-tuner__current-job"><i class="bi bi-crosshair" aria-hidden="true"></i>{{ tracking.changedParameters }}</p>
+        </div>
+        <div class="gx-tuner__hero-meta"><span>{{ currentApplied ? 'Controller acknowledged' : live ? 'No correction acknowledged' : 'Current application unknown' }}</span><small>{{ reportAge === null ? 'No learner report yet' : 'Learner report ' + reportAge.toFixed(1) + 's old' }}</small></div>
       </section>
-      <section class="gx-card gx-flm__panel"><div class="gx-section__header"><i class="bi bi-sliders" aria-hidden="true"></i><span class="gx-section__title">Learned parameter corrections</span></div>
-        <p v-if="trackingValues">Each value is an original-effect correction coordinate; baseline 0 means no automatic correction. Accepted baseline values were acknowledged by the controller. A pending trial target is an offer, not proof of application. Currently applied values require fresh controller evidence.</p>
-        <p v-else>Each value is an original-effect correction coordinate. Baseline 0 means no automatic correction. Learned values are the latest evaluated proposal; current values require fresh controller application evidence.</p>
-        <p class="gx-note">Speed-window coordinates multiply their original baseline by (1 + correction). Deadband and angle-assist coordinates use the controller’s physical normalizer. Raw degrees, torque and manual tune values are not published by this report.</p>
-        <div class="gx-flm__table-wrap" tabindex="0" role="region" aria-label="All 30 steering correction parameters"><table class="gx-flm__table">
-          <thead><tr><th scope="col">Parameter</th><th scope="col">Baseline</th><th scope="col">{{ trackingValues ? 'Accepted baseline' : 'Learned proposal' }}</th><th v-if="trackingValues" scope="col">Pending trial target</th><th scope="col">Currently applied</th><th scope="col">Support</th></tr></thead>
-          <tbody><tr v-for="row in rows" :key="row.name"><th scope="row">{{ readable(row.name) }}</th><td data-label="Baseline">{{ coordinateText(row.baseline) }}</td><td :data-label="trackingValues ? 'Accepted baseline' : 'Learned proposal'">{{ coordinateText(trackingValues ? row.accepted : row.learned) }}</td><td v-if="trackingValues" data-label="Pending trial target">{{ coordinateText(row.pending) }}</td><td data-label="Currently applied">{{ coordinateText(row.applied) }}</td><td data-label="Support">{{ row.pidSupported ? 'Torque / torque-actuated PID' : 'Torque; PID unsupported (no friction stage)' }}</td></tr></tbody>
-        </table></div>
-        <p class="gx-note">All 30 parameters have torque stages; 26 have torque-actuated PID stages. The four friction thresholds have no PID friction measurement stage. Support describes controller capability; it does not establish a validated fit. Missing values remain “Not reported”.</p>
-      </section>
-      <div v-if="!tracking" class="gx-plots__grid">
-        <section class="gx-card gx-flm__panel"><div class="gx-section__header"><i class="bi bi-collection" aria-hidden="true"></i><span class="gx-section__title">Collection &amp; fitting</span></div>
-          <p v-if="!current">Collection begins when the device reports eligible steering examples.</p>
-          <template v-if="readiness"><p>{{ readable(readiness.reason) }}</p>
-            <p v-if="readiness.selectedBundles !== undefined">Selected bundles: {{ amount(readiness.selectedBundles) }} / {{ amount(readiness.requiredBundles) }} required · {{ amount(readiness.wholeBundles) }} whole bundles retained.</p>
-          </template>
-          <p v-if="current?.details?.['Fit in progress']">Evaluating the collected examples…</p>
-          <template v-if="current?.fit"><p>{{ readable(current.fit.status) }} · {{ readable(current.fit.reason) }}</p>
-            <p>Training windows: {{ amount(current.fit.trainWindows) }} · Validation windows: {{ amount(current.fit.heldoutWindows) }}</p></template>
-          <p class="gx-note">Collection counts describe retained data. The fitter separately checks physical calibration, complete event support and validation.</p>
+      <nav class="gx-tuner__tabs" role="tablist" aria-label="Tuner views">
+        <button v-for="tab in ['overview', 'tune', 'activity']" :key="tab" type="button" role="tab" :id="'tuner-tab-' + tab" :aria-controls="'tuner-panel-' + tab" :aria-selected="view === tab" :tabindex="view === tab ? 0 : -1" @click="selectView(tab)" @keydown="tabKey">{{ tab === 'overview' ? 'Overview' : tab === 'tune' ? 'Your tune' : 'Activity' }}<span v-if="tab === 'tune'" class="gx-tuner__count">30</span></button>
+        <button type="button" class="gx-tuner__plots-link" @click="go('/tuning/plots')">Live plots <i class="bi bi-arrow-up-right" aria-hidden="true"></i></button>
+      </nav>
+      <section v-if="view === 'overview'" id="tuner-panel-overview" role="tabpanel" aria-labelledby="tuner-tab-overview" class="gx-tuner__panel">
+        <div class="gx-tuner__metrics"><div class="gx-card gx-tuner__metric"><span>Applied parameters</span><strong>{{ amount(appliedCount) }}<small v-if="appliedCount !== null"> / 30</small></strong><p>{{ appliedCount === null ? 'Requires current controller evidence' : 'Nonzero corrections acknowledged now' }}</p></div>
+          <div class="gx-card gx-tuner__metric"><span>Accepted corrections</span><strong>{{ amount(acceptedCount) }}</strong><p>{{ acceptedCount === null ? 'No accepted map reported' : 'Reported accepted map · saving is separate' }}</p></div>
+          <div class="gx-card gx-tuner__metric"><span>Driving samples</span><strong>{{ amount(current?.progress?.samples) }}</strong><p>Samples retained in the learner report</p></div></div>
+        <div class="gx-tuner__overview-grid"><section class="gx-card gx-tuner__section gx-tuner__response"><div class="gx-tuner__section-heading"><div><p class="gx-tuner__eyebrow">STEERING RESPONSE</p><h3>Requested meets measured</h3></div><span class="gx-tuner__pill">{{ trackingPlot ? 'Completed window' : 'Waiting for samples' }}</span></div>
+          <template v-if="trackingPlot"><PlotGraph :chart="pairedTrackingChart" title="Requested and measured steering acceleration, paired using the learner's measured delay" /><div class="gx-tuner__legend"><span class="gx-tuner__requested">Requested</span><span class="gx-tuner__measured">Measured</span><small>m/s² · delay aligned</small></div><p class="gx-tuner__caption">{{ trackingPlot.totalEndpoints }} measured endpoints · {{ trackingPlot.age.toFixed(1) }}s since the last pose</p></template>
+          <div v-else class="gx-tuner__empty"><i class="bi bi-activity" aria-hidden="true"></i><h4>Real measurements go here</h4><p>A completed steering window will show the requested response beside what the car actually did.</p></div>
         </section>
-        <section class="gx-card gx-flm__panel"><div class="gx-section__header"><i class="bi bi-bar-chart" aria-hidden="true"></i><span class="gx-section__title">Latest fit comparison</span></div>
-          <dl v-if="losses"><dt>Baseline loss</dt><dd>{{ losses.baseline.toPrecision(5) }}</dd><dt>Learned proposal loss</dt><dd>{{ losses.learned.toPrecision(5) }}</dd></dl>
-          <p v-else>No fit comparison has been reported yet.</p>
-          <p class="gx-note">These are fitter-reported losses for the latest proposal. The live control plots are separate observations and do not measure a before/after learning benefit.</p>
-        </section>
-      </div>
-      <section v-if="!embedded" class="gx-card gx-flm__panel"><div class="gx-section__header"><i class="bi bi-graph-up" aria-hidden="true"></i><span class="gx-section__title">Live steering response</span>
-        <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showPlots" @click="togglePlots">{{ showPlots ? 'Pause live plots' : 'Show live plots' }}</button></div>
-        <template v-if="showPlots"><p role="status">{{ status === 'current' ? 'Live' : status === 'stale' ? 'Last received window — reconnecting' : 'Waiting for steering telemetry' }}</p>
-          <GxNotice v-if="plotError" tone="danger">{{ plotError }}</GxNotice>
-          <div class="gx-plots__grid"><section><h4>Desired / actual lateral acceleration · m/s²</h4><PlotGraph :chart="lateralChart" title="Desired and actual lateral acceleration" /></section>
-            <section><h4>Steering controller terms · controller units</h4><PlotGraph :chart="termsChart" title="Steering controller P I D and F terms" terms /><p class="gx-note">P · I · D · F; absent terms leave gaps.</p></section></div>
-          <p class="gx-note">Blue is desired response; orange is actual. Existing live control telemetry; missing samples leave gaps.</p>
-        </template>
+        <section class="gx-card gx-tuner__section"><div class="gx-tuner__section-heading"><div><p class="gx-tuner__eyebrow">{{ live ? 'THE CURRENT EXPERIMENT' : 'LAST REPORTED EXPERIMENT' }}</p><h3>{{ tracking?.acknowledged && tracking.status === 'trial_active' ? 'Does the correction help?' : 'One change. A fair comparison.' }}</h3></div></div>
+          <p v-if="tracking">{{ readable(tracking.reason) }}</p><p v-else>Comparable driving windows establish the baseline before a small correction can be evaluated.</p>
+          <div class="gx-tuner__comparison"><div><span>Before</span><strong>{{ measurementText(tracking?.baselineErrorRms ?? null) }}</strong></div><i class="bi bi-arrow-right" aria-hidden="true"></i><div><span>Trial</span><strong>{{ measurementText(tracking?.futureErrorRms ?? null) }}</strong></div></div><p class="gx-tuner__caption">Tracking error RMS · m/s² · lower is better</p>
+          <p v-if="improvement !== null" class="gx-tuner__observed">{{ Math.abs(improvement).toFixed(1) }}% {{ improvement >= 0 ? 'lower' : 'higher' }} observed error<small>{{ state.key === 'confirmed' ? 'Comparison passed; controller acknowledged' : 'Observation so far, not a confirmed improvement' }}</small></p>
+          <div v-if="quota" class="gx-tuner__quota"><div><span>Comparable trial windows</span><strong>{{ quota.completed }} / {{ quota.required }}</strong></div><div class="gx-tuner__progress" role="progressbar" aria-label="Comparable trial windows" :aria-valuenow="quota.completed" :aria-valuemax="quota.required" aria-valuemin="0"><span :style="{ width: quota.percent + '%' }"></span></div></div>
+          <p class="gx-tuner__caption">A worse or interrupted trial rolls back. A candidate, an applied correction and a saved tune are different results.</p>
+        </section></div>
       </section>
-      <section class="gx-card gx-flm__panel"><div class="gx-section__header"><i class="bi bi-clock-history" aria-hidden="true"></i><span class="gx-section__title">Recent findings</span></div><p v-if="!report?.history.length">No learning history has been reported yet.</p>
-        <ol v-else><li v-for="(row, index) in report.history" :key="index">{{ row.time }} — {{ readable(row.status) }}: {{ readable(row.reason) }}<template v-if="row.applied"> · Correction applied at that time</template></li></ol>
-        <details v-if="details.length"><summary>Report provenance and details</summary><dl><template v-for="[key, value] in details" :key="key"><dt>{{ readable(key) }}</dt><dd>{{ detailText(value) }}</dd></template></dl></details>
+      <section v-if="view === 'tune'" id="tuner-panel-tune" role="tabpanel" aria-labelledby="tuner-tab-tune" class="gx-tuner__panel"><div class="gx-tuner__section-heading"><div><h3>Your steering tune</h3><p>Thirty correction parameters, organized around how the car steers.</p></div><span class="gx-tuner__pill">Read-only · automatic corrections</span></div>
+        <div class="gx-tuner__tune-layout"><nav class="gx-tuner__groups" aria-label="Steering parameter groups"><button v-for="item in groups" :key="item.id" type="button" :aria-pressed="group === item.id" @click="group = item.id"><i :class="['bi', item.icon]" aria-hidden="true"></i><span>{{ item.label }}<small>{{ item.names.length }} parameters · {{ groupChanges(item) }}</small></span><i class="bi bi-chevron-right" aria-hidden="true"></i></button></nav>
+          <section class="gx-card gx-tuner__section gx-tuner__parameters"><div class="gx-tuner__section-heading"><div><h3>{{ selectedGroup.label }}</h3><p>{{ selectedGroup.description }}</p></div></div>
+            <div class="gx-tuner__parameter-head" aria-hidden="true"><span>Parameter</span><span>{{ trackingValues ? 'Accepted' : 'Proposal' }}</span><span>Trial</span><span>Applied now</span></div>
+            <div v-for="row in groupRows" :key="row.name" class="gx-tuner__parameter"><div><h4>{{ parameterLabel(row.name) }}</h4><small v-if="!row.pidSupported">Torque only · PID unsupported</small></div><div><span class="gx-tuner__mobile-label">{{ trackingValues ? 'Accepted' : 'Proposal' }}</span><strong>{{ coordinateText(trackingValues ? row.accepted : row.learned) }}</strong></div><div><span class="gx-tuner__mobile-label">Trial</span><strong :class="{ 'gx-tuner__pending': row.pending !== null && row.pending !== row.accepted }">{{ coordinateText(row.pending) }}</strong></div><div><span class="gx-tuner__mobile-label">Applied now</span><strong :class="{ 'gx-tuner__applied': row.applied !== null && row.applied !== 0 }">{{ coordinateText(row.applied) }}</strong></div></div>
+            <details class="gx-tuner__disclosure"><summary>How to read these values</summary><p>Zero is the original baseline. These are correction coordinates, not raw degrees or torque. Speed-window coordinates scale the original speed range; deadband and angle assistance use the controller's physical normalizer. A trial is an offer, not proof of application. All 30 stages exist for torque; 26 exist for torque-actuated PID.</p></details>
+          </section></div>
+      </section>
+      <section v-if="view === 'activity'" id="tuner-panel-activity" role="tabpanel" aria-labelledby="tuner-tab-activity" class="gx-tuner__panel"><section class="gx-card gx-tuner__section"><div class="gx-tuner__section-heading"><div><p class="gx-tuner__eyebrow">LEARNING ACTIVITY</p><h3>What the tuner found</h3></div><span class="gx-tuner__pill">Reported observations</span></div>
+          <ol v-if="historyRows.length" class="gx-tuner__timeline"><li v-for="(row, index) in historyRows" :key="index"><span class="gx-tuner__timeline-dot" :class="{ 'gx-tuner__timeline-dot--applied': row.applied }"></span><div><strong>{{ readable(row.status) }}</strong><p>{{ readable(row.reason) }}</p><small>{{ row.time }}<template v-if="row.applied"> · Applied at that time</template></small></div></li></ol>
+          <div v-else class="gx-tuner__empty"><i class="bi bi-clock-history" aria-hidden="true"></i><h4>No findings reported yet</h4><p>This will show real collection, trial and rollback events as the learner reports them.</p></div>
+          <button v-if="(report?.history.length || 0) > 6" type="button" class="gx-btn gx-btn--tonal" @click="showAllHistory = !showAllHistory">{{ showAllHistory ? 'Show recent activity' : 'Show all reported activity' }}</button>
+        </section>
+        <details class="gx-card gx-tuner__section gx-tuner__disclosure"><summary>Diagnostics &amp; source details</summary><dl class="gx-tuner__diagnostics"><dt>Reported state</dt><dd>{{ readable(current?.status) }}</dd><dt>Reason</dt><dd>{{ readable(current?.reason) }}</dd><dt>Retained blocks</dt><dd>{{ amount(current?.progress?.blocks) }}</dd><template v-if="current?.fit"><dt>Latest fit</dt><dd>{{ readable(current.fit.status) }} · {{ readable(current.fit.reason) }}</dd><dt>Training / held-out windows</dt><dd>{{ amount(current.fit.trainWindows) }} / {{ amount(current.fit.heldoutWindows) }}</dd></template><template v-if="losses"><dt>Baseline / candidate loss</dt><dd>{{ losses.baseline.toPrecision(5) }} / {{ losses.learned.toPrecision(5) }}</dd></template><template v-for="[key, value] in details" :key="key"><dt>{{ readable(key) }}</dt><dd>{{ detailText(value) }}</dd></template></dl>
+          <template v-if="trackingPlot"><h4>Delay-paired error</h4><PlotGraph :chart="pairedErrorChart" title="Delay-paired steering error" /><p class="gx-tuner__caption">Episode {{ trackingPlot.episodeId }} · {{ trackingPlot.sampled ? 'Selected' : 'All' }} original endpoints. No interpolation.</p><p class="gx-tuner__caption">Control / applied output / pose: {{ sourceSeconds(trackingPlot.points.at(-1).controlMonoTime) }} / {{ sourceSeconds(trackingPlot.points.at(-1).applyMonoTime) }} / {{ sourceSeconds(trackingPlot.points.at(-1).poseMonoTime) }} monotonic seconds.</p></template>
+        </details>
       </section>
     </template>
   </div>`,

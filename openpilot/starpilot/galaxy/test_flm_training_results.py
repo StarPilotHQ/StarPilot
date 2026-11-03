@@ -125,3 +125,83 @@ def test_unknown_fit_window_counts_are_not_reported_as_zero(tmp_path):
 def test_invalid_namespace_only_disables_report(monkeypatch):
   monkeypatch.setenv('OPENPILOT_PREFIX', '../not-a-report-namespace')
   assert FlmTrainingResults(clock=lambda: NOW).snapshot() == {'version': 1, 'current': None, 'history': []}
+
+
+class ChoiceParams:
+  def __init__(self, root):
+    self.root = root
+
+  def get_param_path(self, key):
+    return str(self.root / key)
+
+  def put(self, key, value, **_kwargs):
+    (self.root / key).write_bytes(value)
+
+
+def choice_fixture(tmp_path, *, parked=True, enabled=True):
+  from opendbc.car.structs import car
+  from openpilot.starpilot.schema_cache import put_cache
+  from openpilot.starpilot.lateral.learning_preferences import KEY, replace_preference
+  params = ChoiceParams(tmp_path)
+  cp = car.CarParams.new_message(brand='hyundai', carFingerprint='HYUNDAI_IONIQ_6')
+  params.put('IsOffroad', b'1' if parked else b'0')
+  params.put(KEY, replace_preference(None, cp, enabled))
+  if parked:
+    put_cache(params, 'CarParamsPersistent', cp)
+  else:
+    params.put('CarParams', cp.to_bytes())
+  return params, cp
+
+
+@pytest.mark.parametrize('parked', (True, False))
+@pytest.mark.parametrize('enabled', (True, False))
+def test_choice_is_independent_of_a_missing_or_stopped_learner(tmp_path, parked, enabled):
+  params, _cp = choice_fixture(tmp_path, parked=parked, enabled=enabled)
+  before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.iterdir()}
+  snapshot = FlmTrainingResults(tmp_path / 'missing-report', params=params).snapshot()
+  assert snapshot['current'] is None
+  assert snapshot['preference'] == {'version': 1, 'valid': True, 'enabled': enabled, 'parked': parked,
+                                    'vehicle': 'HYUNDAI_IONIQ_6'}
+  assert before == {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.iterdir()}
+
+
+def test_scoped_on_is_not_overridden_by_legacy_off(tmp_path):
+  params, _cp = choice_fixture(tmp_path)
+  params.put('ForceAutoTuneOff', b'1')
+  assert FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['preference']['enabled'] is True
+
+
+@pytest.mark.parametrize('key,raw', (('IsOffroad', b'wat'), ('CarParamsPersistent', b'bad'),
+  ('SteeringLearningPreferences', b'{'), ('CarParamsPersistent', b'x' * (1024 * 1024 + 1))))
+def test_unreadable_choice_is_unknown_not_off(tmp_path, key, raw):
+  params, _cp = choice_fixture(tmp_path)
+  params.put(key, raw)
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['preference']
+  assert actual['valid'] is False and actual['enabled'] is None
+
+
+def test_driving_without_current_vehicle_does_not_borrow_parked_identity(tmp_path):
+  params, _cp = choice_fixture(tmp_path)
+  params.put('IsOffroad', b'0')
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['preference']
+  assert actual['valid'] is False and actual['enabled'] is None and actual['parked'] is False
+
+
+@pytest.mark.parametrize('key', ('IsOffroad', 'SteeringLearningPreferences', 'CarParamsPersistent'))
+def test_mode_or_choice_change_during_read_is_unknown(tmp_path, monkeypatch, key):
+  from openpilot.starpilot import saved_source
+  params, _cp = choice_fixture(tmp_path)
+  original = saved_source.read_saved
+  calls = 0
+
+  def changed(owner, name, limit):
+    nonlocal calls
+    if name == key:
+      calls += 1
+      if calls == 2:
+        return b'changed-during-read', True
+    return original(owner, name, limit)
+
+  monkeypatch.setattr(saved_source, 'read_saved', changed)
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['preference']
+  assert actual['valid'] is False and actual['enabled'] is None
