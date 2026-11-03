@@ -175,6 +175,7 @@ const REASONS = {
   trial_oscillation_batch_worse: "Comparable trial windows showed more oscillation, so the correction was rolled back.",
   predeclared_independent_future_look_required: "Collecting the next planned set of comparison windows.",
   prior_accepted_baseline_restored: "The controller returned to its prior baseline.",
+  original_input_regime_after_baseline_ack_required: "The baseline is restored. Completed comparison samples are kept while waiting for the same driving conditions.",
   scoring_later_matched_whole_episodes: "Comparing new steering windows with the baseline.",
   accepted_target_currently_acknowledged: "The controller acknowledged the accepted correction.",
 }
@@ -204,10 +205,12 @@ export function tunerStatus(report, live = false, choiceLive = false, error = ""
   if ((tracking?.reason || current.reason) === "controller_collection_required")
     return { key: "waiting", tone: "muted", title: "Waiting for active steering", description: learningReason("controller_collection_required") }
   if (tracking && !tracking.bindingCurrent)
-    return { key: "paused", tone: "warning", title: "Learning paused", description: "The steering context changed. A fresh qualified window is required." }
+    return { key: "paused", tone: "warning", title: "Learning paused", description: "Current steering evidence is unavailable. A fresh qualified window is required." }
   if (tracking?.acknowledged && tracking.status === "confirmed") return { key: "confirmed", tone: "success", title: "Correction applied", description: "The comparison passed and the controller acknowledged this correction. Disk saving is a separate result." }
   if (tracking?.acknowledged && tracking.status === "trial_active") return { key: "testing", tone: "active", title: "Testing a small correction", description: "The controller acknowledged the trial. Comparable new driving windows decide whether to keep it." }
   if (tracking?.status === "trial_pending") return { key: "pending", tone: "active", title: "Waiting for the controller", description: "A trial was offered. It has not yet been acknowledged as applied." }
+  if (tracking?.status === "rollback" && tracking.acknowledged && tracking.reason === "original_input_regime_after_baseline_ack_required")
+    return { key: "waiting", tone: "ready", title: "Waiting for matching road", description: learningReason(tracking.reason) }
   if (tracking?.status === "rollback") return { key: "rollback", tone: "warning", title: "Returning to the baseline", description: tracking.acknowledged ? "The controller acknowledged the rollback." : "A rollback was requested. Current application is not yet acknowledged." }
   if (tracking?.status === "paused" || current.status === "unavailable") return { key: "paused", tone: "warning", title: "Learning paused", description: learningReason(tracking?.reason || current.reason) }
   return { key: "collecting", tone: "active", title: tracking?.status === "calibrating" ? "Measuring steering response" : "Collecting driving samples", description: learningReason(tracking?.reason || current.reason) }
@@ -256,8 +259,9 @@ export function trackingView(report, live = false) {
   if (value.status === 'trial_active' && acknowledged) label = 'Evaluating correction'
   if (value.status === 'confirmed' && acknowledged) label = 'Confirmed correction acknowledged'
   if (value.status === 'rollback' && acknowledged) label = 'Correction rollback acknowledged'
+  if (value.status === 'rollback' && acknowledged && value.reason === 'original_input_regime_after_baseline_ack_required') label = 'Baseline restored; waiting for matching road'
   if (value.status !== 'paused' && (value.phase !== null && !matchingPhase || expectedPhase !== undefined && !matchingPhase)) label = 'Learning state reported; trial application unknown'
-  if (live && !value.bindingCurrent) label = 'Learning paused; steering context changed'
+  if (live && !value.bindingCurrent) label = 'Learning paused; current steering evidence unavailable'
   if (!live) label = 'Earlier learning report; current application unknown'
   return { ...value, label, acknowledged, changedParameters: value.names.map(readable).join(', '),
     measurements: [
