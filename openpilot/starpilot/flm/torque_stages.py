@@ -52,6 +52,8 @@ def apply_stages(parent, cs, setpoint, jerk, ff, threshold, *, active, limited, 
   observer = getattr(parent, 'automatic_flm_observation', None)
   if observer is not None and frame.valid():
     observer.observe_stage(frame, ff, (0.0, 0.0))
+  if getattr(parent, 'manual_flm_effects', None) is not None:
+    return apply_selected_stage(parent, frame)
   if source is None:
     return ff, threshold
   if not frame.valid() or not frame.active or frame.driver_override:

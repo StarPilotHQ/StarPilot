@@ -1,5 +1,8 @@
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
+import { GxDialog } from "./dialog.js"
+import { SettingsFeed, settingsBusy } from "./settings.js"
+import { GalaxySettingRow, settingControl } from "./galaxy-setting-row.js"
 import { PollTimer, connectionError } from "./polling.js"
 import { requestJson } from "./startup.js"
 import { PlotGraph, PlotsPage, chartGeometry } from "./plots.js"
@@ -27,14 +30,16 @@ const PARAMETER_LABELS = {
 
 export const FlmPage = {
   name: "FlmPage",
-  components: { GxState, GxNotice, PlotGraph, PlotsPage },
+  components: { GxState, GxNotice, GxDialog, PlotGraph, PlotsPage, GalaxySettingRow },
   props: { initialView: { type: String, default: "overview" }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, default: path => { window.location.hash = path } } },
   data: () => ({ report: null, error: "", loading: false, request: null, receivedAt: 0, now: 0,
+    manualState: { status: "idle", data: null, pending: null, error: "" }, manualResetRequested: false,
     view: "overview", group: "balance", showAllHistory: false, groups: SURFACE_GROUPS }),
-  watch: { initialView(view) { this.selectView(view) } },
+  watch: { initialView(view) { this.selectView(view) }, mode() { this.syncManualControls() } },
   mounted() {
     this.activePage = true
+    this.manualFeed = new SettingsFeed({ publish: update => Object.assign(this.manualState, update), unauthorized: this.unauthorized })
     this.selectView(this.initialView)
     this.poller = new PollTimer({ read: () => this.load(), interval: 1000 })
     this.visibility = () => {
@@ -46,10 +51,13 @@ export const FlmPage = {
     if (this.mode === "local") { this.poller.start(); this.load() }
   },
   beforeUnmount() {
-    this.activePage = false; clearTimeout(this.freshnessTimer); this.poller?.stop(); this.request?.abort(); this.request = null
+    this.activePage = false; this.manualFeed?.stop(); clearTimeout(this.freshnessTimer); this.poller?.stop(); this.request?.abort(); this.request = null
     document.removeEventListener("visibilitychange", this.visibility)
   },
   computed: {
+    manualRows() { return (this.manualState.data?.rows || []).map((row, index) => ({ row, index })).filter(({ row }) => this.selectedGroup.names.includes(row.coordinate)) },
+    manualActions() { return (this.manualState.data?.rows || []).map((row, index) => ({ row, index })).filter(({ row }) => row.confirm) },
+    manualBusy() { return settingsBusy(this.manualState) },
     current() { return this.report?.current },
     preference() { return validLearningPreference(this.report?.preference) ? this.report.preference : null },
     choiceLive() { return !this.error && !!this.preference && Math.max(0, this.now - this.receivedAt) <= 2000 },
@@ -97,7 +105,29 @@ export const FlmPage = {
       const count = this.rows.filter(row => group.names.includes(row.name) && row.accepted !== null && row.accepted !== 0).length
       return count ? `${count} accepted` : "Baseline"
     },
-    selectView(view) { if (VIEWS.includes(view)) this.view = view },
+    selectView(view) { if (VIEWS.includes(view)) { this.view = view; return this.syncManualControls() } },
+    syncManualControls() {
+      if (!this.manualFeed) return
+      if (this.activePage && this.mode === "local" && this.view === "tune") {
+        if (!this.manualFeed.active) return this.manualFeed.start("tuning")
+      } else { this.manualResetRequested = false; this.manualFeed.stop() }
+    },
+    async reviewManualReset(index, direction) {
+      const row = this.manualState.data?.rows?.[index]
+      if (this.view !== "tune" || this.manualBusy || this.manualState.error || !row?.confirm || !row.available) return
+      this.manualResetRequested = true
+      await this.manualFeed.preview(index, direction)
+      if (!this.manualState.pending) this.manualResetRequested = false
+    },
+    cancelManualReset() { this.manualResetRequested = false; this.manualFeed.cancel() },
+    async confirmManualReset() { await this.manualFeed.confirm(); this.manualResetRequested = false },
+    async saveManual(index, value) {
+      const row = this.manualState.data?.rows?.[index]
+      if (this.view !== "tune" || !this.manualFeed?.active || this.manualBusy || this.manualState.error ||
+          !this.selectedGroup.names.includes(row?.coordinate) || !row.available || !row.action || settingControl(row) !== "slider") return false
+      await this.manualFeed.previewValue(index, value)
+      return !this.manualState.error && this.manualState.status === "ready"
+    },
     tabKey(event) {
       const delta = { ArrowRight: 1, ArrowLeft: -1, Home: -VIEWS.length, End: VIEWS.length }[event.key]
       if (delta === undefined) return
@@ -142,6 +172,7 @@ export const FlmPage = {
         </div>
         <div class="gx-tuner__hero-meta"><span>{{ currentApplied ? 'Controller acknowledged' : live ? 'No correction acknowledged' : 'Current application unknown' }}</span><small>{{ reportAge === null ? 'No learner report yet' : 'Learner report ' + reportAge.toFixed(1) + 's old' }}</small></div>
       </section>
+      <GxDialog v-if="manualResetRequested && manualState.pending" labelledby="manual-tune-confirm-title" @close="cancelManualReset"><h3 id="manual-tune-confirm-title">Reset manual tune?</h3><p>{{ manualState.pending.question }}</p><div class="gx-dialog__actions"><button type="button" class="gx-btn gx-btn--tonal" @click="cancelManualReset">Cancel</button><button type="button" class="gx-btn" @click="confirmManualReset">Reset</button></div></GxDialog>
       <nav class="gx-tuner__tabs" role="tablist" aria-label="Tuner views">
         <button v-for="tab in ['overview', 'tune', 'activity', 'plots']" :key="tab" type="button" role="tab" :id="'tuner-tab-' + tab" :aria-controls="'tuner-panel-' + tab" :aria-selected="view === tab" :tabindex="view === tab ? 0 : -1" @click="selectView(tab)" @keydown="tabKey">{{ tab === 'overview' ? 'Overview' : tab === 'tune' ? 'Your tune' : tab === 'activity' ? 'Activity' : 'Live plots' }}<span v-if="tab === 'tune'" class="gx-tuner__count">30</span></button>
       </nav>
@@ -165,6 +196,14 @@ export const FlmPage = {
         <div class="gx-tuner__section-heading"><div><h3>Auto Learn corrections</h3><p>Thirty automatic correction values, grouped by steering behavior.</p></div><span class="gx-tuner__pill">Reported corrections</span></div>
         <div class="gx-tuner__tune-layout"><nav class="gx-tuner__groups" aria-label="Steering parameter groups"><button v-for="item in groups" :key="item.id" type="button" :aria-pressed="group === item.id" @click="group = item.id"><i :class="['bi', item.icon]" aria-hidden="true"></i><span>{{ item.label }}<small>{{ item.names.length }} parameters · {{ groupChanges(item) }}</small></span><i class="bi bi-chevron-right" aria-hidden="true"></i></button></nav>
           <section class="gx-card gx-tuner__section gx-tuner__parameters"><div class="gx-tuner__section-heading"><div><h3>{{ selectedGroup.label }}</h3><p>{{ selectedGroup.description }}</p></div></div>
+            <section class="gx-tuner__manual" aria-label="Manual tuning"><h4>Manual tune</h4><p class="gx-tuner__caption">Parked edits apply to the next drive. Auto Learn pauses while manual overrides are set. Zero removes an override.</p>
+              <GxNotice v-if="manualState.error" tone="danger">{{ manualState.error }}</GxNotice>
+              <p v-if="!manualState.data" class="gx-tuner__caption">{{ manualState.status === 'loading' ? 'Loading saved manual tune…' : 'Manual tuning unavailable. Reconnecting…' }}</p>
+              <p v-else-if="!manualRows.length" class="gx-tuner__caption">{{ manualState.data.rows[0]?.reason || 'Manual tuning is unavailable for this controller.' }}</p>
+              <GalaxySettingRow v-for="{ row, index } in manualRows" :key="row.coordinate" :row="{ ...row, label: parameterLabel(row.coordinate) }" :index="index" :busy="manualBusy" :disabled="!!manualState.error" :save-value="saveManual" @reset-default="index => manualFeed.resetDefault(index)" />
+              <GalaxySettingRow v-for="{ row, index } in manualActions" :key="index" :row="row" :index="index" :busy="manualBusy" :disabled="!!manualState.error" :save-value="saveManual" @review="reviewManualReset" />
+            </section>
+            <h4>Auto Learn evidence</h4><p class="gx-tuner__caption">These reported results are separate from your manual settings.</p>
             <div class="gx-tuner__parameter-head" aria-hidden="true"><span>Parameter</span><span>{{ trackingValues ? 'Accepted' : 'Proposal' }}</span><span>Trial</span><span>Applied now</span></div>
             <div v-for="row in groupRows" :key="row.name" class="gx-tuner__parameter"><div><h4>{{ parameterLabel(row.name) }}</h4><small v-if="!row.pidSupported">Torque only · PID unsupported</small></div><div><span class="gx-tuner__mobile-label">{{ trackingValues ? 'Accepted' : 'Proposal' }}</span><strong>{{ coordinateText(trackingValues ? row.accepted : row.learned) }}</strong></div><div><span class="gx-tuner__mobile-label">Trial</span><strong :class="{ 'gx-tuner__pending': row.pending !== null && row.pending !== row.accepted }">{{ coordinateText(row.pending) }}</strong></div><div><span class="gx-tuner__mobile-label">Applied now</span><strong :class="{ 'gx-tuner__applied': row.applied !== null && row.applied !== 0 }">{{ coordinateText(row.applied) }}</strong></div></div>
             <details class="gx-tuner__disclosure"><summary>How to read these values</summary><p>Zero is the original baseline. These are correction coordinates, not raw degrees or torque. Speed-window coordinates scale the original speed range; deadband and angle assistance use the controller's physical normalizer. A trial is an offer, not proof of application. All 30 stages exist for torque; 26 exist for torque-actuated PID.</p></details>

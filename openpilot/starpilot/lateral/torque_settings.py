@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 import json
 import math
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from openpilot.starpilot.lateral.torque_supported import BOLT_VEHICLES, GAIN_VEHICLES, GM_VEHICLES
 
@@ -16,6 +16,9 @@ MAX_DOCUMENT_BYTES = 16_384
 
 from openpilot.starpilot.flm.torque_surface import GmFlmBinding
 from opendbc.car.values import PLATFORMS
+
+if TYPE_CHECKING:
+  from openpilot.starpilot.flm.manual_coordinates import ManualCoordinates
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,7 @@ class PlatformProfile:
   gain_basis: GainBasis | None = None
   geometry: GeometryProfile | None = None
   flm: GmFlmBinding | None = None
+  manual_coordinates: ManualCoordinates | None = None
 
 
 class LegacyMode(StrEnum):
@@ -163,7 +167,7 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
   except (RecursionError, OverflowError) as exc:
     raise ValueError("Malformed torque document") from exc
   if not isinstance(document, dict) or set(document) != {"schemaVersion", "vehicles"} or \
-     type(document["schemaVersion"]) is not int or document["schemaVersion"] not in (1, 2, 3, 4) or \
+     type(document["schemaVersion"]) is not int or document["schemaVersion"] not in (1, 2, 3, 4, 5) or \
      not isinstance(document["vehicles"], dict) or len(document["vehicles"]) > len(PLATFORMS):
     raise ValueError("Malformed torque document")
   profiles: dict[str, PlatformProfile] = {}
@@ -173,8 +177,10 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
       expected |= {"proportionalGain", "gainBasis"}
     if document["schemaVersion"] >= 3 and isinstance(value, dict) and "geometry" in value:
       expected |= {"geometry"}
-    if document["schemaVersion"] == 4 and isinstance(value, dict) and "flm" in value:
+    if document["schemaVersion"] >= 4 and isinstance(value, dict) and "flm" in value:
       expected |= {"flm"}
+    if document["schemaVersion"] == 5 and isinstance(value, dict) and "manualCoordinates" in value:
+      expected |= {"manualCoordinates"}
     if fingerprint not in PLATFORMS or not isinstance(value, dict) or set(value) != expected:
       raise ValueError("Malformed torque profile")
     basis_obj = value["basis"]
@@ -204,13 +210,21 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
         raise ValueError("Unsupported GM FLM profile")
       flm = GmFlmBinding.from_document(value["flm"])
       flm.validate_manual(fingerprint)
-    profiles[fingerprint] = PlatformProfile(basis, _choice(value["factor"]), _choice(value["friction"]), gain, gain_basis, geometry, flm)
+    manual = None
+    if "manualCoordinates" in value:
+      from openpilot.starpilot.flm.manual_coordinates import ManualCoordinates
+      manual = ManualCoordinates.from_document(value["manualCoordinates"])
+      if flm is not None:
+        raise ValueError("Only one manual surface may be selected")
+    profiles[fingerprint] = PlatformProfile(basis, _choice(value["factor"]), _choice(value["friction"]), gain, gain_basis, geometry, flm, manual)
   return profiles
 
 
 def serialize_document(profiles: dict[str, PlatformProfile]) -> bytes:
   vehicles: dict[str, dict] = {}
-  version = (4 if any(p.flm is not None for p in profiles.values()) else 3 if any(p.geometry is not None for p in profiles.values())
+  version = (5 if any(p.manual_coordinates is not None for p in profiles.values())
+    else 4 if any(p.flm is not None for p in profiles.values())
+    else 3 if any(p.geometry is not None for p in profiles.values())
     else 2 if any(p.gain_basis is not None for p in profiles.values()) else 1)
   for fingerprint, profile in profiles.items():
     vehicles[fingerprint] = {
@@ -235,6 +249,11 @@ def serialize_document(profiles: dict[str, PlatformProfile]) -> bytes:
       }
     if profile.flm is not None:
       vehicles[fingerprint]["flm"] = profile.flm.document()
+    if profile.manual_coordinates is not None:
+      from openpilot.starpilot.flm.manual_coordinates import ManualCoordinates
+      if type(profile.manual_coordinates) is not ManualCoordinates:
+        raise ValueError("Typed manual coordinates required")
+      vehicles[fingerprint]["manualCoordinates"] = profile.manual_coordinates.document()
   raw = json.dumps({"schemaVersion": version, "vehicles": vehicles}, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
   parse_document(raw)
   return raw

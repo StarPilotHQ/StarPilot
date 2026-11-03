@@ -220,7 +220,9 @@ class GlobalRuntime:
     self.stage_effect = False
     self.centre_ack = None
     policy = getattr(getattr(self.controller, 'starpilot_extension', None), 'policy', None)
-    self.live_manual = bool(manual_current or getattr(self.controller, 'flm_surface', None) is not None or
+    self.live_manual = bool(manual_current or getattr(self.controller, 'manual_flm_effects', None) is not None or
+      getattr(self.controller, 'manual_flm_status', 'not_configured') not in ('configured', 'not_configured') or
+      getattr(self.controller, 'flm_surface', None) is not None or
                             getattr(policy, 'surface', None) is not None)
     self.native_required = bool(native_required)
     self.native_witness = native_witness

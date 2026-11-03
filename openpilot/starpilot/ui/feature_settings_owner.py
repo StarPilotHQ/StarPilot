@@ -1029,6 +1029,11 @@ class FeatureSettingsOwner:
       title = "BluePilot Controller Options"
       rows.extend(FordBluePilotFeature(self).rows(parked, options=True))
       rows.extend(FordClusterFeature(self).rows(parked))
+    elif page == FeaturePage.TUNING:
+      title = "Manual steering tune"
+      capability = self._capability("torque")
+      rows.extend(self.torque.manual_rows(capability, parked and self.authority("torque") and
+                                         self.authority("parked_preferences") and capability is not None))
     elif page == FeaturePage.TORQUE:
       title = "Steering and Torque"
       rows.extend(FordBluePilotFeature(self).rows(parked))
@@ -1319,6 +1324,8 @@ class FeatureSettingsOwner:
                     row.key.startswith('conditional:') and not row.key.startswith(BUTTON_PREFIX) else fingerprint)
             for row in rows]
     subtitle = (
+        "Parked changes apply after the next drive starts. These are explicit manual overrides, separate from Auto Learn."
+        if page == FeaturePage.TUNING else
         "Configure features supported by this vehicle. Restart requirements are shown with each setting."
         if page == FeaturePage.VEHICLE else
         "Configure automatic Chill and Experimental switching."

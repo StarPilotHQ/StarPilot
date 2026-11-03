@@ -337,12 +337,26 @@ class EffectReplaySource:
     return self.source.selected_output(*args, **kwargs)
 
 
+def _selected_source(parent):
+  from openpilot.starpilot.flm.manual_coordinates import ManualEffects
+  source = getattr(parent, 'manual_flm_effects', None)
+  if source is not None:
+    policy = getattr(getattr(parent, 'starpilot_extension', None), 'policy', None)
+    if getattr(parent, 'flm_surface', None) is not None or getattr(policy, 'surface', None) is not None:
+      return None
+    return source if type(source) is ManualEffects else None
+  return getattr(parent, 'automatic_flm_effects', None)
+
+
 def manual(parent):
   policy = getattr(getattr(parent, 'starpilot_extension', None), 'policy', None)
-  return getattr(parent, 'flm_surface', None) is not None or getattr(policy, 'surface', None) is not None
+  return (getattr(parent, 'manual_flm_effects', None) is not None
+          or getattr(parent, 'flm_surface', None) is not None or getattr(policy, 'surface', None) is not None)
 
 
 def bounded_profile_on_limited_frame(parent):
+  if getattr(parent, 'manual_flm_effects', None) is not None:
+    return False
   # This is parameter shaping, not a native grant. The live owner must already
   # hold current source/native permission; replay uses the same bounded math.
   # Legacy residual owners and arbitrary callback objects remain inhibited.
@@ -357,14 +371,14 @@ def bounded_profile_on_limited_frame(parent):
 
 
 def apply_selected_stage(parent, frame):
-  source = getattr(parent, 'automatic_flm_effects', None)
+  source = _selected_source(parent)
   if (
     source is None
     or not frame.valid()
     or not frame.active
     or frame.driver_override
     or (frame.limited and (frame.curvature_limited or not bounded_profile_on_limited_frame(parent)))
-    or manual(parent)
+    or (manual(parent) and source is not getattr(parent, 'manual_flm_effects', None))
   ):
     return frame.baseline_ff, frame.baseline_threshold
   try:
@@ -379,13 +393,13 @@ def apply_selected_stage(parent, frame):
 
 
 def apply_selected_friction(parent, cs, setpoint, baseline, *, active, limited, curvature_limited=False):
-  source = getattr(parent, 'automatic_flm_effects', None)
+  source = _selected_source(parent)
   if (
     source is None
     or not active
     or (limited and (curvature_limited or not bounded_profile_on_limited_frame(parent)))
     or cs.steeringPressed
-    or manual(parent)
+    or (manual(parent) and source is not getattr(parent, 'manual_flm_effects', None))
     or not finite(baseline)
   ):
     return baseline
@@ -399,8 +413,9 @@ def apply_selected_friction(parent, cs, setpoint, baseline, *, active, limited, 
 
 
 def apply_selected_deadzone(parent, cs, vm, baseline_accel, requested_curvature, *, active, limited, curvature_limited=False):
-  source = getattr(parent, 'automatic_flm_effects', None)
-  if source is None or not active or (limited and (curvature_limited or not bounded_profile_on_limited_frame(parent))) or cs.steeringPressed or manual(parent):
+  source = _selected_source(parent)
+  if (source is None or not active or (limited and (curvature_limited or not bounded_profile_on_limited_frame(parent)))
+      or cs.steeringPressed or (manual(parent) and source is not getattr(parent, 'manual_flm_effects', None))):
     return baseline_accel
   try:
     speed = float(cs.vEgo)
@@ -415,13 +430,13 @@ def apply_selected_deadzone(parent, cs, vm, baseline_accel, requested_curvature,
 
 
 def apply_selected_output(parent, cs, vm, params, requested_curvature, result, *, active, limited, curvature_limited=False):
-  source = getattr(parent, 'automatic_flm_effects', None)
+  source = _selected_source(parent)
   if (
     source is None
     or not active
     or (limited and (curvature_limited or not bounded_profile_on_limited_frame(parent)))
     or cs.steeringPressed
-    or manual(parent)
+    or (manual(parent) and source is not getattr(parent, 'manual_flm_effects', None))
     or cs.vEgo < 0.1 * 0.44704
   ):
     return result
