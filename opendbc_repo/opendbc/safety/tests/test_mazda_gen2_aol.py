@@ -121,6 +121,64 @@ class TestMazdaGen2Aol(unittest.TestCase):
       self.feed()
     self.assertEqual(self.safety.aol_get_permission_mask(), 0)
 
+  def test_ti_02_pause_withholds_lateral_but_keeps_the_token(self):
+    self.configure()
+    self.arm()
+    for _ in range(50):
+      self.feed(violation=2)
+    self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+    self.assertFalse(self.safety.safety_tx_hook(self.packet('EPS_LKAS', {'LKAS_REQUEST': 45}, bus=1)))
+    for _ in range(9):
+      self.feed()
+    self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+    self.feed()
+    # No new gesture: the session resumes once the recovery frames have arrived.
+    self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+    self.assertTrue(self.safety.safety_tx_hook(self.packet('EPS_LKAS', {'LKAS_REQUEST': 45}, bus=1)))
+
+  # 10 ms ticks; MAZDA_TI_PAUSE_MAX_US is 30 s, measured from the first 0x02 frame.
+  def pause(self, ticks):
+    for _ in range(ticks):
+      self.feed(violation=2)
+
+  def recover(self, ticks=12):
+    for _ in range(ticks):
+      self.feed()
+
+  def test_ti_02_pause_up_to_the_cap_keeps_the_token(self):
+    self.configure()
+    self.arm()
+    self.pause(3001)  # last frame exactly 30 s after the first
+    self.recover()
+    self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+
+  def test_ti_02_pause_past_the_cap_revokes_the_token(self):
+    self.configure()
+    self.arm()
+    self.pause(3002)
+    self.assertFalse(self.safety.get_controls_allowed())
+    self.recover()
+    self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+
+  def test_ti_02_flicker_keeps_the_episode_timer(self):
+    self.configure()
+    self.arm()
+    self.pause(2500)
+    self.recover(3)  # short of the recovery frames: same episode
+    self.pause(600)
+    self.recover()
+    self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+
+  def test_ti_02_new_episode_after_full_recovery_has_a_fresh_timer(self):
+    self.configure()
+    self.arm()
+    self.pause(2500)
+    self.recover()
+    self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+    self.pause(2500)
+    self.recover()
+    self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+
   def test_standstill_longitudinal_does_not_inherit_lateral_speed_gate(self):
     self.configure()
     for _ in range(12):
