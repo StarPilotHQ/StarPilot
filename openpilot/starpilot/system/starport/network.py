@@ -109,6 +109,37 @@ def recover_autoconnect(log: Callable[..., None], marker: Path = AUTOCONNECT_MAR
   return True
 
 
+SETTINGS_PROFILE_PREFIX = "openpilot connection "  # system/ui/lib/wifi_manager.py names saved networks this way
+
+
+def profile_network_name(profile: str) -> str:
+  """A saved connection's network name: "openpilot connection Home" -> "Home"; other profiles as they are."""
+  return profile[len(SETTINGS_PROFILE_PREFIX):] if profile.startswith(SETTINGS_PROFILE_PREFIX) else profile
+
+
+def wifi_network_name(interface: str = "wlan0") -> str:
+  """The network the comma's own Wi-Fi is on or joining, for telling the driver; "" if none or unknown.
+
+  Its own D-Bus connection: never the car lease's, whose lock the link check and reconnect wait on."""
+  lease = NetworkLease(lambda *args, **kwargs: None, interface)
+  try:
+    for path, name in lease._wifi_devices():
+      if name != interface:
+        continue
+      access_point = lease._get(path, NM_WIRELESS_IFACE, "ActiveAccessPoint")
+      if access_point and access_point != "/":
+        ssid = bytes(lease._get(access_point, NM_AP_IFACE, "Ssid")).decode("utf-8", "replace").strip()
+        if ssid:
+          return ssid
+      # Still joining (no access point yet): the profile's name, which the comma's Wi-Fi settings prefix.
+      active = lease._get(path, NM_DEVICE_IFACE, "ActiveConnection")
+      return profile_network_name(str(lease._get(active, NM_ACTIVE_IFACE, "Id"))) if active and active != "/" else ""
+    return ""
+  finally:
+    if lease.router is not None:
+      lease.router.close()
+
+
 def connection_settings(credentials: WifiCredentials, interface: str) -> dict:
   wireless = {
     "ssid": ("ay", credentials.ssid.encode("utf-8")),

@@ -34,6 +34,7 @@ from typing import Any
 
 from openpilot.common.hardware import COMMA_HARDWARE
 from openpilot.starpilot.system.starport import car_profiles, device_health, identity as identity_store, new_setup, reachability, setup_ladder, system_slice
+from openpilot.starpilot.system.starport import reconnect_notice
 from openpilot.starpilot.system.starport.auto_connect import AutoConnectPolicy
 from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, BootstrapError, BootstrapTimeout, WirelessBootstrap
 from openpilot.starpilot.system.starport.bugsink_report import PairingAttempt
@@ -42,7 +43,7 @@ from openpilot.starpilot.system.starport.frame_source import (DEFAULT_PATH as DE
 from openpilot.starpilot.system.starport.projection_control import DEFAULT_CONTROL_SOCKET, NATIVE_FOCUS
 from openpilot.starpilot.system.starport.touch import DEFAULT_TOUCH_SOCKET
 from openpilot.starpilot.system.starport.view import CAR_FRAME_PATH, ViewSource, renderer_available
-from openpilot.starpilot.system.starport.session import CODEC_H265, AuthenticationRejected, PeerRequestedStop, ProjectionSession
+from openpilot.starpilot.system.starport.session import CODEC_H265, AuthenticationRejected, PeerRequestedStop, ProjectionSession, SharedRadioStall
 
 BACKOFF_SECONDS = (2.0, 4.0, 8.0, 15.0, 30.0)
 STABLE_SESSION_SECONDS = 30.0
@@ -67,6 +68,8 @@ USB_CONFIGURE_WAIT = 15.0    # slower receivers need time to enumerate after the
 LINK_CHECK_INTERVAL = 1.0    # how often the link watcher asks whether the car's Wi-Fi is still up
 LINK_CHECK_SLOW = 1.0        # a link check slower than this is logged (NetworkManager answers over D-Bus)
 STREAM_STALL_LOG = 1.0       # a streaming loop pass slower than this is logged
+RADIO_CHECK_INTERVAL = 0.5   # how often the comma's own Wi-Fi is checked for a join or roam (a sysfs read)
+RADIO_CHANGE_WINDOW = 15.0   # a join or roam this recent can still stall the car (11-02: stall came 7.5 s after a roam)
 REPORTED_SETTINGS = ("connection", "usb_mode", "view", "encoder", "fps", "bitrate_kbps", "rate_control", "gpu_nv12",
                      "async_readback", "wifi_interface", "dedicated_wifi_interface", "verify_head_unit", "version_status",
                      "rfcomm_channel", "phone_class", "auto_connect", "allow_hevc")
@@ -248,6 +251,60 @@ class LinkWatch:
           self.log("link_lost", reason=self.lost, wifi_dbm=self.wifi_dbm)
           return
       self._stop.wait(self.interval)
+
+
+class SharedRadioWatch:
+  """Notices the comma's own Wi-Fi joining or roaming while the car is on aa0; both share one radio.
+
+  The link going down or up bumps carrier_changes, a plain sysfs read. The network's name comes from
+  NetworkManager on this thread, never the streaming one.
+  """
+
+  def __init__(self, log: Callable[..., None], interface: str = "wlan0", interval: float = RADIO_CHECK_INTERVAL,
+               counter: Path | None = None, name: Callable[[str], str] | None = None):
+    self.log, self.interface, self.interval = log, interface, interval
+    if name is None:
+      from openpilot.starpilot.system.starport.network import wifi_network_name as name
+    self.name = name
+    self.counter = counter or Path(f"/sys/class/net/{interface}/carrier_changes")
+    self.changed_at: float | None = None
+    self.network = ""
+    self._stop = threading.Event()
+    self._thread = threading.Thread(target=self._run, name="aa_radio_watch", daemon=True)
+
+  def start(self) -> SharedRadioWatch:
+    self._thread.start()
+    return self
+
+  def stop(self) -> None:
+    self._stop.set()
+
+  def recent(self, now: float | None = None) -> str | None:
+    """The other network's name if it changed within RADIO_CHANGE_WINDOW ("" if unnamed), else None."""
+    changed_at = self.changed_at
+    now = time.monotonic() if now is None else now
+    return self.network if changed_at is not None and now - changed_at <= RADIO_CHANGE_WINDOW else None
+
+  def _read(self) -> str | None:
+    try:
+      return self.counter.read_text().strip()
+    except OSError:
+      return None
+
+  def _run(self) -> None:
+    last = self._read()
+    while not self._stop.wait(self.interval):
+      current = self._read()
+      if current is None or current == last:
+        continue
+      last = current
+      self.network = ""  # named below; D-Bus can be slow, and the change must count from now
+      self.changed_at = time.monotonic()
+      try:
+        self.network = self.name(self.interface)
+      except Exception:
+        self.network = ""
+      self.log("other_wifi_changed", interface=self.interface, network=self.network)
 
 
 class EventLog:
@@ -1263,6 +1320,8 @@ class Supervisor:
           self._set(error=message)
           reach = reachability.classify(stage, type(error).__name__, f"{message} {error}")
           self.log("attempt_failed", stage=stage, error=message, kind=type(error).__name__, where=_where(error), reach=reach)
+          if isinstance(error, SharedRadioStall):
+            reconnect_notice.write(reconnect_notice.shared_radio_text(error.network))
           if isinstance(error, StrayLinkError):
             self._clear_stray_link()
             car_first = True  # the car pages right back once its link drops; let it, rather than crossing it again
@@ -1305,6 +1364,9 @@ class Supervisor:
   def _describe_error(stage: str, error: Exception) -> str:
     if isinstance(error, AuthenticationRejected):
       return "The car rejected the Android Auto identity; it may have expired"
+    if isinstance(error, SharedRadioStall):
+      joined = f"joined {error.network}" if error.network else "was switching networks"
+      return f"The car's Wi-Fi stalled while the comma's own Wi-Fi {joined}; reconnecting"
     text = str(error) or type(error).__name__
     if stage == "authenticating" and "certificate" in text.lower():
       text += " (set verify_head_unit false in config.json to test without verifying the car)"
@@ -1667,6 +1729,10 @@ class Supervisor:
                         renderer_log=identity_store.LOG_DIR / "car_ui.log")
     self._set(view=source.label, encoder=getattr(encoder, "backend", "libx264"), target_fps=fps)
     watch = LinkWatch(lease, self.log).start()
+    radio = None
+    if getattr(lease, "dedicated", False) and getattr(lease, "interface", "wlan0") != "wlan0":
+      radio = SharedRadioWatch(self.log).start()
+      session.radio_change = radio.recent
     try:
       from openpilot.starpilot.system.starport.media_audio import MediaAudio, music_control
       from openpilot.starpilot.system.starport.media_status import MediaStatus
@@ -1690,6 +1756,8 @@ class Supervisor:
       if getattr(session, "nav", None) is not None:
         session.nav.close()
       watch.stop()
+      if radio is not None:
+        radio.stop()
       source.close()
       encoder.close()
       if self._stop.is_set():

@@ -116,6 +116,14 @@ class PeerRequestedStop(EOFError):
   pass
 
 
+class SharedRadioStall(TimeoutError):
+  """The car stopped acknowledging video while the comma's other Wi-Fi network was joining or roaming."""
+
+  def __init__(self, message: str, network: str):
+    super().__init__(message)
+    self.network = network
+
+
 START_CODE = re.compile(b"\x00\x00(?:\x00)?\x01")
 
 
@@ -644,9 +652,22 @@ class ProjectionSession(Session):
   # held it ~1 s on 2026-10-01 while the car kept acking in 27-219 ms. Stays under the 3 s after which a Honda takes
   # its screen back without video.
   ACK_TIMEOUT = 2.5
+  # The radio is shared with the comma's own Wi-Fi (aa0 + wlan0): joining or roaming there stalled the car's acks past
+  # 2.5 s on 2026-11-02 (hotspot join, home join, mesh roam). While that happens, wait this long before reconnecting.
+  ACK_GRACE_TIMEOUT = 8.0
   ACK_DRAIN_SECONDS = 0.1  # before calling an ACK late, read what already arrived, for at most this long
   MAX_WINDOW = 2
   nav = None
+  grace_frame: float | None = None  # send time of the frame whose late ack is being waited out
+  grace_network = ""
+  grace_focus_lost = False
+
+  @staticmethod
+  def radio_change() -> str | None:
+    """Replaced by the supervisor: the comma's other Wi-Fi network's name if it joined or roamed in the last few
+    seconds ("" when unnamed), else None."""
+    return None
+
   # HeadunitPad acknowledges every fragment (codec config included) rather than every frame.
   fragment_acks = False
 
@@ -885,6 +906,8 @@ class ProjectionSession(Session):
     granted = focus in (FOCUS_PROJECTED, FOCUS_PROJECTED_NO_INPUT)
     self.focused = granted and self.allow_projection
     self.event("video_focus", focus=focus, unsolicited=unsolicited, focused=self.focused)
+    if was_focused and not self.focused and self.grace_frame is not None:
+      self.grace_focus_lost = True  # the car gave up on the stalled video: reconnect rather than wait unfocused
     if was_focused and not self.focused and self.touch is not None:
       self.touch_events.extend(self.touch.reset())
     if self.focused and not was_focused:
@@ -943,6 +966,9 @@ class ProjectionSession(Session):
     self.unacked -= count
     self.acked += count
     self.epoch_acked += count
+    if self.grace_frame is not None and (not self.pending or self.pending[0] != self.grace_frame):
+      self.event("ack_grace_recovered", network=self.grace_network, gap_ms=round((now - self.grace_frame) * 1000))
+      self.grace_frame = None
     self._confirm_video()
 
   def _confirm_video(self) -> None:
@@ -966,6 +992,8 @@ class ProjectionSession(Session):
   def check_progress(self, now: float | None = None) -> None:
     measured = now is None
     now = time.monotonic() if measured else now
+    if self.grace_focus_lost:
+      raise SharedRadioStall("The car took its screen back while the comma's Wi-Fi was switching networks", self.grace_network)
     if self._ack_overdue(now):
       # ACKs that arrived while this loop was busy (a slow encode, a CPU burst) still sit in the socket; the
       # streaming loop drains only a bounded batch per pass, so read what is there before calling the car silent.
@@ -975,11 +1003,27 @@ class ProjectionSession(Session):
       if measured:
         now = time.monotonic()
       if self._ack_overdue(now):
-        raise TimeoutError(f"Video acknowledgement older than {self.ACK_TIMEOUT:.1f} s")
+        self._wait_out_radio_change(now)
     # Only a receiver known to answer pings can be declared dead by silence; for
     # others a lost link surfaces as a socket error or a dropped Wi-Fi lease.
     if self.ping_responses and now - self.last_rx > 15.0:
       raise TimeoutError("Head unit stopped answering for 15 s")
+
+  def _wait_out_radio_change(self, now: float) -> None:
+    """The oldest frame is past ACK_TIMEOUT: give up, unless the comma's other Wi-Fi just changed networks."""
+    oldest = self.pending[0]
+    if self.grace_frame == oldest:
+      network = self.grace_network
+    else:
+      changed = self.radio_change()
+      if changed is None:
+        raise TimeoutError(f"Video acknowledgement older than {self.ACK_TIMEOUT:.1f} s")
+      self.grace_frame, self.grace_network = oldest, changed
+      self.event("ack_grace", network=changed, after_ms=round((now - oldest) * 1000))
+      network = changed
+    if now - oldest > self.ACK_GRACE_TIMEOUT:
+      message = f"Video acknowledgement older than {self.ACK_GRACE_TIMEOUT:.1f} s while the comma's Wi-Fi was switching networks"
+      raise SharedRadioStall(message, network)
 
   def send_frame(self, data: bytes, timestamp_us: int, *, keyframe: bool) -> None:
     if not self.can_send():

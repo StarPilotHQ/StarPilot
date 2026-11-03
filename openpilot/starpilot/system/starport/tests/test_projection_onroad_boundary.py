@@ -401,6 +401,40 @@ class TestProjectionOnroad(unittest.TestCase):
     self.assertEqual(shown, [notice, notice, 'Lane Departure Detected', '', notice])
     view.close()
 
+  def test_reconnect_notice_shows_eight_seconds_under_real_alerts_and_before_the_certificate(self):
+    native, _ = self.dependencies()
+
+    @dataclass(frozen=True)
+    class Alert:
+      size: str = 'none'
+      text1: str = ''
+      alert_type: str = ''
+
+    real = {'alert': Alert()}
+    native.alert, native.alert_size = Alert, SimpleNamespace(NONE='none', SMALL='small')
+    native.adapter = lambda *_: SimpleNamespace(build=lambda *_a, **_k: SimpleNamespace(
+      onroad=OnroadState(False, False, None, None, SpeedLimitObservation(), alert=cast(Any, real['alert']))))
+    reconnected = 'Reconnected: comma Wi-Fi Joined Home'
+    view = projection.ProjectionOnroad(dependencies=native, certificate_days=3, reconnect_notice=reconnected)
+    shown = []
+    view.onroad.render = lambda state: shown.append(state.alert.text1)
+    clock = [0]
+    original = projection.time
+    projection.time = SimpleNamespace(monotonic_ns=lambda: clock[0])
+    try:
+      native.ui_state.started = True
+      for clock[0] in (100, 7_000_000_000):
+        view.render()
+      real['alert'] = Alert('mid', 'Lane Departure Detected')
+      view.render()  # a real alert always wins
+      real['alert'] = Alert()
+      clock[0] = 8_000_000_200
+      view.render()  # past eight seconds: the certificate heads-up gets its remaining time
+    finally:
+      projection.time = original
+    self.assertEqual(shown, [reconnected, reconnected, 'Lane Departure Detected', 'Heads Up: AA Certificate Expires in 3 Days'])
+    view.close()
+
   def test_no_certificate_notice_when_far_from_expiry(self):
     native, _ = self.dependencies()
     view = projection.ProjectionOnroad(dependencies=native, certificate_days=200)

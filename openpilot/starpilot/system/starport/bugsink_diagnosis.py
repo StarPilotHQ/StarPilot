@@ -98,6 +98,9 @@ def attempt_records(events):
 
 
 STREAM_LOSS = {
+  "shared_radio": ("comma's own Wi-Fi", "The car stopped acknowledging video while the comma's own Wi-Fi joined or roamed; both share one radio.",
+                   ["Check the other_wifi_changed and ack_grace events for the network and how long acks stopped.",
+                    "Repeated drops at home or on a hotspot mean the 8 s grace is too short or the car takes its screen back first."]),
   "stalled": ("Video acknowledgement older than", "The car kept the link but stopped acknowledging video for too long, so the stream was ended.",
               ["Compare the Wi-Fi signal, frame age and encoder recoveries around the stall.",
                "If it repeats at the same place or speed, look for the comma stalling (CPU, thermal) rather than the car."]),

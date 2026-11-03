@@ -14,6 +14,7 @@ from openpilot.starpilot.system.starport.projection_map_lease import MapLeaseWri
 CERTIFICATE_NOTICE_NS = 10_000_000_000  # how long the expiry heads-up stays at the start of a drive
 BOOKMARK_NOTICE_NS = 2_000_000_000  # how long "Bookmark Saved" stays after the drive is bookmarked
 MODE_NOTICE_NS = 2_000_000_000  # how long the driving-mode banner stays after the mode changes
+RECONNECT_NOTICE_NS = 8_000_000_000  # how long "why it reconnected" stays once the car screen is back
 DRIVER_MONITOR_HOLD_NS = 350_000_000
 STANDBY_LOGO = Path(__file__).parents[3] / 'selfdrive/assets/images/starpilot_logo.png'
 BUBBLE_REDUNDANT_ALERTS = frozenset(('preLaneChangeLeft', 'preLaneChangeRight', 'laneChange',
@@ -150,12 +151,14 @@ class ProjectionOnroad:
   """Separate renderer with projected actions; native UIState stays read-only."""
 
   def __init__(self, *, dependencies=None, viewport=None, customization=None, certificate_days=None, native_focus=None,
-               layout_watcher=None):
+               layout_watcher=None, reconnect_notice=""):
     viewport = FALLBACK_VIEWPORT if viewport is None else viewport
     self.width, self.height = viewport
     self.customization = customization
     self._certificate_notice = certificate_notice(certificate_days)
     self._certificate_notice_until_ns: int | None = None
+    self._reconnect_notice = reconnect_notice
+    self._reconnect_notice_until_ns: int | None = None
     self._bookmark_notice_until_ns: int | None = None
     self._mode_label: str | None = None  # the drive's last known driving mode
     self._mode_engaged: bool | None = None
@@ -424,6 +427,18 @@ class ProjectionOnroad:
     return replace(state, alert=self.native.alert(size=sizes.SMALL, text1=self._certificate_notice,
                                                   alert_type='androidAutoCertificate/warning'))
 
+  def _with_reconnect_notice(self, state, now_ns):
+    """Say why the car screen just came back (the comma's Wi-Fi switched networks); a real alert always wins."""
+    if not self._reconnect_notice:
+      return state
+    if self._reconnect_notice_until_ns is None:
+      self._reconnect_notice_until_ns = now_ns + RECONNECT_NOTICE_NS
+    sizes = self.native.alert_size
+    if now_ns >= self._reconnect_notice_until_ns or state.alert.size != sizes.NONE:
+      return state
+    return replace(state, alert=self.native.alert(size=sizes.SMALL, text1=self._reconnect_notice,
+                                                  alert_type='androidAutoReconnected/info'))
+
   def bookmark_saved(self, now_ns=None):
     """A bookmark was published for this drive (from any button): confirm it on the car screen."""
     self._bookmark_notice_until_ns = (time.monotonic_ns() if now_ns is None else now_ns) + BOOKMARK_NOTICE_NS
@@ -516,7 +531,8 @@ class ProjectionOnroad:
       # Touch hit-tests read viewport_width; the view draws at the car canvas width (1920 for a 1280x720 head unit).
       if state.viewport_width != self.width:
         state = replace(state, viewport_width=self.width)
-      state = self._with_bookmark_notice(self._with_certificate_notice(state, now_ns), now_ns)
+      state = self._with_certificate_notice(self._with_reconnect_notice(state, now_ns), now_ns)
+      state = self._with_bookmark_notice(state, now_ns)
       self._state = self._with_mode_notice(state, now_ns)
       if self._slc_input is not None:
         self._state = self._slc_input.present(self._state)
