@@ -301,11 +301,11 @@ def test_gauge_box_shrinks_to_its_content_and_saved_positions_keep_the_drawing_i
   # Android Auto version 2 layouts move the same way.
   viewport = (2880, 1080)
   aa = default_layout_for_viewport(viewport)
-  assert aa['version'] == 5
+  assert aa['version'] == 6
   aa['version'] = 2
   aa['widgets'][CEM_GAUGE_WIDGET].update(x=900, y=200)
   moved = validate_layout_for_viewport(aa, viewport)
-  assert moved['version'] == 5 and (moved['widgets'][CEM_GAUGE_WIDGET]['x'], moved['widgets'][CEM_GAUGE_WIDGET]['y']) == (944, 224)
+  assert moved['version'] == 6 and (moved['widgets'][CEM_GAUGE_WIDGET]['x'], moved['widgets'][CEM_GAUGE_WIDGET]['y']) == (944, 224)
   assert validate_layout_for_viewport(moved, viewport) == moved
 
 

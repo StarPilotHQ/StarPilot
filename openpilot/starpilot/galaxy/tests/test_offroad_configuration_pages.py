@@ -107,7 +107,7 @@ class TestOffroadConfigurationPages(unittest.TestCase):
       'conditional': ('Saved driving mode',),
       'conditional/cem': ('Speed threshold', 'Speed with lead', 'Stop lights'),
       'lane_change': ('Allow lane changes', 'Minimum lane-change speed', 'Automatic Lane Changes', 'Lane Change Speed'),
-      'slc': ('Speed Limit Controller', 'Automatic adoption'),
+      'slc': ('Speed Limit Controller', 'Confirm limits'),
       'profiles': ('Force Stop', 'Selected Acceleration Profile', 'Selected Deceleration Profile'),
       'torque': ('Steering Controller', 'Turn Assist', 'Lat Accel', 'Friction'),
       'wheel': ('Short press', 'Hold', 'Distance long press', 'MODE press', 'Star button'),

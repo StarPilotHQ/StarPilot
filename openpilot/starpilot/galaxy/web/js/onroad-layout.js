@@ -607,7 +607,12 @@ export const OnroadLayoutPage = {
       this.state.showEditingAids = !this.state.showEditingAids
       try { localStorage.setItem(aidsPreferenceKey, this.state.showEditingAids ? "1" : "0") } catch { }
     },
-    sceneHidden(id) { return sceneHidesWidget(this.state.scene, this.state.profile, id, this.layout, this.profile?.widgets) },
+    sceneHidden(id) {
+      const { scene, profile, art } = this.state
+      const sprites = art?.status === "ready" && art.scene === scene && art.profile === (this.projection ? "projection" : profile) ?
+        art.sprites?.sprites : undefined
+      return sceneHidesWidget(scene, profile, id, this.layout, this.profile?.widgets, sprites)
+    },
     previewHidden(id) {
       if (this.projection && id === "car_exit") return false
       if (this.sceneHidden(id)) return true

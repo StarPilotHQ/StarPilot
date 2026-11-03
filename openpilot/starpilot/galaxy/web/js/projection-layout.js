@@ -25,7 +25,7 @@ export function editorSnapshot(raw) {
     throw new Error(raw?.reason || "Connect Android Auto once to obtain the actual screen.")
   const colors = raw.colors
   const document = (value) => {
-    if (![4, 5].includes(value.version) || value.canvas?.width !== raw.metadata.width || value.canvas?.height !== raw.metadata.height)
+    if (![4, 5, 6].includes(value.version) || value.canvas?.width !== raw.metadata.width || value.canvas?.height !== raw.metadata.height)
       throw new Error("The saved StarPort layout does not match its screen. Reload before editing.")
     return { version: 8, clock24Hour: value.clock24Hour === true, largeUiGammaTrial: value.largeUiGammaTrial === true, blindSpotBorder: value.blindSpotBorder === true, signalBorder: value.signalBorder === true, blindSpotCamera: value.blindSpotCamera === true, hidePersonalityAlerts: value.hidePersonalityAlerts === true, wheelPedalFeedback: value.wheelPedalFeedback === true, leadIndicator: value.leadIndicator === true, leadInfo: LEAD_INFO.includes(value.leadInfo) ? value.leadInfo : "Off", speedSources: value.speedSources === true, speedSourcesCard: value.speedSourcesCard === true, speedAlign: ["center", "right"].includes(value.speedAlign) ? value.speedAlign : "left", ...(value.widgetOrder ? { widgetOrder: { large: clone(value.widgetOrder) } } : {}), palette: clone(colors.palette), layouts: { large: clone(value.widgets) },
       widgetColors: { large: clone(colors.widgetColors) }, roadColors: { large: clone(colors.roadColors) } }
@@ -38,7 +38,7 @@ export function editorSnapshot(raw) {
 }
 
 export function projectionPayload(body, metadata) {
-  return { revision: body.revision, document: { version: 5,
+  return { revision: body.revision, document: { version: 6,
     canvas: { width: metadata.profiles.large.width, height: metadata.profiles.large.height },
     clock24Hour: body.document.clock24Hour === true,
     largeUiGammaTrial: body.document.largeUiGammaTrial === true,

@@ -5,6 +5,7 @@ import pytest
 
 from openpilot.starpilot.ui import stop_sign_widget
 from openpilot.starpilot.ui.presentation import Profile
+from openpilot.starpilot.ui.tests.test_unified_speed_native import foreground_calls
 
 
 @pytest.mark.parametrize('profile', (Profile.COMPACT, Profile.LARGE))
@@ -21,10 +22,12 @@ def test_original_stop_sign_fill_outline_and_text(profile):
     assert (color.r, color.g, color.b, color.a) == (10, 17, 19, 230)
   else:
     fill.assert_not_called()
-  assert border.call_count == 8
+  edges = foreground_calls(border)
+  assert len(edges) == 8
   assert all((color.r, color.g, color.b, color.a) == (244, 247, 245, 255)
-             for color in (call.args[-1] for call in border.call_args_list))
-  fonts.draw.assert_called_once()
-  assert fonts.draw.call_args.args[0] == 'STOP'
-  white = fonts.draw.call_args.args[-1]
+             for color in (call.args[-1] for call in edges))
+  text = foreground_calls(fonts.draw)
+  assert len(text) == 1
+  assert text[0].args[0] == 'STOP'
+  white = text[0].args[-1]
   assert (white.r, white.g, white.b, white.a) == (244, 247, 245, 255)

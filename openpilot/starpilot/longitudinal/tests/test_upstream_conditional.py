@@ -23,7 +23,7 @@ class EndLoop(Exception):
 
 
 class TestUpstreamConditional(unittest.TestCase):
-  def run_loop(self, *, safe=False, stale=False, clocks=True, replay=False):
+  def run_loop(self, *, safe=False, stale=False, clocks=True, replay=False, show_speed_limits=False):
     directory = self.enterContext(tempfile.TemporaryDirectory())
     params = Params(directory)
     cp = CarInterface.get_non_essential_params(CAR.HONDA_CIVIC_BOSCH)
@@ -32,6 +32,9 @@ class TestUpstreamConditional(unittest.TestCase):
     params.put_bool('UseStarPilotLongitudinalPlanner', False, block=True)
     params.put_bool('SafeMode', safe, block=True)
     params.put_bool('ExperimentalMode', False, block=True)
+    params.put_bool('ShowSpeedLimits', show_speed_limits, block=True)
+    if show_speed_limits:
+      params.put('SLCPriority1', 'Dashboard', block=True)
     params.put('ConditionalModeConfig', json.loads(encode_preferences(SavedPreferences(
       mode=ModeChoice.CEM, cem=CEMOptions(speed_mps=20., stop_lights=False, lead=False, slower_lead=False)))), block=True)
     settings = ConditionalSettingsOwner(params)
@@ -82,6 +85,15 @@ class TestUpstreamConditional(unittest.TestCase):
           self.payloads[name] = getattr(messaging.log_from_bytes(event.to_bytes()), name)
         if stale:
           self.logMonoTime['modelV2'] -= 1_000_000_000
+        if show_speed_limits:
+          dashboard = messaging.new_message('slcDashboardObservation', valid=True).slcDashboardObservation
+          dashboard.carStateLogMonoTime = dashboard.observedMonoTime = stamp
+          dashboard.validUntilMonoTime = stamp + 100_000_000
+          dashboard.status, dashboard.speedMps, dashboard.episode = 'valid', 15., 1
+          dashboard.producerSessionId = 'card'
+          self.payloads['slcDashboardObservation'] = dashboard
+          self.logMonoTime['slcDashboardObservation'] = stamp
+          self.valid['slcDashboardObservation'] = self.alive['slcDashboardObservation'] = True
 
     sm = Scene()
 
@@ -133,10 +145,19 @@ class TestUpstreamConditional(unittest.TestCase):
     self.assertFalse(any(result.accepted for _, result in results))
     self.assertFalse(any(str(plan.longitudinalPlanSource) == 'e2e' for plan in plans))
 
+  def test_cem_and_speed_limit_share_one_status_per_model_frame(self):
+    results, statuses, plans, subscriptions = self.run_loop(show_speed_limits=True)
+    self.assertEqual(subscriptions.count('deviceState'), 1)
+    self.assertEqual(len(statuses), len(plans))
+    self.assertTrue(any(result.accepted and result.experimental for _, result in results))
+    self.assertTrue(all(status.slcState.displayOnly and status.slcState.speedLimit == 15. and
+                        status.slcState.conditionalMode.version == 1 for status in statuses))
+
   def test_safe_mode_retains_upstream_without_conditional_transport(self):
     results, statuses, plans, subscriptions = self.run_loop(safe=True)
     self.assertFalse(results or statuses)
-    self.assertNotIn('deviceState', subscriptions)
+    self.assertNotIn('starpilotRadarState', subscriptions)
+    self.assertNotIn('starpilotNavigation', subscriptions)
     self.assertEqual(len(plans), 100)
 
   def test_missing_live_clock_does_not_publish_conditional_proposals(self):

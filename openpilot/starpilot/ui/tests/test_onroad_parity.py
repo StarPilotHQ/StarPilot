@@ -189,7 +189,7 @@ def test_valid_vision_limit_has_persistent_sign_without_action_receipt():
     renderer._speed_limit_sign(shown)
     fill.assert_not_called()
     outline.assert_called_once()
-    assert outline.call_args.args[:2] == (389, 86)
+    assert outline.call_args.args[:2] == (384, 81)
     assert [call.args[0] for call in foreground_calls(fonts.draw)] == ['VISION', '55']
     outline.reset_mock()
     renderer._speed_limit_sign(replace(shown, speed_limit=SpeedLimitObservation(kind=ObservationKind.STALE)))
@@ -200,7 +200,7 @@ def test_valid_vision_limit_has_persistent_sign_without_action_receipt():
   with patch.object(renderer._speed_limit_widget.shapes, 'circle') as circle:
     renderer._speed_limit_sign(replace(shown, appearance=replace(shown.appearance, use_vienna_sign=True)))
     circle.assert_called_once()
-    assert [call.args[0] for call in fonts.draw.call_args_list] == ['VISION', '55']
+    assert [call.args[0] for call in foreground_calls(fonts.draw)] == ['VISION', '55']
 
 
 def test_pending_confirmation_omits_redundant_speed_heading():
@@ -216,9 +216,10 @@ def test_pending_confirmation_omits_redundant_speed_heading():
   view.fonts.horizontal_ink.return_value = (0, 50)
   from openpilot.starpilot.ui.onroad_compact_widgets import CompactHudRenderer
   view.compact_hud = CompactHudRenderer(view.fonts, Mock())
-  with patch.object(rl, 'draw_line_ex'), patch.object(rl, 'draw_rectangle_rounded'), patch.object(SpeedLimitShapes, 'confirmation'):
+  with patch.object(rl, 'draw_line_ex'), patch.object(rl, 'draw_rectangle_rounded'), \
+       patch.object(SpeedLimitShapes, 'button'):
     view._slc_actions(state)
-  assert [call.args[0] for call in foreground_calls(view.fonts.draw)] == ['35', 'mph', 'VISION', 'Accept', 'Reject']
+  assert [call.args[0] for call in foreground_calls(view.fonts.draw)] == ['NEW LIMIT', 'ACCEPT', '35', 'REJECT', 'NEW LIMIT']
 
 
 def test_compact_pending_label_and_button_follow_saved_action_placement():
@@ -238,11 +239,12 @@ def test_compact_pending_label_and_button_follow_saved_action_placement():
   view.fonts.horizontal_ink.return_value = (0, 50)
   from openpilot.starpilot.ui.onroad_compact_widgets import CompactHudRenderer
   view.compact_hud = CompactHudRenderer(view.fonts, Mock())
-  with patch.object(rl, 'draw_rectangle_rounded') as button, patch.object(rl, 'draw_line_ex'), patch.object(SpeedLimitShapes, 'confirmation'):
+  with patch.object(rl, 'draw_rectangle_rounded') as button, patch.object(rl, 'draw_line_ex'), \
+       patch.object(SpeedLimitShapes, 'button'):
     view._slc_actions(state)
-  assert [call.args[0] for call in foreground_calls(view.fonts.draw)][-2:] == ['Accept', 'Reject']
-  assert button.call_count == 4
-  assert slc_controls(Profile.COMPACT, state)[0].bounds == (156., 48., 300., 160.)
+  assert [call.args[0] for call in foreground_calls(view.fonts.draw) if call.args[0] in ('ACCEPT', 'REJECT')] == ['ACCEPT', 'REJECT']
+  button.assert_not_called()
+  assert slc_controls(Profile.COMPACT, state)[0].bounds == (156., 48., 306., 160.)
 
 
 def test_fresh_physical_blinker_uses_upstream_art_without_optional_border():

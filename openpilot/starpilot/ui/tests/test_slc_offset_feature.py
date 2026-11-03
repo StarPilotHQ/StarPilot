@@ -1,6 +1,7 @@
 """SLC native offset actions and both unit paths against real temporary Params."""
 
 from pathlib import Path
+from ctypes import c_float
 from dataclasses import replace
 from types import SimpleNamespace as NS
 from typing import Any, cast
@@ -11,6 +12,7 @@ from unittest.mock import patch
 from openpilot.common.params import Params
 from openpilot.starpilot.speed_limits import offset_document as od
 from openpilot.starpilot.speed_limits.runtime_settings import read_params
+from openpilot.starpilot.speed_limits.speed_domain import offset_for_limit
 from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
 from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest, row_change
 from openpilot.starpilot.ui.slc_offset_feature import DOCUMENT_KEY, SlcOffsetOwner, native_parked
@@ -121,19 +123,32 @@ class SlcOffsetFeatureTests(unittest.TestCase):
     self.assertIn("settings context is unavailable", self.row("SpeedLimitController").reason)
 
   def test_range_labels_follow_saved_si_bounds_without_rewriting_them(self):
-    document = od.OffsetDocument(od.IMPERIAL_BOUNDS, (0.0,) * 7)
+    document = od.OffsetDocument(od.IMPERIAL_BOUNDS, tuple(index * od.MPH_TO_MPS for index in range(1, 8)))
     self.params.put(DOCUMENT_KEY, od.to_value(document), block=True)
     original = self.raw(DOCUMENT_KEY)
-    rows = [self.row(f"slc:offset:{index}").label for index in range(1, 8)]
-    self.assertEqual(rows, [f"{low}–<{high} mph offset" for low, high in
-                           (("0", "25"), ("25", "34"), ("34", "44"), ("44", "54"),
-                            ("54", "64"), ("64", "74"), ("74", "99"))])
-    state = self.owner.snapshot("slc", parked=True, system_long=True, lateral_context=True, metric=False)
-    self.assertTrue(any(row.label == "99 mph and above" and row.value == "Zero offset" for row in state.rows))
-    self.assertEqual(self.raw(DOCUMENT_KEY), original)
-    self.assertTrue(self.units.change_units(True, None))
-    self.assertEqual(od.decode(self.raw(DOCUMENT_KEY)), document)
-    self.assertEqual(self.row("slc:offset:4").label, "71–<87 km/h offset")
+    for metric, unit, factor, cutoffs in (
+        (False, "mph", od.MPH_TO_MPS, (0, 26, 35, 44, 54, 64, 75, 99)),
+        (True, "km/h", od.KPH_TO_MPS, (0, 41, 55, 71, 87, 103, 120, 160))):
+      if metric:
+        self.assertTrue(self.units.change_units(True, None))
+      schedule = read_params(self.params).offsets
+      self.assertEqual(schedule, document.schedule())
+      for index, (lower, next_lower) in enumerate(zip(cutoffs[:-1], cutoffs[1:], strict=True)):
+        self.assertEqual(self.row(f"slc:offset:{index + 1}").label, f"{lower}–{next_lower - 1} {unit} offset")
+        for speed in range(max(lower, 1), next_lower):
+          self.assertEqual(offset_for_limit(c_float(speed * factor).value, schedule), document.offsets_mps[index])
+      state = self.owner.snapshot("slc", parked=True, system_long=True, lateral_context=True, metric=metric)
+      self.assertTrue(any(row.label == f"{cutoffs[-1]} {unit} and above" and row.value == "Zero offset" for row in state.rows))
+      self.assertEqual(offset_for_limit(c_float(cutoffs[-1] * factor).value, schedule), 0.)
+      self.assertEqual(self.raw(DOCUMENT_KEY), original)
+
+  def test_range_labels_handle_a_wire_boundary_and_bands_without_whole_limits(self):
+    bounds = tuple(limit * od.MPH_TO_MPS for limit in (0., 25., 25.1, 26.1, 40., 50., 60., 70.))
+    document = od.OffsetDocument(bounds, (0.,) * 7)
+    self.params.put(DOCUMENT_KEY, od.to_value(document), block=True)
+    self.assertEqual(self.row("slc:offset:1").label, "0–25 mph offset")
+    self.assertEqual(self.row("slc:offset:2").label, "Band 2 offset (no whole-number limits)")
+    self.assertEqual(self.row("slc:offset:3").label, "26 mph offset")
 
   def test_editor_rejects_offsets_that_cannot_produce_a_positive_target_in_the_band(self):
     for metric, offset in ((False, -30), (True, -45)):

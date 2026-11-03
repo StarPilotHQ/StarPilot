@@ -11,12 +11,12 @@ import json
 from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_customization import offset, rgba, widget_size
-from openpilot.starpilot.ui.onroad_state import OnroadState, manual_slc_confirmation, speed_limit_bounds
+from openpilot.starpilot.ui.onroad_state import OnroadState, manual_slc_confirmation, slc_action_occludes
 from openpilot.starpilot.ui.onroad_widget_style import draw_control_card
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
 from openpilot.starpilot.ui.wheel_feedback import WheelFeedbackFade
 from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_speed
-from openpilot.starpilot.ui.speed_limit_widget import MUTED, SpeedLimitWidget, draw_caption, draw_ink, draw_line, draw_text
+from openpilot.starpilot.ui.speed_limit_widget import SpeedLimitWidget, draw_set_speed, draw_set_status, draw_text, set_speed_status
 
 
 ENGAGED = rl.Color(128, 216, 166, 255)
@@ -26,7 +26,7 @@ DISENGAGED = rl.Color(145, 155, 149, 255)
 def _center(fonts: BitmapFonts, text: str, role: FontRole, size: int, rect: rl.Rectangle, y: float,
             color: rl.Color = rl.WHITE) -> None:
   measured = fonts.measure(text, role, size)
-  fonts.draw(text, role, size, rect.x + (rect.width - measured.width) / 2, y, color)
+  draw_text(fonts, text, role, size, rect.x + (rect.width - measured.width) / 2, y, color)
 
 
 class UnifiedSpeedWidget:
@@ -48,7 +48,8 @@ class UnifiedSpeedWidget:
       width = self.fonts.measure(text, FontRole.NORMAL, 26).width
       draw_text(self.fonts, text, FontRole.NORMAL, 26, rect.x + (rect.width - width) / 2, rect.y + 22, rl.WHITE)
       return
-    active = state.speed_limit.source if str(state.speed_limit.kind) == 'valid' else state.speed_limit.accepted_source
+    observation = state.speed_limit
+    active = observation.source if str(observation.kind) == 'valid' and observation.status != 'display_hold' else observation.accepted_source
     labels = {'dashboard': 'Dash', 'map': 'Map', 'vision': 'Vision', 'online': 'Online'}
     cell = (rect.width - 2 * PADDING) / len(rows)
     for index, row in enumerate(rows):
@@ -64,7 +65,7 @@ class UnifiedSpeedWidget:
         draw_text(self.fonts, text, role, font_size, box.x + (box.width - width) / 2, y, color)
 
   def render(self, content: rl.Rectangle, state: OnroadState) -> None:
-    from openpilot.starpilot.ui.large_speed_geometry import GAP, WIDTH, PADDING, SOURCE_ROW_HEIGHT, SOURCE_TOP, card_height
+    from openpilot.starpilot.ui.large_speed_geometry import GAP, WIDTH, SOURCE_ROW_HEIGHT, SOURCE_TOP, card_height
     from openpilot.starpilot.ui.onroad_customization import placement
     shown = resolve_unified_speed(state)
     if shown.mode == 'hidden':
@@ -78,29 +79,10 @@ class UnifiedSpeedWidget:
     border = rl.Color(*rgba(state.customization, 'cardBorder', 'large', 'cruise_limits'))
     text = rl.Color(*rgba(state.customization, 'text', 'large', 'cruise_limits'))
     if shown.mode != 'limit_only':
-      if shown.max_text == '–':
-        center = rect.x + 120
-        draw_caption(self.fonts, 'SET', center, rect.y + 15, unit=shown.unit, centered=True)
-        draw_line(Profile.LARGE, rl.Vector2(center - 28, rect.y + 101), rl.Vector2(center + 28, rect.y + 101), 8, MUTED)
-      elif manual_slc_confirmation(Profile.LARGE, state):
-        x = rect.x + PADDING
-        draw_caption(self.fonts, 'SET', x, rect.y + 19, unit=shown.unit, size=32)
-        size = 120
-        while size > 72 and self.fonts.measure(shown.max_text, FontRole.SET_SPEED, size).width > 148:
-          size -= 1
-        draw_ink(self.fonts, shown.max_text, FontRole.SET_SPEED, size, x, rect.y + 51, text)
-      else:
-        center = rect.x + 120
-        draw_caption(self.fonts, 'SET', center, rect.y + 15, unit=shown.unit, centered=True)
-        size = 114.28
-        size *= min(1, 200 / max(1, self.fonts.measure(shown.max_text, FontRole.SET_SPEED, size).width))
-        left, right = self.fonts.horizontal_ink(shown.max_text, FontRole.SET_SPEED, size)
-        top, bottom = self.fonts.vertical_ink(shown.max_text, FontRole.SET_SPEED, size)
-        draw_ink(self.fonts, shown.max_text, FontRole.SET_SPEED, size, center - (left + right) / 2,
-                 rect.y + 101 - (bottom - top) / 2, text)
+      draw_set_speed(self.fonts, shown, rect.x + 92, rect.y, text)
+      if label := set_speed_status(state, Profile.LARGE, shown):
+        draw_set_status(self.fonts, label, rect.x + 92, rect.y, text)
     self.sign.render(state, defer_confirmation=True)
-    if shown.mode == 'limit_only' and (bounds := speed_limit_bounds(Profile.LARGE, state)) is not None:
-      draw_ink(self.fonts, shown.unit, FontRole.NORMAL, 24, bounds[2], bounds[3] - 32)
     if sources:
       row = rl.Rectangle(rect.x, rect.y + max(height, SOURCE_TOP) + (GAP if separate else 0), WIDTH, SOURCE_ROW_HEIGHT)
       if separate:
@@ -122,13 +104,22 @@ class CurrentSpeedHud:
     rect = rl.Rectangle(content.x + 610 + dx, content.y + dy, 580, 300)
     number_top, _ = self.fonts.vertical_ink(speed, FontRole.SPEED, 176)
     old_top, old_bottom = self.fonts.vertical_ink(speed, FontRole.BOLD, 176)
-    _center(self.fonts, speed, FontRole.SPEED, 176, rect, content.y + 42 + dy + old_top - number_top,
-            rl.Color(*rgba(state.customization, 'text', 'large', 'current_speed')))
     unit = 'km/h' if state.metric else 'mph'
     unit_top, _ = self.fonts.vertical_ink(unit, FontRole.NORMAL, 28)
     red, green, blue, alpha = rgba(state.customization, 'text', 'large', 'current_speed')
-    _center(self.fonts, unit, FontRole.NORMAL, 28, rect, content.y + 42 + dy + old_bottom + 20 - unit_top,
-            rl.Color(red, green, blue, int(alpha * 200 / 255)))
+    rows = ((speed, FontRole.SPEED, 176, content.y + 42 + dy + old_top - number_top, rl.Color(red, green, blue, alpha)),
+            (unit, FontRole.NORMAL, 28, content.y + 42 + dy + old_bottom + 20 - unit_top,
+             rl.Color(red, green, blue, int(alpha * 200 / 255))))
+    if manual_slc_confirmation(Profile.LARGE, state):
+      for text, role, size, y, _ in rows:
+        x = rect.x + (rect.width - self.fonts.measure(text, role, size).width) / 2
+        left, right = self.fonts.horizontal_ink(text, role, size)
+        top, bottom = self.fonts.vertical_ink(text, role, size)
+        if slc_action_occludes(Profile.LARGE, state, (x + left, y + top, x + right, y + bottom)):
+          return
+    for text, role, size, y, color in rows:
+      _center(self.fonts, text, role, size, rect, y, color)
+
 
 
 

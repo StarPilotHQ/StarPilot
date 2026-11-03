@@ -28,11 +28,11 @@ def test_three_slow_flashes_stop_at_the_controller_deadline():
     assert rgba(pulse.color(rl.WHITE, now)) == (188, 132, 255, 255)
 
 
-def test_manual_confirmation_repeats_two_gentle_pulses_for_ten_seconds_without_tinting_content():
+def test_manual_confirmation_repeats_two_gentle_pulses_for_thirty_seconds_without_tinting_content():
   pulse = SpeedLimitPulse()
   pulse.update(state(False), 10.)
   base = rl.Color(244, 247, 245, 96)
-  for cycle in (0., 3.2, 6.4):
+  for cycle in (0., 3.2, 6.4, 25.6):
     for elapsed in (.35, 1.25):
       now = 10. + cycle + elapsed
       pulse.update(state(False), now)
@@ -42,8 +42,9 @@ def test_manual_confirmation_repeats_two_gentle_pulses_for_ten_seconds_without_t
       assert rgba(pulse.color(base, 10. + cycle + elapsed)) == rgba(base)
   assert pulse.confirmation_strength(9.9) == 0.
   assert pulse.confirmation_strength(19.95) > .9
-  assert pulse.confirmation_strength(20.) == 0.
-  assert pulse.confirmation_strength(22.75) == 0.
+  assert pulse.confirmation_strength(39.15) > .9
+  assert pulse.confirmation_strength(40.) == 0.
+  assert pulse.confirmation_strength(42.75) == 0.
 
 
 @pytest.mark.parametrize('kind', list(ObservationKind))
@@ -130,6 +131,19 @@ def test_display_only_hidden_stale_and_reappearance_do_not_invent_new_limit():
   assert rgba(pulse.color(rl.WHITE, 11.5)) == rgba(rl.WHITE)
   pulse.update(display_state(25.), 12.)
   assert rgba(pulse.color(rl.WHITE, 12.5)) == rgba(rl.WHITE)
+
+
+@pytest.mark.parametrize('held_fields', [{'status': 'display_hold'}, {'sign_recovering': True}])
+def test_retained_display_stops_pulsing_until_a_new_live_limit(held_fields):
+  pulse = SpeedLimitPulse()
+  current = display_state()
+  pulse.update(current, 10.)
+  assert rgba(pulse.color(rl.WHITE, 10.5)) != rgba(rl.WHITE)
+  held = replace(current, speed_limit=replace(current.speed_limit, **held_fields))
+  pulse.update(held, 10.5)
+  assert rgba(pulse.color(rl.WHITE, 10.5)) == rgba(rl.WHITE)
+  pulse.update(display_state(25.), 11.)
+  assert rgba(pulse.color(rl.WHITE, 11.5)) != rgba(rl.WHITE)
 
 
 def test_display_only_new_drive_can_highlight_its_first_limit():

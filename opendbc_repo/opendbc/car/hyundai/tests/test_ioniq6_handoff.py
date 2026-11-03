@@ -891,7 +891,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     card_owner.is_metric = True
     card_owner.experimental_mode = False
     card_owner.initial_cruise_speed = 40
-    card_owner.v_cruise_helper = SimpleNamespace(update_v_cruise=lambda *_, slc_enabled=False, slc_approved=None: None,
+    card_owner.v_cruise_helper = SimpleNamespace(update_v_cruise=lambda *_, slc_enabled=False, wheel_context=None: None,
                                                  initialize_v_cruise=lambda *_, **kwargs: None, slc_consumed_button=None, toyota=None,
                                                  slc_cruise_change=None, v_cruise_kph=60.0, v_cruise_cluster_kph=60.0)
     card_owner.RI = SimpleNamespace(update=lambda _: None)

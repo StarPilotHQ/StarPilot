@@ -47,6 +47,55 @@ def test_widget_art_registry_is_shared_with_native_and_projection_metadata():
   assert layout_metadata_for_viewport((2880, 1080))['runtimePreviewWidgets'] == list(RUNTIME_PREVIEW_WIDGETS['large'])
 
 
+@pytest.mark.parametrize('profile', ['large', 'compact'])
+def test_native_prompt_art_parses_in_galaxy_and_reports_obscured_widgets(profile):
+  import io
+  from pathlib import Path
+  import subprocess
+  from PIL import Image
+  from openpilot.starpilot.ui.layout_preview_renderer import _Canvas, sample_state
+  from openpilot.starpilot.ui.onroad_customization import validate_document
+  from openpilot.starpilot.ui.presentation import Profile
+  from openpilot.starpilot.ui.raylib import rl
+
+  document = default_document()
+  layout = document['layouts'][profile]
+  if profile == 'compact':
+    layout['max_speed']['enabled'] = False
+    layout['speed_limit'].update(x=200, y=16)
+    x, y, obscured = 200, 0, 'driver_monitor'
+  else:
+    layout['cruise_limits']['x'] = 600
+    x, y, obscured = 900, 80, 'current_speed'
+  for key in ('clock', 'driving_mode_descriptions'):
+    layout[key].update(enabled=True, x=x, y=y)
+  document = validate_document(document)
+  own_window = not rl.is_window_ready()
+  if own_window:
+    rl.init_window(128, 128, 'Native preview contract')
+  canvas = _Canvas(Profile(profile))
+  try:
+    for scene, visible in [('slc_pending', False), ('engaged', True)]:
+      png = canvas.render_widget_art(sample_state(scene, document), document['layouts'][profile])
+      with Image.open(io.BytesIO(png)) as image:
+        native = json.loads(image.info['starpilot-widget-art'])
+      assert len(native['sprites']) == len(RUNTIME_PREVIEW_WIDGETS[profile])
+      for key in (obscured, 'clock', 'driving_mode_descriptions'):
+        assert native['sprites'][key]['visible'] is visible, (scene, key)
+      parser = Path(__file__).parents[2] / 'galaxy/web/js/widget-art.js'
+      script = f"""
+        import {{widgetArtMetadata}} from {json.dumps(parser.as_uri())};
+        const data = []; for await (const part of process.stdin) data.push(part);
+        console.log(JSON.stringify(await widgetArtMetadata(new Blob(data))));
+      """
+      result = subprocess.run(['node', '--input-type=module', '-e', script], input=png, capture_output=True, check=True)
+      assert json.loads(result.stdout) == native
+  finally:
+    canvas.close()
+    if own_window:
+      rl.close_window()
+
+
 def test_transparent_render_coverage_exports_straight_alpha_without_darkening():
   straight = _straight_rgba(bytes((128, 64, 0, 128, 9, 8, 7, 0, 255, 255, 255, 255)))
   assert straight == bytes((255, 128, 0, 128, 0, 0, 0, 0, 255, 255, 255, 255))

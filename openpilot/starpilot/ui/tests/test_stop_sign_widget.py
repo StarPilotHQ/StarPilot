@@ -5,6 +5,7 @@ import unittest
 
 from openpilot.starpilot.ui.onroad_state import OnroadState, SpeedLimitObservation, ObservationKind
 from openpilot.starpilot.ui.presentation import Profile
+from openpilot.starpilot.ui.large_speed_geometry import LARGE_SIGN_SCALE, SIGN_HEIGHT, LIMIT_RECTS
 from openpilot.starpilot.ui.speed_limit_widget import SpeedLimitWidget
 from openpilot.starpilot.ui.stop_sign_widget import render_stop_sign, stop_sign_bounds
 
@@ -16,8 +17,12 @@ class TestStopSignWidget(unittest.TestCase):
 
   def test_approved_full_screen_positions(self):
     state = self.state()
-    self.assertEqual(stop_sign_bounds(Profile.COMPACT, state)[:3], (236, 28, 70.))
-    self.assertEqual(stop_sign_bounds(Profile.LARGE, state)[:3], (490, 95., 125.))
+    self.assertEqual(stop_sign_bounds(Profile.COMPACT, state)[:3], (226, 24, 70.))
+    left, top, size, _ = stop_sign_bounds(Profile.LARGE, state)
+    x, y, width, _ = LIMIT_RECTS['large']
+    self.assertEqual(left, x + width + 24)
+    self.assertAlmostEqual(top + size/2, y + SIGN_HEIGHT/2*LARGE_SIGN_SCALE)
+    self.assertAlmostEqual(size, 100*LARGE_SIGN_SCALE)
 
   def test_camera_age_expiry_and_missing_observation_hide(self):
     state = self.state()

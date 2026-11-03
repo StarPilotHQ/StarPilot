@@ -4,11 +4,11 @@ from unittest.mock import Mock, patch
 from openpilot.starpilot.ui.raylib import rl
 import pytest
 
-from openpilot.starpilot.ui.large_speed_geometry import LARGE_SIGN_SCALE
+from openpilot.starpilot.ui.large_speed_geometry import LARGE_SIGN_SCALE, SIGN_WIDTH, SIGN_HEIGHT
 from openpilot.starpilot.ui.onroad_state import speed_limit_bounds, slc_controls, SpeedLimitObservation, ObservationKind
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.speed_limit_widget import SpeedLimitWidget
-from openpilot.starpilot.ui.tests.test_unified_speed_native import fonts, state as pending_state
+from openpilot.starpilot.ui.tests.test_unified_speed_native import foreground_calls, fonts, state as pending_state
 from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_speed
 
 
@@ -46,9 +46,9 @@ def test_both_sign_styles_keep_their_height_with_or_without_offset(profile, offs
   else:
     historical_outline.assert_not_called()
     widget.shapes.outline.assert_called_once()
-    assert widget.shapes.outline.call_args.args[:2] == (bounds[0]+12+59*scale, bounds[1]+12+66*scale)
+    assert widget.shapes.outline.call_args.args[:2] == (bounds[0]+12+SIGN_WIDTH/2*scale, bounds[1]+12+(SIGN_HEIGHT/2-7)*scale)
     assert widget.shapes.outline.call_args.kwargs == {}
-  assert ('+5' in [call.args[0] for call in widget.fonts.draw.call_args_list]) == offset
+  assert ('+5' in [call.args[0] for call in foreground_calls(widget.fonts.draw)]) == offset
 
 
 @pytest.mark.parametrize('value', (65, 120))
@@ -69,8 +69,8 @@ def test_small_sign_keeps_its_footprint_for_every_offset(value, metric, show, of
   assert bounds is not None
   historical_outline.assert_not_called()
   widget.shapes.outline.assert_called_once()
-  assert bounds[3] - bounds[1] == 152
-  texts = [call.args[0] for call in widget.fonts.draw.call_args_list]
+  assert bounds[3] - bounds[1] == SIGN_HEIGHT + 20
+  texts = [call.args[0] for call in foreground_calls(widget.fonts.draw)]
   assert texts == ['VISION', str(value)] + ([shown.offset_text] if shown.offset_text else [])
 
 
@@ -83,7 +83,7 @@ def test_small_offset_layout_transitions_reuse_the_same_widget(historical_outlin
     historical_outline.assert_not_called()
     bounds = speed_limit_bounds(Profile.COMPACT, current)
     assert bounds is not None
-    assert bounds[3] - bounds[1] == 152
+    assert bounds[3] - bounds[1] == SIGN_HEIGHT + 20
 
 
 @pytest.mark.parametrize('y', [20, 50, 108])
@@ -100,6 +100,6 @@ def test_small_rectangular_no_offset_regression(historical_outline):
   widget.shapes = Mock()
   widget.render(current)
   bounds = speed_limit_bounds(Profile.COMPACT, current)
-  assert bounds is not None and bounds[3] - bounds[1] == 152
+  assert bounds is not None and bounds[3] - bounds[1] == SIGN_HEIGHT + 20
   historical_outline.assert_not_called()
   widget.shapes.outline.assert_called_once()

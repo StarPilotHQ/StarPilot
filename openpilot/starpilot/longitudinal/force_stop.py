@@ -7,6 +7,8 @@ from openpilot.common.realtime import DT_MDL
 
 STANDSTILL_HOLD_NS = 2_000_000_000
 STANDSTILL_CLEAR_NS = 750_000_000
+STOP_COMMIT_TIME_S = .5
+SIGN_CONFIRM_STEP_S = 2 * DT_MDL
 SIGN_MAX_SPEED_MPS = 17.88
 SIGN_MODEL_AGREE_M = 50.0
 SIGN_SEED_M = 27.0
@@ -102,6 +104,10 @@ class ForceStop:
     self.standstill_clear_ns = 0
     self.standstill_reason = None
 
+  @property
+  def can_commit_next_frame(self) -> bool:
+    return self.timer + SIGN_CONFIRM_STEP_S >= STOP_COMMIT_TIME_S
+
   def step(self, frame: StopFrame, tune: StopTune, offset_ft: int = 0) -> StopPlan:
     now = frame.model_ns
     if (type(now) is not int or now <= 0 or now <= self.last_model_ns or
@@ -177,16 +183,16 @@ class ForceStop:
     if not available and not self.forcing:
       self.timer = 0
     elif active and not frame.standstill:
-      self.timer = min(2.0, self.timer + DT_MDL * (2 if frame.sign else 1))
+      self.timer = min(2.0, self.timer + (SIGN_CONFIRM_STEP_S if frame.sign else DT_MDL))
     elif turn and not self.forcing and not frame.standstill:
       self.timer = 0
     elif held:
-      self.timer = max(self.timer, .5)
+      self.timer = max(self.timer, STOP_COMMIT_TIME_S)
     elif self.forcing and frame.standstill and not frame.sign and not frame.light and not frame.raw_model_stopped:
       self.timer = 0
     else:
       self.timer = max(0, self.timer - DT_MDL * .25)
-    force = self.timer >= .5 or self.forcing and not frame.standstill or held
+    force = self.timer >= STOP_COMMIT_TIME_S or self.forcing and not frame.standstill or held
     light_cleared = (not held and self.forcing and self.from_light and not frame.standstill and
                      available and not frame.light and not frame.sign and go_scene)
     low_speed_hold = (light_cleared and tune.low_speed_hold_mps is not None and self.entry_speed is not None and

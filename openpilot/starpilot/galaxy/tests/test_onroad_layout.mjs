@@ -531,13 +531,12 @@ assert.match(OnroadLayoutPage.template, /state\.profile === 'compact'" class="gx
 // One scene dropdown, grouped, with every scene exactly once.
 assert.deepEqual(vm.sceneGroups.map(group => group.label), ["Editing", "Driving", "Conditional experimental", "Speed limit"])
 assert.deepEqual(vm.sceneGroups.flatMap(group => group.scenes.map(scene => scene.id)).sort(), vm.scenes.map(scene => scene.id).sort())
-// The Small screen only offers scenes that look different there; a hidden pick falls back to General edit.
+// Compact exposes its pedal and display-only states just like the large screen.
 vm.state.scene = "slc_display"
 vm.selectProfile("compact")
-assert.equal(vm.state.scene, "general")
+assert.equal(vm.state.scene, "slc_display")
 const smallScenes = vm.sceneGroups.flatMap(group => group.scenes.map(scene => scene.id))
-for (const id of ["slc_pedal", "slc_display"]) assert.ok(!smallScenes.includes(id), id)
-assert.ok(smallScenes.includes('slc_retained'))  // The override X is visible on the Small screen too.
+for (const id of ["slc_pedal", "slc_display", "slc_retained"]) assert.ok(smallScenes.includes(id), id)
 assert.ok(smallScenes.includes("slc_unavailable") && smallScenes.includes("slc_disengaged"))
 vm.selectProfile("large")
 assert.equal(vm.sceneGroups.flatMap(group => group.scenes).length, vm.scenes.length)
@@ -1211,12 +1210,12 @@ console.log('Display options, target switching and reload during polling passed'
 // A closed developer sidebar makes the torque arc taller than its narrow-road box.
 {
   const sample = snapshot(), profile = sample.metadata.profiles.large
-  profile.widgets.cruise_limits.height = 168
-  profile.widgets.cruise_limits.confirmation = { x: 172, y: -12, width: 419, height: 204 }
+  profile.widgets.cruise_limits.height = 194
+  profile.widgets.cruise_limits.confirmation = { x: 172, y: -12, width: 388 * Math.hypot(2160,1080) / 1800, height: 168 * Math.hypot(2160,1080) / 1800 }
   profile.widgets.torque_bar.confirmationObstacle = { x: 0, y: -48, width: 1250, height: 289 }
-  assert.equal(documentHelpers.overlapsReserved(profile, 'cruise_limits', 88, 550, sample.document.layouts.large), true)
+  assert.equal(documentHelpers.overlapsReserved(profile, 'cruise_limits', 88, 535, sample.document.layouts.large), true)
   delete profile.widgets.torque_bar.confirmationObstacle
-  assert.equal(documentHelpers.overlapsReserved(profile, 'cruise_limits', 88, 550, sample.document.layouts.large), false)
+  assert.equal(documentHelpers.overlapsReserved(profile, 'cruise_limits', 88, 535, sample.document.layouts.large), false)
   profile.widgets.cruise_limits.height = 276
   assert.equal(documentHelpers.overlapsReserved(profile, 'cruise_limits', 88, 500, sample.document.layouts.large), true)
 }
@@ -1243,3 +1242,19 @@ context.profile.widgets.rear_fog.hidden = false
 context.profile.widgets.max_speed.hidden = true
 assert.equal(validSnapshot(fog), false)
 console.log("Ford rear fog: make visibility, saved placement and strict metadata passed")
+
+// Reserve the taller notice while keeping the opened buttons at their existing size.
+{
+  const sample = snapshot(), profile = sample.metadata.profiles.compact
+  profile.widgets.max_speed.width = 146
+  profile.widgets.speed_limit = { ...profile.widgets.speed_limit, width: 128, height: 144,
+    confirmation: { x: -172, y: -8, width: 328, height: 159 } }
+  sample.document.version = 14
+  sample.document.layouts.compact.speed_limit = { x: 320, y: 16, enabled: true }
+  assert.equal(documentHelpers.overlapsReserved(profile, 'speed_limit', 320, 16, sample.document.layouts.compact), false)
+  assert.equal(validDocument(sample.document, sample.metadata), true)
+  assert.equal(documentHelpers.overlapsReserved(profile, 'speed_limit', 320, 20, sample.document.layouts.compact), true)
+  assert.equal(documentHelpers.overlapsReserved(profile, 'speed_limit', 320, 24, sample.document.layouts.compact), true)
+  assert.equal(documentHelpers.overlapsReserved(profile, 'speed_limit', 317, 16, sample.document.layouts.compact), true)
+  assert.equal(clampPlacement(profile, 'speed_limit', 330, 16, sample.document.layouts.compact).x, 320)
+}

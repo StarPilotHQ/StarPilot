@@ -15,15 +15,16 @@ Geographic, producer-episode and session-value identities pass through unchanged
 Selection checks their structure but owns no drive session; the acceptance reducer
 must verify session-value applicability against its current session before use.
 
-`SelectionPolicy` has an explicit mode, exactly two primary source slots and an
-online-fallback Boolean. A slot may be empty or repeat another slot. Online is
+`SelectionPolicy` has an explicit mode, up to three primary source slots and an
+online-fallback Boolean. The default order is Vision, Maps, then Off. The saved
+second and third slots can be Off. A slot may repeat another slot. Online is
 never a primary slot. This module does not activate or translate preferences.
 
 | Mode | Primary candidates | Choice |
 | --- | --- | --- |
 | Ordered | Only the configured slots | First eligible valid observation |
-| Highest | Dashboard and map; vision only if present in either slot | Highest eligible value |
-| Lowest | Dashboard and map; vision only if present in either slot | Lowest eligible value |
+| Highest | Dashboard and map, plus vision if present in a slot | Highest eligible value |
+| Lowest | Dashboard and map, plus vision if present in a slot | Lowest eligible value |
 
 Equal extrema choose dashboard, then map, then vision, independent of input map
 iteration order. The minimum eligible limit is explicitly 1 m/s, inclusive.
@@ -42,14 +43,14 @@ If no eligible alternative exists, the result retains unknown or stale state.
 Unknown takes precedence over stale, which takes precedence over absence; the
 full per-source statuses remain available. Explicit absence, exclusion below the
 minimum or an empty configured source set produces an absent result. Acceptance
-keeps accepted history but supplies no control target during source loss.
+uses the previous accepted limit during source loss, without inventing a current observation.
 Malformed input produces `invalid_input`, errors and
 an unknown observation without selecting a source.
 
 The tests include composition through the acceptance reducer: accepted 65 mph,
 proposed 45, driver rejection, then source loss and reconnect. Last accepted
 history remains 65 for both longitudinal-only and combined authority. Source loss
-does not change the already applied cruise SET or authorize a new command.
+does not change the driver's cruise SET or accept the rejected proposal.
 Lateral-only or stock ownership cannot turn a selected
 speed into a system longitudinal target. These are
 deterministic policy tests, not native producer, planner, CAN or vehicle evidence.

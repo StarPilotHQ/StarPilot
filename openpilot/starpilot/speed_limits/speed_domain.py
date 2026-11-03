@@ -5,6 +5,7 @@ import struct
 from dataclasses import dataclass
 from enum import Enum
 
+from openpilot.common.constants import CV
 from openpilot.selfdrive.car.cruise import V_CRUISE_MIN, V_CRUISE_MAX, slc_target_kph
 from openpilot.starpilot.speed_limits import acceptance as acc
 
@@ -165,6 +166,15 @@ def set_speed_matches(target_mps: float, raw_kph: float, cluster_kph: float | No
           math.isclose(target_kph, cluster_kph, rel_tol=0, abs_tol=0.001))
 
 
+def set_above_limit(selected_mps: float, adjusted_limit_mps: float, is_metric: bool) -> bool:
+  # Use the sign's wire precision and restore software SET's 0.1 km/h after transport.
+  limit_mps = struct.unpack('f', struct.pack('f', adjusted_limit_mps))[0]
+  selected_kph = round(selected_mps * CV.MS_TO_KPH, 1)
+  if is_metric:
+    return round(selected_kph) > round(limit_mps * CV.MS_TO_KPH)
+  return round(selected_kph * CV.KPH_TO_MPH) > round(limit_mps * CV.MS_TO_MPH)
+
+
 def resolve(decision: acc.Decision, schedule: OffsetSchedule, selected: SpeedPair, ego: SpeedPair) -> DomainResolution:
   """Bind an explicit offset and contemporaneous speed pairs to an acceptance output."""
   if (not isinstance(decision, acc.Decision) or not isinstance(decision.state, acc.State) or decision.errors or
@@ -198,7 +208,8 @@ def resolve(decision: acc.Decision, schedule: OffsetSchedule, selected: SpeedPai
   if (not _number(target, positive=True) or accepted is None or
       accepted.candidate.speed_mps != target or not decision.authority.can_control or
       decision.policy.display_only or
-      decision.state.observation.kind is not acc.ObservationKind.VALID):
+      decision.state.observation.kind is not acc.ObservationKind.VALID and
+      decision.basis not in ('absent', 'unknown', 'stale', 'driver_accept', 'driver_reject', 'timeout_reject')):
     return DomainResolution(DomainStatus.INVALID, reason="accepted target mismatch")
   assert selected.raw_mps is not None and selected.cluster_mps is not None
   assert ego.raw_mps is not None and ego.cluster_mps is not None
@@ -216,22 +227,12 @@ def resolve(decision: acc.Decision, schedule: OffsetSchedule, selected: SpeedPai
     ego.raw_mps, ego_delta))
 
 
-def to_planner_coordinate(context: DomainContext, contribution_raw_mps: float | None, basis: str) -> PlannerCoordinate:
-  """Apply a raw override in cluster space, then remove the ego delta exactly once."""
-  if (not context_is_valid(context) or basis not in ("none", "adoption_clear", "pedal", "persistent") or
-      (basis in ("none", "adoption_clear")) != (contribution_raw_mps is None)):
+def to_planner_coordinate(context: DomainContext, *, override_mps: float = 0.) -> PlannerCoordinate:
+  """Remove the ego delta from the selected cluster target exactly once."""
+  if not context_is_valid(context) or not _number(override_mps):
     return PlannerCoordinate(None, "invalid")
-  if contribution_raw_mps is not None and not _number(contribution_raw_mps, positive=True):
-    return PlannerCoordinate(None, "invalid")
-  cluster_target = context.effective_cluster_mps
-  if basis == "pedal":
-    if contribution_raw_mps != context.ego_raw_mps:
-      return PlannerCoordinate(None, "invalid")
-    cluster_target = max(cluster_target, context.ego_raw_mps + context.ego_delta_mps)
-  elif basis == "persistent":
-    assert contribution_raw_mps is not None
-    cluster_target = max(cluster_target, contribution_raw_mps + context.selected_delta_mps)
+  cluster_target = max(context.effective_cluster_mps, override_mps)
   cap = cluster_target - context.ego_delta_mps
   if not _number(cap, positive=True):
     return PlannerCoordinate(None, "nonpositive", cluster_target, context.ego_delta_mps)
-  return PlannerCoordinate(cap, basis, cluster_target, context.ego_delta_mps)
+  return PlannerCoordinate(cap, 'none', cluster_target, context.ego_delta_mps)

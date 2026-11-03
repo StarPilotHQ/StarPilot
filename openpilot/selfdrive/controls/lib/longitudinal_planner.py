@@ -374,12 +374,11 @@ class LongitudinalPlanner:
       cruise_profile = replace(cruise_profile, cruise_brake_magnitude=global_magnitude)
     if sm['controlsState'].forceDecel:
       cruise_profile = None
-    elif (ceiling.effective_mps is not None or curve.effective_mps is not None) and cruise_profile is not None:
-      # An eligible lower ceiling must retain at least native approach
-      # braking even when the saved profile requests a softer cruise response.
+    elif curve.effective_mps is not None and cruise_profile is not None:
+      # Curve approach retains native braking when the saved cruise response is softer.
       cruise_profile = replace(cruise_profile, cruise_brake_magnitude=max(cruise_profile.cruise_brake_magnitude,
                                                                           abs(A_CRUISE_MIN)))
-    if ceiling.effective_mps is not None or curve.effective_mps is not None:
+    if curve.effective_mps is not None:
       global_floor = min(global_floor, A_CRUISE_MIN)
     if selected_acceleration is not None and cruise_profile is not None:
       # The selected curve owns acceleration; following/jerks retain their owner.

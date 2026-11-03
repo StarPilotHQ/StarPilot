@@ -66,12 +66,23 @@ DESCRIPTIONS = {
   'CurveSpeedControllerNoLead': 'Pauses curve-speed adjustments while following a lead vehicle.',
   'ShowCSCStatus': 'Shows when Curve Speed Controller is adjusting speed on the driving screen.',
   'curve_reset': 'Deletes saved cornering learning so Curve Speed Controller can learn your preferences again.',
-  'SpeedLimitController': 'Adjusts the set speed to accepted speed limits using your source priority and offsets.',
+  'SpeedLimitController': 'Follows accepted limits plus offsets up to SET speed. Missing data uses the previous accepted limit.',
+  'SLCOnEngage': ('Starts software cruise SET at the SLC limit plus offset. ' +
+                  'A limit accepted this session remains available during data gaps. Previous-drive history does not initialize SET. ' +
+                  'RES restores the previous SET.'),
+  'SLCOverrideMode': ('Cruise uses this target when you lift off the accelerator. ' +
+                      'Holding your speed uses the highest speed you reached, up to SET.'),
+  'SLCWheelOverride': 'Press + to raise SET past the adjusted limit and use your new SET speed.',
   'ShowSpeedLimits': 'Shows recognized speed-limit signs on the driving screen.',
-  'SLCConfirmation': 'Auto adopts new limits immediately. With Automatic adoption off, + accepts and − declines within 10 seconds.',
-  'SLCAdvanceSeconds': 'Offers mapped limits early using road distance and current speed. Existing adoption and confirmation settings still apply.',
+  'SLCConfirmation': ('Off adopts new limits automatically. Both, Higher only, and Lower only prompt relative to the last accepted limit. ' +
+                      '+ accepts and − declines within 30 seconds.'),
+  'SLCAdvanceHigherSeconds': ('Offers higher mapped limits early using road distance and current speed. ' +
+                             'Existing adoption and confirmation settings still apply.'),
+  'SLCAdvanceLowerSeconds': ('Offers lower mapped limits early using road distance and current speed. ' +
+                            'Existing adoption and confirmation settings still apply.'),
   'SLCPriority1': 'Chooses the first source checked for a fresh speed limit.',
   'SLCPriority2': 'Chooses the source used when the primary source has no fresh speed limit.',
+  'SLCPriority3': 'Chooses an optional third source when neither earlier source has a fresh speed limit.',
   'slc_reset': 'Resets saved speed-limit offsets while retaining valid configured speed ranges.',
   'reset_calibration': 'Clears saved camera and steering calibration. The device recalibrates on the next drive.',
   'reset_driver_monitoring': 'Clear saved wheel-side detection. Automatic detection restarts on the next drive.',

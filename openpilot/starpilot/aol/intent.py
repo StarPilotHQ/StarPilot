@@ -16,6 +16,8 @@ GearShifter = car.CarState.GearShifter
 AOL_TOGGLE = 9
 PAUSE_LATERAL = 3
 PAUSE_LONGITUDINAL = 4
+# The only wheel action WheelPublisher delivers from cruise MAIN.
+ADOPT_SPEED_LIMIT = 10
 
 @dataclass(frozen=True)
 class AolSettings:
@@ -28,6 +30,7 @@ class AolSettings:
   mode_actions: tuple[int, int, int] = (0, 0, 0)
   custom_actions: tuple[int, int, int] = (0, 0, 0)
   default_physical_buttons: bool = True
+  main_wheel_action: bool = False
 
 
 def _button_value(params, key: str) -> int | None:
@@ -64,6 +67,7 @@ def read_settings(params) -> AolSettings:
     enabled=params.get_bool('AlwaysOnLateral') and valid_pause, pause_brake_mps=pause_mps if valid_pause else 0.0,
     lkas_action=_axis_action(lkas), main_action=_axis_action(main),
     default_physical_buttons=lkas == 0 and main == 0,
+    main_wheel_action=main == ADOPT_SPEED_LIMIT,
     distance_actions=(_button_action(params, 'DistanceButtonControl'),
                       _button_action(params, 'LongDistanceButtonControl'),
                       _button_action(params, 'VeryLongDistanceButtonControl')),
@@ -320,7 +324,8 @@ class AolCardIntent:
       independent_buttons = self.independent_cruise_buttons and (main_managed or lkas_managed)
       # The opt-in is bound to existing HKG torque owners. Other physical
       # owners keep their current event and native contracts.
-      main_toggle = not independent_buttons or main_managed
+      main_toggle = (not independent_buttons or main_managed) and not (
+        self.independent_cruise_buttons and self.settings.main_wheel_action)
       lkas_toggle = not independent_buttons or lkas_managed
       previously_held = (self._main_held and main_toggle) or (self._lkas_held and lkas_toggle)
       cancel_pressed = False

@@ -34,12 +34,14 @@ export async function widgetArtMetadata(blob, header = null) {
       !metadata.sprites || typeof metadata.sprites !== "object" || Array.isArray(metadata.sprites) ||
       Object.keys(metadata.sprites).length > 24) throw new Error("Invalid widget art metadata")
   for (const [id, rect] of Object.entries(metadata.sprites)) {
+    const minX = id === "speed_limit" ? -192 : -2
+    const minY = id === "speed_limit_actions" ? -33 : ["cruise_limits", "speed_limit"].includes(id) ? -13 : -1
     if (!/^[a-z_]+$/.test(id) || !rect || ![rect.x,rect.y,rect.width,rect.height].every(Number.isInteger) ||
         rect.x < 0 || rect.y < 0 || rect.width < 1 || rect.height < 1 ||
         rect.x + rect.width > metadata.width || rect.y + rect.height > metadata.height ||
-        !Number.isFinite(rect.offsetX ?? 0) || (rect.offsetX ?? 0) <= -1 || (rect.offsetX ?? 0) > 0 ||
-        !Number.isFinite(rect.offsetY ?? 0) || (rect.offsetY ?? 0) <= (id === 'speed_limit_actions' ? -33 : -1) ||
-        (rect.offsetY ?? 0) > 0) throw new Error("Invalid widget art rectangle")
+        !Number.isFinite(rect.offsetX ?? 0) || (rect.offsetX ?? 0) < minX || (rect.offsetX ?? 0) > 0 ||
+        !Number.isFinite(rect.offsetY ?? 0) || (rect.offsetY ?? 0) < minY || (rect.offsetY ?? 0) > 0 ||
+        (rect.visible !== undefined && typeof rect.visible !== "boolean")) throw new Error("Invalid widget art rectangle")
   }
   return metadata
 }

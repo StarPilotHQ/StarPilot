@@ -21,7 +21,7 @@ from openpilot.starpilot.ui.onroad_customization import (CAMERA_WIDGETS, PROFILE
                                                          validate_document, widget_size)
 from openpilot.starpilot.ui.onroad_widget_style import draw_widget_frame
 from openpilot.starpilot.curve_speed.status import CurveObservation
-from openpilot.starpilot.ui.onroad_state import ConditionalLead
+from openpilot.starpilot.ui.onroad_state import ConditionalLead, speed_limit_bounds
 from openpilot.starpilot.ui.onroad_state import AlertSize, ObservationKind, OnroadAlert, OnroadState, SourceReading, SpeedLimitObservation
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice, OnroadAppearance
 from openpilot.starpilot.ui.onroad_dm import draw_monitor_art, monitor_bounds, monitor_visible
@@ -82,7 +82,7 @@ def sample_state(scene: str, document: dict) -> OnroadState:
                      speed_limit=SpeedLimitObservation(kind=ObservationKind.VALID, source="dashboard",
                                                        speed_limit_mps=22.0 if pending else 20.0,
                                                        accepted_speed_limit_mps=20.0, accepted_source='dashboard',
-                                                       accepted_adjusted_limit_mps=22.0, effective_cluster_target_mps=22.0,
+                                                       accepted_adjusted_limit_mps=22.0, effective_cluster_target_mps=22.0, effective_cap_mps=22.0,
                                                        offset_mps=2.0, limiting_max_set=True,
                                                        pending_adjusted_limit_mps=24.0 if pending else None,
                                                        presentation_adjusted_limit_mps=24.0 if pending else 22.0,
@@ -115,11 +115,12 @@ def sample_state(scene: str, document: dict) -> OnroadState:
     observation = replace(observation, limiting_max_set=False)
   elif scene == 'slc_equal':
     state = replace(state, cruise_kph=79.2)
+    observation = replace(observation, limiting_max_set=False)
   elif scene == 'slc_pedal':
     state = replace(state, longitudinal_overridden=True)
   elif scene == 'slc_retained':
     observation = replace(observation, driver_override_active=True,
-                          override_basis='persistent', retained_override=True)
+                          override_basis='persistent', retained_override=True, effective_cluster_target_mps=24.0)
   elif scene == 'slc_unavailable':
     observation = SpeedLimitObservation(kind=ObservationKind.STALE, status='display_hold')
   elif scene == 'slc_disengaged':
@@ -189,10 +190,11 @@ class _DriverMonitorArt:
       self.close()
       raise
 
-  def render(self, _content: rl.Rectangle, state: OnroadState, *, top_icons: bool = False) -> None:
-    if not monitor_visible(self.profile, state, fresh=True, onroad=True, top_icons=top_icons):
+  def render(self, _content: rl.Rectangle, state: OnroadState, *, top_icons: bool = False, y_offset=0) -> None:
+    bounds = monitor_bounds(state.customization, self.profile, state.right_hand_drive)
+    bounds.y += y_offset
+    if not monitor_visible(self.profile, state, fresh=True, onroad=True, top_icons=top_icons, bounds=bounds):
       return
-    bounds = monitor_bounds(state.customization, self.profile, False)
     draw_widget_frame(bounds, state.customization, self.profile, "driver_monitor")
     draw_monitor_art(self.renderer, bounds, self.profile)
 
@@ -282,15 +284,7 @@ class _Canvas:
                  state.appearance.camera_view != CameraViewChoice.DRIVER and not state.reverse_driver_camera and
                  self.view.compact_hud._set_speed_alpha.x > 0.01 and
                  placement(state.customization, self.profile, "max_speed")["enabled"])
-    if self.viewport is None:
-      self.monitor.render(rect, state, top_icons=top_icons)
-    else:
-      rl.rl_push_matrix()
-      rl.rl_translatef(0, self.viewport[1] - 1080, 0)
-      try:
-        self.monitor.render(rect, state, top_icons=top_icons)
-      finally:
-        rl.rl_pop_matrix()
+    self.monitor.render(rect, state, top_icons=top_icons, y_offset=self.viewport[1] - 1080 if self.viewport else 0)
 
   def render(self, state: OnroadState, scene: str) -> bytes:
     if self.view is None or self.fonts is None or self.target is None:
@@ -358,6 +352,13 @@ class _Canvas:
       crop_y = max(0, math.floor(position['y'] - widget.get('visualInsetTop', 0)))
       offset_x, offset_y = crop_x - position['x'], crop_y - position['y']
       width, height = math.ceil(logical_width - offset_x), math.ceil(logical_height - offset_y)
+      if (key == ('speed_limit' if self.profile == Profile.COMPACT else 'cruise_limits') and
+          state.speed_limit.pending_speed_limit_mps is None and (area := speed_limit_bounds(self.profile, state)) is not None):
+        # The existing padded touch area includes the raised and SET-limited outlines.
+        crop_x, crop_y = max(0, math.floor(min(crop_x, area[0]))), max(0, math.floor(min(crop_y, area[1])))
+        width = math.ceil(max(position['x'] + logical_width, area[2]) - crop_x)
+        height = math.ceil(max(position['y'] + logical_height, area[3]) - crop_y)
+        offset_x, offset_y = crop_x - position['x'], crop_y - position['y']
       if state.speed_limit.pending_speed_limit_mps is not None and (area := widget.get('confirmation')) is not None:
         crop_x = math.floor(min(crop_x, position['x'] + area['x']))
         crop_y = math.floor(min(crop_y, position['y'] + area['y']))
@@ -406,7 +407,8 @@ class _Canvas:
         continue
       if x + width > MAX_SHEET_WIDTH:
         x, y, row_height = 0, y + row_height, 0
-      sprites[key] = {'x': x, 'y': y, 'width': width, 'height': height, 'offsetX': offset_x, 'offsetY': offset_y}
+      sprites[key] = {'x': x, 'y': y, 'width': width, 'height': height, 'offsetX': offset_x, 'offsetY': offset_y,
+                      'visible': any(data[3::4])}
       x += width
       row_height = max(row_height, height)
       captures.append((key, data))

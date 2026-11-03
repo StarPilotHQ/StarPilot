@@ -184,7 +184,7 @@ def default_layout(screen, display=None):
 def default_layout_for_viewport(viewport, display=None):
   metadata = layout_metadata_for_viewport(viewport)
   display = {**DISPLAY_DEFAULTS, **{key: value for key, value in (display or {}).items() if key in DISPLAY_DEFAULTS}}
-  result = {'version': 5, 'clock24Hour': False, 'largeUiGammaTrial': False, **display, 'canvas': {key: metadata[key] for key in ('width', 'height')},
+  result = {'version': 6, 'clock24Hour': False, 'largeUiGammaTrial': False, **display, 'canvas': {key: metadata[key] for key in ('width', 'height')},
           'widgets': {key: {**widget['default'], **({'size': 192} if key == 'steering_wheel' else {})}
                       for key, widget in metadata['widgets'].items()}}
   place_attached_slc_actions(result['widgets'], metadata['bounds'], sources_extent(result))
@@ -222,7 +222,7 @@ def validate_layout_for_viewport(value, viewport, *, _legacy_geometry=False):
   if type(value) is dict:
     fields |= {field for field in ('widgetOrder', 'clock24Hour', 'largeUiGammaTrial', *DISPLAY_DEFAULTS) if field in value}
   if (type(value) is not dict or set(value) != fields or
-      type(value['version']) is not int or value['version'] not in (1, 2, 3, 4, 5) or
+      type(value['version']) is not int or value['version'] not in (1, 2, 3, 4, 5, 6) or
       value['canvas'] != {key: metadata[key] for key in ('width', 'height')} or
       type(value['widgets']) is not dict or not set(value['widgets']) <= set(metadata['widgets']) or
       not set(metadata['widgets']) - set(value['widgets']) <= {CEM_GAUGE_WIDGET, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET, *PROJECTION_WIDGETS}):
@@ -307,6 +307,8 @@ def validate_layout_for_viewport(value, viewport, *, _legacy_geometry=False):
       dimensions = SPEED_LAYOUT_V7['large'][key][:2]
     elif value['version'] < 5 and key == 'cruise_limits':
       dimensions = (widget['width'], 132)
+    elif value['version'] < 6 and key == 'cruise_limits':
+      dimensions = (widget['width'], 168)
     # Version 2 and older saved the CEM gauge's full drawing frame; check that, then move to the inset box.
     old_gauge = key == CEM_GAUGE_WIDGET and value['version'] < 3 and key in value['widgets']
     if old_gauge:
@@ -335,7 +337,12 @@ def validate_layout_for_viewport(value, viewport, *, _legacy_geometry=False):
     actions = result['widgets']['speed_limit_actions']
     if (actions['x'], actions['y']) == (100, 296):
       actions.update(x=metadata['widgets']['speed_limit_actions']['default']['x'], y=metadata['widgets']['speed_limit_actions']['default']['y'])
-    result['version'] = 5
+    result['version'] = 6
+  if value['version'] == 5 and result.get('speedSources') is True:
+    card, actions = result['widgets']['cruise_limits'], result['widgets']['speed_limit_actions']
+    old_gap = 284 + (8 if result.get('speedSourcesCard') is True else 0)
+    if actions['x'] == card['x'] + 24 and actions['y'] == card['y'] + old_gap:
+      actions['y'] = card['y'] + 192
   migrate_confirmation_layout(result['widgets'], 'large', metadata['widgets'], bounds, extra_height=sources_extent(result))
   place_attached_slc_actions(result['widgets'], bounds, sources_extent(result))
   if len(json.dumps(result, separators=(',', ':'), allow_nan=False).encode()) > MAX_BYTES:

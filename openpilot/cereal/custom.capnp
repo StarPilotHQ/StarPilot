@@ -339,7 +339,7 @@ struct SlcState @0xa1680744031fdb2d {
   hasPendingAdjustedLimit @45 :Bool;
   presentationAdjustedLimit @46 :Float32;
   hasPresentationAdjustedLimit @47 :Bool;
-  overrideBasis @48 :Text; # none/pedal/persistent; qualified contribution only
+  overrideBasis @48 :Text; # none/pedal/persistent/wheel; qualified contribution only
   retainedOverride @49 :Bool;
   commandActionSequenceId @50 :UInt64; # UI sequence that issued this command
   automaticAdoptionPending @51 :Bool;
@@ -352,6 +352,10 @@ struct SlcState @0xa1680744031fdb2d {
   # Qualified adoption proposal; the current displayed observation stays above.
   upcomingSpeedLimit @57 :Float32;
   upcomingBoundaryId @58 :Text;
+  acceptedIsPreview @59 :Bool; # a temporary ceiling, ineligible for initializing SET
+  wheelOverrideSince @60 :UInt64; # nonzero while a wheel tap may cross the current adjusted limit
+  wheelAdoptMonoTime @61 :UInt64; # Card's original wheel event timestamp, only on the approval frame
+  wheelAdoptTargetMps @62 :Float32; # exact adjusted SET approved for that event
   struct SourceReading {
     source @0 :Text;
     enabled @1 :Bool;
@@ -453,6 +457,7 @@ struct SlcAction @0x9ccdc8676701b412 {
   conditionalManual @5 :ConditionalManualAction;
   controllerCruise @6 :ControllerCruiseAction;
   controllerMode @7 :ControllerCruiseAction;
+  wheelAdoptMonoTime @8 :UInt64; # original timestamp of a qualified Adopt Speed Limit wheel event
 
   struct ControllerCruiseAction {
     version @0 :UInt16;
@@ -520,6 +525,7 @@ struct SlcCruiseEvent @0xcd96dafb67a082d0 {
   trafficMode @13 :TrafficModeGesture;
   wheelAction @14 :SlcAction.ControllerCruiseAction;
   teslaStockCruise @15 :TeslaStockCruise;
+  wheelOverrideSince @16 :UInt64; # SLC eligibility captured by a physical + tap; zero for ordinary SET changes
 
   struct TeslaStockCruise {
     version @0 :UInt16;

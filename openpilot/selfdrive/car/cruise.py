@@ -43,6 +43,9 @@ class SlcConsumedButton:
   button: str
 
 
+SlcWheelContext = tuple[str, int]
+
+
 def validated_initial_cruise_speed(value: object) -> int:
   if type(value) is int and V_CRUISE_INITIAL <= value <= V_CRUISE_MAX:
     return value
@@ -66,35 +69,27 @@ class VCruiseHelper:
     self.button_change_states = {btn: {"standstill": False, "enabled": False} for btn in self.button_timers}
     self.pcm_slc_sample: tuple[float, int] | None = None
     self.pcm_slc_button = ButtonType.unknown
-    # Set by software cruise steps or a checked Toyota PCM physical +/- change.
     self.slc_cruise_change: tuple[float, float, str, bool] | None = None
     self.slc_consumed_button: SlcConsumedButton | None = None
     self.slc_suppressed_buttons: set[ButtonType] = set()
-    self.slc_suppression_owner: dict[ButtonType, SlcPendingConfirmation] = {}
-    self.slc_released_owner: dict[ButtonType, SlcPendingConfirmation] = {}
     self.slc_released_suppressed = False
-    self.slc_pcm = False
-    from openpilot.starpilot.speed_limits.toyota import eligible, ToyotaCruise
-    self.toyota = ToyotaCruise() if eligible(CP) else None
+    self.slc_wheel_press: SlcWheelContext | None = None
+    self.slc_wheel_tap: SlcWheelContext | None = None
 
   @property
   def v_cruise_initialized(self):
     return self.v_cruise_kph != V_CRUISE_UNSET
 
-  def update_v_cruise(self, CS, enabled, is_metric, slc_pending: SlcPendingConfirmation | None = None, *, slc_enabled: bool = False,
-                      slc_approved=None):
-    self.slc_pcm = bool(slc_enabled and self.CP.pcmCruise and self.CP.openpilotLongitudinalControl)
+  def update_v_cruise(self, CS, enabled, is_metric, slc_pending: SlcPendingConfirmation | None = None, *,
+                      slc_enabled: bool = False, wheel_context: SlcWheelContext | None = None):
     from opendbc.car.subaru.software_cruise import selected as subaru_software_selected
     subaru_software = subaru_software_selected(self.CP)
-    software_cruise = not self.CP.pcmCruise or self.slc_pcm or subaru_software
+    software_cruise = not self.CP.pcmCruise or subaru_software
     self.slc_cruise_change = None
     self.slc_consumed_button = None
     self.slc_released_suppressed = False
-    self.slc_released_owner = {}
+    self.slc_wheel_tap = None
     self.v_cruise_kph_last = self.v_cruise_kph
-    if self.toyota is not None:
-      self.slc_pcm = self.toyota.update(self, CS, enabled, slc_enabled, slc_approved, is_metric)
-      software_cruise = self.slc_pcm
     now_ns = monotonic_ns()
     if not CS.cruiseState.available or now_ns - self.pending_resume_ns > 500_000_000:
       self.pending_resume_ns = 0
@@ -106,21 +101,26 @@ class VCruiseHelper:
             button.type in (ButtonType.accelCruise, ButtonType.resumeCruise) and self.v_cruise_initialized):
           self.pending_resume_ns = now_ns
 
-    if software_cruise or self.slc_suppressed_buttons:
+    if software_cruise or slc_enabled and self.CP.openpilotLongitudinalControl or self.slc_suppressed_buttons:
       self._update_slc_button_latches(CS, enabled, slc_pending)
+
+    if (not slc_enabled or not enabled or self.CP.pcmCruise or slc_pending is not None or
+        not CS.cruiseState.available or ButtonType.accelCruise in self.slc_suppressed_buttons):
+      wheel_context = None
+    if wheel_context != self.slc_wheel_press:
+      self.slc_wheel_press = None
+    if wheel_context is not None and self.button_timers[ButtonType.accelCruise] == 0:
+      pressed = {b.type.raw for b in CS.buttonEvents if b.pressed}
+      if ButtonType.accelCruise in pressed and ButtonType.resumeCruise not in pressed:
+        self.slc_wheel_press = wheel_context
 
     if CS.cruiseState.available:
       if software_cruise:
-        if self.toyota is None and (self.slc_pcm or subaru_software) and (not enabled or not self.v_cruise_initialized):
-          # PCM still owns engagement; SLC owns the software set speed while system long is selected.
+        if subaru_software and (not enabled or not self.v_cruise_initialized):
           stock_kph = CS.cruiseState.speed * CV.MS_TO_KPH
           self.v_cruise_kph = stock_kph if 0 < stock_kph < V_CRUISE_UNSET else V_CRUISE_UNSET
-        # if stock cruise is completely disabled, then we can use our own set speed logic
         self._update_v_cruise_non_pcm(CS, enabled, is_metric)
-        if self.toyota is None:
-          self.v_cruise_cluster_kph = self.v_cruise_kph
-        if self.toyota is not None:
-          self.toyota.constrain(self)
+        self.v_cruise_cluster_kph = self.v_cruise_kph
         self.update_button_timers(CS, enabled)
       else:
         self.v_cruise_kph = CS.cruiseState.speed * CV.MS_TO_KPH
@@ -139,6 +139,8 @@ class VCruiseHelper:
       self.pcm_slc_button = ButtonType.unknown
       if software_cruise:
         self.update_button_timers(CS, enabled)
+    if self.button_timers[ButtonType.accelCruise] == 0:
+      self.slc_wheel_press = None
 
   def _update_toyota_pcm_slc_change(self, CS, enabled: bool, now_ns: int) -> None:
     """Observe a physical PCM speed change without writing stock selected speed."""
@@ -165,8 +167,9 @@ class VCruiseHelper:
           held = ButtonType.unknown
     if continuous:
       delta = self.v_cruise_kph - previous[0]
-      if ((button == ButtonType.accelCruise and delta > 0.) or
-          (button == ButtonType.decelCruise and delta < 0.)):
+      if (not self.slc_suppressed_buttons and not self.slc_released_suppressed and
+          ((button == ButtonType.accelCruise and delta > 0.) or
+           (button == ButtonType.decelCruise and delta < 0.))):
         self.slc_cruise_change = (previous[0] / 3.6, self.v_cruise_kph / 3.6,
                                   'accel' if delta > 0. else 'decel', False)
     self.pcm_slc_button = held
@@ -179,17 +182,13 @@ class VCruiseHelper:
         continue
       if not b.pressed and button in self.slc_suppressed_buttons:
         self.slc_suppressed_buttons.remove(button)
-        prior_owner = self.slc_suppression_owner.pop(button, None)
-        if prior_owner is not None:
-          self.slc_released_owner[button] = prior_owner
         self.slc_released_suppressed = True
         self.button_timers[button] = 0
       elif (b.pressed and enabled and CS.cruiseState.available and slc_pending is not None and
-            not (self.toyota is not None and button == ButtonType.accelCruise and
+            not (self.CP.pcmCruise and button == ButtonType.accelCruise and
                  (CS.standstill or CS.cruiseState.standstill or not CS.cruiseState.enabled)) and
             button not in self.slc_suppressed_buttons):
         self.slc_suppressed_buttons.add(button)
-        self.slc_suppression_owner[button] = slc_pending
         self.slc_consumed_button = SlcConsumedButton(slc_pending, 'accel' if button == ButtonType.accelCruise else 'decel')
 
   def _update_v_cruise_non_pcm(self, CS, enabled, is_metric):
@@ -231,26 +230,20 @@ class VCruiseHelper:
     if not self.button_change_states[button_type]["enabled"]:
       return
 
-    self.adjust_v_cruise(button_type, CS, is_metric, long_press=long_press)
+    changed = self.adjust_v_cruise(button_type, CS, is_metric, long_press=long_press)
+    if changed and button_type == ButtonType.accelCruise and not long_press and self.button_timers[button_type] > 0:
+      self.slc_wheel_tap = self.slc_wheel_press
 
   def adjust_v_cruise(self, button_type, CS, is_metric: bool, *, long_press: bool = False) -> bool:
     """Apply the normal software cruise step without synthesizing button events."""
     from opendbc.car.subaru.software_cruise import selected as subaru_software_selected
     subaru_software = subaru_software_selected(self.CP)
-    if ((self.CP.pcmCruise and not self.slc_pcm and not subaru_software) or button_type not in (ButtonType.accelCruise, ButtonType.decelCruise) or
+    if ((self.CP.pcmCruise and not subaru_software) or button_type not in (ButtonType.accelCruise, ButtonType.decelCruise) or
         not 0 < self.v_cruise_kph < V_CRUISE_UNSET or
         (button_type == ButtonType.accelCruise and CS.cruiseState.standstill)):
       return False
     v_cruise_delta = 1. if is_metric else IMPERIAL_INCREMENT
     previous_kph = self.v_cruise_kph
-    toyota = self.toyota if self.slc_pcm else None
-    previous_cluster_kph = self.v_cruise_cluster_kph
-    if toyota is not None:
-      if toyota.requested is None:
-        return False
-      if button_type == ButtonType.decelCruise:
-        previous_kph = toyota.requested[0]
-      self.v_cruise_kph = toyota.requested[1]
     interval = self.intervals.held if long_press else self.intervals.short
     v_cruise_delta = v_cruise_delta * interval
     display_speed = round(self.v_cruise_kph if is_metric else self.v_cruise_kph * CV.KPH_TO_MPH)
@@ -266,11 +259,6 @@ class VCruiseHelper:
 
     self.v_cruise_kph = np.clip(round(self.v_cruise_kph, 1), V_CRUISE_MIN, V_CRUISE_MAX)
     self.v_cruise_cluster_kph = self.v_cruise_kph
-    if toyota is not None:
-      toyota.requested = (float(self.v_cruise_kph), float(self.v_cruise_cluster_kph))
-      toyota.manual_step = (previous_kph, previous_cluster_kph, 'accel' if button_type == ButtonType.accelCruise else 'decel', long_press)
-      toyota.constrain(self)
-      return self.v_cruise_kph != previous_kph
     if 0 < previous_kph < V_CRUISE_UNSET and self.v_cruise_kph != previous_kph:
       button = "accel" if button_type == ButtonType.accelCruise else "decel"
       self.slc_cruise_change = (float(previous_kph / 3.6), float(self.v_cruise_kph / 3.6), button, long_press)
@@ -291,23 +279,19 @@ class VCruiseHelper:
         self.button_change_states[b.type.raw] = {"standstill": CS.cruiseState.standstill, "enabled": enabled}
 
   def apply_slc_target(self, target_mps: float, is_metric: bool) -> None:
-    """Apply a qualified planner command to the card-owned software set speed."""
+    """Set the software cruise ceiling for engagement or a qualified driver request."""
     # Match ordinary button precision so stepping away and back restores this target.
     self.v_cruise_kph = slc_target_kph(target_mps, is_metric)
     self.v_cruise_cluster_kph = self.v_cruise_kph
-    if self.toyota is not None:
-      self.toyota.manual_step = None
-      self.toyota.constrain(self)
-      self.toyota.requested = (self.v_cruise_kph, self.v_cruise_cluster_kph)
 
   def initialize_v_cruise(self, CS, experimental_mode: bool, *, resume: bool | None = None,
                           initial_speed: object = V_CRUISE_INITIAL, slc_target_mps: float | None = None, is_metric: bool = False) -> bool:
-    """Return whether engagement adopts the qualified current SLC limit."""
+    """Return whether engagement used the supplied SLC target."""
     if (not self.CP.openpilotLongitudinalControl or slc_target_mps is None or type(slc_target_mps) not in (int, float) or
         not math.isfinite(slc_target_mps) or not V_CRUISE_MIN / 3.6 - 1e-5 <= slc_target_mps <= V_CRUISE_MAX / 3.6 + 1e-5):
       slc_target_mps = None
-    # PCM initializes when SLC does not own SET.
-    if self.CP.pcmCruise and (not self.slc_pcm or slc_target_mps is None):
+    # Native cruise owns PCM SET, including when SLC supplies a planner cap.
+    if self.CP.pcmCruise:
       return False
     # A car-owned acknowledgment can outlive the physical button event.
     if resume is None:
@@ -315,15 +299,12 @@ class VCruiseHelper:
       resume = (0 < self.pending_resume_ns and 0 <= age <= 500_000_000) or any(
         b.type in (ButtonType.accelCruise, ButtonType.resumeCruise) for b in CS.buttonEvents)
     self.pending_resume_ns = 0
-    if slc_target_mps is None and resume and self.v_cruise_initialized:
-      if not self.CP.pcmCruise:
-        self.v_cruise_kph = self.v_cruise_kph_last
-        self.v_cruise_cluster_kph = self.v_cruise_kph
+    if resume and self.v_cruise_initialized:
+      self.v_cruise_kph = self.v_cruise_kph_last
+      self.v_cruise_cluster_kph = self.v_cruise_kph
       return False
     elif slc_target_mps is not None:
-      # Toyota still needs its native capacity/release approval before application.
-      if self.toyota is None:
-        self.apply_slc_target(slc_target_mps, is_metric)
+      self.apply_slc_target(slc_target_mps, is_metric)
       return True
     else:
       self.v_cruise_kph = int(round(np.clip(max(CS.vEgo * CV.MS_TO_KPH, validated_initial_cruise_speed(initial_speed)), V_CRUISE_INITIAL, V_CRUISE_MAX)))

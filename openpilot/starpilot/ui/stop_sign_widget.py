@@ -3,12 +3,13 @@ import math
 import time
 
 from openpilot.starpilot.speed_limits.vision.stop_observation import STOP_MAX_AGE_NS
-from openpilot.starpilot.ui.large_speed_geometry import LARGE_SIGN_SCALE, LIMIT_RECTS
+from openpilot.starpilot.ui.large_speed_geometry import LARGE_SIGN_SCALE, SIGN_HEIGHT, LIMIT_RECTS
 from openpilot.starpilot.ui.onroad_customization import offset, placement
 from openpilot.starpilot.ui.onroad_state import AlertSize, slc_action_occludes
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
 from openpilot.starpilot.ui.presentation import FontRole, Profile
 from openpilot.starpilot.ui.raylib import rl
+from openpilot.starpilot.ui.speed_limit_widget import draw_line, draw_text
 
 
 def stop_sign_bounds(profile: Profile, state):
@@ -19,7 +20,7 @@ def stop_sign_bounds(profile: Profile, state):
   dx, dy = offset(state.customization, profile, widget)
   scale = LARGE_SIGN_SCALE if profile == Profile.LARGE else .7
   left = x + dx + width + 24 if profile == Profile.LARGE else x + dx - 94
-  top = y + dy + (66 * LARGE_SIGN_SCALE - 50 * scale if profile == Profile.LARGE else 8)
+  top = y + dy + (SIGN_HEIGHT / 2 * LARGE_SIGN_SCALE - 50 * scale if profile == Profile.LARGE else 8)
   if slc_action_occludes(profile, state, (left, top, left + 100 * scale, top + 100 * scale)):
     return None
   return left, top, 100 * scale, scale
@@ -47,8 +48,8 @@ def draw_stop_sign(fonts, x: float, y: float, *, scale: float = 1) -> None:
   vertices = [rl.Vector2(center.x + radius * math.cos(math.radians(22.5 + i * 45)),
                          center.y + radius * math.sin(math.radians(22.5 + i * 45))) for i in range(8)]
   for i, point in enumerate(vertices):
-    rl.draw_line_ex(point, vertices[(i + 1) % 8], 2 * scale, white)
+    draw_line(fonts.profile, point, vertices[(i + 1) % 8], 2 * scale, white)
   size = 28 * scale * Profile.COMPACT.font_scale / fonts.profile.font_scale
   left, right = fonts.horizontal_ink('STOP', FontRole.BOLD, size)
   top, bottom = fonts.vertical_ink('STOP', FontRole.BOLD, size)
-  fonts.draw('STOP', FontRole.BOLD, size, center.x - (left + right) / 2, center.y - (top + bottom) / 2, white)
+  draw_text(fonts, 'STOP', FontRole.BOLD, size, center.x - (left + right) / 2, center.y - (top + bottom) / 2, white)

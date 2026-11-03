@@ -245,6 +245,48 @@ class TestVoltCc(unittest.TestCase):
             self.assertFalse(any(msg[0] in (0x2cb, 0x315, 0x200, 0x3d1) for msg in sent[-1][0]))
 
 
+  def test_slc_cap_reaches_cruise_down_without_changing_driver_set(self):
+    for metric in (False, True):
+      with self.subTest(metric=metric):
+        controls, card, ci, packer, sent, base, offset = fixture()
+        card.is_metric, card.slc_control_enabled, card.slc_source_floor_ns = metric, True, 0
+        state = messaging.new_message('slcState').slcState
+        state.enabled, state.sessionId, state.hasCeiling, state.effectiveCap = True, 'drive', True, 45 * .44704
+        controls.sm.data['slcState'] = state
+        for flags in (controls.sm.seen, controls.sm.valid, controls.sm.alive):
+          flags['slcState'] = True
+          flags['carControl'] = True
+        command = structs.CarControl(enabled=True, latActive=True, longActive=True)
+        command.actuators.accel = -1.
+        command.actuators.longControlState = structs.CarControl.Actuators.LongControlState.pid
+        command.hudControl.setSpeed = 70 * .44704
+        controls.sm.data['carControl'] = command
+        controls.sm.logMonoTime['carControl'] = base
+        by_phase = []
+        for phase in ('active', 'stale'):
+          directions = []
+          for tick in range(100):
+            now = base + (len(by_phase) * 100 + tick) * 10_000_000
+            out = ci.update([(now + offset - 2_000_000,
+                              physical_frames(packer, speed=55 * .44704, target_speed=70 * .44704, counter=(tick // 3) % 4))])
+            self.assertTrue(out.canValid)
+            out.vCruise = out.vCruiseCluster = 70 * .44704 * 3.6
+            for name in controls.sm.logMonoTime:
+              controls.sm.logMonoTime[name] = now - 2_000_000
+              controls.sm.recv_time[name] = (now - 1_000_000) / 1e9
+            controls.sm.logMonoTime['slcState'] = state.frameMonoTime = now - (2_000_000 if phase == 'active' else 200_000_000)
+            with patch('openpilot.selfdrive.car.card.clock_pair_ns', return_value=(now, now + offset)), \
+                 patch('openpilot.selfdrive.car.card.time.monotonic_ns', return_value=now), \
+                 patch('openpilot.selfdrive.car.card.REPLAY', False):
+              card.controls_update(out, command.as_reader())
+            directions.extend((data[5] >> 4) & 7 for address, data, _ in sent[-1][0] if address == 0x1e1)
+            self.assertAlmostEqual(out.vCruise, 70 * .44704 * 3.6, places=4)
+            self.assertAlmostEqual(command.hudControl.setSpeed, 70 * .44704, places=4)
+          by_phase.append(directions)
+        self.assertIn(3, by_phase[0])
+        self.assertEqual(by_phase[1], [])
+        self.assertIsNone(ci.CC.volt_cc_speed_ceiling_mps)
+
   def test_actual_card_constructor_subscribes_selected_consumer(self):
     class Registered(Exception):
       pass

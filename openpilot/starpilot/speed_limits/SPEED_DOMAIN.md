@@ -9,34 +9,30 @@ contains explicit half-open bands with signed m/s offsets;
 it supplies no settings defaults or source freshness policy. A missing band or
 unavailable target/pair produces `UNAVAILABLE`; malformed values produce
 `INVALID`. `SpeedPair` contains measured cluster speed, which may be below raw
-speed; resolution clamps each delta to `max(cluster - raw, 0)`. A nonvalid
-resolution with a context is malformed and triggers the override session-reset
-contract. Only a `VALID` context may enter `overrides.step(domain=...)`.
+speed; resolution clamps each delta to `max(cluster - raw, 0)`. Only a `VALID`
+resolution supplies a planner coordinate.
+
+Before entering this domain, the runtime floors finite negative ego-speed estimates
+to zero when fresh `carState` evidence reports standstill. The speed filter can
+undershoot zero after the wheels stop. Negative estimates while moving, nonfinite
+values and stale vehicle data remain unavailable; the original messages are unchanged.
 
 A finite negative offset that would make the target nonpositive in cluster or
 planner coordinates is ignored for that limit. The unadjusted accepted limit
 is used instead; the result stays within the ordinary cruise-speed bounds.
 Malformed schedules still fail validation.
 
-Call order is acceptance, domain resolution, override reduction, then
-`to_planner_coordinate(context, contribution_raw_mps, basis)`. The reducer
-compares current selected and retained intent against `accepted raw + offset`
-in cluster coordinates. It keeps retained intent in raw selected-speed units,
-even when the current selected value later changes for an unrelated reason.
-The conversion adds the *current qualified selected cluster delta* to that
-retained raw speed. A current pedal contribution uses the current ego cluster
-delta. The larger of limit plus offset and override is converted to planner
-coordinates by subtracting the ego cluster delta exactly once. A nonpositive
-result gives no coordinate. The coordinate validates the composition; it is not
-a separate live planner ceiling. Runtime commands use the accepted adjusted
-cluster target to update Card's SET speed. See the [controller contract](README.md).
+Call order is acceptance, domain resolution, then
+`to_planner_coordinate(context)`. The accepted limit plus offset is
+in cluster coordinates; subtracting the current ego cluster delta once produces
+the planner cap. A nonpositive result supplies no coordinate. The planner compares
+this cap with the independent driver's SET and applies the lower target.
 
-These helpers are pure; the live composition supplies the qualified inputs.
-They have no Params access, source freshness policy or vehicle output. Current
-SLC overrides come from qualified SET changes. Accelerator use does not create
-an SLC override; ordinary actuator gating owns the temporary pedal override.
+Ordinary SET changes do not supply an override contribution. During source loss,
+the previous accepted limit uses the current offset and fresh vehicle coordinates.
+It can be restored from validated saved history, without representing its old
+source identity as current evidence. Pending and declined proposals cannot replace it.
 
-The tests compose actual acceptance and causal override decisions, including
-retained raw intent with a changed current selected value, offset changes,
-negative offsets, missing coordinates, and one native planner/MPC case. These
-are deterministic software contracts, not on-road qualification.
+These helpers remain pure and have no Params, source-freshness or vehicle-output
+ownership. Tests cover units, signed offsets, malformed and missing coordinates,
+source-gap continuation, unchanged SET, authority and the native planner.

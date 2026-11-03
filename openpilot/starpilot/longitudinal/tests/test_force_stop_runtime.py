@@ -7,11 +7,12 @@ from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.values import CAR
 from openpilot.common.params import Params
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
-from openpilot.selfdrive.controls.plannerd import update_curve_frame
+from openpilot.selfdrive.controls.plannerd import update_curve_frame, wheel_override_blocked
 from openpilot.starpilot.curve_speed.host import CurveHost
-from openpilot.starpilot.longitudinal.force_stop import StopPlan
+from openpilot.starpilot.longitudinal.force_stop import StopPlan, vehicle_tune
 from openpilot.starpilot.longitudinal.force_stop_runtime import ForceStopRuntime, dashboard_stop_sign
 from openpilot.starpilot.longitudinal.tests.test_cruise_ceiling import messages, snapshot
+from openpilot.starpilot.longitudinal.tests.test_force_stop import frame as stop_frame
 from openpilot.starpilot.longitudinal.tests.test_stop_resume import event as button_event
 
 BASE = 100_000_000_000
@@ -60,6 +61,31 @@ class ForceStopRuntimeTests(unittest.TestCase):
       output = self.sample(Frame(tick))
     self.assertTrue(output.forcing)
     return output
+
+  def test_wheel_priority_requires_a_stop_cap_or_possible_commit_next_frame(self):
+    tune = vehicle_tune(str(self.cp.carFingerprint))
+    sign = {'light': False, 'sign': True, 'horizon_m': 40.}
+    self.owner.plan = self.owner.policy.step(stop_frame(0, **sign), tune)
+    self.assertIsNone(self.owner.plan.speed_ceiling_mps)
+    self.assertFalse(wheel_override_blocked(self.owner, None))
+    self.owner.plan = self.owner.policy.step(stop_frame(1, light=False, resume_requested=True), tune)
+    self.assertGreater(self.owner.policy.timer, 0.)
+    self.assertEqual(self.owner.policy.override_until_ns, 0)
+    self.assertFalse(wheel_override_blocked(self.owner, None))
+
+    self.owner.reset()
+    for tick in range(4):
+      self.owner.plan = self.owner.policy.step(stop_frame(tick, **sign), tune)
+    self.assertIsNone(self.owner.plan.speed_ceiling_mps)
+    self.assertTrue(wheel_override_blocked(self.owner, None))
+    self.owner.policy.step(stop_frame(4, resume_requested=True, **sign), tune)
+    self.assertGreater(self.owner.policy.override_until_ns, 0)
+
+    self.owner.reset()
+    self.owner.plan = self.owner.policy.step(stop_frame(0), tune)
+    self.assertFalse(self.owner.policy.can_commit_next_frame)
+    self.assertIsNotNone(self.owner.plan.speed_ceiling_mps)
+    self.assertTrue(wheel_override_blocked(self.owner, None))
 
   def test_committed_stop_survives_valid_mode_settings_and_traffic_changes(self):
     import json

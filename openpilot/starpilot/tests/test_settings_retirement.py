@@ -14,6 +14,7 @@ class TestSettingsRetirement(unittest.TestCase):
     self.directory = tempfile.TemporaryDirectory()
     self.addCleanup(self.directory.cleanup)
     self.params = SavedParams(self.directory.name)
+
   def test_inactive_cruise_features_do_not_become_enabled(self):
     self.params.put_bool('QOLLongitudinal', False)
     self.params.put_bool('ForceStops', True)

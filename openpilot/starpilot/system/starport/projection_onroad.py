@@ -299,14 +299,9 @@ class ProjectionOnroad:
     else:
       self._monitor_pair = None
       self._monitor_pair_ns = None
-    self.native.rl.rl_push_matrix()
-    self.native.rl.rl_translatef(0, self.height - 1080, 0)
-    try:
-      self.monitor.render(state, monitor=monitor, driver=driver,
-                          fresh=monitor is not None and driver is not None,
-                          onroad=ui.is_onroad())
-    finally:
-      self.native.rl.rl_pop_matrix()
+    self.monitor.render(state, monitor=monitor, driver=driver,
+                        fresh=monitor is not None and driver is not None,
+                        onroad=ui.is_onroad(), y_offset=self.height - 1080)
 
   def _ensure_map(self):
     """Build the map overlay the first time a layout turns it on; it stays for the connection."""

@@ -36,13 +36,18 @@ from openpilot.starpilot.longitudinal.profile_document import (
 from openpilot.starpilot.ui.feature_settings_state import (
   FeaturePage, FeatureRow, FeatureSettingsRequest, FeatureSettingsState, SLC_CONFIRM_ACTIONS, SLC_OFFSET_KEYS, TORQUE_CONFIRM_ACTIONS,
 )
-from openpilot.starpilot.speed_limits.runtime_settings import MPH_TO_MPS
+from openpilot.starpilot.speed_limits.offset_document import MPH_TO_MPS
+from openpilot.starpilot.speed_limits.runtime_settings import (
+  ADVANCE_BYTES, ADVANCE_KEYS, CONFIRMATION_CHOICES,
+  PEDAL_OVERRIDE_BYTES, PEDAL_OVERRIDE_CHOICES, PEDAL_OVERRIDE_KEY, SOURCE_PRIORITY_KEYS, WHEEL_OVERRIDE_KEY, PedalOverride,
+)
 from openpilot.starpilot.aol.vehicle import policy_for as aol_policy_for
 from openpilot.starpilot.feature_capabilities import longitudinal_supported as feature_longitudinal_supported
 from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, LEGACY_KEYS
 from openpilot.starpilot.ui.torque_feature import TorqueFeature
 from openpilot.starpilot.ui.controller_feature import ControllerFeature, SETUP_ACTION
 from openpilot.starpilot.ui.slc_offset_feature import SlcOffsetOwner
+from openpilot.starpilot.ui.slc_policy_feature import SLC_ADVANCE_CHOICES, policy_rows
 from openpilot.starpilot.longitudinal.profile_preferences import read_document_value, read_profile_health
 from openpilot.starpilot.ui.long_profile_feature import (LongProfileFeature, is_long_confirm_action, VALUE_HELP, CATEGORY_HELP,
                                                        preset_label, preset_value)
@@ -87,7 +92,8 @@ BOOL_DEFAULTS = {
   "ReverseCruise": False, "ToyotaAutoHold": False, "SNGHack": False, "JeepBrakeHold": False, "VoltSNG": False, "GMAutoHold": False, "VoltOnePedalMode": False,
   "RemapCancelToDistance": False, "LongPitch": True, "DisableOpenpilotLongitudinal": False,
   "SpeedLimitController": False, "ShowSpeedLimits": True,
-  "SLCConfirmation": False,
+  "SLCOnEngage": False,
+  WHEEL_OVERRIDE_KEY: False,
   "PauseLateralOnSignal": False,
   "LaneCentering": True, "LaneCenteringPauseOnSignal": True,
   "CustomPersonalities": False, PLANNER_SELECTION_KEY: True,
@@ -110,9 +116,7 @@ FLOAT_SPECS = {
      for name in ("Aggressive", "Standard", "Relaxed")
      for suffix in ("JerkAcceleration", "JerkDeceleration", "JerkDanger", "JerkSpeedDecrease", "JerkSpeed")},
 }
-SLC_PRIORITY = "SLCPriority1"
-SLC_SECONDARY = "SLCPriority2"
-SLC_ADVANCE_CHOICES = ('Off', *(f'{seconds} s' for seconds in range(1, 11)))
+SLC_PRIORITY, SLC_SECONDARY, SLC_TERTIARY = SOURCE_PRIORITY_KEYS
 LONG_PREFIX = "profile:"
 PRESETS = {"acceleration": ACCELERATION_PRESETS, "braking": BRAKING_PRESETS, "following": FOLLOWING_PRESETS}
 PROFILE_NAMES = ("aggressive", "standard", "relaxed")
@@ -185,9 +189,10 @@ class FeatureSettingsOwner:
   def _source_capability(self) -> tuple[bool, bool]:
     return bool(self.vision_development()), bool(self.maps_available())
 
-  def _source_choices(self, capability: tuple[bool, bool] | None = None) -> tuple[str, ...]:
+  def _source_choices(self, capability: tuple[bool, bool] | None = None, *, key: str = SLC_PRIORITY) -> tuple[str, ...]:
     vision, maps = self._source_capability() if capability is None else capability
-    return ("Dashboard",) + (("Vision",) if vision else ()) + (("Maps",) if maps else ())
+    choices = ("Dashboard",) + (("Vision",) if vision else ()) + (("Maps",) if maps else ())
+    return choices if key == SLC_PRIORITY else ("Off", *choices)
 
   def longitudinal_available(self) -> bool:
     cp = self.vehicle_params()
@@ -632,7 +637,7 @@ class FeatureSettingsOwner:
       return "Vision"
     if key == "IsMetric":
       return "0"
-    if key in SLC_OFFSET_KEYS or key in ("ForceStopDistanceOffset", "SLCAdvanceSeconds"):
+    if key in SLC_OFFSET_KEYS or key in ("ForceStopDistanceOffset", *ADVANCE_KEYS):
       return "0"
     value = self.params.get_default_value(key)
     return str(value) if value is not None else ""
@@ -680,8 +685,10 @@ class FeatureSettingsOwner:
       return row
     try:
       value = self._default(row.key)
-      if row.key in (SLC_PRIORITY, SLC_SECONDARY) and value not in self._source_choices():
-        return row
+      if row.key in SOURCE_PRIORITY_KEYS:
+        value = 'Maps' if value == 'Map Data' else value
+        if value not in self._source_choices(key=row.key):
+          return row
       if value in ("0", "1") and row.choices == ("Off", "On"):
         value = "On" if value == "1" else "Off"
       if row.choices and value not in row.choices or not value:
@@ -1090,29 +1097,28 @@ class FeatureSettingsOwner:
       elif not offsets_ready:
         control_reason = "Repair invalid saved speed-limit offsets or units before enabling control"
       else:
-        control_reason = "On adjusts cruise speed to accepted limits; Off keeps speed control unchanged"
+        control_reason = "Follow accepted limits plus offsets, up to your SET speed"
       control_row = self._bool_row("SpeedLimitController", "Speed Limit Controller",
                                    allowed and (offsets_ready or control == "1"), reason=control_reason)
       rows.append(replace(control_row, reason=control_reason) if control_row.choices else control_row)
+      cp = self.vehicle_params()
+      if cp is not None and not cp.pcmCruise:
+        rows.append(self._bool_row("SLCOnEngage", "Match Speed Limit on Engage", allowed and control == "1",
+                                   reason="Start SET at the SLC limit plus offset. RES restores your previous SET"))
       rows.append(self._bool_row("ShowSpeedLimits", "Show speed limit signs", self.authority("preferences"),
                                  reason="Display signs independently of Speed Limit Controller; does not change cruise speed"))
-      confirmation = self._bool_row("SLCConfirmation", "Automatic adoption", allowed,
-        reason="On adopts new limits immediately; Off asks for confirmation within 10 seconds")
-      rows.append(replace(confirmation, value={"On": "Off", "Off": "On"}.get(confirmation.value, confirmation.value), default_value="On"))
-      advance, raw_advance, readable_advance = self._value('SLCAdvanceSeconds')
-      valid_advance = readable_advance and advance in tuple(str(seconds) for seconds in range(11))
-      rows.append(FeatureRow('SLCAdvanceSeconds', 'Adopt limits early',
-        SLC_ADVANCE_CHOICES[int(advance)] if valid_advance else f'Saved {advance}', raw_advance,
-        SLC_ADVANCE_CHOICES if valid_advance else ('Off',), available=allowed, default_value='Off',
-        reason='Offer or adopt mapped limits this many seconds early at the current speed; applies to increases and decreases'
-          if valid_advance else 'Invalid saved advance time; restore Off'))
+      rows.extend(policy_rows(self._value, self._readable, allowed=allowed))
+      if cp is not None and not cp.pcmCruise:
+        rows.append(self._bool_row(WHEEL_OVERRIDE_KEY, "Override speed limit with +", allowed and control == "1",
+                                   reason="Press + to raise SET past the adjusted limit and use your new SET speed."))
       source_capability = self._source_capability()
       vision_dev, maps_available = source_capability
       source_allowed = configurable and self.authority("preferences")
-      choices = self._source_choices(source_capability)
       for key, label, help_text in (
           (SLC_PRIORITY, "Primary source", "Use this source first; try the secondary source when it is unavailable"),
-          (SLC_SECONDARY, "Secondary source", "Use this source when the primary source is unavailable")):
+          (SLC_SECONDARY, "Secondary source", "Use this source when the primary source is unavailable"),
+          (SLC_TERTIARY, "Third source", "Use this source when neither earlier source has a usable reading")):
+        choices = self._source_choices(source_capability, key=key)
         source, raw, valid = self._value(key)
         source = "Maps" if source == "Map Data" else source
         readable = self._readable(key)
@@ -1123,7 +1129,7 @@ class FeatureSettingsOwner:
           reason = "Camera signs are unavailable; choose a connected source"
         rows.append(FeatureRow(key, label, source if readable else "Unavailable saved source", raw,
           (source, *choices) if valid and source not in choices else choices,
-          available=source_allowed and valid and readable and (vision_dev or maps_available or source != "Dashboard"),
+          available=source_allowed and valid and readable and (len(choices) > 1 or source != "Dashboard"),
           reason=reason, capability=source_capability))
       rows.extend(offset_rows)
       title = "Speed Limit Controller"
@@ -1462,11 +1468,11 @@ class FeatureSettingsOwner:
     elif key.startswith(LONG_PREFIX):
       source_key = PERSONALITY_PROFILES_PARAM
       group = "long"
-    elif key in BOOL_DEFAULTS or key in FLOAT_SPECS or key in (SLC_PRIORITY, SLC_SECONDARY, 'SLCAdvanceSeconds'):
+    elif key in BOOL_DEFAULTS or key in FLOAT_SPECS or key in (*SOURCE_PRIORITY_KEYS, *ADVANCE_KEYS, 'SLCConfirmation', PEDAL_OVERRIDE_KEY):
       source_key = key
       long_key = (key in ("CustomPersonalities", "ForceStops", "ForceStopDistanceOffset") or "Personality" in key or
                   key.endswith(("Follow", "FollowHigh")) or "Jerk" in key)
-      if key in ("ShowSpeedLimits", "AlwaysAllowUploads", SLC_PRIORITY, SLC_SECONDARY) or (key == "ForceStops" and request.value == "Off"):
+      if key in ("ShowSpeedLimits", "AlwaysAllowUploads", *SOURCE_PRIORITY_KEYS) or (key == "ForceStops" and request.value == "Off"):
         group = "preferences"
       elif key in LANE_LIVE_KEYS and not self.authority("lane"):
         group = "lane_live"
@@ -1502,7 +1508,7 @@ class FeatureSettingsOwner:
           return False
         if (key != CURVE_MASTER_KEY or request.value != "Off") and not read_learning(self.params).valid:
           return False
-      if key in (SLC_PRIORITY, SLC_SECONDARY) and request.capability != self._source_capability():
+      if key in SOURCE_PRIORITY_KEYS and request.capability != self._source_capability():
         return False
       if key in LANE_LIVE_KEYS:
         from openpilot.starpilot.lateral.lane_runtime import runtime_supported
@@ -1597,19 +1603,33 @@ class FeatureSettingsOwner:
         encoded = self._edit_document(key, request.value, seed_capability=request.capability if named_acceleration_seed else None)
         if encoded is None:
           return False
-      elif key == 'SLCAdvanceSeconds':
-        current, _, valid = self._value(key)
+      elif key == 'SLCConfirmation':
+        if request.value not in CONFIRMATION_CHOICES.values():
+          return False
+        encoded = next(mode for mode, label in CONFIRMATION_CHOICES.items() if label == request.value)
+      elif key in ADVANCE_KEYS:
+        _, raw, valid = self._value(key)
         if (request.value not in SLC_ADVANCE_CHOICES or request.value != 'Off' and
-            (not valid or current not in tuple(str(seconds) for seconds in range(11)))):
+            (not valid or raw is not None and raw not in ADVANCE_BYTES)):
           return False
         encoded = str(SLC_ADVANCE_CHOICES.index(request.value))
+      elif key == PEDAL_OVERRIDE_KEY:
+        if request.value not in PEDAL_OVERRIDE_CHOICES or (
+            request.value != PEDAL_OVERRIDE_CHOICES[PedalOverride.OFF] and request.expected not in (None, *PEDAL_OVERRIDE_BYTES)):
+          return False
+        encoded = PEDAL_OVERRIDE_CHOICES.index(request.value)
       elif key in BOOL_DEFAULTS:
         current, _, valid = self._value(key)
         if not valid or current not in ("0", "1") or request.value not in ("On", "Off"):
           return False
         if key == "SpeedLimitController" and request.value == "On" and not self.slc_offsets.ready_to_enable():
           return False
-        encoded = ("0" if request.value == "On" else "1") if key == "SLCConfirmation" else ("1" if request.value == "On" else "0")
+        if key in ("SLCOnEngage", WHEEL_OVERRIDE_KEY):
+          cp = self.vehicle_params()
+          if cp is None or cp.pcmCruise or not self.longitudinal_available() or (
+              request.value == "On" and self._raw("SpeedLimitController") != b"1"):
+            return False
+        encoded = "1" if request.value == "On" else "0"
       elif key in FLOAT_SPECS:
         current, _, valid = self._value(key)
         low, high, _, _ = FLOAT_SPECS[key]
@@ -1626,7 +1646,7 @@ class FeatureSettingsOwner:
           return False
         encoded = str(int(number)) if key == "ForceStopDistanceOffset" else str(round(number, 4))
       else:
-        if request.value not in self._source_choices():
+        if request.value not in self._source_choices(key=key):
           return False
         encoded = "Map Data" if request.value == "Maps" else request.value
       if key in LANE_LIVE_KEYS:
@@ -1641,7 +1661,7 @@ class FeatureSettingsOwner:
         return False
       if key == "SpeedLimitController" and request.value == "On" and not self.slc_offsets.ready_to_enable():
         return False
-      if key in (SLC_PRIORITY, SLC_SECONDARY) and request.capability != self._source_capability():
+      if key in SOURCE_PRIORITY_KEYS and request.capability != self._source_capability():
         return False
       if group in ("torque", "aol", "aol_wheel"):
         if request.capability != self._capability(group) or \
@@ -1705,7 +1725,7 @@ class FeatureSettingsOwner:
         return result.committed and result.verified
       if source_key in BOOL_DEFAULTS:
         self.params.put_bool(source_key, encoded == "1", block=True)
-      elif source_key == 'SLCAdvanceSeconds':
+      elif source_key in (*ADVANCE_KEYS, 'SLCConfirmation', PEDAL_OVERRIDE_KEY):
         self.params.put(source_key, int(encoded), block=True)
       elif source_key == AOL_THRESHOLD:
         self.params.put(source_key, encoded, block=True)

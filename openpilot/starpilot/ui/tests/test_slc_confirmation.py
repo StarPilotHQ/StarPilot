@@ -16,7 +16,8 @@ from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_sp
 
 @pytest.mark.parametrize('profile', list(Profile))
 @pytest.mark.parametrize('source_available', [False, True])
-def test_source_gap_keeps_open_card_with_reject_but_no_accept(profile, source_available):
+@pytest.mark.parametrize('action', [SlcActionKind.ACCEPT, SlcActionKind.REJECT])
+def test_source_gap_keeps_same_open_card_with_accept_and_reject(profile, source_available, action):
   from openpilot.starpilot.ui.onroad_state import ObservationKind
   current, emitted = state(), []
   touch = OnroadInput(emitted.append, profile)
@@ -24,21 +25,19 @@ def test_source_gap_keeps_open_card_with_reject_but_no_accept(profile, source_av
   before = speed_limit_bounds(profile, touch.present(current))
   missing = replace(current, speed_limit=replace(current.speed_limit,
     kind=ObservationKind.VALID if source_available else ObservationKind.UNKNOWN,
-    speed_limit_mps=22. if source_available else None, presentation_id=0,
+    speed_limit_mps=22. if source_available else None,
     last_received_speed_limit_mps=22., last_received_source='dashboard'))
-  assert resolve_unified_speed(missing, confirmation=True).status == 'Unavailable'
+  assert resolve_unified_speed(missing, confirmation=True).status == 'Confirm speed limit'
   assert manual_slc_confirmation(profile, missing)
   assert touch.present(missing).slc_prompt_open
   assert speed_limit_bounds(profile, touch.present(missing)) == before
   accept, reject = slc_controls(profile, touch.present(missing))
-  assert not accept.enabled and reject.enabled
-  tap_control(touch, missing, SlcActionKind.ACCEPT)
-  assert not emitted and touch.present(missing).slc_prompt_open
-  recovered = replace(current, speed_limit=replace(current.speed_limit, presentation_id=10))
+  assert accept.enabled and reject.enabled
+  recovered = current
   assert touch.present(recovered).slc_prompt_open
   touch.present(missing)
-  tap_control(touch, missing, SlcActionKind.REJECT)
-  assert [r.kind for r in emitted] == [SlcActionKind.REJECT]
+  tap_control(touch, missing, action)
+  assert [r.kind for r in emitted] == [action]
 
 
 @pytest.mark.parametrize('profile', list(Profile))
@@ -51,20 +50,38 @@ def test_closed_and_open_card_share_anchor_and_physically_scaled_targets(profile
   opened = touch.present(current)
   after = speed_limit_bounds(profile, opened)
   assert before is not None and after is not None
-  assert before[1::2] == after[1::2]
-  assert before[0 if profile == Profile.LARGE else 2] == after[0 if profile == Profile.LARGE else 2]
+  assert before[1] == after[1]
+  assert before[3] - after[3] == pytest.approx(7 if profile == Profile.COMPACT else 0)
+  assert after[0] <= before[0] < before[2] <= after[2]
   first, last = slc_controls(profile, opened)
   scale = CONFIRMATION_SCALE[profile]
-  assert (first.bounds[2] - first.bounds[0]) / scale == pytest.approx(144)
-  assert (first.bounds[3] - first.bounds[1]) / scale == pytest.approx(112)
-  assert (last.bounds[0] - first.bounds[2]) / scale == pytest.approx(8)
+  assert (first.bounds[2] - first.bounds[0]) / scale == pytest.approx(180 if profile == Profile.LARGE else 150)
+  assert (first.bounds[3] - first.bounds[1]) / scale == pytest.approx(128 if profile == Profile.LARGE else 112)
+  assert (last.bounds[0] - first.bounds[2]) / scale == pytest.approx(12)
   assert (first.bounds[0] - after[0]) / scale == pytest.approx(8)
   assert (after[2] - last.bounds[2]) / scale == pytest.approx(8)
   torque = current.customization['layouts'][str(profile)]['torque_bar']
-  assert after[3] < torque['y']
+  assert max(before[3], after[3]) <= torque['y']
   if profile == Profile.COMPACT:
-    assert after == (148., 8, 460., 160.)
+    assert after == (148., 8, 476., 160.)
     assert after[0] > 146
+
+
+@pytest.mark.parametrize('profile', list(Profile))
+@pytest.mark.parametrize('wheel_confirmation', [False, True])
+def test_notice_footer_opens_choices_without_accepting_or_rejecting(profile, wheel_confirmation):
+  current = replace(state(), slc_wheel_confirmation_available=wheel_confirmation)
+  emitted = []
+  touch = OnroadInput(emitted.append, profile)
+  bounds = speed_limit_bounds(profile, current)
+  assert bounds is not None
+  left, _, right, bottom = bounds
+  x, y = (left + right) / 2, bottom - 2 * CONFIRMATION_SCALE[profile]
+  touch.press(x, y, current)
+  touch.release(x, y, current)
+  assert touch.present(current).slc_prompt_open
+  assert len(slc_controls(profile, touch.present(current))) == 2
+  assert not emitted
 
 
 @pytest.mark.parametrize('profile', list(Profile))
@@ -100,7 +117,7 @@ def test_touch_choice_remains_available_without_wheel_confirmation(profile, acti
 
 
 @pytest.mark.parametrize('profile', list(Profile))
-@pytest.mark.parametrize('change', ['actions_hidden', 'sign_hidden', 'automatic', 'alert', 'toyota_guidance', 'stale'])
+@pytest.mark.parametrize('change', ['actions_hidden', 'sign_hidden', 'automatic', 'alert', 'stale'])
 def test_unavailable_confirmation_has_no_empty_chooser_or_action(profile, change):
   from openpilot.starpilot.ui.onroad_state import ObservationKind
   current, emitted = state(), []
@@ -115,10 +132,9 @@ def test_unavailable_confirmation_has_no_empty_chooser_or_action(profile, change
     current = replace(current, speed_limit=replace(current.speed_limit, automatic_adoption_pending=True))
   elif change == 'alert':
     current = replace(current, alert=OnroadAlert(size=AlertSize.SMALL))
-  elif change == 'toyota_guidance':
-    current = replace(current, toyota_cruise_status='raise_dash', toyota_cruise_target_kph=100.)
   else:
-    current = replace(current, speed_limit=replace(current.speed_limit, kind=ObservationKind.STALE, speed_limit_mps=None))
+    current = replace(current, speed_limit=replace(current.speed_limit, kind=ObservationKind.STALE, speed_limit_mps=None,
+      pending_speed_limit_mps=None, presentation_id=None))
   assert not manual_slc_confirmation(profile, current)
   assert not touch.present(current).slc_prompt_open
   assert not slc_controls(profile, current)
@@ -138,19 +154,19 @@ def test_new_layouts_reject_torque_overlap_and_legacy_migration_is_targeted(prof
   original = deepcopy(doc)
   migrated = validate_document(doc)
   assert doc == original
-  assert migrated['version'] == 12
+  assert migrated['version'] == 14
   assert migrated['palette'] == doc['palette']
   assert migrated['layouts']['large']['current_speed'] == doc['layouts']['large']['current_speed']
   assert migrated['layouts'][str(profile)][owner]['y'] == default_document()['layouts'][str(profile)][owner]['y']
   assert validate_document(migrated) == migrated
 
 
-def test_legacy_sources_keep_guidance_below_the_row_and_above_the_gauge():
+def test_legacy_sources_keep_the_saved_action_area_below_the_row():
   doc = default_document()
   doc.update(version=11, speedSources=True, speedSourcesCard=True)
   doc['layouts']['large']['speed_limit_actions']['y'] = 351
   migrated = validate_document(doc)
-  assert migrated['layouts']['large']['speed_limit_actions']['y'] == 367
+  assert migrated['layouts']['large']['speed_limit_actions']['y'] == 389
   assert validate_document(migrated) == migrated
 
 

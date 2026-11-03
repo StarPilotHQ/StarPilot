@@ -76,7 +76,7 @@ class TestSavedTorquePage(unittest.TestCase):
     self.assertTrue(self.gateway._context('torque').editing_saved_vehicle)
     self.assertEqual(self.context.sample().cp.carFingerprint, 'HYUNDAI_IONIQ_6')
     self.assertEqual(self.gateway._context('slc').cp.carFingerprint, 'HYUNDAI_IONIQ_6')
-    slc = next(row for row in self.page('slc')['rows'] if row['label'] == 'Automatic adoption')
+    slc = next(row for row in self.page('slc')['rows'] if row['label'] == 'Confirm limits')
     self.assertTrue(slc['available'])
     self.offroad.return_value = False
     with patch.object(self.context, 'configuration_allowed', return_value=True):

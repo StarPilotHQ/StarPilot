@@ -44,20 +44,17 @@ class TestRecoveryHttp(TestCase):
     rows = self.request('/api/settings/non-defaults', cookie=cookie)[1]['rows']
     self.assertNotIn('Wheel brake and acceleration colors', [row['label'] for row in rows])
 
-  def test_confirmation_reset_uses_only_master_and_preserves_legacy_flags(self):
-    for key in ('SLCConfirmation', 'SLCConfirmationLower', 'SLCConfirmationHigher'):
-      self.params.put_bool(key, True, block=True)
+  def test_confirmation_reset_restores_off(self):
+    self.params.put('SLCConfirmation', 1, block=True)
     cookie = self.login()
-    payload = self.selection(cookie, ['Automatic adoption'])
+    payload = self.selection(cookie, ['Confirm limits'])
     status, pending, _ = self.request('/api/settings/recovery/preview', cookie=cookie, payload=payload)
     self.assertEqual(status, 200)
     result = self.request('/api/settings/recovery/confirm', cookie=cookie,
                           payload={'intent': pending['intent'], 'confirmed': True})
     self.assertEqual(result[0], 200)
     self.assertTrue(result[1]['saved'])
-    self.assertFalse(self.params.get_bool('SLCConfirmation'))
-    for key in ('SLCConfirmationLower', 'SLCConfirmationHigher'):
-      self.assertTrue(self.params.get_bool(key))
+    self.assertFalse(self.params.get('SLCConfirmation'))
 
   def test_wrong_selection_and_unconfirmed_requests_are_rejected(self):
     self.params.put_bool('ShowBrakeStatus', True, block=True)
@@ -81,13 +78,13 @@ class TestRecoveryHttp(TestCase):
     self.assertTrue(self.params.get_bool('ShowBrakeStatus'))
 
   def test_unsupported_rows_are_reported_and_available_reset_all_does_not_touch_them(self):
-    self.params.put_bool('SLCConfirmation', True, block=True)
+    self.params.put('SLCConfirmation', 1, block=True)
     self.params.put_bool('ShowBrakeStatus', True, block=True)
     self.context.value = replace(self.context.value, cp=None, cp_raw=None)
     cookie = self.login()
     status, view, _ = self.request('/api/settings/non-defaults', cookie=cookie)
     self.assertEqual(status, 200)
-    unsupported = next(row for row in view['rows'] if row['label'] == 'Automatic adoption')
+    unsupported = next(row for row in view['rows'] if row['label'] == 'Confirm limits')
     self.assertFalse(unsupported['resetAvailable'])
     self.assertEqual(self.request('/api/settings/recovery/preview', cookie=cookie,
       payload={'view': view['view'], 'selected': [unsupported['id']]})[0], 409)
@@ -99,4 +96,4 @@ class TestRecoveryHttp(TestCase):
     self.assertEqual(result[0], 200)
     self.assertTrue(result[1]['saved'])
     self.assertFalse(self.params.get_bool('ShowBrakeStatus'))
-    self.assertTrue(self.params.get_bool('SLCConfirmation'))
+    self.assertTrue(self.params.get('SLCConfirmation'))

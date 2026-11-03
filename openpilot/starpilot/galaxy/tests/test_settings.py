@@ -461,9 +461,9 @@ class SettingsGatewayTest(unittest.TestCase):
         self.assertIn("Vision", primary["choices"])
         self.assertIn("Vision", secondary["choices"])
         self.assertNotIn("require your confirmation", primary["reason"])
-        confirmation = next(row for row in rows if row["label"] == "Automatic adoption")
-        self.assertEqual(confirmation["value"], "On")
-        self.assertIn("immediately", confirmation["reason"])
+        confirmation = next(row for row in rows if row["label"] == "Confirm limits")
+        self.assertEqual(confirmation["value"], "Off")
+        self.assertIn("automatically", confirmation["reason"])
         self.assertIn("accepts", confirmation["reason"])
 
     with mock.patch.dict(os.environ, {"SLC_REPLAY_RUNTIME": "0", "SLC_VISION_DEVELOPMENT": "0"}):
