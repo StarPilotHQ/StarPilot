@@ -320,9 +320,18 @@ assert.equal(modelActionAllowed({ ...refreshingCatalog, randomizer: true }, "sel
 assert.equal(modelActionAllowed({ ...refreshingCatalog, refreshing: false }, "select-big", big), false)
 assert.equal(modelActionAllowed(refreshingCatalog, "delete", small), false)
 
+for (const series of ["Polaris", "Polaris Series", "  POLARIS SERIES  "]) {
+  for (const value of ["spz_polaris_r3a", "future-model", undefined]) assert.equal(ModelsPage.methods.isPolaris({value, series}), true)
+}
+for (const series of ["OP Series", "SP Series", "Polaris Experimental", "", undefined, null, 123]) {
+  assert.equal(ModelsPage.methods.isPolaris({value: "unrelated", label: "Polaris", series}), false)
+}
 for (const value of ["spz_polaris_r3a", "spz_polaris_r3b"]) assert.equal(ModelsPage.methods.isPolaris({value}), true)
-for (const value of ["polaris", "spz_polaris_r3a_copy", "lightspeed", undefined]) assert.equal(ModelsPage.methods.isPolaris({value, label: "Polaris"}), false)
+assert.equal(ModelsPage.methods.isPolaris({value: "spz_polaris_r3a_copy"}), false)
 assert.equal(ModelsPage.methods.isPolaris(null), false)
+assert.match(ModelsPage.template, /gx-model-card--polaris.*isPolaris\(m\)/)
+assert.match(ModelsPage.template, /v-if="isPolaris\(m\)" class="gx-chip gx-polaris-badge"/)
+assert.match(ModelsPage.template, /aria-label="About Polaris models"/)
 
 for (const label of ["Polaris R3 A ⚠️🧪", "Polaris R3 B ⚠️🧪", "Polaris R3 A", "Polaris R3 B 🚀"]) {
   const [text, emojis] = ModelsPage.methods.polarisTitleParts({label})
@@ -330,3 +339,4 @@ for (const label of ["Polaris R3 A ⚠️🧪", "Polaris R3 B ⚠️🧪", "Pola
   assert.equal(/\p{Extended_Pictographic}/u.test(text), false)
 }
 assert.deepEqual(ModelsPage.methods.polarisTitleParts({value: "spz_polaris_r3a"}), ["spz_polaris_r3a", ""])
+

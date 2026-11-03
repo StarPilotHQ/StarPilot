@@ -392,7 +392,10 @@ export const ModelsPage = {
     this.manager.stop()
   },
   methods: {
-    isPolaris(model) { return ["spz_polaris_r3a", "spz_polaris_r3b"].includes(model?.value) },
+    isPolaris(model) {
+      const series = typeof model?.series === "string" ? model.series.trim().toLowerCase() : ""
+      return series === "polaris" || series === "polaris series" || ["spz_polaris_r3a", "spz_polaris_r3b"].includes(model?.value)
+    },
     polarisTitleParts(model) {
       const label = model.label || model.value
       const emoji = label.search(/\p{Extended_Pictographic}/u)
@@ -640,3 +643,4 @@ export const ModelsPage = {
     </div>
   `,
 }
+
