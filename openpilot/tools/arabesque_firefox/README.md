@@ -521,6 +521,18 @@ Preparation requires root, ARM64 AGNOS `19.8.1`, `20.2-starpilot.1` or `20.2.1`,
 
 The `offline/` directory ships the original archives named by digest. The installer copies them into the private package cache and checks each size and digest before extraction. For a new pinned release, refresh the directory with `python3 openpilot/tools/arabesque_firefox/setup.py --stage-offline` and include the resulting archives in the device checkout. Packages absent from a checkout can still be fetched from their pinned HTTPS URLs during setup or an explicit update.
 
+### Check a new AGNOS image or Firefox bundle
+
+From the repo root on a Linux development machine with Python 3.12+, `dpkg-deb`, `glib-compile-schemas`, `debugfs`, and `simg2img`, run:
+
+```bash
+sudo /usr/bin/python3 -m openpilot.tools.arabesque_firefox.check_agnos
+```
+
+On x86-64, also install `qemu-user-static` for `qemu-aarch64-static`. Allow about 10 GiB of temporary space. Set `TMPDIR` via `sudo env TMPDIR=/path/to/scratch` if the default location is too small. The command downloads the pinned system image. Use `--image /path/to/system.img.xz` to reuse a local copy, or `--manifest openpilot/common/hardware/comma/agnos-c3.json` to check the C3 manifest if its system image differs.
+
+The check builds from the shipped archives with an empty cache and package downloads disabled. It verifies the decompressed system image against the manifest, then checks the browser and display libraries inside that image. Keep the existing pins if it passes. Use a parked comma to verify launch, rendering, input, and profile preservation before qualifying a new AGNOS version.
+
 ### Force the reference and SHM modes
 
 After preparation has completed, close the Firefox tool and run one diagnostic at a time from the checkout:

@@ -79,6 +79,16 @@ def test_download_reports_progress_and_reuses_verified_package(tmp_path, monkeyp
   fetch.assert_called_once()
 
 
+def test_offline_only_missing_archive_fails_without_fetching(tmp_path, monkeypatch):
+  package = {'name': 'missing.deb', 'url': 'https://example.invalid/missing.deb', 'size': 4, 'sha256': '0' * 64}
+  fetch = Mock(side_effect=AssertionError('network during offline verification'))
+  monkeypatch.setattr(setup.urllib.request, 'urlopen', fetch)
+  with pytest.raises(FileNotFoundError, match='Missing offline Firefox archive: .*missing.deb'):
+    setup.download(package, tmp_path, offline_only=True)
+  fetch.assert_not_called()
+  assert not list(tmp_path.iterdir())
+
+
 def test_cancelled_download_never_publishes_partial_package(tmp_path, monkeypatch):
   data = b'partial'
   response = io.BytesIO(data)

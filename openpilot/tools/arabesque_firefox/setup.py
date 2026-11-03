@@ -202,7 +202,7 @@ def copy_package(package, response, partial, label):
       report(f'{label}… {100 * (package["size"] - remaining) // package["size"]}%')
 
 
-def download(package, cache, *, cache_uid=0):
+def download(package, cache, *, cache_uid=0, offline_only=False):
   digest = package.get('sha512', package.get('sha256'))
   path = cache / (digest + '-' + package['name'])
   legacy = cache / package['name']
@@ -225,6 +225,8 @@ def download(package, cache, *, cache_uid=0):
       try:
         fd = os.open(bundled, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
       except FileNotFoundError:
+        if offline_only:
+          raise FileNotFoundError(f'Missing offline Firefox archive: {bundled.name}') from None
         with urllib.request.urlopen(package['url'], timeout=30) as response:
           if not response.url.startswith('https://'):
             raise ValueError('Refusing an insecure browser package redirect') from None
@@ -321,14 +323,14 @@ def quiescent():
     raise RuntimeError('Close all Firefox sessions before preparing the runtime')
 
 
-def build(manifest, staging):
+def build(manifest, staging, *, offline_only=False):
   cache = ROOT / 'packages'
   cache.mkdir(mode=0o700, exist_ok=True)
   safe(cache, private=True)
   staging.mkdir()
   for index, package in enumerate(manifest['packages'], 1):
     report(f'Preparing Firefox ({index}/{len(manifest["packages"])})…')
-    archive = download(package, cache)
+    archive = download(package, cache, offline_only=offline_only)
     safe(archive)
     report('Unpacking Firefox…' if package['name'].startswith('firefox-') else 'Preparing browser libraries…')
     # Cairo and Xvfb both need the pinned Pixman library.
