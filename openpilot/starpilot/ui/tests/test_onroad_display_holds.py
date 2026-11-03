@@ -8,7 +8,8 @@ from unittest.mock import Mock
 import pytest
 
 from openpilot.starpilot.ui.onroad_compact_widgets import CompactHudRenderer
-from openpilot.starpilot.ui.onroad_state import ObservationKind, OnroadState, SpeedLimitObservation
+from openpilot.starpilot.ui.onroad_state import ObservationKind, OnroadState, SpeedLimitObservation, speed_limit_bounds
+from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.shell import ShellMode
 from openpilot.starpilot.ui.tests.test_runtime_snapshot import NOW, RuntimeSnapshotAdapter, ui_fake
 from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_speed
@@ -25,22 +26,107 @@ def display_ui():
   return ui
 
 
-def test_unknown_slc_keeps_only_display_sign_during_brief_gap():
+@pytest.mark.parametrize('source', ['dashboard', 'map', 'vision', 'online', 'mapbox', 'unknown'])
+def test_unknown_slc_keeps_only_display_sign_during_brief_gap(source):
   ui = display_ui()
+  ui.sm.messages['slcState'].source = source
   adapter = RuntimeSnapshotAdapter(ui)
-  valid = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.speed_limit
-  assert valid.kind == ObservationKind.VALID
+  valid = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad
+  assert valid.speed_limit.kind == ObservationKind.VALID
+  assert not resolve_unified_speed(valid).posted_retained
   ui.sm.messages['slcState'] = unknown_slc()
   ui.sm.logMonoTime['slcState'] = NOW + 50_000_000
-  held = adapter.build(ShellMode.ONROAD, now_ns=NOW + 50_000_000).onroad.speed_limit
-  assert (held.kind, held.speed_limit_mps, held.source, held.status) == (
-    ObservationKind.VALID, valid.speed_limit_mps, valid.source, 'display_hold')
-  assert not held.action_enabled
-  assert all(value is None for value in (held.session_id, held.decision_id, held.presentation_id,
-                                         held.pending_speed_limit_mps, held.effective_cap_mps))
+  held = adapter.build(ShellMode.ONROAD, now_ns=NOW + 50_000_000).onroad
+  observation = held.speed_limit
+  assert (observation.kind, observation.speed_limit_mps, observation.source, observation.status) == (
+    ObservationKind.VALID, valid.speed_limit.speed_limit_mps, source, 'display_hold')
+  assert resolve_unified_speed(held).posted_retained
+  assert not observation.action_enabled
+  assert all(value is None for value in (observation.session_id, observation.decision_id, observation.presentation_id,
+                                         observation.pending_speed_limit_mps, observation.effective_cap_mps))
   ui.sm.logMonoTime['slcState'] = NOW + 150_000_001
-  expired = adapter.build(ShellMode.ONROAD, now_ns=NOW + 150_000_001).onroad.speed_limit
-  assert (expired.kind, expired.speed_limit_mps) == (ObservationKind.STALE, None)
+  expired = adapter.build(ShellMode.ONROAD, now_ns=NOW + 150_000_001).onroad
+  assert (expired.speed_limit.kind, expired.speed_limit.speed_limit_mps) == (ObservationKind.STALE, None)
+  assert not resolve_unified_speed(expired).posted_retained
+
+
+@pytest.mark.parametrize('source', ['dashboard', 'map', 'vision'])
+@pytest.mark.parametrize('has_last_received', [False, True])
+def test_slc_last_label_requires_stable_recovery(source, has_last_received):
+  ui = display_ui()
+  live = ui.sm.messages['slcState']
+  live.source = source
+  gap = unknown_slc()
+  if has_last_received:
+    gap = NS(**(vars(live) | {'observationKind': 'absent', 'source': 'none', 'status': 'absent',
+                              'lastReceivedSpeedLimit': live.speedLimit, 'lastReceivedSource': source}))
+  adapter = RuntimeSnapshotAdapter(ui)
+
+  def update(message, elapsed_ms, *, render_ms=None):
+    ui.sm.messages['slcState'] = message
+    ui.sm.logMonoTime['slcState'] = NOW + elapsed_ms * 1_000_000
+    now = elapsed_ms if render_ms is None else render_ms
+    return adapter.build(ShellMode.ONROAD, now_ns=NOW + now * 1_000_000).onroad
+
+  def last(state):
+    return resolve_unified_speed(state).posted_retained or state.speed_limit.sign_recovering
+
+  assert not last(update(live, 0))
+  assert last(update(gap, 50))
+  assert last(update(live, 100))
+  assert last(update(gap, 150))
+  assert last(update(live, 200))
+  assert last(update(live, 250))
+  assert last(update(live, 300))
+  assert last(update(live, 300, render_ms=350))  # Redrawing the same packet cannot clear LAST.
+  assert not last(update(live, 350))
+
+  assert last(update(gap, 400))
+  assert not last(update(NS(**(vars(live) | {'speedLimit': live.speedLimit + 1})), 450))
+  assert last(update(unknown_slc(), 500))
+  other_source = 'dashboard' if source != 'dashboard' else 'map'
+  assert not last(update(NS(**(vars(live) | {'source': other_source})), 550))
+
+
+@pytest.mark.parametrize('display_only', [False, True])
+def test_slc_disable_discards_the_previous_sign(display_only):
+  ui = display_ui()
+  ui.sm.messages['slcState'].enabled = not display_only
+  ui.sm.messages['slcState'].displayOnly = display_only
+  adapter = RuntimeSnapshotAdapter(ui)
+  assert resolve_unified_speed(adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad).posted_text != '–'
+
+  tombstone = unknown_slc()
+  tombstone.enabled = False
+  ui.sm.messages['slcState'] = tombstone
+  ui.sm.logMonoTime['slcState'] = NOW + 50_000_000
+  disabled = resolve_unified_speed(adapter.build(ShellMode.ONROAD, now_ns=NOW + 50_000_000).onroad)
+  assert disabled.posted_text == '–' and not disabled.posted_retained
+
+  ui.sm.messages['slcState'] = unknown_slc()
+  ui.sm.logMonoTime['slcState'] = NOW + 100_000_000
+  restarted = resolve_unified_speed(adapter.build(ShellMode.ONROAD, now_ns=NOW + 100_000_000).onroad)
+  assert restarted.posted_text == '–' and not restarted.posted_retained
+
+
+def test_hidden_display_only_sign_stays_hidden_during_hold():
+  ui = display_ui()
+  ui.sm.messages['slcState'].enabled = False
+  ui.sm.messages['slcState'].displayOnly = True
+  adapter = RuntimeSnapshotAdapter(ui)
+  adapter.appearance_override = lambda appearance: replace(appearance, show_speed_limit_sign=True)
+  valid = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad
+  assert all(speed_limit_bounds(profile, valid) is not None for profile in Profile)
+
+  adapter.appearance_override = lambda appearance: replace(appearance, show_speed_limit_sign=False)
+  adapter.invalidate_appearance()
+  gap = unknown_slc()
+  gap.enabled, gap.displayOnly = False, True
+  ui.sm.messages['slcState'] = gap
+  ui.sm.logMonoTime['slcState'] = NOW + 50_000_000
+  held = adapter.build(ShellMode.ONROAD, now_ns=NOW + 50_000_000).onroad
+  assert resolve_unified_speed(held).posted_retained
+  assert all(speed_limit_bounds(profile, held) is None for profile in Profile)
 
 
 @pytest.mark.parametrize('metric', [False, True])
@@ -63,6 +149,7 @@ def test_unknown_gap_preserves_large_slc_number_offset_and_source(metric, target
   before = resolve_unified_speed(before_state)
   assert before.limit_text != '–'
   assert before.offset_text is not None
+  assert not before.posted_retained
   ui.sm.messages['slcState'] = unknown_slc()
   for age in (50_000_000, 100_000_000, 150_000_000):
     ui.sm.logMonoTime['slcState'] = NOW + age
@@ -71,6 +158,7 @@ def test_unknown_gap_preserves_large_slc_number_offset_and_source(metric, target
     assert (held.mode, held.posted_text, held.limit_text, held.offset_text, held.source) == (
       before.mode, before.posted_text, before.limit_text, before.offset_text, before.source)
     assert (held.active_side, held.status, held.pending) == ('none', 'Unavailable', False)
+    assert held.posted_retained
     obs = held_state.speed_limit
     assert not obs.action_enabled
     assert all(value is None for value in (obs.effective_cap_mps, obs.effective_cluster_target_mps,

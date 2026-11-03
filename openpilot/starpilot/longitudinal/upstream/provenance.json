@@ -7,14 +7,14 @@
     "plannerd.py": {
       "upstream_path": "openpilot/selfdrive/controls/plannerd.py",
       "upstream_sha256": "9c1591c78522e0f89794eb7301113fc616ec6ac079e576a3c9f9ebec64bcbfde",
-      "adapted_sha256": "0af78b0030a2219f3224e28592715a50bc5620a1e644b75c13eeb0cbeeb2afd5",
-      "adaptation": "Planner/MPC imports redirected; independent existing conditional-mode owner and bounded transport connected outside unchanged upstream planner/MPC arithmetic"
+      "adapted_sha256": "c0a305cd934673706aa29166ba3b08ae82894b1d7ee41e5348c4b995ee9a4db2",
+      "adaptation": "Redirected planner imports and connected independent conditional mode and shared SLC through bounded event transport and a shared status publisher"
     },
     "planner.py": {
       "upstream_path": "openpilot/selfdrive/controls/lib/longitudinal_planner.py",
       "upstream_sha256": "d81425700cf7152ef4f617ec1517fb4137fc5af9188047f48b31aff62dc652f4",
-      "adapted_sha256": "7f79b61e095928100cb1d1d0b5e5e6ee66676d461c2274fc5a542cec2c841e8f",
-      "adaptation": "Only planner/MPC import paths redirected; no arithmetic/state/publisher changes"
+      "adapted_sha256": "47967154441baa073e777e9664f3383705ddeaa779da8dc31c3b2909b9ad49b0",
+      "adaptation": "Redirected MPC imports and applied the optional, authority-checked SLC cap to the cruise target"
     },
     "mpc.py": {
       "upstream_path": "openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/long_mpc.py",

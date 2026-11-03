@@ -111,7 +111,7 @@ PROFILES: dict[str, LayoutProfile] = {
 
 for _profile in PROFILES:
   PROFILES[_profile]['widgets']['speed_limit_actions']['note'] = (
-    'Accept / Reject appear inside a pending limit after tapping it. This placement controls Toyota guidance.')
+    'Accept / Reject appear inside a pending limit after tapping it.')
   _owner = 'cruise_limits' if _profile == 'large' else 'speed_limit'
   PROFILES[_profile]['widgets'][_owner]['confirmation'] = confirmation_footprint(_profile)
 

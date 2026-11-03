@@ -54,18 +54,20 @@ class SM:
 def test_maps_priority_slots_and_defaults_use_actual_runtime_projection():
   sm = SM(packet())
   cp = NS(carFingerprint='vehicle')
-  for first, second, expected in (('Maps', 'Dashboard', sel.Source.MAP),
-                                  ('Dashboard', 'Maps', sel.Source.DASHBOARD),
-                                  ('Vision', 'Maps', sel.Source.MAP)):
-    settings = parse({'SpeedLimitController': True, 'SLCPriority1': first, 'SLCPriority2': second})
+  for first, second, third, expected in (('Maps', 'Dashboard', 'Off', sel.Source.MAP),
+                                         ('Dashboard', 'Maps', 'Off', sel.Source.DASHBOARD),
+                                         ('Vision', 'Maps', 'Off', sel.Source.MAP),
+                                         ('Vision', 'Off', 'Maps', sel.Source.MAP),
+                                         ('Vision', 'Off', 'Off', None)):
+    settings = parse({'SpeedLimitController': True, 'SLCPriority1': first, 'SLCPriority2': second, 'SLCPriority3': third})
     runtime = Runtime(settings, session_id='drive')
     observations = runtime._observations(sm, cp, MONO, BOOT)
     chosen = sel.select_limit(observations, settings.selection)
     assert chosen.selected_source is expected
   settings = parse({})
-  assert settings.selection.slots == (sel.Source.VISION, sel.Source.DASHBOARD)
+  assert settings.selection.slots == (sel.Source.VISION, sel.Source.MAP, None)
   chosen = sel.select_limit(Runtime(settings)._observations(sm, cp, MONO, BOOT), settings.selection)
-  assert chosen.selected_source is sel.Source.DASHBOARD
+  assert chosen.selected_source is sel.Source.MAP
   assert parse({'SLCPriority1': 'Map Data'}).selection.slots[0] is sel.Source.MAP
 
 
@@ -83,21 +85,25 @@ def test_expired_map_falls_through_to_current_dashboard_without_renewal():
   assert values[sel.Source.MAP].candidate is None
 
 
-def test_map_loss_no_metadata_and_lookahead_keep_history_without_control_target():
+def test_map_loss_no_metadata_and_lookahead_reuse_only_the_previous_accepted_limit():
   authority = acc.Authority(acc.Mode.COMBINED, acc.LongitudinalOwner.SYSTEM, True, True, False, False)
   prior = acc.AcceptedLimit(acc.Candidate('map', acc.ObservationIdentity(acc.IdentityKind.GEOGRAPHIC, value='previous-way'), 20.), 'drive', 0)
   frame = ms.decode_event(packet().to_bytes())
+  without_limit = replace(frame, status='matchedNoLimit', speed_mps=0.)
   for changed in (replace(frame, way_selection='possible'), replace(frame, way_selection='predicted'),
                   replace(frame, way_selection='extended'), replace(frame, version=1),
                   replace(frame, tile_loaded=False), replace(frame, event_mono_ns=BOOT+1),
-                  replace(frame, status='matchedNoLimit', speed_mps=0.),
+                  without_limit, replace(without_limit, way_selection='possible'),
+                  replace(without_limit, event_valid=False), replace(without_limit, event_mono_ns=BOOT+1),
                   replace(frame, status='noCoverage', event_valid=False, tile_loaded=False, way_id=0, speed_mps=0.)):
-    observation = MapSource().step(changed, received=True, now_boot_ns=BOOT,
+    source = MapSource()
+    observation = source.step(changed, received=True, now_boot_ns=BOOT,
       transport_alive=True, drive_session='drive', car_fingerprint='vehicle')
+    assert source.way_id == (frame.way_id if changed is without_limit else 0)
     assert observation.candidate is None
     assert observation.kind is not acc.ObservationKind.ABSENT
     decision = acc.step(acc.new_session('drive', prior), observation, authority, acc.Policy(), now_ns=MONO)
-    assert decision.control_target_mps is None
+    assert decision.control_target_mps == prior.candidate.speed_mps
     assert decision.state.accepted == prior
     assert decision.history_write is None
 
@@ -138,9 +144,13 @@ def test_actual_saved_maps_priority_starts_existing_readonly_provider_without_ne
   with tempfile.TemporaryDirectory() as directory:
     params = Params(directory)
     cp = NS(notCar=False)
-    assert read_params(params).selection.slots == (sel.Source.VISION, sel.Source.DASHBOARD)
+    assert params.get_default_value('SLCPriority2') == 'Map Data'
+    assert read_params(params).selection.slots == (sel.Source.VISION, sel.Source.MAP, None)
+    assert shadow_lifecycle.enabled(True, params, cp)
+    params.put('SLCPriority2', 'Dashboard', block=True)
     assert not shadow_lifecycle.enabled(True, params, cp)
-    params.put('SLCPriority2', 'Map Data', block=True)
+    params.put('SLCPriority2', 'Off', block=True)
+    params.put('SLCPriority3', 'Map Data', block=True)
     assert shadow_lifecycle.enabled(True, params, cp)
     assert not Path(params.get_param_path('MapdShadowEnabled')).exists()
     params.put_bool('ShowSpeedLimits', False, block=True)
@@ -152,7 +162,7 @@ def test_actual_saved_maps_priority_starts_existing_readonly_provider_without_ne
     assert not shadow_lifecycle.enabled(True, params, cp)
 
 
-def test_shared_settings_owner_maps_labels_both_slots_defaults_and_ready_change_guard():
+def test_shared_settings_owner_maps_labels_defaults_and_ready_change_guard():
   with tempfile.TemporaryDirectory() as directory:
     params = Params(directory)
     ready = True
@@ -162,14 +172,22 @@ def test_shared_settings_owner_maps_labels_both_slots_defaults_and_ready_change_
       state = owner.snapshot('slc', parked=True, system_long=False, lateral_context=False, metric=False)
       return next(r for r in state.rows if r.key == key)
     assert row('SLCPriority1').value == 'Vision'
-    assert row('SLCPriority2').value == 'Dashboard'
-    for key in ('SLCPriority1', 'SLCPriority2'):
+    assert row('SLCPriority2').value == row('SLCPriority2').default_value == 'Maps'
+    assert row('SLCPriority3').value == row('SLCPriority3').default_value == 'Off'
+    params.put('SLCPriority2', 'Dashboard', block=True)
+    for key in ('SLCPriority1', 'SLCPriority2', 'SLCPriority3'):
       assert 'Maps' in row(key).choices
+      assert ('Off' in row(key).choices) == (key != 'SLCPriority1')
       while row(key).value != 'Maps':
         request = row_change(row(key))
         assert request is not None
         assert owner.apply(request)
       assert params.get(key) == 'Map Data'
+      if key != 'SLCPriority1':
+        request = row_change(row(key))
+        assert request is not None and request.value == 'Off'
+        assert owner.apply(request)
+        assert params.get(key) == 'Off'
     request = row_change(row('SLCPriority1'))
     assert request is not None
     ready = False
@@ -181,11 +199,10 @@ def test_shared_settings_owner_maps_labels_both_slots_defaults_and_ready_change_
     assert pages.index('curve') < pages.index('slc')
 
 
-def test_manager_default_demand_does_not_read_full_slc_settings():
+def test_manager_skips_full_slc_settings_read_when_saved_priorities_exclude_maps():
   with tempfile.TemporaryDirectory() as directory:
     params = Params(directory)
     with patch('openpilot.starpilot.speed_limits.runtime_settings.read_params', side_effect=AssertionError('full scan')):
-      assert not shadow_lifecycle.enabled(True, params, NS(notCar=False))
       params.put('SLCPriority1', 'Vision', block=True)
       params.put('SLCPriority2', 'Dashboard', block=True)
       assert not shadow_lifecycle.enabled(True, params, NS(notCar=False))
@@ -283,7 +300,6 @@ def test_actual_runtime_maps_display_only_publishes_sign_without_ceiling_or_comm
   assert state.observationKind == 'valid' and state.source == 'map'
   assert abs(state.speedLimit-13.4112) < .001
   assert not state.hasCeiling and result.result.ceiling is None
-  assert result.command is None
   assert not state.hasPending and not state.hasAccepted
   # Keep the real cereal envelopes live for the complete reader lifetime.
   assert len(envelopes) == 7 and dashboard.which() == 'slcDashboardObservation'

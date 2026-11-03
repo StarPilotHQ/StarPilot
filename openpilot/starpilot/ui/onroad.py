@@ -38,8 +38,7 @@ from openpilot.starpilot.ui.onroad_torque import TorqueBarWidget
 from openpilot.starpilot.ui.onroad_navigation import NavigationCard
 from openpilot.starpilot.ui.onroad_navigation_favorites import NavigationFavorites
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
-from openpilot.starpilot.ui.large_speed_geometry import ACTION_TEXT_SIZE
-from openpilot.starpilot.ui.speed_limit_widget import INK, MUTED, draw_ink
+from openpilot.starpilot.ui.speed_limit_widget import MUTED, draw_ink
 from openpilot.starpilot.conditional_mode.policy import ModeChoice
 
 
@@ -176,38 +175,16 @@ class OnroadView:
       self._compact(state)
 
   def _slc_actions(self, state: OnroadState) -> None:
-    from openpilot.starpilot.ui.onroad_state import slc_action_bounds
-    from openpilot.starpilot.ui.unified_speed_presentation import toyota_cruise_notice
     if manual_slc_confirmation(self.fonts.profile, state):
       sign = self.unified_speed.sign if self.fonts.profile == Profile.LARGE else self.compact_hud._speed_limit_widget
       sign.render_confirmation(state, getattr(self, 'pressed_action', lambda: None)())
       return
-    notice = toyota_cruise_notice(state)
-    bounds = slc_action_bounds(self.fonts.profile, state)
-    if notice is not None and state.alert.size == AlertSize.NONE:
-      large = self.fonts.profile == Profile.LARGE
-      left, top, right = bounds[0][0], bounds[0][1], bounds[-1][2]
-      center = (left + right) / 2
-      primary = ACTION_TEXT_SIZE[self.fonts.profile]
-      secondary = 32 if large else 20
-      for text, size, y in ((notice[0], primary, top + (8 if large else 4)),
-                            (notice[1], secondary, top + (64 if large else 43))):
-        a, b = self.fonts.horizontal_ink(text, FontRole.MEDIUM, size)
-        draw_ink(self.fonts, text, FontRole.MEDIUM, size, center - (a + b) / 2, y, INK)
-      value, unit = notice[2:]
-      value_left, value_right = self.fonts.horizontal_ink(value, FontRole.MEDIUM, primary)
-      unit_left, unit_right = self.fonts.horizontal_ink(unit, FontRole.MEDIUM, secondary)
-      value_width, unit_width = value_right - value_left, unit_right - unit_left
-      x = center - (value_width + 8 + unit_width) / 2
-      y = top + (100 if large else 64)
-      _, value_height = draw_ink(self.fonts, value, FontRole.MEDIUM, primary, x - value_left, y, INK)
-      a, b = self.fonts.vertical_ink(unit, FontRole.MEDIUM, secondary)
-      draw_ink(self.fonts, unit, FontRole.MEDIUM, secondary, x + value_width + 8 - unit_left, y + value_height - (b - a), INK)
-      return
     feedback = state.speed_limit.action_feedback
     if (self.fonts.profile == Profile.LARGE and feedback and state.alert.size == AlertSize.NONE and
         placement(state.customization, self.fonts.profile, 'speed_limit_actions')['enabled']):
-      draw_ink(self.fonts, feedback, FontRole.MEDIUM, 30, bounds[0][0], bounds[0][1] + 24, MUTED)
+      from openpilot.starpilot.ui.onroad_state import slc_action_bounds
+      first, _ = slc_action_bounds(self.fonts.profile, state)
+      draw_ink(self.fonts, feedback, FontRole.MEDIUM, 30, first[0], first[1] + 24, MUTED)
 
   def _preview_badge(self, state: OnroadState) -> None:
     """Keep synthetic replay visibly identified even over a full alert."""

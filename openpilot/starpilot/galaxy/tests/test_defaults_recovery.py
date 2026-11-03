@@ -63,40 +63,23 @@ class TestCanonicalRecovery(TestCase):
     self.assertTrue(recovery.confirm(pending['intent'], self.session, self.generation)['saved'])
     self.assertEqual(recovery.snapshot(self.session, self.generation)['count'], 0)
 
-  def test_legacy_confirmation_flags_do_not_create_hidden_customization(self):
-    self.params.put_bool('SLCConfirmation', False, block=True)
-    self.params.put_bool('SLCConfirmationLower', True, block=True)
-    self.params.put_bool('SLCConfirmationHigher', True, block=True)
+  def test_directional_confirmation_resets_to_off(self):
+    self.params.put('SLCConfirmation', 4, block=True)
     recovery = self.recovery()
     view = recovery.snapshot(self.session, self.generation)
-    children = [row for row in view['rows'] if row['label'] in ('Confirm lower limits', 'Confirm higher limits')]
-    self.assertEqual(children, [])
-    self.assertFalse(self.params.get_bool('SLCConfirmation'))
-    self.assertTrue(self.params.get_bool('SLCConfirmationLower'))
-    self.assertTrue(self.params.get_bool('SLCConfirmationHigher'))
-
-  def test_reset_confirmation_master_preserves_ignored_legacy_bytes(self):
-    for key in ('SLCConfirmation', 'SLCConfirmationLower', 'SLCConfirmationHigher'):
-      self.params.put_bool(key, True, block=True)
-    recovery = self.recovery()
-    view = recovery.snapshot(self.session, self.generation)
-    selected = [row['id'] for row in view['rows'] if row['label'] in
-                ('Automatic adoption', 'Confirm lower limits', 'Confirm higher limits')]
-    self.assertEqual(len(selected), 1)
-    pending = recovery.preview(view['view'], selected, self.session, self.generation)
+    row = next(row for row in view['rows'] if row['label'] == 'Confirm limits')
+    pending = recovery.preview(view['view'], [row['id']], self.session, self.generation)
     self.assertTrue(recovery.confirm(pending['intent'], self.session, self.generation)['saved'])
-    self.assertFalse(self.params.get_bool('SLCConfirmation'))
-    for key in ('SLCConfirmationLower', 'SLCConfirmationHigher'):
-      self.assertTrue(self.params.get_bool(key))
+    self.assertFalse(self.params.get('SLCConfirmation'))
 
   def test_unsupported_rows_remain_visible_but_cannot_block_available_reset_all(self):
     from dataclasses import replace
-    self.params.put_bool('SLCConfirmation', True, block=True)
+    self.params.put('SLCConfirmation', 1, block=True)
     self.params.put_bool('ShowBrakeStatus', True, block=True)
     self.context.value = replace(self.context.value, cp=None, cp_raw=None)
     recovery = self.recovery()
     view = recovery.snapshot(self.session, self.generation)
-    unsupported = next(row for row in view['rows'] if row['label'] == 'Automatic adoption')
+    unsupported = next(row for row in view['rows'] if row['label'] == 'Confirm limits')
     self.assertFalse(unsupported['resetAvailable'])
     with self.assertRaises(SettingsChanged):
       recovery.preview(view['view'], [unsupported['id']], self.session, self.generation)
@@ -104,7 +87,7 @@ class TestCanonicalRecovery(TestCase):
     self.assertTrue(selected)
     pending = recovery.preview(view['view'], selected, self.session, self.generation)
     self.assertTrue(recovery.confirm(pending['intent'], self.session, self.generation)['saved'])
-    self.assertTrue(self.params.get_bool('SLCConfirmation'))
+    self.assertTrue(self.params.get('SLCConfirmation'))
     self.assertFalse(self.params.get_bool('ShowBrakeStatus'))
 
   def test_other_canonical_inactive_children_reset_without_turning_their_masters_on(self):

@@ -6,7 +6,7 @@ from openpilot.starpilot.ui.raylib import rl
 
 
 ATLAS_PATH = Path(__file__).with_name('assets') / 'speed_limit_shapes.png'
-ATLAS_SIZE = (384, 484)
+ATLAS_SIZE = (384, 612)
 SPRITES = {
   'disc': (0, 0, 128, 128), 'ring': (128, 0, 128, 128),
   'arrow_large': (0, 128, 32, 40), 'arrow_compact': (32, 128, 32, 48),
@@ -15,6 +15,9 @@ SPRITES = {
   'confirmation_pulse': (176, 176, 104, 136),
   'wheel_plus': (280, 176, 48, 48), 'wheel_minus': (328, 176, 48, 48),
   'arrow_confirmation': (280, 224, 32, 48),
+  'override_outline': (0, 484, 136, 98),
+  'override_circle': (136, 484, 124, 124),
+  'override_slash': (260, 484, 48, 8),
 }
 SPRITE_DENSITIES = {'arrow_compact': 2, 'confirmation': 2, 'confirmation_open': 2, 'confirmation_pulse': 2,
                     'wheel_plus': 2, 'wheel_minus': 2, 'arrow_confirmation': 2}
@@ -64,6 +67,16 @@ class SpeedLimitShapes:
   def circle(self, x, y, color):
     self._draw('disc', x, y, rl.WHITE)
     self._draw('ring', x, y, color)
+
+  def override_sign(self, x, y, *, vienna):
+    self._draw('override_circle' if vienna else 'override_outline', x, y, rl.WHITE)
+
+  def override_slash(self, x, y, width, color):
+    self._load()
+    source = self.sources['override_slash']
+    height = source.height * self.scale
+    rl.draw_texture_pro(self.texture, source, rl.Rectangle(x, y, width, height),
+                        rl.Vector2(width / 2, height / 2), -11, color)
 
   def outline(self, x, y, color, *, short=False):
     if not short:

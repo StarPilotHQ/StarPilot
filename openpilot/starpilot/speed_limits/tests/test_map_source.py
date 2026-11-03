@@ -261,7 +261,7 @@ class MapSourceTests(unittest.TestCase):
     authority = acc.Authority(acc.Mode.COMBINED, acc.LongitudinalOwner.SYSTEM, True, True, False, False)
     decision = acc.step(acc.new_session('drive', prior), chosen.observation, authority,
                         acc.Policy(), now_ns=456_100_000_000)
-    self.assertIsNone(decision.control_target_mps)
+    self.assertEqual(decision.control_target_mps, prior.candidate.speed_mps)
     self.assertEqual(decision.basis, 'unknown')
     self.assertEqual(decision.state.accepted, prior)
     self.assertIsNone(decision.history_write)

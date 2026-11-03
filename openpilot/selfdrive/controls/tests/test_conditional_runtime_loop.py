@@ -23,21 +23,21 @@ from openpilot.starpilot.conditional_mode.projection import ConditionalOwnerCont
 from openpilot.starpilot.conditional_mode.runtime_settings import DOCUMENT_KEY
 from openpilot.starpilot.conditional_mode.status import settings_fingerprint
 from openpilot.starpilot.conditional_mode.tests.test_projection import BOOT, MONO, FakeSubMaster, serialized_scene
+from openpilot.starpilot.speed_limits.runtime import Action as SlcAction, CruiseEvent as SlcCruiseEvent
 
 
 class TestConditionalRuntimeLoop(unittest.TestCase):
-  def test_slc_unit_change_keeps_receipts_for_the_current_command(self):
-    from openpilot.selfdrive.car.cruise import slc_target_kph
+  def test_slc_unit_change_preserves_cap_and_queued_driver_event(self):
     from openpilot.starpilot.speed_limits import offset_document as od
     from openpilot.starpilot.speed_limits.runtime import Action, CruiseEvent
-    from openpilot.starpilot.speed_limits.tests.test_runtime_replay import RuntimeReplayTests
-    fixture = RuntimeReplayTests()
+    from openpilot.starpilot.speed_limits.tests import test_runtime_replay as replay
+    fixture = replay.RuntimeReplayTests()
     fixture.setUp()
     sm, cp = fixture.sm, fixture.cp
     with tempfile.TemporaryDirectory() as directory:
       params = Params(directory)
       params.put_bool('SpeedLimitController', True, block=True)
-      params.put_bool('SLCConfirmation', True, block=True)
+      params.put('SLCConfirmation', 1, block=True)
       params.put('SLCPriority1', 'Dashboard', block=True)
       params.put('SLCOffsetSchedule', od.to_value(od.default_document(False)), block=True)
       owner = plannerd.SavedSlcLifecycle(params, cp, {})
@@ -46,20 +46,19 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
       sm.advance(2_900_000_000)
       pending = runtime.step(sm, cp, now_ns=2_900_000_000).message.slcState
       sm.advance(2_950_000_000)
-      issued = runtime.step(sm, cp, now_ns=2_950_000_000,
+      accepted = runtime.step(sm, cp, now_ns=2_950_000_000,
         request=Action(runtime.session_id, 1, pending.decisionId, pending.presentationId, 'accept'))
-      command = issued.command.slcCruiseCommand
-      selected = slc_target_kph(command.targetMps, False)
-      receipts = deque([CruiseEvent(1, 2_990_000_000, 60 / 3.6, selected / 3.6, '', 'card-producer',
-        2_990_000_000, 'commandApplied', runtime.session_id, command.decisionId, command.presentationId, command.commandId)])
+      self.assertEqual(accepted.result.ceiling.speed_mps, 25.)
+      events = deque([CruiseEvent(1, 2_990_000_000, 60/3.6, 65/3.6, 'accel', 'card-producer', 2_990_000_000)])
       params.put_bool('IsMetric', True, block=True)
-      metric, _ = owner.refresh(3_000_000_000, pending_cruise=receipts)
-      self.assertEqual(len(receipts), 1)
-      sm['carState'].vCruise = sm['carState'].vCruiseCluster = selected
+      metric, _ = owner.refresh(3_000_000_000, pending_cruise=events)
+      self.assertIs(metric, runtime)
+      self.assertEqual(len(events), 1)
+      sm['carState'].vCruise = sm['carState'].vCruiseCluster = 65.
       sm.advance(3_000_000_000)
-      applied = metric.step(sm, cp, now_ns=3_000_000_000, cruise_event=receipts.popleft())
-      self.assertEqual(applied.message.slcState.commandStatus, 'applied')
-      self.assertIsNone(applied.command)
+      output = metric.step(sm, cp, now_ns=3_000_000_000, cruise_event=events.popleft())
+      self.assertEqual(output.result.ceiling.speed_mps, 25.)
+      self.assertEqual(sm['carState'].vCruise, 65.)
 
   def test_slc_unit_changes_preserve_set_speed_and_driver_choices(self):
     from openpilot.common.constants import CV
@@ -68,14 +67,14 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
     from openpilot.starpilot.speed_limits.runtime import Action, CruiseEvent
     from openpilot.starpilot.speed_limits.tests.test_runtime_replay import RuntimeReplayTests
     now = 2_000_000_000
-    for confirmation, choice in ((False, 'applied'), (True, 'applied'), (False, 'override'), (True, 'decline')):
+    for confirmation, choice in ((False, 'applied'), (True, 'applied'), (False, 'ceiling'), (True, 'decline')):
       with self.subTest(confirmation=confirmation, choice=choice), tempfile.TemporaryDirectory() as directory:
         fixture = RuntimeReplayTests()
         fixture.setUp()
         sm, cp = fixture.sm, fixture.cp
         params = Params(directory)
         params.put_bool('SpeedLimitController', True, block=True)
-        params.put_bool('SLCConfirmation', confirmation, block=True)
+        params.put('SLCConfirmation', int(confirmation), block=True)
         params.put('SLCPriority1', 'Dashboard', block=True)
         params.put('SLCOffsetSchedule', od.to_value(od.default_document(False)), block=True)
         owner = plannerd.SavedSlcLifecycle(params, cp, {})
@@ -84,14 +83,14 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
         baseline = slc_target_kph(65 * CV.MPH_TO_MS, False)
         sm['carState'].vCruise = sm['carState'].vCruiseCluster = baseline
         aligned = original.step(sm, cp, now_ns=now)
-        self.assertIsNone(aligned.command)
-        if choice == 'override':
+        self.assertTrue(aligned.message.slcState.hasAccepted)
+        if choice == 'ceiling':
           selected = slc_target_kph(70 * CV.MPH_TO_MS, False)
           sm['carState'].vCruise = sm['carState'].vCruiseCluster = selected
           sm.advance(now + 50_000_000)
           chosen = original.step(sm, cp, now_ns=now + 50_000_000, cruise_event=CruiseEvent(
             1, now + 50_000_000, baseline / 3.6, selected / 3.6, 'accel', 'card-producer', now + 50_000_000))
-          self.assertTrue(chosen.message.slcState.driverOverrideActive)
+          self.assertFalse(chosen.message.slcState.driverOverrideActive)
         elif choice == 'decline':
           sm['slcDashboardObservation'].speedMps = 55 * CV.MPH_TO_MS
           sm.advance(now + 50_000_000)
@@ -105,11 +104,10 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
         self.assertTrue(changed)
         sm.advance(now + 1_000_000_000)
         output = metric.step(sm, cp, now_ns=now + 1_000_000_000)
-        self.assertIsNone(output.command)
         self.assertFalse(output.message.slcState.hasPending)
         self.assertTrue(output.message.slcState.hasAccepted)
         self.assertEqual(sm['carState'].vCruise, selected)
-        self.assertEqual(output.message.slcState.driverOverrideActive, choice == 'override')
+        self.assertFalse(output.message.slcState.driverOverrideActive)
         if choice == 'decline':
           self.assertEqual(output.result.acceptance.basis, 'rejected')
 
@@ -122,13 +120,11 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
       owner = plannerd.SavedSlcLifecycle(params, cp, {})
       imperial, _ = owner.refresh(MONO)
       self.assertFalse(imperial.is_metric)
-      imperial.set_speed_after_ns = MONO + 1_050_000_000
       actions, cruise = deque([object()]), deque([object()])
       params.put_bool('IsMetric', True, block=True)
       metric, changed = owner.refresh(MONO + 1_000_000_000, pending_actions=actions, pending_cruise=cruise)
       self.assertTrue(changed)
       self.assertTrue(metric.is_metric)
-      self.assertEqual(metric.set_speed_after_ns, MONO + 1_050_000_000)
       self.assertIs(metric, imperial)
       self.assertFalse(actions)
       self.assertEqual(len(cruise), 1)
@@ -168,7 +164,7 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
           # Status and transport are reserved independently of saved SLC/CEM
           # admission, so a later saved change can attach without restarting.
           self.assertEqual(publisher.call_args.args[0], ['longitudinalPlan', 'starpilotLongitudinalPlan',
-                                                       'driverAssistance', 'slcState', 'slcCruiseCommand'])
+                                                       'driverAssistance', 'slcState'])
           self.assertEqual(conditional_ctor.call_count, int(enabled))
           if enabled:
             self.assertIs(conditional_ctor.call_args.args[0], params)
@@ -200,8 +196,8 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
       self.assertFalse(vision.vision_control_qualified)
       self.assertEqual(vision.settings.selection.slots[0], Source.VISION)
       session = vision.session_id
-      pending_actions = deque([(3_000_000_000, plannerd.SlcAction(session, 1, 1, 1, 'accept'))])
-      pending_cruise = deque([plannerd.SlcCruiseEvent(1, 3_000_000_000, 20., 21., 'set', session_id=session)])
+      pending_actions = deque([(3_000_000_000, SlcAction(session, 1, 1, 1, 'accept'))])
+      pending_cruise = deque([SlcCruiseEvent(1, 3_000_000_000, 20., 21., 'set', session_id=session)])
       self.assertEqual(owner.refresh(3_050_000_000, pending_actions=pending_actions,
                                     pending_cruise=pending_cruise), (vision, False))
       self.assertEqual(len(pending_actions), 1)
@@ -217,8 +213,8 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
       self.assertNotEqual(vision.session_id, session)  # Retired session was reset.
       params.put_bool('ShowSpeedLimits', False, block=True)
       params.put_bool('SpeedLimitController', False, block=True)
-      pending_actions.append((4_050_000_000, plannerd.SlcAction(control.session_id, 1, 1, 1, 'accept')))
-      pending_cruise.append(plannerd.SlcCruiseEvent(2, 4_050_000_000, 20., 21., 'set', session_id=control.session_id))
+      pending_actions.append((4_050_000_000, SlcAction(control.session_id, 1, 1, 1, 'accept')))
+      pending_cruise.append(SlcCruiseEvent(2, 4_050_000_000, 20., 21., 'set', session_id=control.session_id))
       self.assertEqual(owner.refresh(5_000_000_000, pending_actions=pending_actions,
                                     pending_cruise=pending_cruise), (None, True))
       self.assertFalse(pending_actions)
@@ -251,7 +247,7 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
            patch.object(messaging, 'SubMaster', return_value=sm) as subscriber, patch.object(messaging, 'sub_sock'):
         with self.assertRaises(EndLoop):
           plannerd.starpilot_main()
-      self.assertIn('slcCruiseCommand', publisher.call_args.args[0])
+      self.assertNotIn('slcCruiseCommand', publisher.call_args.args[0])
       for service in ('slcDashboardObservation', 'slcVisionObservation'):
         self.assertIn(service, subscriber.call_args.args[0])
         for check in ('ignore_alive', 'ignore_valid', 'ignore_avg_freq'):

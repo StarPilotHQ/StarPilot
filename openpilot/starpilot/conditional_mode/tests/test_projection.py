@@ -114,6 +114,20 @@ def owner_context(stamp: int, *, stop_time=8.0, slower=True, stopped=False):
 
 
 class TestSceneProjector(unittest.TestCase):
+  def test_conditional_speed_comparisons_use_the_slc_cap_without_mutating_set(self):
+    for cap, expected in ((None, 20.), (15., 15.), (25., 20.), (float('nan'), None)):
+      with self.subTest(cap=cap):
+        projector = SceneProjector()
+        sm = FakeSubMaster(serialized_scene(), MONO-5_000_000)
+        projector.project(sm, CP, now_mono_ns=MONO, now_boot_ns=BOOT, sample_skew_ns=1000)
+        now = MONO+50_000_000
+        sm.stamp(now)
+        sm.payloads.update(serialized_scene(stamp=BOOT+50_000_000))
+        result = projector.project(sm, CP, now_mono_ns=now, now_boot_ns=BOOT+50_000_000,
+          sample_skew_ns=1000, safe_mode=False, owner_context=owner_context(now), cruise_ceiling_mps=cap)
+        self.assertEqual(result.scene.set_speed_mps, expected)
+        self.assertEqual(sm['carState'].vCruise, 72.)
+
   def test_standstill_filter_undershoot_requires_fresh_physical_zero_speed(self):
     cases = ((-1.401298464324817e-45, True, 0., True),
              (-0.0008391447481699288, True, 0., True),

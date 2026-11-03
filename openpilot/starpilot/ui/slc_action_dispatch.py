@@ -41,7 +41,7 @@ class SlcActionDispatcher:
     self._feedback_sequence = 0
     self._feedback_started_ns = 0
 
-  def dispatch(self, request: SlcUiRequest) -> bool:
+  def dispatch(self, request: SlcUiRequest, *, wheel_observed_ns: int = 0) -> bool:
     if not _positive_number(request.candidate_speed_mps):
       return False
     now_ns = self.clock()
@@ -53,9 +53,9 @@ class SlcActionDispatcher:
       frame_ns = int(state.frameMonoTime)
       decision_id = int(state.decisionId)
       presentation_id = int(state.presentationId)
-      retained_reject = request.kind == SlcActionKind.REJECT and request.presentation_id == presentation_id == 0
       if (not session or session != request.session_id or not bool(state.enabled) or
-          (not retained_reject and (str(state.observationKind) != 'valid' or str(state.source) == 'none' or presentation_id <= 0)) or
+          presentation_id <= 0 or
+          str(state.observationKind) == 'valid' and str(state.source) == 'none' or
           not 0 < frame_ns <= now_ns or
           now_ns - frame_ns > _MAX_STATE_AGE_NS or
           decision_id != request.decision_id or presentation_id != request.presentation_id):
@@ -66,7 +66,8 @@ class SlcActionDispatcher:
             not math.isclose(float(state.pendingSpeedLimit), request.candidate_speed_mps, abs_tol=0.001)):
           return False
       elif request.kind == SlcActionKind.ADOPT:
-        if (bool(state.hasPending) or presentation_id <= 0 or not _positive_number(state.speedLimit) or
+        if (str(state.observationKind) != 'valid' or str(state.source) == 'none' or
+            bool(state.hasPending) or not _positive_number(state.speedLimit) or
             not math.isclose(float(state.speedLimit), request.candidate_speed_mps, abs_tol=0.001)):
           return False
       else:
@@ -96,6 +97,8 @@ class SlcActionDispatcher:
       action.decisionId = decision_id
       action.presentationId = presentation_id
       action.kind = request.kind.value
+      if request.kind == SlcActionKind.ADOPT:
+        action.wheelAdoptMonoTime = wheel_observed_ns
       self.publisher.send("slcAction", message)
     except (OSError, RuntimeError, ValueError):
       return False
@@ -124,8 +127,5 @@ class SlcActionDispatcher:
       return ''
     if observation.action_sequence_id != self._feedback_sequence:
       return 'Waiting…' if age < 2_000_000_000 else 'Not confirmed'
-    if observation.command_action_sequence_id == self._feedback_sequence:
-      return {'issued': 'Applying…', 'applied': 'Applied', 'rejected': 'Setpoint not applied',
-              'expired': 'Setpoint not applied'}.get(observation.command_status, 'Not confirmed')
     return {'accept': 'Limit accepted', 'reject': 'Set speed kept', 'adopt': 'Limit adopted'}.get(
       observation.action_status, 'Not applied')

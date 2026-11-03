@@ -1,11 +1,13 @@
-"""The latest limit, its attention animation and override mark on both screens."""
+"""The latest limit, its attention animation and override speed on both screens."""
 
+import math
 import time
 from typing import cast
 
 from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.large_speed_geometry import LARGE_SIGN_SCALE, CONFIRMATION_SCALE, CONFIRMATION_PADDING
+from openpilot.starpilot.ui.onroad_customization import placement
 from openpilot.starpilot.ui.onroad_state import OnroadState, manual_slc_confirmation, speed_limit_bounds, slc_controls, slc_accept_available
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
 from openpilot.starpilot.ui.speed_limit_pulse import SpeedLimitPulse
@@ -45,8 +47,8 @@ def draw_ink(fonts, text, role, size, x, top, color=INK):
 
 def draw_caption(fonts, label, x, top, color=MUTED, *, unit=None, size=None, centered=False):
   large = fonts.profile == Profile.LARGE
-  label_size = size or (28 if large else 24)
-  unit_size, gap = (28, 12) if large else (20, 8)
+  label_size = size or (34 if large else 24)
+  unit_size, gap = ((32 if centered else 28), 12) if large else (20, 8)
   if centered:
     width = fonts.measure(label, FontRole.MEDIUM, label_size).width
     if unit:
@@ -190,11 +192,14 @@ class SpeedLimitWidget:
 
   def _sign(self, state: OnroadState, bounds, now: float) -> None:
     shown, obs = resolve_unified_speed(state), state.speed_limit
+    last = shown.posted_retained or obs.sign_recovering
     heading = SOURCE_LABELS.get(shown.source, 'SPEED')
+    if last:
+      heading = f'LAST {heading}' if heading != 'SPEED' else 'LAST'
     x, top = bounds[0] + 12, bounds[1] + 12
     scale = self.scale
     pending = shown.pending and not obs.automatic_adoption_pending
-    target = displayed_adjusted_limit_mps(obs) if pending else None
+    target = displayed_adjusted_limit_mps(obs) if pending and not shown.posted_retained else None
     arrow_direction = 0
     if target is not None and state.speed_mps is not None and target != state.speed_mps:
       arrow_direction = -1 if target > state.speed_mps else 1
@@ -213,43 +218,119 @@ class SpeedLimitWidget:
       self.fonts.draw(text, role, size * self.text_scale, origin, y, color)
       return origin + left * scale, y + a * scale, origin + right * scale, y + b * scale
 
+    vienna_center_y = 67
+    mutcd_center_y = 66
+
     def circle_fits(left, right, a, b):
-      return all((px - 59) ** 2 + (py - 67) ** 2 <= 46 ** 2
+      return all((px - 59) ** 2 + (py - vienna_center_y) ** 2 <= 46 ** 2
                  for px in (left, right) for py in (a, b))
 
     vienna = state.appearance.use_vienna_sign
+    sign_center_y = vienna_center_y if vienna else mutcd_center_y
+    set_visible = (shown.mode != 'limit_only' if self.profile == Profile.LARGE else
+                   shown.max_text != '–' and placement(state.customization, self.profile, 'max_speed')['enabled'])
+    road_target = shown.limit_text if shown.offset_text else shown.posted_text
+    active_text = shown.override_text
+    if not set_visible and shown.slc_target_text != road_target:
+      active_text = active_text or shown.slc_target_text
+    if active_text is not None and shown.posted_text != '–' and not pending:
+      override = shown.override_text is not None
+      road_role = FontRole.SEMI_BOLD if vienna else FontRole.BOLD
+      override_role = FontRole.BOLD
+
+      def fit(text, role, size, width):
+        left, right, _, _ = ink(text, role, size)
+        size *= min(1, width / (right - left))
+        left, right, a, b = ink(text, role, size)
+        return size, right - left, b - a
+
+      road_text = shown.posted_text + (shown.offset_text or '') if not override else shown.posted_text
+      road_size, road_width, road_height = fit(road_text, road_role, 33, 32 if vienna else 38)
+      override_size, override_width, override_height = fit(active_text, override_role, 56, 46 if vienna else 55)
+      label = 'OVERRIDE' if override else f'{heading} / SLC'
+      if override and last:
+        label = 'LAST / OVERRIDE'
+      heading_role = FontRole.SEMI_BOLD
+      heading_size = 17 if vienna else 20
+      if self.profile == Profile.COMPACT:
+        heading_size = 15 if vienna else 14
+      heading_size, _, heading_height = fit(label, heading_role, heading_size, 72 if vienna else 94)
+      row_left = 59 - (road_width + override_width + 11) / 2
+      road_x = row_left + 1.5 + road_width / 2
+      override_x = row_left + road_width + 11 + override_width / 2
+      heading_gap = 10 if vienna else 13
+      row_height = max(road_height, override_height)
+      half_height = (heading_height + heading_gap + row_height) / 2
+      content_center = sign_center_y - (3 if vienna else 0)
+      baseline = content_center + half_height
+      # Vienna centers the two numbers vertically. MUTCD aligns their baselines.
+      road_top = baseline - ((row_height + road_height) / 2 if vienna else road_height)
+      override_top = baseline - ((row_height + override_height) / 2 if vienna else override_height)
+      muted = rl.Color(86, 92, 99, 255) if vienna else rl.Color(164, 174, 182, 255)
+      active = rl.BLACK if vienna else rl.Color(243, 233, 255, 255)
+      slash = rl.Color(201, 34, 49, 255) if vienna else rl.Color(245, 100, 102, 255)
+      cx, cy = x + 59 * scale, top + sign_center_y * scale
+      if override:
+        self.shapes.override_sign(cx, cy, vienna=vienna)
+      elif vienna:
+        self.shapes.circle(cx, cy, rl.Color(201, 34, 49, 255))
+      else:
+        self.shapes.outline(cx, cy, white)
+      centered(label, heading_role, heading_size, content_center - half_height, muted)
+      centered(road_text, road_role, road_size, road_top, muted, road_x)
+      centered(active_text, override_role, override_size, override_top, active if override or vienna else white, override_x)
+      if override:
+        self.shapes.override_slash(x + road_x * scale, top + (road_top + road_height * .51) * scale,
+                                   (road_width + 5) * scale, slash)
+      return
+
     large_steady = self.profile == Profile.LARGE and not vienna and not shown.pending
     color = rl.Color(0, 0, 0, 255) if vienna else white
     if vienna:
-      self.shapes.circle(x + 59 * scale, top + 67 * scale, self.pulse.color(rl.Color(201, 34, 49, 255), now))
+      self.shapes.circle(x + 59 * scale, top + sign_center_y * scale, self.pulse.color(rl.Color(201, 34, 49, 255), now))
     else:
-      self.shapes.outline(x + 59 * scale, top + 66 * scale, white)
+      self.shapes.outline(x + 59 * scale, top + sign_center_y * scale, white)
 
     heading_size = 28 / self.text_scale if large_steady else 18
+    if vienna and self.profile == Profile.LARGE and not shown.pending:
+      heading_size = 21
     left, right, a, b = ink(heading, FontRole.SEMI_BOLD, heading_size)
-    if large_steady and right - left > 96:
+    if not vienna and (large_steady or last) and right - left > 96:
       heading_size *= 96 / (right - left)
       left, right, a, b = ink(heading, FontRole.SEMI_BOLD, heading_size)
+    # Lift the Vienna stack to keep the offset clear of the bottom rim.
+    lift = (7 if shown.offset_text else 2) if vienna else 0
+    header_y = 47 - lift if vienna else 21 if large_steady else 26
+    arrow_scale = 1.
+    if vienna:
+      # Fit the heading and arrow inside the circle at the top of their ink.
+      half_height = max((b - a) / 2, 8 if arrow_direction else 0)
+      width = 2 * math.sqrt(46 ** 2 - (vienna_center_y - header_y + half_height) ** 2)
+      gap = 6 if arrow_direction else 0
+      row_width = right - left + (12 if arrow_direction else 0)
+      if row_width + gap > width:
+        arrow_scale = (width - gap) / row_width
+        heading_size *= arrow_scale
+        left, right, a, b = ink(heading, FontRole.SEMI_BOLD, heading_size)
     heading_width = right - left
-    header_y = 47 if vienna else 21 if large_steady else 26
     # The small arrow's visible ink is 12 x 16, with a six-pixel label gap.
-    header_left = 59 - (heading_width + (18 if arrow_direction else 0)) / 2
-    heading_color = self.pulse.color(MUTED, now) if large_steady else color
-    centered(heading, FontRole.SEMI_BOLD, heading_size, header_y - (b - a) / 2, heading_color, header_left + heading_width / 2)
+    arrow_width = 12 * arrow_scale
+    header_left = 59 - (heading_width + (6 + arrow_width if arrow_direction else 0)) / 2
+    centered(heading, FontRole.SEMI_BOLD, heading_size, header_y - (b - a) / 2, color, header_left + heading_width / 2)
     if arrow_direction:
-      self.shapes.arrow('compact', round(x + (header_left + heading_width + 12) * scale),
-                        round(top + header_y * scale), arrow_direction, color)
+      self.shapes.arrow('compact', round(x + (header_left + heading_width + 6 + arrow_width / 2) * scale),
+                        round(top + header_y * scale), arrow_direction, color, scale=scale * arrow_scale)
 
     role = FontRole.SET_SPEED if large_steady else FontRole.BOLD
     size = 77.92 / self.text_scale if large_steady else 58 if vienna else 64
     offset_size = 30 if vienna else 27
-    number_center = (73 if shown.offset_text else 80) if vienna else (67 if shown.offset_text else 81)
+    number_center = (73 if shown.offset_text else 80) - lift if vienna else (67 if shown.offset_text else 81)
     while True:
       left, right, a, b = ink(shown.posted_text, role, size)
       width, height = right - left, b - a
       number_top = number_center - height / 2
       if vienna:
-        fits = number_top >= 57 and circle_fits(59 - width / 2, 59 + width / 2, number_top, number_top + height)
+        fits = number_top >= 57 - lift and circle_fits(59 - width / 2, 59 + width / 2, number_top, number_top + height)
         if shown.offset_text:
           left, right, a, b = ink(shown.offset_text, FontRole.MEDIUM, offset_size)
           offset_top = number_top + height + 4
@@ -261,17 +342,10 @@ class SpeedLimitWidget:
       size *= .95
       if vienna:
         offset_size *= .95
-    number = centered(shown.posted_text, role, size, number_top, color)
+    centered(shown.posted_text, role, size, number_top, color)
     if shown.offset_text:
       if not vienna:
         left, right, a, b = ink(shown.offset_text, FontRole.MEDIUM, offset_size)
         offset_size *= min(1, 96 / (right - left), 24 / (b - a))
         offset_top = 97
       centered(shown.offset_text, FontRole.MEDIUM, offset_size, offset_top, color if vienna else secondary)
-    if obs.driver_override_active:
-      color = rl.Color(197, 163, 255, 240)
-      left, top, right, bottom = number
-      for start, end in ((rl.Vector2(left + 3 * scale, top + 3 * scale), rl.Vector2(right - 3 * scale, bottom - 3 * scale)),
-                         (rl.Vector2(right - 3 * scale, top + 3 * scale), rl.Vector2(left + 3 * scale, bottom - 3 * scale))):
-        rl.draw_line_ex(start, end, 4.5 * scale, rl.Color(6, 14, 10, 220))
-        rl.draw_line_ex(start, end, 2.5 * scale, color)

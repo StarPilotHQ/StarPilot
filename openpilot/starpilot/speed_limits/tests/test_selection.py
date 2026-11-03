@@ -45,9 +45,16 @@ class TestSourceSelection(unittest.TestCase):
           selected = select_limit(observations(dashboard=30, map=20, vision=vision), policy(mode, slots))
           self.assertEqual(selected.selected_source, Source.DASHBOARD if mode == SelectionMode.HIGHEST else Source.MAP)
           self.assertNotIn(Source.VISION, selected.considered)
-      for slots in ((Source.VISION, None), (None, Source.VISION)):
+      for slots in ((Source.VISION, None), (None, Source.VISION), (None, None, Source.VISION)):
         selected = select_limit(observations(dashboard=30, map=20, vision=vision), policy(mode, slots))
         self.assertEqual(selected.selected_source, Source.VISION)
+
+  def test_three_ranked_sources_fall_through_in_order(self):
+    slots = (Source.MAP, Source.DASHBOARD, Source.VISION)
+    supplied = observations(map=35, dashboard=45, vision=25)
+    for source in slots:
+      self.assertIs(select_limit(supplied, policy(slots=slots)).selected_source, source)
+      supplied[source] = Observation(ObservationKind.STALE)
 
   def test_extrema_ties_keep_stable_dashboard_map_vision_order(self):
     original = observations(dashboard=20, map=20, vision=20)
@@ -164,7 +171,7 @@ class TestSourceSelection(unittest.TestCase):
           action = DriverAction(state.session_id, 1, state.pending.decision_id, ActionKind.REJECT) if reject else None
           decision = step(state, chosen.observation, authority, acceptance_policy, now_ns=index * 50_000_000, action=action)
           self.assertFalse(decision.errors)
-          self.assertEqual(decision.control_target_mps, 29.0576 if speed is not None else None)
+          self.assertEqual(decision.control_target_mps, 29.0576)
           self.assertEqual(decision.state.accepted.candidate.speed_mps, 29.0576)
           self.assertEqual(decision.state.pending is not None, index == 1)
           if index > 0:
@@ -191,7 +198,7 @@ class TestSourceSelection(unittest.TestCase):
       selected = select_limit(supplied, source_policy)
       decision = step(accepted.state, selected.observation, system, acceptance_policy, now_ns=1)
       self.assertEqual(decision.state.accepted, accepted.state.accepted)
-      self.assertIsNone(decision.control_target_mps)
+      self.assertEqual(decision.control_target_mps, accepted.state.accepted.candidate.speed_mps)
       self.assertEqual(decision.state.observation.kind, kind)
     for authority in (Authority(Mode.LATERAL_ONLY, LongitudinalOwner.NONE, True, False, False, False),
                       Authority(Mode.LATERAL_ONLY, LongitudinalOwner.STOCK, True, False, True, False),
@@ -239,7 +246,7 @@ class TestSourceSelection(unittest.TestCase):
       action = DriverAction("drive", 0, state.pending.decision_id, ActionKind.REJECT) if index == 2 else None
       decision = step(state, selected.observation, authority, acceptance_policy, now_ns=index, action=action)
       self.assertEqual(decision.errors, ())
-      self.assertEqual(decision.control_target_mps, 29.0576 if speed is not None else None)
+      self.assertEqual(decision.control_target_mps, 29.0576)
       state = decision.state
     self.assertEqual(decision.basis, "rejected")
     shown = state.presentation
@@ -247,8 +254,8 @@ class TestSourceSelection(unittest.TestCase):
     adopted = step(state, selected.observation, authority, acceptance_policy, now_ns=5, adopt=request)
     self.assertTrue(adopted.adoption_receipt.consumed)
     self.assertEqual(adopted.control_target_mps, 20.1168)
-    self.assertEqual(adopted.state.rejected, frozenset())
-    self.assertEqual(adopted.adoption.action_sequence_id, request.sequence_id)
+    self.assertIsNone(adopted.state.rejected)
+    self.assertEqual(adopted.adoption_receipt.sequence_id, request.sequence_id)
     self.assertEqual(adopted.history_write.candidate, shown.candidate)
 
 

@@ -59,6 +59,7 @@ class ConditionalModeHost:
     selected_t_follow_s: float | None = None,
     selected_t_follow_observed_mono_ns: int | None = None,
     settings_owner: ConditionalSettingsOwner | None = None,
+    cruise_ceiling_mps: float | None = None,
   ) -> HostProposal:
     signal_options = None
     settings_revision = None
@@ -120,6 +121,7 @@ class ConditionalModeHost:
       selected_t_follow_observed_mono_ns=selected_t_follow_observed_mono_ns,
       owner_context=owner_context,
       signal_options=signal_options,
+      cruise_ceiling_mps=cruise_ceiling_mps,
     )
     authority = projected.authority
     if authority is not None and authority.fresh and (not authority.system_long_capable or authority.safe_mode or

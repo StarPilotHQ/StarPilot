@@ -156,7 +156,7 @@ class CurveLoopTests(unittest.TestCase):
       stamp = NOW + n * 50_000_000
       sm = bus(stamp)
       result = update_curve_frame(planner, sm, cp, stamp, host=host, cruise_ceiling=slc)
-      self.assertIsNotNone(result.ceiling_mps)
+      self.assertIsNone(result.ceiling_mps)
       self.assertFalse(planner.last_curve_ceiling_applied)
       self.assertFalse(host.runtime.was_controlling)
     self.assertEqual(host.runtime.curve.revision, 0)

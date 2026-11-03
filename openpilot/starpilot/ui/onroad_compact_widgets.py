@@ -19,6 +19,7 @@ from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
 from openpilot.starpilot.ui.onroad_widget_style import draw_widget_frame
 from openpilot.starpilot.ui.wheel_feedback import WheelFeedbackFade
 from openpilot.starpilot.ui.speed_limit_widget import SpeedLimitWidget
+from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_speed
 from openpilot.starpilot.ui.moon import draw_moon
 from openpilot.starpilot.ui.onroad_personality import PersonalityWidget
 
@@ -134,7 +135,8 @@ class CompactHudRenderer:
     self.render_steering_wheel(state)
 
   def render_max_speed(self, state: OnroadState) -> None:
-    set_speed_alpha = self._set_speed_opacity(state, (state.observed_ns or time.monotonic_ns()))
+    slc_target = resolve_unified_speed(state).slc_target_text
+    set_speed_alpha = self._set_speed_opacity(state, (state.observed_ns or time.monotonic_ns()), slc_active=slc_target is not None)
     cruise = "–" if state.cruise_kph is None else str(round(state.cruise_kph if state.metric else state.cruise_kph * 0.621371))
     mx, my = widget_offset(state.customization, "compact", "max_speed")
     if set_speed_alpha > 0.01 and placement(state.customization, "compact", "max_speed")["enabled"]:
@@ -149,7 +151,11 @@ class CompactHudRenderer:
       while speed_size > 72 and self.fonts.measure(cruise, FontRole.SET_SPEED, speed_size).width > 128:
         speed_size -= 1
       self.fonts.draw(cruise, FontRole.SET_SPEED, speed_size, 17 + mx, -4 + my, color)
-      self.fonts.draw("MAX", FontRole.SEMI_BOLD, 36, 25 + mx, 109 + my, color)
+      self.fonts.draw("SET" if slc_target is not None else "MAX", FontRole.SEMI_BOLD, 36, 25 + mx, 109 + my, color)
+      if slc_target is not None:
+        label = f'SLC {slc_target}'
+        top, _ = self.fonts.vertical_ink(label, FontRole.SEMI_BOLD, 22)
+        self.fonts.draw(label, FontRole.SEMI_BOLD, 22, 25 + mx, 145 + my - top, color)
 
   def render_steering_wheel(self, state: OnroadState) -> None:
     color = self._feedback.update(state.wheel_acceleration, state.appearance.wheel_pedal_feedback, state.observed_ns, state.drive_frame)
@@ -176,7 +182,7 @@ class CompactHudRenderer:
       rl.unload_texture(self._wheel)
     self._wheel = None
 
-  def _set_speed_opacity(self, state: OnroadState, now_ns: int) -> float:
+  def _set_speed_opacity(self, state: OnroadState, now_ns: int, *, slc_active: bool = False) -> float:
     if state.drive_frame != self._cruise_drive_frame:
       self._set_speed_alpha.x = 0.0
       self._was_cruise_active = False
@@ -193,8 +199,7 @@ class CompactHudRenderer:
       self._last_cruise_display = display
       self._last_cruise_ns = now_ns
       elapsed = now_ns - self._set_speed_changed_ns if self._set_speed_changed_ns is not None else 0
-      persistent = (manual_slc_confirmation(Profile.COMPACT, state) or
-                    state.toyota_cruise_status in ('raise_dash', 'release_plus', 'off_hold'))
+      persistent = slc_active or manual_slc_confirmation(Profile.COMPACT, state)
       return self._set_speed_alpha.update(float(persistent or 0 < elapsed < 2_500_000_000))
     if (self._last_cruise_ns is None or now_ns < self._last_cruise_ns or
         now_ns - self._last_cruise_ns > 150_000_000):

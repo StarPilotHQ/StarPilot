@@ -86,8 +86,9 @@ class TestPlannerSelection(unittest.TestCase):
     imports = [node.module for node in planner.body if isinstance(node, ast.ImportFrom)]
     self.assertIn('openpilot.starpilot.longitudinal.upstream.mpc', imports)
     self.assertNotIn('openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc', imports)
-    self.assertFalse(any(value and value.startswith('openpilot.starpilot.') and value !=
-                         'openpilot.starpilot.longitudinal.upstream.mpc' for value in imports))
+    self.assertEqual({value for value in imports if value and value.startswith('openpilot.starpilot.')}, {
+      'openpilot.starpilot.longitudinal.upstream.mpc', 'openpilot.starpilot.longitudinal.cruise_ceiling',
+    })
 
 
 if __name__ == '__main__':

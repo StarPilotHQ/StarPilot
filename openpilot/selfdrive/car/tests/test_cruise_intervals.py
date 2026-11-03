@@ -52,7 +52,7 @@ class TestCruiseIntervals(unittest.TestCase):
     Path(self.params.get_param_path("CustomCruiseLong")).write_bytes(b"200")
     self.assertEqual(read_cruise_intervals(self.params, self.cp), CruiseIntervals())
 
-  def test_slc_uses_saved_intervals_for_every_other_make_and_pcm_mode(self):
+  def test_slc_preserves_software_intervals_and_native_pcm_set(self):
     brands = [brand.__module__.split('.')[-2] for brand in BRANDS if brand.__module__.split('.')[-2] != 'toyota'] + ['future']
     self.params.put("CustomCruise", 3.0, block=True)
     self.params.put("CustomCruiseLong", 7.0, block=True)
@@ -67,6 +67,11 @@ class TestCruiseIntervals(unittest.TestCase):
         helper.v_cruise_kph = helper.v_cruise_cluster_kph = initial
         helper.intervals = read_cruise_intervals(self.params, cp)
         helper.update_v_cruise(state(button, True, native=140.), True, metric, slc_enabled=True)
+        if pcm:
+          helper.update_v_cruise(state(button, False, native=140.), True, metric, slc_enabled=True)
+          self.assertAlmostEqual(helper.v_cruise_kph, 140., places=4)
+          self.assertIsNone(helper.slc_cruise_change)
+          continue
         if held:
           for _ in range(CRUISE_LONG_PRESS):
             helper.update_v_cruise(state(native=140.), True, metric, slc_enabled=True)

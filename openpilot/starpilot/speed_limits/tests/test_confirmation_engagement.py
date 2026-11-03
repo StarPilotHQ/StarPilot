@@ -18,18 +18,17 @@ def test_runtime_confirms_only_with_engaged_longitudinal_control(mode):
   sm['carControl'].latActive = mode in ('aol', 'combined')
   sm['controlsState'].longControlState = 'pid' if active else 'off'
   sm['carState'].gasPressed = mode == 'accelerator'
-  runtime = Runtime(parse({'SpeedLimitController': True, 'SLCConfirmation': True, 'SLCPriority1': 'Dashboard'}))
+  runtime = Runtime(parse({'SpeedLimitController': True, 'SLCConfirmation': 1, 'SLCPriority1': 'Dashboard'}))
   output = runtime.step(sm, cp, now_ns=START)
   assert not output.result.errors
   assert output.message.slcState.hasPending == engaged
   assert output.message.slcState.observationKind == 'valid'
   assert output.message.slcState.presentationId > 0
-  assert output.command is None
 
 
 def test_runtime_cancels_old_action_and_restarts_confirmation_after_disengagement():
   sm, cp = replay_inputs()
-  runtime = Runtime(parse({'SpeedLimitController': True, 'SLCConfirmation': True, 'SLCPriority1': 'Dashboard'}))
+  runtime = Runtime(parse({'SpeedLimitController': True, 'SLCConfirmation': 1, 'SLCPriority1': 'Dashboard'}))
   first = runtime.step(sm, cp, now_ns=START).message.slcState
   action = Action(runtime.session_id, 1, first.decisionId, first.presentationId, 'accept')
   sm.advance(START+50_000_000)
@@ -38,7 +37,7 @@ def test_runtime_cancels_old_action_and_restarts_confirmation_after_disengagemen
   sm['controlsState'].longControlState = 'off'
   inactive = runtime.step(sm, cp, now_ns=START+50_000_000, request=action)
   assert not inactive.message.slcState.hasPending and not inactive.message.slcState.hasAccepted
-  assert inactive.command is None and not inactive.action_result.change
+  assert not inactive.action_result.change
   now = START+20_000_000_000
   sm.advance(now)
   sm['slcDashboardObservation'].observedMonoTime = now
@@ -67,7 +66,7 @@ def test_aol_pedal_override_requires_current_longitudinal_engagement(desired, ac
   sm.seen = {'aolAxisState': True}
   sm.valid['aolAxisState'] = sm.alive['aolAxisState'] = True
   sm.logMonoTime['aolAxisState'] = START if fresh else START-100_000_000
-  runtime = Runtime(parse({'SpeedLimitController': True, 'SLCConfirmation': True, 'SLCPriority1': 'Dashboard'}))
+  runtime = Runtime(parse({'SpeedLimitController': True, 'SLCConfirmation': 1, 'SLCPriority1': 'Dashboard'}))
   output = runtime.step(sm, cp, now_ns=START)
   assert not output.result.errors
   assert output.message.slcState.hasPending == (desired and acknowledged and fresh)

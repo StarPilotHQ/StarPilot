@@ -4,14 +4,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from openpilot.starpilot.ui.raylib import rl
 import pytest
 
+from openpilot.common.constants import CV
+from openpilot.starpilot.ui.raylib import rl
+from openpilot.starpilot.ui.onroad_customization import default_document
 from openpilot.starpilot.ui.onroad_compact_widgets import CompactHudRenderer
 from openpilot.starpilot.ui.onroad_large_widgets import UnifiedSpeedWidget
 from openpilot.starpilot.ui.onroad import OnroadView
 from openpilot.starpilot.ui.onroad_state import ObservationKind, OnroadState, SpeedLimitObservation, slc_controls, speed_limit_bounds
-from openpilot.starpilot.ui.presentation import Profile
+from openpilot.starpilot.ui.presentation import FontRole, Profile
 from openpilot.starpilot.ui.speed_limit_widget import INK, MUTED, SpeedLimitWidget, draw_text
 from openpilot.starpilot.ui.speed_limit_shapes import SpeedLimitShapes
 from openpilot.starpilot.ui.unified_speed_presentation import displayed_limit_mps, resolve_unified_speed
@@ -24,7 +26,7 @@ def drawing(monkeypatch):
                'draw_ring', 'draw_circle_gradient', 'draw_rectangle_rec', 'draw_circle_v', 'draw_rectangle_gradient_ex'):
     calls[name] = Mock()
     monkeypatch.setattr(rl, name, calls[name])
-  for name in ('circle', 'arrow', 'outline', 'confirmation', 'wheel_key'):
+  for name in ('circle', 'arrow', 'outline', 'confirmation', 'wheel_key', 'override_sign', 'override_slash'):
     calls[name] = Mock()
     monkeypatch.setattr(SpeedLimitShapes, name, calls[name])
   monkeypatch.setattr('openpilot.starpilot.ui.onroad_large_widgets.draw_control_card', Mock())
@@ -77,6 +79,56 @@ def test_latest_limit_and_offset_replace_accepted_sign_while_waiting():
 
 
 @pytest.mark.parametrize('profile', list(Profile))
+@pytest.mark.parametrize('vienna', [False, True])
+def test_sign_keeps_distinct_slc_target_when_set_widget_is_hidden(profile, vienna, drawing):
+  current = state()
+  customization = default_document()
+  customization['showMaxSpeed'] = False
+  customization['layouts']['compact']['max_speed']['enabled'] = False
+  current = replace(current, appearance=replace(current.appearance, use_vienna_sign=vienna), customization=customization,
+                    speed_limit=replace(current.speed_limit, pending_speed_limit_mps=None, limiting_max_set=True,
+                                        effective_cluster_target_mps=45 / 3.6))
+  font = fonts(profile)
+  render_sign(SpeedLimitWidget(font, profile), current)
+  assert [call.args[0] for call in font.draw.call_args_list] == ['OSM / SLC', '50+5', '45']
+  drawing['circle' if vienna else 'outline'].assert_called_once()
+  drawing['override_slash'].assert_not_called()
+
+
+@pytest.mark.parametrize('profile', list(Profile))
+@pytest.mark.parametrize('stage', ['live', 'retained', 'prompt', 'expanded'])
+def test_set_and_binding_slc_stay_visible_beside_sign_or_prompt(profile, stage):
+  current = state(metric=False, cruise_kph=35 * CV.MPH_TO_KPH, drive_frame=1, slc_prompt_open=stage == 'expanded')
+  pending = stage in ('prompt', 'expanded')
+  gap = stage != 'live'
+  speed = 30 * CV.MPH_TO_MS
+  observation = replace(current.speed_limit, kind=ObservationKind.ABSENT if gap else ObservationKind.VALID,
+    source='none' if gap else 'dashboard', speed_limit_mps=None if gap else speed,
+    presentation_adjusted_limit_mps=speed, last_received_speed_limit_mps=speed, last_received_source='dashboard',
+    pending_speed_limit_mps=25 * CV.MPH_TO_MS if pending else None,
+    pending_adjusted_limit_mps=25 * CV.MPH_TO_MS if pending else None, pending_source='map',
+    effective_cluster_target_mps=speed, effective_cap_mps=speed, limiting_max_set=True)
+  current = replace(current, speed_limit=observation)
+  font = fonts(profile)
+  view = slc_view(font)
+  if profile == Profile.LARGE:
+    view.unified_speed.render(rl.Rectangle(0, 0, 2160, 1080), current)
+  else:
+    for now in range(current.observed_ns, current.observed_ns + 4_000_000_000, 100_000_000):
+      view.compact_hud.render_max_speed(replace(current, observed_ns=now))
+    font.draw.reset_mock()
+    view.compact_hud.render_max_speed(replace(current, observed_ns=current.observed_ns + 4_000_000_000))
+    view.compact_hud._speed_limit_sign(current)
+  view._slc_actions(current)
+  texts = [call.args[0] for call in foreground_calls(font.draw)]
+  assert 'SET' in texts and '35' in texts and texts.count('SLC 30') == 1
+  if pending:
+    assert '25' in texts and 'OSM' in texts and not any(text.startswith('LAST') for text in texts)
+  else:
+    assert ('LAST DASH' if gap else 'DASH') in texts and '30' in texts
+
+
+@pytest.mark.parametrize('profile', list(Profile))
 def test_confirmation_arrow_uses_upcoming_target_while_current_reading_stays_current(profile, drawing):
   current = state()
   current = replace(current, speed_limit=replace(current.speed_limit,
@@ -126,6 +178,9 @@ def test_sign_heading_identifies_the_displayed_source(profile, pending, vienna, 
   render_sign(SpeedLimitWidget(font, profile), current)
   expected = [heading, '50']
   assert [call.args[0] for call in font.draw.call_args_list] == expected + (['+5'] if offset else []) + (['New Limit'] if pending else [])
+  if not pending:
+    label, speed = font.draw.call_args_list[:2]
+    assert rgba_tuple(label.args[-1]) == rgba_tuple(speed.args[-1])
   if vienna and not pending:
     assert rgba_tuple(font.draw.call_args_list[0].args[-1]) == (0, 0, 0, 255)
 
@@ -169,11 +224,14 @@ def test_pending_notice_pulses_without_changing_ink_and_arrow_follows_speed(prof
 
 @pytest.mark.parametrize('profile', list(Profile))
 @pytest.mark.parametrize('vienna', [False, True])
-def test_regular_sign_keeps_the_outlined_arrow(profile, vienna, drawing):
+@pytest.mark.parametrize('recovering', [False, True])
+def test_regular_sign_keeps_the_outlined_arrow(profile, vienna, recovering, drawing):
   current = state()
   current = replace(current, appearance=replace(current.appearance, use_vienna_sign=vienna),
-                    speed_limit=replace(current.speed_limit, decision_id=0))
-  SpeedLimitWidget(fonts(profile), profile).render(current)
+                    speed_limit=replace(current.speed_limit, decision_id=0, sign_recovering=recovering))
+  font = fonts(profile)
+  SpeedLimitWidget(font, profile).render(current)
+  assert font.draw.call_args_list[0].args[0] == ('LAST OSM' if recovering else 'OSM')
   assert drawing['arrow'].call_args.args[0] == 'compact'
 
 
@@ -219,26 +277,58 @@ def test_sign_text_stays_centered_without_an_arrow(profile, vienna, reason, draw
 
 
 @pytest.mark.parametrize('profile', list(Profile))
-def test_only_set_speed_override_draws_cross(profile, drawing):
-  sign = SpeedLimitWidget(fonts(profile), profile)
+@pytest.mark.parametrize('vienna', [False, True])
+@pytest.mark.parametrize('retained', [False, True])
+def test_override_sign_uses_cluster_target_and_restores_normal_sign(profile, vienna, retained, drawing):
+  font = fonts(profile)
+  sign = SpeedLimitWidget(font, profile)
   current = state()
-  current = replace(current, speed_limit=replace(current.speed_limit, pending_speed_limit_mps=None))
+  current = replace(current, appearance=replace(current.appearance, use_vienna_sign=vienna),
+                    speed_limit=replace(current.speed_limit, speed_limit_mps=100 / 3.6,
+                                        pending_speed_limit_mps=None, effective_cluster_target_mps=128 / 3.6))
+  if retained:
+    current = replace(current, speed_limit=replace(current.speed_limit, kind=ObservationKind.ABSENT, source='none',
+                      speed_limit_mps=None, last_received_speed_limit_mps=100 / 3.6, last_received_source='map'))
   sign.render(replace(current, longitudinal_overridden=True))
-  assert drawing['draw_line_ex'].call_count == 0
+  drawing['override_sign'].assert_not_called()
+  drawing['override_slash'].assert_not_called()
+  font.draw.reset_mock()
   sign.render(replace(current, speed_limit=replace(current.speed_limit, driver_override_active=True)))
-  assert len(foreground_calls(drawing['draw_line_ex'])) == 2
+  assert drawing['override_sign'].call_args.kwargs == {'vienna': vienna}
+  drawing['override_slash'].assert_called_once()
+  heading, posted, override = [call.args for call in font.draw.call_args_list]
+  assert (heading[0], posted[0], override[0]) == ('LAST / OVERRIDE' if retained else 'OVERRIDE', '100', '128')
+  assert heading[1] == FontRole.SEMI_BOLD
+  assert posted[1] == (FontRole.SEMI_BOLD if vienna else FontRole.BOLD)
+  assert override[1] == FontRole.BOLD
+  assert override[2] > posted[2]
+  assert override[3] > posted[3]
+  heading_bottom = heading[4] + font.vertical_ink(*heading[:3])[1]
+  number_top = min(row[4] + font.vertical_ink(*row[:3])[0] for row in (posted, override))
+  assert number_top - heading_bottom >= (10 if vienna else 13) * sign.scale - 1
+  if vienna:
+    centers = [row[4] + sum(font.vertical_ink(*row[:3])) / 2 for row in (posted, override)]
+    assert abs(centers[0] - centers[1]) <= 1
+  font.draw.reset_mock()
+  sign.render(current)
+  assert font.draw.call_args_list[0].args[0] == ('LAST OSM' if retained else 'OSM')
+  drawing['override_sign'].assert_called_once()
+  drawing['override_slash'].assert_called_once()
+  normal_shape = drawing['circle' if vienna else 'outline']
+  assert normal_shape.call_args.args[:2] == drawing['override_sign'].call_args.args[:2]
 
 
 @pytest.mark.parametrize('profile', list(Profile))
 @pytest.mark.parametrize('vienna', [False, True])
 @pytest.mark.parametrize('latest_received', [False, True])
 @pytest.mark.parametrize('offset', [False, True])
-@pytest.mark.parametrize('source,heading', [('map', 'OSM'), ('vision', 'VISION'), ('dashboard', 'DASH'), ('mapbox', 'NAV')])
+@pytest.mark.parametrize('source,heading', [('map', 'LAST OSM'), ('vision', 'LAST VISION'), ('dashboard', 'LAST DASH'),
+                                             ('mapbox', 'LAST NAV'), ('online', 'LAST'), ('unknown', 'LAST')])
 def test_retained_limits_keep_original_source_and_have_no_actions(profile, vienna, latest_received, offset, source, heading, drawing):
   current = state(show_slc_offset=offset)
   observation = replace(current.speed_limit, kind=ObservationKind.STALE, source='none', speed_limit_mps=None,
     pending_speed_limit_mps=None, last_received_speed_limit_mps=50/3.6 if latest_received else None,
-    last_received_source=source, accepted_source=source,
+    last_received_source=source, accepted_source=('vision' if source == 'dashboard' else 'dashboard') if latest_received else source,
     last_received_adjusted_limit_mps=55/3.6 if latest_received else None, effective_cluster_target_mps=45/3.6)
   current = replace(current, speed_limit=observation, appearance=replace(current.appearance, use_vienna_sign=vienna))
   font = fonts(profile)
@@ -246,9 +336,20 @@ def test_retained_limits_keep_original_source_and_have_no_actions(profile, vienn
   texts = [call.args[0] for call in font.draw.call_args_list]
   assert texts.count(heading) == 1
   assert ('50' if latest_received else '40') in texts
-  assert 'LAST' not in texts
   drawing['arrow'].assert_not_called()
   assert slc_controls(profile, current) == ()
+
+
+@pytest.mark.parametrize('profile', list(Profile))
+def test_retained_sign_has_no_proposal_arrow_when_actions_are_hidden(profile, drawing):
+  current = state()
+  current.customization['layouts'][profile]['speed_limit_actions']['enabled'] = False
+  observation = replace(current.speed_limit, kind=ObservationKind.ABSENT, source='none', speed_limit_mps=None,
+                        last_received_speed_limit_mps=50 / 3.6, last_received_source='map')
+  font = fonts(profile)
+  render_sign(SpeedLimitWidget(font, profile), replace(current, speed_limit=observation))
+  assert font.draw.call_args_list[0].args[0] == 'LAST OSM'
+  drawing['arrow'].assert_not_called()
 
 
 def test_compact_set_speed_fades_after_adjustment_and_reappears_on_change():

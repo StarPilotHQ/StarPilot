@@ -26,11 +26,22 @@ def generate():
       # End the white backing inside the opaque rim, avoiding an outer white fringe.
       mask = radius <= 55 if name == 'disc' else (radius <= 59) & (radius >= 51)
       rgba[..., 3] = np.rint(coverage(mask, width, height) * 255).astype(np.uint8)
-    elif name == 'outline':
+    elif name in ('outline', 'override_outline'):
       # Signed distance to a rounded rectangle; supersampling is offline only.
-      qx, qy = np.abs(xx) - 49, np.abs(yy) - 56
+      half_width, half_height = (57, 64) if name == 'outline' else (66, 47)
+      qx, qy = np.abs(xx) - (half_width - 8), np.abs(yy) - (half_height - 8)
       distance = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - 8
       rgba[..., 3] = np.rint(coverage((distance >= -2) & (distance <= 0), width, height) * 255).astype(np.uint8)
+    elif name == 'override_circle':
+      distance = np.hypot(xx, yy) - 60
+      alpha = coverage(distance <= 0, width, height)
+      interior = coverage(distance <= -6, width, height)
+      weight = np.divide(interior, alpha, out=np.zeros_like(alpha), where=alpha > 0)[..., None]
+      rgba[..., :3] = np.rint(np.array((201, 34, 49)) * (1 - weight) + 255 * weight).astype(np.uint8)
+      rgba[..., 3] = np.rint(alpha * 255).astype(np.uint8)
+    elif name == 'override_slash':
+      mask = np.hypot(np.maximum(np.abs(xx) - 20.5, 0), yy) <= 1.2
+      rgba[..., 3] = np.rint(coverage(mask, width, height) * 255).astype(np.uint8)
     elif name in ('wheel_plus', 'wheel_minus'):
       qx, qy = np.abs(xx) - 4, np.abs(yy) - 4
       distance = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - 5

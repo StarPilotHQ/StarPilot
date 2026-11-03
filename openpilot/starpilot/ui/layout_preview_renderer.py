@@ -30,6 +30,7 @@ from openpilot.starpilot.ui.layout_preview_sidebar import SIDEBAR_WIDTH, render_
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile, default_font_directory
 from openpilot.starpilot.ui.rainbow_path import RainbowPath
 from openpilot.starpilot.ui.road_colors import edge_gradient, lane_color, path_mode, solid_gradient
+from openpilot.starpilot.ui.speed_limit_shapes import SPRITES
 from openpilot.starpilot.ui.onroad_customization import ROAD_COLORS
 from openpilot.system.ui.lib.shader_polygon import Gradient, draw_polygon
 
@@ -114,11 +115,12 @@ def sample_state(scene: str, document: dict) -> OnroadState:
     observation = replace(observation, limiting_max_set=False)
   elif scene == 'slc_equal':
     state = replace(state, cruise_kph=79.2)
+    observation = replace(observation, limiting_max_set=False)
   elif scene == 'slc_pedal':
     state = replace(state, longitudinal_overridden=True)
   elif scene == 'slc_retained':
     observation = replace(observation, driver_override_active=True,
-                          override_basis='persistent', retained_override=True)
+                          override_basis='persistent', retained_override=True, effective_cluster_target_mps=24.0)
   elif scene == 'slc_unavailable':
     observation = SpeedLimitObservation(kind=ObservationKind.STALE, status='display_hold')
   elif scene == 'slc_disengaged':
@@ -347,6 +349,13 @@ class _Canvas:
       crop_y = max(0, math.floor(position['y'] - widget.get('visualInsetTop', 0)))
       offset_x, offset_y = crop_x - position['x'], crop_y - position['y']
       width, height = math.ceil(logical_width - offset_x), math.ceil(logical_height - offset_y)
+      if self.profile == Profile.COMPACT and key == 'speed_limit' and state.speed_limit.driver_override_active:
+        sprite = 'override_circle' if state.appearance.use_vienna_sign else 'override_outline'
+        # The override sign is wider than the saved sign footprint.
+        outset = (SPRITES[sprite][2] - logical_width) / 2
+        crop_x = max(0, math.floor(position['x'] - outset))
+        offset_x = crop_x - position['x']
+        width = min(canvas_width - crop_x, math.ceil(logical_width - offset_x + outset))
       if state.speed_limit.pending_speed_limit_mps is not None and (area := widget.get('confirmation')) is not None:
         crop_x = math.floor(min(crop_x, position['x'] + area['x']))
         crop_y = math.floor(min(crop_y, position['y'] + area['y']))

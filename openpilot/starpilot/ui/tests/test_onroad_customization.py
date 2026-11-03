@@ -482,7 +482,7 @@ def test_large_draw_origins_and_wheel_input_move_together():
   with patch("openpilot.starpilot.ui.onroad_large_widgets.draw_control_card") as card, patch.object(rl, "draw_line_ex"):
     UnifiedSpeedWidget(Mock(spec=BitmapFonts, **vars(fonts))).render(content, state)
     card.assert_not_called()
-    assert foreground_calls(fonts.draw)[0].args[3:5] == (292, 110)
+    assert foreground_calls(fonts.draw)[0].args[3:5] == (292, 109)
   CurrentSpeedHud(Mock(spec=BitmapFonts, **vars(fonts))).render(content, state)
   assert fonts.draw.call_args_list[-2].args[3:5] == (965, 112)
   wheel = SteeringWheelWidget(Path('/unused'))
@@ -515,7 +515,7 @@ def test_frozen_default_draw_geometry_and_neutral_colors():
     UnifiedSpeedWidget(Mock(spec=BitmapFonts, **vars(fonts))).render(content, state)
     card.assert_not_called()
     assert fonts.draw.call_args_list[0].args[0] == 'SET'
-    assert foreground_calls(fonts.draw)[0].args[3:5] == (192, 90)
+    assert foreground_calls(fonts.draw)[0].args[3:5] == (192, 89)
   CurrentSpeedHud(Mock(spec=BitmapFonts, **vars(fonts))).render(content, state)
   assert fonts.draw.call_args_list[-2].args[3:5] == (925, 72)
   assert fonts.draw.call_args_list[-1].args[3:5] == pytest.approx((925, 215.2))

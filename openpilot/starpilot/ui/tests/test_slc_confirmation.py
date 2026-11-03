@@ -16,7 +16,8 @@ from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_sp
 
 @pytest.mark.parametrize('profile', list(Profile))
 @pytest.mark.parametrize('source_available', [False, True])
-def test_source_gap_keeps_open_card_with_reject_but_no_accept(profile, source_available):
+@pytest.mark.parametrize('action', [SlcActionKind.ACCEPT, SlcActionKind.REJECT])
+def test_source_gap_keeps_same_open_card_with_accept_and_reject(profile, source_available, action):
   from openpilot.starpilot.ui.onroad_state import ObservationKind
   current, emitted = state(), []
   touch = OnroadInput(emitted.append, profile)
@@ -24,21 +25,19 @@ def test_source_gap_keeps_open_card_with_reject_but_no_accept(profile, source_av
   before = speed_limit_bounds(profile, touch.present(current))
   missing = replace(current, speed_limit=replace(current.speed_limit,
     kind=ObservationKind.VALID if source_available else ObservationKind.UNKNOWN,
-    speed_limit_mps=22. if source_available else None, presentation_id=0,
+    speed_limit_mps=22. if source_available else None,
     last_received_speed_limit_mps=22., last_received_source='dashboard'))
-  assert resolve_unified_speed(missing, confirmation=True).status == 'Unavailable'
+  assert resolve_unified_speed(missing, confirmation=True).status == 'Confirm speed limit'
   assert manual_slc_confirmation(profile, missing)
   assert touch.present(missing).slc_prompt_open
   assert speed_limit_bounds(profile, touch.present(missing)) == before
   accept, reject = slc_controls(profile, touch.present(missing))
-  assert not accept.enabled and reject.enabled
-  tap_control(touch, missing, SlcActionKind.ACCEPT)
-  assert not emitted and touch.present(missing).slc_prompt_open
-  recovered = replace(current, speed_limit=replace(current.speed_limit, presentation_id=10))
+  assert accept.enabled and reject.enabled
+  recovered = current
   assert touch.present(recovered).slc_prompt_open
   touch.present(missing)
-  tap_control(touch, missing, SlcActionKind.REJECT)
-  assert [r.kind for r in emitted] == [SlcActionKind.REJECT]
+  tap_control(touch, missing, action)
+  assert [r.kind for r in emitted] == [action]
 
 
 @pytest.mark.parametrize('profile', list(Profile))
@@ -100,7 +99,7 @@ def test_touch_choice_remains_available_without_wheel_confirmation(profile, acti
 
 
 @pytest.mark.parametrize('profile', list(Profile))
-@pytest.mark.parametrize('change', ['actions_hidden', 'sign_hidden', 'automatic', 'alert', 'toyota_guidance', 'stale'])
+@pytest.mark.parametrize('change', ['actions_hidden', 'sign_hidden', 'automatic', 'alert', 'stale'])
 def test_unavailable_confirmation_has_no_empty_chooser_or_action(profile, change):
   from openpilot.starpilot.ui.onroad_state import ObservationKind
   current, emitted = state(), []
@@ -115,10 +114,9 @@ def test_unavailable_confirmation_has_no_empty_chooser_or_action(profile, change
     current = replace(current, speed_limit=replace(current.speed_limit, automatic_adoption_pending=True))
   elif change == 'alert':
     current = replace(current, alert=OnroadAlert(size=AlertSize.SMALL))
-  elif change == 'toyota_guidance':
-    current = replace(current, toyota_cruise_status='raise_dash', toyota_cruise_target_kph=100.)
   else:
-    current = replace(current, speed_limit=replace(current.speed_limit, kind=ObservationKind.STALE, speed_limit_mps=None))
+    current = replace(current, speed_limit=replace(current.speed_limit, kind=ObservationKind.STALE, speed_limit_mps=None,
+      pending_speed_limit_mps=None, presentation_id=None))
   assert not manual_slc_confirmation(profile, current)
   assert not touch.present(current).slc_prompt_open
   assert not slc_controls(profile, current)

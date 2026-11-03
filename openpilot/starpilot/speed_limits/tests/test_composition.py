@@ -14,7 +14,7 @@ ACTIVE = acc.Authority(acc.Mode.LONGITUDINAL_ONLY, acc.LongitudinalOwner.SYSTEM,
 POLICY = acc.Policy(confirm_lower=False, confirm_higher=False)
 SELECT = sel.SelectionPolicy(sel.SelectionMode.ORDERED, (sel.Source.DASHBOARD, sel.Source.MAP), False)
 OFFSET = sd.OffsetSchedule((sd.OffsetBand(0.0, None, 2.0),))
-HOST = comp.HostState(True, True, True, False, False, 100.0, 100.0)
+HOST = comp.HostState(True, True, True, False, 100.0, 100.0)
 
 
 def observations(speed: float | None = 15.0, *, kind: acc.ObservationKind = acc.ObservationKind.VALID):
@@ -60,20 +60,19 @@ class CompositionTests(unittest.TestCase):
     self.assertEqual(result.acceptance.control_target_mps, 15.0)
     self.assertEqual(result.domain.context.offset_mps, 2.0)
     self.assertEqual(result.coordinate.cap_mps, 16.0)
-    self.assertIsNone(result.ceiling)
-    self.assertEqual(result.state.control_generation, 1)
+    self.assertEqual(result.ceiling.speed_mps, 16.0)
 
-  def test_source_gaps_keep_history_without_a_control_target_or_ceiling(self):
+  def test_source_gaps_keep_the_applied_ceiling_without_accepting_a_new_limit(self):
     self.run_frame(frame(0))
     accepted = self.state.acceptance.accepted
     for now, kind in enumerate((acc.ObservationKind.ABSENT, acc.ObservationKind.UNKNOWN, acc.ObservationKind.STALE), 1):
       result = self.run_frame(frame(now, source_kind=kind))
       self.assertEqual(result.acceptance.basis, kind.value)
-      self.assertIsNone(result.acceptance.control_target_mps)
+      self.assertEqual(result.acceptance.control_target_mps, 15.)
       self.assertEqual(result.state.acceptance.accepted, accepted)
-      self.assertIsNone(result.domain.context)
-      self.assertIsNone(result.coordinate)
-      self.assertIsNone(result.ceiling)
+      self.assertEqual(result.domain.context.accepted_raw_mps, 15.)
+      self.assertEqual(result.coordinate.cap_mps, 17.)
+      self.assertEqual(result.ceiling.speed_mps, 17.0)
 
   def test_uninitialized_driver_and_missing_coordinates_suppress(self):
     unset = self.run_frame(frame(0, host=replace(HOST, driver_v_cruise_kph=255.0)))
@@ -97,7 +96,7 @@ class CompositionTests(unittest.TestCase):
         self.state = comp.new_session(SESSION)
         host = HOST if authority.can_control else replace(HOST, system_long_available=False, long_control_active=False)
         result = self.run_frame(frame(0, authority=authority, host=host))
-        self.assertIsNone(result.ceiling)
+        self.assertEqual(result.ceiling is not None, authority.can_control)
     self.state = comp.new_session(SESSION)
     self.run_frame(frame(0))
     lost = self.run_frame(frame(1, authority=replace(ACTIVE, longitudinal_active=False),
@@ -105,7 +104,7 @@ class CompositionTests(unittest.TestCase):
     self.assertIsNone(lost.ceiling)
     self.assertFalse(lost.state.reset_required)
     resumed = self.run_frame(frame(2))
-    self.assertEqual(resumed.state.control_generation, 2)
+    self.assertEqual(resumed.ceiling.speed_mps, 17.)
 
   def test_host_authority_disagreement_does_not_advance_acceptance_time(self):
     self.run_frame(frame(0))
@@ -134,7 +133,7 @@ class CompositionTests(unittest.TestCase):
   def test_rejected_lower_limit_survives_source_loss_and_reconnect(self):
     confirmation = replace(POLICY, confirm_lower=True)
     initial = self.run_frame(frame(0, speed=25.0, policy=confirmation))
-    self.assertIsNone(initial.ceiling)
+    self.assertEqual(initial.ceiling.speed_mps, 27.0)
     initial_accepted = acc.AcceptedLimit(observations(25.)[sel.Source.DASHBOARD].candidate, SESSION, 0)
     self.state = replace(self.state, acceptance=replace(self.state.acceptance, accepted=initial_accepted, pending=None, timer_running=False))
     pending = self.run_frame(frame(1, speed=15.0, policy=confirmation))
@@ -149,15 +148,12 @@ class CompositionTests(unittest.TestCase):
     for result in (rejected, absent, reconnected):
       self.assertFalse(result.errors)
       self.assertEqual(result.acceptance.state.accepted.candidate.speed_mps, 25.0)
-      if result is absent:
-        self.assertIsNone(result.domain.context)
-      else:
-        self.assertEqual(result.domain.context.accepted_raw_mps, 25.0)
-      self.assertIsNone(result.ceiling)
+      self.assertEqual(result.domain.context.accepted_raw_mps, 25.0)
+      self.assertEqual(result.ceiling.speed_mps, 27.0)
 
   def test_reversed_monotonic_clock_latches_without_ceiling(self):
     first = self.run_frame(frame(10))
-    self.assertIsNone(first.ceiling)
+    self.assertEqual(first.ceiling.speed_mps, 17.0)
     prior_acceptance = self.state.acceptance
     reversed_time = self.run_frame(frame(9))
     self.assertEqual(reversed_time.status, "invalid_frame")
@@ -168,32 +164,23 @@ class CompositionTests(unittest.TestCase):
     self.assertEqual(latched.status, "session_reset_required")
     self.assertIsNone(latched.ceiling)
 
-  def test_actual_causal_ledger_change_retains_raw_driver_intent(self):
-    first = self.run_frame(frame(0))
-    context = first.override.context
-    assert context is not None
+  def test_causal_driver_cruise_change_does_not_bypass_the_slc_cap(self):
+    self.run_frame(frame(0))
     ledger = arb.step(arb.new_ledger(SESSION),
-                      arb.BeginAction(SESSION, 1, arb.Origin.DRIVER_CRUISE, context.context_id), now_ns=0).state
+                      arb.BeginAction(SESSION, 1, arb.Origin.DRIVER_CRUISE, 'driver-set'), now_ns=0).state
     ledger = arb.step(ledger, arb.ResolveAction(SESSION, 1, arb.Disposition.DRIVER_INTENT), now_ns=0).state
     changed = arb.step(ledger, arb.CruiseChange(SESSION, 1, 1, 100.0 / 3.6, 110.0 / 3.6), now_ns=1)
     second_frame = replace(frame(1, host=replace(HOST, driver_v_cruise_kph=110.0, selected_cluster_kph=110.0)),
                            classified_cruise=changed)
     second = self.run_frame(second_frame)
-    self.assertEqual(second.override.event_receipt.status, "driver_intent")
-    self.assertTrue(second.override.event_receipt.consumed)
-    assert second.override.state.persistent_selected_mps is not None
-    self.assertAlmostEqual(second.override.state.persistent_selected_mps, 110.0 / 3.6)
+    self.assertEqual(second.ceiling.speed_mps, 17.0)
     third = self.run_frame(frame(2, host=replace(HOST, driver_v_cruise_kph=105.0, selected_cluster_kph=106.0)))
-    assert third.override.state.persistent_selected_mps is not None
-    self.assertAlmostEqual(third.override.state.persistent_selected_mps, 110.0 / 3.6)
-    self.assertIsNone(third.ceiling)
+    self.assertEqual(third.ceiling.speed_mps, 17.0)
 
   def test_old_ledger_result_does_not_become_a_current_speed_action(self):
-    first = self.run_frame(frame(0))
-    context = first.override.context
-    assert context is not None
+    self.run_frame(frame(0))
     ledger = arb.step(arb.new_ledger(SESSION),
-                      arb.BeginAction(SESSION, 1, arb.Origin.DRIVER_CRUISE, context.context_id), now_ns=0).state
+                      arb.BeginAction(SESSION, 1, arb.Origin.DRIVER_CRUISE, 'driver-set'), now_ns=0).state
     ledger = arb.step(ledger, arb.ResolveAction(SESSION, 1, arb.Disposition.DRIVER_INTENT), now_ns=0).state
     old = arb.step(ledger, arb.CruiseChange(SESSION, 1, 1, 100.0 / 3.6, 110.0 / 3.6), now_ns=1)
     rejected = self.run_frame(replace(frame(2, host=replace(HOST, driver_v_cruise_kph=110.0)),
@@ -202,11 +189,11 @@ class CompositionTests(unittest.TestCase):
     self.assertIsNone(rejected.ceiling)
     self.assertEqual(rejected.state.acceptance.last_timestamp_ns, 0)
 
-  def test_new_limit_never_creates_a_hidden_planner_target(self):
+  def test_new_limit_supplies_a_separate_planner_cap(self):
     accepted = self.run_frame(frame(0, speed=20.))
     self.assertEqual(accepted.acceptance.basis, 'accepted')
     self.assertEqual(accepted.domain.context.effective_cluster_mps, 22.)
-    self.assertIsNone(accepted.ceiling)
+    self.assertEqual(accepted.ceiling.speed_mps, 22.)
 
   def test_actual_native_planner_default_and_optional_cap_transitions(self):
     from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
@@ -260,8 +247,11 @@ class CompositionTests(unittest.TestCase):
           self.assertEqual(deviations, [])
           self.assertEqual(last[2], "absent")
         else:
-          self.assertEqual(deviations, [])
-          self.assertEqual(last[2], "absent")
+          self.assertEqual(last[2], "applied")
+          if scenario == 'ordinary':
+            self.assertEqual(deviations[0], 12)
+          else:
+            self.assertEqual(last[0][0], last[1][0])
           if scenario == "lead":
             self.assertEqual(last[1][2], "1")
           elif scenario == "e2e":

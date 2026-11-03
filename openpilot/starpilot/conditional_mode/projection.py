@@ -406,6 +406,7 @@ class SceneProjector:
     selected_t_follow_observed_mono_ns: int | None = None,
     owner_context: ConditionalOwnerContext | None = None,
     signal_options: CEMOptions | None = None,
+    cruise_ceiling_mps: float | None = None,
   ) -> ProjectedScene:
     if (
       type(now_mono_ns) is not int
@@ -441,6 +442,9 @@ class SceneProjector:
     speed = _ego_speed(car) if car is not None and _field(car, 'canValid') is True and _field(car, 'canTimeout') is False else None
     cruise_kph = _number(_field(car, 'vCruise'), high=V_CRUISE_UNSET_KPH) if speed is not None else None
     cruise = cruise_kph * KPH_TO_MPS if cruise_kph is not None and 0 < cruise_kph < V_CRUISE_UNSET_KPH else None
+    if cruise_ceiling_mps is not None:
+      cap = _number(cruise_ceiling_mps, high=V_CRUISE_UNSET_KPH * KPH_TO_MPS)
+      cruise = min(cruise, cap) if cruise is not None and cap is not None and cap > 0 else None
     curvature = _number(_field(controls, 'curvature'), low=-1.0, high=1.0) if controls is not None else None
     raw_curve = abs(speed * speed * curvature) >= FROZEN_CURVE_ACCEL_MPS2 if speed is not None and curvature is not None else None
     horizon = None

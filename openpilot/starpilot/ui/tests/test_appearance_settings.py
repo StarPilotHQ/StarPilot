@@ -624,7 +624,7 @@ class AppearanceSettingsTests(unittest.TestCase):
       UnifiedSpeedWidget(fonts).render(rl.Rectangle(30, 30, 1800, 1020), base)
       card.assert_not_called()
       from openpilot.starpilot.ui.tests.test_unified_speed_native import foreground_calls
-      self.assertEqual(foreground_calls(fonts.draw)[0].args[3:5], (192, 90))
+      self.assertEqual(foreground_calls(fonts.draw)[0].args[3:5], (192, 89))
     for profile in (Profile.LARGE, Profile.COMPACT):
       view = onroad.OnroadView.__new__(onroad.OnroadView)
       view.personality = Mock()

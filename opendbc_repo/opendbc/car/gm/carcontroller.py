@@ -360,6 +360,7 @@ class CarController(CarControllerBase):
     self.volt_cc_cancel_pending = False
     self.volt_cc_last_cancel_frame = 0
     self.volt_cc_metric = False
+    self.volt_cc_speed_ceiling_mps = None
     self.volt_cc_last_button_frame = 0
     self.volt_cc_last_direction_frame = None
     self.volt_cc_consumed_source_ns = 0
@@ -1396,7 +1397,10 @@ class CarController(CarControllerBase):
           self.volt_cc_consumed_source_ns = source_ns
           can_sends.append(gmcan.create_buttons(self.packer_pt, CanBus.POWERTRAIN, (CS.buttons_counter + 1) % 4, button))
       elif self.frame % 4 == 0:
-        button, rate = button_request(CS.out.vEgo, CS.out.cruiseState.speed, actuators.accel, CS.out.vCruise,
+        cruise_kph = CS.out.vCruise
+        if self.volt_cc_speed_ceiling_mps is not None:
+          cruise_kph = min(cruise_kph, self.volt_cc_speed_ceiling_mps * CV.MS_TO_KPH)
+        button, rate = button_request(CS.out.vEgo, CS.out.cruiseState.speed, actuators.accel, cruise_kph,
                                       bool(CC.hudControl.leadVisible), self.volt_cc_metric)
         source_ns = physical.button_credit_ns
         if ((self.frame - self.volt_cc_last_button_frame) * DT_CTRL > rate and

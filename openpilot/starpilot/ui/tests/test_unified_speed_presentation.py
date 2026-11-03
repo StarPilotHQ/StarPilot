@@ -16,8 +16,11 @@ def state(**changes):
 
 @pytest.mark.parametrize('metric,posted,offset', [(True, '108', '+7'), (False, '67', '+5')])
 def test_latest_received_source_and_offset_are_independent_of_accepted_history(metric, posted, offset):
-  shown = resolve_unified_speed(state(metric=metric))
+  current = state(metric=metric)
+  shown = resolve_unified_speed(replace(current, speed_limit=replace(current.speed_limit,
+    last_received_source='dashboard', last_received_speed_limit_mps=20.)))
   assert (shown.posted_text, shown.source, shown.offset_text) == (posted, 'vision', offset)
+  assert not shown.posted_retained
   assert shown.active_side == 'max'
 
 
@@ -27,6 +30,39 @@ def test_set_speed_is_the_only_active_speed_role_even_below_or_above_the_input_l
     assert shown.max_text == str(round(selected))
     assert shown.max_status == 'Set speed'
     assert (shown.active_side, shown.status) == ('max', 'Using set speed')
+
+
+def test_slc_limiting_role_keeps_driver_set_and_source_sign_independent():
+  current = state()
+  limited = replace(current, speed_limit=replace(current.speed_limit, limiting_max_set=True, effective_cap_mps=22.))
+  shown = resolve_unified_speed(limited)
+  assert (shown.max_text, shown.posted_text, shown.active_side, shown.status) == ('100', '108', 'limit', 'Using speed limit')
+  pedal = resolve_unified_speed(replace(limited, longitudinal_overridden=True))
+  assert (pedal.active_side, pedal.status) == ('max', 'Using accelerator')
+
+
+@pytest.mark.parametrize('retained', [False, True])
+def test_slc_target_is_independent_of_the_road_sign(retained):
+  current = state()
+  obs = replace(current.speed_limit, limiting_max_set=True, effective_cluster_target_mps=22.)
+  if retained:
+    obs = replace(obs, kind=ObservationKind.STALE, speed_limit_mps=None,
+                  last_received_speed_limit_mps=30., last_received_adjusted_limit_mps=32.)
+  shown = resolve_unified_speed(replace(current, speed_limit=obs))
+  assert (shown.max_text, shown.posted_text, shown.offset_text, shown.slc_target_text) == ('100', '108', '+7', '79')
+  assert shown.posted_retained == retained
+  matching = replace(obs, effective_cluster_target_mps=32.)
+  assert resolve_unified_speed(replace(current, speed_limit=matching)).slc_target_text == '115'
+
+
+@pytest.mark.parametrize('change', ['no-limit', 'pedal', 'override', 'disengaged', 'display-only'])
+def test_slc_target_only_shows_a_binding_system_ceiling(change):
+  current = state()
+  observation = replace(current.speed_limit, effective_cluster_target_mps=22., limiting_max_set=change != 'no-limit',
+                        driver_override_active=change == 'override', action_enabled=change != 'display-only')
+  current = replace(current, speed_limit=observation, longitudinal_active=change != 'disengaged',
+                    longitudinal_overridden=change == 'pedal')
+  assert resolve_unified_speed(current).slc_target_text is None
 
 
 @pytest.mark.parametrize('automatic,status', [(False, 'Confirm speed limit'), (True, 'Adopting limit')])

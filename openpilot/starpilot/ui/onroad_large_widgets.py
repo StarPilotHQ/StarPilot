@@ -48,7 +48,8 @@ class UnifiedSpeedWidget:
       width = self.fonts.measure(text, FontRole.NORMAL, 26).width
       draw_text(self.fonts, text, FontRole.NORMAL, 26, rect.x + (rect.width - width) / 2, rect.y + 22, rl.WHITE)
       return
-    active = state.speed_limit.source if str(state.speed_limit.kind) == 'valid' else state.speed_limit.accepted_source
+    observation = state.speed_limit
+    active = observation.source if str(observation.kind) == 'valid' and observation.status != 'display_hold' else observation.accepted_source
     labels = {'dashboard': 'Dash', 'map': 'Map', 'vision': 'Vision', 'online': 'Online'}
     cell = (rect.width - 2 * PADDING) / len(rows)
     for index, row in enumerate(rows):
@@ -78,11 +79,12 @@ class UnifiedSpeedWidget:
     border = rl.Color(*rgba(state.customization, 'cardBorder', 'large', 'cruise_limits'))
     text = rl.Color(*rgba(state.customization, 'text', 'large', 'cruise_limits'))
     if shown.mode != 'limit_only':
+      confirming = manual_slc_confirmation(Profile.LARGE, state)
       if shown.max_text == '–':
         center = rect.x + 120
-        draw_caption(self.fonts, 'SET', center, rect.y + 15, unit=shown.unit, centered=True)
+        draw_caption(self.fonts, 'SET', center, rect.y + 14, unit=shown.unit, centered=True)
         draw_line(Profile.LARGE, rl.Vector2(center - 28, rect.y + 101), rl.Vector2(center + 28, rect.y + 101), 8, MUTED)
-      elif manual_slc_confirmation(Profile.LARGE, state):
+      elif confirming:
         x = rect.x + PADDING
         draw_caption(self.fonts, 'SET', x, rect.y + 19, unit=shown.unit, size=32)
         size = 120
@@ -91,13 +93,18 @@ class UnifiedSpeedWidget:
         draw_ink(self.fonts, shown.max_text, FontRole.SET_SPEED, size, x, rect.y + 51, text)
       else:
         center = rect.x + 120
-        draw_caption(self.fonts, 'SET', center, rect.y + 15, unit=shown.unit, centered=True)
-        size = 114.28
+        draw_caption(self.fonts, 'SET', center, rect.y + 14, unit=shown.unit, centered=True)
+        size = 108
         size *= min(1, 200 / max(1, self.fonts.measure(shown.max_text, FontRole.SET_SPEED, size).width))
         left, right = self.fonts.horizontal_ink(shown.max_text, FontRole.SET_SPEED, size)
         top, bottom = self.fonts.vertical_ink(shown.max_text, FontRole.SET_SPEED, size)
         draw_ink(self.fonts, shown.max_text, FontRole.SET_SPEED, size, center - (left + right) / 2,
                  rect.y + 101 - (bottom - top) / 2, text)
+      if shown.slc_target_text is not None:
+        label = f'SLC {shown.slc_target_text}'
+        width = self.fonts.measure(label, FontRole.SEMI_BOLD, 22).width
+        x = rect.x + (PADDING if confirming else 120 - width / 2)
+        draw_ink(self.fonts, label, FontRole.SEMI_BOLD, 22, x, rect.y + 148, text)
     self.sign.render(state, defer_confirmation=True)
     if shown.mode == 'limit_only' and (bounds := speed_limit_bounds(Profile.LARGE, state)) is not None:
       draw_ink(self.fonts, shown.unit, FontRole.NORMAL, 24, bounds[2], bounds[3] - 32)

@@ -28,7 +28,7 @@ def test_atlas_matches_generated_geometry_and_has_symmetric_antialiased_edges():
         center = alpha[:, width//2]
         painted = np.flatnonzero(center > 40)
         assert painted[-1] - painted[0] + 1 == len(painted)
-      if name == 'outline':
+      if name in ('outline', 'override_outline'):
         assert not alpha[18:-18, 18:-18].any(), 'the camera must remain visible inside the sign'
         assert np.array_equal(alpha, alpha[::-1]), 'rounded corners must be symmetric'
 
