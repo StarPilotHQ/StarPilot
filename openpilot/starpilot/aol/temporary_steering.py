@@ -136,10 +136,15 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     not cs.vehicleSensorsInvalid and not cs.steeringDisengage and not cs.buttonEvents and
     all(not event.userDisable or event.name == log.OnroadEvent.EventName.pcmDisable and
         not event.softDisable and not event.immediateDisable for event in events))
+  from opendbc.car.hyundai.canfd_angle_aol import qualified as hkg_angle_qualified, temporary_restriction as hkg_angle_restriction
+  hkg_angle_eps = bool(cp.brand == 'hyundai' and hkg_angle_qualified(cp, marked_only=True) and
+    hkg_angle_restriction(cp, cs) and cs.gearShifter == structs.CarState.GearShifter.drive and
+    not cs.accFaulted and not cs.doorOpen and not cs.vehicleSensorsInvalid and not cs.steeringDisengage and
+    all(not event.userDisable for event in events))
   ford_alpha_eps = bool(stock_ford_eps and cp.openpilotLongitudinalControl)
   restricted_eps = bool((temporary_eps_restriction(cp, cs) or stock_ford_eps or stock_mazda_eps or stock_rivian_eps or
                         stock_volkswagen_eps or stock_subaru_eps) and self.lateral_only_baseline and
-    not axis.desiredLongitudinal and not axis.longitudinalActive) or ford_alpha_eps
+    not axis.desiredLongitudinal and not axis.longitudinalActive) or ford_alpha_eps or hkg_angle_eps
   native = _configured_transport_native(sm, cp, self.session, now_ns,
     require_longitudinal=not ford_alpha_eps or axis.longitudinalActive, allow_restricted_lateral=restricted_eps)
   if (native is None or not native.pandaInventory or

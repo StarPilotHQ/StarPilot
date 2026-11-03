@@ -43,6 +43,7 @@ AOL_LIFECYCLE_TARGETS = (
   "openpilot/starpilot/aol/tests/test_gv60_hda1_alpha_aol.py",
   "opendbc_repo/opendbc/car/hyundai/tests/test_torque_ev_deferred_takeover.py",
   'openpilot/starpilot/aol/tests/test_hkg_early_long_withdrawal.py',
+  'openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py',
   'openpilot/starpilot/aol/tests/test_hkg_angle_limit_warning.py',
   'openpilot/starpilot/car/toyota/tests/test_prius_retrofit_stock.py',
   'openpilot/starpilot/car/toyota/tests/test_prius_retrofit_stock_callers.py',
