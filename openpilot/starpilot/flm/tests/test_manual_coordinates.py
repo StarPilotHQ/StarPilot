@@ -250,7 +250,7 @@ def test_replay_controller_construction_does_not_read_manual_preferences(cp, mon
   ci = SimpleNamespace(
     torque_from_lateral_accel=lambda: lambda value, tune: value / tune.latAccelFactor,
     lateral_accel_from_torque=lambda: lambda value, tune: value * tune.latAccelFactor)
-  controller = LatControlTorque(cp, ci, .01, controller_mode=default_selection(cp).mode)
+  controller = LatControlTorque(cp.as_reader(), ci, .01, controller_mode=default_selection(cp).mode)
   assert controller.manual_flm_effects is None
   assert controller.manual_flm_status == 'not_configured'
 
