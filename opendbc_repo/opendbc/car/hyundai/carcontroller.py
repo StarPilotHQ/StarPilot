@@ -512,8 +512,9 @@ class CarController(CarControllerBase):
         )
     else:
       steering_status_active = CC.enabled
-      if self.ev6_aol_status or (self.ioniq6_longitudinal is not None and
-                                 self.CP.safetyConfigs[-1].safetyParam in (0x8815, 0x8895)):
+      if ((self.CP.carFingerprint == CAR.KIA_CARNIVAL_2025 and self.CP.safetyConfigs[-1].safetyParam == 0x28B4) or
+          self.ev6_aol_status or (self.ioniq6_longitudinal is not None and
+                                 self.CP.safetyConfigs[-1].safetyParam in (0x8815, 0x8895))):
         # AOL may steer while ordinary cruise engagement remains off.
         steering_status_active |= CC.latActive
       can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,

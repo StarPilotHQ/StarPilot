@@ -530,6 +530,7 @@ RELEASE_TARGETS = (
   "opendbc_repo/opendbc/safety/tests/test_subaru_ascent_angle.py",
   "opendbc_repo/opendbc/safety/tests/test_ford_three.py",
   "opendbc_repo/opendbc/safety/tests/test_hyundai_canfd_carnival.py",
+  "opendbc_repo/opendbc/safety/tests/test_hyundai_carnival_long_aol.py",
   "opendbc_repo/opendbc/safety/tests/test_subaru_stock_aol.py",
   "opendbc_repo/opendbc/safety/tests/test_subaru_software_cruise.py",
   "opendbc_repo/opendbc/safety/tests/test_subaru_sng.py",

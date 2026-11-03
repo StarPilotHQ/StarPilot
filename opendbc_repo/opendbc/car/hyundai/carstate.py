@@ -669,6 +669,12 @@ class CarState(CarStateBase):
         msgs.append(("CRUISE_BUTTONS_ALT", math.nan))
       if not (ev9_long_qualified(CP) or pe_long_qualified(CP)):
         (cam_msgs if CP.flags & HyundaiFlags.CANFD_CAMERA_SCC else msgs).append(("SCC_CONTROL", 50))
+    elif CP.carFingerprint == CAR.KIA_CARNIVAL_2025 and CP.openpilotLongitudinalControl and CP.safetyConfigs[-1].safetyParam in (0x20B4, 0x28B4):
+      msgs = [(name, frequency) for name, frequency in msgs if name != "CRUISE_BUTTONS_ALT"]
+      msgs.extend((("CRUISE_BUTTONS_ALT", 50), ("ACCELERATOR_BRAKE_ALT", 100), ("TCS", 50),
+                   ("WHEEL_SPEEDS", 100), ("MDPS", 100), (self.gear_msg_canfd, 100),
+                   ("STEERING_SENSORS", 100), ("DOORS_SEATBELTS", 10), ("BLINKERS", 10), ("SCC_CONTROL", math.nan)))
+      cam_msgs.append(("CAM_0x362", 20))
     elif torque_ev_scc_eligible(CP):
       msgs.extend(((self.accelerator_msg_canfd, 100), ("TCS", 50), ("WHEEL_SPEEDS", 100), ("MDPS", 100)))
       msgs.extend((("CRUISE_BUTTONS_ALT", math.nan), ("DOORS_SEATBELTS", math.nan),

@@ -1359,13 +1359,15 @@ static safety_config hyundai_canfd_init_validated(uint16_t supplied_param) {
   // under torque LKA + LONG. Other uses of the bit retain their original meaning.
   const uint16_t damping_profile_mask = HYUNDAI_PARAM_CANFD_ANGLE | 16U | HYUNDAI_PARAM_LONGITUDINAL | 8192U;
   hyundai_canfd_lkas_damping_100 = (param & damping_profile_mask) == (16U | HYUNDAI_PARAM_LONGITUDINAL | 8192U);
+  const bool carnival_long_requested = (param == 0x20B4U) || (param == 0x28B4U);
+
   if (hyundai_canfd_lkas_damping_100) {
     param &= (uint16_t)~8192U;
   }
   const bool angle_requested = GET_FLAG(param, HYUNDAI_PARAM_CANFD_ANGLE);
   const bool ioniq6_stock_aol_requested = hyundai_canfd_stock_torque_aol_param(param);
 #ifdef ALLOW_DEBUG
-  const bool torque_long_aol_requested = hyundai_canfd_torque_long_aol_param(param) && ((unsigned int)alternative_experience == 32U);
+  const bool torque_long_aol_requested = ((carnival_long_requested && ((param & 0x0800U) != 0U)) || hyundai_canfd_torque_long_aol_param(param)) && ((unsigned int)alternative_experience == 32U);
 #else
   const bool torque_long_aol_requested = false;
 #endif
@@ -1559,7 +1561,7 @@ static safety_config hyundai_canfd_init_validated(uint16_t supplied_param) {
   hyundai_canfd_angle_model = 0U;
 #ifdef ALLOW_DEBUG
   hyundai_canfd_ioniq6_long = ioniq6_long_requested;
-  hyundai_canfd_torque_ev_long = (param == 0x0015U) || (param == 0x0095U) || (torque_long_aol_requested && GET_FLAG(param, 16U)) || gv60_long_requested;
+  hyundai_canfd_torque_ev_long = (param == 0x0015U) || (param == 0x0095U) || (torque_long_aol_requested && GET_FLAG(param, 16U) && !carnival_long_requested) || gv60_long_requested;
 #endif
   hyundai_torque_aol_cancel_preserves_lateral = ioniq6_stock_aol_requested || torque_long_aol_requested ||
                                                (param == 0x8815U) || (param == 0x8895U);
@@ -1813,7 +1815,20 @@ static safety_config hyundai_canfd_init_validated(uint16_t supplied_param) {
         HYUNDAI_CANFD_STD_BUTTONS_RX_CHECKS(1)
       };
 
+      static const RxCheck hyundai_canfd_lka_alt_buttons_long_rx_checks[] = {
+        HYUNDAI_CANFD_ALT_BUTTONS_RX_CHECKS(1)
+      };
+      static const RxCheck carnival_long_rx_checks[] = {
+        HYUNDAI_CANFD_BANKED_ANGLE_ALT_RX_CHECKS(1, 0x100)
+      };
       ret = BUILD_SAFETY_CFG(hyundai_canfd_lka_steer_msg_long_rx_checks, HYUNDAI_CANFD_LKA_STEER_MSG_LONG_TX_MSGS);
+      if (carnival_long_requested) {
+        SET_RX_CHECKS(carnival_long_rx_checks, ret);
+      } else if (hyundai_canfd_alt_buttons) {
+        SET_RX_CHECKS(hyundai_canfd_lka_alt_buttons_long_rx_checks, ret);
+      } else {
+        // Standard-button profiles retain their existing physical source.
+      }
       if (hyundai_canfd_lka_steer_msg_alt) {
         SET_TX_MSGS(HYUNDAI_CANFD_LKA_STEER_MSG_ALT_LONG_TX_MSGS, ret);
       }
