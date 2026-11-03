@@ -22,7 +22,7 @@ class SelectionMode(StrEnum):
 @dataclass(frozen=True)
 class SelectionPolicy:
   mode: SelectionMode
-  slots: tuple[Source | None, Source | None]
+  slots: tuple[Source | None, ...]
   online_fallback: bool
 
 
@@ -109,9 +109,9 @@ def _input_errors(observations, policy):
     return ["policy must be SelectionPolicy"]
   if not isinstance(policy.mode, SelectionMode):
     errors.append("selection mode must be explicit")
-  if (not isinstance(policy.slots, tuple) or len(policy.slots) != 2 or
+  if (not isinstance(policy.slots, tuple) or len(policy.slots) not in (2, 3) or
       any(source is not None and (not isinstance(source, Source) or source == Source.ONLINE) for source in policy.slots)):
-    errors.append("two primary source slots are required; online is fallback only")
+    errors.append("two or three source slots are required; online is fallback only")
   if type(policy.online_fallback) is not bool:
     errors.append("online fallback must be Boolean")
   if not isinstance(observations, Mapping):

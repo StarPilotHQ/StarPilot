@@ -140,7 +140,7 @@ class DrawerNativeTest(unittest.TestCase):
     row.speedLimit = 99
     self.assertIsNone(speed_limit_from_message(message).source_readings[0].speed_mps)
 
-  def test_accepted_source_is_highlighted_instead_of_selected_equal_value_source(self):
+  def test_live_source_is_highlighted_but_display_hold_is_not(self):
     from openpilot.starpilot.ui.onroad_state import SourceReading
     from openpilot.starpilot.ui.tests.test_unified_speed_native import foreground_calls
 
@@ -156,14 +156,17 @@ class DrawerNativeTest(unittest.TestCase):
     widget = UnifiedSpeedWidget(Mock(spec=BitmapFonts, **vars(fonts)))
     widget._draw_sources(rl.Rectangle(88, 545, 320, 76), state)
     drawn = [(call.args[0], call.args[1]) for call in foreground_calls(fonts.draw)]
-    self.assertEqual([text for text, _ in drawn], ['Dash', '56', 'Vision', '56'])
-    self.assertIn(('56', FontRole.MEDIUM), drawn)  # The accepted source's reading is emphasized.
-    self.assertIn(('56', FontRole.NORMAL), drawn)
+    self.assertEqual(drawn, [('Dash', FontRole.NORMAL), ('56', FontRole.NORMAL),
+                            ('Vision', FontRole.NORMAL), ('56', FontRole.MEDIUM)])
+
+    fonts.draw.reset_mock()
+    held = replace(obs, status='display_hold', accepted_source='none')
+    widget._draw_sources(rl.Rectangle(88, 545, 320, 76), replace(state, speed_limit=held))
+    self.assertNotIn(FontRole.MEDIUM, [call.args[1] for call in foreground_calls(fonts.draw)])
 
 
 @pytest.fixture(autouse=True)
 def mock_sign_graphics(monkeypatch):
   monkeypatch.setattr('openpilot.starpilot.ui.speed_limit_shapes.SpeedLimitShapes.outline', Mock())
-  monkeypatch.setattr('openpilot.starpilot.ui.speed_limit_shapes.SpeedLimitShapes.confirmation', Mock())
   for name in ('draw_rectangle_rounded_lines_ex', 'draw_circle', 'draw_ring'):
     monkeypatch.setattr('openpilot.starpilot.ui.speed_limit_widget.rl.' + name, Mock())

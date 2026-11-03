@@ -180,6 +180,7 @@ class ConditionalPlannerHost:
              drive_id: int, manual: ManualState | None = None,
              owner_context: ConditionalOwnerContext | None = None,
              native_plan_valid: bool = False,
+             cruise_ceiling_mps: float | None = None,
              manual_event=None,
              ui_event=None,
              ) -> tuple[HostProposal, SettingsSnapshot | None]:
@@ -289,6 +290,7 @@ class ConditionalPlannerHost:
       manual=self.manual_state if manual is None else manual, owner_context=context,
       selected_t_follow_s=selected_follow_time(planner),
       selected_t_follow_observed_mono_ns=sm.logMonoTime.get('modelV2'),
+      cruise_ceiling_mps=cruise_ceiling_mps,
       settings_owner=self.settings,
     )
     snapshot = self.settings.current

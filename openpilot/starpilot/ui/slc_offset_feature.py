@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ctypes import c_float
 from dataclasses import dataclass
 import math
 import threading
@@ -54,6 +55,13 @@ def _minimum_offset(document: od.OffsetDocument, index: int, metric: bool) -> fl
 
 def _display(value: float) -> str:
   return str(round(value))
+
+
+def _whole_limit_cutoff(bound_mps: float, factor: float) -> int:
+  """First whole posted limit on or above the saved cutoff."""
+  nearest = round(bound_mps / factor)
+  # SLC source readings arrive as Float32.
+  return nearest + (c_float(nearest * factor).value < bound_mps)
 
 
 def _capability(cp, configuration_longitudinal=False) -> tuple | None:
@@ -122,17 +130,22 @@ class SlcOffsetOwner:
     rows = [FeatureRow("", "Offset policy", mode)]
     if isinstance(snap.document, od.OffsetDocument) and snap.metric is not None:
       unit = "km/h" if snap.metric else "mph"
-      scale = 1 / _unit_factor(snap.metric)
-      display_bounds = tuple(str(round(bound * scale)) for bound in snap.document.bounds_mps)
-      for index in range(7):
-        # Round presentation only: the stored SI boundaries remain authoritative.
-        label = f"{display_bounds[index]}–<{display_bounds[index + 1]} {unit}"
+      factor = _unit_factor(snap.metric)
+      scale = 1 / factor
+      display_bounds = tuple(_whole_limit_cutoff(bound, factor) for bound in snap.document.bounds_mps)
+      for index, (lower, next_lower) in enumerate(zip(display_bounds[:-1], display_bounds[1:], strict=True)):
+        upper = next_lower - 1
+        if lower > upper:
+          label = f"Band {index + 1} offset (no whole-number limits)"
+        else:
+          limits = str(lower) if lower == upper else f"{lower}–{upper}"
+          label = f"{limits} {unit} offset"
         value = _display(snap.document.offsets_mps[index] * scale)
-        rows.append(FeatureRow(SLC_OFFSET_KEYS[index], label + " offset", value, snap.raw_document,
+        rows.append(FeatureRow(SLC_OFFSET_KEYS[index], label, value, snap.raw_document,
                                step=1, unit=unit,
                                minimum=_minimum_offset(snap.document, index, snap.metric), maximum=150 if snap.metric else 99,
                                available=available,
-                               reason="Upper boundary excluded; displayed ranges rounded to whole speeds. Unsafe reductions use the unadjusted limit",
+                               reason="Ranges show whole-number posted limits. Unsafe reductions use the unadjusted limit",
                                related_source=snap.raw_unit, capability=capable, dependencies=deps,
                                display_unit=unit, default_value="0"))
       rows.append(FeatureRow("", f"{display_bounds[-1]} {unit} and above", "Zero offset"))

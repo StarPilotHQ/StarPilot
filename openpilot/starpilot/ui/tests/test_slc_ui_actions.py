@@ -13,7 +13,7 @@ from openpilot.starpilot.ui.preview_settings import reference_settings_state
 from openpilot.starpilot.ui.shell import ShellInput, ShellMode, ShellSnapshot
 from openpilot.starpilot.ui.slc_action_dispatch import SlcActionDispatcher
 
-from openpilot.starpilot.ui.large_speed_geometry import sources_extent
+from openpilot.starpilot.ui.large_speed_geometry import CARD_HEIGHT, GAP, ACTION_Y, sources_extent
 from openpilot.starpilot.ui.onroad_customization import default_document, placement, validate_document
 from openpilot.starpilot.ui.onroad_torque_geometry import maximum_footprint
 from openpilot.starpilot.ui.tests.test_onroad_customization import road
@@ -57,15 +57,16 @@ def tap_control(touch, current, kind):
   touch.release(x, y, current)
 
 
-def test_dispatcher_can_dismiss_retained_choice_without_authorizing_stale_accept():
-  current = native_state(presentation=0)
-  current.observationKind, current.source, current.speedLimit = 'unknown', 'none', 0.
-  publisher = Mock()
-  dispatch = SlcActionDispatcher(publisher, lambda now: current, clock=lambda: NOW)
-  request = SlcUiRequest(SlcActionKind.ACCEPT, current.sessionId, current.decisionId, 0, 22.)
-  assert not dispatch.dispatch(request)
-  assert dispatch.dispatch(replace(request, kind=SlcActionKind.REJECT))
-  assert publisher.send.call_count == 1
+def test_dispatcher_can_accept_or_reject_the_presented_choice_during_a_source_gap():
+  for kind in (SlcActionKind.ACCEPT, SlcActionKind.REJECT):
+    current = native_state()
+    current.observationKind, current.source, current.speedLimit = 'unknown', 'none', 0.
+    publisher = Mock()
+    dispatch = SlcActionDispatcher(publisher, lambda now, current=current: current, clock=lambda: NOW)
+    request = SlcUiRequest(kind, current.sessionId, current.decisionId, current.presentationId, 22.)
+    assert not dispatch.dispatch(replace(request, presentation_id=0))
+    assert dispatch.dispatch(request)
+    assert publisher.send.call_count == 1
 
 
 class TestSlcTouch(unittest.TestCase):
@@ -237,6 +238,18 @@ class TestSlcDispatcher(unittest.TestCase):
     self.assertFalse(dispatcher.dispatch(request))
     self.assertEqual(publisher.send.call_count, 1)
 
+  def test_adopt_preserves_the_wheel_timestamp_on_the_wire(self):
+    current = native_state(pending=False)
+    request = SlcUiRequest(SlcActionKind.ADOPT, "drive-session", 7, 9, 22.0)
+    wheel_ns = NOW - 30_000_000
+    for options, expected in (({}, 0), ({"wheel_observed_ns": wheel_ns}, wheel_ns)):
+      publisher = Mock()
+      dispatcher = SlcActionDispatcher(publisher, lambda _: current, lambda: NOW)
+      self.assertTrue(dispatcher.dispatch(request, **options))
+      message = publisher.send.call_args.args[1]
+      self.assertEqual(message.logMonoTime, NOW)
+      self.assertEqual(message.slcAction.wheelAdoptMonoTime, expected)
+
   def test_failed_publish_does_not_acknowledge_or_mutate_state(self):
     current = native_state()
     publisher = Mock()
@@ -262,7 +275,7 @@ def test_large_attached_actions_follow_source_row_and_custom_actions_stay_put():
   state.customization['speedSources'] = True
   state = replace(state, customization=validate_document(state.customization))
   after = slc_action_bounds(Profile.LARGE, state)
-  assert after[0][1] - before[0][1] == sources_extent(state.customization) - 16
+  assert after[0][1] - before[0][1] == CARD_HEIGHT + sources_extent(state.customization) + GAP - (ACTION_Y - 75)
   assert after[0][:2] == tuple(placement(state.customization, Profile.LARGE, 'speed_limit_actions')[key] for key in ('x', 'y'))
   state.customization['layouts']['large']['speed_limit_actions'].update(x=600, y=500)
   assert slc_action_bounds(Profile.LARGE, state)[0][:2] == (600, 500)
@@ -287,11 +300,12 @@ def test_v10_default_migration_preserves_unrelated_customization_and_optional_wi
 
 
 def test_large_controls_with_source_card_clear_the_default_cem_gauge():
-  state = road()
-  state.customization.update(speedSources=True, speedSourcesCard=True)
-  state = replace(state, customization=validate_document(state.customization))
-  bounds = slc_action_bounds(Profile.LARGE, state)
-  assert bounds[-1][3] < state.customization['layouts']['large']['cem_gauge']['y']
+  current = replace(state(), slc_prompt_open=True)
+  current.customization.update(speedSources=True, speedSourcesCard=True)
+  current = replace(current, customization=validate_document(current.customization))
+  controls = slc_controls(Profile.LARGE, current)
+  assert len(controls) == 2
+  assert controls[-1].bounds[3] < current.customization['layouts']['large']['cem_gauge']['y']
 
 
 if __name__ == "__main__":

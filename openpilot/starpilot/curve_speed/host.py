@@ -80,8 +80,14 @@ class CurveHost:
     self.previous_long_active = False
     self.previous_active_headway = None
 
-  def sample(self, sm, CP, now_ns: int, *, drive_id: int = 0, event=None, follow_time_s: float | None = None):
+  def sample(self, sm, CP, now_ns: int, *, drive_id: int = 0, event=None, follow_time_s: float | None = None,
+             cruise_ceiling_mps: float | None = None):
     frame = frame_from_submaster(sm, CP, now_ns, drive_id=drive_id)
+    if cruise_ceiling_mps is not None:
+      if not math.isfinite(cruise_ceiling_mps) or cruise_ceiling_mps <= 0:
+        frame = replace(frame, inputs_fresh=False)
+      else:
+        frame = replace(frame, cruise_mps=min(frame.cruise_mps, cruise_ceiling_mps))
     if drive_id and self.lead_drive_id and drive_id != self.lead_drive_id:
       self._reset_leads()
     if drive_id:

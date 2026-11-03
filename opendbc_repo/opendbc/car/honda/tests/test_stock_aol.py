@@ -335,8 +335,8 @@ def test_actual_card_active_observation_requires_fresh_selfdrive_state(monkeypat
   host.observe_ioniq6_long_authority = lambda *args: None
   host.update_vehicle_state_context = lambda *args: None
 
-  def update_cruise_speed(_state, _pending, *, approved=None):
-    assert approved is None
+  def update_cruise_speed(_state, _pending, *, wheel_context=None):
+    assert wheel_context is None
   host.update_cruise_speed = update_cruise_speed
   host.v_cruise_helper = SimpleNamespace(slc_consumed_button=None, toyota=None)
   host.startup_panda_configured = lambda: True

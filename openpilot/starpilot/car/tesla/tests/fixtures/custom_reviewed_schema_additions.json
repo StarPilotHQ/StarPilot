@@ -101,7 +101,7 @@
         "discriminantOffset": 0
       },
       "new_storage": {
-        "dataWordCount": 18,
+        "dataWordCount": 21,
         "pointerCount": 22,
         "preferredListEncoding": "inlineComposite",
         "isGroup": false,
@@ -251,6 +251,78 @@
           "discriminantValue": 65535,
           "ordinal": {
             "explicit": 58
+          }
+        },
+        {
+          "slot": {
+            "offset": 141,
+            "type": {
+              "bool": null
+            },
+            "defaultValue": {
+              "bool": false
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "acceptedIsPreview",
+          "codeOrder": 59,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 59
+          }
+        },
+        {
+          "slot": {
+            "offset": 18,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "wheelOverrideSince",
+          "codeOrder": 60,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 60
+          }
+        },
+        {
+          "slot": {
+            "offset": 19,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "wheelAdoptMonoTime",
+          "codeOrder": 61,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 61
+          }
+        },
+        {
+          "slot": {
+            "offset": 40,
+            "type": {
+              "float32": null
+            },
+            "defaultValue": {
+              "float32": 0.0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "wheelAdoptTargetMps",
+          "codeOrder": 62,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 62
           }
         }
       ]
@@ -761,6 +833,90 @@
           "discriminantValue": 65535,
           "ordinal": {
             "explicit": 6
+          }
+        }
+      ]
+    },
+    "0x9ccdc8676701b412": {
+      "kind": "struct",
+      "before_name": "SlcAction",
+      "after_name": "SlcAction",
+      "old_field_count": 8,
+      "old_storage": {
+        "dataWordCount": 4,
+        "pointerCount": 4,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 5,
+        "pointerCount": 4,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 4,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "wheelAdoptMonoTime",
+          "codeOrder": 8,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 8
+          }
+        }
+      ]
+    },
+    "0xcd96dafb67a082d0": {
+      "kind": "struct",
+      "before_name": "SlcCruiseEvent",
+      "after_name": "SlcCruiseEvent",
+      "old_field_count": 16,
+      "old_storage": {
+        "dataWordCount": 7,
+        "pointerCount": 6,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 8,
+        "pointerCount": 6,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 7,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "wheelOverrideSince",
+          "codeOrder": 16,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 16
           }
         }
       ]

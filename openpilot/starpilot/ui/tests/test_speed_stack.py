@@ -52,8 +52,8 @@ def test_v4_migration_preserves_settings_and_clamps_only_enlarged_widgets():
   doc['layouts']['large']['speed_limit_actions'].update(x=1654, y=500)
   old_speed = dict(doc['layouts']['large']['current_speed'])
   migrated = validate_document(doc)
-  assert migrated['version'] == 12
-  assert migrated['layouts']['large']['cruise_limits']['x'] == 1539
+  assert migrated['version'] == 14
+  assert migrated['layouts']['large']['cruise_limits']['x'] == 1437
   assert migrated['layouts']['large']['speed_limit_actions'] == {'x': 1678, 'y': 267, 'enabled': True}
   assert migrated['layouts']['large']['current_speed'] == old_speed
   assert migrated['speedSources'] is True
@@ -61,7 +61,7 @@ def test_v4_migration_preserves_settings_and_clamps_only_enlarged_widgets():
   assert validate_document(migrated) == migrated
 
 
-def test_feedback_requires_matching_receipts_and_command_application():
+def test_feedback_requires_matching_receipts():
   now = [NOW]
   dispatcher = SlcActionDispatcher(Mock(), lambda _: native_state(), lambda: now[0])
   assert dispatcher.dispatch(SlcUiRequest(SlcActionKind.ACCEPT, 'drive-session', 7, 9, 22))
@@ -69,16 +69,12 @@ def test_feedback_requires_matching_receipts_and_command_application():
   assert dispatcher.feedback(obs) == 'Waiting…'
   obs = replace(obs, action_sequence_id=NOW, action_status='accept')
   assert dispatcher.feedback(obs) == 'Limit accepted'
-  obs = replace(obs, command_action_sequence_id=NOW, command_status='issued')
-  assert dispatcher.feedback(obs) == 'Applying…'
-  assert dispatcher.feedback(replace(obs, command_status='applied')) == 'Applied'
-  assert dispatcher.feedback(replace(obs, command_status='expired')) == 'Setpoint not applied'
   assert dispatcher.feedback(replace(obs, session_id='next-drive')) == ''
 
 
 def test_publisher_receipt_survives_next_cycle_and_resets_with_session():
   sm, cp = replay_inputs()
-  runtime = Runtime(parse({'SpeedLimitController': True, 'SLCConfirmation': True, 'SLCConfirmationHigher': True}), session_id='drive')
+  runtime = Runtime(parse({'SpeedLimitController': True, 'SLCPriority1': 'Dashboard', 'SLCConfirmation': 1}), session_id='drive')
   pending = runtime.step(sm, cp, now_ns=START).message.slcState
   request = SlcUiRequest(SlcActionKind.ACCEPT, 'drive', pending.decisionId, pending.presentationId, pending.pendingSpeedLimit)
   action = publish_request(pending, request, START)
@@ -88,8 +84,7 @@ def test_publisher_receipt_survives_next_cycle_and_resets_with_session():
   next_frame = runtime.step(sm, cp, now_ns=START + 100_000_000).message.slcState
   assert accepted.actionSequenceId == next_frame.actionSequenceId == action.sequence_id
   assert accepted.actionStatus == next_frame.actionStatus == 'accept'
-  assert accepted.commandActionSequenceId == next_frame.commandActionSequenceId == action.sequence_id
+  assert accepted.commandActionSequenceId == next_frame.commandActionSequenceId == 0
   runtime.reset()
   assert runtime._ui_receipt is None
-  assert runtime._command_ui_sequence == 0
 

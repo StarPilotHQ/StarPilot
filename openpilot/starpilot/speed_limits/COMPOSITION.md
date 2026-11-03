@@ -1,15 +1,15 @@
 # Speed-limit composition
 
-`composition.step` joins current source selection, adoption decisions, configured
-offsets, selected cruise coordinates and qualified driver intent. It preserves
-validation of sessions, clocks, source observations, current authority and the causal
-action ledger. Malformed or contradictory input cannot authorize a command.
+`composition.step` joins source selection, acceptance, offsets and qualified raw/cluster
+speed pairs into `Result.ceiling`. The planner caps the driver's SET with this value;
+SLC never writes SET. Source, action, session, clock and authority validation remain
+at their existing boundaries. Ordinary driver SET changes do not create an SLC bypass.
 
-The resulting accepted adjusted limit is adoption data. Runtime sends it to card
-as a bounded set-speed command, retrying a failed application only while the same
-adoption and expected set speed remain current. `Result.ceiling` is always `None`; SLC does
-not compose another speed ceiling with the driver's set speed. The planner uses
-card's published set speed and its ordinary selected braking profile.
+The previous accepted limit plus the current offset remains the cap through source
+gaps and later engagements. Validated saved history supplies the same fallback
+after a restart. It never creates a fresh source observation or accepts a pending
+proposal. Current vehicle coordinates and system-longitudinal authority remain
+required. There is no separate SLC override reducer or retained pedal target.
 
-Lead following, curves, stopping and actuator restrictions retain their independent planner paths.
-See the [current controller contract](README.md).
+Lead following, curves, stopping, cruise profiles and actuator restrictions retain
+their existing owners. See the [controller contract](README.md).

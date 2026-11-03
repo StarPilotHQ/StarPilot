@@ -41,14 +41,14 @@ class TestActionArbitration(unittest.TestCase):
     self.assertEqual(delayed.change.started_at_ns, 1)
     self.assertEqual(delayed.change.context_id, "accepted-context-1")
 
-  def test_adoption_proposal_and_effect_keep_originating_action(self):
+  def test_adoption_receipt_and_effect_keep_originating_action(self):
     shown = accept.step(accept.new_session(SESSION), OBSERVATION, AUTHORITY, accept.Policy(), now_ns=0)
     request = accept.AdoptRequest(SESSION, 1, shown.state.presentation.presentation_id, CANDIDATE)
     adopted = accept.step(shown.state, OBSERVATION, AUTHORITY, accept.Policy(), now_ns=2, adopt=request)
     ledger = arb.resolve_acceptance(begin(), 1, adopted, now_ns=2).state
-    result = change(ledger, previous=25.0, selected=adopted.adoption.reconciliation_speed_mps, now=10_000_000_000)
+    result = change(ledger, previous=25.0, selected=adopted.control_target_mps, now=10_000_000_000)
     self.assertEqual(result.change.disposition, arb.Disposition.SLC_CONSUMED)
-    self.assertEqual(result.change.action_id, adopted.adoption.action_sequence_id)
+    self.assertEqual(result.change.action_id, adopted.adoption_receipt.sequence_id)
 
   def test_final_unconsumed_receipt_does_not_swallow_cruise_input(self):
     shown = accept.step(accept.new_session(SESSION), OBSERVATION, AUTHORITY, accept.Policy(), now_ns=0)

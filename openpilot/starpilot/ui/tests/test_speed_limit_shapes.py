@@ -48,13 +48,14 @@ def gpu(monkeypatch):
 def test_shapes_share_one_upload_and_arrow_is_one_draw_in_either_direction(gpu):
   owner = shapes.SpeedLimitShapes()
   owner.circle(389, 87, shapes.rl.RED)
-  assert gpu['draw_texture_pro'].call_count == 2
+  assert gpu['draw_texture_pro'].call_count == 5
+  assert all(call.args[1].x == shapes.SPRITES['ring'][0] for call in gpu['draw_texture_pro'].call_args_list)
   gpu['draw_texture_pro'].reset_mock()
   owner.outline(59, 66, shapes.rl.WHITE)
   owner.outline(59, 66, shapes.rl.WHITE)
-  assert gpu['draw_texture_pro'].call_count == 2
+  assert gpu['draw_texture_pro'].call_count == 10
   _, source, destination, _, _, _ = gpu['draw_texture_pro'].call_args.args
-  assert (source.width, source.height) == (128, 144)
+  assert (source.width, source.height) == (136, 152)
   assert (destination.x, destination.y) == (59, 66)
   for direction, rotation in ((1, 0), (-1, 180)):
     gpu['draw_texture_pro'].reset_mock()
@@ -97,30 +98,8 @@ def test_small_arrow_has_larger_ink_at_double_density():
   assert ((bounds[2]-bounds[0])/density, (bounds[3]-bounds[1])/density) == (12, 16)
 
 
-def test_confirmation_arrow_has_the_same_fill_without_the_dark_outline():
-  with Image.open(shapes.ATLAS_PATH) as atlas:
-    sprites = {}
-    for name in ('arrow_compact', 'arrow_confirmation'):
-      x, y, width, height = shapes.SPRITES[name]
-      sprites[name] = np.asarray(atlas.crop((x, y, x + width, y + height)))
-    outlined = sprites['arrow_compact']
-    plain = sprites['arrow_confirmation']
-    assert shapes.SPRITE_DENSITIES['arrow_confirmation'] == 2
-    assert np.all(plain[..., :3] == 255)
-    assert np.all(plain[..., 3] <= outlined[..., 3])
-    assert np.any(plain[..., 3] < outlined[..., 3])
-    assert np.array_equal(plain[..., 3] == 255, outlined[..., 3] == 255)
 
 
-@pytest.mark.parametrize('direction,rotation', [(1, 0), (-1, 180)])
-def test_confirmation_arrow_uses_the_shared_atlas_in_both_directions(gpu, direction, rotation):
-  owner = shapes.SpeedLimitShapes()
-  owner.arrow('confirmation', 100, 50, direction, shapes.rl.WHITE, scale=1.1)
-  _, source, destination, _, drawn_rotation, _ = gpu['draw_texture_pro'].call_args.args
-  assert (source.x, source.y, source.width, source.height) == (280, 224, 32, 48)
-  assert (destination.width, destination.height) == pytest.approx((17.6, 26.4))
-  assert drawn_rotation == rotation
-  owner.close()
 
 
 def test_wheel_cues_have_smooth_rounded_edges_and_distinct_symbols():
@@ -141,12 +120,11 @@ def test_wheel_cues_have_smooth_rounded_edges_and_distinct_symbols():
 
 def test_wheel_cues_share_the_confirmation_atlas(gpu):
   owner = shapes.SpeedLimitShapes()
-  owner.confirmation((0, 0, 240, 152))
+  owner.outline(120, 76, shapes.rl.WHITE)
   gpu['draw_texture_pro'].reset_mock()
   owner.wheel_key(True, 50, 135.5, scale=1)
   owner.wheel_key(False, 160, 135.5, scale=1)
-  assert gpu['draw_texture_pro'].call_count == 2
-  assert [call.args[1].x for call in gpu['draw_texture_pro'].call_args_list] == [280, 328]
+  assert {call.args[1].x for call in gpu['draw_texture_pro'].call_args_list} == {280, 328}
   assert all(call.args[2].width == 24 for call in gpu['draw_texture_pro'].call_args_list)
   gpu['load_image'].assert_called_once()
   gpu['load_texture_from_image'].assert_called_once()
@@ -171,108 +149,36 @@ def test_headless_context_loads_atlas_without_a_window(gpu, monkeypatch):
   gpu['load_texture_from_image'].assert_called_once()
 
 
-def test_short_outline_reuses_the_same_atlas_and_preserves_corner_scale(gpu):
-  owner = shapes.SpeedLimitShapes()
-  owner.outline(59, 58, shapes.rl.WHITE, short=True)
-  assert gpu['draw_texture_pro'].call_count == 2
-  rows = [call.args for call in gpu['draw_texture_pro'].call_args_list]
-  assert [(r[1].x, r[1].y, r[1].width, r[1].height) for r in rows] == [(256, 0, 128, 64), (256, 80, 128, 64)]
-  assert [(r[2].x, r[2].y, r[2].width, r[2].height) for r in rows] == [(59, -6, 128, 64), (59, 58, 128, 64)]
-  assert all((r[3].x, r[3].y) == (64, 0) for r in rows)
-  owner.outline(59, 66, shapes.rl.WHITE)
-  owner.outline(59, 58, shapes.rl.WHITE, short=True)
-  gpu['load_image'].assert_called_once()
-  gpu['load_texture_from_image'].assert_called_once()
-  owner.close()
-  gpu['unload_texture'].assert_called_once()
-
-
-@pytest.mark.parametrize('scale', [1, 1.3416407865])
-@pytest.mark.parametrize('opened', [False, True])
-def test_confirmation_reuses_atlas_and_preserves_corners_without_overlapping_slices(gpu, scale, opened):
-  owner = shapes.SpeedLimitShapes()
-  width = (312 if opened else 240) * scale
-  bounds = (12., 8., 12 + width, 8 + 152 * scale)
-  owner.confirmation(bounds, opened=opened, strength=1)
-  rows = [call.args for call in gpu['draw_texture_pro'].call_args_list]
-  assert len(rows) == (3 if opened else 6)
-  cap = (16 if opened else 24) * scale
-  for group in (rows[:3], rows[3:]):
-    if not group:
-      continue
-    left, middle, right = [row[2] for row in group]
-    assert left.x == pytest.approx(bounds[0])
-    assert left.width == pytest.approx(cap)
-    assert middle.x == pytest.approx(left.x + left.width)
-    assert right.x == pytest.approx(middle.x + middle.width)
-    assert right.x + right.width == pytest.approx(bounds[2])
-    assert right.width == pytest.approx(cap)
-    assert all(row[2].y + row[2].height == pytest.approx(bounds[3]) for row in group)
-  assert rows[0][2].height == pytest.approx(152 * scale)
-  if not opened:
-    assert rows[3][2].y == pytest.approx(bounds[1] + 86 * scale)
-  owner.confirmation(bounds, opened=opened)
-  gpu['load_image'].assert_called_once()
-  gpu['load_texture_from_image'].assert_called_once()
-  owner.close()
-  gpu['unload_texture'].assert_called_once()
-
-
-def test_confirmation_has_translucent_fill_a_defined_rim_and_a_local_pulse():
+@pytest.mark.parametrize('profile', ('large', 'compact'))
+def test_buttons_have_smooth_symmetric_contours_and_transparent_interiors(profile):
+  colored_areas = []
   with Image.open(shapes.ATLAS_PATH) as atlas:
-    x, y, w, h = shapes.SPRITES['confirmation']
-    face = np.asarray(atlas.crop((x, y, x + w, y + h)))
-    assert face[h // 2, w // 2, 3] == 230
-    assert face[2, w // 2, 3] > 230
-    x, y, w, h = shapes.SPRITES['confirmation_pulse']
-    pulse = np.asarray(atlas.crop((x, y, x + w, y + h)))
-    assert pulse[2, w // 2, 3] == 0
-    assert 0 < pulse[-3, w // 2, 3] <= 51
+    for name in (f'button_{profile}', f'button_{profile}_pressed'):
+      x, y, width, height = shapes.SPRITES[name]
+      pixels = np.asarray(atlas.crop((x, y, x + width, y + height)))
+      alpha = pixels[..., 3]
+      assert shapes.SPRITE_DENSITIES[name] == 2
+      assert np.array_equal(pixels, pixels[::-1]) and np.array_equal(pixels, pixels[:, ::-1])
+      assert not alpha[40:-40, 40:-40].any()
+      assert np.mean(alpha == 0) > .85
+      assert ((alpha > 0) & (alpha < 255)).sum() > 500
+      colored_areas.append(np.count_nonzero((pixels[..., 0] > 128) & (alpha > 0)))
+  assert colored_areas[1] > colored_areas[0], 'Press feedback strengthens the same contour'
 
 
-@pytest.mark.parametrize('scale', [1, 1.3416407865])
-def test_native_confirmation_blends_once_and_pulses_only_below_the_speed(scale):
-  rl = shapes.rl
-  owns_context = not rl.is_window_ready()
-  if owns_context:
-    rl.set_config_flags(rl.ConfigFlags.FLAG_WINDOW_HIDDEN)
-    rl.init_window(128, 128, 'SLC surface fixture')
-  target = rl.load_render_texture(460, 240)
+def test_buttons_share_one_upload_and_each_uses_one_quad(gpu):
   owner = shapes.SpeedLimitShapes()
-
-  def capture(bounds, opened, strength, background=(90, 120, 160)):
-    rl.begin_texture_mode(target)
-    rl.clear_background(rl.Color(*background, 255))
-    owner.confirmation(bounds, opened=opened, strength=strength)
-    rl.end_texture_mode()
-    image = rl.load_image_from_texture(target.texture)
-    try:
-      rl.image_flip_vertical(image)
-      return np.frombuffer(image.data[:image.width * image.height * 4], dtype=np.uint8).reshape(image.height, image.width, 4).copy()
-    finally:
-      rl.unload_image(image)
-
-  try:
-    for opened in (False, True):
-      width = (312 if opened else 240) * scale
-      bounds = (16, 16, 16 + width, 16 + 152 * scale)
-      rest, peak = (capture(bounds, opened, strength) for strength in (0, 1))
-      assert np.array_equal(rest[:int(16 + 86 * scale)], peak[:int(16 + 86 * scale)])
-      if opened:
-        assert np.array_equal(rest, peak)
-      else:
-        assert not np.array_equal(rest, peak)
-      changed = np.any(rest != peak, axis=-1)
-      assert not changed[:, :16].any() and not changed[:, int(np.ceil(bounds[2])):].any()
-      assert not changed[int(np.ceil(bounds[3])):].any()
-      row = int(16 + 76 * scale)
-      columns = slice(18, int(bounds[2]) - 2)
-      assert np.ptp(rest[row, columns, :3], axis=0).max() <= 1, 'slices must join without a seam'
-      lighter = capture(bounds, opened, 0, (190, 220, 255))
-      difference = lighter[row, int(16 + width / 2), :3].astype(int) - rest[row, int(16 + width / 2), :3]
-      assert np.all((difference >= 8) & (difference <= 12)), 'the core should transmit about 10% of the camera'
-  finally:
-    owner.close()
-    rl.unload_render_texture(target)
-    if owns_context:
-      rl.close_window()
+  for profile, scale in (('compact', 1.), ('large', 1.342)):
+    for pressed in (False, True):
+      gpu['draw_texture_pro'].reset_mock()
+      owner.button(200, 96, shapes.rl.GREEN, profile=profile, scale=scale, pressed=pressed)
+      gpu['draw_texture_pro'].assert_called_once()
+      _, source, destination, origin, _, color = gpu['draw_texture_pro'].call_args.args
+      assert (source.x, source.y, source.width, source.height) == shapes.SPRITES[f'button_{profile}' + ('_pressed' if pressed else '')]
+      assert (destination.x, destination.y) == (200, 96)
+      assert (destination.width, destination.height) == pytest.approx((source.width / 2 * scale, source.height / 2 * scale))
+      assert (origin.x, origin.y) == pytest.approx((source.width / 4 * scale, source.height / 4 * scale))
+      assert color == shapes.rl.GREEN
+  gpu['load_texture_from_image'].assert_called_once()
+  owner.close()
+  gpu['unload_texture'].assert_called_once()

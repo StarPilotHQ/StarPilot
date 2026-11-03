@@ -1,4 +1,4 @@
-"""One cached atlas for speed-limit signs and confirmation surfaces."""
+"""One cached atlas for transparent speed signs, buttons, arrows and wheel cues."""
 
 from pathlib import Path
 
@@ -6,18 +6,16 @@ from openpilot.starpilot.ui.raylib import rl
 
 
 ATLAS_PATH = Path(__file__).with_name('assets') / 'speed_limit_shapes.png'
-ATLAS_SIZE = (384, 484)
+ATLAS_SIZE = (736, 688)
 SPRITES = {
-  'disc': (0, 0, 128, 128), 'ring': (128, 0, 128, 128),
+  'ring': (128, 0, 128, 128),
   'arrow_large': (0, 128, 32, 40), 'arrow_compact': (32, 128, 32, 48),
-  'outline': (256, 0, 128, 144),
-  'confirmation': (0, 176, 104, 308), 'confirmation_open': (104, 176, 72, 308),
-  'confirmation_pulse': (176, 176, 104, 136),
+  'outline': (256, 0, 136, 152),
   'wheel_plus': (280, 176, 48, 48), 'wheel_minus': (328, 176, 48, 48),
-  'arrow_confirmation': (280, 224, 32, 48),
+  'button_large': (0, 224, 368, 248), 'button_large_pressed': (368, 224, 368, 248),
+  'button_compact': (0, 472, 308, 216), 'button_compact_pressed': (308, 472, 308, 216),
 }
-SPRITE_DENSITIES = {'arrow_compact': 2, 'confirmation': 2, 'confirmation_open': 2, 'confirmation_pulse': 2,
-                    'wheel_plus': 2, 'wheel_minus': 2, 'arrow_confirmation': 2}
+SPRITE_DENSITIES = {name: 2 for name in SPRITES if name.startswith('button') or name in ('arrow_compact', 'wheel_plus', 'wheel_minus')}
 
 
 class SpeedLimitShapes:
@@ -25,7 +23,6 @@ class SpeedLimitShapes:
     self.scale = scale
     self._headless_context = headless_context
     self.texture = None
-    self.short_outline = None
     self.sources = {name: rl.Rectangle(*rect) for name, rect in SPRITES.items()}
     self.origins = {name: rl.Vector2(rect[2] * scale / SPRITE_DENSITIES.get(name, 1) / 2,
                                    rect[3] * scale / SPRITE_DENSITIES.get(name, 1) / 2) for name, rect in SPRITES.items()}
@@ -62,50 +59,26 @@ class SpeedLimitShapes:
                         origin, rotation, color)
 
   def circle(self, x, y, color):
-    self._draw('disc', x, y, rl.WHITE)
-    self._draw('ring', x, y, color)
+    self._outlined('ring', x, y, color)
 
-  def outline(self, x, y, color, *, short=False):
-    if not short:
-      self._draw('outline', x, y, color)
-      return
-    self._load()
-    if self.short_outline is None:
-      source = self.sources['outline']
-      # Remove only the straight middle: corners and border thickness stay intact.
-      self.short_outline = ((rl.Rectangle(source.x, source.y, source.width, 64), -64),
-                            (rl.Rectangle(source.x, source.y + 80, source.width, 64), 0))
-    origin = rl.Vector2(64 * self.scale, 0)
-    for source, dy in self.short_outline:
-      rl.draw_texture_pro(self.texture, source,
-                          rl.Rectangle(x, y + dy * self.scale, source.width * self.scale, source.height * self.scale),
-                          origin, 0, color)
+  def _outlined(self, name, x, y, color, *, scale=None):
+    radius = self.scale if scale is None else scale
+    for dx, dy in ((-radius, 0), (radius, 0), (0, -radius), (0, radius)):
+      self._draw(name, x + dx, y + dy, rl.Color(6, 14, 10, 230), scale=scale)
+    self._draw(name, x, y, color, scale=scale)
+
+  def outline(self, x, y, color, *, scale=None):
+    self._outlined('outline', x, y, color, scale=scale)
+
+  def button(self, x, y, color, *, profile, scale, pressed=False):
+    self._draw(f'button_{profile}' + ('_pressed' if pressed else ''), x, y, color, scale=scale)
 
   def arrow(self, size, x, y, direction, color, *, scale=None):
-    name = 'arrow_large' if size == 'large' else 'arrow_confirmation' if size == 'confirmation' else 'arrow_compact'
+    name = 'arrow_large' if size == 'large' else 'arrow_compact'
     self._draw(name, x, y, color, 180 if direction < 0 else 0, scale=scale)
 
   def wheel_key(self, plus, x, y, *, scale):
-    self._draw('wheel_plus' if plus else 'wheel_minus', x, y, rl.WHITE, scale=scale)
-
-  def confirmation(self, bounds, *, opened=False, strength=0):
-    self._load()
-    x, y, right, bottom = bounds
-    scale = (bottom - y) / 152
-    layers = [('confirmation_open' if opened else 'confirmation', y, 255)]
-    if not opened and strength > 0:
-      layers.append(('confirmation_pulse', y + 86 * scale, round(255 * strength)))
-    for name, top, alpha in layers:
-      source = self.sources[name]
-      texel_scale = scale / SPRITE_DENSITIES[name]
-      cap = (source.width - 8) / 2
-      # Stretch only the flat middle; keep the two-pixel atlas padding out of the quad.
-      for sx, sw, dx, dw in ((source.x + 2, cap, x, cap * texel_scale),
-                              (source.x + 2 + cap, 4, x + cap * texel_scale, right - x - 2 * cap * texel_scale),
-                              (source.x + source.width - 2 - cap, cap, right - cap * texel_scale, cap * texel_scale)):
-        rl.draw_texture_pro(self.texture, rl.Rectangle(sx, source.y + 2, sw, source.height - 4),
-                            rl.Rectangle(dx, top, dw, (source.height - 4) * texel_scale),
-                            rl.Vector2(0, 0), 0, rl.Color(255, 255, 255, alpha))
+    self._outlined('wheel_plus' if plus else 'wheel_minus', x, y, rl.WHITE, scale=scale)
 
   def close(self):
     if self.texture is not None and (rl.is_window_ready() or self._headless_context):

@@ -103,7 +103,7 @@ class TestSlcUiRuntime(unittest.TestCase):
         for change in ('none', 'wrong_id', 'earlier_handoff', 'same_step_handoff', 'new_limit'):
           with self.subTest(profile=profile, kind=kind, change=change):
             sm, cp = replay_inputs()
-            runtime = Runtime(parse({'SpeedLimitController': True, 'SLCConfirmation': True,
+            runtime = Runtime(parse({'SpeedLimitController': True, 'SLCConfirmation': 1,
                                      'SLCPriority1': 'Dashboard'}))
             pending = runtime.step(sm, cp, now_ns=START).message
             request = ui_request(pending, profile=profile, kind=kind)
@@ -126,17 +126,16 @@ class TestSlcUiRuntime(unittest.TestCase):
             if change == 'none':
               self.assertEqual(output.message.slcState.actionStatus, kind.value)
               self.assertFalse(output.message.slcState.hasPending)
-              self.assertEqual(output.command is not None, kind == SlcActionKind.ACCEPT)
+              self.assertEqual(output.result.ceiling is not None, kind == SlcActionKind.ACCEPT)
             else:
               self.assertTrue(output.message.slcState.hasPending)
               self.assertFalse(output.message.slcState.hasAccepted)
-              self.assertIsNone(output.command)
             self.assertEqual(runtime.ledger.transactions, ())
 
-  def test_card_accept_produces_planner_receipt_and_bounded_command(self):
+  def test_card_accept_produces_planner_receipt_and_cap_without_changing_set(self):
     sm, cp = replay_inputs()
-    runtime = Runtime(parse({"SpeedLimitController": True, "SLCConfirmation": True,
-                             "SLCConfirmationHigher": True, "SLCPriority1": "Dashboard"}), session_id="ui-accept")
+    runtime = Runtime(parse({"SpeedLimitController": True, "SLCConfirmation": 1,
+                             "SLCPriority1": "Dashboard"}), session_id="ui-accept")
     pending = runtime.step(sm, cp, now_ns=START).message
     self.assertTrue(pending.slcState.hasPending)
     request = ui_request(pending, profile=Profile.LARGE, kind=SlcActionKind.ACCEPT)
@@ -146,20 +145,20 @@ class TestSlcUiRuntime(unittest.TestCase):
     result = runtime.step(sm, cp, now_ns=START + 50_000_000, request=action)
     self.assertEqual(result.message.slcState.actionStatus, "accept")
     self.assertFalse(result.message.slcState.hasPending)
-    self.assertIsNotNone(result.command)
-    self.assertGreater(result.command.slcCruiseCommand.targetMps, 60.0 / 3.6)
+    self.assertGreater(result.result.ceiling.speed_mps, 60.0 / 3.6)
+    self.assertAlmostEqual(sm['carState'].vCruise, 60.0)
 
   def test_reject_or_timeout_hides_use_and_adoption_request_still_works(self):
     for profile in Profile:
       for response in ('reject', 'timeout'):
         with self.subTest(profile=profile, response=response):
           sm, cp = replay_inputs()
-          sm['slcDashboardObservation'].validUntilMonoTime = START + 20_000_000_000
-          runtime = Runtime(parse({"SpeedLimitController": True, "SLCConfirmation": True,
+          sm['slcDashboardObservation'].validUntilMonoTime = START + acc.CONFIRMATION_NS + 1_000_000_000
+          runtime = Runtime(parse({"SpeedLimitController": True, "SLCConfirmation": 1,
                                    "SLCPriority1": "Dashboard"}), session_id="ui-reject")
           pending = runtime.step(sm, cp, now_ns=START).message
           action = None
-          now_ns = START + 10_000_000_000
+          now_ns = START + acc.CONFIRMATION_NS
           if response == 'reject':
             reject = ui_request(pending, profile=profile, kind=SlcActionKind.REJECT)
             action = publish_request(pending.slcState, reject, START)
@@ -168,7 +167,6 @@ class TestSlcUiRuntime(unittest.TestCase):
           rejected = runtime.step(sm, cp, now_ns=now_ns, request=action)
           self.assertEqual(rejected.result.acceptance.basis, 'driver_reject' if action else 'timeout_reject')
           self.assertFalse(rejected.message.slcState.hasPending)
-          self.assertIsNone(rejected.command)
           state = OnroadState(True, False, 20.0, 60.0, speed_limit_from_message(rejected.message.slcState),
                               longitudinal_active=True, slc_system_long_available=True)
           self.assertEqual(slc_controls(profile, state), ())
@@ -179,8 +177,7 @@ class TestSlcUiRuntime(unittest.TestCase):
           sm.advance(now_ns + 50_000_000)
           restored = runtime.step(sm, cp, now_ns=now_ns + 50_000_000, request=restore)
           self.assertEqual(restored.message.slcState.actionStatus, "adopt")
-          self.assertIsNotNone(restored.command)
-          self.assertAlmostEqual(restored.command.slcCruiseCommand.targetMps, 25.0)
+          self.assertAlmostEqual(restored.result.ceiling.speed_mps, 25.0)
 
   def test_adoption_request_still_works_with_lower_selected_cruise(self):
     sm, cp = replay_inputs()
@@ -194,7 +191,7 @@ class TestSlcUiRuntime(unittest.TestCase):
     sm.advance(START + 50_000_000)
     result = runtime.step(sm, cp, now_ns=START + 50_000_000, request=action)
     self.assertEqual(result.message.slcState.actionStatus, "adopt")
-    self.assertIsNotNone(result.command)
+    self.assertIsNotNone(result.result.ceiling)
 
   def test_projection_does_not_claim_the_removed_use_button(self):
     from openpilot.starpilot.system.starport.projection_onroad import ProjectionOnroad
@@ -218,8 +215,8 @@ class TestSlcUiRuntime(unittest.TestCase):
 
   def test_old_press_cannot_publish_after_new_runtime_presentation_or_staleness(self):
     sm, cp = replay_inputs()
-    runtime = Runtime(parse({"SpeedLimitController": True, "SLCConfirmation": True,
-                             "SLCConfirmationHigher": True, "SLCPriority1": "Dashboard"}), session_id="ui-stale")
+    runtime = Runtime(parse({"SpeedLimitController": True, "SLCConfirmation": 1,
+                             "SLCPriority1": "Dashboard"}), session_id="ui-stale")
     pending = runtime.step(sm, cp, now_ns=START).message
     old_touch = ui_request(pending, profile=Profile.LARGE, kind=SlcActionKind.ACCEPT)
     publisher = Mock()

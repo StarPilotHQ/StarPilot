@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 import os
-import json
 from collections import deque
-from dataclasses import replace
 
 from opendbc.car.structs import car
 from openpilot.common.params import Params
@@ -12,8 +10,9 @@ from openpilot.selfdrive.controls.lib.ldw import LaneDepartureWarning
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner, NATIVE_PLAN_INPUTS
 import openpilot.cereal.messaging as messaging
 from openpilot.cereal.services import SERVICE_LIST
-from openpilot.starpilot.speed_limits import history as slc_history
-from openpilot.starpilot.speed_limits.runtime import Action as SlcAction, CruiseEvent as SlcCruiseEvent, Runtime as SlcRuntime
+from openpilot.starpilot.speed_limits.planner_host import (
+  SLC_ACTIONS, SavedSlcLifecycle, action_from_message, cruise_event_from_message, current_cruise_event, receive_slc_events,
+)
 from openpilot.starpilot.longitudinal.profile_runtime import ProfileHost
 from openpilot.starpilot.longitudinal.lane_change_gap import LaneGapPreferences
 from openpilot.starpilot.longitudinal.experimental_release import ConditionalHandoff
@@ -40,62 +39,8 @@ from openpilot.starpilot.feature_capabilities import longitudinal_supported
 from openpilot.starpilot.conditional_mode.projection import paired_clocks_ns
 from openpilot.starpilot.conditional_mode.ui_action import observation as ui_manual_observation
 from openpilot.starpilot.longitudinal.cruise_ceiling import CurveCeiling
-from openpilot.starpilot.feature_runtime import (enabled as feature_enabled, requested as feature_requested,
-                                               slc_runtime_settings, slc_transport_capable, vision_control_enabled)
+from openpilot.starpilot.feature_runtime import enabled as feature_enabled, requested as feature_requested, slc_transport_capable
 import time
-from openpilot.starpilot.speed_limits.runtime_settings import read_params as read_slc_settings
-
-
-class SavedSlcLifecycle:
-  """Refresh saved admission; offsets and display units preserve driver choices."""
-
-  def __init__(self, params, cp, environment):
-    self.params, self.cp, self.environment = params, cp, dict(environment)
-    self.runtime = None
-    self.configuration = None
-    self.last_refresh_ns = None
-
-  def refresh(self, now_ns: int, *, pending_actions=None, pending_cruise=None):
-    if self.last_refresh_ns is not None and 0 <= now_ns - self.last_refresh_ns < 1_000_000_000:
-      return self.runtime, False
-    self.last_refresh_ns = now_ns
-    # One immutable parsed snapshot owns this refresh. Repeated qualification
-    # used to reopen the same saved keys five times in a due model iteration.
-    saved_slc = read_slc_settings(self.params)
-    admitted = feature_enabled(self.params, self.cp, 'slc', self.environment, saved_slc=saved_slc)
-    settings = slc_runtime_settings(self.params, self.cp, self.environment, saved_slc=saved_slc)
-    vision = admitted and feature_enabled(self.params, self.cp, 'vision', self.environment, saved_slc=saved_slc)
-    configuration = (admitted and not settings.errors, settings, vision,
-                     vision_control_enabled(self.params, self.cp, saved_slc=saved_slc),
-                     feature_enabled(self.params, self.cp, 'vision', {}, saved_slc=saved_slc),
-                     self.params.get_bool('IsMetric'))
-    if configuration == self.configuration:
-      return self.runtime, False
-    previous_runtime = self.runtime
-    if (self.runtime is not None and self.configuration is not None and
-        configuration[:-1] == (self.configuration[0], replace(self.runtime.settings, offsets=settings.offsets,
-                                                               advance_seconds=settings.advance_seconds),
-                               *self.configuration[2:-1])):
-      if settings.offsets != self.runtime.settings.offsets or configuration[5] != self.configuration[5]:
-        self.runtime.update_offsets(settings.offsets, is_metric=configuration[5])
-      if settings.advance_seconds != self.runtime.settings.advance_seconds:
-        self.runtime.update_advance(settings.advance_seconds)
-    else:
-      set_speed_after_ns = self.runtime.set_speed_after_ns if self.runtime is not None else 0
-      if self.runtime is not None:
-        self.runtime.reset()
-      self.runtime = (SlcRuntime(settings, vision_enabled=vision,
-                                 vision_control_qualified=configuration[3],
-                                 vision_display_qualified=configuration[4], is_metric=configuration[5])
-                      if configuration[0] else None)
-      if self.runtime is not None:
-        self.runtime.set_speed_after_ns = set_speed_after_ns
-    self.configuration = configuration
-    if pending_actions is not None:
-      pending_actions.clear()
-    if pending_cruise is not None and (self.runtime is None or self.runtime is not previous_runtime):
-      pending_cruise.clear()
-    return self.runtime, True
 
 
 def profile_for_frame(host: ProfileHost | None, sm, CP, now_ns: int, *, traffic_mode: bool | None = False):
@@ -159,11 +104,13 @@ def traffic_profile_status(mode: bool | None, target, applied, settings) -> tupl
 
 
 def curve_for_frame(host: CurveHost | None, sm, CP, now_ns: int, *, drive_id: int = 0,
-                    event: CurveDriverEvent | None = None, follow_time_s: float | None = None):
+                    event: CurveDriverEvent | None = None, follow_time_s: float | None = None,
+                    cruise_ceiling_mps: float | None = None):
   """A diagnostic runtime result is not planner authority by itself."""
   if host is None:
     return None, None
-  result = host.sample(sm, CP, now_ns, drive_id=drive_id, event=event, follow_time_s=follow_time_s)
+  result = host.sample(sm, CP, now_ns, drive_id=drive_id, event=event, follow_time_s=follow_time_s,
+                       cruise_ceiling_mps=cruise_ceiling_mps)
   if result.ceiling_mps is None:
     return None, result
   model_ns = sm.logMonoTime.get('modelV2', 0)
@@ -175,6 +122,12 @@ def curve_for_frame(host: CurveHost | None, sm, CP, now_ns: int, *, drive_id: in
 def confirm_curve_frame(host: CurveHost | None, planner: LongitudinalPlanner, now_ns: int) -> None:
   if host is not None:
     host.runtime.confirm_applied(now_ns, applied=bool(planner.last_curve_ceiling_applied))
+
+
+def wheel_override_blocked(force_stop: ForceStopRuntime | None, curve_host: CurveHost | None, *, curve_backlog: bool = False) -> bool:
+  # Force Stop can consume RES on the tick it commits, before a forcing plan is published.
+  return ((force_stop is not None and (force_stop.policy.can_commit_next_frame or force_stop.plan.speed_ceiling_mps is not None)) or
+          (curve_host is not None and (curve_backlog or curve_host.runtime.was_controlling)))
 
 
 def conditional_handoff_for_frame(host: ConditionalPlannerHost | None, sm, CP, now_ns: int,
@@ -290,7 +243,8 @@ def update_curve_frame(planner: LongitudinalPlanner, sm, CP, now_ns: int, *, hos
   results = []
   def provider(follow_time_s: float | None):
     ceiling, result = curve_for_frame(host, sm, CP, now_ns, drive_id=drive_id,
-                                      event=event, follow_time_s=follow_time_s)
+                                      event=event, follow_time_s=follow_time_s,
+                                      cruise_ceiling_mps=cruise_ceiling.speed_mps if cruise_ceiling is not None else None)
     results.append(result)
     return ceiling
   planner.update(sm, cruise_ceiling=cruise_ceiling, profile_tuning=profile_tuning,
@@ -320,18 +274,7 @@ def queue_cruise_event(event, slc_events, curve_events, conditional_events=None,
       curve_events.append(CurveDriverEvent(str(cruise.producerSessionId), int(cruise.eventId),
                                           int(cruise.observedMonoTime), kind, str(cruise.button), int(event.logMonoTime)))
   else:
-    slc_events.append(SlcCruiseEvent(int(cruise.eventId), int(cruise.observedMonoTime),
-                                   float(cruise.previousMps), float(cruise.selectedMps), str(cruise.button),
-                                   str(cruise.producerSessionId), int(event.logMonoTime), kind,
-                                   str(cruise.sessionId), int(cruise.decisionId),
-                                   int(cruise.presentationId), int(cruise.commandId)))
-
-
-def current_cruise_event(events, now_ns: int):
-  max_event_age_ns = int(2e9 / SERVICE_LIST['modelV2'].frequency)
-  while events and now_ns - events[0].observed_ns > max_event_age_ns:
-    events.popleft()
-  return events.popleft() if events and events[0].observed_ns <= now_ns else None
+    slc_events.append(cruise_event_from_message(event))
 
 
 def queue_ui_action(event, slc_actions, conditional_actions, mode_actions=None) -> None:
@@ -343,9 +286,8 @@ def queue_ui_action(event, slc_actions, conditional_actions, mode_actions=None) 
     mode_actions.append(event)
   elif kind == 'conditionalModeCycle':
     conditional_actions.append(event)
-  elif kind in ('accept', 'reject', 'adopt'):
-    slc_actions.append((int(event.logMonoTime), SlcAction(str(request.sessionId), int(request.sequenceId),
-                                                       int(request.decisionId), int(request.presentationId), kind)))
+  elif kind in SLC_ACTIONS:
+    slc_actions.append(action_from_message(event))
 
 
 def current_ui_manual_event(events, now_ns: int):
@@ -417,7 +359,7 @@ def starpilot_main():
   pending_switchback = deque(maxlen=8)
   mode_settings = ConditionalSettingsOwner(params) if mode_owner is not None else None
   slc_lifecycle = SavedSlcLifecycle(params, CP, os.environ)
-  slc_runtime, _ = slc_lifecycle.refresh(0)
+  slc_lifecycle.refresh(0)
   slc_action_sock = (messaging.sub_sock("slcAction", conflate=False)
                      if slc_available or conditional_host is not None or mode_owner is not None else None)
   slc_cruise_sock = messaging.sub_sock("slcCruiseEvent", conflate=False)
@@ -431,18 +373,14 @@ def starpilot_main():
   publish_services = ['longitudinalPlan', 'starpilotLongitudinalPlan', 'driverAssistance']
   if slc_available or curve_host is not None or conditional_host is not None or traffic_owner is not None or mode_owner is not None:
     publish_services.append('slcState')
-  if slc_available:
-    publish_services.append('slcCruiseCommand')
   pm = messaging.PubMaster(publish_services)
   native_plan_checks = list(NATIVE_PLAN_INPUTS)
   subscribed_services = list(NATIVE_PLAN_INPUTS)
   subscribed_services.append('deviceState')
   if conditional_host is not None:
     subscribed_services.append('starpilotRadarState')
-  optional_slc = ['slcDashboardObservation', 'slcVisionObservation', 'mapdOut', 'starpilotCarState'] if slc_available else []
-  if slc_available and feature_enabled(params, CP, 'aol', os.environ):
-    optional_slc.append('aolAxisState')
-  if force_stop_owner is not None and 'starpilotCarState' not in optional_slc:
+  optional_slc = slc_lifecycle.source_services() if slc_available else []
+  if force_stop_owner is not None:
     optional_slc.append('starpilotCarState')
   if force_stop_owner is not None and 'slcVisionObservation' not in optional_slc:
     optional_slc.append('slcVisionObservation')
@@ -461,16 +399,14 @@ def starpilot_main():
         # Due saved-setting verification can block on Params. Complete it
         # before acquiring the model and fast-source batch, not after that
         # batch has already begun aging toward the CEM freshness deadline.
-        slc_runtime, _ = slc_lifecycle.refresh(time.monotonic_ns(), pending_actions=pending_slc_actions,
-                                             pending_cruise=pending_slc_cruise)
+        slc_lifecycle.refresh(time.monotonic_ns(), pending_actions=pending_slc_actions, pending_cruise=pending_slc_cruise)
       sm.update()
       if sm.updated['modelV2']:
         # Only explicit replay uses the recorded model timeline. In a live host,
         # modelV2 may lag newer inputs in the same SubMaster update.
         now_ns = int(sm.logMonoTime['modelV2']) if 'REPLAY' in os.environ else time.monotonic_ns()
         if 'REPLAY' in os.environ:
-          slc_runtime, _ = slc_lifecycle.refresh(now_ns, pending_actions=pending_slc_actions,
-                                                 pending_cruise=pending_slc_cruise)
+          slc_lifecycle.refresh(now_ns, pending_actions=pending_slc_actions, pending_cruise=pending_slc_cruise)
         current_start_ns = (int(sm['deviceState'].startedMonoTime)
                             if 'deviceState' in subscribed_services and sm.valid['deviceState'] and
                             sm.alive['deviceState'] and 0 < sm.logMonoTime['deviceState'] <= now_ns else 0)
@@ -481,10 +417,7 @@ def starpilot_main():
         planner_status = None
         drive_changed = current_start_ns > 0 and drive_start_ns > 0 and current_start_ns != drive_start_ns
         if slc_cruise_sock is not None:
-          for _ in range(8):
-            event = messaging.recv_one_or_none(slc_cruise_sock)
-            if event is None:
-              break
+          for event in receive_slc_events(slc_cruise_sock):
             if str(event.slcCruiseEvent.kind) == 'wheelAction' and event.valid:
               pending_wheel.append(event)
               continue
@@ -507,10 +440,7 @@ def starpilot_main():
           if traffic_owner is not None:
             traffic_owner.reset()
         if slc_action_sock is not None:
-          for _ in range(8):
-            event = messaging.recv_one_or_none(slc_action_sock)
-            if event is None:
-              break
+          for event in receive_slc_events(slc_action_sock):
             queue_ui_action(event, pending_slc_actions, pending_conditional_ui, pending_modes)
         waiting_wheel = deque(maxlen=32)
         while pending_wheel:
@@ -522,25 +452,13 @@ def starpilot_main():
           else:
             wheel_coast.receive(event, params, CP, sm, now_ns=now_ns)
         pending_wheel = waiting_wheel
-        if slc_runtime is not None:
-          if drive_changed or slc_runtime.state.reset_required or slc_runtime.ledger.reset_required:
-            slc_runtime.reset()
-            pending_slc_actions.clear()
-            pending_slc_cruise.clear()
-          max_event_age_ns = int(2e9 / SERVICE_LIST['modelV2'].frequency)
-          while pending_slc_actions and now_ns - pending_slc_actions[0][0] > max_event_age_ns:
-            pending_slc_actions.popleft()
-          cruise_event = current_cruise_event(pending_slc_cruise, now_ns)
-          request = (pending_slc_actions.popleft()[1] if cruise_event is None and pending_slc_actions and
-                     pending_slc_actions[0][0] <= now_ns else None)
-          output = slc_runtime.step(sm, CP, now_ns=now_ns, request=request, cruise_event=cruise_event)
-          planner_status = output.message
-          if output.command is not None:
-            pm.send('slcCruiseCommand', output.command)
-          history_write = output.result.acceptance.history_write if output.result.acceptance is not None else None
-          # A camera episode has no road-location identity for a later drive.
-          if history_write is not None and history_write.candidate.source != 'vision':
-            params.put("SLCQualifiedHistory", json.loads(slc_history.encode(history_write, time.time_ns())))
+        # Curve observes the press before SLC sees the release. A queued Curve press can still own the tap.
+        curve_event = current_cruise_event(pending_curve_events, now_ns)
+        slc_output = slc_lifecycle.step(sm, now_ns, pending_slc_actions, pending_slc_cruise, drive_changed=drive_changed,
+          wheel_override_blocked=wheel_override_blocked(force_stop_owner, curve_host, curve_backlog=bool(pending_curve_events)))
+        cruise_ceiling = slc_output.result.ceiling if slc_output is not None else None
+        if slc_output is not None:
+          planner_status = slc_output.message
         needs_clock = conditional_host is not None or traffic_owner is not None or force_stop_owner is not None or mode_owner is not None
         clock_pair = paired_clocks_ns() if needs_clock and 'REPLAY' not in os.environ else None
         controller_traffic_toggle = bool(wheel_coast.traffic_toggles % 2)
@@ -600,7 +518,6 @@ def starpilot_main():
         lead_approach_key = lead_approach_for_frame(approach_preferences, sm, CP, now_ns)
         if curve_preferences is not None and curve_host is not None:
           curve_preferences.refresh(curve_host, now_ns)
-        curve_event = current_cruise_event(pending_curve_events, now_ns)
         conditional_handoff = (conditional_handoff_for_frame(conditional_host, sm, CP, clock_pair[0], current_start_ns)
                                if clock_pair is not None else None)
         wheel_coast.conditional_stop = bool(conditional_handoff is not None and conditional_host is not None and
@@ -617,6 +534,7 @@ def starpilot_main():
                                               drive_id=current_start_ns, follow_seconds=follow_seconds,
                                               traffic_mode=traffic_mode, takeoff_enabled=faster_lead_takeoff)
         curve_result = update_curve_frame(longitudinal_planner, sm, CP, now_ns, host=curve_host,
+                                          cruise_ceiling=cruise_ceiling,
                                           profile_tuning=profile_tuning,
                                           traffic_mode=traffic_mode, lane_change_policy=lane_change_policy,
                                           global_braking_response=global_braking_response, selected_profiles=selected_profiles,
@@ -643,6 +561,7 @@ def starpilot_main():
             proposal, snapshot = conditional_host.sample(
               sm, CP, longitudinal_planner, now_mono_ns=conditional_now_ns, now_boot_ns=conditional_boot_ns,
               sample_skew_ns=conditional_skew_ns, drive_id=current_start_ns,
+              cruise_ceiling_mps=cruise_ceiling.speed_mps if cruise_ceiling is not None else None,
               owner_context=ConditionalOwnerContext(
                 traffic_mode=traffic_observation(traffic_verdict, model_ns=int(sm.logMonoTime['modelV2']),
                                                  owner_present=traffic_owner is not None),
@@ -677,6 +596,8 @@ def starpilot_main():
             mode_owner.sample('switchback', sm, CP, now_ns=now_ns), session=mode_session,
             sequence=mode_sequence, now_ns=now_ns, source_car_control_ns=int(sm.logMonoTime['carControl']))
         if planner_status is not None:
+          if planner_status.slcState.wheelOverrideSince and wheel_override_blocked(force_stop_owner, curve_host):
+            planner_status.slcState.wheelOverrideSince = 0
           pm.send('slcState', planner_status)
         if current_start_ns > 0:
           drive_start_ns = current_start_ns

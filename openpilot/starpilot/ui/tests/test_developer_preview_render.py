@@ -92,7 +92,6 @@ class DeveloperPreviewRenderTests(unittest.TestCase):
         view.compact_hud = Mock()
         view.compact_sidebar = Mock()
         view.torque_bar = Mock()
-        view._fade = Mock()
         view._fade_path = Path('/unused')
         with patch('openpilot.starpilot.ui.onroad.clip.begin_scissor_mode'), \
              patch('openpilot.starpilot.ui.onroad.clip.end_scissor_mode'), \
@@ -104,7 +103,7 @@ class DeveloperPreviewRenderTests(unittest.TestCase):
              patch('openpilot.starpilot.ui.onroad.rl.draw_rectangle_rounded'), \
              patch('openpilot.starpilot.ui.onroad.rl.draw_rectangle_rounded_lines_ex'), \
              patch('openpilot.starpilot.ui.onroad.render_corner_hint'), \
-             patch.object(view, '_prepare_compact_fade'), patch.object(view, '_slc_actions'):
+             patch.object(view, '_slc_actions'):
           view.render(state(full_alert=True))
         drawn = [call.args[0] for call in fonts.draw.call_args_list]
         self.assertTrue(any('SYNTHETIC REPLAY PREVIEW' in text for text in drawn))

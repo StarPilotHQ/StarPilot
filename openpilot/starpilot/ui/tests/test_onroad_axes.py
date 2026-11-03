@@ -32,7 +32,7 @@ class TestOnroadAxes(unittest.TestCase):
   def setUp(self):
     for name in ('draw_rectangle_rounded', 'draw_rectangle_rounded_lines_ex', 'draw_circle', 'draw_ring'):
       self.enterContext(patch('openpilot.starpilot.ui.speed_limit_widget.rl.' + name, new_callable=Mock))
-    for name in ('circle', 'arrow', 'outline', 'confirmation'):
+    for name in ('circle', 'arrow', 'outline', 'button'):
       self.enterContext(patch('openpilot.starpilot.ui.speed_limit_shapes.SpeedLimitShapes.' + name, new_callable=Mock))
     self.ui = ui_fake()
     self.ui.CP = NS(carFingerprint='', openpilotLongitudinalControl=True, pcmCruise=False)
@@ -316,12 +316,11 @@ class TestOnroadAxes(unittest.TestCase):
           view.steering_wheel = Mock()
           view.compact_hud = Mock()
           view.compact_sidebar = Mock()
-          view._fade = None
           with patch.object(onroad.clip, "begin_scissor_mode"), patch.object(onroad.clip, "end_scissor_mode"), \
                patch.object(onroad.rl, "draw_rectangle_rec"), patch.object(onroad.rl, "draw_rectangle_gradient_v"), \
                patch.object(onroad.rl, "draw_rectangle_lines_ex"), patch.object(onroad.rl, "draw_rectangle"), \
                patch.object(onroad.rl, "draw_texture_ex"), patch.object(onroad.rl, "draw_rectangle_rounded_lines_ex") as border, \
-               patch.object(onroad, "render_corner_hint"), patch.object(view, "_prepare_compact_fade"), \
+               patch.object(onroad, "render_corner_hint"), \
                patch.object(view, "_slc_actions"):
             view.render(state)
           expected = compact_color if profile == Profile.COMPACT else rgba(axis_status_color(state))
