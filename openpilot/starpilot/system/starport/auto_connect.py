@@ -36,6 +36,9 @@ class AutoConnectPolicy:
     if running:
       self.suppressed = True
 
+  def hold(self) -> None:
+    self.suppressed = True
+
   def start_refused(self, now: float) -> None:
     self._not_before = now + START_REFUSED_WAIT
 

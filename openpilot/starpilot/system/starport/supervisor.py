@@ -1064,6 +1064,8 @@ class Supervisor:
       return None
     if operation == 'forget' and self.config['receiver_address'].upper() == address.upper():
       return self._forget_selected_car(owner, address, session)
+    if operation == 'disconnect' and self.config['receiver_address'].upper() == address.upper():
+      return self._disconnect_selected_car(owner, address, session)
     # select_receiver takes the supervisor lock before releasing an owner lease.
     # Keep that same order through connection, save and admission pruning so an
     # old adapter's successful action cannot save its car under a new adapter.
@@ -1096,6 +1098,26 @@ class Supervisor:
         identity_store.save_config(self.config)
       return result
 
+  def _disconnect_selected_car(self, owner, address: str, session: tuple):
+    """Disconnect the chosen car and keep auto-connect from reconnecting it until the next drive or a manual Start."""
+    from openpilot.starpilot.bluetooth.owner import BluetoothRejected
+    lease = owner.phone_lease
+    if not owner.session_valid(session):
+      raise BluetoothRejected('Galaxy session expired', code='session_expired')
+    if lease is not None and not lease.released and lease.session is not None:
+      raise BluetoothRejected('Finish Android Auto pairing first', code='busy')
+    self.auto.hold()
+    self.stop()
+    if self._session_alive():
+      raise BluetoothRejected('Android Auto is still stopping', code='busy')
+    lease = owner.phone_lease
+    if lease is None or lease.released:
+      return None
+    device = lease.phone.device(address)
+    if device is not None and device['connected']:
+      lease.phone._call(device['path'], 'org.bluez.Device1', 'Disconnect', timeout=12.0)
+    return owner.snapshot(session=session)
+
   def _forget_selected_car(self, owner, address: str, session: tuple):
     """Forget the chosen car even while auto-connect is retrying it: stop the attempt, then delete the pairing."""
     from openpilot.starpilot.bluetooth.owner import BluetoothRejected
@@ -1108,9 +1130,27 @@ class Supervisor:
     self.stop()
     if self._session_alive():
       raise BluetoothRejected('Android Auto is still stopping', code='busy')
-    result = owner.request('forget', address=address)
-    self.forget_receiver(address)
+    try:
+      result = owner.request('forget', address=address)
+    except Exception as error:
+      self.log("forget_car_error", error=repr(error)[:300])
+      result = self._forgotten_snapshot(owner, address, session, error)
+    try:
+      self.forget_receiver(address)
+    except Exception as error:
+      self.log("forget_receiver_error", error=repr(error)[:300])
     return result
+
+  def _forgotten_snapshot(self, owner, address: str, session: tuple, error: Exception):
+    """The pairing may already be gone when a later step fails: report success then, else re-raise."""
+    from openpilot.starpilot.bluetooth.owner import BluetoothRejected
+    try:
+      owner._client()._device_path(address)
+    except BluetoothRejected:
+      return owner.snapshot(session=session)
+    except Exception:
+      pass
+    raise error
 
   def _hfp_connected(self, address: str) -> None:
     if address.upper() in (self.config["receiver_address"].upper(), self.config.get("companion_address", "").upper()):

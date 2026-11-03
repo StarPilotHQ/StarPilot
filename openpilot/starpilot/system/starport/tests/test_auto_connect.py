@@ -51,6 +51,13 @@ def test_policy_leaves_sessions_that_never_saw_the_car():
     assert decide(policy, now, running=True) is None
 
 
+def test_policy_hold_blocks_start_while_idle_until_next_drive():
+  policy = AutoConnectPolicy()
+  policy.hold()
+  assert decide(policy, 0, car_link=True) is None
+  assert decide(policy, 1, onroad=True, car_link=True) == "start"
+
+
 def test_policy_manual_stop_holds_until_next_drive():
   policy = AutoConnectPolicy()
   assert decide(policy, 0, onroad=True) == "start"
