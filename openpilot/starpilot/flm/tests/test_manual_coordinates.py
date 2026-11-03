@@ -265,3 +265,33 @@ def test_next_startup_loads_new_saved_values_without_mutating_running_profile(tm
   assert status == 'configured'
   assert dict(original.profile.values)['center_taper_max'] == .01
   assert dict(following.profile.values)['center_taper_max'] == .02
+
+
+@pytest.mark.parametrize('saved,expected', [(False, True), (True, False)])
+def test_actual_controls_startup_holds_native_learning_only_for_manual_tune(tmp_path, cp, monkeypatch, saved, expected):
+  from openpilot.selfdrive.controls import controlsd
+  params = PrivateParams(tmp_path)
+  if saved:
+    save(params, cp, manual(cp, center_taper_max=.01))
+  (tmp_path / 'd' / 'ForceAutoTuneOff').write_bytes(b'0')
+  monkeypatch.setattr(controlsd, 'learning_allowed', lambda *args, **kwargs: True)
+  owner = object.__new__(controlsd.Controls)
+  owner.CP, owner.params = cp, params
+  owner.lateral_controller_selection = default_selection(cp)
+  effects, status = owner._configure_manual_tune()
+  assert owner.torque_learning_allowed is expected
+  assert (effects is not None) is saved
+  assert status == ('configured' if saved else 'not_configured')
+  assert (tmp_path / 'd' / 'ForceAutoTuneOff').read_bytes() == b'0'
+
+
+def test_actual_controls_startup_does_not_treat_unreadable_as_automatic_permission(tmp_path, cp, monkeypatch):
+  from openpilot.selfdrive.controls import controlsd
+  params = PrivateParams(tmp_path)
+  (tmp_path / 'd' / DOCUMENT_KEY).mkdir()
+  monkeypatch.setattr(controlsd, 'learning_allowed', lambda *args, **kwargs: True)
+  owner = object.__new__(controlsd.Controls)
+  owner.CP, owner.params = cp, params
+  owner.lateral_controller_selection = default_selection(cp)
+  assert owner._configure_manual_tune() == (None, 'unreadable')
+  assert owner.torque_learning_allowed is False
