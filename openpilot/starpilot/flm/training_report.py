@@ -345,6 +345,8 @@ class TrainingReporter:
     if live is not None:
       current.update(tracking_objects(live.report(now_ns), fresh=True))
     tracking = current.get('tracking')
+    if type(tracking) is not dict:
+      tracking = None
     history_status, history_reason = (tracking['status'], tracking['reason']) if tracking is not None else (status, reason)
     state = (history_status, history_reason, application['applied'], None if tracking is None else tracking['trialId'],
              None if fit is None else (fit['status'], fit['reason']))
