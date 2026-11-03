@@ -743,6 +743,13 @@ def test_offer_starts_no_worker_and_later_survives_sleep_until_new_open(tool, ch
     fresh.hide_event()
 
 
+def test_display_repair_starts_without_an_update_offer(tool):
+  tool.setup.inspect.return_value = {'action': 'update', 'repair': True, 'target': {}}
+  tool.view.show_event()
+  assert tool.view._offer is None
+  assert tool.sessions[0].operation == 'update'
+
+
 @pytest.mark.parametrize('choice', ['update', 'later'])
 def test_queued_double_tap_consumes_offer_once_and_close_keeps_its_owner(tool, choice):
   tool.setup.inspect.return_value = {'action': 'update', 'target': {'version': '153.7.0esr'}, 'current': {'version': '153.6.0esr'}}

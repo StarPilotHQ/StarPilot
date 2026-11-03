@@ -28,6 +28,40 @@ def test_corrupt_cached_package_is_rejected(tmp_path):
     setup.verify(path, package)
 
 
+def test_shipped_offline_payload_matches_the_pinned_bundle():
+  offline = Path(setup.__file__).with_name('offline')
+  expected = set()
+  for package in setup.approved()['packages']:
+    digest = package.get('sha512', package.get('sha256'))
+    path = offline / f'{digest}-{package["name"]}'
+    setup.verify(path, package)
+    expected.add(path)
+  assert set(offline.iterdir()) == expected
+
+
+@pytest.mark.parametrize('corrupt', [False, True])
+def test_bundled_package_is_verified_in_the_private_cache_without_network(tmp_path, monkeypatch, corrupt):
+  data = b'good'
+  package = {'name': 'test.deb', 'url': 'https://example.invalid/test.deb',
+             'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+  monkeypatch.setattr(setup, '__file__', str(tmp_path / 'setup.py'))
+  offline = tmp_path / 'offline'
+  cache = tmp_path / 'cache'
+  offline.mkdir()
+  cache.mkdir()
+  name = f'{package["sha256"]}-{package["name"]}'
+  (offline / name).write_bytes(b'evil' if corrupt else data)
+  fetch = Mock(side_effect=AssertionError('network during offline installation'))
+  monkeypatch.setattr(setup.urllib.request, 'urlopen', fetch)
+  if corrupt:
+    with pytest.raises(ValueError, match='checksum'):
+      setup.download(package, cache)
+    assert not list(cache.iterdir())
+  else:
+    assert setup.download(package, cache).read_bytes() == data
+  fetch.assert_not_called()
+
+
 def test_download_reports_progress_and_reuses_verified_package(tmp_path, monkeypatch):
   data = b'verified browser'
   package = {'name': 'firefox-test.tar.xz', 'url': 'https://example.invalid/browser',
@@ -77,6 +111,21 @@ def test_preparation_refuses_unprivileged_host_without_writing(tmp_path, monkeyp
   with pytest.raises(RuntimeError, match='ARM64 AGNOS'):
     setup.prepare()
   assert not (tmp_path / 'browser').exists()
+
+
+@pytest.mark.parametrize('version', ['19.8.1', '20.2-starpilot.1', '20.2.1', '20.2.2'])
+def test_private_display_bundle_has_an_explicit_agnos_allowlist(tmp_path, monkeypatch, version):
+  target = setup.approved()
+  version_file = tmp_path / 'VERSION'
+  version_file.write_text(version)
+  monkeypatch.setattr(setup.os, 'geteuid', lambda: 0)
+  monkeypatch.setattr(setup.platform, 'machine', lambda: 'aarch64')
+  monkeypatch.setattr(setup, 'Path', lambda path: version_file if path == '/VERSION' else Path(path))
+  if version == '20.2.2':
+    with pytest.raises(RuntimeError, match='ARM64 AGNOS'):
+      setup.check_host(target)
+  else:
+    setup.check_host(target)
 
 
 @pytest.mark.parametrize('existing', ['missing', 'directory', 'symlink', 'unsafe'])
@@ -174,7 +223,7 @@ setup.quiescent = lambda: None
 assert os.geteuid() == 0
 assert int(next(line.split(':')[1] for line in Path('/proc/self/status').read_text().splitlines() if line.startswith('CapEff:')), 16) == 1
 previous = setup.approved()
-target = dict(previous, version='153.7.0esr', bundle_revision=1)
+target = dict(previous, version='153.7.0esr', bundle_revision=previous['bundle_revision'] + 1)
 identity = 'a' * 32
 tx = root / 'updates' / identity
 (root / 'updates').mkdir(mode=0o755)

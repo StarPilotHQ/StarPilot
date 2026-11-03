@@ -47,6 +47,8 @@ openpilot/system/loggerd/encoderd -text
 openpilot/system/loggerd/loggerd -text
 openpilot/starpilot/galaxy/bin/frpc_linux_arm64 -text
 openpilot/starpilot/maps/provider/mapd -text
+openpilot/tools/arabesque_firefox/offline/*.deb -text
+openpilot/tools/arabesque_firefox/offline/*.tar.xz -text
 openpilot/selfdrive/test/process_replay/refs/starpilot/*.zst -text
 
 # Published Panda object files are AArch64 ELF, not text.

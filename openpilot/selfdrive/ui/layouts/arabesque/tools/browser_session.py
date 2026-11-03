@@ -153,6 +153,8 @@ def launch_command(unit, address, width, height, fps, capture, purpose='browse',
   ]
   if maintenance:
     properties.append('RuntimeMaxSec=900')
+  elif (runtime / 'isolation/xkb').is_dir():
+    properties.append(f'ExtensionDirectories={runtime}/isolation/xkb')
   python = str(Path(sys.executable).absolute())
   # Use the real interpreter; a venv symlink may point through the masked /home tree.
   python = str(Path(python).resolve())
@@ -219,10 +221,14 @@ class BrowserSession:
       if ROOT.is_symlink() or RUNTIME.is_symlink():
         raise RuntimeError('Firefox runtime path must not be a symlink')
       if self._operation in ('open', 'browse'):
-        info = load_setup().inspect()
-        if self._operation == 'browse' and info['action'] in ('install', 'recover'):
+        setup = load_setup()
+        info = setup.inspect()
+        action, repair = info['action'], info.get('repair', False)
+        if self._operation == 'browse' and (action in ('install', 'recover') or repair):
           raise RuntimeError('Open Firefox in Arabesque to finish setup or recovery')
-        self._operation = info['action'] if info['action'] in ('install', 'recover') else 'browse'
+        self._operation = action if action in ('install', 'recover') or repair else 'browse'
+        if repair:
+          self._target = setup.bundle_id(info['target'])
       self._preparing = self._operation in ('install', 'update', 'recover', 'restore')
       maintenance = self._operation in ('copy', 'cleanup', 'restore-copy')
       paths = (ROOT, RUNTIME, STATE, RUNTIME / 'firefox/firefox')
@@ -339,6 +345,12 @@ class BrowserSession:
           message, descriptors = receive(self._socket, None if self._preparing else 0)
         except BlockingIOError:
           break
+        except ConnectionResetError as reset:
+          # A peer closing with an unread lease can signal a reset before its queued final response.
+          try:
+            message, descriptors = receive(self._socket, None if self._preparing else 0)
+          except (BlockingIOError, EOFError):
+            raise reset from None
         if self._preparing and message['type'] == 'job':
           try:
             if (set(message) != {'type', 'job', 'transaction', 'garbage'} or message['job'] not in ('copy', 'qualify', 'cleanup', 'restore-copy')
@@ -368,8 +380,9 @@ class BrowserSession:
         elif self._preparing and message == {'type': 'prepared'}:
           if self._job is not None:
             raise RuntimeError('Firefox maintenance completed before its sandbox job stopped')
+          operation = 'open' if self._operation == 'recover' else 'browse'
           self.close()
-          self._operation = 'browse'
+          self._operation = operation
           self._next_start = True
           self.status = 'Starting Firefox…'
           return
@@ -952,12 +965,17 @@ def worker_main():
     cookie = os.urandom(16).hex()
     # PrivateTmp makes this fixed display name private to this one transient service.
     display = ':77'
-    subprocess.run(['/usr/bin/xauth', '-f', str(auth), 'add', display, '.', cookie], env=env, check=True, timeout=2,
+    private_x = RUNTIME / 'display/usr'
+    bundled = private_x.is_dir()
+    x_bin = private_x / 'bin' if bundled else Path('/usr/bin')
+    x_env = dict(env, LD_LIBRARY_PATH=str(private_x / 'lib/aarch64-linux-gnu')) if bundled else env
+    xkb = ['-xkbdir', str(private_x / 'share/X11/xkb')] if bundled else []
+    subprocess.run([str(x_bin / 'xauth'), '-f', str(auth), 'add', display, '.', cookie], env=x_env, check=True, timeout=2,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     env.update(DISPLAY=display, XAUTHORITY=str(auth))
     os.environ['XAUTHORITY'] = str(auth)
-    xvfb = subprocess.Popen(['/usr/bin/Xvfb', display, '-screen', '0', f'{width}x{height}x24', '-nolisten', 'tcp',
-                             '-nolisten', 'local', '-auth', str(auth), '-noreset', '-extension', 'GLX'], env=env,
+    xvfb = subprocess.Popen([str(x_bin / 'Xvfb'), display, '-screen', '0', f'{width}x{height}x24', '-nolisten', 'tcp',
+                             '-nolisten', 'local', '-auth', str(auth), '-noreset', '-extension', 'GLX', *xkb], env=x_env,
                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     # -nolisten local disables the shared abstract socket; the filesystem socket stays in PrivateTmp.
     for _ in range(100):

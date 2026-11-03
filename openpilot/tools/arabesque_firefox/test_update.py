@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import socket
 from types import SimpleNamespace as NS
 from unittest.mock import Mock
 
@@ -37,6 +38,8 @@ def installed(tmp_path, monkeypatch):
   root = tmp_path / 'browser'
   root.mkdir(mode=0o755)
   current = setup.approved()
+  current.update(bundle_revision=0, packages=[
+    package for package in current['packages'] if not package['name'].startswith('display-')])
   target = deepcopy(current)
   target.update(version='153.7.0esr', bundle_revision=1)
   bundle(root / 'runtime', current)
@@ -55,6 +58,7 @@ def installed(tmp_path, monkeypatch):
   monkeypatch.setattr(runtime, 'STATE', root / 'state')
   monkeypatch.setattr(setup, 'approved', lambda: deepcopy(target))
   monkeypatch.setattr(setup, 'check_host', Mock())
+  monkeypatch.setattr(setup, 'host_display', lambda: True)
   monkeypatch.setattr(setup, 'quiescent', Mock())
   monkeypatch.setattr(setup, 'build', bundle_builder := Mock(side_effect=lambda value, path: bundle(path, value)))
   monkeypatch.setattr(setup.shutil, 'disk_usage', lambda _: NS(free=128 * 1024**3))
@@ -376,6 +380,49 @@ def test_local_detection_legacy_current_component_update_and_no_downgrade(instal
   installed.target['packages'][0]['size'] += 1
   with pytest.raises(RuntimeError, match='revision'):
     setup.inspect()
+
+
+def test_same_engine_display_repair_is_automatic_and_preserves_profile(installed, monkeypatch):
+  monkeypatch.setattr(setup, 'host_display', lambda: False)
+  assert not setup.inspect()['repair']
+  installed.target['packages'].append(dict(installed.current['packages'][0], name=setup.DISPLAY_PACKAGE))
+  assert not setup.inspect()['repair']
+  installed.target['version'] = installed.current['version']
+  assert setup.inspect()['repair']
+  update(installed)
+  assert (installed.root / 'state/profile/prefs.js').read_text() == 'before update'
+  assert not setup.inspect()['restorable']
+  with pytest.raises(RuntimeError, match='requires Xvfb and xauth'):
+    setup.maintain('restore', '', installed.job)
+
+
+def test_reset_during_receive_preserves_queued_worker_error(monkeypatch):
+  monkeypatch.setattr(runtime.time, 'monotonic', lambda: 1)
+  owner, worker = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+  with owner, worker:
+    session = runtime.BrowserSession.__new__(runtime.BrowserSession)
+    session._next_start, session._preparing, session.ready = False, False, False
+    session._operation, session._unit, session._job = 'browse', 'test', None
+    session._started = session._heartbeat = 1
+    session._socket, session.close = owner, Mock()
+    runtime.packet(owner, {'type': 'lease'})
+    runtime.packet(worker, {'type': 'error', 'message': 'Private Xvfb failed to start'})
+    worker.close()
+    session.poll()
+    assert session.error == 'Private Xvfb failed to start'
+    session.close.assert_called_once()
+
+
+def test_xkb_extension_is_scoped_to_candidate_or_installed_worker(tmp_path, monkeypatch):
+  monkeypatch.setattr(runtime, 'ROOT', tmp_path)
+  monkeypatch.setattr(runtime, 'RUNTIME', tmp_path / 'runtime')
+  identity = 'a' * 32
+  extension = tmp_path / 'updates' / identity / 'candidate/isolation/xkb'
+  extension.mkdir(parents=True)
+  command = runtime.launch_command('test', 'test', 320, 240, 10, 'auto', 'qualify', identity)
+  assert f'--property=ExtensionDirectories={extension}' in command
+  command = runtime.launch_command('test', 'test', 320, 240, 10, 'auto')
+  assert not any(value.startswith('--property=ExtensionDirectories=') for value in command)
 
 
 def test_target_is_frozen_and_quiescence_is_checked_before_activation(installed):

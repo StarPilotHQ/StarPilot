@@ -6,7 +6,7 @@ A fully local Firefox browser for the large StarPilot UI on comma 3/3X. Firefox 
 
 | Property | Implementation |
 | --- | --- |
-| Target platform | ARM64 AGNOS `19.8.1`; physical comma 3 tested; comma 3X qualification remains open |
+| Target platform | ARM64 AGNOS `19.8.1`, `20.2-starpilot.1`, `20.2.1`; physical-device results below cover `19.8.1` |
 | Pinned browser | Official Mozilla Firefox ESR `153.6.0esr`; exact artifacts in [runtime.json](runtime.json) |
 | Browser execution | Firefox and Xvfb run on the comma itself |
 | Display | Private Xvfb framebuffer → XCB capture → shared memory → Raylib texture |
@@ -38,11 +38,11 @@ A fully local Firefox browser for the large StarPilot UI on comma 3/3X. Firefox 
 ## Using Firefox
 
 1. While parked and off-road, open **Settings → Developer → Arabesque → Firefox**.
-2. On first use, allow the browser download and preparation to finish. The pane displays download percentages and preparation progress. Internet access and at least **6 GiB free on `/data`** are required for preparation.
+2. On first use, allow preparation to finish. The pane displays progress. Device releases include the packages for offline setup. Preparation requires at least **6 GiB free on `/data`**.
 3. Handle Firefox's normal welcome and terms/privacy prompt, then browse using its own interface.
 4. Use **Desktop** to close Firefox and return to the Arabesque dock. Reopening restores the saved profile and requests session restoration.
 
-The first-use download runs only after opening the tool. Closing the tool, sleeping the display, covering Arabesque with another active widget, losing off-road permission or exiting the UI stops the active session, including preparation. Verified package downloads are retained for a later attempt; an interrupted archive must download again. Preparation does not resume in the background.
+Preparation runs only after opening the tool. It reuses the verified cache, then checks the bundled archives, then downloads packages missing from both. Closing the tool, sleeping the display, covering Arabesque with another active widget, losing off-road permission or exiting the UI stops the active session, including preparation. Verified archives are retained for a later attempt.
 
 | Control | Behavior |
 | --- | --- |
@@ -164,7 +164,7 @@ The browser's two frame buffers are not allocated during preparation. After a su
 3. **Update Firefox** stages the approved files, copies and checks browser data, verifies local rendering, activates the application and opens the updated browser with the real profile.
 4. Subsequent opens launch the updated installation. A failed candidate retains the installed browser; **Retry** reconciles the interrupted attempt before browsing.
 
-There is no Mozilla release-feed request, scheduled version check, background updater or automatic download while the tool is closed. Checking for an offer reads the local approved manifest, installed receipt and, if present, a small journal. It does not hash the installed tree or scan the profile. Installation downloads occur only during automatic first setup or after choosing Update.
+Checking for an offer reads the local approved manifest, installed receipt and, if present, a small journal. First setup and a display repair start automatically when Firefox opens off-road. The repair is limited to a same-engine bundle that adds the private display packages when the installed bundle depends on missing AGNOS tools. Other updates require choosing Update.
 
 `bundle_revision` is a monotonically increasing integer for the **whole approved bundle**, including private libraries and policy changes. `bundle_format` identifies the supported receipt format. The initial updater release uses revision `0`, so an existing valid receipt without these fields normalizes to the same bundle and needs no reinstall. Future bundle changes must increment the revision; changing content at the same revision is a release error. Firefox versions are compared numerically and an older engine is never silently installed over a newer one. A library/policy-only update is labeled **Browser component update available**.
 
@@ -437,7 +437,7 @@ The manifest is the authority for versions, filenames, byte counts and hashes. I
 | `libepoxy0` | Graphics-library dispatch dependency; does not enable browser hardware acceleration |
 | `libxcb-damage0`, `libxcb-xtest0` | Native damage notifications and input injection |
 
-Existing Xvfb, xauth, Python, systemd, setpriv, timeout, `dpkg-deb` and schema-compilation tools are reused. Private `LD_LIBRARY_PATH`, GTK data/schema paths, X11 selection and software-rendering preferences are set for the browser service. Global graphics libraries and the system package database are unchanged.
+The browser bundle now extracts prebuilt ARM64 Xvfb, xauth, keyboard data and their private dependencies. The transient worker exposes the bundled xkbcomp at its expected path through a read-only service-local extension. AGNOS supplies Python, systemd, setpriv, timeout, `dpkg-deb` and schema-compilation tools. Legacy bundles can still use the host Xvfb and xauth when present.
 
 ## Validation and measured results
 
@@ -517,9 +517,9 @@ The UI calls the same installer automatically. A developer may run it explicitly
 sudo -n /usr/local/venv/bin/python3 openpilot/tools/arabesque_firefox/setup.py
 ```
 
-Preparation requires root, ARM64 AGNOS `19.8.1`, safe ownership, an available numeric UID and sufficient free space. It refuses an existing runtime. It is not an in-place updater and does not overwrite profiles.
+Preparation requires root, ARM64 AGNOS `19.8.1`, `20.2-starpilot.1` or `20.2.1`, safe ownership, an available numeric UID and sufficient free space. Existing runtimes use the transactional updater.
 
-For offline preparation, supply every manifest archive under its exact filename in the root-owned `0700` package cache, with root-owned files that are not group/world-writable. The installer still checks sizes and digests; a cached file is not trusted merely because it exists.
+The `offline/` directory ships the original archives named by digest. The installer copies them into the private package cache and checks each size and digest before extraction. For a new pinned release, refresh the directory with `python3 openpilot/tools/arabesque_firefox/setup.py --stage-offline` and include the resulting archives in the device checkout. Packages absent from a checkout can still be fetched from their pinned HTTPS URLs during setup or an explicit update.
 
 ### Force the reference and SHM modes
 

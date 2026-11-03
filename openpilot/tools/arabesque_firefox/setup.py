@@ -21,6 +21,8 @@ ROOT = Path('/data/arabesque-firefox')
 BROWSER_UID = 61234
 FORMAT = 1
 FLOOR = 6 * 1024**3
+DISPLAY_PACKAGE = 'display-xvfb.deb'
+SUPPORTED_AGNOS = ('19.8.1', '20.2-starpilot.1', '20.2.1')
 PHASES = {'staging', 'copying', 'qualifying', 'activate', 'committed', 'restore-copy', 'restore', 'restored'}
 
 
@@ -127,6 +129,14 @@ def update_record(value):
   return value
 
 
+def private_display(bundle):
+  return any(package['name'] == DISPLAY_PACKAGE for package in bundle['packages'])
+
+
+def host_display():
+  return all(os.access(path, os.X_OK) for path in ('/usr/bin/Xvfb', '/usr/bin/xauth', '/usr/bin/xkbcomp'))
+
+
 def inspect():
   """Small local reads only; safe to call when the Firefox tool opens."""
   target = approved()
@@ -151,11 +161,15 @@ def inspect():
   def version(value):
     return tuple((list(map(int, value.removesuffix('esr').split('.'))) + [0, 0])[:3])
   newer = target['bundle_revision'] > current['bundle_revision'] and version(target['version']) >= version(current['version'])
+  repair = (newer and not host_display() and not private_display(current) and private_display(target) and
+            current['version'] == target['version'] and all(package in target['packages'] for package in current['packages']) and
+            all(package in current['packages'] or package['name'].startswith('display-') for package in target['packages']))
   restorable = bool(record and record['phase'] == 'committed' and not (ROOT / 'recovery').exists() and
                     not (ROOT / 'recovery-state').exists() and
+                    (private_display(record['previous']) or host_display()) and
                     (ROOT / 'updates' / record['id'] / 'previous').is_dir() and
                     (ROOT / 'updates' / record['id'] / 'profile-backup').is_dir())
-  return {'action': 'update' if newer else 'browse', 'target': target, 'current': current, 'restorable': restorable}
+  return {'action': 'update' if newer else 'browse', 'target': target, 'current': current, 'restorable': restorable, 'repair': repair}
 
 
 def report(message):
@@ -170,13 +184,24 @@ def verify(path, package):
     raise ValueError(f'Package checksum mismatch: {package["name"]}')
 
 
-def download(package, cache):
+def copy_package(package, response, partial, label):
+  remaining = package['size']
+  with partial.open('wb') as target:
+    while block := response.read(min(1024 * 1024, remaining + 1)):
+      remaining -= len(block)
+      if remaining < 0:
+        raise ValueError('Browser package exceeds pinned size')
+      target.write(block)
+      report(f'{label}… {100 * (package["size"] - remaining) // package["size"]}%')
+
+
+def download(package, cache, *, cache_uid=0):
   digest = package.get('sha512', package.get('sha256'))
   path = cache / (digest + '-' + package['name'])
   legacy = cache / package['name']
   for existing in (path, legacy):
     if existing.exists():
-      safe(existing)
+      safe(existing, cache_uid)
       try:
         verify(existing, package)
         if existing == legacy:
@@ -187,18 +212,22 @@ def download(package, cache):
           existing.unlink()
   if not path.exists():
     partial = path.with_suffix('.partial')
+    bundled = Path(__file__).with_name('offline') / path.name
+    label = 'Firefox' if package['name'].startswith('firefox-') else 'browser libraries'
     try:
-      with urllib.request.urlopen(package['url'], timeout=30) as response, partial.open('wb') as target:
-        if not response.url.startswith('https://'):
-          raise ValueError('Refusing an insecure browser package redirect')
-        remaining = package['size']
-        while block := response.read(min(1024 * 1024, remaining + 1)):
-          remaining -= len(block)
-          if remaining < 0:
-            raise ValueError('Browser package exceeds pinned size')
-          target.write(block)
-          label = 'Firefox' if package['name'].startswith('firefox-') else 'browser libraries'
-          report(f'Downloading {label}… {100 * (package["size"] - remaining) // package["size"]}%')
+      try:
+        fd = os.open(bundled, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+      except FileNotFoundError:
+        with urllib.request.urlopen(package['url'], timeout=30) as response:
+          if not response.url.startswith('https://'):
+            raise ValueError('Refusing an insecure browser package redirect') from None
+          copy_package(package, response, partial, f'Downloading {label}')
+      else:
+        with os.fdopen(fd, 'rb') as response:
+          info = os.fstat(response.fileno())
+          if not stat.S_ISREG(info.st_mode) or info.st_size != package['size']:
+            raise ValueError(f'Invalid bundled Firefox package: {package["name"]}')
+          copy_package(package, response, partial, f'Copying bundled {label}')
       verify(partial, package)
       partial.rename(path)
     finally:
@@ -216,8 +245,10 @@ def unpack(path, destination):
 
 
 def check_host(target):
-  if os.geteuid() != 0 or platform.machine() != 'aarch64' or Path('/VERSION').read_text().strip() != target['agnos']:
-    raise RuntimeError('Prepare this runtime as root on ARM64 AGNOS 19.8.1')
+  # Keep the receipt compatible with older checkouts while qualifying the private display on newer images.
+  supported = SUPPORTED_AGNOS if private_display(target) else (target['agnos'],)
+  if os.geteuid() != 0 or platform.machine() != 'aarch64' or Path('/VERSION').read_text().strip() not in supported:
+    raise RuntimeError(f'Prepare this runtime as root on ARM64 AGNOS {", ".join(supported)}')
 
 
 def prepare():
@@ -293,7 +324,15 @@ def build(manifest, staging):
     archive = download(package, cache)
     safe(archive)
     report('Unpacking Firefox…' if package['name'].startswith('firefox-') else 'Preparing browser libraries…')
-    unpack(archive, staging)
+    unpack(archive, staging / 'display' if package['name'].startswith('display-') else staging)
+  if private_display(manifest):
+    # Ubuntu Xvfb resolves xkbcomp at /usr/bin. Expose just that helper through a unit-local /usr overlay.
+    extension = staging / 'isolation/xkb/usr'
+    (extension / 'bin').mkdir(parents=True)
+    release = extension / 'lib/extension-release.d'
+    release.mkdir(parents=True)
+    (release / 'extension-release.xkb').write_text('ID=_any\n')
+    (staging / 'display/usr/bin/xkbcomp').rename(extension / 'bin/xkbcomp')
   schemas = staging / 'usr/share/glib-2.0/schemas'
   for source in Path('/usr/share/glib-2.0/schemas').glob('*.xml'):
     if not (schemas / source.name).exists():
@@ -501,6 +540,8 @@ def maintain(operation, expected, job):
       if (not record or record['phase'] != 'committed' or
           (ROOT / 'recovery').exists() or (ROOT / 'recovery-state').exists()):
         raise RuntimeError('No complete previous Firefox pair is available, or a saved recovery already exists')
+      if not private_display(record['previous']) and not host_display():
+        raise RuntimeError('Previous Firefox requires Xvfb and xauth from AGNOS')
       tx = ROOT / 'updates' / record['id']
       if not matches(ROOT / 'runtime', record['target']) or not matches(tx / 'previous', record['previous']):
         raise RuntimeError('Firefox no longer matches its recorded backup')
@@ -557,4 +598,16 @@ def maintain(operation, expected, job):
 
 
 if __name__ == '__main__':
-  prepare()
+  import argparse
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument('--stage-offline', action='store_true', help='Refresh the offline archives in the source tree.')
+  if parser.parse_args().stage_offline:
+    offline = Path(__file__).with_name('offline')
+    offline.mkdir(mode=0o755, exist_ok=True)
+    safe(offline, os.getuid())
+    wanted = {download(package, offline, cache_uid=os.getuid()) for package in approved()['packages']}
+    for path in offline.iterdir():
+      if path not in wanted and re.fullmatch(r'(?:[0-9a-f]{64}|[0-9a-f]{128})-[a-zA-Z0-9_.+-]+[.](?:deb|tar[.]xz)', path.name):
+        path.unlink()
+  else:
+    prepare()

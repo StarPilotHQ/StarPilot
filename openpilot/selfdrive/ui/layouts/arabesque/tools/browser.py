@@ -85,10 +85,13 @@ class Browser(Widget):
       self._message = ''
       self._error_seen = ''
       self._restorable = info.get('restorable', False)
-      if operation is None and info['action'] == 'update' and not self._declined:
-        self._offer = info
-        return
-      operation = operation or ('browse' if info['action'] == 'update' else info['action'])
+      if operation is None:
+        operation = info['action']
+        if operation == 'update' and not info.get('repair'):
+          if not self._declined:
+            self._offer = info
+            return
+          operation = 'browse'
       target = setup.bundle_id(info['target'])
       if offered is not None and target != setup.bundle_id(offered):
         raise RuntimeError('Firefox update changed. Reopen Firefox to review the current offer.')

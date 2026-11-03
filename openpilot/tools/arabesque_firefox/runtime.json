@@ -1,6 +1,6 @@
 {
   "bundle_format": 1,
-  "bundle_revision": 0,
+  "bundle_revision": 1,
   "version": "153.6.0esr",
   "agnos": "19.8.1",
   "packages": [
@@ -63,6 +63,90 @@
       "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxcb/libxcb-xtest0_1.15-1ubuntu2_arm64.deb",
       "size": 4940,
       "sha256": "d11a73f9fc6b55ebffa5b0cb2bea7a90c7efa4b1ff92ed2c73768627ff569024"
+    },
+    {
+      "name": "display-xvfb.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/universe/x/xorg-server/xvfb_21.1.12-1ubuntu1.9_arm64.deb",
+      "size": 872574,
+      "sha256": "15827310fc6f356ba8259b102301f5417264f742a9abf3bd7f3487dc1c5ad42c"
+    },
+    {
+      "name": "display-xauth.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/x/xauth/xauth_1.1.2-1build1_arm64.deb",
+      "size": 25306,
+      "sha256": "4bcc0c4dbe97cc89a1402f3da3edfc6e0635d8cafaf6c84929c6e8f4f27a9324"
+    },
+    {
+      "name": "display-x11-xkb-utils.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/x/x11-xkb-utils/x11-xkb-utils_7.7+8build2_arm64.deb",
+      "size": 165434,
+      "sha256": "1be1f73f3f9c62540591ab9ed79391b07e446af258574316f3e15cf2026ca117"
+    },
+    {
+      "name": "display-xkb-data.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/x/xkeyboard-config/xkb-data_2.41-2ubuntu1.1_all.deb",
+      "size": 397328,
+      "sha256": "e99f2a0b4c56cdf35dec489e56b6a8418826cab8ce6306ec6d0bd98e2cd0014a"
+    },
+    {
+      "name": "display-xserver-common.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/x/xorg-server/xserver-common_21.1.12-1ubuntu1.9_all.deb",
+      "size": 35008,
+      "sha256": "ceeac76b9c94973c71e4e6566fa9ff5d3caae9716775d840810a4e1ad749a737"
+    },
+    {
+      "name": "display-libxfont2.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxfont/libxfont2_2.0.6-1+deb13u1build0.24.04.2_arm64.deb",
+      "size": 89804,
+      "sha256": "64635511de505f71c7f80f0d0c6cb2c08ed02bd22884f9c7794a8707f6cf88c3"
+    },
+    {
+      "name": "display-libfontenc1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libf/libfontenc/libfontenc1_1.1.8-1build1_arm64.deb",
+      "size": 13858,
+      "sha256": "5d021e7c79fcde0c3940fe1765e54cf483782b03f06563795b056df8fccd9a4b"
+    },
+    {
+      "name": "display-libxkbfile1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxkbfile/libxkbfile1_1.1.0-1build4_arm64.deb",
+      "size": 69432,
+      "sha256": "da7d27f330c0ab544ca9990de267defb909bd01f2362d8b02bcd581a4b8689d2"
+    },
+    {
+      "name": "display-libxmuu1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxmu/libxmuu1_1.1.3-3build2_arm64.deb",
+      "size": 9140,
+      "sha256": "bef5bb189c1c1e7553905f2c6a729013a7c267a1a9f81b1688acb552c5534410"
+    },
+    {
+      "name": "display-libunwind8.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libu/libunwind/libunwind8_1.6.2-3build1.1_arm64.deb",
+      "size": 53616,
+      "sha256": "26f2bf9c0d9b42d8230aa2c070076054b0ed06519bb9141c05a9c3164732fef1"
+    },
+    {
+      "name": "display-libgl1.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libg/libglvnd/libgl1_1.7.0-1build1_arm64.deb",
+      "size": 106320,
+      "sha256": "8b2478bdeaf7a13d3c3b993f0238ac74640ab5a623b9d2645ebf6f1336c9881b"
+    },
+    {
+      "name": "display-libglx0.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libg/libglvnd/libglx0_1.7.0-1build1_arm64.deb",
+      "size": 33236,
+      "sha256": "830625e5a00b176afcc47742cd2b123c74555afd58da91f6bc7e68f0781b684a"
+    },
+    {
+      "name": "display-libglvnd0.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libg/libglvnd/libglvnd0_1.7.0-1build1_arm64.deb",
+      "size": 60588,
+      "sha256": "3d0c30187bb5f0993b42cc9af94abfc42098451503fbde23d51fd152c4b7ff7e"
+    },
+    {
+      "name": "display-libpixman-1-0.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/pixman/libpixman-1-0_0.42.2-1build1_arm64.deb",
+      "size": 204208,
+      "sha256": "81065c180e30302950a1bd39428d335797126ef89dc2922f89216678720d4eca"
     }
   ]
 }

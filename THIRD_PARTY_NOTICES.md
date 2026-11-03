@@ -1,5 +1,16 @@
 # Third-party notices
 
+## Arabesque Firefox
+
+The offline payload contains original Mozilla and Ubuntu archives. The pinned
+versions, upstream download URLs and hashes are listed in
+[`runtime.json`](openpilot/tools/arabesque_firefox/runtime.json). Mozilla publishes
+the [Firefox 153.6.0esr source](https://archive.mozilla.org/pub/firefox/releases/153.6.0esr/source/)
+and [Firefox notices](https://www.mozilla.org/en-US/about/legal/firefox/).
+The Ubuntu archives retain their package copyright files. The
+[Ubuntu package archive](https://ubuntu.com/project/docs/how-ubuntu-is-made/concepts/package-archive/)
+provides source packages alongside the binaries.
+
 ## Jetlink
 
 Jetlink's comma client is copyright (c) 2026 Zeph Leggett and distributed under the MIT License. Its complete license and permission notice are retained in [jetlink_repo/LICENSE](jetlink_repo/LICENSE); source and revision are recorded in [CREDITS.md](CREDITS.md#jetlink-external-inference) and `upstream-sync.json`.
