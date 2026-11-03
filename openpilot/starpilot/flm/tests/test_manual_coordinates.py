@@ -239,3 +239,29 @@ def test_reset_all_uses_original_row_request_and_requires_confirmation(tmp_path,
   assert not editor.apply(unconfirmed)
   assert editor.apply(replace(unconfirmed, confirmation=True))
   assert parse_document(read_saved(params, DOCUMENT_KEY, 16384)[0])[str(cp.carFingerprint)].manual_coordinates is None
+
+
+def test_replay_controller_construction_does_not_read_manual_preferences(cp, monkeypatch):
+  from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
+  from openpilot.starpilot.flm import manual_coordinates
+  def forbidden(*args, **kwargs):
+    raise AssertionError('Only the actual Controls owner may load manual configuration')
+  monkeypatch.setattr(manual_coordinates, 'load', forbidden)
+  ci = SimpleNamespace(
+    torque_from_lateral_accel=lambda: lambda value, tune: value / tune.latAccelFactor,
+    lateral_accel_from_torque=lambda: lambda value, tune: value * tune.latAccelFactor)
+  controller = LatControlTorque(cp, ci, .01, controller_mode=default_selection(cp).mode)
+  assert controller.manual_flm_effects is None
+  assert controller.manual_flm_status == 'not_configured'
+
+
+def test_next_startup_loads_new_saved_values_without_mutating_running_profile(tmp_path, cp):
+  params = PrivateParams(tmp_path)
+  save(params, cp, manual(cp, center_taper_max=.01))
+  original, status = load(cp, default_selection(cp).mode, params)
+  assert status == 'configured'
+  save(params, cp, manual(cp, center_taper_max=.02))
+  following, status = load(cp, default_selection(cp).mode, params)
+  assert status == 'configured'
+  assert dict(original.profile.values)['center_taper_max'] == .01
+  assert dict(following.profile.values)['center_taper_max'] == .02

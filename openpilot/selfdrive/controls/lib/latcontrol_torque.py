@@ -67,8 +67,8 @@ class LatControlTorque(LatControl):
       self.pid._k_p = [[0.0], [STARPILOT_KP]]
     self.flm_source = flm.GmLiveSource(CP, self.controller_mode)
     self.flm_surface = None
-    from openpilot.starpilot.flm.manual_coordinates import load as load_manual_coordinates
-    self.manual_flm_effects, self.manual_flm_status = load_manual_coordinates(CP, self.controller_mode)
+    self.manual_flm_effects = None
+    self.manual_flm_status = 'not_configured'
     from openpilot.starpilot.flm.runtime_adapter_registry import baseline_values
     self.native_learning_baseline = baseline_values(self)
     self.native_learning_refinement = None

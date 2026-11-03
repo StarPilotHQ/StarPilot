@@ -123,11 +123,15 @@ class Controls:
     self.LaC = create_lateral_controller(self.CP, self.CI, DT_CTRL,
       mode=self.lateral_controller_selection.mode, turn_assist=self.vehicle_startup_preferences.turn_assist)
     if isinstance(self.LaC, LatControlTorque):
+      from openpilot.starpilot.flm.manual_coordinates import load as load_manual_coordinates
+      # Only the actual startup owner reads configuration; replay clones stay pure.
+      self.LaC.manual_flm_effects, self.LaC.manual_flm_status = load_manual_coordinates(self.CP, self.LaC.controller_mode, self.params)
       self.lateral_gain_owner = create_gain_owner(self.params, self.CP, self.LaC)
       cloudlog.info({"event": "torque controller selected", "controller": self.LaC.controller_mode.value,
                      "source": self.lateral_controller_selection.source,
                      "vehicle": self.CP.carFingerprint, "policy": self.LaC.controller_policy,
                      "automaticLearning": self.torque_learning_allowed, "startupParameterSource": "vehicle",
+                     "manualCoordinateStatus": self.LaC.manual_flm_status,
                      "startupTorque": {"factor": self.LaC.torque_params.latAccelFactor,
                                        "offset": self.LaC.torque_params.latAccelOffset,
                                        "friction": self.LaC.torque_params.friction},
