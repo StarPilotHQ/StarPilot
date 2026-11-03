@@ -377,6 +377,26 @@ def test_feedback_confirmation_still_needs_actual_target_ack_and_new_current_wit
     )
     refresh(o, e.end_ns)
     assert o.observe_episode(e, now_ns=e.end_ns)
+  returned = o.offer(e.end_ns)
+  assert returned is not None and returned.phase == 'rollback' and not any(o.accepted.values())
+  assert source_ack(o, returned, e.end_ns + 10_000_000)
+  now = e.end_ns
+  for i in range(3):
+    e = replace(episode(o, 200 + i, 'ff_gain_left', error=0.2,
+      start=now + 1_000_000_000 + i * 1_000_000_000), normalization_accel=0.5)
+    refresh(o, e.end_ns)
+    assert source_ack(o, o.offer(e.end_ns), e.end_ns)
+    assert o.observe_episode(e, now_ns=e.end_ns)
+  reapplied = o.offer(e.end_ns)
+  assert reapplied is not None and reapplied.phase == 'trial' and reapplied.trial_id != offer.trial_id
+  assert reapplied.deadline_ns == offer.deadline_ns and not any(o.accepted.values())
+  assert source_ack(o, reapplied, e.end_ns + 10_000_000)
+  now = e.end_ns
+  for i in range(3):
+    e = replace(episode(o, 300 + i, 'ff_gain_left', error=0.15, profile=reapplied.target_sha256,
+      start=now + 1_000_000_000 + i * 1_000_000_000), normalization_accel=0.5)
+    refresh(o, e.end_ns)
+    assert o.observe_episode(e, now_ns=e.end_ns)
   confirmed = o.offer(e.end_ns)
   assert confirmed is not None and confirmed.phase == 'confirmed' and not any(o.accepted.values())
   assert source_ack(o, confirmed, e.end_ns + 10_000_000)
@@ -453,7 +473,7 @@ def test_fitted_plant_does_not_reverse_identified_direction_at_boundary():
 
 
 @pytest.mark.parametrize('source_only', [False, True])
-def test_new_input_regime_retires_only_source_discovery_before_launch(source_only):
+def test_new_input_regime_does_not_erase_inert_pretrial_baseline(source_only):
   from openpilot.starpilot.flm.tests.test_live_tracking import optimizer, refresh as fitted_refresh
 
   o = owner() if source_only else optimizer()
@@ -473,12 +493,10 @@ def test_new_input_regime_retires_only_source_discovery_before_launch(source_onl
     changed = replace(changed, normalization_accel=max(0.1, changed.goal_rms))
   update(o, changed.end_ns)
   o.observe_episode(changed, now_ns=changed.end_ns)
-  assert (o.discovery is None) is source_only
+  assert o.discovery is previous and not o.comparison
   if source_only:
-    assert o.selector_hint is None and not o.comparison
-    assert o.baseline[-1].episode_id == changed.episode_id
-  else:
-    assert o.discovery == previous
+    assert o.selector_hint is not None
+    assert o.selector_hint['expires_ns'] == previous['expires_ns']
   assert o.offer_state is None and not any(o.accepted.values())
 
 
