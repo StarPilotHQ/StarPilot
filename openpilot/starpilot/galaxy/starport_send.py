@@ -1,10 +1,4 @@
-"""Send StarPort Logs: post the "Download all logs" zip to the developer's Discord, from Logs & Diagnostics.
-
-Only sent when the user presses Send; there are no automatic reports. Each device gets its own forum
-thread, titled with its car and a short hashed device tag, and later sends from the same device go to
-that thread. The webhook URL is built in, encoded so repository scanners don't pick it up; a URL in
-WEBHOOK_OVERRIDE_PATH on the device replaces it without a code change.
-"""
+"""Upload logs on request to Discord, reusing a thread per device."""
 
 from __future__ import annotations
 
@@ -24,8 +18,7 @@ from openpilot.starpilot.system.starport import identity as identity_store
 MESSAGE_LIMIT = 60
 WEBHOOK_OVERRIDE_PATH = identity_store.DATA_DIR / "webhook_url"
 THREAD_DIR = identity_store.DATA_DIR / "discord_threads"
-# The Discord webhook URL that receives StarPort logs, XORed with _WEBHOOK_KEY and base64-encoded so it is not
-# stored in plain text ("" = sending not set up). Obfuscation only: the device has to be able to decode it.
+# Obfuscation only; device-local configuration overrides this built-in webhook.
 _WEBHOOK_KEY = b"starport-logs"
 _WEBHOOK_DATA = "".join(("GwAVAgNVXVtJBRwEHAEQTxEfAl0VXQVAEBYRHA4dGxxdRRhaWlJLREBYRkZcS0UcXl1QQVwAEEIzAydBSA",
                          "4KIjQjDShfJj0ZRkA6OjEbMi4JRzE6Rh1sOxo/HCVCDRMlCzRBHyIhUgQFTDAfChwdAGkpWR0HES0ZJw=="))
@@ -45,7 +38,7 @@ class SendBusy(Exception):
 def webhook_url(override_path: Path = WEBHOOK_OVERRIDE_PATH) -> str:
   try:
     override = override_path.read_text().strip()
-  except OSError:
+  except (OSError, UnicodeError):
     override = ""
   if override:
     return override

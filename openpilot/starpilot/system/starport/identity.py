@@ -20,6 +20,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+
+def boot_id() -> str:
+  try:
+    return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+  except OSError:
+    return ""
+
+
 def _data_dir() -> Path:
   if override := os.environ.get("STARPORT_DIR"):
     return Path(override)

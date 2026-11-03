@@ -106,6 +106,8 @@ class SendTest(unittest.TestCase):
     override = self.threads / "webhook_url"
     override.write_text(f"{URL}\n")
     self.assertEqual(starport_send.webhook_url(override), URL)
+    override.write_text("")
+    self.assertEqual(starport_send.webhook_url(override), starport_send.webhook_url(self.threads / "absent"))
 
 
 class SenderJobTest(unittest.TestCase):

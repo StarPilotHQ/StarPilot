@@ -1,12 +1,9 @@
-// The guided StarPort setup. Three steps (support, car, connect), one choice about how the car connects, and a live checklist of
-// what is being tried while connecting. It reads the daemon status the page already has and drives the page's existing actions,
-// so it adds no state of its own. The pairing, cable and app instructions are the page's own and arrive through the `car` slot;
-// the Connect button arrives through the `connect` slot. Turned off, the classic screens come back ("Use classic setup").
+// Guided setup shares the page’s pairing actions and slots.
 
 export const FIRST_RUN_NOTICE = "The first connection can take a few minutes, and sometimes more than one drive, while we find what your car accepts. Keep the car on and its screen awake. Later connections are much faster because we remember what worked."
 export const EXHAUSTED_NOTICE = "We tried every option we have this drive. We keep what works best and will try again the next time the car starts."
 
-// The adapter flow refuses to continue until the car itself is connected in Galaxy Bluetooth (27 Bugsink reports, 7 devices).
+// Adapter setup may require connecting the companion car first.
 export const BLUETOOTH_FIRST = /connect your paired car in galaxy bluetooth first/i
 export const BLUETOOTH_HINT = { text: "Connect your car in Bluetooth first, then come back and tap Connect.", href: "#/bluetooth", label: "Open Bluetooth" }
 
@@ -126,7 +123,8 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
 }
 
 export const StarPortGuidedSetup = {
-  props: { state: { type: Object, required: true }, busy: { type: Boolean, default: false } },
+  props: { state: { type: Object, required: true }, busy: { type: Boolean, default: false },
+    choicesDisabled: { type: Boolean, default: false } },
   emits: ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "done"],
   template: `
     <section class="gx-card gx-guided" :data-phase="state.phase" aria-label="Guided StarPort setup">
@@ -145,13 +143,12 @@ export const StarPortGuidedSetup = {
 
       <div v-if="state.choices.length" class="gx-guided__section">
         <ul class="gx-starport-list gx-guided__options" role="radiogroup" aria-label="How your car connects">
-          <li v-for="choice in state.choices" :key="choice.key">
-            <button type="button" class="gx-guided__option" role="radio" :aria-checked="choice.selected ? 'true' : 'false'"
-                :disabled="busy" @click="$emit('choose-type', choice.key)">
+          <li v-for="choice in state.choices" :key="choice.key" role="none">
+            <label class="gx-guided__option">
+              <input type="radio" name="starport-connection" :checked="choice.selected" :disabled="busy || choicesDisabled" @change="$emit('choose-type', choice.key)">
               <span class="gx-guided__tile" aria-hidden="true"><i :class="'bi bi-' + choice.icon"></i></span>
               <span class="gx-starport-row__text"><strong>{{ choice.title }}</strong><small>{{ choice.detail }}</small></span>
-              <span class="gx-guided__radio" aria-hidden="true"><i v-if="choice.selected" class="bi bi-check-lg"></i></span>
-            </button>
+            </label>
           </li>
         </ul>
       </div>
@@ -159,8 +156,9 @@ export const StarPortGuidedSetup = {
       <div v-if="state.adapter" class="gx-guided__section">
         <h3 class="gx-guided__subhead">Which adapter?</h3>
         <div class="gx-guided__segmented" role="radiogroup" aria-label="Adapter model">
-          <button v-for="option in state.adapter.options" :key="option.key" type="button" role="radio" :aria-checked="option.selected ? 'true' : 'false'"
-              :class="{ 'is-selected': option.selected }" :disabled="busy" @click="$emit('choose-adapter', option.key)">{{ option.label }}</button>
+          <label v-for="option in state.adapter.options" :key="option.key" class="gx-btn gx-btn--tonal gx-guided__choice">
+            <input class="gx-sr-only" type="radio" name="starport-adapter" :checked="option.selected" :disabled="busy || choicesDisabled" @change="$emit('choose-adapter', option.key)">{{ option.label }}
+          </label>
         </div>
         <p v-if="state.adapter.needsChoice" class="gx-guided__hint">Choose your adapter to continue.</p>
       </div>
@@ -168,8 +166,9 @@ export const StarPortGuidedSetup = {
       <div v-if="state.apps" class="gx-guided__section">
         <h3 class="gx-guided__subhead">Which app?</h3>
         <div class="gx-guided__segmented" role="radiogroup" aria-label="Tablet app">
-          <button v-for="option in state.apps.options" :key="option.key" type="button" role="radio" :aria-checked="option.selected ? 'true' : 'false'"
-              :class="{ 'is-selected': option.selected }" :disabled="busy" @click="$emit('choose-app', option.key)">{{ option.label }}</button>
+          <label v-for="option in state.apps.options" :key="option.key" class="gx-btn gx-btn--tonal gx-guided__choice">
+            <input class="gx-sr-only" type="radio" name="starport-apps" :checked="option.selected" :disabled="busy || choicesDisabled" @change="$emit('choose-app', option.key)">{{ option.label }}
+          </label>
         </div>
         <p v-if="state.apps.needsChoice" class="gx-guided__hint">Choose your app to continue.</p>
       </div>
@@ -180,7 +179,7 @@ export const StarPortGuidedSetup = {
           <li v-for="car in state.candidates" :key="car.address" class="gx-starport-row">
             <span class="gx-guided__tile" aria-hidden="true"><i class="bi bi-car-front"></i></span>
             <span class="gx-starport-row__text"><strong>{{ car.name }}</strong><small>Paired and offers Android Auto</small></span>
-            <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="$emit('use-car', car.address)">Use</button>
+            <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy || choicesDisabled" @click="$emit('use-car', car.address)">Use</button>
           </li>
         </ul>
       </div>
@@ -195,7 +194,7 @@ export const StarPortGuidedSetup = {
           <li v-for="step in state.progress" :key="step.id" class="gx-starport-row" :class="'is-' + step.state" :aria-current="step.state === 'active' || step.state === 'retry' ? 'step' : undefined">
             <span class="gx-guided__mark" aria-hidden="true">
               <i v-if="step.state === 'done'" class="bi bi-check-circle-fill"></i>
-              <span v-else-if="step.state === 'active'" class="gx-spinner gx-guided__spinner"></span>
+              <span v-else-if="step.state === 'active'" class="gx-spinner"></span>
               <i v-else-if="step.state === 'retry'" class="bi bi-arrow-repeat"></i>
               <i v-else class="bi bi-circle"></i>
             </span>
@@ -212,7 +211,7 @@ export const StarPortGuidedSetup = {
               <i v-if="step.state === 'worked'" class="bi bi-check-circle-fill"></i>
               <i v-else-if="step.state === 'failed'" class="bi bi-x-circle"></i>
               <i v-else-if="step.state === 'skipped'" class="bi bi-dash-circle"></i>
-              <span v-else-if="step.state === 'current'" class="gx-spinner gx-guided__spinner"></span>
+              <span v-else-if="step.state === 'current'" class="gx-spinner"></span>
               <i v-else class="bi bi-circle"></i>
             </span>
             <span class="gx-starport-row__text"><strong>{{ step.label }}</strong></span>

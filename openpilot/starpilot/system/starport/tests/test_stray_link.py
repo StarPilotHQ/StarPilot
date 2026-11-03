@@ -266,3 +266,21 @@ def test_unusable_sdp_record_is_logged_with_what_the_car_sent(identity, tmp_path
   with pytest.raises(RuntimeError):
     sup._discover_channel(CAR)
   assert _events(sup, "sdp_retry")[0]["record_hex"] == "350319111f"
+
+
+def test_readiness_time_starts_over_after_a_failed_attempt(identity, tmp_path, monkeypatch):
+  sup, _ = make_supervisor(identity, tmp_path, monkeypatch, lambda *a, **k: None)
+  now = _virtual_time(sup, monkeypatch)
+  elapsed = []
+
+  def attempt(lease):
+    elapsed.append(now[0] - sup._run_started)
+    now[0] += 90.0
+    if len(elapsed) == 1:
+      raise RuntimeError("Car not ready")
+    sup._stop.set()
+
+  monkeypatch.setattr(sup, "_attempt", attempt)
+  monkeypatch.setattr(sup, "_wait_backoff", lambda delay, **kwargs: sup._wait(delay))
+  sup._run(1, trigger="manual")
+  assert elapsed == [0.0, 0.0]

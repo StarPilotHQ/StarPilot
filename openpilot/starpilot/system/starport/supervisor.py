@@ -1126,10 +1126,7 @@ class Supervisor:
     except Exception as error:
       self.log("forget_car_error", error=repr(error)[:300])
       result = self._forgotten_snapshot(owner, address, session, error)
-    try:
-      self.forget_receiver(address)
-    except Exception as error:
-      self.log("forget_receiver_error", error=repr(error)[:300])
+    self.forget_receiver(address)
     return result
 
   def _forgotten_snapshot(self, owner, address: str, session: tuple, error: Exception):
@@ -1317,7 +1314,7 @@ class Supervisor:
     connection = self.config["connection"]
     wireless = connection == "wireless"
     receiver = {"wired": "usb", "headunitpad": "headunitpad", "openheadunit": "openheadunit"}.get(connection, self.config["receiver_name"])
-    self._video_seen, self._strategy, self._run_started = False, None, time.monotonic()
+    self._video_seen, self._strategy = False, None
     if trigger == "onroad" and wireless:   # a new drive: the ladder's passes are per ignition, and the comma can stay on between drives
       self._ladder.begin_cycle(self.config["receiver_address"])
     from openpilot.starpilot.system.starport.bugsink_transport import device_metadata
@@ -1335,6 +1332,7 @@ class Supervisor:
     try:
       while not self._stop.is_set():
         started = time.monotonic()
+        self._run_started = started
         peer_stopped = False
         reach = reachability.OTHER  # set by a failed attempt; a clean end or a car-ended session keeps the standard wait
         self.log("attempt_start")
@@ -1491,8 +1489,6 @@ class Supervisor:
       raise
     if source == "sdp":
       self._remember_channel(address, channel)
-    if boot.version_major >= MODERN_MAJOR:
-      self._remember_reply(address, boot.modern_reply)
     self._set(head_unit=result.head_unit)
     self._remember_fingerprint(result.head_unit)
     bluez.restore_class()  # the car has accepted the comma; stop looking like a phone to everything else
@@ -1502,6 +1498,8 @@ class Supervisor:
       self._project(result, lease, ident)
     finally:
       keepalive_stop.set()
+      if boot.version_major >= MODERN_MAJOR and self._ladder.snapshot(address, adapter)["learned"]:
+        self._remember_reply(address, boot.modern_reply)
 
   def _connect_rfcomm(self, address: str, channel: int):
     from openpilot.starpilot.system.starport import bt_sockets

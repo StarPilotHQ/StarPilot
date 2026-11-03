@@ -1712,7 +1712,7 @@ input[type="checkbox"]:disabled { opacity: .4; cursor: not-allowed; }
 .gx-text-danger { color: var(--error); }
 .gx-row.gx-row--borderless { border-top: 0; }
 /* A section title inside a settings page: a label only, never dimmed like an unavailable control. */
-.gx-row.gx-row--heading, .gx-row.gx-row--heading.disabled { opacity: 1; padding-top: 1.25rem; }
+.gx-row.gx-row--heading, .gx-row.gx-row--heading.disabled { opacity: 1; padding-top: var(--sp-5); }
 .gx-row--heading .gx-row__label { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; opacity: .75; }
 .gx-row--wrap { flex-wrap: wrap; }
 .gx-row__info.gx-row__info--wide { flex: 1 1 180px; }
@@ -2002,152 +2002,51 @@ progress { max-width: 100%; accent-color: var(--primary); }
   .gx-tuner__diagnostics dd { margin-bottom: 12px; }
 }
 
-/* Guided StarPort setup. Apple-style geometry and type on Galaxy's own colors, spacing, radii and motion tokens, so light and dark
-   both follow the theme. Rows, lists, pills, the disclosure and the prompt are the page's existing .gx-starport-* components,
-   restyled here; only the step track, icon tiles, radio rows, segmented control and checklist marks are new. */
-.gx-card.gx-guided {
-  --g-ink: var(--on-surface);
-  --g-muted: var(--on-surface-variant);
-  --g-fill: color-mix(in srgb, var(--on-surface) 7%, transparent);
-  --g-fill-hover: color-mix(in srgb, var(--on-surface) 11%, transparent);
-  --g-line: color-mix(in srgb, var(--on-surface) 11%, transparent);
-  --g-track: color-mix(in srgb, var(--on-surface) 16%, var(--background));  /* opaque, so overlapping segments never show a seam */
-  --g-accent: var(--primary);
-  --g-done: var(--success);
-  display: grid; gap: var(--sp-5); padding: 28px 28px var(--sp-5); border-radius: var(--radius-lg); margin-block: var(--sp-4);
-  font-family: var(--font-body);
-  font-size: 16px; line-height: 1.4; color: var(--g-ink); -webkit-font-smoothing: antialiased;
-  background-image: radial-gradient(120% 38% at 50% 0, var(--primary-container), transparent 72%);   /* a soft purple wash behind the steps */
-}
-
-/* The step track: three numbered nodes on a line that fills as the setup moves along. */
+/* Guided setup layout and emphasis; shared rows, buttons, fields and notices keep Galaxy defaults. */
+.gx-card.gx-guided { display: grid; gap: var(--sp-5); padding: var(--panel-padding); background-image: radial-gradient(120% 38% at 50% 0, var(--primary-container), transparent 72%); }
 .gx-guided__steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); }
 .gx-guided__step { position: relative; display: grid; justify-items: center; gap: var(--sp-2); text-align: center; }
-.gx-guided__step::before, .gx-guided__step::after { content: ""; position: absolute; top: 15px; height: 2px; width: calc(50% - 8px); background: var(--g-track); }
+.gx-guided__step::before, .gx-guided__step::after { content: ""; position: absolute; top: 15px; height: 2px; width: calc(50% - 8px); background: var(--outline); }
 .gx-guided__step::before { left: 0; }
 .gx-guided__step::after { right: 0; }
 .gx-guided__step:first-child::before, .gx-guided__step:last-child::after { display: none; }
 .gx-guided__step.is-done::before, .gx-guided__step.is-done::after, .gx-guided__step.is-current::before,
-.gx-guided__step.is-done + .gx-guided__step::before { background: var(--g-done); }
-.gx-guided__node {
-  position: relative; z-index: 1; display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-full);
-  font-size: 15px; font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; background: var(--g-fill); color: var(--g-muted);
-  transition: background var(--motion-base), color var(--motion-base), box-shadow var(--motion-base);
-}
-.gx-guided__step.is-current .gx-guided__node { background: var(--g-accent); color: var(--on-primary); box-shadow: 0 0 0 5px color-mix(in srgb, var(--g-accent) 28%, transparent), 0 4px 16px var(--primary-glow); }
-.gx-guided__step.is-done .gx-guided__node { background: var(--g-done); color: var(--background); animation: gx-guided-pop var(--motion-slow); }
-.gx-guided__step-label { font-size: 13px; font-weight: var(--fw-bold); color: var(--g-muted); }
-.gx-guided__step.is-current .gx-guided__step-label { color: var(--g-ink); }
-@keyframes gx-guided-pop { 0% { transform: scale(.7); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
-
-.gx-guided__header { display: grid; gap: 6px; max-width: 34rem; }
-.gx-guided__title { margin: 0; font-size: 30px; line-height: 1.12; font-weight: var(--fw-bold); letter-spacing: -.02em; text-wrap: balance; }
-.gx-guided__lede { margin: 0; font-size: 17px; line-height: 1.45; color: var(--g-muted); text-wrap: pretty; }
-.gx-guided__section { display: grid; gap: 10px; }
-.gx-guided__subhead { margin: 0 0 0 var(--sp-1); font-size: 15px; font-weight: var(--fw-bold); color: var(--g-muted); }
-.gx-guided__hint { margin: 0 var(--sp-1); font-size: 14px; color: var(--g-muted); }
-
-/* Inset grouped lists, as in iOS Settings: the page's .gx-starport-list and .gx-starport-row, restyled once, here, for the pairing
-   content and the card's own lists alike. --g-inset is where the hairline between rows starts (after the icon). */
-.gx-guided .gx-starport-list { --g-inset: 54px; background: var(--g-fill); border: 0; border-radius: var(--radius-md); box-shadow: none; }
-.gx-guided .gx-starport-list > li { position: relative; }
-.gx-guided .gx-starport-list > li + li::before { content: ""; position: absolute; top: 0; left: var(--g-inset); right: 0; height: 1px; background: var(--g-line); }
-.gx-guided .gx-starport-list > .gx-starport-row + .gx-starport-row { border-top: 0; }
-.gx-guided .gx-starport-list .gx-starport-row { background: none; box-shadow: none; }
-.gx-guided .gx-starport-row { min-height: 56px; padding: 10px var(--sp-4); gap: 14px; border: 0; border-radius: 0; flex-wrap: nowrap; }
-.gx-guided .gx-starport-row__text { flex: 1 1 0; }
-.gx-guided .gx-starport-row__text strong { font-size: 16px; font-weight: var(--fw-bold); letter-spacing: -.01em; }
-.gx-guided .gx-starport-row__text small { font-size: 14px; line-height: 1.3; color: var(--g-muted); }
-.gx-guided .gx-starport-row > i { color: var(--g-muted); font-size: 20px; }
-.gx-guided .gx-starport-ok { color: var(--g-done); }
-.gx-guided .gx-starport-pill { border: 0; background: var(--g-fill-hover); color: var(--g-muted); font-size: 13px; font-weight: var(--fw-bold); }
-.gx-guided .gx-starport-pill--ready { background: color-mix(in srgb, var(--g-done) 20%, transparent); color: var(--g-done); }
-
-/* Connection options: a radio row with a colored icon tile, as in iOS Settings. */
-.gx-guided__options { --g-inset: 70px; }
-.gx-guided__options > li { display: block; }
-.gx-guided__option {
-  display: flex; align-items: center; gap: 14px; width: 100%; min-height: 60px; padding: 10px var(--sp-4); box-sizing: border-box;
-  background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background var(--motion-fast);
-}
-.gx-guided__option:hover:not(:disabled) { background: var(--g-fill-hover); }
-.gx-guided__option:active:not(:disabled) { background: var(--g-line); }
-.gx-guided__option:disabled { cursor: default; opacity: .6; }
-.gx-guided__option:focus-visible, .gx-guided__segmented button:focus-visible, .gx-guided__link:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--g-accent) 70%, transparent); outline-offset: -3px; border-radius: var(--radius-sm);
-}
-.gx-guided__tile { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--primary-container); color: var(--primary); font-size: 20px; }
-.gx-guided__cars { --g-inset: 70px; }
-.gx-guided__radio {
-  flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: var(--radius-full); font-size: 14px; color: transparent;
-  border: 1.5px solid color-mix(in srgb, var(--on-surface) 28%, transparent); transition: background var(--motion-base), border-color var(--motion-base);
-}
-.gx-guided__option[aria-checked="true"] { background: var(--primary-container); }
-.gx-guided__option[aria-checked="true"] .gx-guided__tile { background: var(--g-accent); color: var(--on-primary); box-shadow: 0 2px 10px var(--primary-glow); }
-.gx-guided__option[aria-checked="true"] .gx-guided__radio { background: var(--g-accent); border-color: var(--g-accent); color: var(--on-primary); }
-
-/* Segmented control for the adapter and app choices (Galaxy has none). */
-.gx-guided__segmented { display: flex; gap: 2px; padding: 3px; background: var(--g-fill); border-radius: var(--radius-sm); }
-.gx-guided__segmented button {
-  flex: 1; min-height: 44px; padding: 6px 8px; border: 0; border-radius: calc(var(--radius-sm) - 3px); background: none; color: var(--g-muted);
-  font: inherit; font-size: 15px; font-weight: var(--fw-medium); line-height: 1.2; text-wrap: balance; cursor: pointer;
-  transition: background var(--motion-base), color var(--motion-base), box-shadow var(--motion-base);
-}
-.gx-guided__segmented button.is-selected { background: var(--g-accent); color: var(--on-primary); box-shadow: 0 2px 12px var(--primary-glow); }
-.gx-guided__segmented button:not(.is-selected):hover:not(:disabled) { color: var(--g-ink); }
-.gx-guided__segmented button:disabled { opacity: .6; cursor: default; }
-
-/* Live checklist: the same rows, with a state mark where the icon goes. */
-.gx-guided__checklist { --g-inset: 58px; }
-.gx-guided__mark { flex: none; display: grid; place-items: center; width: 28px; font-size: 22px; color: color-mix(in srgb, var(--on-surface) 30%, transparent); }
-.gx-guided__spinner { width: 20px; height: 20px; }
-.gx-guided__checklist > li.is-done .gx-guided__mark, .gx-guided__checklist > li.is-worked .gx-guided__mark { color: var(--g-done); animation: gx-guided-pop var(--motion-slow); }
-.gx-guided__checklist > li.is-active .gx-guided__mark, .gx-guided__checklist > li.is-current .gx-guided__mark, .gx-guided__checklist > li.is-retry .gx-guided__mark { color: var(--g-accent); }
-.gx-guided__checklist > li.is-failed .gx-guided__mark { color: var(--error); }
-.gx-guided__checklist > li.is-waiting strong, .gx-guided__checklist > li.is-skipped strong { color: var(--g-muted); font-weight: 500; }
-
-.gx-guided__callout {
-  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 0; padding: 14px var(--sp-4);
-  border-radius: var(--radius-sm); background: color-mix(in srgb, var(--g-accent) 14%, transparent); font-size: 15px; line-height: 1.4;
-}
-.gx-guided__callout--quiet { background: var(--g-fill); color: var(--g-muted); display: block; }
-
-/* The page's own pairing, cable and app content arrives through the car slot; it takes the same look here. */
-.gx-guided__body { display: grid; gap: 14px; }
+.gx-guided__step.is-done + .gx-guided__step::before { background: var(--success); }
+.gx-guided__node { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius-full); background: var(--surface-container-high); color: var(--on-surface-variant); font-weight: var(--fw-bold); }
+.gx-guided__step.is-current .gx-guided__node { background: var(--primary); color: var(--on-primary); box-shadow: 0 0 0 var(--sp-1) var(--primary-container), 0 var(--sp-1) var(--sp-4) var(--primary-glow); }
+.gx-guided__step.is-done .gx-guided__node { background: var(--success); color: var(--background); }
+.gx-guided__step-label, .gx-guided__hint { font-size: var(--fs-sm); color: var(--on-surface-variant); }
+.gx-guided__header, .gx-guided__section, .gx-guided__body { display: grid; gap: var(--sp-3); min-width: 0; }
+.gx-guided__header > *, .gx-guided__subhead, .gx-guided__hint { margin: 0; }
+.gx-guided__header { max-width: 34rem; gap: var(--sp-2); }
+.gx-guided__title { font-size: clamp(1.625rem, 2.5vw, 1.875rem); line-height: 1.15; letter-spacing: -.02em; text-wrap: balance; }
+.gx-guided__lede { color: var(--on-surface-variant); font-size: var(--fs-base); line-height: 1.5; }
+.gx-guided__subhead { font-size: var(--fs-base); color: var(--on-surface-variant); }
 .gx-guided__body:empty { display: none; }
-.gx-guided .gx-note, .gx-guided .gx-notice, .gx-guided .gx-starport-guide { margin: 0; padding: 14px var(--sp-4); border: 0; border-radius: var(--radius-sm); background: var(--g-fill); font-size: 15px; line-height: 1.45; }
-.gx-guided .gx-starport-prompt { padding: 18px; border-radius: var(--radius-md); background: var(--g-fill); }
-.gx-guided .gx-starport-prompt__code { font-size: 34px; font-weight: var(--fw-bold); }
-.gx-guided .gx-starport-wiki { background: var(--g-fill); border: 0; border-radius: var(--radius-sm); padding: 0; overflow: hidden; color: var(--g-muted); }
-.gx-guided .gx-starport-wiki > summary { padding: 14px var(--sp-4); font-size: 15px; font-weight: var(--fw-medium); color: var(--g-ink); }
-.gx-guided .gx-starport-wiki > :not(summary) { margin-inline: var(--sp-4); font-size: 14px; line-height: 1.5; }
-.gx-guided .gx-starport-wiki > :last-child { margin-bottom: var(--sp-4); }
-.gx-guided .gx-starport-wiki > .gx-starport-list { margin-inline: 0; margin-top: 0; border-radius: 0; background: none; border-top: 1px solid var(--g-line); }
-.gx-guided .gx-field { min-height: 44px; border-radius: var(--radius-sm); }
-.gx-guided .gx-actions, .gx-guided .gx-driving__actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 0; }
-.gx-guided .gx-row { background: var(--g-fill); border: 0; border-radius: var(--radius-md); padding: var(--sp-3) var(--sp-4); }
-
-/* Buttons: soft tonal, and a large primary. */
-.gx-guided .gx-btn { min-height: 44px; border-radius: var(--radius-sm); font-size: 16px; font-weight: var(--fw-bold); letter-spacing: -.01em; padding-inline: 18px; box-shadow: none; }
-.gx-guided .gx-btn--tonal { background: var(--g-fill-hover); color: var(--g-ink); border: 0; }
-.gx-guided .gx-btn--tonal:hover:not(:disabled) { background: var(--g-line); }
-.gx-guided .gx-starport-cta { width: 100%; min-height: 54px; border-radius: var(--radius-md); font-size: 17px; box-shadow: 0 6px 22px var(--primary-glow); }
-.gx-guided__footer { display: grid; gap: var(--sp-3); justify-items: stretch; }
+.gx-guided__option { display: flex; align-items: center; gap: var(--sp-3); min-height: var(--touch-target); padding: var(--sp-3) var(--sp-4); cursor: pointer; }
+.gx-guided__option:hover:not(:has(:disabled)) { background: var(--glass-bg-hover); }
+.gx-guided__option:has(:checked) { background: var(--primary-container); color: var(--on-primary-container); }
+.gx-guided__option:has(:disabled), .gx-guided__choice:has(:disabled) { opacity: .6; cursor: default; }
+.gx-guided__option:focus-within, .gx-guided__choice:focus-within { outline: 2px solid var(--primary); outline-offset: -2px; }
+.gx-guided__options { background: var(--surface-container); }
+.gx-guided__options > li + li { border-top: 1px solid var(--outline); }
+.gx-guided__option input { flex: none; order: 1; width: var(--sp-5); height: var(--sp-5); margin: 0; accent-color: var(--primary); }
+.gx-guided__option:has(:checked) .gx-guided__tile { background: var(--primary); color: var(--on-primary); }
+.gx-guided__segmented { display: flex; flex-wrap: wrap; gap: var(--sp-1); padding: var(--sp-1); border-radius: var(--radius-sm); background: var(--surface-container-high); }
+.gx-guided__choice { flex: 1 1 7rem; min-width: 0; min-height: var(--touch-target); padding: var(--sp-2); border-radius: calc(var(--radius-sm) - var(--sp-1)); text-align: center; text-wrap: balance; box-shadow: none; background: transparent; color: var(--on-surface-variant); }
+.gx-guided__choice:has(:checked) { background: var(--primary); color: var(--on-primary); }
+.gx-guided__choice:has(:checked):hover { background: var(--primary-hover); }
+.gx-guided__tile { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--radius-sm); background: var(--primary-container); color: var(--primary); font-size: var(--fs-lg); }
+.gx-guided__mark { flex: none; display: grid; place-items: center; width: 28px; font-size: var(--fs-lg); color: var(--on-surface-variant); }
+.gx-guided__checklist > li.is-done .gx-guided__mark, .gx-guided__checklist > li.is-worked .gx-guided__mark { color: var(--success); }
+.gx-guided__checklist > li.is-active .gx-guided__mark, .gx-guided__checklist > li.is-current .gx-guided__mark, .gx-guided__checklist > li.is-retry .gx-guided__mark { color: var(--primary); }
+.gx-guided__checklist > li.is-failed .gx-guided__mark { color: var(--error); }
+.gx-guided__callout { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin: 0; padding: var(--sp-4); border-radius: var(--radius-sm); background: var(--primary-container); }
+.gx-guided__callout--quiet { background: var(--surface-container); color: var(--on-surface-variant); }
+.gx-guided__footer { display: grid; gap: var(--sp-3); }
+.gx-guided .gx-starport-cta { min-height: calc(var(--touch-target) + var(--sp-2)); border-radius: var(--radius-md); font-size: var(--fs-base); }
 .gx-guided__footer .gx-guided__hint { text-align: center; }
-.gx-guided__link { justify-self: center; padding: var(--sp-2) var(--sp-3); border: 0; background: none; color: var(--g-accent); font: inherit; font-size: 15px; font-weight: var(--fw-medium); cursor: pointer; }
+.gx-guided__link { justify-self: center; padding: var(--sp-2) var(--sp-3); border: 0; border-radius: var(--radius-sm); background: none; color: var(--primary); font: inherit; cursor: pointer; }
 .gx-guided__link:hover:not(:disabled) { text-decoration: underline; }
+.gx-guided__link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .gx-guided__link:disabled { opacity: .5; cursor: default; }
-
-@media (max-width: 640px) {
-  .gx-card.gx-guided { padding: 22px var(--sp-4) 18px; gap: 20px; }
-  .gx-guided__title { font-size: 26px; }
-  .gx-guided__lede { font-size: 16px; }
-  .gx-guided__segmented button { font-size: 14px; }
-  .gx-guided__options, .gx-guided__cars { --g-inset: 66px; }
-  .gx-guided__checklist { --g-inset: 54px; }
-  .gx-guided .gx-starport-cta { min-height: 56px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .gx-guided__node, .gx-guided__option, .gx-guided__radio, .gx-guided__segmented button { transition: none; }
-  .gx-guided__step.is-done .gx-guided__node, .gx-guided__checklist > li.is-done .gx-guided__mark, .gx-guided__checklist > li.is-worked .gx-guided__mark { animation: none; }
-}

@@ -1,8 +1,4 @@
-"""The "New pairing experience" switch (Galaxy Developer > StarPort), on unless the owner turned it off.
-
-A plain file beside the other StarPort data, not a Params key: it is the way back to the classic screens, so it must
-read and change with the StarPort service down or broken, and it needs no device rebuild.
-"""
+"""Persist the setup UI choice independently of the StarPort daemon."""
 from pathlib import Path
 
 from openpilot.common.utils import atomic_write

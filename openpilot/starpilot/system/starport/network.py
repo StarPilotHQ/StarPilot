@@ -26,7 +26,7 @@ from jeepney.low_level import MessageType
 from jeepney.wrappers import Properties
 
 from openpilot.starpilot.system.starport.bootstrap import WifiCredentials
-from openpilot.starpilot.system.starport.identity import DATA_DIR
+from openpilot.starpilot.system.starport.identity import DATA_DIR, boot_id as _boot_id
 
 NM = "org.freedesktop.NetworkManager"
 NM_PATH = "/org/freedesktop/NetworkManager"
@@ -68,13 +68,6 @@ class DedicatedUnavailable(NetworkError):
 
 class JoinTimeout(NetworkError):
   """The car's network never came up in time."""
-
-
-def _boot_id() -> str:
-  try:
-    return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
-  except OSError:
-    return ""
 
 
 def _paused_interface(marker: Path) -> str:

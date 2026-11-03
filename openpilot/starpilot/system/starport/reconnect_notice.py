@@ -18,7 +18,7 @@ def write(text: str, path: Path = NOTICE_PATH, now: float | None = None) -> None
   try:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with atomic_write(str(path), overwrite=True) as handle:
-      json.dump({"text": text, "written": time.monotonic() if now is None else now}, handle)
+      json.dump({"text": text, "written": time.monotonic() if now is None else now, "boot": identity_store.boot_id()}, handle)
   except OSError:
     pass  # the notice is a courtesy; projection never depends on it
 
@@ -34,7 +34,8 @@ def take(path: Path = NOTICE_PATH, now: float | None = None) -> str:
   except OSError:
     pass
   now = time.monotonic() if now is None else now
-  if not isinstance(record, dict) or not isinstance(record.get("text"), str):
+  boot = identity_store.boot_id()
+  if not isinstance(record, dict) or not isinstance(record.get("text"), str) or not boot or record.get("boot") != boot:
     return ""
   written = record.get("written")
   if not isinstance(written, (int, float)) or not 0 <= now - written <= NOTICE_FRESH_S:

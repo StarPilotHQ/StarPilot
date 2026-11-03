@@ -6,7 +6,7 @@ function fixture() {
   const requests = [], states = [], timers = []
   let unauthorized = 0
   const client = new StarPortLogSend({ publish: (state) => states.push(state), unauthorized: () => { unauthorized++ },
-    fetcher: (url, options) => new Promise((resolve) => requests.push({ url, options, resolve })),
+    fetcher: (url, options) => new Promise((resolve, reject) => requests.push({ url, options, resolve, reject })),
     schedule: (fn) => { timers.push(fn); return timers.length }, cancel: () => {} })
   const reply = async (index, body, status = 200) => {
     requests[index].resolve({ ok: status >= 200 && status < 300, status, json: async () => body })
@@ -60,3 +60,31 @@ const unset = fixture()
 unset.client.start()
 await unset.reply(0, { state: "idle", available: false })
 assert.equal(unset.states.at(-1).available, false)
+
+// A lost Bluetooth response retries the status read without repeating the upload.
+const interrupted = fixture()
+interrupted.client.start()
+await interrupted.reply(0, { state: "sending" })
+interrupted.timers[0]()
+interrupted.requests[1].reject(new TypeError("Connection lost"))
+await flush()
+assert.equal(interrupted.timers.length, 2)
+interrupted.timers[1]()
+await interrupted.reply(2, { state: "sent", message: "Logs sent" })
+assert.equal(interrupted.states.at(-1).state, "sent")
+assert.ok(interrupted.requests.every(({ options }) => options.method !== "POST"))
+
+// An older status read cannot replace a send's newer status, even across navigation.
+const stale = fixture()
+stale.client.start()
+const pendingSend = stale.client.send("hello")
+await stale.reply(1, { state: "sending" }, 202)
+assert.equal(await pendingSend, true)
+await stale.reply(0, { state: "idle" })
+assert.equal(stale.states.at(-1).state, "sending")
+stale.client.start()
+stale.client.start()
+await stale.reply(2, {}, 401)
+assert.equal(stale.unauthorized, 0)
+await stale.reply(3, { state: "sent" })
+assert.equal(stale.states.at(-1).state, "sent")

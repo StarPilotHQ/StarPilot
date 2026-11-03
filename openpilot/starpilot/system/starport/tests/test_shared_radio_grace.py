@@ -122,6 +122,14 @@ def test_notice_is_shown_once_and_only_while_fresh(tmp_path):
   assert not path.exists()
 
 
+def test_notice_from_another_boot_is_discarded(tmp_path, monkeypatch):
+  monkeypatch.setattr(reconnect_notice.identity_store, "boot_id", lambda: "previous")
+  path = tmp_path / "notice.json"
+  reconnect_notice.write("Reconnected", path, now=20.0)
+  monkeypatch.setattr(reconnect_notice.identity_store, "boot_id", lambda: "current")
+  assert reconnect_notice.take(path, now=30.0) == "" and not path.exists()
+
+
 def test_galaxy_status_says_what_happened():
   text = Supervisor._describe_error("streaming", SharedRadioStall("stalled"))
   assert text == "The car's Wi-Fi stalled while the comma's own Wi-Fi was switching networks; reconnecting"

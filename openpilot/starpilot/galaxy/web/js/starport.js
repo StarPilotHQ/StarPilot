@@ -767,7 +767,7 @@ export const StarPortPage = {
     // Once a device is picked the list only gets in the way of the code; it returns if pairing fails.
     deviceChosen() {
       const p = this.pairing
-      return !!(p?.receiver || p?.prompt || p?.approved || ["pairing", "connecting", "paired", "connected"].includes(p?.state))
+      return p?.state !== "failed" && !!(p?.receiver || p?.prompt || p?.approved || ["pairing", "connecting", "paired", "connected"].includes(p?.state))
     },
     deviceSelectionBlocked() {
       return !!this.pairingReason || !this.pairing?.active ||
@@ -966,7 +966,7 @@ export const StarPortPage = {
             </details>
           </div>
         </section>
-      <StarPortGuidedSetup v-if="setup && newSetup && guided.show" :state="guided" :busy="busy"
+      <StarPortGuidedSetup v-if="setup && newSetup && guided.show" id="gx-starport-guided" :state="guided" :busy="busy" :choices-disabled="appDisabled"
         @choose-type="chooseType" @choose-adapter="chooseAdapter" @choose-app="chooseApp" @use-car="useCar" @classic="useClassic" @done="showSteps = false">
         <template #car>
           <GxNotice v-if="wiredUnavailable" tone="warn">Wired AA is unavailable: {{ runtime.wired_blocked }}.</GxNotice>
@@ -1026,7 +1026,7 @@ export const StarPortPage = {
         </li>
 
       </ol>
-      <section v-if="setup && setupDone && !showSteps" class="gx-card gx-starport-step gx-starport-home" aria-labelledby="gx-starport-home-title">
+      <section v-if="setup && setupDone && !showSteps && (!newSetup || !guided.show)" class="gx-card gx-starport-step gx-starport-home" aria-labelledby="gx-starport-home-title">
         <div class="gx-starport-step__head">
           <span class="gx-starport-step__num" :class="{ 'gx-starport-home__icon--live': projecting }" aria-hidden="true"><i class="bi bi-car-front"></i></span>
           <div><h3 id="gx-starport-home-title">{{ homeTitle }}</h3>
@@ -1057,7 +1057,7 @@ export const StarPortPage = {
           ${CONNECT}
           <div class="gx-actions">
             <a class="gx-btn gx-btn--tonal" href="#/theme_maker/starport"><i class="bi bi-layout-text-window" aria-hidden="true"></i> Customize Layout</a>
-            <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showSteps" aria-controls="gx-starport-steps" @click="showSteps = !showSteps">
+            <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showSteps" :aria-controls="newSetup ? 'gx-starport-guided' : 'gx-starport-steps'" @click="showSteps = !showSteps">
               <i :class="showSteps ? 'bi bi-chevron-up' : 'bi bi-gear'" aria-hidden="true"></i> {{ showSteps ? 'Hide Setup' : newSetup ? 'Change how your car connects' : 'Setup and Pairing' }}</button>
           </div>
         </div>

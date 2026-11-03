@@ -1,16 +1,7 @@
-"""Which wireless handshake to try for a car, in what order, and which one last worked.
+"""Try wireless handshakes in order and remember a strategy after sustained video.
 
-The ladder is the one place that decides this. It owns the flip between the standard and phone-style version reply that
-the dongle work added, and it is also the "learned profile": the rung that last worked is simply the strategy used first
-the next time.
-
-One rule decides everything: **a failure advances the ladder only when the car answered the version exchange and no video
-was acknowledged yet in this session.** A sleeping car, this comma's own Bluetooth trouble, a car that shuts off after the
-drive has streamed, anything that is not the handshake being refused: none of these say anything about which strategy the
-car prefers, so none of them move it. Without that rule every ignition with an asleep car would walk the whole ladder and
-a car that works fine would end up running the dongle experiments.
-
-The first pass for a car is exactly what ran before (rung ``standard``); the later rungs are knobs that already existed.
+Only bootstrap timeouts after a version exchange advance the ladder; failures
+before the car answers or after acknowledged video leave its strategy unchanged.
 """
 from __future__ import annotations
 
@@ -21,7 +12,7 @@ from pathlib import Path
 
 from openpilot.common.utils import atomic_write
 from openpilot.starpilot.system.starport.bootstrap import CHANNEL_24GHZ, CHANNEL_DUAL, MODERN_MAJOR, REFUSAL_PATIENCE
-from openpilot.starpilot.system.starport.identity import DATA_DIR
+from openpilot.starpilot.system.starport.identity import DATA_DIR, boot_id as _boot_id
 
 STATE_PATH = DATA_DIR / "setup_state.json"
 STATE_VERSION = 1
@@ -81,13 +72,6 @@ def applicable(rung: str, version_major: int, adapter: bool) -> bool:
   if rung == "experiments":
     return adapter
   return True
-
-
-def _boot_id() -> str:
-  try:
-    return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
-  except OSError:
-    return ""
 
 
 def _valid_strategy(value) -> Strategy | None:

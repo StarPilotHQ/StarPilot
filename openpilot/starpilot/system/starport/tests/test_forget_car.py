@@ -85,3 +85,20 @@ def test_a_car_known_only_to_the_setup_ladder_is_still_forgotten(sup):
   assert OTHER.upper() in sup._ladder.cars
   daemon.handle(sup, {"command": "forget_receiver", "address": OTHER})
   assert OTHER.upper() not in sup._ladder.cars
+
+
+def test_offline_forget_clears_reply_strategy_and_fingerprint(sup):
+  sup._remember_reply(ADAPTER, True)
+  sup._remember_reply(OTHER, True)
+  sup._ladder.worked(ADAPTER, sup._ladder.strategy(ADAPTER, True))
+  sup._ladder.worked(OTHER, sup._ladder.strategy(OTHER, True))
+  sup.config["car_fingerprint"] = {"head_unit_make": "Old car"}
+  identity_store.save_config(sup.config)
+  client = protocol.StarPortClient(socket_path=str(identity_store.CONFIG_PATH.with_name("missing.sock")))
+  assert protocol.forget_car(ADAPTER, client) is True
+  assert saved()["modern_reply_cache"] == {OTHER: True} and saved()["car_fingerprint"] == {}
+  from openpilot.starpilot.system.starport.setup_ladder import SetupLadder
+  ladder = SetupLadder(sup._ladder.path)
+  assert ADAPTER not in ladder.cars and OTHER in ladder.cars
+  assert protocol.forget_car(OTHER, client) is False
+  assert saved()["modern_reply_cache"] == {} and not SetupLadder(sup._ladder.path).cars

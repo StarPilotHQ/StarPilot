@@ -242,3 +242,31 @@ def test_the_passes_come_back_with_each_ignition_even_without_a_reboot(ladder):
   assert refuse(ladder, ladder.strategy(CAR, False)) == "advanced"
   ladder.begin_cycle("AA:00:00:00:00:99")        # an unknown car is a no-op
   assert "AA:00:00:00:00:99" not in ladder.cars
+
+
+def test_short_sessions_keep_the_same_other_reply_until_it_is_learned(sup, monkeypatch):
+  from openpilot.starpilot.system.starport import supervisor as module
+  sup._ladder.failed(RECEIVER, sup._ladder.strategy(RECEIVER, False), ladder_failure=True,
+                    video_seen=False, version_major=4, adapter=False)
+  replies = []
+
+  def bootstrap(*args, **kwargs):
+    replies.append(kwargs["modern_reply"])
+    return SimpleNamespace(version_major=4, modern_reply=kwargs["modern_reply"], join_is_cancelled=lambda: False,
+                           run=lambda *a, **k: SimpleNamespace(head_unit={}), keepalive=lambda stop: None)
+
+  monkeypatch.setattr(module, "WirelessBootstrap", bootstrap)
+  monkeypatch.setattr(sup, "_wait", lambda delay: None)
+  monkeypatch.setattr(sup, "_connect_rfcomm", lambda *args: None)
+
+  def short_session(*args):
+    raise RuntimeError("TCP disconnected before sustained video")
+
+  monkeypatch.setattr(sup, "_project", short_session)
+  for _ in range(2):
+    with pytest.raises(RuntimeError, match="TCP disconnected"):
+      sup._attempt(SimpleNamespace())
+  assert replies == [True, True] and not sup.config["modern_reply_cache"]
+  monkeypatch.setattr(sup, "_project", lambda *args: sup._ladder.worked(RECEIVER, sup._strategy))
+  sup._attempt(SimpleNamespace())
+  assert sup.config["modern_reply_cache"] == {RECEIVER: True}

@@ -1,11 +1,4 @@
-"""Why a connection attempt could not reach the car, so each cause is waited out differently.
-
-Bugsink showed most failed drives never got as far as video, and nearly all of those stopped at Bluetooth: "Host is
-down" and page timeouts (the car's radio is off or busy), connection refused or reset (the radio answered but the
-Android Auto service was not up yet), and the comma's own Bluetooth stack being busy. One fixed backoff treated them alike.
-
-The class is derived from strings so the supervisor (live exceptions) and the report (logged text) agree.
-"""
+"""Classify live and logged connection failures to select retry delays."""
 
 ASLEEP = "asleep"          # the car did not answer a page at all: off, or still waking
 NOT_READY = "not_ready"    # the car answered, but its Android Auto service or Wi-Fi handshake is not up yet

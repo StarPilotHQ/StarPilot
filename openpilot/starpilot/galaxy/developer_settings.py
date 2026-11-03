@@ -42,14 +42,6 @@ class DeveloperSettingsOwner:
     except (OSError, RuntimeError, ValueError, KeyError, TypeError):
       return None  # the service is off; there is nothing to configure
 
-  def _starport_enabled(self):
-    status = self._starport_status()
-    return None if status is None else bool(status.get("dedicated_wifi_interface"))
-
-  def _starport_hevc(self):
-    status = self._starport_status()
-    return None if status is None else bool(status.get("allow_hevc"))
-
   def _starport_rows(self, parked):
     """The StarPort section. The switch back to classic setup is always listed; the daemon's settings only while it runs."""
     new_setup_on = new_setup.enabled()
@@ -125,9 +117,9 @@ class DeveloperSettingsOwner:
     if request.key == "IgnoreIgnitionLine":
       return self.panda_wake is not None and self.panda_wake.apply(request)
     if request.key == STARPORT_WIFI_KEY:
-      return self._apply_starport(request)
+      return self._apply_starport(request, "dedicated_wifi_interface", "set_dedicated_wifi")
     if request.key == STARPORT_HEVC_KEY:
-      return self._apply_hevc(request)
+      return self._apply_starport(request, "allow_hevc", "set_allow_hevc")
     if request.key == STARPORT_NEW_SETUP_KEY:
       return self._apply_new_setup(request)
     if request.key != KEY or request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
@@ -136,27 +128,18 @@ class DeveloperSettingsOwner:
                           expected=request.expected, authorized=self.authorized, temp_prefix=".voacc-")
     return result.committed and result.verified
 
-  def _apply_starport(self, request):
-    enabled, client = self._starport_enabled(), self.starport
+  def _apply_starport(self, request, field, command):
+    status, client = self._starport_status(), self.starport
+    enabled = None if status is None else bool(status.get(field))
     if (enabled is None or client is None or request.value not in ("Off", "On") or request.expected != (b"1" if enabled else b"0") or
         not self.authorized()):
       return False
     try:
-      client().call("set_dedicated_wifi", enabled=request.value == "On")
+      client().call(command, enabled=request.value == "On")
     except (OSError, RuntimeError, ValueError):
       return False
-    return self._starport_enabled() == (request.value == "On")
-
-  def _apply_hevc(self, request):
-    enabled, client = self._starport_hevc(), self.starport
-    if (enabled is None or client is None or request.value not in ("Off", "On") or request.expected != (b"1" if enabled else b"0") or
-        not self.authorized()):
-      return False
-    try:
-      client().call("set_allow_hevc", enabled=request.value == "On")
-    except (OSError, RuntimeError, ValueError):
-      return False
-    return self._starport_hevc() == (request.value == "On")
+    status = self._starport_status()
+    return status is not None and bool(status.get(field)) == (request.value == "On")
 
   def _apply_new_setup(self, request):
     current = new_setup.enabled()
