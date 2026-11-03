@@ -113,6 +113,32 @@ static uint8_t mazda_ti_clean_frames = 0U;
 // arrives while the host has already let go. A fault that clears while a cruise
 // edge has re-armed controls must not silently restore authority.
 static bool mazda_ti_latch = false;
+// TI2 violation 0x02 is a self-clearing event, not a failure. In every capture
+// all four CPUs report it together, stay in RUN, and clear it within 17-20 s
+// (after an engine start, and as the vehicle reaches a standstill). It pauses
+// lateral torque only: health, the latch, controls_allowed and the AOL token are
+// untouched. A pause can only begin from proven health (mazda_ti_unhealthy()
+// false), and an episode that outlasts MAZDA_TI_PAUSE_MAX_US becomes a latched
+// fault. A new 0x02 before a full recovery continues the same episode, so a
+// flickering code cannot extend the cap. CarState.update_gen2 mirrors this model;
+// test_mazda_gen2_ti2_parity.py keeps the two in step.
+#define MAZDA_TI_VIOL_TRANSIENT 0x02U
+#define MAZDA_TI_PAUSE_MAX_US 30000000U
+static bool mazda_ti_pause = false;
+static uint32_t mazda_ti_pause_ts = 0U;
+static uint8_t mazda_ti_pause_clean_frames = MAZDA_TI_RECOVERY_FRAMES;
+
+// Lateral torque is withheld during a 0x02 pause and until MAZDA_TI_RECOVERY_FRAMES
+// consecutive clean frames have followed it.
+static bool mazda_ti_lateral_paused(void) {
+  return (mazda_gen2 || mazda_gen3) &&
+    (mazda_ti_pause || (mazda_ti_pause_clean_frames < MAZDA_TI_RECOVERY_FRAMES));
+}
+
+static void mazda_ti_end_pause(void) {
+  mazda_ti_pause = false;
+  mazda_ti_pause_clean_frames = MAZDA_TI_RECOVERY_FRAMES;
+}
 
 // ACC integrity: 0x220 carries a checksum in byte 7 (seed 0x2a over bytes 0..6).
 static bool mazda_acc_checksum_valid(const uint8_t *data) {
@@ -152,6 +178,7 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
     mazda_ti_latch = true;
     mazda_ti_clean_frames = 0U;
     controls_allowed = false;
+    mazda_ti_end_pause();
   }
 
   if ((int)msg->bus == MAZDA_MAIN) {
@@ -243,22 +270,46 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
       mazda_ti_feedback_seen = true;
       mazda_ti_feedback_ts = microsecond_timer_get();
 
-      // TI2 fault contract: any CPU violation revokes actuation here, without
+      // TI2 fault contract: a CPU violation revokes actuation here, without
       // waiting for the host. CPU_n_VIOL are whole bytes 2..5 in both the GEN2
-      // and GEN3 DBCs. Never re-enables: the driver must authorize again.
-      const bool ti_violation = (msg->data[2] | msg->data[3] | msg->data[4] | msg->data[5]) != 0U;
+      // and GEN3 DBCs. Faults never re-enable: the driver must authorize again.
+      // The single exception is a 0x02-only pause (see MAZDA_TI_VIOL_TRANSIENT).
+      bool ti_violation = false;
+      bool ti_other_violation = false;
+      for (int i = 2; i < 6; i++) {
+        ti_violation = ti_violation || (msg->data[i] != 0U);
+        ti_other_violation = ti_other_violation ||
+          ((msg->data[i] != 0U) && (msg->data[i] != MAZDA_TI_VIOL_TRANSIENT));
+      }
       const bool ti_states_ok = (((msg->data[6] >> 4) & 0xFU) == MAZDA_TI_STATE_RUN) &&
                                 ((msg->data[6] & 0xFU) == MAZDA_TI_STATE_RUN) &&
                                 (((msg->data[7] >> 4) & 0xFU) == MAZDA_TI_STATE_RUN) &&
                                 ((msg->data[7] & 0xFU) == MAZDA_TI_STATE_RUN);
-      // A violation or any state that is not RUN is a fault. Treating unknown
-      // values as unhealthy is the fail-closed reading required by the plan.
-      mazda_ti_fault = ti_violation || !ti_states_ok;
+      // Judged on state before this frame: a pause may only start from health.
+      const bool pause_eligible = mazda_ti_pause || !mazda_ti_unhealthy();
+      const bool pause_expired = mazda_ti_lateral_paused() &&
+        (safety_get_ts_elapsed(mazda_ti_feedback_ts, mazda_ti_pause_ts) > MAZDA_TI_PAUSE_MAX_US);
+      const bool ti_transient = ti_violation && !ti_other_violation && ti_states_ok &&
+                                pause_eligible && !pause_expired;
+      // Any other violation, or any state that is not RUN, is a fault. Treating
+      // unknown values as unhealthy is the fail-closed reading required by the plan.
+      mazda_ti_fault = (ti_violation && !ti_transient) || !ti_states_ok;
       if (mazda_ti_fault) {
         mazda_ti_latch = true;
         mazda_ti_clean_frames = 0U;
         controls_allowed = false;
+        mazda_ti_end_pause();  // the latch now governs recovery
+      } else if (ti_transient) {
+        if (!mazda_ti_pause && (mazda_ti_pause_clean_frames >= MAZDA_TI_RECOVERY_FRAMES)) {
+          mazda_ti_pause_ts = mazda_ti_feedback_ts;  // fresh episode only
+        }
+        mazda_ti_pause = true;
+        mazda_ti_pause_clean_frames = 0U;
       } else {
+        mazda_ti_pause = false;
+        if (mazda_ti_pause_clean_frames < MAZDA_TI_RECOVERY_FRAMES) {
+          mazda_ti_pause_clean_frames++;
+        }
         if (mazda_ti_clean_frames < MAZDA_TI_RECOVERY_FRAMES) {
           mazda_ti_clean_frames++;
         }
@@ -429,9 +480,10 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
       tx = false;
     }
     // A verified TI2 fault blocks torque even if a cruise re-engagement briefly
-    // set controls_allowed again between two feedback frames. Releasing torque
-    // (zero) stays allowed so the interceptor is never left holding a command.
-    if (ti_unhealthy && (desired_torque != 0)) {
+    // set controls_allowed again between two feedback frames, and a 0x02 pause
+    // blocks it until recovery. Releasing torque (zero) stays allowed so the
+    // interceptor is never left holding a command.
+    if ((ti_unhealthy || mazda_ti_lateral_paused()) && (desired_torque != 0)) {
       tx = false;
     }
   }
@@ -494,6 +546,8 @@ static safety_config mazda_init(uint16_t param) {
   mazda_ti_fault = false;
   mazda_ti_latch = false;
   mazda_ti_clean_frames = 0U;
+  mazda_ti_pause_ts = 0U;
+  mazda_ti_end_pause();
 
   // MoreTore param flags select the generation and interceptors. Pure-stock
   // GEN1 keeps param 0 (Dom's stock-AOL configuration); the GEN1 bit is set

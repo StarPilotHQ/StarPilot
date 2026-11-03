@@ -14,8 +14,10 @@ the two disagree, AOL breaks in one of two ways:
     lateral again until a new physical gesture.
 
 This test feeds identical frames with identical timestamps to libsafety and to a
-real CarState, models the host arming rules, and requires the host's final
-armed state to equal panda's final lateral permission for every scenario.
+real CarState. On every tick carrying a 0x24B frame it requires the two health
+models to agree (proven health; lateral paused) and CarState's reported faults
+to be consistent with panda. It also models the host arming rules and requires
+the host's final armed state to equal panda's final lateral permission.
 
 Host model (mirrors starpilot/aol/intent.py and starpilot/car/mazda/aol.py):
   * arming succeeds only if CarState reports no permanent fault;
@@ -29,7 +31,7 @@ import unittest
 from opendbc.can import CANPacker
 from opendbc.car import Bus, structs
 from opendbc.car.mazda.carstate import CarState
-from opendbc.car.mazda.values import CAR, MazdaSafetyFlags
+from opendbc.car.mazda.values import CAR, TI2_HEALTH, MazdaSafetyFlags
 from opendbc.can.dbc import DBC
 from opendbc.safety.tests.common import CANPackerSafety
 from opendbc.safety.tests.libsafety import libsafety_py
@@ -90,6 +92,31 @@ SCENARIOS = {
   'startup_02_then_recovery_then_arm': ti(ALL_02, n=30) + ti(n=15) + arm() + ti(n=20),
 }
 
+# Whether the AOL session is still usable once the TI2 is clean again.
+SURVIVES = {
+  'clean_session': True,
+  'pause_all_cpus': True,
+  'pause_some_cpus': True,
+  'pause_18s_like_captures': True,
+  'pause_twice_with_full_recovery': True,
+  'pause_then_short_recovery_then_pause': True,
+  'pause_one_clean_frame_short_of_recovery': True,
+  'pause_outlasts_cap': False,
+  'pause_flicker_outlasts_cap': False,
+  'mixed_codes': False,
+  'pause_with_cpu_not_in_run': False,
+  'real_fault_then_one_clean_then_02': False,
+  'real_fault_then_recovery_then_02': False,
+  'powerup_13_then_02': False,
+  'state_only_fault_then_02': False,
+  'feedback_gap_then_02': False,
+  'short_feedback_gap': True,
+  'startup_first_frame_02_arm_during': False,
+  'startup_9_clean_then_02_arm_during': False,
+  'startup_02_then_recovery_then_arm': True,
+}
+assert SURVIVES.keys() == SCENARIOS.keys()
+
 
 class TestMazdaGen2TI2Parity(unittest.TestCase):
   def setUp(self):
@@ -103,6 +130,9 @@ class TestMazdaGen2TI2Parity(unittest.TestCase):
     self.packer = CANPackerSafety('mazda_2019')
     self.dbc = DBC('mazda_2019')
     self.host_packer = CANPacker('mazda_2019')
+    # Cause of panda's current unhealthy period: 'fault' (violation or feedback
+    # gap), 'state' (non-RUN CPU state only), or None.
+    self.unhealthy_cause = None
 
     self.CP = structs.CarParams(carFingerprint=CAR.MAZDA_3_2019, brand="mazda", flags=GEN2)
     self.car_state = CarState(self.CP)
@@ -150,7 +180,39 @@ class TestMazdaGen2TI2Parity(unittest.TestCase):
     for parser in self.parsers.values():
       parser.update([now_ns, frames])
     cs = self.car_state.update_gen2(self.parsers)
+    if kind == 'gap':
+      self.unhealthy_cause = 'fault'
+    else:
+      self._check_frame_parity(cs, viol, states)
     return cs, now_ns
+
+  def _check_frame_parity(self, cs, viol, states):
+    """Per-frame agreement between CarState and panda on a fresh 0x24B frame."""
+    host = self.car_state
+    panda_unhealthy = bool(self.safety.get_mazda_ti_unhealthy())
+    panda_paused = bool(self.safety.get_mazda_ti_lateral_paused())
+    host_healthy = host.ti2_clean_frames >= TI2_HEALTH.RECOVERY_FRAMES and not host.ti2_hard_fault
+    host_paused = host.ti2_pause or host.ti2_pause_clean_frames < TI2_HEALTH.RECOVERY_FRAMES
+    where = f"t={self.time} viol={viol} states={states} temp={cs.steerFaultTemporary} perm={cs.steerFaultPermanent}"
+    self.assertEqual(host_healthy, not panda_unhealthy, f"proven-health mismatch: {where}")
+    self.assertEqual(host_paused, panda_paused, f"pause mismatch: {where}")
+    if panda_paused:
+      self.assertTrue(cs.steerFaultTemporary, f"panda withholds lateral without a host restriction: {where}")
+    if cs.steerFaultTemporary:
+      self.assertFalse(panda_unhealthy, f"host reports a pause panda treats as a fault: {where}")
+    if cs.steerFaultPermanent:
+      self.assertTrue(panda_unhealthy, f"host reports a fault panda does not: {where}")
+
+    # Until panda has fully recovered from a violation or a feedback gap, the
+    # host must keep reporting it, or it would accept a MAIN press panda refuses.
+    if not panda_unhealthy:
+      self.unhealthy_cause = None
+    elif any(viol) and not panda_paused:
+      self.unhealthy_cause = 'fault'
+    elif self.unhealthy_cause is None and any(state != 3 for state in states):
+      self.unhealthy_cause = 'state'
+    if self.unhealthy_cause == 'fault':
+      self.assertTrue(cs.steerFaultPermanent, f"panda still recovering from a fault the host no longer reports: {where}")
 
   def _run(self, steps):
     host_armed = False
@@ -176,6 +238,18 @@ class TestMazdaGen2TI2Parity(unittest.TestCase):
       trace.append((index, kind, viol, states, bool(cs.steerFaultTemporary), bool(cs.steerFaultPermanent),
                     self.safety.aol_get_permission_mask(), host_armed))
     return host_armed, bool(self.safety.aol_get_permission_mask() & 1), trace
+
+  def test_aol_survival_matches_ti2_contract(self):
+    # A lone 0x02 (every CPU in RUN, starting from proven health, within the
+    # 30 s episode cap) is a pause the AOL session survives. Everything else
+    # still needs a new physical gesture.
+    for name, steps in SCENARIOS.items():
+      with self.subTest(scenario=name):
+        self.setUp()
+        host_armed, panda_lateral, trace = self._run(steps)
+        tail = '\n'.join(map(str, trace[-5:]))
+        self.assertEqual(panda_lateral, SURVIVES[name], f"{name}: panda lateral={panda_lateral}\n{tail}")
+        self.assertEqual(host_armed, SURVIVES[name], f"{name}: host armed={host_armed}\n{tail}")
 
   def test_host_and_panda_agree_on_aol_survival(self):
     for name, steps in SCENARIOS.items():

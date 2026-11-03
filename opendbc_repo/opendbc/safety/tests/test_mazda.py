@@ -494,6 +494,60 @@ class TestMazda2019Safety(common.CarSafetyTest, common.DriverTorqueSteeringSafet
       self._rx(self._ti2_feedback_msg())
     self.assertFalse(self.safety.get_controls_allowed())
 
+  # --- TI2 violation 0x02: a lateral pause, not a fault (MAZDA_TI_VIOL_TRANSIENT) ---
+  # Episode-cap timing is covered in test_mazda_gen2_aol.py, whose harness keeps
+  # every required message fresh while time advances.
+  TI_ALL_02 = (2, 2, 2, 2)
+
+  def test_ti_02_pause_blocks_torque_without_revoking(self):
+    self._rx(self._stock_acc_msg(accel_cmd=2000))
+    self.safety.set_controls_allowed(1)
+    for viol in (self.TI_ALL_02, (0, 2, 0, 2)):
+      self._rx_raw(self._ti2_feedback_msg(viol=viol))
+      self.assertTrue(self.safety.get_controls_allowed(), viol)
+      self.assertFalse(self._tx(self._torque_cmd_msg(45)), viol)
+      self.assertTrue(self._tx(self._torque_cmd_msg(0)), viol)
+      if self.SAFETY_PARAM & MazdaSafetyFlags.GEN2:
+        # Lateral only: an in-bounds modified ACC command is still allowed.
+        self.assertTrue(self._tx(self._acc_cmd_msg(accel_cmd=2200)), viol)
+
+  def test_ti_02_pause_resumes_after_recovery_frames(self):
+    self.safety.set_controls_allowed(1)
+    self._rx_raw(self._ti2_feedback_msg(viol=self.TI_ALL_02))
+    self._healthy(self.TI_RECOVERY_FRAMES - 1)
+    self.assertFalse(self._tx(self._torque_cmd_msg(45)))
+    self._rx_raw(self._ti2_feedback_msg())
+    self.assertTrue(self.safety.get_controls_allowed())
+    self.assertTrue(self._tx(self._torque_cmd_msg(45)))
+
+  def test_ti_02_with_other_code_or_state_is_fault(self):
+    for viol, states in (((2, 1, 0, 0), (3, 3, 3, 3)), (self.TI_ALL_02, (3, 3, 2, 3))):
+      self._reset_safety_hooks()
+      self._healthy()
+      self.safety.set_controls_allowed(1)
+      self._rx_raw(self._ti2_feedback_msg(viol=viol, cpu_state=states))
+      self.assertFalse(self.safety.get_controls_allowed(), (viol, states))
+
+  def test_ti_02_needs_proven_health(self):
+    # Startup: no feedback yet, then fewer than the recovery frames.
+    for clean_before in (0, 1, self.TI_RECOVERY_FRAMES - 1):
+      self._reset_safety_hooks()
+      self._healthy(clean_before)
+      self.safety.set_controls_allowed(1)
+      self._rx_raw(self._ti2_feedback_msg(viol=self.TI_ALL_02))
+      self.assertFalse(self.safety.get_controls_allowed(), clean_before)
+    # After a real fault and a short recovery: the 0x02 is a fault too, so it
+    # restarts the recovery count instead of letting it finish.
+    self._reset_safety_hooks()
+    self._healthy()
+    self._rx_raw(self._ti2_feedback_msg(viol=(1, 0, 0, 0)))
+    self._healthy(1)
+    self._rx_raw(self._ti2_feedback_msg(viol=self.TI_ALL_02))
+    self._healthy(self.TI_RECOVERY_FRAMES - 1)
+    self.assertTrue(self.safety.get_mazda_ti_unhealthy())
+    self._healthy(1)
+    self.assertFalse(self.safety.get_mazda_ti_unhealthy())
+
   # --- GEN2 0x220 modified-command contract (safety plan 5.1, 5.2, 5.4) ---
   # Raw frames are built bit by bit rather than through the DBC packer, so these
   # tests also pin the native decode. ACCEL_CMD is d2 bit 0, d3, d4 bits 7..5;

@@ -503,3 +503,9 @@ bool test_ford_bp_pinion_rx_overflow(void) {
   ford_bp_append_pinion_rx(&config, workspace);
   return (config.tx_msgs == NULL) && (config.tx_msgs_len == 0) && (config.rx_checks_len == 11) && !ford_aol_enabled;
 }
+
+// Mazda TI2 health (modes/mazda.h), for the panda/CarState parity test: whether
+// the interceptor is unhealthy (fault, latch, unproven or stale), and whether a
+// 0x02 pause or its recovery window is withholding lateral torque.
+bool get_mazda_ti_unhealthy(void) { return mazda_ti_unhealthy(); }
+bool get_mazda_ti_lateral_paused(void) { return mazda_ti_lateral_paused(); }

@@ -3,7 +3,7 @@ from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs, DT_CTRL
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
-from opendbc.car.mazda.values import CAR, DBC, LKAS_LIMITS, MazdaSafetyFlags, TI_STATE, CarControllerParams
+from opendbc.car.mazda.values import CAR, DBC, LKAS_LIMITS, MazdaSafetyFlags, TI_STATE, TI2_HEALTH, CarControllerParams
 from opendbc.car.mazda.stock_aol import admitted as aol_admitted
 
 ButtonType = structs.CarState.ButtonEvent.Type
@@ -59,6 +59,15 @@ class CarState(CarStateBase):
     self.ti_violation = 0
     self.ti_error = 0
     self.ti_lkas_allowed = False
+
+    # GEN2 TI2 health, mirroring panda's model frame for frame (see TI2_HEALTH).
+    self.ti2_clean_frames = 0          # consecutive clean RUN frames; 0 until TI2 proves health
+    self.ti2_hard_fault = False        # mazda_ti_fault/latch; clears only after a full recovery
+    self.ti2_pause = False
+    self.ti2_pause_start_ns = 0
+    self.ti2_pause_clean_frames = TI2_HEALTH.RECOVERY_FRAMES
+    self.ti2_release_ns = 0            # frame time at which panda restores lateral
+    self.ti2_last_frame_ns = 0
 
     self._prev_steering_angle = 0
 
@@ -238,11 +247,14 @@ class CarState(CarStateBase):
     ret.brakePressed = cp.vl["BRAKE_PEDAL"]["BRAKE_PRESSED"] == 1
     ret.deprecated.brake = .1
     # TI2 fault contract (safety plan Phase 2): a CPU violation reported by the
-    # interceptor must become a permanent steering fault so nothing downstream
-    # keeps commanding torque. Verified by test_gen2_ti2_faults.py.
-    ti_feedback = cp_body.vl["TI_FEEDBACK"]
-    ret.steerFaultPermanent = any(ti_feedback[f"CPU_{cpu}_VIOL"] != 0 for cpu in range(4))
-    ret.steerFaultTemporary = False # No verified GEN2 source yet; CPU_x_STATE semantics are Phase 4
+    # interceptor is a permanent steering fault, except a 0x02-only pause, which
+    # is temporary. Verified by test_gen2_ti2_faults.py and, against panda, by
+    # test_mazda_gen2_ti2_parity.py.
+    self._update_ti2(cp_body)
+    in_grace = bool(self.ti2_release_ns) and self.ti2_last_frame_ns - self.ti2_release_ns < TI2_HEALTH.RELEASE_GRACE_NS
+    ret.steerFaultPermanent = self.ti2_hard_fault
+    ret.steerFaultTemporary = not self.ti2_hard_fault and (
+      self.ti2_pause or self.ti2_pause_clean_frames < TI2_HEALTH.RECOVERY_FRAMES or in_grace)
 
     unit_conversion = CV.MPH_TO_MS if cp.vl["SYSTEM_SETTINGS"]["IMPERIAL_UNIT"] else CV.KPH_TO_MS
     ret.standstill = cp_cam.vl["SPEED"]["SPEED"] * unit_conversion < 0.1
@@ -277,15 +289,81 @@ class CarState(CarStateBase):
 
     return ret
 
+  def _ti2_hard_fault(self):
+    self.ti2_hard_fault = True
+    self.ti2_clean_frames = 0
+    self.ti2_pause = False
+    self.ti2_pause_clean_frames = TI2_HEALTH.RECOVERY_FRAMES
+    self.ti2_release_ns = 0
+
+  def _update_ti2(self, cp_body):
+    """Advance the TI2 health model over every 0x24B frame in this update.
+
+    Mirrors the panda rx hook (safety/modes/mazda.h) frame for frame, so that a
+    pause panda accepts is reported temporary here, and a condition panda latches
+    is reported permanent. Every frame is counted, not only the latest, because
+    panda's recovery rule counts frames.
+    """
+    frames = cp_body.vl_all["TI_FEEDBACK"]
+    count = len(frames["CPU_0_VIOL"])
+    if count == 0:
+      return
+    timestamps = list(cp_body.message_states[0x24B].timestamps)[-count:]
+
+    for i in range(count):
+      ts = timestamps[i]
+      if self.ti2_last_frame_ns and ts - self.ti2_last_frame_ns > TI2_HEALTH.FEEDBACK_TIMEOUT_NS:
+        self._ti2_hard_fault()  # panda: stale feedback is a fault and a latch
+      self.ti2_last_frame_ns = ts
+
+      viols = [int(frames[f"CPU_{cpu}_VIOL"][i]) for cpu in range(4)]
+      states_ok = all(int(frames[f"CPU_{cpu}_STATE"][i]) == TI_STATE.RUN for cpu in range(4))
+      violation = any(viols)
+      only_transient = violation and all(v in (0, TI2_HEALTH.VIOL_TRANSIENT) for v in viols)
+      paused = self.ti2_pause or self.ti2_pause_clean_frames < TI2_HEALTH.RECOVERY_FRAMES
+      # panda: pause_eligible = mazda_ti_pause || !mazda_ti_unhealthy()
+      eligible = self.ti2_pause or (self.ti2_clean_frames >= TI2_HEALTH.RECOVERY_FRAMES and not self.ti2_hard_fault)
+      expired = paused and ts - self.ti2_pause_start_ns > TI2_HEALTH.PAUSE_MAX_NS
+
+      if only_transient and states_ok and eligible and not expired:
+        if not self.ti2_pause and self.ti2_pause_clean_frames >= TI2_HEALTH.RECOVERY_FRAMES:
+          self.ti2_pause_start_ns = ts  # fresh episode only; a flicker keeps the old timer
+        self.ti2_pause = True
+        self.ti2_pause_clean_frames = 0
+        self.ti2_release_ns = 0
+      elif violation:
+        self._ti2_hard_fault()  # another code, an ineligible 0x02, or an expired pause
+      elif not states_ok:
+        # Panda latches a non-RUN state as well. Reporting stays as before (no
+        # permanent alert), but health must be proven again before any pause.
+        self.ti2_clean_frames = 0
+        self.ti2_pause = False
+        self.ti2_pause_clean_frames = TI2_HEALTH.RECOVERY_FRAMES
+        self.ti2_release_ns = 0
+      else:
+        self.ti2_clean_frames = min(self.ti2_clean_frames + 1, TI2_HEALTH.RECOVERY_FRAMES)
+        if self.ti2_clean_frames >= TI2_HEALTH.RECOVERY_FRAMES:
+          self.ti2_hard_fault = False  # never on the first clean frame
+        self.ti2_pause = False
+        if self.ti2_pause_clean_frames < TI2_HEALTH.RECOVERY_FRAMES:
+          self.ti2_pause_clean_frames += 1
+          if self.ti2_pause_clean_frames == TI2_HEALTH.RECOVERY_FRAMES:
+            self.ti2_release_ns = ts  # panda restores lateral on this frame
+
   @staticmethod
   def get_can_parsers(CP):
     cam_signals = []
     if not (CP.flags & (MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.GEN3)):
       cam_signals.append(("CAM_TRAFFIC_SIGNS", 0))
 
+    body = CANParser(DBC[CP.carFingerprint][Bus.pt], [], 1)
+    if CP.flags & (MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.GEN3):
+      # Register 0x24B now, exactly as a first vl[] access would (no frequency),
+      # so the TI2 health model counts every frame from the first one, as panda does.
+      _ = body.vl["TI_FEEDBACK"]
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
-      Bus.body: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 1),
+      Bus.body: body,
       Bus.cam: (DashboardCameraParser(DBC[CP.carFingerprint][Bus.pt])
                 if CP.brand == 'mazda' and CP.carFingerprint in DASHBOARD_CARS and
                 int(CP.flags) == int(MazdaSafetyFlags.GEN1) and not CP.notCar
