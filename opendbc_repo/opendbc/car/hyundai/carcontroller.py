@@ -72,7 +72,7 @@ def angle_torque_reduction_gain(steering_torque, v_ego, lat_active, last_gain):
     bp4 = np.interp(v_ego, [2.0, 22.0], [400.0, 700.0])
     target = np.interp(abs(steering_torque), [bp1, bp2, bp3, bp4], [ceiling, shelf, shelf, floor])
   else:
-    target = 0.0
+    return 0.0
   return round(rate_limit(target, last_gain, -0.014, 0.004) / 0.004) * 0.004
 
 
@@ -118,7 +118,8 @@ class CarController(CarControllerBase):
     self.angle_vm = VehicleModel(CP) if CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING else None
     self.apply_angle_last = 0.0
     self.angle_gain_last = 0.0
-    self.angle_tx_recovery = (AngleTxRecovery(0x110, self.CAN.ACAN)
+    self.angle_tx_recovery = (AngleTxRecovery(0xCB, self.CAN.ECAN)
+      if pe_long_qualified(CP) or ev9_long_qualified(CP) else AngleTxRecovery(0x110, self.CAN.ACAN)
       if CP.carFingerprint in (CAR.HYUNDAI_IONIQ_5_PE, CAR.KIA_EV9) and
       (qualified_angle_aol(CP, marked_only=True) or qualified_ccnc_ev_stock(CP)) else None)
 
@@ -437,6 +438,12 @@ class CarController(CarControllerBase):
     if ev9_long:
       drive = CS.out.gearShifter == structs.CarState.GearShifter.drive
       measured = CS.angle_steering_angle
+      if self.angle_tx_recovery is not None and self.angle_tx_recovery.take_rejection(self.frame):
+        self.apply_angle_last = float(np.clip(measured, -self.params.ANGLE_LIMITS.STEER_ANGLE_MAX,
+                                              self.params.ANGLE_LIMITS.STEER_ANGLE_MAX))
+        self.angle_gain_last = 0.0
+        if self.ev9_angle_filter is not None:
+          self.ev9_angle_filter.x = self.apply_angle_last
       safety_speed = max(CS.out.vEgoRaw - 1.0, 1.0)
       bound = min(get_max_angle_vm(safety_speed, self.ev9_legacy_envelope, self.params),
                   get_max_angle_vm(safety_speed, self.angle_vm, self.params))

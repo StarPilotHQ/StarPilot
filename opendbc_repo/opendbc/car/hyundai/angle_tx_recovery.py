@@ -8,6 +8,9 @@ class AngleTxRecovery:
     self.clock = time.monotonic_ns if clock is None else clock
     self.address = address
     self.bus = bus
+    self.length = 24 if address == 0xCB else 32
+    self.active_index = 3 if address == 0xCB else 9
+    self.active_mask = 0xF if address == 0xCB else 3
     self.sent = deque(maxlen=4)
     self.last_packet_ns = 0
     self.pending_frame = -1
@@ -16,7 +19,7 @@ class AngleTxRecovery:
   def record(self, frames, frame):
     now_ns = self.clock()
     for address, data, bus in frames:
-      if address == self.address and bus == self.bus and len(data) == 32 and (data[9] >> 4 & 3) == 2:
+      if address == self.address and bus == self.bus and len(data) == self.length and (data[self.active_index] >> 4 & self.active_mask) == 2:
         self.sent.append((frame, now_ns, bytes(data)))
 
   def observe(self, packets, frame):
@@ -26,7 +29,7 @@ class AngleTxRecovery:
         continue
       self.last_packet_ns = stamp
       for address, data, bus in frames:
-        if address != self.address or bus != self.bus + 0xC0 or len(data) != 32:
+        if address != self.address or bus != self.bus + 0xC0 or len(data) != self.length:
           continue
         # Consume an exact recent command once. The original local send clock
         # also bounds delayed echoes when controller updates have been paused.
