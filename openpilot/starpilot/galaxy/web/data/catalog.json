@@ -163,7 +163,7 @@
       "availability": "local-only"
     },
     {
-      "name": "StarPilot Tuner",
+      "name": "Tuning and Analysis",
       "path": "/tuning",
       "icon": "bi-sliders2",
       "description": "Automatic steering tuning, measured corrections and live plots",

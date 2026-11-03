@@ -109,14 +109,13 @@ class ForceStopTests(unittest.TestCase):
     held = self.owner.step(frame(35, speed_mps=0., standstill=True, horizon_m=None,
                                  road_curvature=None, light=False, perception_available=False), self.tune)
     self.assertTrue(held.should_stop)
-    for tick in range(36, 76):
+    for tick in range(36, 75):
       self.assertTrue(self.owner.step(frame(tick, speed_mps=-1e-44, standstill=True, horizon_m=None,
                                           road_curvature=None, light=False, perception_available=False), self.tune).should_stop)
-    # Reopened geometry cannot classify a held stop or authorize departure.
-    for tick in range(76, 92):
-      plan = self.owner.step(frame(tick, speed_mps=0., standstill=True, horizon_m=190., light=False), self.tune)
-    self.assertTrue(plan.forcing)
-    self.assertTrue(plan.manual_hold)
+    expired = self.owner.step(frame(75, speed_mps=0., standstill=True, horizon_m=None,
+                                    road_curvature=None, light=False, perception_available=False), self.tune)
+    self.assertFalse(expired.forcing)
+    self.assertFalse(expired.manual_hold)
 
   def test_missing_perception_distance_uses_actual_model_interval(self):
     for tick in range(15):
@@ -152,38 +151,83 @@ class ForceStopTests(unittest.TestCase):
       self.assertFalse(plan.forcing)
       self.assertIsNone(plan.speed_ceiling_mps)
 
-  def test_unclassified_standstill_holds_until_driver_release(self):
-    for tick in range(80):
+  def test_standstill_hold_expires_after_two_seconds_without_rearming(self):
+    for tick in range(40):
       plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=30., raw_model_stopped=True, standstill=True), self.tune)
       self.assertTrue(plan.forcing)
       self.assertTrue(plan.should_stop)
-    for tick in range(80, 96):
-      plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=190., raw_model_stopped=False,
-                                  light=False, standstill=True), self.tune)
-    self.assertTrue(plan.forcing)
-    self.assertTrue(plan.should_stop)
-    self.assertTrue(plan.manual_hold)
-    for action in ('resume_requested', 'pedal_override'):
-      released = self.owner.step(frame(96 if action == 'resume_requested' else 97, speed_mps=0.,
-                                horizon_m=190., light=False, standstill=True, **{action: True}), self.tune)
-      self.assertFalse(released.manual_hold)
-      self.assertFalse(released.forcing)
-      self.assertFalse(released.should_stop)
+      self.assertTrue(plan.manual_hold)
+    for tick in range(40, 240):
+      plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=30., raw_model_stopped=True, standstill=True), self.tune)
+      self.assertFalse(plan.forcing)
+      self.assertFalse(plan.should_stop)
+      self.assertFalse(plan.manual_hold)
 
-  def test_manual_hold_survives_clear_geometry_and_roll_until_each_driver_action(self):
+  def test_moving_stop_hold_expires_after_two_seconds(self):
+    for tick in range(15):
+      self.owner.step(frame(tick, horizon_m=30.), self.tune)
+    for tick in range(15, 55):
+      plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=30., standstill=True), self.tune)
+      self.assertTrue(plan.manual_hold)
+    plan = self.owner.step(frame(55, speed_mps=0., horizon_m=30., standstill=True), self.tune)
+    self.assertFalse(plan.forcing)
+    self.assertFalse(plan.should_stop)
+
+  def test_standstill_hold_releases_after_open_scene_dwell(self):
+    self.assertTrue(self.owner.step(frame(0, speed_mps=0., horizon_m=30., raw_model_stopped=True,
+                                         standstill=True), self.tune).manual_hold)
+    for tick in range(1, 16):
+      plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=190., light=False, standstill=True), self.tune)
+      self.assertTrue(plan.manual_hold)
+    plan = self.owner.step(frame(16, speed_mps=0., horizon_m=190., light=False, standstill=True), self.tune)
+    self.assertFalse(plan.manual_hold)
+    self.assertFalse(plan.forcing)
+    self.assertFalse(plan.should_stop)
+
+  def test_manual_hold_survives_roll_until_each_driver_action(self):
     for action in ('resume_requested', 'pedal_override'):
       self.owner.reset()
       held = self.owner.step(frame(0, speed_mps=0., horizon_m=30., raw_model_stopped=True, standstill=True), self.tune)
       self.assertTrue(held.manual_hold)
-      for tick in range(1, 401):
-        plan = self.owner.step(frame(tick, speed_mps=.01, horizon_m=190., light=False, standstill=False), self.tune)
+      for tick in range(1, 31):
+        plan = self.owner.step(frame(tick, speed_mps=.01, horizon_m=30., raw_model_stopped=True, standstill=False), self.tune)
         self.assertTrue(plan.manual_hold)
         self.assertEqual(plan.speed_ceiling_mps, 0.)
-      release = self.owner.step(frame(401, speed_mps=0., horizon_m=190., light=False, standstill=True,
+      release = self.owner.step(frame(31, speed_mps=0., horizon_m=30., raw_model_stopped=True, standstill=True,
                                      **{action: True}), self.tune)
       self.assertFalse(release.manual_hold)
       self.assertFalse(release.forcing)
       self.assertFalse(release.should_stop)
+
+  def test_dashboard_sign_arms_only_slow_and_with_model_agreement(self):
+    for changes, armed in (({}, True), ({'speed_mps': 18.5}, False), ({'horizon_m': 60.}, False),
+                           ({'tracking_lead': True}, False)):
+      with self.subTest(changes=changes):
+        self.owner.reset()
+        for tick in range(6):
+          plan = self.owner.step(frame(tick, **{'speed_mps': 8., 'horizon_m': 45., 'light': False, 'sign': True, **changes}),
+                                 self.tune)
+        self.assertEqual(plan.forcing, armed)
+        if armed:
+          self.assertLessEqual(plan.tracked_distance_m, 27.)
+
+  def test_dashboard_sign_hold_waits_for_each_driver_action(self):
+    for action in ('pedal_override', 'resume_requested'):
+      with self.subTest(action=action):
+        self.owner.reset()
+        for tick in range(15):
+          self.owner.step(frame(tick, speed_mps=8., horizon_m=45., light=False, sign=True), self.tune)
+        for tick in range(15, 415):
+          plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=190., light=False, standstill=True), self.tune)
+          self.assertTrue(plan.manual_hold)
+          self.assertTrue(plan.should_stop)
+        released = self.owner.step(frame(415, speed_mps=0., horizon_m=190., light=False, standstill=True,
+                                         **{action: True}), self.tune)
+        self.assertFalse(released.manual_hold)
+        self.assertFalse(released.forcing)
+        for tick in range(416, 600):
+          plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=190., light=False, standstill=True), self.tune)
+          self.assertFalse(plan.forcing)
 
   def test_odometry_ceiling_bounds_reopened_model(self):
     for tick in range(15):

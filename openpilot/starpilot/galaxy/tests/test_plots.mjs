@@ -209,7 +209,7 @@ const { compile } = await import('../web/vendor/vue/vue.esm-browser.js')
 const render = compile(PlotsPage.template)
 const chart = chartGeometry([{ ...values(), at: 1000 }, { ...values(), desiredLateralAccel: .3, at: 2500 }],
   ['desiredLateralAccel', 'actualLateralAccel'])
-const context = { mode: 'local', status: 'current', data: payload(1), paused: false, advanced: false, error: '',
+const context = { embedded: false, mode: 'local', status: 'current', data: payload(1), paused: false, advanced: false, error: '',
   lateralChart: chart, longChart: chart, lateralTermsChart: chart, longTermsChart: chart,
   lateralQuality: { label: 'Good', detail: '8 samples' }, longQuality: { label: 'Fair', detail: '8 samples' },
   source: (source) => source, label: (number) => String(number), togglePause: () => {}, }

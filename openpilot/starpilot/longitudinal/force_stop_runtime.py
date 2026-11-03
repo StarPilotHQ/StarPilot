@@ -33,6 +33,17 @@ def standstill_takeoff_light(model, car) -> bool | None:
   return should_stop or horizon < FROZEN_RAW_STOP_DISTANCE_M + STOP_MODEL_RELEASE_MARGIN_M
 
 
+def dashboard_stop_sign(sm, *, now_ns: int, drive_id: int) -> bool:
+  try:
+    if not sm.seen['starpilotCarState'] or not sm.valid['starpilotCarState']:
+      return False
+    stamp = int(sm.logMonoTime['starpilotCarState'])
+    return bool(drive_id < stamp <= now_ns and now_ns - stamp <= SOURCE_AGE_NS and
+                sm['starpilotCarState'].dashboardStopSign > 0)
+  except (AttributeError, KeyError, TypeError, ValueError):
+    return False
+
+
 class ForceStopRuntime:
   def __init__(self, params):
     self.params = params
@@ -173,7 +184,8 @@ class ForceStopRuntime:
                         tracked is not None and tracked.tracked is True, bool(lead.present), float(lead.dRel), float(lead.vLead),
                         raw_curve[1] if raw_curve is not None else False, curvature[0] if curvature is not None else None,
                         bool(car.leftBlinker or car.rightBlinker), float(car.steeringAngleDeg), resume_requested=resume_requested,
-                        perception_available=perception_available)
+                        perception_available=perception_available,
+                        sign=dashboard_stop_sign(sm, now_ns=now_ns, drive_id=drive_id))
       self.plan = self.policy.step(frame, vehicle_tune(str(cp.carFingerprint)), self.offset)
       if takeoff_enabled:
         self.plan = replace(self.plan, takeoff_light_observed=takeoff_observed, takeoff_light=takeoff_light)

@@ -1484,10 +1484,17 @@ class LiveTrackingOptimizer:
       and 0 <= now_ns - self.last_ack[-1] <= 100_000_000
     )
     status, reason = self.status, self.reason
+    paused = self.paused_intent
+    if (self.paused_demand_context != (self.binding, self.certificate, self.domain)
+        or paused is None or paused[0]['baseline'] != self.accepted or type(now_ns) is not int or now_ns >= paused[0]['deadline_ns']):
+      paused = None
+    before, future = (self.before, self.future) if paused is None else paused[1:]
     if state is not None and state.get('accepted', False):
       if acknowledged:
         status = state['phase']
         reason = 'accepted_target_currently_acknowledged' if status == 'confirmed' else 'prior_accepted_baseline_restored'
+        if status == 'rollback' and paused is not None and self.paused_baseline_ns > 0:
+          reason = 'original_input_regime_after_baseline_ack_required'
       else:
         state = None
 
@@ -1503,14 +1510,14 @@ class LiveTrackingOptimizer:
       'trialId': None if state is None else state['trial_id'],
       'phase': None if state is None else state['phase'],
       'requiredEpisodes': None if state is None else state['required_episodes'],
-      'beforeEpisodes': len(self.before),
-      'futureEpisodes': len(self.future),
+      'beforeEpisodes': len(before),
+      'futureEpisodes': len(future),
       'modelStatus': self.model_status if current else 'stale',
       'lagMs': self.lag_ns / 1e6,
-      'baselineErrorRms': mean(self.before, 'error_rms'),
-      'futureErrorRms': mean(self.future, 'error_rms'),
-      'baselineReversalHz': mean(self.before, 'reversal_hz'),
-      'futureReversalHz': mean(self.future, 'reversal_hz'),
+      'baselineErrorRms': mean(before, 'error_rms'),
+      'futureErrorRms': mean(future, 'error_rms'),
+      'baselineReversalHz': mean(before, 'reversal_hz'),
+      'futureReversalHz': mean(future, 'reversal_hz'),
       'applicationAcknowledged': acknowledged,
       'applicationSettledMonoTime': self.last_ack[-1] if acknowledged and self.last_ack is not None else self.settled_ns,
       'lastCorrectionMonoTime': self.last_correction or None,

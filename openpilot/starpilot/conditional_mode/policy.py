@@ -407,6 +407,8 @@ class ConditionalModePolicy:
 
   def _cem(self, now_s: float, authority: Authority, warm: bool, scene: SceneEvidence, settings: ModeSettings) -> Decision:
     committed = settings.cem_stop and scene.forcing_stop is True and authority.driving_enabled and authority.long_active
+    if scene.standstill is True and scene.standstill_stop_hold is None and not committed and self.cem_previous_stop_hold:
+      return self._decision(True, authority, True, warm, Reason.CEM_STOP, 8)
     if not _bool(scene.standstill) or (scene.standstill and not committed and not _bool(scene.standstill_stop_hold)):
       self._reset_cem()
       return self._decision(False, authority, True, warm, Reason.SCENE_UNAVAILABLE, 0)

@@ -191,19 +191,20 @@ export const PlotGraph = {
 export const PlotsPage = {
   name: 'PlotsPage',
   components: { GxState, PlotGraph, GxIconButton },
-  props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
+  props: { embedded: { type: Boolean, default: false }, active: { type: Boolean, default: true }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ status: 'idle', data: null, history: [], error: '', paused: false, advanced: false }),
   created() { this.feed = new PlotsFeed({ publish: (update) => Object.assign(this.$data, update), unauthorized: this.unauthorized }) },
+  watch: { active() { this.visibility?.() } },
   mounted() {
     this.visibility = () => {
-      if (document.hidden) this.feed.setPaused(true)
+      if (document.hidden || this.active === false) this.feed.setPaused(true)
       else if (!this.paused && this.mode === 'local') {
-        if (!this.feed.active) this.feed.start()
+        if (!this.feed.active) { this.feed.setPaused(false); this.feed.start() }
         else this.feed.setPaused(false)
       }
     }
     document.addEventListener('visibilitychange', this.visibility)
-    if (this.mode === 'local' && !document.hidden) this.feed.start()
+    if (this.active !== false && this.mode === 'local' && !document.hidden) this.feed.start()
   },
   beforeUnmount() { document.removeEventListener('visibilitychange', this.visibility); this.feed.stop() },
   computed: {
@@ -222,8 +223,8 @@ export const PlotsPage = {
       deviceMotion: 'Device motion', carState: 'Vehicle speed', unavailable: 'Unavailable' })[kind] || 'Unavailable' },
   },
   template: `
-    <div class="gx-view gx-plots">
-      <header class="gx-settings__header gx-page-header"><div><h2>Plots &amp; Analysis</h2><p>Live local control observations. Graphs and match scores are diagnostic, not driving-control checks.</p></div></header>
+    <div :class="['gx-plots', { 'gx-view': !embedded }]">
+      <header v-if="!embedded" class="gx-settings__header gx-page-header"><div><h2>Plots &amp; Analysis</h2><p>Live local control observations. Graphs and match scores are diagnostic, not driving-control checks.</p></div></header>
       <GxState v-if="mode !== 'local'">Live plots require the authenticated local Galaxy service.</GxState>
       <template v-else>
         <div class="gx-plots__toolbar"><GxIconButton :label="paused ? 'Resume live plots' : 'Pause live plots'" :icon="paused ? 'bi-play-fill' : 'bi-pause-fill'" @click="togglePause" />

@@ -1132,6 +1132,9 @@ class Car:
     if self.CP.brand == 'mazda':
       from openpilot.starpilot.car.mazda.dashboard import compose
       companion = compose(self.CP, self.CI.CS, CS, companion, car_state_stamp=int(cs_send.logMonoTime))
+    elif self.CP.brand == 'hyundai':
+      from openpilot.starpilot.car.hyundai.dashboard import compose as hyundai_compose
+      companion = hyundai_compose(self.CP, self.CI.CS, CS, companion, car_state_stamp=int(cs_send.logMonoTime))
     if self.v_cruise_helper.toyota is not None:
       if companion is None:
         companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))

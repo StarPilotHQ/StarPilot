@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { compile } from '../web/vendor/vue/vue.esm-browser.js'
 import { FlmPage } from '../web/js/flm.js'
-import { SURFACE_NAMES, PID_UNSUPPORTED, validTrainingResults, validTrackingResults, trackingView, surfaceRows, measurementText, validTrackingValues, trackingCoordinates, validTrackingPlot, trackingPlotView, sourceSeconds } from '../web/js/flm-training-results.js'
+import { SURFACE_NAMES, PID_UNSUPPORTED, validTrainingResults, validTrackingResults, trackingView, surfaceRows, measurementText, validTrackingValues, trackingCoordinates, validTrackingPlot, trackingPlotView, sourceSeconds, tunerStatus } from '../web/js/flm-training-results.js'
 
 const coordinates = amount => SURFACE_NAMES.map((name, i) => [name, i === 0 ? amount : 0])
 const tracking = () => ({ version: 1, status: 'trial_active', reason: 'scoring_future_tracking', group: 'feedforward',
@@ -60,6 +60,24 @@ const neutralRollback = report(); neutralRollback.current.tracking.status = 'rol
 neutralRollback.current.application.applied = false
 neutralRollback.current.details['Actual full surface coordinates'] = coordinates(0)
 assert.equal(trackingView(neutralRollback, true).label, 'Correction rollback acknowledged')
+const held = structuredClone(neutralRollback)
+held.current.tracking.reason = 'original_input_regime_after_baseline_ack_required'
+held.current.tracking.futureEpisodes = 2
+assert.equal(trackingView(held, true).label, 'Baseline restored; waiting for matching road')
+assert.equal(tunerStatus(held, true).title, 'Waiting for matching road')
+assert.equal(trackingView(held, true).futureEpisodes, 2)
+assert.equal(trackingView(held, true).requiredEpisodes, 3)
+assert(!/confirmed|saved|correction applied/i.test(tunerStatus(held, true).title))
+for (const mutate of [value => value.current.tracking.applicationAcknowledged = false,
+  value => value.current.tracking.bindingCurrent = false,
+  value => value.current.fresh = false,
+  value => value.current.tracking.phase = 'trial',
+  value => delete value.current.details['Actual full surface coordinates']]) {
+  const noProof = structuredClone(held); mutate(noProof)
+  assert.equal(trackingView(noProof, true).acknowledged, false)
+  assert.notEqual(tunerStatus(noProof, true).title, 'Waiting for matching road')
+}
+assert.notEqual(tunerStatus(held, false).title, 'Waiting for matching road')
 for (const mutate of [value => value.current.tracking.applicationAcknowledged = false,
   value => value.current.tracking.bindingCurrent = false,
   value => value.current.tracking.applicationSettledMonoTime = null,
