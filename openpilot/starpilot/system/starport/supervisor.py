@@ -930,7 +930,8 @@ class Supervisor:
         self._set(error=f'Waiting for selected car: {error}'[:300])
     car_link = bool(car_device and car_device["connected"]) or now - self._car_seen_at < CAR_LINK_HOLD
     onroad = self._onroad()
-    action = self.auto.decide(now, enabled=True, onroad=onroad, car_link=car_link,
+    linked = car_profiles.tuning(self.config)["stay_while_projecting"] and self._status.get("state") in ("streaming", "suspended")
+    action = self.auto.decide(now, enabled=True, onroad=onroad, car_link=car_link, linked=linked,
                               ready=adapter_ready and bool(device and device["paired"]) and (not companion or car_link), running=running)
     self._apply_auto_action(now, action, onroad)
 

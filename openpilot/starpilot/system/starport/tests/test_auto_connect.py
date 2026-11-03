@@ -19,8 +19,8 @@ def identity(tmp_path_factory):
   return make_identity(tmp_path_factory.mktemp("identity"))
 
 
-def decide(policy, now, onroad=False, car_link=False, ready=True, running=False, enabled=True):
-  return policy.decide(now, enabled=enabled, onroad=onroad, car_link=car_link, ready=ready, running=running)
+def decide(policy, now, onroad=False, car_link=False, ready=True, running=False, enabled=True, linked=False):
+  return policy.decide(now, enabled=enabled, onroad=onroad, car_link=car_link, ready=ready, running=running, linked=linked)
 
 
 # -------------------------------------------------------------------- policy
@@ -43,6 +43,16 @@ def test_policy_stops_after_car_gone():
   assert decide(policy, 21, running=True) is None
   assert decide(policy, 21 + auto_connect.STOP_AFTER, running=True) == "stop"
   assert decide(policy, 100) is None                             # stopped, car still gone: no restart
+
+
+def test_policy_keeps_a_projecting_session_when_the_car_link_drops():
+  policy = AutoConnectPolicy()
+  assert decide(policy, 0, car_link=True) == "start"
+  assert decide(policy, 1, car_link=True, running=True) is None
+  for now in range(2, 400, 10):
+    assert decide(policy, now, running=True, linked=True) is None
+  assert decide(policy, 400, running=True) is None                # stream ended: grace period starts
+  assert decide(policy, 400 + auto_connect.STOP_AFTER, running=True) == "stop"
 
 
 def test_policy_leaves_sessions_that_never_saw_the_car():

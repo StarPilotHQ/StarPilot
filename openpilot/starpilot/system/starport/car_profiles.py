@@ -2,13 +2,13 @@
 import re
 
 DEFAULTS = {"connect_delay_s": 0.0, "max_window": 2, "phone_services": False, "phone_frames": False,
-            "bootstrap_experiments": False}
+            "bootstrap_experiments": False, "stay_while_projecting": False}
 
 FINGERPRINT_KEYS = ("head_unit_make", "head_unit_model", "car_make", "car_model", "car_year")
 
 RULES: list[dict] = [
   {"id": "aawireless", "label": "AAWireless", "match": {},
-   "tuning": {"max_window": 30, "phone_services": True, "phone_frames": True}},
+   "tuning": {"max_window": 30, "phone_services": True, "phone_frames": True, "stay_while_projecting": True}},
   {"id": "unofficial", "label": "Unofficial dongle", "match": {}, "tuning": {"bootstrap_experiments": True}},
 ]
 
