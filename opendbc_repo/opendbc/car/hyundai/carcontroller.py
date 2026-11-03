@@ -297,6 +297,7 @@ class CarController(CarControllerBase):
     self.frame += 1
     if _projection is not None:
       _projection.finish(new_actuators.torque)
+    can_sends.extend(CS.daw.command(now_nanos))
     return new_actuators, can_sends
 
   def create_can_msgs(self, apply_steer_req, apply_torque, torque_fault, set_speed_in_units, accel, stopping,

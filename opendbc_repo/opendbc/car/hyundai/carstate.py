@@ -62,6 +62,8 @@ def get_non_scc_cruise_signals(flags: int, car=None) -> tuple[str, str, str, str
 class CarState(CarStateBase):
   def __init__(self, CP):
     super().__init__(CP)
+    from opendbc.car.hyundai.daw import DawSource
+    self.daw = DawSource(CP)
     self.forte_lkas_sources = NonSccLkasSources() if qualified_non_scc(CP) and CP.flags & HyundaiFlags.HAS_LDA_BUTTON else None
     if (qualified_classic_scc(CP) or qualified_classic_long(CP)) and CP.flags & HyundaiFlags.HAS_LDA_BUTTON:
       self.forte_lkas_sources = ClassicSccLkasSources(CP.carFingerprint)

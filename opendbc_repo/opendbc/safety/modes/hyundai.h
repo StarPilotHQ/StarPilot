@@ -2,6 +2,7 @@
 
 #include "opendbc/safety/declarations.h"
 #include "opendbc/safety/modes/hyundai_common.h"
+#include "opendbc/safety/modes/hyundai_daw.h"
 #include "opendbc/safety/modes/hyundai_classic_non_scc_aol.h"
 #include "opendbc/safety/modes/hyundai_blended_stock_aol.h"
 
@@ -350,7 +351,7 @@ static bool hyundai_tx_hook(const CANPacket_t *msg) {
   const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS_ALT = HYUNDAI_LIMITS(270, 2, 3);
   const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS_ALT_2 = HYUNDAI_LIMITS(170, 2, 3);
 
-  bool tx = true;
+  bool tx = (msg->addr != 0x53EU) || hyundai_daw_tx(msg);
 
   if (hyundai_ray_pedal && (msg->addr == 0x200U)) {
     const uint16_t track1 = ((uint16_t)msg->data[0] << 8U) | msg->data[1];
@@ -638,6 +639,7 @@ static safety_config hyundai_init(uint16_t param) {
   };
 
   hyundai_common_init(param);
+  hyundai_daw_init(false, false);
   if ((param == 0x800EU) && (alternative_experience == 0)) {
     hyundai_long_main_policy = HYUNDAI_MAIN_TRACK;
   }
@@ -900,7 +902,7 @@ static safety_config hyundai_init(uint16_t param) {
     const safety_config denied = {0};
     ret = denied;
   }
-  return ret;
+  return hyundai_daw_configure(ret, false, !hyundai_blended_stock && !hyundai_blended_alpha);
 }
 
 static safety_config hyundai_legacy_init(uint16_t param) {
@@ -922,6 +924,7 @@ static safety_config hyundai_legacy_init(uint16_t param) {
     }
   }
   hyundai_common_init(normalized);
+  hyundai_daw_init(false, false);
   classic_non_scc_aol_configure(normalized, !legacy_long);
   hyundai_legacy = true;
   hyundai_blended_stock = false;
@@ -950,10 +953,11 @@ static safety_config hyundai_legacy_init(uint16_t param) {
 #endif
   }
   hyundai_classic_scc_aol_rx_config(&ret, true);
-  return ret;
+  return hyundai_daw_configure(ret, false, true);
 }
 
 static void hyundai_optional_rx_hook(const CANPacket_t *msg) {
+  hyundai_daw_rx(msg);
   if ((msg->addr == 0x391U) || (msg->addr == 0x50CU)) {
     blended_aol_rx(msg);
   }
