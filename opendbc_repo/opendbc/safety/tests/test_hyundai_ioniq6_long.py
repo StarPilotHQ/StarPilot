@@ -345,38 +345,169 @@ class TestHyundaiIoniq6Long(unittest.TestCase):
     self.assertTrue(self.safety.safety_tx_hook(TESTER_PRESENT))
     self.assertTrue(self.safety.safety_tx_hook(self.packet(rear)))
 
+  @staticmethod
+  def bsm_wheel_frame(packer, raw_speeds, counter):
+    values = {name: raw * 0.03125 for name, raw in zip(
+      ("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal"), raw_speeds, strict=True)}
+    return packer.make_can_msg("WHEEL_SPEEDS", 1, {**values, "COUNTER": counter})
+
+  def test_bsm_neutral_only_below_physical_speed_boundary(self):
+    if self.release:
+      self.skipTest("RELEASE denies the Ioniq 6 LONG profiles")
+    # 5 mph is between representable sums 1029 and 1030; test unequal wheels too.
+    samples = ((0, 0, 0, 0), (257, 257, 257, 258), (257, 257, 258, 258), (258, 258, 258, 258))
+    for raw in (*RAW_LONG.values(), *RAW_AOL.values()):
+      _, cp = params("lkas_alt" if raw & 0x80 else "lkas")
+      packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+      self.mode(raw)
+      self.bsm_physical(packer, left=True, right=True, left_lamp=True, right_lamp=True)
+      for counter, speeds in enumerate((*samples, *reversed(samples)), 2):
+        with self.subTest(profile=hex(raw), speeds=speeds):
+          self.assertTrue(self.safety.safety_rx_hook(self.packet(self.bsm_wheel_frame(packer, speeds, counter))))
+          rear, front = create_ioniq6_blindspot_status(counter, BlindspotStatus(0, 0))
+          permitted = sum(speeds) < 1030
+          self.assertEqual(self.safety.safety_tx_hook(self.packet(rear)), permitted)
+          self.assertEqual(self.safety.safety_tx_hook(self.packet(front)), permitted)
+          # Original physical indications remain valid, independently of speed.
+          for frame in create_ioniq6_blindspot_status(counter + 30, BlindspotStatus(2, 2)):
+            self.assertTrue(self.safety.safety_tx_hook(self.packet(frame)))
+      # Every altered body byte remains forbidden even with a repaired CRC.
+      self.assertTrue(self.safety.safety_rx_hook(self.packet(self.bsm_wheel_frame(packer, (0, 0, 0, 0), 10))))
+      rear, front = create_ioniq6_blindspot_status(80, BlindspotStatus(0, 0))
+      for byte in range(3, 24):
+        payload = bytearray(rear[1])
+        payload[byte] ^= 1
+        payload[:2] = hkg_can_fd_checksum(0x1BA, None, payload).to_bytes(2, "little")
+        self.assertFalse(self.safety.safety_tx_hook(self.packet((0x1BA, bytes(payload), 1))), byte)
+        self.assertFalse(self.safety.safety_tx_hook(self.packet(front)))
+
+  def test_bsm_neutral_requires_seen_fresh_nonreplayed_valid_wheels(self):
+    if self.release:
+      self.skipTest("RELEASE denies the Ioniq 6 LONG profiles")
+    _, cp = params("lkas")
+    packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+
+    def other_sources(counter, stamp):
+      self.safety.set_timer(stamp)
+      for name, values in (("ACCELERATOR", {"GEAR": 5}), ("TCS", {}), ("MDPS", {}),
+                           ("CRUISE_BUTTONS", {}), ("BLINDSPOTS_FRONT_CORNER_2", {"SIDE_DETECT_STATE": 0x18}),
+                           ("BLINKERS", {"LEFT_LAMP": 1, "RIGHT_LAMP": 1})):
+        self.assertTrue(self.safety.safety_rx_hook(self.packet(packer.make_can_msg(
+          name, 1, {**values, "COUNTER": counter} if name != "BLINKERS" else values))))
+
+    for raw in (*RAW_LONG.values(), *RAW_AOL.values()):
+      with self.subTest(profile=hex(raw)):
+        self.mode(raw)
+        other_sources(1, 1_000_000)
+        neutral = create_ioniq6_blindspot_status(1, BlindspotStatus(0, 0))
+        self.assertFalse(self.safety.safety_tx_hook(self.packet(neutral[0])))  # unseen, not implicit zero
+        wheel = self.bsm_wheel_frame(packer, (0, 0, 0, 0), 1)
+        self.assertTrue(self.safety.safety_rx_hook(self.packet(wheel)))
+        other_sources(2, 1_100_000)
+        for frame in neutral:
+          self.assertTrue(self.safety.safety_tx_hook(self.packet(frame)))
+        other_sources(3, 1_100_001)
+        rear, front = create_ioniq6_blindspot_status(2, BlindspotStatus(0, 0))
+        self.assertFalse(self.safety.safety_tx_hook(self.packet(rear)))  # one microsecond stale
+        self.assertFalse(self.safety.safety_tx_hook(self.packet(front)))
+        self.safety.safety_rx_hook(self.packet(wheel))  # checksum-valid replay must not refresh permission
+        self.assertFalse(self.safety.safety_tx_hook(self.packet(rear)))
+        wheel = self.bsm_wheel_frame(packer, (0, 0, 0, 0), 2)
+        self.assertTrue(self.safety.safety_rx_hook(self.packet(wheel)))
+        payload = bytearray(self.bsm_wheel_frame(packer, (0, 0, 0, 0), 3)[1])
+        payload[0] ^= 1
+        self.assertFalse(self.safety.safety_rx_hook(self.packet((0xA0, bytes(payload), 1))))
+        self.assertFalse(self.safety.safety_tx_hook(self.packet(rear)))
+        self.assertTrue(self.safety.safety_rx_hook(self.packet(self.bsm_wheel_frame(packer, (0, 0, 0, 0), 4))))
+        self.assertFalse(self.safety.safety_tx_hook(self.packet(rear)))  # missing valid counter 3
+        self.assertTrue(self.safety.safety_rx_hook(self.packet(self.bsm_wheel_frame(packer, (0, 0, 0, 0), 5))))
+        self.assertTrue(self.safety.safety_tx_hook(self.packet(rear)))
+        self.assertTrue(self.safety.safety_tx_hook(self.packet(front)))
+        # Wheel evidence must remain fresh for the second half of the pair too.
+        other_sources(4, 1_200_001)
+        rear, front = create_ioniq6_blindspot_status(3, BlindspotStatus(0, 0))
+        self.assertTrue(self.safety.safety_tx_hook(self.packet(rear)))
+        self.safety.set_timer(1_200_002)
+        self.assertFalse(self.safety.safety_tx_hook(self.packet(front)))
+        # A low-speed packet on the wrong route or with the wrong length cannot
+        # replace a valid above-threshold physical wheel observation.
+        other_sources(5, 1_210_000)
+        self.assertTrue(self.safety.safety_rx_hook(self.packet(self.bsm_wheel_frame(packer, (300, 300, 300, 300), 5))))
+        low = self.bsm_wheel_frame(packer, (0, 0, 0, 0), 6)
+        for invalid in ((low[0], low[1], 0), (low[0], low[1][:8], 1)):
+          self.safety.safety_rx_hook(self.packet(invalid))
+          self.assertFalse(self.safety.safety_tx_hook(self.packet(rear)))
+
+  def test_bsm_neutral_rejects_backward_or_skipped_wheel_counters(self):
+    if self.release:
+      self.skipTest("RELEASE denies the Ioniq 6 LONG profiles")
+    _, cp = params("lkas")
+    packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+    for raw in (*RAW_LONG.values(), *RAW_AOL.values()):
+      for invalid_counter in (0, 1, 4):
+        with self.subTest(profile=hex(raw), invalid_counter=invalid_counter):
+          self.mode(raw)
+          self.bsm_physical(packer, left=True, right=True, counter=1)
+          self.assertTrue(self.safety.safety_rx_hook(self.packet(self.bsm_wheel_frame(packer, (300, 300, 300, 300), 2))))
+          self.safety.safety_rx_hook(self.packet(self.bsm_wheel_frame(packer, (0, 0, 0, 0), invalid_counter)))
+          rear, front = create_ioniq6_blindspot_status(1, BlindspotStatus(0, 0))
+          self.assertFalse(self.safety.safety_tx_hook(self.packet(rear)))
+          self.assertFalse(self.safety.safety_tx_hook(self.packet(front)))
+          self.assertTrue(self.safety.safety_rx_hook(self.packet(self.bsm_wheel_frame(packer, (0, 0, 0, 0), invalid_counter + 1))))
+          self.assertTrue(self.safety.safety_tx_hook(self.packet(rear)))
+          self.assertTrue(self.safety.safety_tx_hook(self.packet(front)))
+      self.mode(raw)
+      self.bsm_physical(packer, left=True, right=True, counter=255)
+      self.assertTrue(self.safety.safety_rx_hook(self.packet(self.bsm_wheel_frame(packer, (0, 0, 0, 0), 0))))
+      for frame in create_ioniq6_blindspot_status(0, BlindspotStatus(0, 0)):
+        self.assertTrue(self.safety.safety_tx_hook(self.packet(frame)))
+
+  def test_bsm_neutral_does_not_expand_other_profiles(self):
+    _, cp = params("lkas")
+    packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+    for raw in (17, 145, 0x9015, 0x9095):
+      with self.subTest(profile=hex(raw)):
+        self.mode(raw)
+        self.bsm_physical(packer, left=True, right=True)
+        for frame in create_ioniq6_blindspot_status(1, BlindspotStatus(0, 0)):
+          self.assertFalse(self.safety.safety_tx_hook(self.packet(frame)))
+
   def test_actual_parser_controller_bsm_pair_passes_native_all_four_profiles(self):
     if self.release:
       self.skipTest("RELEASE denies all four Ioniq 6 LONG profiles")
     for topology in ("lkas", "lkas_alt"):
       for aol in (False, True):
-        with self.subTest(topology=topology, aol=aol):
-          _, cp = params(topology)
-          raw = (RAW_AOL if aol else RAW_LONG)[topology]
-          cp.safetyConfigs[-1].safetyParam = raw
-          ci = CarInterface(cp)
-          controller = CarController(DBC[cp.carFingerprint], cp)
-          packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
-          bus = CanBus(cp)
-          inputs = [packer.make_can_msg(name, bus.ECAN, values) for name, values in (
-            ("ACCELERATOR", {"GEAR": 5, "COUNTER": 1}), ("TCS", {"COUNTER": 1}),
-            ("WHEEL_SPEEDS", {"COUNTER": 1}), ("MDPS", {"COUNTER": 1}),
-            ("CRUISE_BUTTONS", {"COUNTER": 1}),
-            ("BLINDSPOTS_FRONT_CORNER_2", {"COUNTER": 1, "SIDE_DETECT_STATE": 0x18}),
-            ("BLINKERS", {"LEFT_LAMP": 1}),
-          )]
-          inputs.append(packer.make_can_msg("CAM_0x362" if topology == "lkas_alt" else "CAM_0x2a4", bus.CAM, {}))
-          ci.update([(1_000_000_000, inputs)])
-          self.mode(raw)
-          for frame in inputs:
-            if frame[2] == bus.ECAN:
-              self.assertTrue(self.safety.safety_rx_hook(self.packet(frame)), hex(frame[0]))
-          control = structs.CarControl()
-          _, sent = controller.update(control.as_reader(), ci.CS, 1_000_000_000)
-          pair = [frame for frame in sent if frame[0] in (0x1BA, 0x1E5)]
-          self.assertEqual(pair, create_ioniq6_blindspot_status(0, BlindspotStatus(2, 1)))
-          for frame in pair:
-            self.assertTrue(self.safety.safety_tx_hook(self.packet(frame)), (topology, aol, hex(frame[0])))
+        for raw_speeds in ((0, 0, 0, 0), (257, 257, 257, 258), (257, 257, 258, 258), (300, 300, 300, 300)):
+          with self.subTest(topology=topology, aol=aol, speeds=raw_speeds):
+            _, cp = params(topology)
+            raw = (RAW_AOL if aol else RAW_LONG)[topology]
+            cp.safetyConfigs[-1].safetyParam = raw
+            ci = CarInterface(cp)
+            controller = CarController(DBC[cp.carFingerprint], cp)
+            packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+            bus = CanBus(cp)
+            inputs = [packer.make_can_msg(name, bus.ECAN, values) for name, values in (
+              ("ACCELERATOR", {"GEAR": 5, "COUNTER": 1}), ("TCS", {"COUNTER": 1}),
+              ("WHEEL_SPEEDS", {"COUNTER": 1}), ("MDPS", {"COUNTER": 1}),
+              ("CRUISE_BUTTONS", {"COUNTER": 1}),
+              ("BLINDSPOTS_FRONT_CORNER_2", {"COUNTER": 1, "SIDE_DETECT_STATE": 0x18}),
+              ("BLINKERS", {"LEFT_LAMP": 1}),
+            )]
+            inputs = [frame for frame in inputs if frame[0] != 0xA0]
+            inputs.append(self.bsm_wheel_frame(packer, raw_speeds, 1))
+            inputs.append(packer.make_can_msg("CAM_0x362" if topology == "lkas_alt" else "CAM_0x2a4", bus.CAM, {}))
+            ci.update([(1_000_000_000, inputs)])
+            self.mode(raw)
+            for frame in inputs:
+              if frame[2] == bus.ECAN:
+                self.assertTrue(self.safety.safety_rx_hook(self.packet(frame)), hex(frame[0]))
+            control = structs.CarControl()
+            _, sent = controller.update(control.as_reader(), ci.CS, 1_000_000_000)
+            pair = [frame for frame in sent if frame[0] in (0x1BA, 0x1E5)]
+            expected = BlindspotStatus(0, 0) if sum(raw_speeds) < 1030 else BlindspotStatus(2, 1)
+            self.assertEqual(pair, create_ioniq6_blindspot_status(0, expected))
+            for frame in pair:
+              self.assertTrue(self.safety.safety_tx_hook(self.packet(frame)), (topology, aol, hex(frame[0])))
 
   def test_exhaustive_angle_bit_namespace_and_release_denial(self):
     for low in range(0x8000):

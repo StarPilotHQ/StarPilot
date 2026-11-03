@@ -224,6 +224,10 @@ static bool hyundai_canfd_gv60_heartbeat_seen = false;
 static uint8_t hyundai_canfd_gv60_heartbeat_counter = 0U;
 static bool hyundai_canfd_ioniq6_heartbeat_seen = false;
 static uint8_t hyundai_canfd_ioniq6_heartbeat_counter = 0U;
+static bool hyundai_canfd_ioniq6_bsm_low_speed = false;
+static bool hyundai_canfd_ioniq6_bsm_wheel_seen = false;
+static uint8_t hyundai_canfd_ioniq6_bsm_wheel_counter = 0U;
+static uint32_t hyundai_canfd_ioniq6_bsm_wheel_ts = 0U;
 static bool hyundai_canfd_ioniq6_corner_valid = false;
 static bool hyundai_canfd_ioniq6_corner_counter_seen = false;
 static uint8_t hyundai_canfd_ioniq6_corner_counter = 0U;
@@ -754,6 +758,18 @@ static void hyundai_canfd_rx_hook(const CANPacket_t *msg) {
 
     // average of all 4 wheel speeds. Conversion: raw * 0.03125 / 3.6 = m/s
     UPDATE_VEHICLE_SPEED((fr + rr + rl + fl) / 4.0 * 0.03125 * KPH_TO_MS);
+    if (hyundai_canfd_ioniq6_long) {
+      // Mean wheel speed < 5 mph: raw sum < 2.2352 * 4 * 3.6 / 0.03125.
+      // This hook runs only for valid required RX; TX also checks its freshness.
+      const bool fresh_counter = !hyundai_canfd_ioniq6_bsm_wheel_seen ||
+                                 (msg->data[2] == (uint8_t)(hyundai_canfd_ioniq6_bsm_wheel_counter + 1U));
+      hyundai_canfd_ioniq6_bsm_low_speed = fresh_counter && ((fr + rr + rl + fl) < 1030U);
+      if (fresh_counter) {
+        hyundai_canfd_ioniq6_bsm_wheel_ts = microsecond_timer_get();
+      }
+      hyundai_canfd_ioniq6_bsm_wheel_seen = true;
+      hyundai_canfd_ioniq6_bsm_wheel_counter = msg->data[2];
+    }
   }
 
   // cruise state
@@ -1016,9 +1032,15 @@ static bool hyundai_canfd_tx_hook_valid(const CANPacket_t *msg) {
     body[6] = right << 5U;
     body[7] = 0x80U | (SAFETY_MAX(left, right) << 3U);
     body[16] = left | (right << 2U);
+    bool physical_body = true;
+    bool neutral_body = hyundai_canfd_ioniq6_bsm_low_speed &&
+                        (safety_get_ts_elapsed(now, hyundai_canfd_ioniq6_bsm_wheel_ts) <= 100000U);
     for (int i = 3; i < 24; i++) {
-      valid &= msg->data[i] == body[i];
+      physical_body &= msg->data[i] == body[i];
+      // Only the complete frozen neutral indication may replace a detection.
+      neutral_body &= msg->data[i] == ((i == 7) ? 0x80U : 0U);
     }
+    valid &= physical_body || neutral_body;
     if (valid) {
       hyundai_canfd_ioniq6_bsm_counter_seen = true;
       hyundai_canfd_ioniq6_bsm_counter = msg->data[2];
@@ -1288,6 +1310,10 @@ static void hyundai_canfd_reset_ioniq6_state(void) {
   hyundai_canfd_gv60_heartbeat_counter = 0U;
   hyundai_canfd_ioniq6_heartbeat_seen = false;
   hyundai_canfd_ioniq6_heartbeat_counter = 0U;
+  hyundai_canfd_ioniq6_bsm_low_speed = false;
+  hyundai_canfd_ioniq6_bsm_wheel_seen = false;
+  hyundai_canfd_ioniq6_bsm_wheel_counter = 0U;
+  hyundai_canfd_ioniq6_bsm_wheel_ts = 0U;
   hyundai_canfd_ioniq6_corner_valid = false;
   hyundai_canfd_ioniq6_corner_counter_seen = false;
   hyundai_canfd_ioniq6_corner_counter = 0U;

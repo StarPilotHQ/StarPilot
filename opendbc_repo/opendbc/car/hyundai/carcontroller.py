@@ -24,6 +24,7 @@ from opendbc.car.hyundai import hyundaicanfd, hyundaican
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.ray_pedal import create_ray_pedal_command, ray_pedal_gas, ray_pedal_enabled
 from opendbc.car.hyundai.ioniq6_longitudinal import Ioniq6LongitudinalPolicy
+from opendbc.car.hyundai.ioniq6_bsm import BlindspotStatus
 from opendbc.car.hyundai.canfd_dash_icons import CanFDDashIcons
 from opendbc.car.hyundai.classic_scc_aol import qualified as qualified_classic_stock_aol
 from opendbc.car.hyundai.classic_long_aol import AOL_EXPERIENCE, qualified as qualified_classic_long_aol
@@ -587,6 +588,9 @@ class CarController(CarControllerBase):
           can_now_ns = getattr(CS, "ioniq6_bsm_now_ns", 0)
           status = (sources.status(can_now_ns) if sources is not None and can_now_ns > self.ioniq6_bsm_last_can_ns else None)
           if status is not None:
+            # Neutralize only the injected dashboard indication below 5 mph.
+            if CS.out.vEgoRaw < 5 * CV.MPH_TO_MS:
+              status = BlindspotStatus(0, 0)
             can_sends.extend(hyundaicanfd.create_ioniq6_blindspot_status(self.ioniq6_bsm_counter, status))
             self.ioniq6_bsm_counter = (self.ioniq6_bsm_counter + 1) & 0xff
             self.ioniq6_bsm_last_can_ns = can_now_ns
