@@ -1,7 +1,5 @@
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
-import { SettingsFeed, settingsBusy } from "./settings.js"
-import { GalaxySettingRow, settingControl } from "./galaxy-setting-row.js"
 import { PollTimer, connectionError } from "./polling.js"
 import { requestJson } from "./startup.js"
 import { PlotGraph, PlotsPage, chartGeometry } from "./plots.js"
@@ -29,18 +27,15 @@ const PARAMETER_LABELS = {
 
 export const FlmPage = {
   name: "FlmPage",
-  components: { GxState, GxNotice, PlotGraph, PlotsPage, GalaxySettingRow },
+  components: { GxState, GxNotice, PlotGraph, PlotsPage },
   props: { initialView: { type: String, default: "overview" }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, default: path => { window.location.hash = path } } },
   data: () => ({ report: null, error: "", loading: false, request: null, receivedAt: 0, now: 0,
-    manualState: { status: "idle", data: null, pending: null, error: "" },
     view: "overview", group: "balance", showAllHistory: false, groups: SURFACE_GROUPS }),
-  watch: { initialView(view) { this.selectView(view) }, mode() { this.syncManualControls() } },
+  watch: { initialView(view) { this.selectView(view) } },
   mounted() {
     this.activePage = true
-    this.manualFeed = new SettingsFeed({ publish: update => Object.assign(this.manualState, update), unauthorized: this.unauthorized })
     this.selectView(this.initialView)
-    this.syncManualControls()
     this.poller = new PollTimer({ read: () => this.load(), interval: 1000 })
     this.visibility = () => {
       this.now = Date.now()
@@ -51,12 +46,10 @@ export const FlmPage = {
     if (this.mode === "local") { this.poller.start(); this.load() }
   },
   beforeUnmount() {
-    this.activePage = false; this.manualFeed?.stop(); clearTimeout(this.freshnessTimer); this.poller?.stop(); this.request?.abort(); this.request = null
+    this.activePage = false; clearTimeout(this.freshnessTimer); this.poller?.stop(); this.request?.abort(); this.request = null
     document.removeEventListener("visibilitychange", this.visibility)
   },
   computed: {
-    manualRows() { return (this.manualState.data?.rows || []).map((row, index) => ({ row, index })).filter(({ row }) => settingControl(row) === "slider") },
-    manualBusy() { return settingsBusy(this.manualState) },
     current() { return this.report?.current },
     preference() { return validLearningPreference(this.report?.preference) ? this.report.preference : null },
     choiceLive() { return !this.error && !!this.preference && Math.max(0, this.now - this.receivedAt) <= 2000 },
@@ -104,27 +97,14 @@ export const FlmPage = {
       const count = this.rows.filter(row => group.names.includes(row.name) && row.accepted !== null && row.accepted !== 0).length
       return count ? `${count} accepted` : "Baseline"
     },
-    selectView(view) { if (VIEWS.includes(view)) { this.view = view; return this.syncManualControls() } },
-    syncManualControls() {
-      if (!this.manualFeed) return
-      if (this.activePage && this.mode === "local" && this.view === "tune") {
-        if (!this.manualFeed.active) return this.manualFeed.start("torque")
-      } else this.manualFeed.stop()
-    },
-    async saveManual(index, value) {
-      const row = this.manualState.data?.rows?.[index]
-      if (this.view !== "tune" || !this.manualFeed?.active || this.manualBusy || this.manualState.error ||
-          !row?.available || !row.action || settingControl(row) !== "slider") return false
-      await this.manualFeed.previewValue(index, value)
-      return !this.manualState.error && this.manualState.status === "ready"
-    },
+    selectView(view) { if (VIEWS.includes(view)) this.view = view },
     tabKey(event) {
       const delta = { ArrowRight: 1, ArrowLeft: -1, Home: -VIEWS.length, End: VIEWS.length }[event.key]
       if (delta === undefined) return
       event.preventDefault()
       const index = VIEWS.indexOf(this.view)
       const next = event.key === "Home" ? 0 : event.key === "End" ? VIEWS.length - 1 : (index + delta + VIEWS.length) % VIEWS.length
-      this.view = VIEWS[next]
+      this.selectView(VIEWS[next])
       event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[next]?.focus()
     },
     async load() {
@@ -153,8 +133,8 @@ export const FlmPage = {
     <header class="gx-page-header gx-settings__header gx-tuner__heading"><div><p class="gx-tuner__eyebrow">STEERING · AUTO LEARN</p><h2>Tuning and Analysis</h2><p>{{ vehicle }}</p></div></header>
     <GxState v-if="mode !== 'local'">Connect to your device to see its steering tune.</GxState>
     <template v-else>
-      <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
-      <section class="gx-card gx-tuner__hero" :data-tone="state.tone" aria-label="Auto Learn status">
+      <GxNotice v-if="error && view !== 'plots'" tone="danger">{{ error }}</GxNotice>
+      <section v-if="view !== 'plots'" class="gx-card gx-tuner__hero" :data-tone="state.tone" aria-label="Auto Learn status">
         <div class="gx-tuner__hero-icon" aria-hidden="true"><i class="bi bi-sliders2"></i></div>
         <div class="gx-tuner__hero-copy"><div class="gx-tuner__eyebrow"><span class="gx-tuner__status-dot"></span>{{ loading && !report ? 'CONNECTING' : state.key === 'off' ? 'DISABLED' : choiceLive || live ? 'DEVICE CONNECTED' : 'WAITING FOR DATA' }}</div>
           <h3 role="status">{{ loading && !report ? 'Reading your tuner…' : state.title }}</h3><p>{{ state.description }}</p>
@@ -182,14 +162,6 @@ export const FlmPage = {
         </section></div>
       </section>
       <section v-if="view === 'tune'" id="tuner-panel-tune" role="tabpanel" aria-labelledby="tuner-tab-tune" class="gx-tuner__panel">
-        <section class="gx-card gx-tuner__section gx-settings__section gx-tuner__manual"><div class="gx-tuner__section-heading"><div><h3>Steering controls</h3><p>Adjust your saved vehicle tune.</p></div></div>
-          <GxNotice v-if="manualState.error" tone="danger">{{ manualState.error }}</GxNotice>
-          <p v-if="!manualState.data" class="gx-tuner__caption">{{ manualState.status === 'loading' ? 'Loading steering controls…' : 'Steering controls unavailable. Reconnecting…' }}</p>
-          <template v-else><p class="gx-tuner__caption">{{ manualState.data.subtitle }}</p>
-            <GalaxySettingRow v-for="{ row, index } in manualRows" :key="index" :row="row" :index="index" :busy="manualBusy" :disabled="!!manualState.error" :save-value="saveManual" @reset-default="index => manualFeed.resetDefault(index)" />
-            <p v-if="!manualRows.length" class="gx-tuner__caption">No manual numeric controls are available for this vehicle.</p>
-          </template>
-        </section>
         <div class="gx-tuner__section-heading"><div><h3>Auto Learn corrections</h3><p>Thirty automatic correction values, grouped by steering behavior.</p></div><span class="gx-tuner__pill">Reported corrections</span></div>
         <div class="gx-tuner__tune-layout"><nav class="gx-tuner__groups" aria-label="Steering parameter groups"><button v-for="item in groups" :key="item.id" type="button" :aria-pressed="group === item.id" @click="group = item.id"><i :class="['bi', item.icon]" aria-hidden="true"></i><span>{{ item.label }}<small>{{ item.names.length }} parameters · {{ groupChanges(item) }}</small></span><i class="bi bi-chevron-right" aria-hidden="true"></i></button></nav>
           <section class="gx-card gx-tuner__section gx-tuner__parameters"><div class="gx-tuner__section-heading"><div><h3>{{ selectedGroup.label }}</h3><p>{{ selectedGroup.description }}</p></div></div>
