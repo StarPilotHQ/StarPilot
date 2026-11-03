@@ -29,7 +29,7 @@ def loader(source, *, demo=False, bundled=False, failure=None):
                    'wait_for_chestnut_power': record('power'), 'set_core_affinity': record('affinity'),
                    'selection': SimpleNamespace(big_path=None if bundled else Path('/verified.pkl'), big_version='v16',
                                              big_id='mountaindewv3', big_sha256='a' * 64),
-                   'vipc_client_main': SimpleNamespace(width=1928, height=1208), 'big_path': Path('/verified.pkl'),
+                   'cam_w': 1928, 'cam_h': 1208, 'big_path': Path('/verified.pkl'),
                    'load_verified_model': record('verified', (model, 'prepared')), 'ModelState': record('bundled', model),
                    'receipt_owner': SimpleNamespace(prepare=record('receipt', 'prepared')),
                    'big_artifact_identity': object(), 'cloudlog': SimpleNamespace(exception=record('error'))}
