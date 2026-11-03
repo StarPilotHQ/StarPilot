@@ -15,6 +15,17 @@ def packet(addr, data, bus):
   return libsafety_py.make_CANPacket(addr, bus, data)
 
 
+def advisory_candidate(owner, now):
+  if not owner.canfd:
+    return owner.command(now)[0]
+  assert owner.command(now) == []
+  data = bytearray(owner.data)
+  if (data[7] >> 3) & 7 == 1:
+    data[7] &= ~0x38
+  data[:2] = hkg_can_fd_checksum(owner.address, None, data).to_bytes(2, 'little')
+  return owner.address, bytes(data), owner.target_bus
+
+
 def setup(canfd, word):
   safety = libsafety_py.libsafety
   debug = safety.set_safety_hooks(structs.CarParams.SafetyModel.allOutput, 0) == 0
@@ -33,7 +44,7 @@ def test_actual_host_commands_obey_native_source_payload_and_expiry(canfd, word,
   owner = DawSource(params(canfd))
   data = source(canfd, status)
   owner.update([(BASE, [(owner.address, data, owner.source_bus)])])
-  addr, output, bus = owner.command(BASE)[0]
+  addr, output, bus = advisory_candidate(owner, BASE)
   assert not safety.safety_tx_hook(packet(addr, output, bus))
   safety.safety_rx_hook(packet(addr, data, owner.source_bus))
   assert bool(safety.safety_tx_hook(packet(addr, output, bus))) == supported
@@ -60,7 +71,7 @@ def test_source_rejection_reset_and_relay_are_preserved(canfd, fault):
   owner = DawSource(params(canfd))
   data = source(canfd, 1)
   owner.update([(BASE, [(owner.address, data, owner.source_bus)])])
-  addr, output, bus = owner.command(BASE)[0]
+  addr, output, bus = advisory_candidate(owner, BASE)
   incoming = data[:-4] if fault == 'length' and canfd else data[:-1] if fault == 'length' else data
   rx_bus = owner.source_bus + 1 if fault == 'bus' else owner.source_bus
   if fault == 'crc':
@@ -95,7 +106,7 @@ def test_one_genuine_counter_predecessor_cannot_hide_newer_hands_off_request():
   owner = DawSource(params(True))
   data = source(True, 1)
   owner.update([(BASE, [(0x11A, data, 1)])])
-  _, output, _ = owner.command(BASE)[0]
+  _, output, _ = advisory_candidate(owner, BASE)
   safety.safety_rx_hook(packet(0x11A, data, 1))
   following = bytearray(data)
   following[2] += 1
@@ -110,7 +121,7 @@ def test_one_genuine_counter_predecessor_cannot_hide_newer_hands_off_request():
   safety.safety_rx_hook(packet(0x11A, newer, 1))
   assert not safety.safety_tx_hook(packet(0x11A, output, 1))
   owner.update([(BASE + 10_000_000, [(0x11A, bytes(following), 1)])])
-  _, prior_output, _ = owner.command(BASE + 10_000_000)[0]
+  _, prior_output, _ = advisory_candidate(owner, BASE + 10_000_000)
   assert safety.safety_tx_hook(packet(0x11A, prior_output, 1))
   hands_off = bytearray(newer)
   hands_off[2] += 1
@@ -120,8 +131,8 @@ def test_one_genuine_counter_predecessor_cannot_hide_newer_hands_off_request():
   safety.safety_rx_hook(packet(0x11A, hands_off, 1))
   assert not safety.safety_tx_hook(packet(0x11A, prior_output, 1))
   owner.update([(BASE + 20_000_000, [(0x11A, bytes(newer), 1)])])
-  _, prior_output, _ = owner.command(BASE + 20_000_000)[0]
+  _, prior_output, _ = advisory_candidate(owner, BASE + 20_000_000)
   assert not safety.safety_tx_hook(packet(0x11A, prior_output, 1))
   owner.update([(BASE + 30_000_000, [(0x11A, bytes(hands_off), 1)])])
-  _, current_output, _ = owner.command(BASE + 30_000_000)[0]
+  _, current_output, _ = advisory_candidate(owner, BASE + 30_000_000)
   assert safety.safety_tx_hook(packet(0x11A, current_output, 1))

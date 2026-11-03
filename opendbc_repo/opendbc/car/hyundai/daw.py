@@ -35,7 +35,8 @@ class DawSource:
         self.data, self.stamp = bytes(data), stamp
 
   def command(self, now_ns):
-    if not self.enabled or self.data is None or not 0 < self.stamp <= now_ns <= self.stamp + 100_000_000:
+    if (not self.enabled or self.source_bus == self.target_bus or self.data is None or
+        not 0 < self.stamp <= now_ns <= self.stamp + 100_000_000):
       return []
     data = bytearray(self.data)
     if self.canfd:

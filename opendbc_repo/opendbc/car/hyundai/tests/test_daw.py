@@ -25,9 +25,9 @@ def source(canfd, status):
   return bytes(data)
 
 
-@pytest.mark.parametrize('canfd', (False, True))
 @pytest.mark.parametrize('status', range(8))
-def test_exact_current_advisory_only_transform(canfd, status):
+def test_exact_current_advisory_only_transform(status):
+  canfd = False
   owner = DawSource(params(canfd))
   data = source(canfd, status)
   assert not owner.command(BASE)
@@ -102,3 +102,38 @@ def test_unsupported_ioniq6_native_profiles_cannot_emit_advisories(word):
   assert not owner.enabled
   owner.update([(BASE, [CanData(0x11A, source(True, 1), owner.source_bus)])])
   assert not owner.command(BASE)
+
+
+@pytest.mark.parametrize('word', (0x11, 0x91, 0x811, 0x891, 0x8015, 0x8095, 0x8815, 0x8895))
+@pytest.mark.parametrize('status', range(8))
+def test_live_same_bus_canfd_source_is_never_retransmitted(word, status):
+  cp = params(True)
+  cp.safetyConfigs[-1].safetyParam = word
+  owner = DawSource(cp)
+  assert owner.enabled and owner.source_bus == owner.target_bus
+  for tick in range(20):
+    stamp = BASE + tick * 10_000_000
+    data = bytearray(source(True, status))
+    data[2] = tick
+    data[:2] = hkg_can_fd_checksum(owner.address, None, data).to_bytes(2, 'little')
+    owner.update([(stamp, [CanData(owner.address, bytes(data), owner.source_bus)])])
+    assert owner.data == bytes(data)
+    assert owner.command(stamp) == []
+    assert owner.command(stamp + 5_000_000) == []
+
+
+@pytest.mark.parametrize('alternate', (False, True))
+def test_actual_ioniq6_controller_keeps_live_source_off_sendcan(alternate):
+  cp, _ = ioniq6_params(alternate)
+  before = cp.to_dict()
+  first, second = CarInterface(cp.as_reader().as_builder()), CarInterface(cp.as_reader().as_builder())
+  data = source(True, 1)
+  plain = first.update([(BASE, [])])
+  observed = second.update([(BASE, [CanData(0x11A, data, 1)])])
+  assert observed.to_dict() == plain.to_dict()
+  control = structs.CarControl()
+  baseline = first.apply(control.as_reader(), BASE)[1]
+  actual = second.apply(control.as_reader(), BASE)[1]
+  assert actual == baseline
+  assert all(frame[0] != 0x11A for frame in actual)
+  assert cp.to_dict() == before
