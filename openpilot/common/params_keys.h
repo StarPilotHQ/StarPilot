@@ -75,6 +75,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ReverseCruise", {PERSISTENT, BOOL, "0"}},
     {"ForceStops", {PERSISTENT, BOOL, "0"}},
     {"DriveModeProfiles", {PERSISTENT, BOOL, "0"}},
+    {"DriveModeAcceleration", {PERSISTENT, BOOL, "1"}},
+    {"DriveModeDeceleration", {PERSISTENT, BOOL, "1"}},
     {"AlwaysAllowUploads", {PERSISTENT, BOOL, "0"}},
     {"AggressiveCoolingEnabled", {PERSISTENT, BOOL, "0"}},
     {"UsageStatsState", {PERSISTENT | DONT_LOG, JSON}},

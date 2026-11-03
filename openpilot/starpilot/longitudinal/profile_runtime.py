@@ -370,7 +370,7 @@ class ProfileHost:
     self.disabled = False
     self.selected_document: dict | None = None
     self.selected_powertrain: GlobalPowertrainPreset | None = None
-    self.selected_drive_mode = False
+    self.selected_drive_mode = (False, False)
     self.selected_attempt_ns = -self.REFRESH_NS
     self.selected_success_ns = -1
     self.settings: ProfileSettings | TrafficSettings | None = None
@@ -384,11 +384,10 @@ class ProfileHost:
 
   def sample_selected(self, now_ns: int, personality, v_ego: float, CP, *, traffic_mode: bool | None = False,
                       legacy: ProfileTuning | None = None, drive_mode: str | None = None) -> SelectedProfileTuning | None:
-    from openpilot.starpilot.saved_source import read_saved
     if now_ns < 0 or now_ns < self.selected_attempt_ns:
       self.selected_document = None
       self.selected_powertrain = None
-      self.selected_drive_mode = False
+      self.selected_drive_mode = (False, False)
       self.selected_attempt_ns = now_ns - self.REFRESH_NS
       self.selected_success_ns = -1
     if now_ns - self.selected_attempt_ns >= self.REFRESH_NS:
@@ -397,20 +396,21 @@ class ProfileHost:
         saved = read_document_value(self.params)
         self.selected_document = saved.value if saved.valid and isinstance(saved.value, dict) else None
         self.selected_powertrain = read_global_powertrain_preset(self.params, CP)
-        self.selected_drive_mode = read_saved(self.params, drive_mode_profiles.KEY, 8) == (b'1', True)
+        self.selected_drive_mode = drive_mode_profiles.read_enabled(self.params)
         self.selected_success_ns = now_ns if saved.valid else -1
       except (OSError, RuntimeError, ValueError, TypeError, KeyError):
         self.selected_document = None
         self.selected_powertrain = None
-        self.selected_drive_mode = False
+        self.selected_drive_mode = (False, False)
         self.selected_success_ns = -1
     if self.selected_success_ns < 0 or now_ns - self.selected_success_ns > self.MAX_AGE_NS:
       return None
     document = self.selected_document
-    if self.selected_drive_mode and traffic_mode is False and drive_mode in drive_mode_profiles.PROFILES:
+    if any(self.selected_drive_mode) and traffic_mode is False and drive_mode in drive_mode_profiles.PROFILES:
       if document is None:
         document = profile_document(default_personality_profiles(False), enabled=False)
-      document = drive_mode_profiles.apply(document, drive_mode)
+      document = drive_mode_profiles.apply(document, drive_mode, acceleration=self.selected_drive_mode[0],
+                                           deceleration=self.selected_drive_mode[1])
     return resolve_selected_profiles(document, personality, v_ego, CP,
                                      traffic_mode=traffic_mode, legacy=legacy, global_powertrain=self.selected_powertrain)
 
