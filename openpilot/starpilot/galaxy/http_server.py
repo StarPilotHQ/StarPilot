@@ -170,12 +170,26 @@ def install_origin_allowed(peer: str, destination: str, headers, remote_transpor
     return False
 
 
-def allowed_authority(host: str, local_address: str, port: int) -> bool:
-  """Accept only the literal address reached by this socket, or loopback's name."""
+def dns_authority_name(host: str, port: int, *, allow_portless=False):
+  from openpilot.starpilot.galaxy.local_hostnames import dns_name
+  if host.endswith(f':{port}'):
+    name = host[:-len(f':{port}')]
+  elif allow_portless and ':' not in host:
+    name = host
+  else:
+    return None
+  return dns_name(name)
+
+
+def allowed_authority(host: str, local_address: str, port: int, *, local_hostnames=None, allow_portless=False) -> bool:
+  """Match the destination address or its independently discovered LAN identity."""
   if host == f'localhost:{port}' and local_address == '127.0.0.1':
     return True
   if host != f'{local_address}:{port}':
-    return False
+    if local_hostnames is None:
+      return False
+    canonical = dns_authority_name(host, port, allow_portless=allow_portless)
+    return canonical is not None and canonical in local_hostnames.names(local_address)
   try:
     address = ip_address(local_address)
   except ValueError:

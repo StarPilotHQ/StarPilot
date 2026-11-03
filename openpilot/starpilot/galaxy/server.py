@@ -20,7 +20,7 @@ from openpilot.starpilot.galaxy.batch_routes import change_drive_state, delete_r
 from openpilot.starpilot.galaxy.access import AccessStatus, default_owner
 from openpilot.starpilot.galaxy.auth import LocalSessions
 from openpilot.starpilot.galaxy.http_server import (_LocalHTTPHandler, _LocalHTTPServer, allowed_authority,
-                                                  direct_local_connection, install_origin_allowed, static_asset)
+                                                  direct_local_connection, dns_authority_name, install_origin_allowed, static_asset)
 from openpilot.starpilot.galaxy.camera_snapshot import CameraSnapshot, SnapshotDenied, SnapshotUnavailable
 from openpilot.starpilot.galaxy.remote import default_remote_pairing, gateway_cookie_valid
 from openpilot.starpilot.galaxy.crash_reports import CrashChanged, CrashMissing, CrashReports, CrashUnavailable
@@ -99,7 +99,9 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                 starport_client=None, navigation=None, offline_maps=None, drive_state=None, cloud_provider=None, cloud_offroad=None, projection_layout=None,
                 local_access=None, tmux_live=None, starport_logs=None, starport_log_sender=None, hotspot=None, toyota_tools=None,
                 replay_client=None, replay_root=None,
-                spotify_setup=None, companion=None, phone_location=None, reverse_proxy=None):
+                spotify_setup=None, companion=None, phone_location=None, reverse_proxy=None, local_hostnames=None):
+  from openpilot.starpilot.galaxy.local_hostnames import LocalHostnames
+  hostname_source = local_hostnames if local_hostnames is not None else LocalHostnames(clock=clock)
   from openpilot.starpilot.galaxy.companion import CompanionRegistry, APK_PATH
   from openpilot.starpilot.gps.phone import PhoneGpsPublisher
   companion_source = companion if companion is not None else CompanionRegistry()
@@ -559,6 +561,9 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
       proxy = reverse_proxy if reverse_proxy is not None else proxy_settings.current
       host = self.headers.get('Host', '')
       origin = self.headers.get('Origin')
+      if len(self.headers.get_all('Host', [])) != 1 or len(self.headers.get_all('Origin', [])) > 1:
+        self.json(403, {'error': 'Ambiguous request origin'})
+        return False
       local_address = self.connection.getsockname()[0]
       if getattr(self.server, 'remote_transport', False):
         record = pairing.read()
@@ -580,7 +585,23 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         return True
       if proxy is not None and proxy.allows(self.client_address[0], host, origin, mutation=mutation):
         return True
-      if not allowed_authority(host, local_address, self.server.server_port) or \
+      # curl can override Host without the nonstandard port. Permit that form
+      # only for the inert landing document, never API/session reads or writes.
+      portless_landing = self.command in ('GET', 'HEAD') and self.path == '/' and origin is None
+      authority_allowed = allowed_authority(host, local_address, self.server.server_port, local_hostnames=hostname_source,
+                                            allow_portless=portless_landing)
+      if not authority_allowed and portless_landing and self.direct_local() and \
+         dns_authority_name(host, self.server.server_port, allow_portless=True) is not None:
+        # An arbitrary A-only alias has no independent identity to trust. Let
+        # its landing navigation enter through the real socket address instead.
+        # Never serve API data or create a session under that named origin.
+        self.send_response(302)
+        self.send_header('Location', f'http://{local_address}:{self.server.server_port}/')
+        self.send_header('Content-Length', '0')
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        return False
+      if not authority_allowed or \
          (mutation and origin != f'http://{host}') or \
          (origin is not None and origin != f'http://{host}'):
         self.json(403, {'error': 'Local access only'})

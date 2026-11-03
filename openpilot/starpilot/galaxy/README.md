@@ -120,7 +120,24 @@ hardware validation.
 
 The server requires the actual peer and socket destination to be local for
 passwordless access. Proxy headers select the password-backed path. The Host
-must match the destination address, and JSON writes require that same origin.
+must match the destination address or an independently discovered local DNS
+identity, including the listening port. DNS identities come from the device's
+OS hostname (with its local resolver search domains) or the socket destination's
+reverse DNS records. Each name must forward-resolve only to that exact IPv4
+destination. A request-selected name merely resolving to a private address is
+not trusted, because that would allow DNS rebinding. This trusts the local
+OS/DHCP/DNS infrastructure; arbitrary aliases without that identity metadata
+are not admitted as API/session origins. For those aliases, direct local
+GET/HEAD of exactly `/` without Origin redirects to the actual socket's
+IP-and-port address. Browsers follow this automatically without a password or
+hostname registration, but the address bar changes to the IP. Curl to the DNS
+URL needs `-L`; with a manually overridden Host, request the returned Location
+without that override instead. The redirect sends no cookies and never applies to API paths,
+writes, forwarded requests, or remote transport. DNS discovery has a one-second
+bound and a five-second destination-specific cache. Literal IP access remains available
+when discovery fails. A manually overridden portless Host is accepted only for
+GET/HEAD of the landing document without Origin, never API/session requests.
+JSON writes require the same exact origin.
 Sessions use opaque HttpOnly, SameSite=Strict cookies; a local session cannot
 authorize a remote request. A session is checked again after slower reads and
 before sensitive results are returned. The server bounds connections, request
