@@ -188,6 +188,7 @@ def run(frames_path: str, touch_path: str | None = None, control_path: str | Non
     gui_app._width, gui_app._height = geometry.logical_width, geometry.logical_height
     gui_app._scale = 1.0
     gui_app._render_texture = None
+    gui_app._load_fonts()
     from openpilot.starpilot.system.starport import reconnect_notice
     from openpilot.starpilot.system.starport.identity import certificate_days_left
     from openpilot.starpilot.system.starport.projection_layout_runtime import ProjectionLayoutWatcher, comma_display_seed
