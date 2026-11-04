@@ -21,15 +21,6 @@ def _diagnostic_mask(cp):
                          int(cp.flags) & int(HondaFlags.BOSCH) and qualified(cp, marked_only=True)) else 0
     if cp.brand == 'hyundai':
       from opendbc.car.hyundai.values import CAR, HyundaiFlags
-      if cp.carFingerprint == CAR.HYUNDAI_ELANTRA_2021:
-        from opendbc.car.hyundai.classic_scc_aol import qualified
-        # Firmware latches this IRQ diagnostic without revoking native authority.
-        # Limit compatibility to the recorded stock-SCC profile; keep raw faults;
-        # native permission, receive health, relay and heartbeat remain required.
-        recorded_flags = HyundaiFlags.SEND_LFA | HyundaiFlags.USE_FCA | HyundaiFlags.CHECKSUM_CRC8 | HyundaiFlags.HAS_LDA_BUTTON
-        return (1 << 2) if (str(cp.fingerprintSource) == 'fw' and int(cp.flags) == int(recorded_flags) and
-                           len(cp.safetyConfigs) == 1 and int(cp.safetyConfigs[0].safetyParam) == 0xC00 and
-                           cp.alternativeExperience == 32 and qualified(cp, marked_only=True)) else 0
       if cp.carFingerprint != CAR.HYUNDAI_SONATA_HYBRID:
         return 0
       from opendbc.car.hyundai.classic_scc_aol import qualified
