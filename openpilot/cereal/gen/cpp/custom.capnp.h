@@ -198,6 +198,8 @@ enum class TurnDirection_ab5928774e6e64fc: uint16_t {
 };
 CAPNP_DECLARE_ENUM(TurnDirection, ab5928774e6e64fc);
 CAPNP_DECLARE_SCHEMA(9e04a179bcb4ab72);
+CAPNP_DECLARE_SCHEMA(b41e843c9023fcf8);
+CAPNP_DECLARE_SCHEMA(96cd469187ef2cd6);
 CAPNP_DECLARE_SCHEMA(c97a1c56dc1427ae);
 enum class Status_c97a1c56dc1427ae: uint16_t {
   UNKNOWN,
@@ -981,13 +983,45 @@ struct StarPilotModelDataV2::VisionObservation {
   class Reader;
   class Builder;
   class Pipeline;
+  struct StopObservation;
+  struct StopDetection;
   typedef ::capnp::schemas::Status_c97a1c56dc1427ae Status;
 
   typedef ::capnp::schemas::Stream_b45fd9e3634d228f Stream;
 
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(9e04a179bcb4ab72, 6, 2)
+    CAPNP_DECLARE_STRUCT_HEADER(9e04a179bcb4ab72, 6, 3)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
+struct StarPilotModelDataV2::VisionObservation::StopObservation {
+  StopObservation() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(b41e843c9023fcf8, 5, 1)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
+struct StarPilotModelDataV2::VisionObservation::StopDetection {
+  StopDetection() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(96cd469187ef2cd6, 2, 0)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -6734,6 +6768,9 @@ public:
 
   inline  ::cereal::StarPilotModelDataV2::VisionObservation::Stream getStream() const;
 
+  inline bool hasStopSigns() const;
+  inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Reader getStopSigns() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -6806,6 +6843,13 @@ public:
   inline  ::cereal::StarPilotModelDataV2::VisionObservation::Stream getStream();
   inline void setStream( ::cereal::StarPilotModelDataV2::VisionObservation::Stream value);
 
+  inline bool hasStopSigns();
+  inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Builder getStopSigns();
+  inline void setStopSigns( ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Reader value);
+  inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Builder initStopSigns();
+  inline void adoptStopSigns(::capnp::Orphan< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>&& value);
+  inline ::capnp::Orphan< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation> disownStopSigns();
+
 private:
   ::capnp::_::StructBuilder _builder;
   template <typename, ::capnp::Kind>
@@ -6819,6 +6863,219 @@ private:
 class StarPilotModelDataV2::VisionObservation::Pipeline {
 public:
   typedef VisionObservation Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+  inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Pipeline getStopSigns();
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
+class StarPilotModelDataV2::VisionObservation::StopObservation::Reader {
+public:
+  typedef StopObservation Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline  ::cereal::StarPilotModelDataV2::VisionObservation::Status getStatus() const;
+
+  inline  ::uint64_t getObservedMonoTime() const;
+
+  inline  ::uint64_t getValidUntilMonoTime() const;
+
+  inline  ::uint64_t getCameraFrameEofBootTime() const;
+
+  inline  ::uint32_t getFrameId() const;
+
+  inline  ::uint16_t getImageWidth() const;
+
+  inline  ::uint16_t getImageHeight() const;
+
+  inline bool hasDetections() const;
+  inline  ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Reader getDetections() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class StarPilotModelDataV2::VisionObservation::StopObservation::Builder {
+public:
+  typedef StopObservation Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline  ::cereal::StarPilotModelDataV2::VisionObservation::Status getStatus();
+  inline void setStatus( ::cereal::StarPilotModelDataV2::VisionObservation::Status value);
+
+  inline  ::uint64_t getObservedMonoTime();
+  inline void setObservedMonoTime( ::uint64_t value);
+
+  inline  ::uint64_t getValidUntilMonoTime();
+  inline void setValidUntilMonoTime( ::uint64_t value);
+
+  inline  ::uint64_t getCameraFrameEofBootTime();
+  inline void setCameraFrameEofBootTime( ::uint64_t value);
+
+  inline  ::uint32_t getFrameId();
+  inline void setFrameId( ::uint32_t value);
+
+  inline  ::uint16_t getImageWidth();
+  inline void setImageWidth( ::uint16_t value);
+
+  inline  ::uint16_t getImageHeight();
+  inline void setImageHeight( ::uint16_t value);
+
+  inline bool hasDetections();
+  inline  ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Builder getDetections();
+  inline void setDetections( ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Reader value);
+  inline  ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Builder initDetections(unsigned int size);
+  inline void adoptDetections(::capnp::Orphan< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>&& value);
+  inline ::capnp::Orphan< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>> disownDetections();
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class StarPilotModelDataV2::VisionObservation::StopObservation::Pipeline {
+public:
+  typedef StopObservation Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
+class StarPilotModelDataV2::VisionObservation::StopDetection::Reader {
+public:
+  typedef StopDetection Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline float getConfidence() const;
+
+  inline  ::uint16_t getX1Pixels() const;
+
+  inline  ::uint16_t getY1Pixels() const;
+
+  inline  ::uint16_t getX2Pixels() const;
+
+  inline  ::uint16_t getY2Pixels() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class StarPilotModelDataV2::VisionObservation::StopDetection::Builder {
+public:
+  typedef StopDetection Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline float getConfidence();
+  inline void setConfidence(float value);
+
+  inline  ::uint16_t getX1Pixels();
+  inline void setX1Pixels( ::uint16_t value);
+
+  inline  ::uint16_t getY1Pixels();
+  inline void setY1Pixels( ::uint16_t value);
+
+  inline  ::uint16_t getX2Pixels();
+  inline void setX2Pixels( ::uint16_t value);
+
+  inline  ::uint16_t getY2Pixels();
+  inline void setY2Pixels( ::uint16_t value);
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class StarPilotModelDataV2::VisionObservation::StopDetection::Pipeline {
+public:
+  typedef StopDetection Pipelines;
 
   inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
   inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
@@ -23005,6 +23262,247 @@ inline  ::cereal::StarPilotModelDataV2::VisionObservation::Stream StarPilotModel
 inline void StarPilotModelDataV2::VisionObservation::Builder::setStream( ::cereal::StarPilotModelDataV2::VisionObservation::Stream value) {
   _builder.setDataField< ::cereal::StarPilotModelDataV2::VisionObservation::Stream>(
       ::capnp::bounded<22>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotModelDataV2::VisionObservation::Reader::hasStopSigns() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotModelDataV2::VisionObservation::Builder::hasStopSigns() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS).isNull();
+}
+inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Reader StarPilotModelDataV2::VisionObservation::Reader::getStopSigns() const {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>::get(_reader.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Builder StarPilotModelDataV2::VisionObservation::Builder::getStopSigns() {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>::get(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+#if !CAPNP_LITE
+inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Pipeline StarPilotModelDataV2::VisionObservation::Pipeline::getStopSigns() {
+  return  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Pipeline(_typeless.getPointerField(2));
+}
+#endif  // !CAPNP_LITE
+inline void StarPilotModelDataV2::VisionObservation::Builder::setStopSigns( ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Reader value) {
+  ::capnp::_::PointerHelpers< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>::set(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS), value);
+}
+inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Builder StarPilotModelDataV2::VisionObservation::Builder::initStopSigns() {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>::init(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+inline void StarPilotModelDataV2::VisionObservation::Builder::adoptStopSigns(
+    ::capnp::Orphan< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>&& value) {
+  ::capnp::_::PointerHelpers< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>::adopt(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation> StarPilotModelDataV2::VisionObservation::Builder::disownStopSigns() {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>::disown(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+
+inline  ::cereal::StarPilotModelDataV2::VisionObservation::Status StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getStatus() const {
+  return _reader.getDataField< ::cereal::StarPilotModelDataV2::VisionObservation::Status>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline  ::cereal::StarPilotModelDataV2::VisionObservation::Status StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getStatus() {
+  return _builder.getDataField< ::cereal::StarPilotModelDataV2::VisionObservation::Status>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setStatus( ::cereal::StarPilotModelDataV2::VisionObservation::Status value) {
+  _builder.setDataField< ::cereal::StarPilotModelDataV2::VisionObservation::Status>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getObservedMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getObservedMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setObservedMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getValidUntilMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getValidUntilMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setValidUntilMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getCameraFrameEofBootTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getCameraFrameEofBootTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setCameraFrameEofBootTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint32_t StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getFrameId() const {
+  return _reader.getDataField< ::uint32_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint32_t StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getFrameId() {
+  return _builder.getDataField< ::uint32_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setFrameId( ::uint32_t value) {
+  _builder.setDataField< ::uint32_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getImageWidth() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getImageWidth() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setImageWidth( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getImageHeight() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<16>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getImageHeight() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<16>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setImageHeight( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<16>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotModelDataV2::VisionObservation::StopObservation::Reader::hasDetections() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotModelDataV2::VisionObservation::StopObservation::Builder::hasDetections() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Reader StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getDetections() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Builder StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getDetections() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setDetections( ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Builder StarPilotModelDataV2::VisionObservation::StopObservation::Builder::initDetections(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), size);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::adoptDetections(
+    ::capnp::Orphan< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>> StarPilotModelDataV2::VisionObservation::StopObservation::Builder::disownDetections() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline float StarPilotModelDataV2::VisionObservation::StopDetection::Reader::getConfidence() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotModelDataV2::VisionObservation::StopDetection::Builder::getConfidence() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopDetection::Builder::setConfidence(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Reader::getX1Pixels() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Builder::getX1Pixels() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopDetection::Builder::setX1Pixels( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Reader::getY1Pixels() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Builder::getY1Pixels() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopDetection::Builder::setY1Pixels( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Reader::getX2Pixels() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Builder::getX2Pixels() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopDetection::Builder::setX2Pixels( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Reader::getY2Pixels() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Builder::getY2Pixels() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopDetection::Builder::setY2Pixels( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS, value);
 }
 
 inline  ::uint16_t StarPilotSteeringTracking::Reader::getVersion() const {

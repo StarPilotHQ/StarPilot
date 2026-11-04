@@ -47,6 +47,7 @@ from openpilot.starpilot.ui.onroad_state import (AlertSize, BorderSignals, Obser
                                                 OnroadState, SpeedLimitObservation, is_personality_notice, speed_limit_from_message)
 from openpilot.starpilot.ui.unified_speed_presentation import displayed_adjusted_limit_mps, displayed_limit_mps, positive, retaining_limit
 from openpilot.starpilot.ui.onroad_stopped_timer import StoppedTimer
+from openpilot.starpilot.speed_limits.vision.stop_observation import StopConfirmation, read_stop_evidence
 from openpilot.starpilot.ui.onroad_lane_alerts import lateral_lane_alert
 from openpilot.starpilot.ui.onroad_camera import ReverseDriverCamera
 from openpilot.starpilot.ui.navigation_state import navigation_display, official_navigation_display
@@ -334,6 +335,7 @@ class RuntimeSnapshotAdapter:
     self._replay_stopped_history = False
     self._developer_metrics = DeveloperMetrics()
     self._reverse_driver_camera = ReverseDriverCamera()
+    self._vision_stop = StopConfirmation()
     self._slc_sign_cache: tuple[int, tuple[int, int], str, SpeedLimitObservation] | None = None
     self._mono_clock, self._boot_clock = mono_clock, boot_clock
     self._device_after_mono_ns = mono_clock()
@@ -678,7 +680,10 @@ class RuntimeSnapshotAdapter:
       torque=current_message(sm, 'lateralTorqueParameters', now_ns, after_frame=after) if started else None,
       parameters=display_message(sm, 'vehicleParameters', now_ns, after_frame=after) if started else None,
       metric=bool(ui.is_metric), cp=cp)
-    onroad = OnroadState(developer_metrics=developer_metrics,
+    stop_evidence = (read_stop_evidence(sm, now_ns=now_ns, now_boot_ns=now_ns + pair[2],
+                                      drive_id=drive_id, after_frame=after) if started and pair is not None else None)
+    stop_observed_ns = self._vision_stop.observe(stop_evidence, now_ns=now_ns)
+    onroad = OnroadState(developer_metrics=developer_metrics, stop_sign_observed_ns=stop_observed_ns,
                          engaged=display_lat_active or display_long_active or longitudinal_overridden, camera_available=started,
                          speed_mps=raw_speed, cruise_kph=cruise, speed_limit=observation,
                          toyota_cruise_status=str(toyota.status) if toyota is not None else '',

@@ -444,6 +444,8 @@ def starpilot_main():
     optional_slc.append('aolAxisState')
   if force_stop_owner is not None and 'starpilotCarState' not in optional_slc:
     optional_slc.append('starpilotCarState')
+  if force_stop_owner is not None and 'slcVisionObservation' not in optional_slc:
+    optional_slc.append('slcVisionObservation')
   subscribed_services.extend(optional_slc)
   subscribed_services.append('starpilotNavigation')
   optional_conditional = ['starpilotNavigation'] + (['starpilotRadarState'] if conditional_host is not None else []) + optional_slc

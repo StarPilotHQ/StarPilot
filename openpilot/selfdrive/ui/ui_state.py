@@ -134,15 +134,16 @@ class UIState:
         "aolAxisState",
         "aolIntentWire",
         "slcState",
+        "slcVisionObservation",
         "vehicleParameters",
         "testJoystick",
         "rawAudioData",
         *(["customReserved6", "cabinCameraState", "narrowRoadEncodeIdx", "wideRoadEncodeIdx", "cabinEncodeIdx"]
           if self.replay_clock is not None else []),
       ],
-      ignore_alive=["starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState"],
-      ignore_valid=["starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState"],
-      ignore_avg_freq=["starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState"],
+      ignore_alive=["slcVisionObservation", "starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState"],
+      ignore_valid=["slcVisionObservation", "starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState"],
+      ignore_avg_freq=["slcVisionObservation", "starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState"],
     )
 
     self.prime_state = ProjectionPrimeState(self.params) if self.replay_clock is not None or isinstance(self.params, ProjectionParams) else PrimeState()

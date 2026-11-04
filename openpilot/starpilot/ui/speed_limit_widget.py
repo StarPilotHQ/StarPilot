@@ -10,6 +10,7 @@ from openpilot.starpilot.ui.onroad_state import OnroadState, manual_slc_confirma
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
 from openpilot.starpilot.ui.speed_limit_pulse import SpeedLimitPulse
 from openpilot.starpilot.ui.speed_limit_shapes import SpeedLimitShapes
+from openpilot.starpilot.ui.stop_sign_widget import render_stop_sign
 from openpilot.starpilot.ui.unified_speed_presentation import displayed_adjusted_limit_mps, positive, resolve_unified_speed
 
 
@@ -75,6 +76,8 @@ class SpeedLimitWidget:
     self.shapes.close()
 
   def render(self, state: OnroadState, *, defer_confirmation=False) -> None:
+    if state.appearance.show_speed_limit_sign or state.speed_limit.action_enabled:
+      render_stop_sign(self.fonts, state)
     bounds = speed_limit_bounds(self.profile, state)
     now = state.observed_ns / 1e9 if state.observed_ns else time.monotonic()
     self.pulse.update(state, now, visible=bounds is not None)

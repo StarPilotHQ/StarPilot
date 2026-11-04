@@ -64,7 +64,7 @@ class TestVisionProducer(unittest.TestCase):
     return next_pair
 
   def run_frame(self, streams, *, completion_age_ns=10_000_000, model_states=None, metric=False, number=55):
-    core = Mock(last_published_support_at=1., last_detection_at=0.)
+    core = Mock(last_published_support_at=1., last_detection_at=0., stop_detections=())
     core.observe.return_value = (number, 0.9, 2, 1)
     client = Mock()
     client.is_connected.return_value = True
@@ -190,7 +190,7 @@ class TestVisionProducer(unittest.TestCase):
       return Buffer(frame_id)
 
     client.recv.side_effect = receive
-    core = Mock(last_published_support_at=1., last_detection_at=0.)
+    core = Mock(last_published_support_at=1., last_detection_at=0., stop_detections=())
 
     def observe(_frame, *, now):
       self.assertEqual(released, [12] if core.observe.call_count == 1 else [12, 13, 14, 15, 16, 17])
@@ -232,7 +232,7 @@ class TestVisionProducer(unittest.TestCase):
     self.assertEqual(messages[2].producerSessionId, messages[3].producerSessionId)
 
   def test_throttled_and_already_stale_frames_do_not_convert(self):
-    core = Mock(last_published_support_at=1., last_detection_at=0.)
+    core = Mock(last_published_support_at=1., last_detection_at=0., stop_detections=())
     core.observe.return_value = None
     client = Mock()
     client.is_connected.return_value = True
@@ -267,7 +267,7 @@ class TestVisionProducer(unittest.TestCase):
     self.assertEqual([message.frameId for message in messages], [12, 14])
 
   def test_expired_inference_cools_down_without_accepting_old_result(self):
-    core = Mock(last_published_support_at=1., last_detection_at=0.)
+    core = Mock(last_published_support_at=1., last_detection_at=0., stop_detections=())
     core.observe.return_value = None
     client = Mock()
     client.is_connected.return_value = True
@@ -312,6 +312,7 @@ class TestVisionProducer(unittest.TestCase):
     ):
       with self.subTest(conversion_ns=conversion_ns):
         core = VisionModelCore.__new__(VisionModelCore)
+        core.stop_detections = ()
         core.is_metric = False
         core.history = deque()
         core.reset()
@@ -379,6 +380,7 @@ class TestVisionProducer(unittest.TestCase):
 
   def test_only_usable_detector_reads_renew_followup_and_reset_clears_it(self):
     core = VisionModelCore.__new__(VisionModelCore)
+    core.stop_detections = ()
     core.history = deque()
     core.is_metric = False
     core.reset()
@@ -394,6 +396,7 @@ class TestVisionProducer(unittest.TestCase):
 
   def cooldown_messages(self, *, processing_ns=500_000_000, heartbeat_failure=None, metric=False):
     core = VisionModelCore.__new__(VisionModelCore)
+    core.stop_detections = ()
     core.is_metric = metric
     core.history = deque()
     core.reset()
@@ -463,6 +466,7 @@ class TestVisionProducer(unittest.TestCase):
 
   def unit_change_messages(self, params, change_at):
     core = VisionModelCore.__new__(VisionModelCore)
+    core.stop_detections = ()
     core.is_metric = params.get_bool('IsMetric')
     core.history = deque()
     core.reset()
@@ -585,6 +589,7 @@ class TestVisionProducer(unittest.TestCase):
     # Use the real temporal state machine without loading ONNX assets. A sign
     # seen once before a reconnect cannot confirm a single post-reconnect read.
     core = VisionModelCore.__new__(VisionModelCore)
+    core.stop_detections = ()
     core.history = deque()
     core.reset()
     core.is_metric = False

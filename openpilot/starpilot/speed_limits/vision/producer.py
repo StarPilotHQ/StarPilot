@@ -10,7 +10,9 @@ import uuid
 import numpy as np
 
 from openpilot.common.constants import CV
-from openpilot.starpilot.speed_limits.vision.model import VisionModelCore, cv2
+from openpilot.starpilot.speed_limits.vision.model import cv2
+from openpilot.starpilot.speed_limits.vision.traffic_signs import TrafficSignModelCore as VisionModelCore
+from openpilot.starpilot.speed_limits.vision.stop_observation import StopEvidence, StopBox, STOP_MAX_AGE_NS
 from openpilot.starpilot.speed_limits.vision.observation import MODEL_ID, MAX_FRAME_AGE_NS, MAX_RESULT_AGE_NS, MAX_PAIR_SKEW_NS, clock_pair_ns
 from openpilot.starpilot.spot_monitor.preferences import enabled as vasm_enabled
 from openpilot.starpilot.vision_cpu import LITTLE_CORES, VISION_WITH_VASM
@@ -100,7 +102,8 @@ def _camera_frame(client) -> tuple[np.ndarray, int, int] | None:
 
 def _send(pm, *, session: str, status: str, stream: str, observed_ns: int = 0,
           eof_boot_ns: int = 0, frame_id: int = 0, result: tuple[int, float, int, int] | None = None,
-          valid_until_ns: int | None = None, is_metric: bool = False) -> None:
+          valid_until_ns: int | None = None, is_metric: bool = False,
+          stop_sample: StopEvidence | None = None) -> None:
   from openpilot.cereal import messaging
 
   msg = messaging.new_message('slcVisionObservation', valid=True)
@@ -119,6 +122,20 @@ def _send(pm, *, session: str, status: str, stream: str, observed_ns: int = 0,
     event.supportCount = support
     event.episode = episode
     event.validUntilMonoTime = observed_ns + MAX_RESULT_AGE_NS if valid_until_ns is None else valid_until_ns
+  stops = event.stopSigns
+  stops.status = status if status in ('stale', 'unavailable') else 'unknown'
+  if stop_sample is not None and status in ('valid', 'unknown'):
+    if stop_sample.session != session or stop_sample.stream != stream or len(stop_sample.boxes) > 4:
+      raise ValueError('STOP source identity mismatch')
+    stops.status = 'valid'
+    stops.observedMonoTime = stop_sample.observed_ns
+    stops.validUntilMonoTime = stop_sample.observed_ns + STOP_MAX_AGE_NS
+    stops.cameraFrameEofBootTime = stop_sample.eof_boot_ns
+    stops.frameId = stop_sample.frame_id
+    stops.imageWidth, stops.imageHeight = stop_sample.width, stop_sample.height
+    for item, box in zip(stops.init('detections', len(stop_sample.boxes)), stop_sample.boxes, strict=True):
+      item.confidence = box.confidence
+      item.x1Pixels, item.y1Pixels, item.x2Pixels, item.y2Pixels = box.bbox
   pm.send('slcVisionObservation', msg)
 
 
@@ -148,6 +165,7 @@ def main() -> None:
   last_inference_ns = 0
   last_publish_ns = 0
   last_result = None
+  last_stop_sample = None
   last_result_session = ''
   last_result_observed_ns = 0
   last_result_valid_until_ns = 0
@@ -269,7 +287,8 @@ def main() -> None:
             continue
           _send(pm, session=session, status='valid', stream=stream,
                 observed_ns=last_result_observed_ns, eof_boot_ns=eof_boot_ns,
-                frame_id=frame_id, result=last_result, valid_until_ns=last_result_valid_until_ns, is_metric=is_metric)
+                frame_id=frame_id, result=last_result, valid_until_ns=last_result_valid_until_ns, is_metric=is_metric,
+                stop_sample=last_stop_sample if last_stop_sample is not None and last_stop_sample.session == session else None)
           last_publish_ns = heartbeat_pair[0]
         continue
       try:
@@ -331,12 +350,15 @@ def main() -> None:
         last_unavailable = observed_pair[0] / 1e9
         _send(pm, session=session, status='unavailable', stream=stream)
         continue
+      height, width = frame.shape[:2]
+      last_stop_sample = StopEvidence(session, stream, source_observed_ns, eof_boot_ns, frame_id, width, height,
+                                     tuple(StopBox(box.confidence, box.bbox) for box in core.stop_detections))
       # A confirmed sign remains the known road limit after it leaves view.
       # Keep its actual support time separate from this fresh camera heartbeat.
       sign_observed_ns = int(core.last_published_support_at * 1e9) if result is not None else source_observed_ns
       _send(pm, session=session, status='valid' if result is not None else 'unknown', stream=stream,
             observed_ns=sign_observed_ns, eof_boot_ns=eof_boot_ns, frame_id=frame_id, result=result,
-            valid_until_ns=source_observed_ns + MAX_RESULT_AGE_NS, is_metric=is_metric)
+            valid_until_ns=source_observed_ns + MAX_RESULT_AGE_NS, is_metric=is_metric, stop_sample=last_stop_sample)
       last_publish_ns = observed_pair[0]
       last_result = result
       last_result_session = session

@@ -242,6 +242,8 @@ class OnroadState:
   def cruise_active(self) -> bool:
     return self.longitudinal_active or self.longitudinal_overridden or self.stock_cruise_active
 
+  stop_sign_observed_ns: int = 0
+
   def __post_init__(self) -> None:
     if self.speed_mps is not None and (not math.isfinite(self.speed_mps) or self.speed_mps < 0):
       raise ValueError("Speed must be finite and nonnegative")
