@@ -1352,6 +1352,27 @@ class SelfdriveD:
       self.aol_fault_reason = 'availabilityPause'
       self.aol_publication_retained_intent = intent
       return
+    from openpilot.starpilot.car.toyota.aol import qualified as toyota_aol_qualified
+    companion = getattr(self, 'aol_intent_companion', None)
+    if (healthy_expiry and toyota_aol_qualified(self.CP, marked_only=True) and
+        not was_enabled and not self.active and not getattr(self, 'aol_ever_active', False) and
+        not any((previous.desired_lateral, previous.desired_longitudinal, previous.lateral_active,
+                 previous.longitudinal_active, previous.native_acknowledged)) and
+        not self.aol_authority_lost and getattr(self, 'aol_fault_reason', 'none') == 'availabilityPause' and
+        availability_only(self.events.to_msg()) and not any(
+          event.userDisable and event.name != EventName.pcmDisable for event in self.events.to_msg()) and
+        intent is not None and intent is self.aol_last_intent and
+        intent.settingsQualified and intent.allowedLatch and intent.lateralArmed and
+        intent.carStateLogMonoTime == source_ns and
+        0 < intent.observedMonoTime <= now_ns <= intent.validUntilMonoTime and
+        companion is not None and companion.last_drain_ok and companion.session == intent.producerSessionId):
+      from openpilot.starpilot.aol.transport_pause import _healthy_transport_native
+      native = _healthy_transport_native(self.sm, self.CP, CS, self.aol_session_id, now_ns)
+      if native is not None and native.pandaInventory and not any((native.requestedLateral,
+          native.lateralAllowed, native.requestedLongitudinal, native.longitudinalAllowed)):
+        # Cold readiness has no granted command to lose; the expired source still withdraws all output.
+        self.aol_publication_retained_intent = intent
+        return
     pause = getattr(self, 'aol_availability_pause', None)
     if (healthy_expiry and pause is not None and intent is not None and
         getattr(self, 'aol_fault_reason', 'none') in ('none', 'availabilityPause') and
