@@ -57,3 +57,16 @@ def lateral_supported(cp) -> bool:
     return True
   except (AttributeError, IndexError, TypeError, ValueError):
     return False
+
+
+def vehicle_preferences_supported(cp) -> bool:
+  """Admit the settings page through each vehicle feature's native contract."""
+  if cp is None:
+    return False
+  if cp.brand == 'chrysler':
+    from opendbc.car.chrysler.brake_hold import brake_hold_supported
+    return brake_hold_supported(cp)
+  if cp.brand == 'toyota':
+    from opendbc.car.toyota.interface import toyota_auto_hold_supported
+    return toyota_auto_hold_supported(cp)
+  return False
