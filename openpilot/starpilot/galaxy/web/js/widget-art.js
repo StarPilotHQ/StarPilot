@@ -33,7 +33,7 @@ export async function widgetArtMetadata(blob, header = null) {
       metadata.width < 1 || metadata.width > 1024 || metadata.height < 1 || metadata.height > 1440 ||
       metadata.width !== view.getUint32(16) || metadata.height !== view.getUint32(20) ||
       !metadata.sprites || typeof metadata.sprites !== "object" || Array.isArray(metadata.sprites) ||
-      Object.keys(metadata.sprites).length > 7) throw new Error("Invalid widget art metadata")
+      Object.keys(metadata.sprites).length > 10) throw new Error("Invalid widget art metadata")
   for (const [id, rect] of Object.entries(metadata.sprites)) {
     if (!/^[a-z_]+$/.test(id) || !rect || ![rect.x,rect.y,rect.width,rect.height].every(Number.isInteger) ||
         rect.x < 0 || rect.y < 0 || rect.width < 1 || rect.height < 1 ||
