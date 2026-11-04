@@ -201,7 +201,6 @@ class TestHyundaiOptionalRelease(unittest.TestCase):
     self.assertEqual(self.safety.aol_get_permission_mask(), 0, self.context)
     self.assertFalse(self.tx(1, 1), self.context)
 
-
   def test_claimed_lateral_survives_timely_button_counter_interruption(self):
     for raw in (0x815, 0x895):
       for button in (1, 2):
