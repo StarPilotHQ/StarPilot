@@ -1,3 +1,4 @@
+import io
 import json
 
 import pytest
@@ -84,6 +85,48 @@ def test_lost_login_recovers_but_first_pairing_waits_without_restart(tmp_path, m
   assert len(spawned) == 4
   sup.handle({'command': 'reset_session'})
   assert not sup.authenticated_once
+
+
+LOGIN_FAILED_LINE = b'2026-07-28 08:06:23.046: login failed: make sure --api-key is valid\n'
+
+
+def test_failed_saved_login_at_boot_retries_with_backoff(tmp_path, monkeypatch):
+  layout = Layout(tmp_path / 'soloist')
+  ready_layout(layout, monkeypatch)
+  monkeypatch.setattr(supervisor, '_kill_group', lambda _p: None)
+  monkeypatch.setattr(supervisor.random, 'uniform', lambda _a, _b: 1.0)
+  spawned = []
+  sup, now = make_supervisor(layout, spawned, logged_in=False)
+  sup.tick()
+  assert len(spawned) == 2
+  for attempt, delay in enumerate((5.0, 10.0, 20.0), start=1):
+    sup._record(io.BytesIO(LOGIN_FAILED_LINE), 'soloist')
+    sup.tick()
+    assert sup.player is None and sup.status()['state'] == 'retrying'
+    assert ('keeps refusing' in sup.status()['message']) == (attempt >= supervisor.LOGIN_REJECTED_AFTER)
+    now[0] += delay - 0.1
+    sup.tick()
+    assert len(spawned) == 2 * attempt  # still waiting out the backoff
+    now[0] += 0.2
+    sup.tick()
+    assert len(spawned) == 2 * (attempt + 1)
+  sup.client.snapshot = lambda: {'connected': True, 'loggedIn': True, 'status': 'idle', 'active': False}
+  sup.tick()
+  assert sup.login_failures == 0 and sup.status()['state'] == 'ready'
+
+
+def test_first_pairing_and_audio_lines_never_trigger_a_login_retry(tmp_path, monkeypatch):
+  layout = Layout(tmp_path / 'soloist')
+  ready_layout(layout, monkeypatch)
+  monkeypatch.setattr(supervisor, '_kill_group', lambda _p: None)
+  spawned = []
+  sup, now = make_supervisor(layout, spawned, logged_in=False)
+  sup.tick()
+  sup._record(io.BytesIO(b'W: [pulseaudio] login failed for unrelated reasons\n'), 'audio')
+  for _ in range(5):
+    now[0] += 200
+    sup.tick()
+  assert len(spawned) == 2 and sup.status()['state'] == 'waiting'
 
 
 def test_lost_login_while_playing_gets_a_longer_grace(tmp_path, monkeypatch):

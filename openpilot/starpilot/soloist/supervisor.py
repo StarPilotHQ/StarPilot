@@ -34,6 +34,8 @@ MAX_FAST_FAILURES = 5
 UNRESPONSIVE_SECONDS = 120.0
 PLAYING_GRACE_SECONDS = 600.0
 LOG_LINES = 200
+LOGIN_RETRY_MAX_SECONDS = 300.0
+LOGIN_REJECTED_AFTER = 3
 
 
 def network_ready() -> bool:
@@ -58,6 +60,9 @@ def network_ready() -> bool:
 
 
 EXPIRES_IN = re.compile(r'client expires in (\d+) days?')
+# Soloist logs this when restoring the saved account fails (e.g. at boot, before the network really works).
+# It never retries by itself; first-time pairing has no saved account, so it never logs this.
+LOGIN_FAILED = re.compile(r'\blogin failed\b')
 
 
 def _kill_group(process: subprocess.Popen | None) -> None:
@@ -166,6 +171,8 @@ class Supervisor:
       target=fn, name='spotify_output_check', daemon=True).start()
     self.unresponsive_since: float | None = None
     self.authenticated_once = False
+    self.login_failed = False
+    self.login_failures = 0
     self.answered = False
     self.last_playing = False
 
@@ -209,6 +216,8 @@ class Supervisor:
       match = EXPIRES_IN.search(line)
       if match:
         self.days_left = int(match.group(1))
+      if label == 'soloist' and LOGIN_FAILED.search(line):
+        self.login_failed = True
 
   def _start(self, launch: backend.Launch, label: str) -> subprocess.Popen:
     process = self.spawn(launch.argv, env=launch.env, cwd=str(self.layout.runtime), stdin=subprocess.DEVNULL,
@@ -218,6 +227,7 @@ class Supervisor:
 
   def stop_children(self, *, release_phone: bool = True) -> None:
     self.unresponsive_since = None
+    self.login_failed = False
     self.output_generation += 1
     self.output_seen, self.output_flips, self.waiting_for = None, 0, ''
     if self.client is not None:
@@ -432,7 +442,11 @@ class Supervisor:
       self.answered = self.answered or connected
       if snapshot.get('loggedIn'):
         self.authenticated_once = True
+        self.login_failures = 0
         self.last_playing = bool(snapshot.get('active') and snapshot.get('status') in ('playing', 'buffering'))
+      elif self.login_failed:
+        self._retry_login(now)
+        return
       lost_login = connected and self.authenticated_once and not snapshot.get('loggedIn')
       # Logout clears the playback state, so cached music from before a coverage gap gets longer.
       limit = PLAYING_GRACE_SECONDS if lost_login and self.last_playing else UNRESPONSIVE_SECONDS
@@ -459,6 +473,15 @@ class Supervisor:
       return
     detail = 'audio output closed' if server_dead and code is None else f'player exited ({code})'
     self._fail(now, f'Spotify stopped: {detail}. Retrying…')
+
+  def _retry_login(self, now: float) -> None:
+    self.stop_children()
+    self.login_failures += 1
+    delay = min(LOGIN_RETRY_MAX_SECONDS, 5.0 * 2 ** (self.login_failures - 1)) * random.uniform(0.8, 1.2)
+    self.retry_at = now + delay
+    rejected = self.login_failures >= LOGIN_REJECTED_AFTER
+    self._set('retrying', 'Spotify keeps refusing the sign-in. Check your API key or network connection. Trying again…' if rejected
+              else 'Couldn’t sign in to Spotify yet. Trying again…')
 
   def _fail(self, now: float, message: str) -> None:
     self.fast_failures += 1
@@ -523,6 +546,7 @@ class Supervisor:
       with self.lock:
         self.stop_children()
         self.authenticated_once = False
+        self.login_failures = 0
         shutil.rmtree(self.layout.state, ignore_errors=True)
         shutil.rmtree(self.layout.cache, ignore_errors=True)
       return {'ok': True}
