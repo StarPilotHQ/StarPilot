@@ -302,13 +302,13 @@ class TestProjectionLayoutRuntime(unittest.TestCase):
     appearance = rendered[-1].appearance
     self.assertEqual((appearance.hide_personality_alerts, appearance.wheel_pedal_feedback, appearance.camera_view,
                       appearance.driver_camera_on_reverse, rendered[-1].reverse_driver_camera),
-                     (False, False, CameraViewChoice.DRIVER, True, False), 'the car screen never switches to the driver camera')
-    self.assertIs(adapter.appearance_override(comma).hide_personality_alerts, False, 'the adapter hides notices by AA choice')
+                     (True, False, CameraViewChoice.DRIVER, True, False), 'the car screen never switches to the driver camera')
+    self.assertIs(adapter.appearance_override(comma).hide_personality_alerts, True, 'the shared comma preference controls notices')
     view.apply_layout({**layout, 'hidePersonalityAlerts': True, 'wheelPedalFeedback': True})
     self.assertEqual(invalidated, [1])
     view.render()
     self.assertEqual((rendered[-1].appearance.hide_personality_alerts, rendered[-1].appearance.wheel_pedal_feedback), (True, True))
-    self.assertIs(adapter.appearance_override(OnroadAppearance()).hide_personality_alerts, True)
+    self.assertIs(adapter.appearance_override(OnroadAppearance()).hide_personality_alerts, False, 'stale AA value cannot override the shared choice')
 
   def test_lead_marker_and_info_follow_the_aa_layout_only(self):
     from openpilot.starpilot.ui.appearance_preferences import LeadInfoMode, OnroadAppearance

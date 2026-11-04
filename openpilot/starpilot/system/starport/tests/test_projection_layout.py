@@ -216,6 +216,19 @@ class TestProjectionLayout(unittest.TestCase):
         with self.subTest(key=key, value=value), self.assertRaises(ValueError):
           validate_layout({**document, key: value}, SCREEN)
 
+  def test_legacy_personality_choice_cannot_override_shared_preference(self):
+    from openpilot.starpilot.system.starport.projection_layout import projection_appearance
+    from openpilot.starpilot.ui.appearance_preferences import OnroadAppearance
+    for old_value in (False, True):
+      saved = validate_layout({**default_layout(SCREEN), 'hidePersonalityAlerts': old_value,
+                               'wheelPedalFeedback': True}, SCREEN)
+      round_trip = decode_layout(json.dumps(saved).encode(), SCREEN)
+      self.assertEqual(round_trip, saved)
+      for shared_value in (False, True):
+        actual = projection_appearance(OnroadAppearance(hide_personality_alerts=shared_value), round_trip)
+        self.assertIs(actual.hide_personality_alerts, shared_value)
+        self.assertTrue(actual.wheel_pedal_feedback)
+
   def test_lead_info_starts_off_and_takes_only_known_choices(self):
     document = default_layout(SCREEN)
     self.assertEqual((document['leadIndicator'], document['leadInfo']), (False, 'Off'))

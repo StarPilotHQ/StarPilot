@@ -355,8 +355,7 @@ export const ONROAD_LAYOUT_TEMPLATE = `
               <div class="gx-layout__subhead"><h4>StarPort screen options</h4></div>
               <p class="gx-note">Only the StarPort screen uses these. The comma screen has its own options on the Comma tab. Save to apply.</p>
               <h5 class="gx-layout__display-group">Alerts and borders</h5>
-              <GalaxySettingRow feedback="draft" :row="switchRow('Hide Personality Alerts', state.draft.hidePersonalityAlerts === true)" :index="0"
-                :disabled="!editable || !!state.drag || !!state.layerDrag" :save-value="(index, value) => setProjectionDisplay('hidePersonalityAlerts', value)" />
+              <p class="gx-note">Personality alerts follow the comma screen setting.</p>
               <GalaxySettingRow feedback="draft" :row="switchRow('Red Blind-Spot Border', state.draft.blindSpotBorder === true)" :index="1"
                 :disabled="!editable || !!state.drag || !!state.layerDrag" :save-value="(index, value) => setProjectionDisplay('blindSpotBorder', value)" />
               <GalaxySettingRow feedback="draft" :row="switchRow('Amber Signal Border', state.draft.signalBorder === true)" :index="2"

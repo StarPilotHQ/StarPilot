@@ -100,7 +100,7 @@ DESCRIPTIONS = {
   'DeveloperSidebar': 'Shows live developer metrics on the right of the Big driving screen. Off gives that space back to the road view.',
   'DriverCamera': 'Shows the driver camera while reversing.',
   'StockConfidenceBallWidget': 'Uses StarPilot driving widgets in place of the stock confidence ball.',
-  'HidePersonalityAlerts': 'Hides the alert shown when the driving personality changes.',
+  'HidePersonalityAlerts': 'Hides the alert shown when the driving personality changes on the comma and Android Auto.',
   'ShowBrakeStatus': 'Colors the steering wheel to show braking and acceleration.',
   'HideLeadMarker': 'Shows the lead-vehicle indicator on the driving screen.',
   'LeadInfo': 'Shows the lead vehicle distance or speed beside its indicator.',

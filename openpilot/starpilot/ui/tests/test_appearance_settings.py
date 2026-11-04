@@ -127,6 +127,65 @@ class AppearanceSettingsTests(unittest.TestCase):
     self.assertFalse(onroad_appearance(self.params).hide_personality_alerts)
     self.assertEqual(path.read_bytes(), b"bad")
 
+  def test_personality_toggle_controls_native_and_existing_projection_layouts(self):
+    from openpilot.starpilot.system.starport.projection_layout import default_layout_for_viewport, projection_appearance, validate_layout_for_viewport
+    from openpilot.starpilot.ui.tests.test_runtime_snapshot import RuntimeSnapshotAdapter
+
+    viewport = (2880, 1080)
+    for profile in (Profile.LARGE, Profile.COMPACT):
+      for hidden in (True, False):
+        request = row_change(self.row("HidePersonalityAlerts", profile))
+        assert request is not None
+        self.assertEqual(request.value, "On" if hidden else "Off")
+        self.assertTrue(self.owner.apply(request))
+        for old_aa_choice in (False, True):
+          layout = default_layout_for_viewport(viewport)
+          layout.update(hidePersonalityAlerts=old_aa_choice, wheelPedalFeedback=True)
+          saved = validate_layout_for_viewport(layout, viewport)
+          self.assertIs(saved['hidePersonalityAlerts'], old_aa_choice)
+          self.assertTrue(saved['wheelPedalFeedback'])
+          ui = ui_fake()
+          ui.params = self.params
+          source = ui.sm.messages['selfdriveState']
+          source.personality = NS(raw=1)
+          source.alertSize, source.alertType = NS(raw=1), 'personalityChanged/warning'
+          source.alertText1 = 'Driving Personality: Standard'
+          for projection in (False, True):
+            with self.subTest(profile=profile, hidden=hidden, legacy_aa=old_aa_choice, projection=projection):
+              adapter = RuntimeSnapshotAdapter(ui)
+              if projection:
+                adapter.appearance_override = lambda appearance, document=saved: projection_appearance(appearance, document)
+              alert = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.alert
+              self.assertEqual(alert.size, AlertSize.NONE if hidden else AlertSize.SMALL)
+              source.alertSize, source.alertStatus = NS(raw=3), NS(raw=2)
+              source.alertText1 = 'Take control'
+              safety = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.alert
+              self.assertEqual((safety.size, safety.text1), (AlertSize.FULL, 'Take control'))
+              source.alertSize, source.alertStatus = NS(raw=1), NS(raw=0)
+              source.alertText1 = 'Driving Personality: Standard'
+
+  def test_personality_toggle_refreshes_on_projection_without_reconnect(self):
+    from openpilot.starpilot.system.starport.projection_layout import default_layout_for_viewport, projection_appearance
+    from openpilot.starpilot.ui.tests.test_runtime_snapshot import RuntimeSnapshotAdapter
+
+    ui = ui_fake()
+    ui.params = self.params
+    source = ui.sm.messages['selfdriveState']
+    source.personality = NS(raw=1)
+    source.alertSize, source.alertType = NS(raw=1), 'personalityChanged/warning'
+    source.alertText1 = 'Driving Personality: Standard'
+    # A conflicting old AA-only preference must never pin either state.
+    layout = {**default_layout_for_viewport((2880, 1080)), 'hidePersonalityAlerts': True}
+    adapter = RuntimeSnapshotAdapter(ui)
+    adapter.appearance_override = lambda appearance: projection_appearance(appearance, layout)
+    for second, hidden in enumerate((False, True, False)):
+      self.params.put_bool('HidePersonalityAlerts', hidden, block=True)
+      now = NOW + second * 1_000_000_000
+      ui.sm.logMonoTime['selfdriveState'] = now
+      ui.sm.recv_time['selfdriveState'] = now / 1e9
+      alert = adapter.build(ShellMode.ONROAD, now_ns=now).onroad.alert
+      self.assertEqual(alert.size, AlertSize.NONE if hidden else AlertSize.SMALL)
+
   def test_developer_sidebar_external_changes_refresh_without_restart(self):
     from openpilot.starpilot.ui.tests.test_runtime_snapshot import RuntimeSnapshotAdapter
     ui = ui_fake()

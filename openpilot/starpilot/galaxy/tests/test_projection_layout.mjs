@@ -138,6 +138,8 @@ OnroadLayoutPage.methods.setProjectionLeadInfo.call(leadVm, "Both")
 assert.equal(leadVm.state.draft.leadInfo, "Speed")
 assert.equal(leadChanges.length, 2)
 assert.equal(validDocument({ ...native.document, signalBorder: true }, native.metadata), false, "the comma screen keeps its C4 settings")
+assert.match(OnroadLayoutPage.template, /Personality alerts follow the comma screen setting\./)
+assert.doesNotMatch(OnroadLayoutPage.template, /setProjectionDisplay\('hidePersonalityAlerts', value\)/)
 assert.match(OnroadLayoutPage.template, /Red Blind-Spot Border/)
 assert.match(OnroadLayoutPage.template, /Amber Signal Border/)
 const borderChanges = []
