@@ -244,14 +244,14 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
         cp = CarInterface.get_params(model, fp, [], False, False, False)
         ci = CarInterface(cp)
         packer = CANPacker(DBC[model][Bus.pt])
-        ci.update((1_000_000_000, []))
+        ci.update([(1_000_000_000, [])])
         sources = [(parser, state) for parser in ci.can_parsers.values()
                    for state in parser.message_states.values() if not state.ignore_alive and state.address != 0x2E0]
         for frame in range(120):
           packets = [packer.make_can_msg(state.name, parser.bus,
                                         {"COUNTER": frame % 256} if any(sig.name == "COUNTER" for sig in state.signals) else {})
                      for parser, state in sources]
-          state = ci.update((1_000_000_000 + frame * 100_000_000, packets))
+          state = ci.update([(1_000_000_000 + frame * 100_000_000, packets)])
         self.assertTrue(state.canValid)
         self.assertFalse(cp.openpilotLongitudinalControl)
         self.assertTrue(cp.pcmCruise)
@@ -261,7 +261,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
           packets = [packer.make_can_msg(msg.name, parser.bus,
                                         {"COUNTER": frame % 256} if any(sig.name == "COUNTER" for sig in msg.signals) else {})
                      for parser, msg in sources if msg.name != "MDPS"]
-          state = ci.update((1_000_000_000 + frame * 100_000_000, packets))
+          state = ci.update([(1_000_000_000 + frame * 100_000_000, packets)])
         self.assertFalse(state.canValid)
 
   def test_card_tags_aol_candidate_before_cp_publication_without_disabling_ecu(self):

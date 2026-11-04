@@ -1,11 +1,12 @@
 """Cold native entry and preempted clock reads from the recorded d5 exit paths."""
 
+import time
 from types import SimpleNamespace as NS
 from unittest.mock import Mock
 
 import pytest
 
-from openpilot.starpilot.ui.spacepilot import ignition, native, session
+from openpilot.starpilot.ui.spacepilot import guard, ignition, native, session
 from openpilot.starpilot.ui.tests.test_spacepilot_session import Clock, Vehicle, game_ui, offroad, setup as setup
 from openpilot.starpilot.ui.tests.test_spacepilot_state import mature_gate, read
 from openpilot.system.ui.lib.application import gui_app
@@ -20,9 +21,23 @@ def clock_reads(monkeypatch, *, delayed=1, backwards=False, offset=2_000_000_000
     boots.append(now + offset)
     now += max(delta, 0)
   mono = Mock(side_effect=monos)
-  monkeypatch.setattr(session.time, 'monotonic_ns', mono)
-  monkeypatch.setattr(session.time, 'clock_gettime_ns', Mock(side_effect=boots))
+  # Keep background UI readers from consuming the scripted clock pairs.
+  monkeypatch.setattr(guard, 'time', NS(monotonic_ns=mono, clock_gettime_ns=Mock(side_effect=boots), CLOCK_BOOTTIME=time.CLOCK_BOOTTIME))
   return mono
+
+
+def test_clock_reads_leave_unrelated_process_clocks_untouched(monkeypatch):
+  process_mono, process_boot = time.monotonic_ns, time.clock_gettime_ns
+  mono = clock_reads(monkeypatch, delayed=3)
+  assert time.monotonic_ns is process_mono
+  assert time.clock_gettime_ns is process_boot
+  time.monotonic_ns()
+  time.clock_gettime_ns(time.CLOCK_BOOTTIME)
+  assert mono.call_count == guard.time.clock_gettime_ns.call_count == 0
+  with pytest.raises(ValueError, match='stable device clock'):
+    guard.sample_clocks()
+  assert mono.call_count == 6
+  assert guard.time.clock_gettime_ns.call_count == 3
 
 
 def witness_ui(monkeypatch):

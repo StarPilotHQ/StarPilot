@@ -343,6 +343,8 @@ jobs:
       run: scons
     - name: Gate every assigned lifecycle module serially
       timeout-minutes: 10
+      env:
+        RAYLIB_BACKEND: headless
       run: python3 tools/ci/run_vehicle_tests.py --suite aol-lifecycle --shard-index "${{ matrix.shard }}" --shard-count 16 --output "ci-results/aol-lifecycle-${{ matrix.shard }}"
     - name: Save every lifecycle outcome and native build
       if: always()
@@ -453,6 +455,8 @@ jobs:
       run: scons
     - name: Run every assigned RELEASE target serially
       timeout-minutes: 20
+      env:
+        RAYLIB_BACKEND: headless
       run: python3 tools/ci/run_vehicle_tests.py --suite safety-release --shard-index "${{ matrix.shard }}" --shard-count 4 --output "ci-results/safety-release-${{ matrix.shard }}"
     - name: Save every RELEASE outcome and native build
       if: always()

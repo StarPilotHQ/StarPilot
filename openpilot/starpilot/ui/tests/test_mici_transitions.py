@@ -9,6 +9,7 @@ import pytest
 
 from openpilot.selfdrive.ui.mici.layouts import main
 from openpilot.selfdrive.ui.mici.onroad import cameraview
+from openpilot.selfdrive.ui.onroad import cameraview as base_cameraview
 
 
 @pytest.fixture
@@ -152,7 +153,8 @@ def camera(monkeypatch):
 
   monkeypatch.setattr(cameraview, 'VisionIpcClient', new_client)
   monkeypatch.setattr(cameraview, 'COMMA_HARDWARE', True)
-  monkeypatch.setattr(cameraview, 'destroy_egl_image', lambda image: events.append(('egl', image)))
+  monkeypatch.setattr(base_cameraview, 'COMMA_HARDWARE', True)
+  monkeypatch.setattr(base_cameraview, 'destroy_egl_image', lambda image: events.append(('egl', image)))
   monkeypatch.setattr(cameraview.rl, 'unload_texture', lambda texture: events.append(('texture', texture.id)))
   monkeypatch.setattr(cameraview.rl, 'unload_shader', lambda shader: events.append(('shader', shader.id)))
   monkeypatch.setattr(cameraview.rl, 'get_time', lambda: 1.0)

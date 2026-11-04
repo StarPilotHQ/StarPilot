@@ -98,6 +98,7 @@ class Plant:
     # always start at current speed
     model.modelV2.velocity.x = [float(self.speed)] + [float(self.speed + 0.5)] * (len(T_IDXS) - 1)
     model.modelV2.acceleration.x = [0.0] * len(T_IDXS)
+    model.modelV2.meta.disengagePredictions.gasPressProbs = [float(prob_throttle)] * 6
 
     control.controlsState.longControlState = LongCtrlState.pid if self.enabled else LongCtrlState.off
     ss.selfdriveState.experimentalMode = self.e2e

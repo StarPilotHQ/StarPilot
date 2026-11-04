@@ -1,6 +1,6 @@
 {
-  "reviewed_schema_commit": "cd0f46b9d65a9c5e47002f57e5ad6625c9757c63",
-  "reviewed_schema_sha256": "5effa2eb1fbbada3d1bbaae0acd3d31d780d8ec0e6ee1e214fedbc38ae400182",
+  "reviewed_schema_commit": "63beafc6af294d0759b47dc3bc546f24082a2a5d",
+  "reviewed_schema_sha256": "ca01ef4f6d2b15c5fac59ce237ec6e49f1167e2408903c9088ee322ca490de31",
   "incumbent_fixture_sha256": "a36ab54c00b5bbe61d520873d24aadfb8f33babd70c31a07046516d5545838d9",
   "types": {
     "0xf35cc4560bbf6ec2": {
@@ -18,7 +18,7 @@
       },
       "new_storage": {
         "dataWordCount": 3,
-        "pointerCount": 6,
+        "pointerCount": 7,
         "preferredListEncoding": "inlineComposite",
         "isGroup": false,
         "discriminantCount": 0,
@@ -59,10 +59,30 @@
             "hadExplicitDefault": false
           },
           "name": "toyotaCruise",
-          "codeOrder": 38,
+          "codeOrder": 39,
           "discriminantValue": 65535,
           "ordinal": {
             "explicit": 38
+          }
+        },
+        {
+          "slot": {
+            "offset": 6,
+            "type": {
+              "struct": {
+                "typeId": 15172299076723568810
+              }
+            },
+            "defaultValue": {
+              "schemaValueHex": "00000000040000000000000002000100100000000000000000000000000000000000000000000000"
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "steeringLimitInfo",
+          "codeOrder": 38,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 39
           }
         }
       ]
@@ -656,7 +676,8 @@
   },
   "published_addition_commits": {
     "slc": "ab8368f287b78b42f8590722878c7d5834609e19",
-    "flm": "b151ca11cb4d88f32d7adfdbcff50baf29f4fbbc"
+    "flm": "b151ca11cb4d88f32d7adfdbcff50baf29f4fbbc",
+    "tesla_cooperative_steering": "63beafc6af294d0759b47dc3bc546f24082a2a5d"
   },
-  "review_basis": "Published SLC and FLM append-only changes. Every incumbent compiled field descriptor and enum prefix was independently checked unchanged; only the exact seven typed deltas below are permitted."
+  "review_basis": "Published SLC, FLM, and Tesla cooperative-steering additions. Every incumbent wire field descriptor and enum prefix was independently checked unchanged; only the exact typed deltas listed here are permitted. Tesla adds steeringLimitInfo @39 at pointer slot 6 using the existing SteeringLimitInfo type. ToyotaCruise @38 retains pointer slot 5, type, and default; only its declaration codeOrder changes from 38 to 39."
 }

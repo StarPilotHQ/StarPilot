@@ -115,6 +115,47 @@ def test_additive_feedback_survives_incumbent_reader_relay(historical):
     assert recovered.feedbackPublication.to_dict() == expected_feedback
 
 
+def test_additive_steering_limits_preserve_defaults_and_survive_incumbent_relay(historical):
+  original = historical.StarPilotCarState.new_message(
+    pedalMaxRegen=True, pedalLongActive=True, sourceCarStateMonoTime=123456,
+    gps={'latitude': 41.25, 'longitude': -87.5, 'hasFix': True})
+  incumbent = original.to_dict()
+  with custom.StarPilotCarState.from_bytes(original.to_bytes()) as decoded:
+    assert not decoded.steeringLimitInfo.valid
+    assert decoded.steeringLimitInfo.monoTime == 0
+    current = decoded.as_builder()
+  current.feedbackPublication = {'version': 1, 'publicationSequence': 27, 'reportedTorque': 0.25}
+  current.toyotaCruise = {'version': 1, 'status': 'active', 'targetKph': 72., 'sessionId': 'incumbent'}
+  current.steeringLimitInfo = {
+    'valid': True, 'modelLimitErrorDeg': 1.25, 'resumeLimitErrorDeg': 2.5,
+    'cooperativeLimitErrorDeg': 3.75, 'cooperativeOffsetDeg': -0.5,
+    'monoTime': 123456789, 'combinedLimitErrorDeg': 4.0}
+  expected = current.to_dict()
+  with historical.StarPilotCarState.from_bytes(current.to_bytes()) as old:
+    assert old.to_dict() == incumbent
+    relayed = old.as_builder().to_bytes()
+  with custom.StarPilotCarState.from_bytes(relayed) as recovered:
+    assert recovered.to_dict() == expected
+
+
+@pytest.mark.parametrize(('before', 'after'), [
+  ('dashboardSpeedLimit @3 :Float32;', 'dashboardSpeedLimit @3 :Float64;'),
+  ('toyotaCruise @38 :ToyotaCruise;', 'toyotaCruise @38 :StarPilotCarControl.SteeringLimitInfo;'),
+  ('steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo;', 'steeringLimitInfo @39 :StarPilotCarState.Gps;'),
+  ('steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo;',
+   'steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo; unreviewed @40 :Bool;'),
+])
+def test_reviewed_steering_addition_does_not_allow_other_schema_changes(historical, tmp_path, before, after):
+  source = Path(CEREAL_PATH, 'custom.capnp').read_text()
+  assert source.count(before) == 1
+  path = tmp_path / 'unreviewed.capnp'
+  path.write_text(source.replace(before, after))
+  parser = capnp.SchemaParser()
+  changed = parser.load(str(path), imports=[CEREAL_PATH, str(files('opendbc') / 'car')])
+  with pytest.raises(AssertionError):
+    compare_node(historical.StarPilotCarState, changed.StarPilotCarState)
+
+
 @pytest.mark.parametrize(('fields', 'compatible'), [
   ('value @0 :UInt32; label @1 :Text;', True),
   ('value @0 :UInt32; label @1 :Text; extra @2 :Bool;', False),
