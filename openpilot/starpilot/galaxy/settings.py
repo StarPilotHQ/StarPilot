@@ -791,6 +791,8 @@ class SettingsGateway:
       if direction != 0:
         raise SettingsChanged("Invalid action")
       value = ("Off" if row.value == "On" else "On") if row.key == SETUP_ACTION else "confirm"
+      if row.key == "torque:surface:reset":
+        value = "Reset"
       if row.key == VASM_ANNOTATION:
         if draft is None:
           raise SettingsChanged("Camera regions are required")
