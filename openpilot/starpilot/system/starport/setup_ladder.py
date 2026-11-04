@@ -22,16 +22,17 @@ DROP_AFTER = 2          # failures at the remembered strategy before it is forgo
 CLEAN_SECONDS = 60.0    # a session that streamed this long without ending in a handshake failure counts as working
 LONG_PATIENCE = 2 * REFUSAL_PATIENCE
 
-RUNGS = ("standard", "other_reply", "modern_dual", "modern_24ghz", "patient", "experiments")
+RUNGS = ("standard", "other_reply", "modern_dual", "modern_24ghz", "phone_identity", "patient", "experiments")
 LABELS = {
   "standard": "Standard handshake",
   "other_reply": "The other version reply",
   "modern_dual": "Phone-style reply, both Wi-Fi bands",
   "modern_24ghz": "Phone-style reply, 2.4 GHz",
+  "phone_identity": "Reply with this device's phone identity",
   "patient": "Waiting longer for the car",
   "experiments": "Adapter handshake variations",
 }
-MODERN_RUNGS = ("other_reply", "modern_dual", "modern_24ghz")  # only mean something to a car that speaks protocol 4 or newer
+MODERN_RUNGS = ("other_reply", "modern_dual", "modern_24ghz", "phone_identity")  # only mean something to a car that speaks protocol 4 or newer
 
 
 @dataclass(frozen=True)
@@ -41,10 +42,11 @@ class Strategy:
   channel_type: int | None = None   # forces the Wi-Fi band reply inside the phone-style reply; None keeps the car's own preference
   patience: int = REFUSAL_PATIENCE
   experiments: bool = False
+  phone_identity: bool = False      # answers like a real phone: its own name and Bluetooth address, status 0
 
   def as_dict(self) -> dict:
     return {"rung": self.rung, "modern_reply": self.modern_reply, "channel_type": self.channel_type,
-            "patience": self.patience, "experiments": self.experiments}
+            "patience": self.patience, "experiments": self.experiments, "phone_identity": self.phone_identity}
 
   @property
   def label(self) -> str:
@@ -59,6 +61,8 @@ def resolve(rung: str, base_modern: bool) -> Strategy:
     return Strategy(rung, True, CHANNEL_DUAL)
   if rung == "modern_24ghz":
     return Strategy(rung, True, CHANNEL_24GHZ)
+  if rung == "phone_identity":
+    return Strategy(rung, True, phone_identity=True)
   if rung == "patient":
     return Strategy(rung, base_modern, patience=LONG_PATIENCE)
   if rung == "experiments":
@@ -66,7 +70,9 @@ def resolve(rung: str, base_modern: bool) -> Strategy:
   return Strategy("standard", base_modern)
 
 
-def applicable(rung: str, version_major: int, adapter: bool) -> bool:
+def applicable(rung: str, version_major: int, adapter: bool, unofficial: bool = False) -> bool:
+  if rung == "phone_identity":
+    return unofficial and version_major >= MODERN_MAJOR
   if rung in MODERN_RUNGS:
     return version_major >= MODERN_MAJOR
   if rung == "experiments":
@@ -78,11 +84,12 @@ def _valid_strategy(value) -> Strategy | None:
   if not isinstance(value, dict) or value.get("rung") not in RUNGS:
     return None
   channel, patience = value.get("channel_type"), value.get("patience")
-  if type(value.get("modern_reply")) is not bool or type(value.get("experiments")) is not bool:
+  identity = value.get("phone_identity", False)
+  if type(value.get("modern_reply")) is not bool or type(value.get("experiments")) is not bool or type(identity) is not bool:
     return None
   if channel not in (None, CHANNEL_24GHZ, CHANNEL_DUAL, 1) or type(patience) is not int or not 1 <= patience <= 12:
     return None
-  return Strategy(value["rung"], value["modern_reply"], channel, patience, value["experiments"])
+  return Strategy(value["rung"], value["modern_reply"], channel, patience, value["experiments"], identity)
 
 
 def _fresh() -> dict:
@@ -179,7 +186,7 @@ class SetupLadder:
     return resolve(entry["rung"], base_modern)
 
   def failed(self, address: str, strategy: Strategy, *, ladder_failure: bool, video_seen: bool, version_major: int,
-             adapter: bool) -> str | None:
+             adapter: bool, unofficial: bool = False) -> str | None:
     """Record a failed attempt; returns what changed ("advanced", "wrapped", "exhausted", "counted", "dropped") or None.
 
     Only a handshake the car answered, before any video this session, counts: see the module docstring."""
@@ -203,7 +210,7 @@ class SetupLadder:
     start = RUNGS.index(strategy.rung) if strategy.rung in RUNGS else 0
     outcome = "wrapped"
     for rung in RUNGS[start + 1:]:
-      if applicable(rung, version_major, adapter):
+      if applicable(rung, version_major, adapter, unofficial):
         entry["rung"], outcome = rung, "advanced"
         break
       entry["results"][rung] = "skipped"
@@ -231,7 +238,7 @@ class SetupLadder:
     times = entry["t_ready"] if entry else []
     return min(9, int(-(-max(times) // stage_timeout))) if times else 0
 
-  def snapshot(self, address: str, adapter: bool = False) -> dict:
+  def snapshot(self, address: str, adapter: bool = False, unofficial: bool = False) -> dict:
     """What the setup screen and the reports show: every rung, its state, and whether this car has a learned strategy."""
     entry = self.cars.get(address.upper()) if address else None
     entry = entry or _fresh()
@@ -240,7 +247,7 @@ class SetupLadder:
     passes = entry["passes"] if entry["boot"] == self.boot_id() else 0   # passes belong to one ignition cycle
     steps = []
     for rung in RUNGS:
-      if rung == "experiments" and not adapter:
+      if (rung == "experiments" and not adapter) or (rung == "phone_identity" and not unofficial):
         continue
       state = entry["results"].get(rung) or ("current" if rung == current else "waiting")
       steps.append({"id": rung, "label": LABELS[rung], "state": state})

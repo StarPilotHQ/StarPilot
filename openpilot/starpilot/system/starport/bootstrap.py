@@ -267,13 +267,15 @@ class WirelessBootstrap:
                version_status: int = STATUS_SUCCESS, stage_timeout: float = 20.0, start_request_delay: float = 5.0,
                initial_kick_delay: float = INITIAL_KICK_SECONDS, join_ping_interval: float = JOIN_PING_INTERVAL,
                experiment: str = "", modern_reply: bool = False, patience: int = REFUSAL_PATIENCE,
-               channel_override: int | None = None):
+               channel_override: int | None = None, phone_identity: bool = False, phone_address: str = ""):
     self.sock = sock
     self.experiment = experiment if valid_experiment(experiment) else ""
     self.lifetime_id = uuid.uuid4().hex
     self.modern_reply = modern_reply
     self.patience = patience                # stage timeouts a car that keeps saying "not ready" gets (setup ladder)
     self.channel_override = channel_override  # Wi-Fi band to answer with inside the phone-style reply; None keeps the car's own
+    self.phone_identity = phone_identity     # answer like a phone: status 0 and this device's name and Bluetooth address
+    self.phone_address = phone_address
     self.version_major = 0
     self.flags = EXPERIMENTS[self.experiment][1] if self.experiment else set()
     self.initial_kick_delay = initial_kick_delay
@@ -339,11 +341,23 @@ class WirelessBootstrap:
     self.version_major = major
     if major < MODERN_MAJOR or not self.modern_reply:
       return field(1, major) + field(2, minor) + field(3, self.device_serial) + field(4, self.version_status)
+    if self.phone_identity:
+      return self._phone_identity_reply(major, minor)
     selected = self.channel_override or channel_type(request)
     session = field(1, self.device_serial) + field(2, self.lifetime_id)
     reply = (field(1, major) + field(2, minor) + field(3, self.device_serial) + field(4, MODERN_VERSION_SUCCESS) +
              field(5, selected) + field(6, session))
     self.log("bootstrap_version_reply", style="modern", channel_type=selected, hex=reply.hex())
+    return reply
+
+  def _phone_identity_reply(self, major: int, minor: int) -> bytes:
+    """What a OnePlus phone sent a Mavlou wireless dongle (Bluetooth capture): status 0, no band, and its own identity."""
+    device_id = uuid.uuid5(uuid.NAMESPACE_DNS, f"starpilot.{self.phone_address or self.device_serial}")
+    identity = field(1, str(uuid.UUID(self.lifetime_id))) + field(2, str(device_id)) + field(3, self.device_serial)
+    if self.phone_address:
+      identity += field(4, self.phone_address)
+    reply = field(1, major) + field(2, minor) + field(3, self.lifetime_id[:8]) + field(4, 0) + field(6, identity)
+    self.log("bootstrap_version_reply", style="phone_identity", has_address=bool(self.phone_address), hex=reply.hex())
     return reply
 
   def service(self, message_id: int, payload: bytes) -> bool:

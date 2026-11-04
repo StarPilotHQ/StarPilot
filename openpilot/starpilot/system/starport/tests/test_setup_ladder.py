@@ -270,3 +270,25 @@ def test_short_sessions_keep_the_same_other_reply_until_it_is_learned(sup, monke
   monkeypatch.setattr(sup, "_project", lambda *args: sup._ladder.worked(RECEIVER, sup._strategy))
   sup._attempt(SimpleNamespace())
   assert sup.config["modern_reply_cache"] == {RECEIVER: True}
+
+
+def test_the_phone_identity_rung_is_only_for_unofficial_dongles_on_protocol_four(ladder):
+  seen = []
+  for _ in range(7):
+    strategy = ladder.strategy(CAR, False)
+    seen.append(strategy.rung)
+    refuse(ladder, strategy, adapter=True, unofficial=True)
+  assert seen == ["standard", "other_reply", "modern_dual", "modern_24ghz", "phone_identity", "patient", "experiments"]
+  assert ladder.strategy(CAR, False).rung == "standard"
+  rung = sl.resolve("phone_identity", False)
+  assert rung.phone_identity and rung.modern_reply and rung.channel_type is None and rung.patience == sl.REFUSAL_PATIENCE
+  assert not sl.applicable("phone_identity", 4, True) and not sl.applicable("phone_identity", 3, True, True)
+  assert "phone_identity" not in [step["id"] for step in ladder.snapshot(CAR, adapter=True)["steps"]]
+  assert "phone_identity" in [step["id"] for step in ladder.snapshot(CAR, adapter=True, unofficial=True)["steps"]]
+
+
+def test_a_learned_phone_identity_strategy_survives_a_restart(ladder):
+  strategy = sl.resolve("phone_identity", False)
+  ladder.worked(CAR, strategy)
+  again = sl.SetupLadder(ladder.path, boot_id=lambda: "boot-1").strategy(CAR, False)
+  assert again.rung == "phone_identity" and again.phone_identity

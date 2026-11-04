@@ -487,7 +487,7 @@ class Supervisor:
     status["allow_hevc"] = bool(self.config["allow_hevc"])
     status["car_candidates"] = list(getattr(self, "_candidates", []))[:8]  # paired Android Auto devices to choose between
     status["new_setup"] = new_setup.enabled()
-    status["setup_ladder"] = self._ladder.snapshot(self.config["receiver_address"], self.car_type() == "adapter")
+    status["setup_ladder"] = self._ladder.snapshot(self.config["receiver_address"], self.car_type() == "adapter", self._unofficial_dongle())
     status["auto_paused"] = self.auto.suppressed
     status["recent"] = list(self.log.recent)[-8:]
     return status
@@ -1466,13 +1466,15 @@ class Supervisor:
 
     boot = None
     adapter = self.car_type() == "adapter"
+    unofficial = self._unofficial_dongle()
     # The ladder decides how to answer this car: what worked before, else the first rung (today's behavior), moving on
     # only when a car that answered the handshake keeps refusing it before any video.
     base_modern = self._modern_reply.get(address, config.get("modern_reply_cache", {}).get(address, False))
     strategy = self._strategy = self._ladder.strategy(address, base_modern)
-    learned = self._ladder.snapshot(address, adapter)["learned"]
+    learned = self._ladder.snapshot(address, adapter, unofficial)["learned"]
     self.log("ladder_strategy", rung=strategy.rung, label=strategy.label, learned=learned, modern_reply=strategy.modern_reply,
-             channel_type=strategy.channel_type, patience=strategy.patience, experiments=strategy.experiments)
+             channel_type=strategy.channel_type, patience=strategy.patience, experiments=strategy.experiments,
+             phone_identity=strategy.phone_identity)
     try:
       self._stage("rfcomm", f"channel {channel}")
       rfcomm = self._connect_rfcomm(address, channel)
@@ -1480,6 +1482,8 @@ class Supervisor:
                                version_status=int(config.get("version_status", 0)),
                                experiment="all" if car_profiles.tuning(config)["bootstrap_experiments"] or strategy.experiments else "",
                                modern_reply=strategy.modern_reply, channel_override=strategy.channel_type,
+                               phone_identity=strategy.phone_identity,
+                               phone_address=self._adapter_address() if strategy.phone_identity else "",
                                # a car that once took 70 s to be ready gets more than the standard wait for the Wi-Fi handshake
                                patience=max(strategy.patience, self._ladder.ready_patience(address, 20.0)))
       self._set(state="wifi_start")
@@ -1492,7 +1496,8 @@ class Supervisor:
       ladder_failure = (boot is not None and boot.version_major > 0 and isinstance(error, BootstrapTimeout)
                         and error.stage in ("wifi_start", "wifi_info") and not self._stop.is_set())
       outcome = self._ladder.failed(address, strategy, ladder_failure=ladder_failure, video_seen=self._video_seen,
-                                    version_major=boot.version_major if boot is not None else 0, adapter=adapter)
+                                    version_major=boot.version_major if boot is not None else 0, adapter=adapter,
+                                    unofficial=unofficial)
       if outcome:
         self.log("ladder_failed", outcome=outcome, rung=strategy.rung, next=self._ladder.strategy(address, base_modern).rung,
                  version_major=boot.version_major)
@@ -1511,7 +1516,7 @@ class Supervisor:
       self._project(result, lease, ident)
     finally:
       keepalive_stop.set()
-      if boot.version_major >= MODERN_MAJOR and self._ladder.snapshot(address, adapter)["learned"]:
+      if boot.version_major >= MODERN_MAJOR and self._ladder.snapshot(address, adapter, unofficial)["learned"]:
         self._remember_reply(address, boot.modern_reply)
 
   def _connect_rfcomm(self, address: str, channel: int):
@@ -1739,6 +1744,9 @@ class Supervisor:
         self.log("tcp_retry", attempt=attempt + 1, error=str(error))
         self._wait(1.0 + attempt * 0.5)
     raise RuntimeError(f"Car did not accept the projection connection: {last_error}")
+
+  def _unofficial_dongle(self) -> bool:
+    return self.car_type() == "adapter" and car_profiles.resolve(self.config)[0] == "unofficial"
 
   def _adapter_address(self) -> str:
     """This comma's Bluetooth address for the head unit's pairing request; empty when BlueZ is not up."""
