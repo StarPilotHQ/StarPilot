@@ -3674,7 +3674,7 @@
       {
         "key": "ToyotaRadarMode",
         "label": "RAV4 Radar (Experimental)",
-        "description": "Opt-in ARS510 radar on Toyota RAV4 2022-2025, including hybrids. ACC Target uses the radar's selected lead; Fused Tracks filters the full object list. Off preserves vision-only operation. Restart the device after changing this setting. Does not enable Alpha Long, restore AEB, or change tuning. Collect validation routes and remain ready to take over.",
+        "description": "Opt-in ARS510 radar on Toyota RAV4 2022-2025, including hybrids. ACC Target uses the radar's selected lead; ACC Target + Summaries adds up to two more moving cars within 40 m from the radar's own tracker. Off preserves vision-only operation. Restart the device after changing this setting. Does not enable Alpha Long, restore AEB, or change tuning. Collect validation routes and remain ready to take over.",
         "picker_description": "Experimental radar parsing for 2022-2025 RAV4s; disabled by default.",
         "data_type": "int",
         "ui_type": "dropdown",
@@ -3682,7 +3682,7 @@
         "options": [
           {"value": 0, "label": "Off"},
           {"value": 1, "label": "ACC Target"},
-          {"value": 2, "label": "Fused Tracks"}
+          {"value": 2, "label": "ACC Target + Summaries"}
         ],
         "galaxy_only": true,
         "requires_offroad": true,

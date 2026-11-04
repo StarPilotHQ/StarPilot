@@ -26,7 +26,7 @@ class CarInterface(CarInterfaceBase):
     if candidate in ARS510_RADAR_CAR and radar_mode in (1, 2):
       ret.flags |= ToyotaFlags.ARS510_RADAR.value
       if radar_mode == 2:
-        ret.flags |= ToyotaFlags.ARS510_FUSED.value
+        ret.flags |= ToyotaFlags.ARS510_SUMMARIES.value
       ret.radarUnavailable = False
     return ret
 

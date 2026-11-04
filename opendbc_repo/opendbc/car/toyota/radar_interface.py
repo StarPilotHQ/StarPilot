@@ -4,7 +4,7 @@ from opendbc.car import Bus
 from opendbc.car.structs import RadarData
 from opendbc.car.toyota.values import ARS510_RADAR_CAR, CAR, DBC, TSS2_CAR, ToyotaFlags
 from opendbc.car.toyota.ars510_acc_target import RadarInterface as Ars510AccRadarInterface
-from opendbc.car.toyota.ars510_radar import RadarInterface as Ars510FusedRadarInterface
+from opendbc.car.toyota.ars510_acc_summaries import RadarInterface as Ars510SummariesRadarInterface
 from opendbc.car.interfaces import RadarInterfaceBase
 
 RADAR_ACC_TSSP_CAR = {CAR.TOYOTA_CAMRY}
@@ -43,7 +43,7 @@ class RadarInterface(RadarInterfaceBase):
     self.radar_acc_tssp = CP.carFingerprint in RADAR_ACC_TSSP_CAR
     self.ars510 = None
     if CP.carFingerprint in ARS510_RADAR_CAR and CP.flags & ToyotaFlags.ARS510_RADAR and not CP.radarUnavailable:
-      parser = Ars510FusedRadarInterface if CP.flags & ToyotaFlags.ARS510_FUSED else Ars510AccRadarInterface
+      parser = Ars510SummariesRadarInterface if CP.flags & ToyotaFlags.ARS510_SUMMARIES else Ars510AccRadarInterface
       self.ars510 = parser(CP)
       self.rcp = self.pt_cp = None
       return

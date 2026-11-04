@@ -68,7 +68,7 @@ class ToyotaFlags(IntFlag):
   # The DSU's ACC messages are rerouted through the camera bus by an adapter.
   DSU_BYPASS = 8192
   ARS510_RADAR = 16384
-  ARS510_FUSED = 32768
+  ARS510_SUMMARIES = 32768
 
   # Static flags
   TSS2 = 8
