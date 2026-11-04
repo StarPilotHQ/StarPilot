@@ -204,6 +204,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
   now = [10_000_000_000]
   queued, published, previous_sd = [], {}, {}
   delayed_native = {}
+  pending_native_wire = {}
   source_gap_messages = {}
   source_gap_active = [False]
   steps = start_tick = native.tick
@@ -448,7 +449,15 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
         # Match pandad's 10Hz native publication, including a pedal-first USB read.
         # Values are actual native results; retained messages keep their stamps.
         if getattr(monkeypatch, 'ford_native_10hz', False):
-          if not delayed_native or steps % 10 == 0 or (brake or cancel) and not permission & 2 and delayed_native.get('permission', 3) & 2:
+          if getattr(monkeypatch, 'ford_native_health_first', False):
+            if not delayed_native:
+              delayed_native.update(wire=wire.as_reader(), panda=panda.as_reader(), permission=permission)
+            elif steps % 10 == 0:
+              pending_native_wire.update(wire=wire.as_reader())
+              delayed_native.update(panda=panda.as_reader(), permission=permission)
+            elif steps % 10 == 1 and pending_native_wire:
+              delayed_native.update(wire=pending_native_wire.pop('wire'))
+          elif not delayed_native or steps % 10 == 0 or (brake or cancel) and not permission & 2 and delayed_native.get('permission', 3) & 2:
             delayed_native.update(wire=wire.as_reader(), panda=panda.as_reader(), permission=permission)
           wire_message, panda_message = delayed_native['wire'], delayed_native['panda']
         else:
@@ -1078,6 +1087,9 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
       if scenario == 'brake-native-cadence':
         for _ in range(41):
           state, axis, sd_state, command = step(engaged=True)
+        if hasattr(monkeypatch, 'ford_brake_phase'):
+          while steps % 10 != monkeypatch.ford_brake_phase:
+            state, axis, sd_state, command = step(engaged=True)
         assert command.latActive and command.longActive and host.aol_card_intent.allowed_latch
         if getattr(monkeypatch, 'ford_standstill_brake', False):
           for slowing_tick in range(300):

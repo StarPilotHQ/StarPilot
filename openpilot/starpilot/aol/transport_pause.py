@@ -394,7 +394,15 @@ class TransportPauseFeedback:
           for event in sm['onroadEvents'])):
       return None
     native = independent_lateral_health(sm, cp, cs, self.session, now_ns)
-    if (native is None or not native.pandaInventory or not native.requestedLongitudinal or native.longitudinalAllowed or
+    # Separate health may report brake withdrawal before the matching axis status.
+    # Retain only the existing LAT intent; LONG still follows its physical pedal.
+    ford_brake_health = bool(ford_withdrawal and cs.brakePressed and not cs.gasPressed and
+      native is not None and native.sourcePandaStatesMonoTime > 0 and
+      native.sourcePandaStatesMonoTime < int(sm.logMonoTime['pandaStates']) and
+      all(not slot.controlsAllowed for slot, config in zip(sm['pandaStates'], cp.safetyConfigs, strict=True)
+          if str(config.safetyModel) not in ('silent', 'noOutput')))
+    if (native is None or not native.pandaInventory or not native.requestedLongitudinal or
+        native.longitudinalAllowed and not ford_brake_health or
         native.observedMonoTime < self.lateral_native_ns or
         (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory)) != self.lateral_inventory):
       return None
