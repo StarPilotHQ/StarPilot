@@ -445,7 +445,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     env:
       FUZZ_SEED: '0'
     steps:
@@ -457,7 +457,7 @@ jobs:
       timeout-minutes: 20
       env:
         RAYLIB_BACKEND: headless
-      run: python3 tools/ci/run_vehicle_tests.py --suite safety-release --shard-index "${{ matrix.shard }}" --shard-count 4 --output "ci-results/safety-release-${{ matrix.shard }}"
+      run: python3 tools/ci/run_vehicle_tests.py --suite safety-release --shard-index "${{ matrix.shard }}" --shard-count 16 --output "ci-results/safety-release-${{ matrix.shard }}"
     - name: Save every RELEASE outcome and native build
       if: always()
       uses: actions/upload-artifact@v4
@@ -480,7 +480,7 @@ jobs:
         pattern: safety-release-*
         path: ci-results/safety-release-shards
     - name: Require every RELEASE case exactly once and passed
-      run: python3 tools/ci/lifecycle_shards.py ci-results/safety-release-shards --suite safety-release --count 4 --output ci-results/safety-release-complete.json
+      run: python3 tools/ci/lifecycle_shards.py ci-results/safety-release-shards --suite safety-release --count 16 --output ci-results/safety-release-complete.json
     - name: Save complete RELEASE verdict
       if: always()
       uses: actions/upload-artifact@v4

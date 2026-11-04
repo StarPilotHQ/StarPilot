@@ -151,6 +151,53 @@ def test_changed_source_in_all_jobs_denied_against_checkout(jobs):
     shards.aggregate(directory, 2)
 
 
+@pytest.mark.parametrize('mutation', [None, 'revision', 'tree', 'source', 'source_mode', 'recipe',
+                                     'extra_input', 'missing_output', 'native_bytes', 'native_mode'])
+def test_real_build_comparison_keeps_checkout_and_native_guards(jobs, monkeypatch, mutation):
+  from tools.ci.lifecycle_shards import same_build_inputs
+  directory, paths, catalog = jobs
+  name = 'openpilot/selfdrive/pandad/tests/test_panda_faults'
+  recipe = 'openpilot/selfdrive/pandad/SConscript'
+  inventory_path = Path(shards.__file__).with_name('lifecycle_build_outputs.json')
+  inventory = json.loads(inventory_path.read_text())
+  record = {'sha256': 'a' * 64, 'mode': 0o644}
+  expected = source()
+  expected['build'] = {
+    'inputs': {'revision': 'commit', 'tree': 'tree', 'tracked_inputs': {name + '.cc': copy.deepcopy(record), recipe: copy.deepcopy(record)},
+               'changes': {}, 'untracked': {}, 'recipes': {recipe: copy.deepcopy(record)},
+               'output_inventory_sha256': shards.checksum(inventory_path.read_bytes())},
+    'declared_outputs': {path: copy.deepcopy(record) if row['required_tracked'] else None for path, row in inventory.items()},
+  }
+  monkeypatch.setattr(shards, 'source_snapshot', lambda root=shards.ROOT: copy.deepcopy(expected))
+  monkeypatch.setattr(shards, 'same_build_inputs', same_build_inputs)
+  for path in paths:
+    built = copy.deepcopy(expected)
+    built['build']['declared_outputs'][name] = {'sha256': 'b' * 64, 'mode': 0o755}
+    if mutation in ('revision', 'tree'):
+      built['build']['inputs'][mutation] = 'different'
+    elif mutation == 'source':
+      built['build']['inputs']['tracked_inputs'][name + '.cc']['sha256'] = 'c' * 64
+    elif mutation == 'source_mode':
+      built['build']['inputs']['tracked_inputs'][name + '.cc']['mode'] = 0o755
+    elif mutation == 'recipe':
+      built['build']['inputs']['recipes'][recipe] = {'sha256': 'c' * 64, 'mode': 0o644}
+    elif mutation == 'extra_input':
+      built['build']['inputs']['untracked'][name + '_other'] = record
+    elif mutation == 'missing_output':
+      del built['build']['declared_outputs'][name]
+    after = copy.deepcopy(built)
+    if mutation == 'native_bytes':
+      after['build']['declared_outputs'][name]['sha256'] = 'c' * 64
+    elif mutation == 'native_mode':
+      after['build']['declared_outputs'][name]['mode'] = 0o644
+    rewrite(path, 'receipt.json', lambda d, before=built, after=after: d.update(source_before=before, source_after=after))
+  if mutation is None:
+    assert shards.aggregate(directory, 2)['cases_passed'] == len(catalog)
+  else:
+    with pytest.raises(ValueError):
+      shards.aggregate(directory, 2)
+
+
 @pytest.mark.parametrize('count', [24, 32])
 def test_exact_parameter_nodes_whole_other_modules_and_bounded_heavy_groups(count):
   heavy = 'openpilot/starpilot/car/toyota/tests/test_legacy_advert_callers.py'

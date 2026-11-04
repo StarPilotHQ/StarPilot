@@ -142,6 +142,62 @@ class BuildIdentityTests(unittest.TestCase):
         helper.build_identity(self.root)
       path.write_bytes(original)
 
+  def test_panda_faults_is_an_exact_optional_output_with_pinned_inputs(self):
+    name = 'openpilot/selfdrive/pandad/tests/test_panda_faults'
+    recipe = 'openpilot/selfdrive/pandad/SConscript'
+    self.assertEqual(self.inventory.get(name), {'recipe': recipe, 'required_tracked': False})
+    actual_recipe = Path(__file__).parents[3].joinpath(recipe).read_text()
+    self.assertIn("env.Program('tests/test_panda_faults', ['tests/test_panda_faults.cc']", actual_recipe)
+    output = self.root / name
+    source = self.root / (name + '.cc')
+    source.write_text('native faults test source\n')
+    subprocess.run([*GIT, 'rm', '--cached', name], cwd=self.root, check=True, capture_output=True)
+    subprocess.run([*GIT, 'add', name + '.cc'], cwd=self.root, check=True)
+    subprocess.run([*GIT, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'Faults test source'],
+                   cwd=self.root, check=True)
+    output.unlink()
+    checkout = helper.build_identity(self.root)
+    output.write_bytes(b'independently built faults executable')
+    output.chmod(0o755)
+    built = helper.build_identity(self.root)
+    self.assertTrue(helper.same_build_inputs(checkout, built))
+    self.assertIsNone(checkout['declared_outputs'][name])
+    self.assertEqual(built['declared_outputs'][name], helper.file_record(output))
+    self.assertNotIn(name, built['inputs']['untracked'])
+    self.assertEqual(built['inputs']['tracked_inputs'][name + '.cc'], helper.file_record(source))
+    self.assertEqual(built['inputs']['recipes'][recipe], helper.file_record(self.root / recipe))
+    for mutation in ('bytes', 'mode'):
+      with self.subTest(output_mutation=mutation):
+        if mutation == 'bytes':
+          output.write_bytes(b'another independent faults build')
+        else:
+          output.chmod(0o644)
+        rebuilt = helper.build_identity(self.root)
+        self.assertTrue(helper.same_build_inputs(built, rebuilt))
+        self.assertNotEqual(built, rebuilt)  # The per-job exact before/after guard must still reject this.
+    for path in (source, self.root / recipe, self.root / 'opendbc_repo/native_input.h'):
+      with self.subTest(input_mutation=str(path.relative_to(self.root))):
+        original = path.read_bytes()
+        path.write_bytes(b'changed real input')
+        self.assertFalse(helper.same_build_inputs(built, helper.build_identity(self.root)))
+        path.write_bytes(original)
+    source.chmod(0o755)
+    self.assertFalse(helper.same_build_inputs(built, helper.build_identity(self.root)))
+    source.chmod(0o644)
+    for name_suffix in ('_other', '.input.h'):
+      neighbor = output.with_name(output.name + name_suffix)
+      neighbor.write_bytes(b'undeclared neighboring input')
+      self.assertFalse(helper.same_build_inputs(built, helper.build_identity(self.root)))
+      neighbor.unlink()
+    for metadata in ('missing', 'malformed'):
+      forged = copy.deepcopy(built)
+      if metadata == 'missing':
+        del forged['declared_outputs'][name]
+      else:
+        forged['declared_outputs'][name] = {'sha256': 'bad', 'mode': 0o755}
+      with self.assertRaises(ValueError):
+        helper.same_build_inputs(checkout, forged)
+
   def test_missing_declared_artifact_is_denied(self):
     (self.root / 'msgq_repo/msgq/_ipc.so').unlink()
     with self.assertRaises(ValueError):

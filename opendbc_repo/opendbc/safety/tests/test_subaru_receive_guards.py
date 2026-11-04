@@ -1,5 +1,6 @@
 """Malformed and contradictory physical sources withdraw receiver credits."""
 import unittest
+from opendbc.car.structs import CarParams
 from opendbc.safety.tests import test_subaru_software_cruise as software
 from opendbc.safety.tests import test_subaru_sng as sng
 from opendbc.safety.tests import test_subaru_stock_aol as stock
@@ -40,11 +41,35 @@ class TestSubaruReceiveGuards(unittest.TestCase):
 
   def test_stock_aol_truncated_optional_gear_withdraws(self):
     case = stock.TestSubaruStockAol()
+    self.addCleanup(case.tearDown)
     case.configure()
     case.arm()
     gear = case.frame('Transmission', {'Gear': 121})
     case.safety.safety_rx_hook(libsafety_py.make_CANPacket(gear.addr, gear.bus, bytes(gear.data[0:7])))
     self.assertEqual(case.safety.aol_get_permission_mask(), 0)
+
+  def test_stock_aol_cleanup_runs_on_success_failure_and_error(self):
+    """The manually owned helper must not leave its native AOL profile for the next test."""
+    safety = libsafety_py.libsafety
+    for outcome in ('success', 'failure', 'error'):
+      with self.subTest(outcome=outcome):
+        class OwnedCase(TestSubaruReceiveGuards):
+          def runTest(self, expected_outcome=outcome):
+            self.test_stock_aol_truncated_optional_gear_withdraws()
+            if expected_outcome == 'failure':
+              self.fail('deliberate failure after the real receiver assertions')
+            if expected_outcome == 'error':
+              raise RuntimeError('deliberate error after the real receiver assertions')
+
+        result = unittest.TestResult()
+        OwnedCase().run(result)
+        self.assertEqual(result.testsRun, 1)
+        self.assertEqual(len(result.failures), int(outcome == 'failure'))
+        self.assertEqual(len(result.errors), int(outcome == 'error'))
+        self.assertEqual(safety.get_current_safety_mode(), CarParams.SafetyModel.noOutput)
+        self.assertFalse(safety.get_controls_allowed())
+        self.assertEqual(safety.aol_get_request_mask(), 0)
+        self.assertEqual(safety.aol_get_permission_mask(), 0)
 
   def test_sng_conflicting_duplicate_withdraws_source_and_forwarding_lease(self):
     case = sng.TestSubaruSng()
