@@ -805,7 +805,7 @@ class TransportPauseFeedback:
     return native
 
   def _longitudinal_cancel_current(self, sm, cp, cs, axis, now_ns, *, latched, cancel_source_ns, withdrawal_required=True) -> SafetyState | None:
-    from opendbc.car.hyundai.ev6_aol import qualified
+    from opendbc.car.hyundai.canfd_stock_aol import qualified_long as qualified
     from openpilot.starpilot.car.hyundai.aol import qualified_ccnc_long_aol as ev9_qualified
     from opendbc.car.structs import car
 
@@ -833,7 +833,7 @@ class TransportPauseFeedback:
       return None
     native = current_native(sm, cp, now_ns=now_ns, axis_session_id=self.session)
     if (native is None or not native.pandaInventory or not native.requestedLateral or not native.lateralAllowed or
-        not native.requestedLongitudinal or withdrawal_required and native.longitudinalAllowed or
+        not native.requestedLongitudinal or
         native.observedMonoTime < self.lateral_native_ns or
         not native_inventory_matches_cp(native, cp) or
         (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) != self.lateral_inventory):
@@ -849,6 +849,12 @@ class TransportPauseFeedback:
       not p.heartbeatLost and not blocking_fault_list(p.faults, cp) and
       (str(c.safetyModel) not in ('silent', 'noOutput') or not p.controlsAllowed)
       for p, c in zip(pandas, cp.safetyConfigs, strict=True))
+    raw_withdrawal = bool(self.longitudinal_cancel_ns and
+      0 < native.sourcePandaStatesMonoTime < stamp and
+      all(not p.controlsAllowed for p, c in zip(pandas, cp.safetyConfigs, strict=True)
+          if str(c.safetyModel) not in ('silent', 'noOutput')))
+    if withdrawal_required and native.longitudinalAllowed and not raw_withdrawal:
+      return None
     return native if current_pandas else None
 
 
