@@ -156,7 +156,8 @@ class HKGVehicleTorquePolicy(HKGShapedTorquePolicy):
     if self.profile == 'kia_stinger_2022':
       return value * shaping.get_kia_stinger_2022_center_taper_scale(setpoint, speed)
     if self.profile == 'kia_ev6':
-      return value * shaping.get_kia_ev6_low_speed_center_taper_scale(setpoint, speed) * shaping.get_kia_ev6_center_output_scale(setpoint, speed)
+      return (value * shaping.get_kia_ev6_low_speed_center_taper_scale(setpoint, speed) *
+              shaping.get_kia_ev6_center_output_scale(setpoint, speed, self.future_lateral_accel))
     if self.profile == 'kia_carnival':
       return (
         value
