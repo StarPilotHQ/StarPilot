@@ -10,6 +10,11 @@ from openpilot.starpilot.ui.navigation_state import distance_text
 from openpilot.starpilot.ui.presentation import FontRole, Profile
 
 
+FAR_TURN_M = 1500.
+THEN_MAX_GAP_M = 400.
+LANES_SHOW_M = 800.
+
+
 def _overlaps_slc_actions(rect, profile, state) -> bool:
   from openpilot.starpilot.ui.onroad_state import slc_action_occludes
   return slc_action_occludes(profile, state, (rect.x, rect.y, rect.x + rect.width, rect.y + rect.height))
@@ -29,13 +34,14 @@ class NavigationCard:
     self._press = None
     self._textures = OrderedDict()
     self._text_layout = None
+    self._total = 0.
 
   def bounds(self, state):
     if (state.navigation is None or state.alert.size != 'none' or state.reverse_driver_camera or
         state.appearance.camera_view in (CameraViewChoice.DRIVER, CameraViewChoice.NONE)):
       return None
     if state.navigation.key != self._key:
-      self._key, self.collapsed = state.navigation.key, False
+      self._key, self.collapsed, self._total = state.navigation.key, False, 0.
     rect = self._placed(state)
     # A live SLC decision keeps its touch priority only where its buttons actually sit on the card.
     if rect is not None and _overlaps_slc_actions(rect, self.fonts.profile, state):
@@ -87,7 +93,7 @@ class NavigationCard:
         raise RuntimeError('Unable to load navigation artwork')
       rl.set_texture_filter(texture, rl.TextureFilter.TEXTURE_FILTER_BILINEAR)
       self._textures[name] = texture
-      if len(self._textures) > 8:
+      if len(self._textures) > 16:
         rl.unload_texture(self._textures.popitem(last=False)[1])
     self._textures.move_to_end(name)
     return self._textures[name]
@@ -124,33 +130,94 @@ class NavigationCard:
     compact = self.fonts.profile == Profile.COMPACT
     rl.draw_rectangle_rounded(rect, .2, 8, rl.Color(15, 13, 23, 255 if compact else 245))
     rl.draw_rectangle_rounded_lines_ex(rect, .2, 8, 2, rl.Color(160, 126, 220, 190))
-    size = (52 if compact else 80) if self.collapsed else (68 if compact else 100)
-    padding = 10 if self.collapsed else (18 if compact else 24)
     icon = self._icon(icon_name('arrive' if nav.arrived else nav.maneuver_type, nav.modifier))
-    rl.draw_texture_pro(icon, rl.Rectangle(0, 0, icon.width, icon.height),
-                        rl.Rectangle(rect.x + padding, rect.y + (rect.height - size) / 2, size, size), rl.Vector2(0, 0), 0, rl.WHITE)
     if self.collapsed:
+      size = 64 if compact else 100
+      rl.draw_texture_pro(icon, rl.Rectangle(0, 0, icon.width, icon.height),
+                          rl.Rectangle(rect.x + (rect.width - size) / 2, rect.y + (rect.height - size) / 2, size, size),
+                          rl.Vector2(0, 0), 0, rl.WHITE)
       return
-    x, y = rect.x + padding * 2 + size, rect.y + (14 if compact else 22)
+    self._total = max(self._total, nav.remaining_distance_m)
+    padding = 18 if compact else 24
+    lanes = () if nav.arrived or nav.distance_m > LANES_SHOW_M else nav.lanes
+    header = rect.height * ((.52 if lanes else .64) if compact else (.55 if lanes else .66))
+    size = min(84 if compact else 122, header - 6)
+    if not lanes:
+      rl.draw_texture_pro(icon, rl.Rectangle(0, 0, icon.width, icon.height),
+                          rl.Rectangle(rect.x + padding, rect.y + (header - size) / 2, size, size), rl.Vector2(0, 0), 0, rl.WHITE)
+    x = rect.x + padding * (1 if lanes else 2) + (0 if lanes else size)
     width = rect.x + rect.width - padding - x
-    primary_size, secondary_size = (28, 22) if compact else (40, 30)
-    for i, text in enumerate(self._lines(nav.text, width, primary_size)):
-      self.fonts.draw(text, FontRole.SEMI_BOLD, primary_size, x, y + i * (primary_size + 3))
+    distance_size, text_size = (36, 22) if compact else (54, 30 if lanes else 28)
     distance = 'Arrived' if nav.arrived else distance_text(nav.distance_m, state.metric)
-    self.fonts.draw(distance, FontRole.BOLD, secondary_size, x, rect.y + rect.height - (58 if compact else 85),
-                    rl.Color(199, 174, 247, 255))
-    if not nav.arrived:
-      now = self.clock()
-      font_size = 22 if compact else 32
-      y = rect.y + rect.height - (30 if compact else 44)
-      if now is not None:
-        remaining = f'ETA {arrival_time(nav.remaining_seconds, now)}'
-        measured = self.fonts.measure(remaining, FontRole.SEMI_BOLD, font_size)
-        self.fonts.draw(remaining, FontRole.SEMI_BOLD, font_size, rect.x + rect.width - padding - measured.width,
-                        y, rl.Color(235, 225, 255, 255))
+    far = not nav.arrived and nav.distance_m > FAR_TURN_M
+    y = rect.y + (8 if compact else 12)
+    self.fonts.draw(distance, FontRole.BOLD, distance_size, x, y, rl.WHITE)
+    y += distance_size + (2 if compact else 4)
+    lines = self._lines(nav.text, width, text_size)
+    for i, text in enumerate(lines[:1] if far or lanes else lines):
+      self.fonts.draw(text, FontRole.SEMI_BOLD, text_size, x, y + i * (text_size + 2), rl.Color(222, 214, 244, 255))
+    if nav.arrived:
+      return
+    top = rect.y + header
+    now = self.clock()
+    eta = f'ETA {arrival_time(nav.remaining_seconds, now)}' if now is not None else ''
+    right = rect.x + rect.width - padding
+    bar_center = rect.y + rect.height - (11 if compact else 21)
+    eta_size = 19 if compact else 28
+    bar_right = right
+    if eta:
+      eta_width = self.fonts.measure(eta, FontRole.SEMI_BOLD, eta_size).width
+      self.fonts.draw(eta, FontRole.SEMI_BOLD, eta_size, right - eta_width, bar_center - eta_size * (.55 if compact else .6), rl.Color(235, 225, 255, 255))
+      bar_right -= eta_width + (12 if compact else 18)
+    if lanes:
+      lane_top = top + (6 if compact else 9)
+      self._lane_strip(lanes, rect.x + padding, lane_top, right, bar_center - (8 if compact else 12) - 6 - lane_top)
+    else:
+      chip = 20 if compact else 24
+      self._then(nav, rect.x + padding, top + (7 if compact else 7), chip, state.metric)
       if not compact:
         trip = f'{distance_text(nav.remaining_distance_m, state.metric)} | {max(1, round(nav.remaining_seconds / 60))} min'
-        self.fonts.draw(trip, FontRole.NORMAL, 20, rect.x + padding, y + 8, rl.Color(190, 187, 197, 255))
+        trip_size = 27
+        trip_width = self.fonts.measure(trip, FontRole.MEDIUM, trip_size).width
+        self.fonts.draw(trip, FontRole.MEDIUM, trip_size, right - trip_width, top, rl.Color(214, 210, 226, 255))
+    if self._total > 0:
+      thick = 5 if compact else 6
+      bar = rl.Rectangle(rect.x + padding, bar_center - thick / 2, bar_right - (rect.x + padding), thick)
+      rl.draw_rectangle_rounded(bar, 1., 4, rl.Color(160, 126, 220, 60))
+      done = min(1., max(0., 1 - nav.remaining_distance_m / self._total))
+      if done > 0:
+        rl.draw_rectangle_rounded(rl.Rectangle(bar.x, bar.y, max(thick, bar.width * done), thick), 1., 4, rl.Color(178, 150, 255, 255))
+
+  def _lane_strip(self, lanes, x, y, right, height):
+    """One cell per lane with the maneuver artwork for its arrow: usable lanes lit, the rest dim."""
+    gap = max(4., height * .12)
+    cell = min(height * 1.2, (right - x + gap) / len(lanes) - gap)
+    x += (right - x - (cell + gap) * len(lanes) + gap) / 2
+    size = height * .8
+    for i, (active, directions, chosen) in enumerate(lanes):
+      box = rl.Rectangle(x + i * (cell + gap), y, cell, height)
+      rl.draw_rectangle_rounded(box, .3, 6, rl.Color(78, 62, 128, 255) if active else rl.Color(34, 30, 46, 255))
+      direction = chosen if active and chosen else (directions[0] if directions else 'straight')
+      icon = self._icon(icon_name('turn', direction))
+      rl.draw_texture_pro(icon, rl.Rectangle(0, 0, icon.width, icon.height),
+                          rl.Rectangle(box.x + (box.width - size) / 2, box.y + (box.height - size) / 2, size, size),
+                          rl.Vector2(0, 0), 0, rl.WHITE if active else rl.Color(112, 104, 134, 255))
+
+  def _then(self, nav, x, y, size, metric):
+    """A "Then <arrow>" chip when the turn after this one comes soon after it."""
+    if not nav.then_type or nav.then_distance_m is None:
+      return
+    gap = nav.then_distance_m - nav.distance_m
+    if not 1 < gap <= THEN_MAX_GAP_M:
+      return
+    label = 'Then'
+    label_width = self.fonts.measure(label, FontRole.SEMI_BOLD, size - 4).width
+    chip = rl.Rectangle(x, y - 4, label_width + size + 28, size + 8)
+    rl.draw_rectangle_rounded(chip, .5, 8, rl.Color(44, 37, 70, 255))
+    self.fonts.draw(label, FontRole.SEMI_BOLD, size - 4, x + 12, y + 1, rl.Color(199, 174, 247, 255))
+    icon = self._icon(icon_name(nav.then_type, nav.then_modifier))
+    rl.draw_texture_pro(icon, rl.Rectangle(0, 0, icon.width, icon.height),
+                        rl.Rectangle(x + label_width + 18, y - 1, size, size), rl.Vector2(0, 0), 0, rl.WHITE)
 
   def close(self):
     for texture in self._textures.values():

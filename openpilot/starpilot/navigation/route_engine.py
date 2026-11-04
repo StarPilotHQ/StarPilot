@@ -52,6 +52,27 @@ class Step:
   text: str
   maneuver_type: str
   modifier: str
+  lanes: tuple = ()
+
+
+MAX_LANES = 8
+
+
+def lane_guidance(banners) -> tuple:
+  """The first banner's lane arrows as ((active, directions, active_direction), ...); empty unless a lane is usable."""
+  for banner in banners:
+    sub = banner.get('sub') if isinstance(banner, dict) else None
+    components = sub.get('components') if isinstance(sub, dict) else None
+    lanes = []
+    for component in components if isinstance(components, list) else ():
+      if not isinstance(component, dict) or component.get('type') != 'lane':
+        continue
+      directions = component.get('directions')
+      directions = tuple(str(row)[:24] for row in directions[:4]) if isinstance(directions, list) else ()
+      lanes.append((component.get('active') is True, directions, str(component.get('active_direction') or '')[:24]))
+    if 0 < len(lanes) <= MAX_LANES and any(lane[0] for lane in lanes):
+      return tuple(lanes)
+  return ()
 
 
 @dataclass(frozen=True)
@@ -85,7 +106,8 @@ class NavigationRoute:
         text = str(primary.get('text') or maneuver.get('instruction', ''))[:256]
         self.steps.append(Step(offset, end, number(step['duration']), text,
                                str(primary.get('type') or maneuver['type'])[:40],
-                               modifier(primary.get('modifier') or maneuver.get('modifier', 'none'))[:40]))
+                               modifier(primary.get('modifier') or maneuver.get('modifier', 'none'))[:40],
+                               lane_guidance(banners)))
         offset = end
       self.total_distance = number(data['distance'])
       self.total_duration = number(data['duration'])
@@ -119,7 +141,8 @@ class NavigationRoute:
     duration += sum(row.duration for row in self.steps[index + 1:])
     instruction = {'text': step.text, 'maneuverType': step.maneuver_type, 'maneuverModifier': step.modifier,
                        'distanceMeters': remaining, 'remainingDistanceMeters': max(0., self.steps[-1].end - along),
-                       'remainingDurationSeconds': duration}
+                       'remainingDurationSeconds': duration,
+                       'lanes': [{'active': a, 'directions': list(d), 'activeDirection': ad} for a, d, ad in step.lanes]}
     upcoming = self.steps[min(index + 1, len(self.steps) - 1)]
     next_maneuver = {'maneuverType': upcoming.maneuver_type, 'maneuverModifier': upcoming.modifier,
                          'distanceMeters': max(0., upcoming.end - along)}

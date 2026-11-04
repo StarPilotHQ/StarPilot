@@ -264,13 +264,18 @@ export const LayoutWidgetPreview = {
       </g>
       <g v-else-if="widget.kind === 'nav_card'">
         <rect x="1" y="1" :width="widget.width - 2" :height="widget.height - 2" rx="39" fill="#0f0d17f5" stroke="#a07edcbe" stroke-width="2" />
-        <g transform="translate(24 47) scale(1.7)" fill="none" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M16 56 V30 Q16 18 28 18 H46" /><path d="M38 6 L50 18 L38 30" />
+        <text x="24" y="66" font-size="54" font-weight="700" fill="white">500 ft</text>
+        <text x="24" y="100" font-size="30" font-weight="600" fill="#ded6f4">Turn right onto Las Vegas Blvd</text>
+        <g v-for="(lane, i) in [['S', 0], ['S', 0], ['S', 0], ['R', 1], ['R', 1]]" :key="i" :transform="'translate(' + ((widget.width - 320) / 2 + i * 66) + ' 116)'">
+          <rect width="56" height="44" rx="13" :fill="lane[1] ? '#4e3e80' : '#222030'" />
+          <g transform="translate(28 22)" fill="none" :stroke="lane[1] ? '#ffffff' : '#70688a'" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+            <path v-if="lane[0] === 'S'" d="M0 13 V-12 M-8 -4 L0 -12 L8 -4" />
+            <path v-else d="M-8 13 V0 Q-8 -7 -1 -7 H10 M4 -13 L10 -7 L4 -1" />
+          </g>
         </g>
-        <text x="148" y="78" font-size="40" font-weight="600" fill="white">Turn right onto</text>
-        <text x="148" y="121" font-size="40" font-weight="600" fill="white">Las Vegas Blvd</text>
-        <text x="148" y="170" font-size="30" font-weight="700" fill="#c7aef7">500 ft</text>
-        <text :x="widget.width - 24" y="170" text-anchor="end" font-size="22" fill="#bebbc5">4.2 mi - 9 min</text>
+        <rect x="24" y="171" :width="widget.width - 48 - 190" height="6" rx="3" fill="#a07edc3c" />
+        <rect x="24" y="171" :width="(widget.width - 48 - 190) * .35" height="6" rx="3" fill="#b296ff" />
+        <text :x="widget.width - 24" y="182" text-anchor="end" font-size="22" font-weight="600" fill="#ebe1ff">ETA 3:51 PM</text>
       </g>
       <g v-else-if="widget.kind === 'nav_map'">
         <defs>
@@ -292,6 +297,10 @@ export const LayoutWidgetPreview = {
         </g>
         <g :transform="'translate(' + widget.width / 2 + ' ' + widget.height * .7 + ')'">
           <circle r="22" fill="#8f6bff40" /><path d="M0 -17 L13 13 L0 6 L-13 13 Z" fill="white" stroke="#6e4fe0" stroke-width="3" stroke-linejoin="round" />
+        </g>
+        <g :transform="'translate(' + widget.width / 2 + ' ' + (widget.height * .68 + 38) + ')'">
+          <rect :x="-Math.max(18, Math.min(widget.width, widget.height) * .075) * 4.4" y="0" :width="Math.max(18, Math.min(widget.width, widget.height) * .075) * 8.8" :height="Math.max(18, Math.min(widget.width, widget.height) * .075) * 1.55" :rx="Math.max(18, Math.min(widget.width, widget.height) * .075) * .78" fill="#080c14be" />
+          <text x="0" :y="Math.max(18, Math.min(widget.width, widget.height) * .075) * 1.12" text-anchor="middle" :font-size="Math.max(18, Math.min(widget.width, widget.height) * .075)" fill="#eceef6">Desert Inn Road</text>
         </g>
       </g>
       <template v-else>

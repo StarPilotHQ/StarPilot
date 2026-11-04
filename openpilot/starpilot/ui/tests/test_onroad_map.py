@@ -15,8 +15,8 @@ from openpilot.starpilot.navigation.road_tiles import (
   DATA_ZOOM, EXTENT, MAJOR, MINOR, MOTORWAY, STREET, TileKey, decode_road_tile, encode_road_tile, lat_lon, world_xy,
 )
 from openpilot.starpilot.ui.onroad_map import (
-  CAR_ANCHOR, ZOOM_FAST_M_PER_PX, ZOOM_SLOW_M_PER_PX, CanvasRequest, MapFix, MapInput, MapOverlay, TileReader,
-  build_canvas, line_strip, route_guidance, split_route, zoom_for_speed,
+  CAR_ANCHOR, HEADING_DEADBAND_DEG, MAX_TURN_DEG_S, ZOOM_FAST_M_PER_PX, ZOOM_SLOW_M_PER_PX, CanvasRequest, MapFix, MapInput, MapOverlay, TileReader,
+  build_canvas, line_strip, route_guidance, split_route, zoom_for_speed, zoom_target,
 )
 from openpilot.starpilot.system.starport.tests import test_gpu_nv12
 
@@ -718,3 +718,104 @@ def test_map_feed_subscribes_to_registered_gps_carriers(monkeypatch):
   feed = MapFeed(acquisition=NS())
   assert feed.sm is not None
   assert subscriptions
+
+
+def test_zoom_closes_in_before_a_maneuver_and_never_widens():
+  assert zoom_target(25., None) == zoom_for_speed(25.)
+  assert zoom_target(25., 1000.) == zoom_for_speed(25.)
+  assert zoom_target(25., 250.) < zoom_for_speed(25.)
+  assert zoom_target(25., 20.) == pytest.approx(ZOOM_SLOW_M_PER_PX)
+  assert zoom_target(2., 60.) <= zoom_for_speed(2.)
+
+
+def test_stopped_overview_waits_then_yields_to_a_close_maneuver():
+  assert zoom_target(0., None, 29.) == ZOOM_SLOW_M_PER_PX
+  assert zoom_target(0., None, 31.) == ZOOM_FAST_M_PER_PX
+  assert zoom_target(0., 30., 60.) == ZOOM_SLOW_M_PER_PX
+
+
+def test_overview_starts_after_standing_still_and_drops_when_moving(tmp_path):
+  overlay = MapOverlay(tmp_path)
+  try:
+    still = MapInput(MapFix(*CENTER, 0., 0., 100.))
+    overlay._advance(still, 100.)
+    overlay._advance(still, 131.)
+    assert overlay._stopped_since == 100.
+    overlay._advance(MapInput(MapFix(*CENTER, 0., 8., 132.)), 132.)
+    assert overlay._stopped_since is None
+  finally:
+    overlay.close()
+
+
+def test_map_rotation_ignores_heading_wobble_and_turns_gently(tmp_path):
+  overlay = MapOverlay(tmp_path)
+  try:
+    clock = 100.
+    def step(bearing, speed=15.):
+      nonlocal clock
+      clock += .05
+      overlay._advance(MapInput(MapFix(*CENTER, bearing, speed, clock)), clock)
+    step(90.)
+    assert overlay._bearing == 90.
+    for i in range(40):
+      step(90. + (2.5 if i % 2 else -2.5))
+    assert overlay._bearing == 90., "GPS heading wobble leaves the map still"
+    for _ in range(20):
+      step(180., speed=2.)
+    assert overlay._bearing == 90., "creeping along, the map holds its rotation"
+    step(180.)
+    assert 0 < overlay._bearing - 90. <= MAX_TURN_DEG_S * .05 + 1e-9, "a real turn rotates the map, but gently"
+    for _ in range(80):
+      step(180.)
+    assert abs(overlay._bearing - 180.) < HEADING_DEADBAND_DEG + 1e-9
+  finally:
+    overlay.close()
+
+
+def test_road_name_waits_before_replacing_and_clears_when_empty(tmp_path):
+  overlay = MapOverlay(tmp_path)
+  try:
+    overlay._track_name('Main Street', 10.)
+    overlay._track_name('Main Street', 11.6)
+    assert overlay._name == 'Main Street'
+    overlay._track_name('Side Road', 12.)
+    overlay._track_name('Side Road', 13.)
+    assert overlay._name == 'Main Street', 'a brief side road does not flicker in'
+    overlay._track_name('Main Street', 13.2)
+    overlay._track_name('Side Road', 14.)
+    overlay._track_name('Side Road', 15.6)
+    assert overlay._name == 'Side Road'
+    overlay._track_name('', 16.)
+    assert overlay._name == ''
+  finally:
+    overlay.close()
+
+
+def test_map_feed_reports_maneuver_distance_and_road_name(monkeypatch):
+  from openpilot.starpilot.ui.onroad_map import MapFeed
+  clock = [100.0]
+  monkeypatch.setattr(time, 'monotonic', lambda: clock[0])
+  monkeypatch.setattr(time, 'monotonic_ns', lambda: int(clock[0] * 1e9))
+  sm = FakeNavigationMaster()
+  acquisition = Mock(since=clock[0])
+  acquisition.satellites.return_value = None
+  feed = MapFeed(sm, acquisition=acquisition)
+  sm.put_route(1, [(36.0, -115.0), (36.1, -115.1)])
+  sm.messages["starpilotNavigation"].navigation.instruction = NS(distanceMeters=240.)
+  sm.updated = {"mapdOut": True}
+  sm.valid["mapdOut"] = True
+  sm.messages["mapdOut"] = NS(roadName="", wayName="Main Street")
+  data = feed.read(sm)
+  assert (data.maneuver_distance_m, data.road_name) == (240., "Main Street")
+  clock[0] += 3.1
+  sm.updated["mapdOut"] = False
+  data = feed.read(sm)
+  assert data.maneuver_distance_m is None, "no stale distance once the route lease lapses"
+  assert data.road_name == "Main Street", "a gap in mapd does not blink the name away"
+  sm.updated["mapdOut"] = True
+  sm.messages["mapdOut"] = NS(roadName="", wayName="")
+  assert feed.read(sm).road_name == "Main Street", "nor does a briefly unnamed way"
+  clock[0] += 60.
+  assert feed.read(sm).road_name == "Main Street", "it stays until a new name arrives"
+  sm.messages["mapdOut"] = NS(roadName="Desert Inn Road", wayName="")
+  assert feed.read(sm).road_name == "Desert Inn Road"
