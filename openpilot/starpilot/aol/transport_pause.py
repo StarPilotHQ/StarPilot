@@ -849,7 +849,7 @@ class TransportPauseFeedback:
       not p.heartbeatLost and not blocking_fault_list(p.faults, cp) and
       (str(c.safetyModel) not in ('silent', 'noOutput') or not p.controlsAllowed)
       for p, c in zip(pandas, cp.safetyConfigs, strict=True))
-    raw_withdrawal = bool(self.longitudinal_cancel_ns and
+    raw_withdrawal = bool((self.longitudinal_cancel_ns or fresh_cancel) and
       0 < native.sourcePandaStatesMonoTime < stamp and
       all(not p.controlsAllowed for p, c in zip(pandas, cp.safetyConfigs, strict=True)
           if str(c.safetyModel) not in ('silent', 'noOutput')))

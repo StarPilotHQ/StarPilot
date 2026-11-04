@@ -100,3 +100,48 @@ def test_ev6_card_cancel_join_requires_its_dedicated_physical_owner(restriction)
   owner._last_latch_edge_ns = now - 10_000_000
   assert retained_shared_long_cancel_intent(cp, cs, sm, feedback, owner,
     cancel_source_ns=now, now_ns=now, producer='authority-card') == (restriction == 'healthy')
+
+
+@pytest.mark.parametrize('ev6', (False, True))
+@pytest.mark.parametrize('restriction', ('healthy', 'no_source', 'old_source', 'lat_denied', 'rx',
+                                       'heartbeat', 'same_health', 'wrong_session'))
+def test_cancel_can_join_new_raw_long_off_health_on_its_first_physical_sample(ev6, restriction):
+  from openpilot.starpilot.aol.wire import encode_safety
+
+  cp, cs, sm, feedback, _, native, now = captured_context()
+  if ev6:
+    cp = ev6_params()
+    cp.safetyConfigs[0].safetyParam |= 0x800
+    cp.alternativeExperience = 32
+    feedback.cp = cp_identity(cp)
+  slot = replace(native.pandaInventory[0], controlsAllowed=True)
+  native = replace(native, longitudinalAllowed=True, pandaInventory=(slot,),
+                   sourcePandaStatesMonoTime=now - 10_000_000)
+  source = now
+  if restriction == 'no_source':
+    source = 0
+  elif restriction == 'old_source':
+    source = now - 30_000_001
+  elif restriction == 'lat_denied':
+    native = replace(native, lateralAllowed=False)
+  elif restriction == 'same_health':
+    native = replace(native, sourcePandaStatesMonoTime=now)
+  elif restriction == 'wrong_session':
+    native = replace(native, axisSessionId='foreign')
+  from openpilot.cereal import messaging
+  pandas = messaging.new_message('pandaStates', 1)
+  pandas.pandaStates[0] = sm['pandaStates'][0]
+  pandas.pandaStates[0].safetyRxChecksInvalid = restriction == 'rx'
+  pandas.pandaStates[0].heartbeatLost = restriction == 'heartbeat'
+  sm['pandaStates'] = pandas.as_reader().pandaStates
+  sm['aolSafetyWire'] = encode_safety(native)
+  assert feedback.longitudinal_cancel_ns == 0
+  cleared = feedback.observe(sm, cp, cs, now, latched=True, cancel_source_ns=source,
+                             intent_producer_session='authority-card')
+  assert cleared == (restriction != 'healthy')
+  if restriction == 'healthy':
+    assert feedback.longitudinal_cancel_ns == now
+    cs.buttonEvents = []
+    assert not feedback.observe(sm, cp, cs, now + 10_000_000, latched=True,
+                                intent_producer_session='authority-card')
+    assert feedback.longitudinal_cancel_ns == now
