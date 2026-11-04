@@ -241,6 +241,10 @@ class AolCardIntent:
       return
     if self._engagement_consumed or not active and not blocked:
       return
+    if (not blocked and getattr(self, 'defer_full_engagement_on_gas', False) and CS.gasPressed and
+        CS.cruiseState.available and
+        CS.gearShifter not in (GearShifter.park, GearShifter.neutral, GearShifter.reverse, GearShifter.unknown)):
+      return
     self._engagement_consumed = True
     if (blocked or not active or not self.settings.enabled or not CS.cruiseState.available or
         CS.gearShifter in (GearShifter.park, GearShifter.neutral, GearShifter.reverse, GearShifter.unknown)):

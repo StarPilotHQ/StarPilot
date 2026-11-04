@@ -4,6 +4,8 @@ from openpilot.starpilot.car.hyundai.forte_intent import ForteCardIntent
 
 
 class ClassicSccCardIntent(ForteCardIntent):
+  defer_full_engagement_on_gas = True
+
   observe_stock_engagement = True
 
   def __init__(self, cp, settings):

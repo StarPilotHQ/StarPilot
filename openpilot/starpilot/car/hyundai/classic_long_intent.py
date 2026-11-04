@@ -3,6 +3,8 @@ from openpilot.starpilot.aol.intent import AolCardIntent
 
 
 class ClassicLongCardIntent(AolCardIntent):
+  defer_full_engagement_on_gas = True
+
   def __init__(self, cp, settings):
     super().__init__(settings, explicit_latch=True, independent_cruise_buttons=(
       independent_buttons_qualified(cp, marked_only=False)))
