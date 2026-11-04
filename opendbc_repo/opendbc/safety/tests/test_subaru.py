@@ -348,6 +348,11 @@ class TestSubaruGen1LongitudinalSafety(TestSubaruLongitudinalSafetyBase, TestSub
                                                SubaruMsg.ES_Distance)}
 
 
+class TestSubaruGen1AscentLongitudinalSafety(TestSubaruGen1LongitudinalSafety):
+  FLAGS = SubaruSafetyFlags.LONG | SubaruSafetyFlags.ASCENT_LONG_THROTTLE
+  MAX_GAS = 3800
+
+
 class TestSubaruGen1AngleStockLongitudinalSafety(TestSubaruStockLongitudinalSafetyBase, TestSubaruAngleSafetyBase):
   ALT_MAIN_BUS = SUBARU_MAIN_BUS
   FLAGS = SubaruSafetyFlags.LKAS_ANGLE
