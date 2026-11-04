@@ -2,6 +2,9 @@
 
 The unprivileged manager child sends validated settings/heartbeats on stdin.
 EOF, ten seconds without a heartbeat, or SIGTERM tears down only our AP.
+
+hostapd 2.10 (Ubuntu 24.04 arm64 package 2:2.10-21ubuntu0.4) ships in bin/ because AGNOS dropped it
+in agnos-builder 0cf5062 (2026-10-18). SHA256 in bin/hostapd.sha256.
 """
 from __future__ import annotations
 
@@ -21,6 +24,17 @@ from openpilot.starpilot.system.pipe_worker import claim, owned, stop_event
 
 ALIAS = 'starpilot-galaxy-hotspot'
 RUNTIME = Path('/run/starpilot-galaxy-hotspot')
+HOSTAPD = Path(__file__).parent / 'bin/hostapd_linux_arm64'
+HOSTAPD_CLI = Path(__file__).parent / 'bin/hostapd_cli_linux_arm64'
+RETRY_S = 15.0
+# Every failed start creates and deletes galaxy0; on 2026-11-04 that churn every 15 s crashed NetworkManager mid-drive.
+MAX_RETRY_S = 300.0
+# NetworkManager hands every new Wi-Fi interface to wpa_supplicant; letting go of galaxy0 a moment later stopped the
+# AP hostapd had just started (bench, 2026-11-04). A runtime udev rule keeps NetworkManager off galaxy0 from creation.
+UDEV_RULE = Path('/run/udev/rules.d/85-starpilot-galaxy-hotspot.rules')
+UDEV_TEXT = f'SUBSYSTEM=="net", ENV{{INTERFACE}}=="{INTERFACE}", ENV{{NM_UNMANAGED}}="1"\n'
+SUPPLICANT_DIR = Path('/run/wpa_supplicant')
+SUPPLICANT_RELEASE_S = 3.0
 STANDALONE_CHANNEL = ('g', 6)
 HOLD = 'hold'
 # wlan0 first; aa0 is Android Auto's own car link when it runs on a dedicated interface.
@@ -97,8 +111,10 @@ def hostapd_config(config, channel):
 
 
 class HotspotBackend:
-  def __init__(self, root=RUNTIME, run=subprocess.run, interfaces=WirelessInterfaces, popen=subprocess.Popen):
+  def __init__(self, root=RUNTIME, run=subprocess.run, interfaces=WirelessInterfaces, popen=subprocess.Popen,
+               udev_rule=UDEV_RULE, supplicant_dir=SUPPLICANT_DIR, clock=time.monotonic, sleep=time.sleep):
     self.root, self.run, self.interfaces, self.popen = root, run, interfaces, popen
+    self.udev_rule, self.supplicant_dir, self.clock, self.sleep = udev_rule, supplicant_dir, clock, sleep
     self.children = []
     self.owned = False
     self.firewall = shutil.which('iptables-legacy') or shutil.which('iptables')
@@ -140,7 +156,7 @@ class HotspotBackend:
 
   def ap_status(self):
     """Whether the AP is up, and its current channel: the driver moves it by itself to follow a station."""
-    reply = self.command(['/usr/sbin/hostapd_cli', '-p', str(self.root / 'control'), '-i', INTERFACE, 'status'], check=False)
+    reply = self.command([str(HOSTAPD_CLI), '-p', str(self.root / 'control'), '-i', INTERFACE, 'status'], check=False)
     lines = reply.stdout.splitlines() if reply.returncode == 0 else []
     channel = next((line.split('=', 1)[1] for line in lines if line.startswith('channel=')), '')
     return {'ready': 'state=ENABLED' in lines, 'channel': int(channel) if channel.isdigit() else None}
@@ -151,6 +167,25 @@ class HotspotBackend:
       getattr(client, method)(INTERFACE)
     finally:
       client.close()
+
+  def keep_unmanaged(self):
+    """Before galaxy0 exists: NetworkManager must never manage it or hand it to wpa_supplicant."""
+    try:
+      if self.udev_rule.read_text() == UDEV_TEXT:
+        return
+    except OSError:
+      pass
+    self.udev_rule.parent.mkdir(parents=True, exist_ok=True)
+    self.udev_rule.write_text(UDEV_TEXT)
+    self.command(['udevadm', 'control', '--reload'], check=False)
+
+  def wait_supplicant_released(self):
+    """wpa_supplicant releasing galaxy0 stops any AP on it, so hostapd starts only once it has let go."""
+    deadline = self.clock() + SUPPLICANT_RELEASE_S
+    while (self.supplicant_dir / INTERFACE).exists():
+      if self.clock() >= deadline:
+        raise RuntimeError('wpa_supplicant still holds the hotspot interface')
+      self.sleep(0.1)
 
   def stale_owned(self):
     return owned(INTERFACE, ALIAS)
@@ -183,8 +218,11 @@ class HotspotBackend:
   def start(self, config, channel):
     if not self.firewall:
       raise RuntimeError('Firewall helper unavailable')
+    if not os.access(HOSTAPD, os.X_OK):
+      raise RuntimeError('hostapd is missing')  # checked before galaxy0 exists, so a missing binary never churns the radio
     if overlapping_routes(json.loads(self.command(['ip', '-j', '-4', 'route', 'show', 'table', 'all']).stdout)):
       raise RuntimeError('Hotspot subnet conflicts with an existing network')
+    self.keep_unmanaged()
     self._wireless('create')
     self.owned = True
     try:
@@ -196,6 +234,7 @@ class HotspotBackend:
         self.command(self.firewall_rule('-I', direction))
       self.command(['ip', 'address', 'add', f'{ADDRESS}/24', 'dev', INTERFACE])
       self.command(['ip', 'link', 'set', 'dev', INTERFACE, 'up'])
+      self.wait_supplicant_released()
       ap = self.root / 'hostapd.conf'
       ap.write_text(hostapd_config(config, channel) + f'ctrl_interface={self.root / "control"}\n')
       ap.chmod(0o600)
@@ -203,7 +242,7 @@ class HotspotBackend:
       dhcp.write_text(f'interface={INTERFACE}\nbind-interfaces\nport=0\nno-resolv\nno-hosts\n' +
                       'dhcp-range=172.31.254.10,172.31.254.30,255.255.255.0,10m\n' +
                       'dhcp-option=3\ndhcp-option=6\nleasefile-ro\n')
-      for command in (['/usr/sbin/hostapd', str(ap)],
+      for command in ([str(HOSTAPD), str(ap)],
                       ['/usr/sbin/dnsmasq', '--keep-in-foreground', '--conf-file=' + str(dhcp)]):
         self.children.append(self.popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                         stderr=subprocess.DEVNULL, close_fds=True))
@@ -219,6 +258,10 @@ class HotspotController:
     self.station_seen = float('-inf')
     self.attempted = None
     self.refused = set()  # DFS channels hostapd would not start on; use the standalone channel instead
+    self.failures = 0
+
+  def backoff(self):
+    return min(RETRY_S * 2 ** self.failures, MAX_RETRY_S)
 
   def tick(self, config):
     if not config['enabled']:
@@ -257,11 +300,14 @@ class HotspotController:
         desired = self.applied
         channel = desired[1]
       if desired != self.applied or not running:
+        if self.applied is not None and not running:
+          self.failures += 1  # the AP started last time has exited
+          self.retry_at = max(self.retry_at, self.clock() + self.backoff())
         self.backend.stop()
         self.applied = None
         if self.clock() < self.retry_at:
           return {'active': False, 'state': 'error', 'reason': 'Hotspot unavailable; retrying shortly.'}
-        self.retry_at = self.clock() + 15
+        self.retry_at = self.clock() + self.backoff()
         self.attempted = channel
         self.backend.start(config, channel)
         self.applied = desired
@@ -272,14 +318,17 @@ class HotspotController:
           raise RuntimeError('Hotspot did not become ready')
         return {'active': False, 'state': 'starting', 'reason': 'Waiting for the Wi-Fi access point.', 'channel': channel[1]}
       self.attempted = None
+      self.failures = 0
       return {'active': True, 'state': 'active', 'reason': '', 'channel': channel[1]}
     except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError):
       if self.attempted is not None and dfs(self.attempted):
-        self.refused.add(self.attempted[1])
+        self.refused.add(self.attempted[1])  # the standalone channel is next; not a reason to wait longer
+      else:
+        self.failures += 1
       self.attempted = None
       self.backend.stop()
       self.applied = None
-      self.retry_at = self.clock() + 15
+      self.retry_at = self.clock() + self.backoff()
       return {'active': False, 'state': 'error', 'reason': 'Hotspot could not start on this channel. Projection Wi-Fi was not reconfigured.'}
 
 

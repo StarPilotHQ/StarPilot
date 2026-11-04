@@ -14,6 +14,8 @@ openpilot/selfdrive/modeld/models/big_*_tinygrad.pkl -text
 openpilot/starpilot/galaxy/web/vendor/vue/vue.esm-browser.js -text
 *.apk -text
 openpilot/starpilot/galaxy/bin/hev-socks5-tunnel_linux_arm64 -text
+openpilot/starpilot/galaxy/bin/hostapd_linux_arm64 -text
+openpilot/starpilot/galaxy/bin/hostapd_cli_linux_arm64 -text
 openpilot/starpilot/soloist/pulseaudio/bin/pulseaudio -text
 openpilot/starpilot/soloist/pulseaudio/bin/pactl -text
 openpilot/starpilot/soloist/bluealsa/bin/bluealsa-aplay -text
