@@ -34,6 +34,15 @@ class TestProjectionLayout(unittest.TestCase):
           self.assertGreaterEqual(placed[axis], metadata['bounds'][axis])
           self.assertLessEqual(placed[axis] + widget[extent], metadata['bounds'][axis] + metadata['bounds'][extent])
 
+  def test_unsaved_layer_order_draws_the_editor_default(self):
+    document = default_layout(SCREEN)
+    self.assertNotIn('widgetOrder', document)
+    order = projection_customization(document, default_document())['widgetOrder']['large']
+    self.assertEqual(order, layout_metadata(SCREEN)['widgetOrder'])
+    self.assertLess(order.index(NAV_MAP), order.index('pip_right'))
+    saved = [NAV_MAP, *(key for key in order if key != NAV_MAP)][::-1]
+    self.assertEqual(projection_customization({**document, 'widgetOrder': saved}, default_document())['widgetOrder']['large'], saved)
+
   def test_sources_save_actual_attached_actions_inside_each_projection_screen(self):
     from openpilot.starpilot.ui.onroad_customization import default_document, placement
     for viewport in ((1860, 1080), (2880, 1080), (1920, 1440)):
