@@ -82,7 +82,7 @@ class TorqueBarPainter:
     self._shader = shader
 
   def render(self, rect: rl.Rectangle, torque: float, alpha: float, screen_width: float, cap_radius: float,
-             offset: tuple[float, float] = (0, 0), *, demand_only: bool = False) -> None:
+             offset: tuple[float, float] = (0, 0)) -> None:
     if alpha <= 0:
       return
     self.prepare()
@@ -101,7 +101,7 @@ class TorqueBarPainter:
     start, end = ((end_sine, -end_cosine), (0, -1)) if torque < 0 else ((0, -1), (end_sine, -end_cosine))
     dot_y = rect.y + rect.height - torque_offset - thickness / 2 + offset[1]
     indicator_alpha = int(255 * 0.9 * alpha) / 255
-    warmth = 0.0 if demand_only else max(0.0, min(1.0, (abs(torque) - 0.75) * 4))
+    warmth = max(0.0, min(1.0, (abs(torque) - 0.75) * 4))
     extent = (middle_radius + thickness / 2 - cap) * sine + cap
     reach = max(0.65 * extent, 0.0001)
     values = {

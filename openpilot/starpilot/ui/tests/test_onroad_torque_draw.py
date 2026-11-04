@@ -1,6 +1,7 @@
 import numpy as np
 from contextlib import contextmanager
 from types import SimpleNamespace as NS
+from dataclasses import replace
 from unittest.mock import patch
 
 from openpilot.starpilot.ui.raylib import rl
@@ -8,6 +9,8 @@ import pytest
 
 from openpilot.starpilot.ui import onroad_torque_draw
 from openpilot.starpilot.ui.onroad_torque_draw import TorqueBarPainter
+from openpilot.starpilot.ui.onroad_torque import TorqueBarWidget
+from openpilot.starpilot.ui.onroad_state import OnroadState, SpeedLimitObservation
 
 
 @contextmanager
@@ -135,19 +138,24 @@ def test_shader_failure_never_paints_the_bounding_rectangle(default_shader_id):
   assert gpu.unloads == ([1] if default_shader_id == 0 else [])
 
 
-@pytest.mark.parametrize('width,rect,cap', [
-  (536, (0, 0, 476, 240), 7), (2160, (30, 30, 1800, 1020), 21), (1860, (30, 30, 1800, 1800), 7),
+@pytest.mark.parametrize('width,rect', [
+  (536, (0, 0, 476, 240)), (2160, (30, 30, 1800, 1020)), (1860, (30, 30, 1800, 1800)),
 ])
-@pytest.mark.parametrize('utilization', [-1, -.9, -.3, .3, .9, 1])
-def test_demand_has_direction_without_claiming_physical_torque_saturation(width, rect, cap, utilization):
-  with record_gpu() as gpu:
-    painter = TorqueBarPainter()
-    painter.render(rl.Rectangle(*rect), utilization, 1, width, cap, demand_only=True)
-    painter.render(rl.Rectangle(*rect), utilization, 1, width, cap)
-  demand, torque = gpu.frames
-  assert demand.uniforms['gradient'][1:] == pytest.approx((1, 0, 1))
+@pytest.mark.parametrize('utilization', [-1, -.875, -.75, -.3, .3, .75, .875, 1])
+def test_demand_preserves_original_colors_geometry_and_direction(width, rect, utilization):
+  state = OnroadState(True, True, 15.0, 80.0, SpeedLimitObservation(), lateral_active=True, torque_source_available=True,
+                      torque_utilization=utilization, torque_is_demand=True)
+  frames = []
+  for demand_only in (True, False):
+    widget = TorqueBarWidget()
+    with record_gpu() as gpu:
+      for _ in range(120):
+        widget.render(rl.Rectangle(*rect), replace(state, torque_is_demand=demand_only), width)
+      frames.append(gpu.frames[-1])
+  demand, torque = frames
+  warmth = max(0.0, min(1.0, (abs(widget._torque_filter.x) - .75) * 4))
+  assert demand.uniforms['gradient'][1:] == pytest.approx((1 - warmth * 140 / 255, warmth * 85 / 255, 1 - warmth))
+  assert demand.uniforms == torque.uniforms
   assert demand.uniforms['indicatorNormals'][0 if utilization < 0 else 2] * utilization > 0
   assert demand.uniforms['indicatorNormals'] == torque.uniforms['indicatorNormals']
   assert demand.vertices == torque.vertices
-  if abs(utilization) > .75:
-    assert torque.uniforms['gradient'][1:] != pytest.approx((1, 0, 1))

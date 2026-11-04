@@ -39,8 +39,7 @@ class TorqueBarWidget:
     if not enabled:
       return
     cap_radius = LARGE_CAP_RADIUS if screen_width == 2160 else CAP_RADIUS
-    self._painter.render(rect, torque, alpha, screen_width, cap_radius, widget_offset(state.customization, profile, 'torque_bar'),
-                         demand_only=state.torque_is_demand)
+    self._painter.render(rect, torque, alpha, screen_width, cap_radius, widget_offset(state.customization, profile, 'torque_bar'))
 
   def close(self) -> None:
     self._painter.close()

@@ -38,6 +38,11 @@ def road(document=None, **changes):
                  customization=document or default_document(), **changes)
 
 
+def test_torque_bar_keeps_its_familiar_customization_label():
+  for profile in customization_metadata()['profiles'].values():
+    assert profile['widgets']['torque_bar']['label'] == 'Torque bar'
+
+
 def test_defaults_and_metadata_are_independent_and_valid():
   document = default_document()
   assert validate_document(document) == document
