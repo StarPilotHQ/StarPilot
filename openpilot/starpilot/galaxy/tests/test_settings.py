@@ -1527,7 +1527,8 @@ class SettingsHttpTest(unittest.TestCase):
     self.gateway = SettingsGateway(self.params, self.context)
     self.access = GalaxyAccessOwner(Path(temporary.name) / "access")
     self.assertTrue(self.access.configure("password123", lambda: True))
-    self.server = make_server(port=0, owner=self.access, settings=self.gateway)
+    self.server = make_server(port=0, owner=self.access, settings=self.gateway,
+                              parked=lambda: self.context.sample().parked)
     self.worker = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     self.worker.start()
     self.addCleanup(self.stop)
