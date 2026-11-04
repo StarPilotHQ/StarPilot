@@ -132,9 +132,6 @@ class CarController(CarControllerBase):
           self.apply_angle_last = CS.out.steeringAngleDeg
           self.ascent_angle_initialized = True
           angle_active = False
-        if (angle_active and not self.angle_was_active and
-            self.CP.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_FORESTER_2022)):
-          self.apply_angle_last = CS.out.steeringAngleDeg
         if self.CP.carFingerprint in (CAR.SUBARU_LEGACY_2025, CAR.SUBARU_ASCENT_2023, CAR.SUBARU_OUTBACK_2023):
           apply_angle = apply_std_steer_angle_limits(actuators.steeringAngleDeg, self.apply_angle_last,
                                                      CS.out.vEgoRaw, CS.out.steeringAngleDeg, angle_active,
