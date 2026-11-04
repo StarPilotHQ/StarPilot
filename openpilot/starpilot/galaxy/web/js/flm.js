@@ -193,14 +193,14 @@ export const FlmPage = {
         </section></div>
       </section>
       <section v-if="view === 'tune'" id="tuner-panel-tune" role="tabpanel" aria-labelledby="tuner-tab-tune" class="gx-tuner__panel">
-        <div class="gx-tuner__section-heading"><div><h3>Auto Learn corrections</h3><p>Thirty automatic correction values, grouped by steering behavior.</p></div><span class="gx-tuner__pill">Reported corrections</span></div>
+        <div class="gx-tuner__section-heading"><div><h3>Your tune</h3><p>Thirty steering parameters, grouped by behavior.</p></div><span class="gx-tuner__pill">Manual + Auto Learn</span></div>
         <div class="gx-tuner__tune-layout"><nav class="gx-tuner__groups" aria-label="Steering parameter groups"><button v-for="item in groups" :key="item.id" type="button" :aria-pressed="group === item.id" @click="group = item.id"><i :class="['bi', item.icon]" aria-hidden="true"></i><span>{{ item.label }}<small>{{ item.names.length }} parameters · {{ groupChanges(item) }}</small></span><i class="bi bi-chevron-right" aria-hidden="true"></i></button></nav>
           <section class="gx-card gx-tuner__section gx-tuner__parameters"><div class="gx-tuner__section-heading"><div><h3>{{ selectedGroup.label }}</h3><p>{{ selectedGroup.description }}</p></div></div>
             <section class="gx-tuner__manual" aria-label="Manual tuning"><h4>Manual tune</h4><p class="gx-tuner__caption">Parked edits apply to the next drive. Auto Learn pauses while manual overrides are set. Zero removes an override.</p>
               <GxNotice v-if="manualState.error" tone="danger">{{ manualState.error }}</GxNotice>
               <p v-if="!manualState.data" class="gx-tuner__caption">{{ manualState.status === 'loading' ? 'Loading saved manual tune…' : 'Manual tuning unavailable. Reconnecting…' }}</p>
               <p v-else-if="!manualRows.length" class="gx-tuner__caption">{{ manualState.data.rows[0]?.reason || 'Manual tuning is unavailable for this controller.' }}</p>
-              <GalaxySettingRow v-for="{ row, index } in manualRows" :key="row.coordinate" :row="{ ...row, label: parameterLabel(row.coordinate) }" :index="index" :busy="manualBusy" :disabled="!!manualState.error" :save-value="saveManual" @reset-default="index => manualFeed.resetDefault(index)" />
+              <GalaxySettingRow v-for="{ row, index } in manualRows" :key="row.coordinate" :row="{ ...row, label: parameterLabel(row.coordinate), reason: row.available ? '' : row.reason }" :index="index" :busy="manualBusy" :disabled="!!manualState.error" :save-value="saveManual" @reset-default="index => manualFeed.resetDefault(index)" />
               <GalaxySettingRow v-for="{ row, index } in manualActions" :key="index" :row="row" :index="index" :busy="manualBusy" :disabled="!!manualState.error" :save-value="saveManual" @review="reviewManualReset" />
             </section>
             <h4>Auto Learn evidence</h4><p class="gx-tuner__caption">These reported results are separate from your manual settings.</p>

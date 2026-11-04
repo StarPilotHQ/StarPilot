@@ -24,7 +24,8 @@ from openpilot.starpilot.car.subaru.tests.native_fixture import subaru_native_pa
 @pytest.mark.parametrize('candidate', [CAR.SUBARU_ASCENT_2023, CAR.SUBARU_LEGACY_2025, CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_FORESTER, CAR.SUBARU_OUTBACK])
 def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, subaru_native_pair, tmp_path, aol=True, manual=False, stop_resume=False,
                                                                       hard_stop_native_first=False, main_only=False, preferences=None, firmware=None,
-                                                                      deadline_gap=False, fixed_angle_handoff=False):
+                                                                      deadline_gap=False, fixed_angle_handoff=False, host_first_stop=False,
+                                                                      source_outage=False):
   fw = firmware_records(candidate, FW_VERSIONS, 'subaru') if firmware is None else firmware
   rows = []
   with actual_factory(candidate, gen_empty_fingerprint(), fw, '0' * 17, manual=manual, aol=aol, preferences=preferences) as (card, params, matches):
@@ -64,6 +65,8 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
       ticks = (list(range(125)) + list(range(125, 135)) * 30 + list(range(135, 460))
                if hard_stop_native_first else range(460))
       gap_tick = 75 if main_only else 210
+      last_card_published = {}
+      pending_host_can = []
       for elapsed, tick in enumerate(ticks):
         now = base + elapsed * 10_000_000 + (22_504_479 if deadline_gap and elapsed >= gap_tick else 0)
         cruise = not main_only and (30 <= tick < 110 or tick >= 410)
@@ -71,9 +74,11 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         reverse = 150 <= tick < 185
         temporary = 225 <= tick < 260
         main = not 310 <= tick < 350 and (tick >= 30 or not main_only)
-        stopped = stop_resume and (125 <= tick < 135 if hard_stop_native_first else 185 <= tick < 195)
-        first_resume = 145 <= tick < 150 if hard_stop_native_first else 125 <= tick < 145
+        stopped = stop_resume and (125 <= tick < 135 if hard_stop_native_first or host_first_stop else 185 <= tick < 195)
+        first_resume = 145 <= tick < 150 if hard_stop_native_first or host_first_stop else 125 <= tick < 145
+        source_missing = bool(source_outage and 75 <= tick < 81)
         values = {
+          'Throttle': {'Throttle_Pedal': 100 if source_outage and 60 <= tick < 90 else 0},
           'Steering_Torque': {'Steer_Warning': int(temporary),
                              'Steer_Torque_Sensor': (250 if 70 <= tick < 76 else 143 if 76 <= tick < 90 else 0) if fixed_angle_handoff else 0},
           'Steering_2': {'Steering_Angle': (5.65 if tick < 78 else 5.61) if fixed_angle_handoff else 0},
@@ -85,11 +90,13 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           'Transmission': {'Gear': 3 if reverse else 121},
         }
         incoming = stream.frames(values, tick=tick)
+        if source_outage:
+          pending_host_can.append((now, incoming))
         safety.set_timer((now // 1000) & 0xFFFFFFFF)
         for addr, data, bus in incoming:
           safety.safety_rx_hook(libsafety_py.make_CANPacket(addr, bus, data))
         safety.safety_tick()
-        hard_stop_receipt = hard_stop_native_first and elapsed == 125
+        hard_stop_receipt = (hard_stop_native_first or host_first_stop) and elapsed == 125
         if hard_stop_receipt:
           # Native zero wheels and its USB poll precede the host's stopped CarState.
           receipt, hard_order = pandad.step(driven, published, now)
@@ -110,7 +117,7 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         if 'carControl' in latest_controls:
           peers.append(latest_controls['carControl'])
         peers.extend(driven_new[s] for s in ('onroadEvents', 'selfdriveState', 'aolAxisState') if s in driven_new and s in card.sm.data)
-        if receipt is not None and (tick % 10 == 1 or hard_stop_receipt):
+        if receipt is not None and (tick % 10 == 1 or hard_stop_receipt and not host_first_stop or host_first_stop and elapsed == 127):
           peers.append(receipt.as_reader())
         card.sm.update_msgs((now + 1000) / 1e9, peers)
         published = {}
@@ -123,25 +130,30 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           wire = msg if isinstance(msg, bytes) else msg.to_bytes()
           _published[service] = messaging.log_from_bytes(wire)
 
-        with (
-          patch.object(card.sm, 'update'),
-          patch('openpilot.selfdrive.car.card.messaging.drain_sock_raw', return_value=[b'can']),
-          patch('openpilot.selfdrive.car.card.can_capnp_to_list', return_value=[(now, incoming)]),
-          patch('openpilot.selfdrive.car.card.REPLAY', False),
-          patch('openpilot.selfdrive.car.card.time.monotonic_ns', return_value=now + 2000),
-          patch('openpilot.selfdrive.car.card.time.monotonic', return_value=(now + 2000) / 1e9),
-          patch('openpilot.selfdrive.car.card.time.clock_gettime_ns', return_value=now + 2000),
-          patch('openpilot.selfdrive.car.card.messaging.new_message', side_effect=stamped),
-          patch.object(card.pm, 'send', side_effect=capture),
-        ):
-          card.step()
+        if source_missing:
+          published = {key: value for key, value in last_card_published.items() if key != 'sendcan'}
+        else:
+          with (
+            patch.object(card.sm, 'update'),
+            patch('openpilot.selfdrive.car.card.messaging.drain_sock_raw', return_value=[b'can']),
+            patch('openpilot.selfdrive.car.card.can_capnp_to_list', return_value=list(pending_host_can) if source_outage else [(now, incoming)]),
+            patch('openpilot.selfdrive.car.card.REPLAY', False),
+            patch('openpilot.selfdrive.car.card.time.monotonic_ns', return_value=now + 2000),
+            patch('openpilot.selfdrive.car.card.time.monotonic', return_value=(now + 2000) / 1e9),
+            patch('openpilot.selfdrive.car.card.time.clock_gettime_ns', return_value=now + 2000),
+            patch('openpilot.selfdrive.car.card.messaging.new_message', side_effect=stamped),
+            patch.object(card.pm, 'send', side_effect=capture),
+          ):
+            card.step()
+          last_card_published = dict(published)
+          pending_host_can.clear()
         if tick % 10 == 0:
           published['pandaStates'] = panda.as_reader()
         cs = published['carState'].carState
         assert cs.brakePressed == brake and cs.gearShifter == (structs.CarState.GearShifter.reverse if reverse else structs.CarState.GearShifter.drive)
         if tick >= 10:
           assert cs.canValid and safety.safety_config_valid()
-        if hard_stop_receipt:
+        if hard_stop_receipt and not host_first_stop:
           _assert_hard_stop_fault_guards(card, cs, now + 2000)
         # Deliver each genuine10Hz native receipt once; do not refresh receive time/frequency from a cached snapshot.
         new_native = receipt if receipt is not None and (tick % 10 == 1 or hard_stop_receipt) else None
@@ -151,7 +163,8 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           with patch('openpilot.selfdrive.controls.controlsd.time.monotonic_ns', return_value=now + 2000):
             expired, _ = controls.state_control()
           assert not expired.latActive and not expired.longActive
-        driven_new = selfdrive_step(sd, published, new_native, previous_controls, cp, safety, now, calibration='calibrated')
+        driven_new = selfdrive_step(sd, published, new_native, previous_controls, cp, safety, now, calibration='calibrated',
+                                   source_timeout=source_missing)
         if deadline_gap and elapsed == gap_tick:
           current = driven_new['aolAxisState'].aolAxisState
           assert current.lateralActive and not sd.aol_authority_lost, 'SUBARU_FRESH_SUCCESSOR_LOST_LATERAL'
@@ -202,7 +215,8 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
             request = bool(decoder.vl[steering_name]['LKAS_Request'])
             output = decoder.vl[steering_name]['LKAS_Output']
             decoded_steering.append({'request': request, 'output': output, 'nativeAccepted': accepted})
-            if not stopped and (65 <= tick < 90 or aol and (first_resume or 205 <= tick < 220 or 280 <= tick < 300)):
+            if not stopped and (65 <= tick < 90 and not (source_outage and 75 <= tick < 84) or
+                                aol and (first_resume or 205 <= tick < 220 or 280 <= tick < 300)):
               if fixed_angle_handoff and 72 <= tick < 78:
                 assert not request and accepted, (tick, decoded_steering)
               else:
@@ -241,11 +255,15 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         }
         rows.append(row)
         if stopped:
-          assert not row['lat'] and row['cardLatch'] and row['permission'] == 0 and row['fault'] == 'none', row
+          assert not row['lat'] and row['cardLatch'] and row['permission'] == 0 and row['fault'] == 'none', ('SUBARU_STOP_LOST_ARMED_INTENT', row)
+        if source_outage and 78 <= tick < 81:
+          assert not row['lat'] and not row['long'] and row['fault'] == 'availabilityPause', ('SUBARU_SOURCE_GAP_BECAME_CRITICAL', row)
+        if source_outage and 84 <= tick < 90:
+          assert row['lat'] and row['cardLatch'] and row['permission'] == 1 and not row['controls'], row
         assert not command.longActive, row
         if 10 <= tick < 30:
           assert not command.latActive and not bool(intent and intent.allowedLatch) and row['permission'] == 0, row
-        if 65 <= tick < 90:
+        if 65 <= tick < 90 and not (source_outage and 75 <= tick < 84):
           assert command.latActive and bool(intent and intent.allowedLatch) == aol and row['permission'] == int(aol), row
         if not stopped and (first_resume or 205 <= tick < 220 or 280 <= tick < 300):
           assert command.latActive == aol and bool(intent and intent.allowedLatch) == aol and row['permission'] == int(aol) and not row['controls'], row
@@ -388,3 +406,15 @@ def test_actual_subaru_expired_output_keeps_user_disable(event, subaru_native_pa
 def test_actual_fixed_angle_driver_handoff_keeps_native_rate_limit(candidate, subaru_native_pair, tmp_path, preferences=None):
   test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
     candidate, subaru_native_pair, tmp_path, preferences=preferences, fixed_angle_handoff=True)
+
+
+@pytest.mark.parametrize('candidate', [CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_OUTBACK_2023, CAR.SUBARU_CROSSTREK_2025])
+def test_actual_host_first_stop_retains_subaru_intent(candidate, subaru_native_pair, tmp_path):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    candidate, subaru_native_pair, tmp_path, main_only=True, stop_resume=True, host_first_stop=True)
+
+
+@pytest.mark.parametrize('candidate', [CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_OUTBACK_2023, CAR.SUBARU_CROSSTREK_2025])
+def test_actual_held_gas_source_outage_withdraws_and_recovers_subaru(candidate, subaru_native_pair, tmp_path):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    candidate, subaru_native_pair, tmp_path, main_only=True, source_outage=True)
