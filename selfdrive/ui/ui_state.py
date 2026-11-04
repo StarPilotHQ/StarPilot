@@ -11,7 +11,7 @@ from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.lib.prime_state import PrimeState
 from openpilot.selfdrive.ui.lib.ui_param_cache import shared_ui_params
-from openpilot.system.ui.lib.application import gui_app
+from openpilot.system.ui.lib.application import gui_app, RECORD_METRIC
 from openpilot.starpilot.common.lateral_only_experimental import lateral_only_experimental_available
 from openpilot.starpilot.common.car_params_capability import capability_car_params_bytes
 from openpilot.system.hardware import HARDWARE, PC
@@ -91,7 +91,7 @@ class UIState:
     self._started_prev: bool = False
 
     # Core state variables
-    self.is_metric: bool = self.params.get_bool("IsMetric")
+    self.is_metric: bool = RECORD_METRIC or self.params.get_bool("IsMetric")
     self.is_release = self.params.get_bool("IsReleaseBranch")
     self.always_on_dm: bool = self.params.get_bool("AlwaysOnDM")
     self.usbgpu: bool = False
@@ -217,7 +217,7 @@ class UIState:
     # Update recording audio state
     self.recording_audio = params.get_bool("RecordAudio") and self.started
 
-    self.is_metric = params.get_bool("IsMetric")
+    self.is_metric = RECORD_METRIC or params.get_bool("IsMetric")
     self.always_on_dm = params.get_bool("AlwaysOnDM")
     self.usbgpu_compiled = params.get_bool("UsbGpuCompiled")
     self.usbgpu_active = params.get_bool("UsbGpuActive")

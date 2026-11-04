@@ -1,3 +1,4 @@
+import os
 import time
 import numpy as np
 import pyray as rl
@@ -13,7 +14,7 @@ from openpilot.selfdrive.ui.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.onroad.model_renderer import ModelRenderer
 from openpilot.selfdrive.ui.onroad.cameraview import CameraView
 from openpilot.selfdrive.ui.lib.starpilot_status import get_screen_edge_color
-from openpilot.system.ui.lib.application import gui_app
+from openpilot.system.ui.lib.application import gui_app, RECORD_HUD_ONLY, RECORD_CAMERA_ONLY, RECORD_COMBINED
 from openpilot.common.transformations.camera import DEVICE_CAMERAS, DeviceCameraConfig, view_frame_from_device_frame
 from openpilot.common.transformations.orientation import rot_from_euler
 
@@ -30,6 +31,13 @@ CAMERA_VIEW_DRIVER = 1
 CAMERA_VIEW_STANDARD = 2
 CAMERA_VIEW_WIDE = 3
 CAMERA_VIEW_NONE = 4
+
+# Optional camera selection for desktop-only recording modes.
+RECORD_CAMERA_VIEW = (
+  os.getenv("RECORD_CAMERA_VIEW", "").strip().lower()
+  if RECORD_HUD_ONLY or RECORD_CAMERA_ONLY or RECORD_COMBINED
+  else ""
+)
 
 BORDER_COLORS = {
   UIStatus.DISENGAGED: rl.Color(0x12, 0x28, 0x39, 0xFF),  # Blue for disengaged state
@@ -196,6 +204,17 @@ class AugmentedRoadView(CameraView):
 
   @staticmethod
   def _camera_view() -> int:
+    # Desktop-only camera-view override for recording modes.
+    # Never changes CameraView or camera selection on comma hardware.
+    if RECORD_HUD_ONLY or RECORD_CAMERA_ONLY or RECORD_COMBINED:
+      desktop_views = {
+        "auto": CAMERA_VIEW_AUTO,
+        "standard": CAMERA_VIEW_STANDARD,
+        "wide": CAMERA_VIEW_WIDE,
+      }
+      if RECORD_CAMERA_VIEW in desktop_views:
+        return desktop_views[RECORD_CAMERA_VIEW]
+
     params = ui_state.ui_params
     camera_view = params.get_int("CameraView", return_default=True, default=CAMERA_VIEW_STANDARD)
     if camera_view not in (CAMERA_VIEW_AUTO, CAMERA_VIEW_DRIVER, CAMERA_VIEW_STANDARD, CAMERA_VIEW_WIDE, CAMERA_VIEW_NONE):
