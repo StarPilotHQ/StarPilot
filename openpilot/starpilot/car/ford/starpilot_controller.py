@@ -103,6 +103,7 @@ class StarPilotFordController:
   def __init__(self, CP, inputs, shared):
     self.CP = CP
     self.conditioner = CurvatureConditioner()
+    self.native_curvature_bounds = None
     # StarPilot uses the platform defaults, not hidden BluePilot user adjustment knobs.
     for attr, key in ANGLE_SETTINGS:
       setattr(self, attr, default(key))
@@ -336,6 +337,12 @@ class StarPilotFordController:
       # BluePilot: did this clip actually constrain kappa_cmd this frame (deviation from measured,
       # not rate-of-change)? The BluePilot UI's deviation flag.
       self.shared.bp_curvature_deviation_limited = bool(abs(kappa_cmd - _kappa_cmd_pre_error_clip) > 1e-9)
+
+    if self.native_curvature_bounds is not None:
+      low, high = self.native_curvature_bounds
+      constrained = float(clip(kappa_cmd, low, high))
+      self.shared.bp_curvature_deviation_limited |= abs(constrained - kappa_cmd) > 1e-9
+      kappa_cmd = constrained
 
     # Remember only demand admitted by the measured-curvature envelope, not a hidden backlog.
     self.conditioner.curvature = kappa_cmd

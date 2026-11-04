@@ -18,6 +18,8 @@ from opendbc.bluepilot_lateral.core.lateral_inputs import lateral_inputs_complet
 from opendbc.bluepilot_lateral.can.fordcan_ext import lat_ctl2_checksum, create_lat_ctl2_msg
 from opendbc.car.ford.values import CarControllerParams, FordFlags
 from opendbc.car import structs
+from opendbc.car.vehicle_model import calc_slip_factor
+from opendbc.bluepilot_lateral.core.carcontroller_ext import pinion_vehicle_model
 from opendbc.car.lateral import ISO_LATERAL_ACCEL
 from openpilot.starpilot.car.ford.controller_selection import FordController, read_controller
 
@@ -137,10 +139,13 @@ class FordBluePilotController(BluePilotLateral):
     self.measured_history = deque([0] * 6, maxlen=6)
     self.measured_speed = 0
     self.measured_seen = False
+    self.native_pinion_model = pinion_vehicle_model(CP) if self.inputs.bp_pinion_curvature_enabled else None
+    self.native_pinion_slip = (np.float32(calc_slip_factor(self.native_pinion_model))
+                               if self.native_pinion_model is not None else np.float32(0.))
 
   def observe_can(self, can_list):
     # Match Panda's receive order: yaw can precede the new speed in the same batch.
-    if not self.CP.flags & FordFlags.CANFD and not self.starpilot_selected:
+    if not self.CP.flags & FordFlags.CANFD and not self.starpilot_selected and self.native_pinion_model is None:
       return
     for _, batch in can_list:
       for address, data, bus in batch:
@@ -150,6 +155,18 @@ class FordBluePilotController(BluePilotLateral):
           speed = np.float32(((data[0] << 8) | data[1]) * .01 * (1. / 3.6))
           self.measured_speed = math.floor(float(np.float32(speed * 1000.)) + .5)
           self.speed_history.append(self.measured_speed)
+        elif address == 0x7E and self.native_pinion_model is not None:
+          # Mirror the fixed native pinion geometry, before live ratio/roll corrections.
+          raw_angle = ((data[2] & 0x7F) << 8) | data[3]
+          angle = np.float32(np.float32(raw_angle) * np.float32(.1) - np.float32(1600.))
+          radians = np.float32(angle * np.float32(math.pi / 180.))
+          speed = np.float32(max(self.measured_speed / 1000., .1))
+          slip_speed = np.float32(self.native_pinion_slip * np.float32(speed * speed))
+          factor = np.float32(1. / (1. - float(slip_speed)) / float(np.float32(self.native_pinion_model.l)))
+          curvature = np.float32(np.float32(radians * factor) / np.float32(self.native_pinion_model.sR))
+          raw = float(np.float32(curvature * np.float32(50000.)))
+          self.measured_history.append(math.floor(raw + .5) if raw >= 0 else math.ceil(raw - .5))
+          self.measured_seen = True
         elif address == 0x91 and (data[6] >> 4) & 3 == 3 and not self.inputs.bp_pinion_curvature_enabled:
           yaw = np.float32(((data[2] << 8) | data[3]) * .0002 - 6.5)
           speed = np.float32(self.measured_speed / 1000.)
@@ -185,6 +202,16 @@ class FordBluePilotController(BluePilotLateral):
     self.lateral_active = bool(CC.latActive)
     if self.starpilot_selected and (not self.starpilot_frame_valid or not self.angle.inputs_valid(CS, actuators)):
       CC = structs.CarControl.new_message(latActive=False)
+    if self.starpilot_selected:
+      self.angle.native_curvature_bounds = None
+      if self.native_pinion_model is not None and self.measured_seen and CS.out.vEgoRaw > 10.:
+        # Pinion native limits use 150 CAN curvature units, without learned geometry.
+        error = 150 * .00002
+        low = max(-max(self.measured_history) * .00002 - error, measured - CarControllerParams.CURVATURE_ERROR)
+        high = min(-min(self.measured_history) * .00002 + error, measured + CarControllerParams.CURVATURE_ERROR)
+        # Tighten the host envelope only where both measurements agree on a command.
+        if low <= high:
+          self.angle.native_curvature_bounds = (low, high)
     packets, applied = super().step_lateral(CC, CS, actuators, apply_curvature_last)
     return self._constrain_curvature(CC, CS, actuators, apply_curvature_last, packets, applied)
 
