@@ -77,7 +77,12 @@ class RadarInterface(RadarInterfaceBase):
     if not self.rcp.can_valid:
       ret.errors.canError = True
 
-    if self.rcp.vl['STATUS_MSG']['RADAR_STATUS'] != 1 or self.rcp.vl['STATUS_MSG']['RADAR_PRE_FAULT'] != 0:
+    status = self.rcp.vl['STATUS_MSG']
+    pre_fault = status['RADAR_PRE_FAULT']
+    # Legacy pre-warning can rise on an empty road before the documented dirty-radar threshold.
+    legacy_pre_warning = (not self.CP.flags & ToyotaFlags.TSS2 and pre_fault == 3 and
+                          status['INVALID_COUNTER'] < 2659)
+    if status['RADAR_STATUS'] != 1 or pre_fault != 0 and not legacy_pre_warning:
       ret.errors.radarUnavailableTemporary = True
 
     for ii in sorted(updated_messages):
