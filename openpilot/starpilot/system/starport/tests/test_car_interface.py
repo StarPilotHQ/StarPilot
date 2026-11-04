@@ -85,7 +85,9 @@ def make(fail=False, errors=(), fail_reopen=False):
     return lease
   FakeInterface.instances = []
   log = Log()
-  interface = lambda log: FakeInterface(log, fail or (fail_reopen and len(FakeInterface.instances) > 0))
+  def interface(log):
+    return FakeInterface(log, fail or (fail_reopen and len(FakeInterface.instances) > 0))
+
   return DedicatedLease(log, "wlan0", factory, interface_factory=interface), leases, log
 
 

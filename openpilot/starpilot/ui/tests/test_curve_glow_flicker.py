@@ -50,7 +50,9 @@ class CurveGlowFlickerTests(unittest.TestCase):
     held = display.update(curve(None), START_NS + FRAME_NS)
     self.assertEqual(held.road_curvature, .01)
     stepped = display.update(curve(.02), START_NS + 2 * FRAME_NS).road_curvature
-    self.assertTrue(.01 < stepped < .013, stepped)
+    self.assertIsNotNone(stepped)
+    self.assertGreater(stepped or 0., .01)
+    self.assertLess(stepped or 0., .013)
     self.assertIsNone(display.update(None, START_NS + 3 * FRAME_NS))
     self.assertEqual(display.update(curve(.003), START_NS + 3 * FRAME_NS + 2_000_000_000).road_curvature, .003)
 

@@ -357,10 +357,7 @@ class NetworkLease:
       self.log("wifi_scan_request_failed", error=str(error))
 
   def hold_autoconnect(self) -> bool:
-    """wlan0 lost its network while the car streams on aa0: stop it hunting for one until release(restore=True).
-
-    Each join attempt takes the shared radio off the car's channel for a second or more; on 2026-11-04 retries of a
-    home network fading out of range stalled the car's video past its ACK timeout. True when held."""
+    """Stop wlan0 hunting for a network until release(restore=True). True when held."""
     with self._lock:
       self.device_path = next((path for path, name in self._wifi_devices() if name == self.interface), "")
       if not self.device_path:

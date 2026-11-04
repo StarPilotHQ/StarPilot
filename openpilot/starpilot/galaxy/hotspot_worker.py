@@ -2,9 +2,7 @@
 
 The unprivileged manager child sends validated settings/heartbeats on stdin.
 EOF, ten seconds without a heartbeat, or SIGTERM tears down only our AP.
-
-hostapd 2.10 (Ubuntu 24.04 arm64 package 2:2.10-21ubuntu0.4) ships in bin/ because AGNOS dropped it
-in agnos-builder 0cf5062 (2026-10-18). SHA256 in bin/hostapd.sha256.
+hostapd ships in bin/ (SHA256 in hostapd.sha256).
 """
 from __future__ import annotations
 
@@ -27,10 +25,9 @@ RUNTIME = Path('/run/starpilot-galaxy-hotspot')
 HOSTAPD = Path(__file__).parent / 'bin/hostapd_linux_arm64'
 HOSTAPD_CLI = Path(__file__).parent / 'bin/hostapd_cli_linux_arm64'
 RETRY_S = 15.0
-# Every failed start creates and deletes galaxy0; on 2026-11-04 that churn every 15 s crashed NetworkManager mid-drive.
+# Failed starts churn galaxy0, so retries back off.
 MAX_RETRY_S = 300.0
-# NetworkManager hands every new Wi-Fi interface to wpa_supplicant; letting go of galaxy0 a moment later stopped the
-# AP hostapd had just started (bench, 2026-11-04). A runtime udev rule keeps NetworkManager off galaxy0 from creation.
+# A runtime udev rule keeps NetworkManager off galaxy0 from creation.
 UDEV_RULE = Path('/run/udev/rules.d/85-starpilot-galaxy-hotspot.rules')
 UDEV_TEXT = f'SUBSYSTEM=="net", ENV{{INTERFACE}}=="{INTERFACE}", ENV{{NM_UNMANAGED}}="1"\n'
 SUPPLICANT_DIR = Path('/run/wpa_supplicant')
@@ -219,7 +216,7 @@ class HotspotBackend:
     if not self.firewall:
       raise RuntimeError('Firewall helper unavailable')
     if not os.access(HOSTAPD, os.X_OK):
-      raise RuntimeError('hostapd is missing')  # checked before galaxy0 exists, so a missing binary never churns the radio
+      raise RuntimeError('hostapd is missing')
     if overlapping_routes(json.loads(self.command(['ip', '-j', '-4', 'route', 'show', 'table', 'all']).stdout)):
       raise RuntimeError('Hotspot subnet conflicts with an existing network')
     self.keep_unmanaged()
@@ -301,7 +298,7 @@ class HotspotController:
         channel = desired[1]
       if desired != self.applied or not running:
         if self.applied is not None and not running:
-          self.failures += 1  # the AP started last time has exited
+          self.failures += 1
           self.retry_at = max(self.retry_at, self.clock() + self.backoff())
         self.backend.stop()
         self.applied = None
@@ -322,7 +319,7 @@ class HotspotController:
       return {'active': True, 'state': 'active', 'reason': '', 'channel': channel[1]}
     except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError):
       if self.attempted is not None and dfs(self.attempted):
-        self.refused.add(self.attempted[1])  # the standalone channel is next; not a reason to wait longer
+        self.refused.add(self.attempted[1])
       else:
         self.failures += 1
       self.attempted = None

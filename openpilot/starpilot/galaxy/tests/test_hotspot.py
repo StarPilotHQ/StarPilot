@@ -354,7 +354,7 @@ def test_repeated_failures_back_off_and_success_resets():
     if backend.start.call_count > calls:
       starts.append(now[0])
     now[0] += 2
-  gaps = [later - earlier for earlier, later in zip(starts, starts[1:])]
+  gaps = [later - earlier for earlier, later in zip(starts, starts[1:], strict=False)]
   assert gaps[:5] == [30, 60, 120, 240, 300] and max(gaps) == 300
   backend.start.side_effect = None
   now[0] += 300
@@ -375,7 +375,7 @@ def test_ap_that_keeps_exiting_backs_off():
     if backend.start.call_count > calls:
       starts.append(now[0])
     now[0] += 2
-  gaps = [later - earlier for earlier, later in zip(starts, starts[1:])]
+  gaps = [later - earlier for earlier, later in zip(starts, starts[1:], strict=False)]
   assert gaps[0] >= 30 and gaps[0] < gaps[1] < gaps[2] <= 300 and controller.failures >= 3
 
 
@@ -410,7 +410,9 @@ def test_hostapd_waits_for_wpa_supplicant_to_let_go(tmp_path):
   backend.wait_supplicant_released()
   assert 1 <= now[0] < 1.2
   (supplicant / 'galaxy0').touch()
-  sleep_forever = lambda seconds: now.__setitem__(0, now[0] + seconds)
+  def sleep_forever(seconds):
+    now[0] += seconds
+
   backend = HotspotBackend(tmp_path, run=Mock(), interfaces=Mock(), supplicant_dir=supplicant, clock=lambda: now[0],
                            sleep=sleep_forever)
   with pytest.raises(RuntimeError, match='wpa_supplicant'):

@@ -249,6 +249,7 @@ def test_then_maneuver_comes_from_the_next_instruction_and_card_shows_it_when_cl
   result = message()
   result.nextManeuver = {'maneuverType': 'turn', 'maneuverModifier': 'right', 'distanceMeters': 300}
   nav = navigation_display(result, now_ns=NOW, drive_id=DRIVE)
+  assert nav is not None
   assert (nav.then_type, nav.then_modifier, nav.then_distance_m) == ('turn', 'right', 300.)
   assert navigation_display(message(), now_ns=NOW, drive_id=DRIVE).then_type == ''
   fonts = Mock(profile=Profile.LARGE)

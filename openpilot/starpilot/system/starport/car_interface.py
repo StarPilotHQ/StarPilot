@@ -157,8 +157,7 @@ class DedicatedLease:
       self.lease = self.lease_factory(self.log, self.fallback_interface)
 
   def hold_home_wifi(self) -> None:
-    """wlan0 lost its network while the car streams on aa0: keep it from searching on the shared radio until the
-    session ends. Called from the radio watch thread."""
+    """Keep wlan0 from searching on the shared radio until the session ends."""
     with self._home_lock:
       if self.legacy or self.home is not None:
         return
@@ -181,7 +180,7 @@ class DedicatedLease:
       try:
         home.release(restore=True)
         self.log("wifi_home_released", interface=self.fallback_interface)
-      except Exception as error:
+      except NetworkError as error:
         self.log("wifi_home_release_failed", error=str(error))
 
   def _fall_back(self, error: Exception) -> None:
@@ -190,7 +189,7 @@ class DedicatedLease:
     if self.lease is not None:
       try:
         self.lease.release(restore=True)
-      except Exception:
+      except Exception:  # the failed aa0 lease may be broken in any way; falling back must still finish
         pass
     if self.iface is not None:
       self.iface.close()
@@ -202,8 +201,8 @@ class DedicatedLease:
     if self.lease is not None:
       try:
         self.lease.release(restore=True)
-      except Exception:
-        pass
+      except NetworkError as error:
+        self.log("wifi_dedicated_release_failed", error=str(error))
     if self.iface is not None:
       self.iface.close()
     self.lease = self.iface = None
@@ -223,8 +222,7 @@ class DedicatedLease:
           self._fall_back(error)
         raise
       if not isinstance(error, DedicatedUnavailable):
-        # A NetworkManager restart leaves the lease holding device paths that no longer exist (2026-11-04: the rest of
-        # the drive then ran on wlan0). A fresh aa0 and lease resolve them again; only a second failure falls back.
+        # A NetworkManager restart leaves stale device paths; retry once on a fresh aa0.
         self.log("wifi_dedicated_reopen", error=str(error) or type(error).__name__)
         self._reopen()
         try:

@@ -805,7 +805,7 @@ def test_map_feed_reports_maneuver_distance_and_road_name(monkeypatch):
   feed = MapFeed(sm, acquisition=acquisition)
   sm.put_route(1, [(36.0, -115.0), (36.1, -115.1)])
   sm.messages["starpilotNavigation"].navigation.instruction = NS(distanceMeters=240.)
-  sm.updated = {"mapdOut": True}
+  sm.updated["mapdOut"] = True
   sm.valid["mapdOut"] = True
   sm.messages["mapdOut"] = NS(roadName="", wayName="Main Street")
   data = feed.read(sm)
