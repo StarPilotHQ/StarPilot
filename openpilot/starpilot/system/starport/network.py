@@ -39,6 +39,8 @@ NM_WIRELESS_IFACE = "org.freedesktop.NetworkManager.Device.Wireless"
 NM_AP_IFACE = "org.freedesktop.NetworkManager.AccessPoint"
 DEVICE_TYPE_WIFI = 2
 DEVICE_STATE_DISCONNECTED = 30
+DEVICE_STATE_PREPARE = 40
+DEVICE_STATE_ACTIVATED = 100
 DEVICE_STATES_NOT_MANAGED = (10, 20)  # NM_DEVICE_STATE_UNMANAGED, NM_DEVICE_STATE_UNAVAILABLE
 DEVICE_READY_TIMEOUT_S = 5.0
 # A shared interface can be briefly unmanaged (for example while the Wi-Fi mode is being switched). Bugsink showed 19 joins
@@ -353,6 +355,26 @@ class NetworkLease:
       self.log("wifi_scan_requested", interface=self.interface)
     except NetworkError as error:
       self.log("wifi_scan_request_failed", error=str(error))
+
+  def hold_autoconnect(self) -> bool:
+    """wlan0 lost its network while the car streams on aa0: stop it hunting for one until release(restore=True).
+
+    Each join attempt takes the shared radio off the car's channel for a second or more; on 2026-11-04 retries of a
+    home network fading out of range stalled the car's video past its ACK timeout. True when held."""
+    with self._lock:
+      self.device_path = next((path for path, name in self._wifi_devices() if name == self.interface), "")
+      if not self.device_path:
+        return False
+      state = int(self._get(self.device_path, NM_DEVICE_IFACE, "State"))
+      if state == DEVICE_STATE_ACTIVATED:
+        return False  # connected again; nothing to hold
+      self._pause_autoconnect()
+      if DEVICE_STATE_PREPARE <= state < DEVICE_STATE_ACTIVATED:
+        try:
+          self._call(self.device_path, NM_DEVICE_IFACE, "Disconnect")  # a join already under way
+        except NetworkError as error:
+          self.log("wifi_hold_disconnect_failed", error=str(error))
+      return self.autoconnect_paused
 
   def _pause_autoconnect(self) -> None:
     """Keep NetworkManager from rejoining home Wi-Fi between attempts; release(restore=True) turns it back on."""

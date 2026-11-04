@@ -100,10 +100,17 @@ class DedicatedLease:
     self._opening: threading.Thread | None = None
     self._open_error: Exception | None = None
     self._cancel = threading.Event()
+    self.home = None  # a hold on wlan0's autoconnect, from hold_home_wifi until the session ends
+    self._home_lock = threading.Lock()
 
   @property
   def local_ip(self):
     return self.lease.local_ip if self.lease is not None else ""
+
+  @property
+  def dedicated(self) -> bool:
+    """The car is on aa0, sharing the radio with wlan0; the supervisor's radio watch keys off this."""
+    return not self.legacy
 
   @property
   def interface(self) -> str:
@@ -149,7 +156,36 @@ class DedicatedLease:
       self.legacy = True
       self.lease = self.lease_factory(self.log, self.fallback_interface)
 
+  def hold_home_wifi(self) -> None:
+    """wlan0 lost its network while the car streams on aa0: keep it from searching on the shared radio until the
+    session ends. Called from the radio watch thread."""
+    with self._home_lock:
+      if self.legacy or self.home is not None:
+        return
+      home = self.lease_factory(self.log, self.fallback_interface)
+      try:
+        held = home.hold_autoconnect()
+      except NetworkError as error:
+        self.log("wifi_home_hold_failed", error=str(error))
+        held = False
+      if not held:
+        home.release(restore=True)
+        return
+      self.home = home
+      self.log("wifi_home_held", interface=self.fallback_interface)
+
+  def _release_home(self) -> None:
+    with self._home_lock:
+      home, self.home = self.home, None
+    if home is not None:
+      try:
+        home.release(restore=True)
+        self.log("wifi_home_released", interface=self.fallback_interface)
+      except Exception as error:
+        self.log("wifi_home_release_failed", error=str(error))
+
   def _fall_back(self, error: Exception) -> None:
+    self._release_home()  # the car's join moves onto wlan0, which keeps its own autoconnect pause
     self.log("wifi_dedicated_unavailable", error=str(error) or type(error).__name__)
     if self.lease is not None:
       try:
@@ -160,6 +196,18 @@ class DedicatedLease:
       self.iface.close()
     self.lease = self.iface = None
     self.legacy = True
+
+  def _reopen(self) -> None:
+    """Drop aa0 and its lease, then create both again; a failure to recreate falls back to wlan0."""
+    if self.lease is not None:
+      try:
+        self.lease.release(restore=True)
+      except Exception:
+        pass
+    if self.iface is not None:
+      self.iface.close()
+    self.lease = self.iface = None
+    self._ensure()
 
   def acquire(self, credentials, cancelled: Callable[[], bool] = lambda: False, **kwargs):
     self._ensure()
@@ -174,6 +222,22 @@ class DedicatedLease:
         if self.timeouts >= DEDICATED_TIMEOUTS:
           self._fall_back(error)
         raise
+      if not isinstance(error, DedicatedUnavailable):
+        # A NetworkManager restart leaves the lease holding device paths that no longer exist (2026-11-04: the rest of
+        # the drive then ran on wlan0). A fresh aa0 and lease resolve them again; only a second failure falls back.
+        self.log("wifi_dedicated_reopen", error=str(error) or type(error).__name__)
+        self._reopen()
+        try:
+          local_ip = self.lease.acquire(credentials, cancelled=cancelled, **kwargs)
+        except NetworkError as retry_error:
+          if self.legacy or cancelled() or isinstance(retry_error, JoinTimeout):
+            raise
+          error = retry_error
+        else:
+          if not self.legacy:
+            self.aa0_joined = True
+            self.timeouts = 0
+          return local_ip
       # aa0 itself failed; finish this same join on wlan0 rather than report a failure to the car.
       self._fall_back(error)
       self._ensure()
@@ -195,6 +259,7 @@ class DedicatedLease:
     if self.lease is not None:
       self.lease.release(restore=restore)
     if restore:
+      self._release_home()
       if self.iface is not None:
         self.iface.close()
       self.lease = self.iface = None
