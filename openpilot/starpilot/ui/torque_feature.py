@@ -57,9 +57,9 @@ class TorqueFeature:
       matches = profile is None or (profile.basis == basis and profile.flm is None
         and (saved is None or saved.context == current))
       values = dict(saved.values) if saved is not None else dict.fromkeys(NAMES, 0.)
-      common = dict(source=raw, capability=capability, related_source=token,
-        dependencies=self._dependents(SELECTION_KEY, *TORQUE_NUMBERS, "ForceAutoTuneOff"))
-      reason = ("Parked only. Saved for the next drive; zero restores this stage's original baseline. "
+      common = {"source": raw, "capability": capability, "related_source": token,
+        "dependencies": self._dependents(SELECTION_KEY, *TORQUE_NUMBERS, "ForceAutoTuneOff")}
+      reason = ("Parked only. Saved for the next drive; zero restores this stage's original baseline. " +
                 "Manual overrides pause Auto Learn and are not learned results.") if matches else (
                 "Vehicle tune, controller or effect definition changed. Reset this manual tune before editing.")
       rows = []

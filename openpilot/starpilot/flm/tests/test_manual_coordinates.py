@@ -58,6 +58,12 @@ def save(params, cp, value):
   return raw
 
 
+def saved_profile(params, cp):
+  raw, readable = read_saved(params, DOCUMENT_KEY, 16384)
+  assert readable and raw is not None
+  return parse_document(raw)[str(cp.carFingerprint)]
+
+
 @pytest.mark.parametrize('name', NAMES)
 def test_each_of_thirty_values_roundtrips_without_learning_history(cp, name):
   value = manual(cp, **{name: .01})
@@ -165,13 +171,12 @@ def test_parked_edit_exact_readback_and_single_value_reset(tmp_path, cp):
   row = next(r for r in rows if r.key.endswith(':center_taper_max'))
   row = replace(row, vehicle_fingerprint=str(cp.carFingerprint))
   assert editor.apply(request(row, 1.))
-  raw, readable = read_saved(params, DOCUMENT_KEY, 16384)
-  assert readable
-  profile = parse_document(raw)[str(cp.carFingerprint)]
+  profile = saved_profile(params, cp)
+  assert profile.manual_coordinates is not None
   assert dict(profile.manual_coordinates.values)['center_taper_max'] == .01
   row = next(r for r in editor.manual_rows(capability, True) if r.key.endswith(':center_taper_max'))
   assert editor.apply(request(replace(row, vehicle_fingerprint=str(cp.carFingerprint)), 0.))
-  assert parse_document(read_saved(params, DOCUMENT_KEY, 16384)[0])[str(cp.carFingerprint)].manual_coordinates is None
+  assert saved_profile(params, cp).manual_coordinates is None
 
 
 def test_stale_source_and_onroad_writes_are_refused(tmp_path, cp):
@@ -184,7 +189,9 @@ def test_stale_source_and_onroad_writes_are_refused(tmp_path, cp):
   current = replace(editor.manual_rows(capability, True)[0], vehicle_fingerprint=str(cp.carFingerprint))
   state['parked'] = False
   assert not editor.apply(request(current, 2.))
-  assert dict(parse_document(read_saved(params, DOCUMENT_KEY, 16384)[0])[str(cp.carFingerprint)].manual_coordinates.values)[NAMES[0]] == .01
+  profile = saved_profile(params, cp)
+  assert profile.manual_coordinates is not None
+  assert dict(profile.manual_coordinates.values)[NAMES[0]] == .01
 
 
 def test_invalid_saved_document_is_not_replaced_by_a_new_manual_tune(tmp_path, cp):
@@ -238,7 +245,7 @@ def test_reset_all_uses_original_row_request_and_requires_confirmation(tmp_path,
   assert unconfirmed is not None and unconfirmed.value == 'Reset'
   assert not editor.apply(unconfirmed)
   assert editor.apply(replace(unconfirmed, confirmation=True))
-  assert parse_document(read_saved(params, DOCUMENT_KEY, 16384)[0])[str(cp.carFingerprint)].manual_coordinates is None
+  assert saved_profile(params, cp).manual_coordinates is None
 
 
 def test_replay_controller_construction_does_not_read_manual_preferences(cp, monkeypatch):
@@ -276,7 +283,8 @@ def test_actual_controls_startup_holds_native_learning_only_for_manual_tune(tmp_
   (tmp_path / 'd' / 'ForceAutoTuneOff').write_bytes(b'0')
   monkeypatch.setattr(controlsd, 'learning_allowed', lambda *args, **kwargs: True)
   owner = object.__new__(controlsd.Controls)
-  owner.CP, owner.params = cp, params
+  owner.CP = cp
+  monkeypatch.setattr(owner, 'params', params, raising=False)
   owner.lateral_controller_selection = default_selection(cp)
   effects, status = owner._configure_manual_tune()
   assert owner.torque_learning_allowed is expected
@@ -291,7 +299,8 @@ def test_actual_controls_startup_does_not_treat_unreadable_as_automatic_permissi
   (tmp_path / 'd' / DOCUMENT_KEY).mkdir()
   monkeypatch.setattr(controlsd, 'learning_allowed', lambda *args, **kwargs: True)
   owner = object.__new__(controlsd.Controls)
-  owner.CP, owner.params = cp, params
+  owner.CP = cp
+  monkeypatch.setattr(owner, 'params', params, raising=False)
   owner.lateral_controller_selection = default_selection(cp)
   assert owner._configure_manual_tune() == (None, 'unreadable')
   assert owner.torque_learning_allowed is False
