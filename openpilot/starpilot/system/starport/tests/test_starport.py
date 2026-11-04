@@ -1012,8 +1012,9 @@ def test_supervisor_stop_while_waiting_for_car(identity, tmp_path, monkeypatch):
 # ------------------------------------------------------------------- network
 
 class FakeNetworkManager:
-  def __init__(self, fail_with_bssid=False):
+  def __init__(self, fail_with_bssid=False, stalled_dhcp=0):
     self.fail_with_bssid = fail_with_bssid
+    self.stalled_dhcp = stalled_dhcp
     self.active_device_connection = "/active/home"
     self.states = {}
     self.added = []
@@ -1031,6 +1032,8 @@ class FakeNetworkManager:
       active = f"/active/aa{len(self.added)}"
       locked = "bssid" in settings["802-11-wireless"]
       self.states[active] = network.ACTIVE_STATE_DEACTIVATED if (locked and self.fail_with_bssid) else network.ACTIVE_STATE_ACTIVATED
+      if len(self.added) <= self.stalled_dhcp:
+        self.states[active] = 1  # activating: the access point never answers DHCP
       self.active_device_connection = active
       return [f"/settings/aa{len(self.added)}", active]
     if member == "GetSettings":
@@ -1043,6 +1046,8 @@ class FakeNetworkManager:
     values = {"WirelessEnabled": True, "DeviceType": 2, "Interface": "wlan0", "ActiveConnection": self.active_device_connection,
               "Connection": "/settings/home", "Ip4Config": "/ip4/1", "Autoconnect": self.autoconnect,
               "ActiveAccessPoint": "/ap/1", "Frequency": 5745}
+    if name == "State" and interface.endswith("Device"):
+      return 70
     if name == "State":
       return self.states.get(path, 4)
     if name == "AddressData":
@@ -1111,6 +1116,22 @@ def test_network_lease_waits_for_a_slow_honda_access_point(monkeypatch):
   with pytest.raises(network.NetworkError):
     lease.acquire(credentials())
   assert budgets == [("AA:BB:CC:DD:EE:FF", 90.0), ("", 30.0)]
+
+
+def test_network_lease_restarts_a_join_whose_dhcp_goes_unanswered():
+  nm = FakeNetworkManager(stalled_dhcp=2)
+  lease = make_lease(nm)
+  assert lease.acquire(credentials(), timeout=10.0, dhcp_patience=0.3) == "192.168.50.23"
+  assert len(nm.added) == 3
+
+
+def test_network_lease_waits_for_dhcp_without_patience():
+  from openpilot.starpilot.system.starport import network
+  nm = FakeNetworkManager(stalled_dhcp=2)
+  lease = make_lease(nm)
+  with pytest.raises(network.JoinTimeout):
+    lease.acquire(credentials(), timeout=1.0)
+  assert len(nm.added) == 2  # only the SSID-only retry, never a DHCP restart
 
 
 def test_network_lease_does_not_undo_user_network_change():

@@ -1487,7 +1487,9 @@ class Supervisor:
                                # a car that once took 70 s to be ready gets more than the standard wait for the Wi-Fi handshake
                                patience=max(strategy.patience, self._ladder.ready_patience(address, 20.0)))
       self._set(state="wifi_start")
-      result = boot.run(lambda credentials: lease.acquire(credentials, cancelled=boot.join_is_cancelled), cancelled=self._stop.is_set)
+      patience = car_profiles.tuning(config)["dhcp_patience_s"]
+      join_options = {"dhcp_patience": patience} if patience else {}
+      result = boot.run(lambda credentials: lease.acquire(credentials, cancelled=boot.join_is_cancelled, **join_options), cancelled=self._stop.is_set)
     except Exception as error:
       if _stray_link(error):
         raise StrayLinkError(f"Bluetooth link to the car is stuck: {error}") from error  # says nothing about the cached channel
