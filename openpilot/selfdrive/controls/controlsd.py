@@ -73,7 +73,7 @@ class Controls:
     self.lateral_controller_selection = read_selection(self.params, self.CP)
     self.vehicle_startup_preferences = VehicleStartupPreferences.read(
       self.params, enabled=self.params.get_bool("OpenpilotEnabledToggle"))
-    self.torque_learning_allowed = learning_allowed(self.params, self.CP, selection=self.lateral_controller_selection)
+    manual_effects, manual_status = self._configure_manual_tune()
     self.aol_replay = feature_enabled(self.params, self.CP, 'aol', os.environ)
     self.aol_transition_diagnostic = TransitionDiagnostic() if self.aol_replay and self.CP.brand == 'gm' else None
     self.ordinary_axis_ack_required = axis_policy_for(self.CP).ordinary_axis_ack_required
@@ -123,11 +123,16 @@ class Controls:
     self.LaC = create_lateral_controller(self.CP, self.CI, DT_CTRL,
       mode=self.lateral_controller_selection.mode, turn_assist=self.vehicle_startup_preferences.turn_assist)
     if isinstance(self.LaC, LatControlTorque):
+      # Only the actual startup owner reads configuration; replay clones stay pure.
+      if manual_effects is not None and manual_effects.profile.context[1] != str(self.LaC.controller_mode):
+        manual_effects, manual_status = None, 'context_changed'
+      self.LaC.manual_flm_effects, self.LaC.manual_flm_status = manual_effects, manual_status
       self.lateral_gain_owner = create_gain_owner(self.params, self.CP, self.LaC)
       cloudlog.info({"event": "torque controller selected", "controller": self.LaC.controller_mode.value,
                      "source": self.lateral_controller_selection.source,
                      "vehicle": self.CP.carFingerprint, "policy": self.LaC.controller_policy,
                      "automaticLearning": self.torque_learning_allowed, "startupParameterSource": "vehicle",
+                     "manualCoordinateStatus": self.LaC.manual_flm_status,
                      "startupTorque": {"factor": self.LaC.torque_params.latAccelFactor,
                                        "offset": self.LaC.torque_params.latAccelOffset,
                                        "friction": self.LaC.torque_params.friction},
@@ -151,6 +156,15 @@ class Controls:
     from openpilot.starpilot.lateral.controller_selection import model_turn_assist_supported
     assist_enabled = self.vehicle_startup_preferences.turn_assist and model_turn_assist_supported(self.CP)
     self.turn_assist_enabled = lambda: assist_enabled
+
+  def _configure_manual_tune(self):
+    manual_effects, manual_status = None, 'not_configured'
+    if self.CP.lateralTuning.which() == 'torque' and str(self.CP.steerControlType) == 'torque':
+      from openpilot.starpilot.flm.manual_coordinates import load as load_manual_coordinates
+      manual_effects, manual_status = load_manual_coordinates(self.CP, self.lateral_controller_selection.mode, self.params)
+    self.torque_learning_allowed = bool(manual_status == 'not_configured' and
+      learning_allowed(self.params, self.CP, selection=self.lateral_controller_selection))
+    return manual_effects, manual_status
 
   def update(self, timeout: int = 15):
     self.sm.update(timeout)

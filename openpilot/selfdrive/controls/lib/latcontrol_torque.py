@@ -67,6 +67,8 @@ class LatControlTorque(LatControl):
       self.pid._k_p = [[0.0], [STARPILOT_KP]]
     self.flm_source = flm.GmLiveSource(CP, self.controller_mode)
     self.flm_surface = None
+    self.manual_flm_effects = None
+    self.manual_flm_status = 'not_configured'
     from openpilot.starpilot.flm.runtime_adapter_registry import baseline_values
     self.native_learning_baseline = baseline_values(self)
     self.native_learning_refinement = None
@@ -96,6 +98,8 @@ class LatControlTorque(LatControl):
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
     self.flm_surface = self.flm_source.sample(active=active, speed=CS.vEgo)
+    if self.manual_flm_effects is not None:
+      self.manual_flm_effects.begin_frame()
     if self.starpilot_extension is not None:
       result = self.starpilot_extension.update(active, CS, VM, params, steer_limited_by_safety,
                                                 desired_curvature, curvature_limited, lat_delay)

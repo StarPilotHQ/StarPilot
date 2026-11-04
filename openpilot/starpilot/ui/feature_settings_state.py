@@ -57,6 +57,7 @@ class FeaturePage(StrEnum):
   TRAFFIC = "traffic"
   CURVE = "curve"
   TORQUE = "torque"
+  TUNING = "tuning"
   BLUEPILOT = "torque/bluepilot"
   AOL = "aol"
   WHEEL = "wheel"
@@ -65,7 +66,8 @@ class FeaturePage(StrEnum):
   CONDITIONAL_CCM = "conditional/ccm"
 
 
-TORQUE_CONFIRM_ACTIONS = frozenset(("torque_adopt", "torque_reset", "torque_reset_profile", "torque_rebase", "torque_prepare_firestar", "torque_gain_rebase"))
+TORQUE_CONFIRM_ACTIONS = frozenset(("torque_adopt", "torque_reset", "torque_reset_profile", "torque_rebase",
+                                  "torque_prepare_firestar", "torque_gain_rebase", "torque:surface:reset"))
 SLC_CONFIRM_ACTIONS = frozenset(("slc_reset",))
 SLC_OFFSET_KEYS = tuple(f"slc:offset:{index}" for index in range(1, 8))
 LANE_CHANGE_CONFIRM_ACTIONS = frozenset(("lane_change:reset",))

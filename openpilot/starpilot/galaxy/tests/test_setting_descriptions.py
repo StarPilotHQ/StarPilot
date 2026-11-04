@@ -114,3 +114,16 @@ def test_actual_owner_projections_have_no_uncovered_setting(tmp_path):
   for page, owner in (('sounds', SoundsOwner(params, lambda: True)), ('pip', PiPOwner(params, lambda: True, lambda: False)),
                       ('vasm', VASMOwner(params, lambda: True)), ('sentry', SentryOwner(params, lambda: True))):
     check(owner.snapshot().rows, page)
+
+
+def test_manual_coordinate_purposes_preserve_startup_and_context_warnings():
+  from openpilot.starpilot.flm.canonical_surface_adapter import NAMES
+  startup = "Parked only. Saved for the next drive; zero restores this stage's original baseline. Manual overrides pause Auto Learn."
+  changed = "Vehicle tune, controller or effect definition changed. Reset this manual tune before editing."
+  for name in NAMES:
+    row = FeatureRow('torque:surface:' + name, 'Manual correction', '0', reason=startup)
+    assert purpose(row) == 'Adjusts this manual steering correction.'
+    assert description(row).endswith(startup)
+    assert description(replace(row, available=False, reason=changed)).endswith(changed)
+  reset = FeatureRow('torque:surface:reset', 'Reset manual tune', 'Reset')
+  assert purpose(reset) == 'Removes the thirty manual steering overrides while keeping saved Auto Learn history.'

@@ -4,7 +4,6 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
-import http.client
 import json
 import os
 import tempfile
@@ -16,23 +15,14 @@ from opendbc.car.structs import car
 from opendbc.car.toyota.interface import CarInterface as ToyotaInterface
 from opendbc.car.toyota.values import CAR as ToyotaCar
 from openpilot.common.params import Params
+from openpilot.starpilot.galaxy.tests.settings_http_fixture import MutableContext, SettingsHttpFixture
 from openpilot.starpilot.galaxy.settings import (
   AuthorityContext, LiveContextSource, PAGES, SettingsChanged, SettingsGateway,
 )
-from openpilot.starpilot.galaxy.access import GalaxyAccessOwner
-from openpilot.starpilot.galaxy.server import make_server
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.lateral.controller_selection import learning_allowed
 from openpilot.starpilot.lateral.learning_preferences import KEY as LEARNING_KEY, read_preference, replace_preference
 from openpilot.starpilot import saved_document
-
-
-class MutableContext:
-  def __init__(self, cp):
-    self.value = AuthorityContext(True, cp, b"verified-cp")
-
-  def sample(self):
-    return self.value
 
 
 class SettingsGatewayTest(unittest.TestCase):
@@ -1512,50 +1502,7 @@ class LiveContextTest(unittest.TestCase):
     self.assertEqual(path.read_bytes(), b"not a versioned cache")
 
 
-class SettingsHttpTest(unittest.TestCase):
-  def setUp(self):
-    temporary = tempfile.TemporaryDirectory()
-    self.addCleanup(temporary.cleanup)
-    self.params = Params(temporary.name)
-    native = ToyotaInterface.get_non_essential_params(ToyotaCar.TOYOTA_COROLLA_TSS2)
-    cp = SimpleNamespace(carFingerprint="TOYOTA_COROLLA_TSS2", openpilotLongitudinalControl=True,
-      pcmCruise=False, notCar=False, dashcamOnly=False, passive=False,
-      brand="toyota", steerControlType=native.steerControlType, carVin="",
-      lateralTuning=native.lateralTuning, minSteerSpeed=native.minSteerSpeed, safetyConfigs=native.safetyConfigs,
-      transmissionType=car.CarParams.TransmissionType.automatic)
-    self.context = MutableContext(cp)
-    self.gateway = SettingsGateway(self.params, self.context)
-    self.access = GalaxyAccessOwner(Path(temporary.name) / "access")
-    self.assertTrue(self.access.configure("password123", lambda: True))
-    self.server = make_server(port=0, owner=self.access, settings=self.gateway)
-    self.worker = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
-    self.worker.start()
-    self.addCleanup(self.stop)
-
-  def stop(self):
-    self.server.shutdown()
-    self.worker.join(timeout=2)
-    self.server.server_close()
-
-  def request(self, path, *, payload=None, cookie="", origin=None):
-    connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
-    headers = {"Cookie": cookie}
-    if payload is not None:
-      headers.update({"Content-Type": "application/json",
-                      "Origin": origin if origin is not None else f"http://127.0.0.1:{self.server.server_port}"})
-    try:
-      connection.request("POST" if payload is not None else "GET", path,
-                         body=json.dumps(payload) if payload is not None else None, headers=headers)
-      result = connection.getresponse()
-      return result.status, json.loads(result.read()), dict(result.getheaders())
-    finally:
-      connection.close()
-
-  def login(self):
-    status, _, headers = self.request("/api/auth/login", payload={"password": "password123"})
-    self.assertEqual(status, 200)
-    return headers["Set-Cookie"].split(";", 1)[0]
-
+class SettingsHttpTest(SettingsHttpFixture):
   def test_force_stop_disable_http_while_onroad(self):
     self.context.value = AuthorityContext(False, self.context.value.cp, b"verified-cp")
     self.params.put_bool("ForceStops", True, block=True)

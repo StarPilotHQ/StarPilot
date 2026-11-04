@@ -3,6 +3,7 @@
 from unittest.mock import Mock
 from unittest.mock import patch
 
+from openpilot.starpilot.lateral.controller_selection import default_selection
 from openpilot.starpilot.longitudinal.extension import LongitudinalContext
 from openpilot.starpilot.longitudinal.tests.extension_helpers import extension_state
 import os
@@ -150,7 +151,7 @@ class TestVoltCc(unittest.TestCase):
     for alpha in (False, True):
       with patch('openpilot.selfdrive.controls.controlsd.Params'), \
            patch('openpilot.selfdrive.controls.controlsd.messaging.log_from_bytes', return_value=params(alpha)), \
-           patch('openpilot.selfdrive.controls.controlsd.read_selection', return_value=NS(policy=None)), \
+           patch('openpilot.selfdrive.controls.controlsd.read_selection', return_value=NS(policy=None, mode=default_selection(params(alpha)).mode)), \
            patch('openpilot.selfdrive.controls.controlsd.learning_allowed', return_value=False), \
            patch('openpilot.selfdrive.controls.controlsd.feature_enabled', return_value=False), \
            patch('openpilot.starpilot.longitudinal.inputs.toyota_development_enabled', return_value=False), \

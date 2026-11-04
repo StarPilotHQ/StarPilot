@@ -10,6 +10,18 @@ from openpilot.starpilot.flm.tests.test_live_tracking import episode
 from openpilot.starpilot.flm.tests.test_tracking_source_context import context, refresh
 
 
+def offer_state(owner):
+  state = owner.offer_state
+  assert state is not None
+  return state
+
+
+def selector_hint(owner):
+  hint = owner.selector_hint
+  assert hint is not None
+  return hint
+
+
 class Drive:
   """Declared whole episodes and typed ACK operands, never vehicle evidence."""
   def __init__(self, initial=.0):
@@ -41,7 +53,7 @@ class Drive:
       profile_sha256=profile or o._hash(o.accepted), goal_rms=goal, normalization_accel=max(.1, goal),
       goal_shape=shape or (goal / max(.1, goal),) * 8)
     refresh(o, self.now)
-    if renew and o.offer_state is not None and o.offer_state['phase'] == 'rollback':
+    if renew and o.offer_state is not None and offer_state(o)['phase'] == 'rollback':
       assert self.ack()
     return row, o.observe_episode(row, now_ns=self.now)
 
@@ -49,11 +61,11 @@ class Drive:
     o = self.owner
     for _ in range(20):
       self.row(name, **row_values)
-      if o.offer_state is not None and o.offer_state['phase'] == 'trial':
+      if o.offer_state is not None and offer_state(o)['phase'] == 'trial':
         offer = o.offer(self.now)
         assert offer is not None
         return offer
-    pytest.fail('No bounded source trial selected')
+    raise AssertionError('No bounded source trial selected')
 
   def batch(self, offer, name='ff_gain_left', **row_values):
     rows = []
@@ -68,9 +80,9 @@ def return_phase(d, name='ff_gain_left', **values):
   assert d.ack(trial)
   d.batch(trial, name, error=.03, goal=values.get('goal', .09), shape=values.get('shape'))
   o = d.owner
-  assert o.offer_state['phase'] == 'rollback', 'A first positive batch must return to A, not confirm B'
+  assert offer_state(o)['phase'] == 'rollback', 'A first positive batch must return to A, not confirm B'
   assert o.source_recheck is not None
-  assert not o.offer_state['accepted'] and o.source_recheck.first_ack_ns == 0
+  assert not offer_state(o)['accepted'] and o.source_recheck.first_ack_ns == 0
   return trial
 
 
@@ -95,14 +107,14 @@ def test_each_coordinate_requires_return_baseline_and_fresh_reapplied_performanc
   initial = dict(o.accepted)
   first, second = reapply_phase(d, name)
   assert o.accepted == initial and o.settled_ns is None and not o.future
-  assert len(o.before) == 3 and len(o.offer_state['source_rechecked_before']) == 3
+  assert len(o.before) == 3 and len(offer_state(o)['source_rechecked_before']) == 3
   assert not d.ack(first)  # Old B1 trial/sequence cannot acknowledge B2.
   early, admitted = d.row(name, profile=second.target_sha256, error=.03)
   assert not admitted and not o.future
   assert d.ack(second)
   for index in range(3):
     d.row(name, profile=second.target_sha256, error=.03)
-    assert o.offer_state['phase'] == ('confirmed' if index == 2 else 'trial')
+    assert offer_state(o)['phase'] == ('confirmed' if index == 2 else 'trial')
     assert o.accepted == initial
   confirmed = o.offer(d.now)
   assert confirmed is not None and confirmed.phase == 'confirmed'
@@ -149,12 +161,12 @@ def test_null_response_cannot_confirm_when_fresh_baseline_has_same_apparent_bene
   assert d.ack(trial)
   d.batch(trial, **new)
   o = d.owner
-  assert o.offer_state['phase'] == 'rollback', 'An easier input cannot immediately confirm an unchanged-response B'
+  assert offer_state(o)['phase'] == 'rollback', 'An easier input cannot immediately confirm an unchanged-response B'
   assert o.source_recheck is not None
   assert not any(o.accepted.values()) and d.ack()
   for _ in range(3):
     d.row(**new)
-  assert o.source_recheck is None and o.offer_state['phase'] == 'rollback' and o.offer_state['accepted']
+  assert o.source_recheck is None and offer_state(o)['phase'] == 'rollback' and offer_state(o)['accepted']
   assert o.reason == 'return_baseline_did_not_confirm_improvement'
   assert not any(o.accepted.values())
 
@@ -190,7 +202,7 @@ def test_original_deadline_ends_every_recheck_transition(phase):
       if phase == 'confirmed_ack_pending':
         d.row(profile=target.target_sha256, error=.03)
         d.row(profile=target.target_sha256, error=.03)
-        assert o.offer_state['phase'] == 'confirmed'
+        assert offer_state(o)['phase'] == 'confirmed'
   d.now = first.deadline_ns + 1
   refresh(o,d.now)
   offer = o.offer(d.now)
@@ -206,7 +218,7 @@ def test_actual_gross_oscillation_rejection_remains_terminal(stage):
   offer = d.trial() if stage == 'first_trial' else reapply_phase(d)[1]
   assert d.ack(offer)
   d.row(profile=offer.target_sha256, error=.03, reversal=10.)
-  assert o.reason == 'trial_tracking_or_oscillation_worse' and o.offer_state['phase'] == 'rollback'
+  assert o.reason == 'trial_tracking_or_oscillation_worse' and offer_state(o)['phase'] == 'rollback'
   assert getattr(o,'source_recheck',None) is None and o.paused_intent is None and not any(o.accepted.values())
 
 
@@ -217,7 +229,7 @@ def test_interrupted_return_baseline_never_retains_provisional_candidate(reason,
   assert d.ack()
   d.row(error=.045)
   d.owner.interrupt(reason,context_changed=changed)
-  assert d.owner.source_recheck is None and d.owner.offer_state['phase'] == 'rollback'
+  assert d.owner.source_recheck is None and offer_state(d.owner)['phase'] == 'rollback'
   assert all(value == .002 for value in d.owner.accepted.values())
 
 
@@ -230,17 +242,17 @@ def test_pretrial_numbers_wait_for_original_demand_without_an_offer_or_expiry_re
       break
   assert o.discovery is not None
   discovery = o.discovery
-  selected,expires = o.selector_hint['selected_ns'],o.selector_hint['expires_ns']
+  selected,expires = selector_hint(o)['selected_ns'],selector_hint(o)['expires_ns']
   d.row()  # First whole independent baseline.
   ids = tuple(v.episode_id for v in o.comparison)
   assert len(ids) == 1
   d.row(goal=.4,kind='large')
   assert o.discovery is discovery and tuple(v.episode_id for v in o.comparison) == ids
-  assert o.selector_hint['selected_ns'] == selected and o.selector_hint['expires_ns'] == expires
+  assert selector_hint(o)['selected_ns'] == selected and selector_hint(o)['expires_ns'] == expires
   assert o.offer(d.now) is None
   for _ in range(2):
     d.row()
-  assert o.offer_state is not None and o.offer_state['phase'] == 'trial'
+  assert o.offer_state is not None and offer_state(o)['phase'] == 'trial'
   assert {v.episode_id for v in o.before}.issuperset(ids)
 
 
@@ -254,7 +266,7 @@ def test_return_baseline_requires_its_own_current_exact_ack(bad):
     'wrong_hash': {'target_sha256': first.target_sha256},
     'stale': {'control_ns': d.now-100_000_001}}[bad]
   assert not d.ack(offer, **changes)
-  assert o.source_recheck.first_ack_ns == 0 and not o.offer_state['accepted']
+  assert o.source_recheck.first_ack_ns == 0 and not offer_state(o)['accepted']
   row, admitted = d.row(error=.045, renew=False)
   assert not admitted and not o.source_recheck.baseline
   assert row.episode_id not in {v.episode_id for v in o.source_recheck.before}
@@ -297,7 +309,7 @@ def test_recheck_numeric_state_does_not_survive_identity_model_or_baseline_chang
     o.accepted['ff_gain_left'] = .002
   o.offer(d.now)
   assert o.source_recheck is None
-  assert o.offer_state['phase'] == 'rollback'
+  assert offer_state(o)['phase'] == 'rollback'
 
 
 def test_zero_error_return_baseline_is_not_censored_to_keep_candidate():
@@ -308,7 +320,7 @@ def test_zero_error_return_baseline_is_not_censored_to_keep_candidate():
     d.row(error=0.)
   o = d.owner
   assert o.source_recheck is None and not any(o.accepted.values())
-  assert o.offer_state['phase'] == 'rollback' and o.offer_state['accepted']
+  assert offer_state(o)['phase'] == 'rollback' and offer_state(o)['accepted']
   assert o.reason == 'return_baseline_did_not_confirm_improvement'
 
 
@@ -332,7 +344,7 @@ def test_missing_current_response_witness_cannot_advance_any_recheck_transition(
   d.now += 100_000_001
   assert o.offer(d.now) is None
   assert o.source_recheck is None and not any(o.accepted.values())
-  assert o.offer_state is None or o.offer_state['phase'] == 'rollback'
+  assert o.offer_state is None or offer_state(o)['phase'] == 'rollback'
 
 
 @pytest.mark.parametrize('cause',['expiry','context'])
@@ -349,7 +361,7 @@ def test_waiting_pretrial_comparison_cannot_renew_or_survive_changed_context(cau
   old_ids = {v.episode_id for v in o.comparison}
   assert old_ids
   if cause == 'expiry':
-    d.now = o.selector_hint['expires_ns']+1
+    d.now = selector_hint(o)['expires_ns']+1
     d.row()
   else:
     o.interrupt('changed_context',context_changed=True)

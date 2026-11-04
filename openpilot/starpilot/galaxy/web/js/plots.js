@@ -43,7 +43,8 @@ export function appendPlotSample(history, payload, observedAt) {
   if (payload.sampleIndex === (history.at(-1)?.index ?? 0)) return history
   if (payload.sampleIndex < (history.at(-1)?.index ?? 0)) history = []
   const sample = { ...payload.values, sessionId: payload.sessionId, index: payload.sampleIndex,
-    at: observedAt - payload.sampleAgeSeconds * 1000 }
+    // Chart client observations; source age remains a separate freshness check.
+    at: observedAt }
   return [...history, sample].slice(-MAX_POINTS)
 }
 
@@ -146,7 +147,7 @@ export class PlotsFeed {
       const displayGeneration = ++this.displayGeneration
       const remaining = data.sampleAgeSeconds === null ? 0 : 1500 - data.sampleAgeSeconds * 1000 - elapsed
       if (data.state === 'current' && remaining > 0) {
-        this.history = appendPlotSample(this.history, data, this.now() - elapsed)
+        this.history = appendPlotSample(this.history, data, this.now())
         this.lastData = data
         this.publish({ status: 'current', data, history: this.history, error: '' })
         this.expiry = this.later(() => {
@@ -232,18 +233,18 @@ export const PlotsPage = {
           <span class="gx-plots__status" role="status">{{ paused ? 'Paused' : data?.bootStabilizing ? 'Starting vehicle systems' : status === 'current' ? 'Live' : status === 'stale' ? 'Reconnecting · last received values' : status === 'unavailable' ? 'Unavailable' : 'Connecting' }}</span></div>
         <p class="gx-note gx-plots__hint" role="status">{{ !paused && error ? error : 'Missing samples leave a gap in the graph.' }}</p>
         <div class="gx-plots__grid">
-          <section class="gx-card gx-plots__panel"><div class="gx-section__header"><i class="bi bi-graph-up" aria-hidden="true"></i><span class="gx-section__title">Lateral Acceleration</span></div><p class="gx-note">Desired / actual · m/s² · {{ source(data?.values?.lateralSource) }}</p>
+          <section class="gx-card gx-plots__panel"><div class="gx-section__header"><i class="bi bi-graph-up" aria-hidden="true"></i><span class="gx-section__title">Lateral Acceleration</span></div><p class="gx-note gx-plots__source">Desired / actual · m/s² · {{ source(data?.values?.lateralSource) }}</p>
             <plot-graph :chart="lateralChart" title="Lateral acceleration history" />
-            <p>Desired: {{ label(data?.values?.desiredLateralAccel) }} · Actual: {{ label(data?.values?.actualLateralAccel) }}</p>
-            <p class="gx-note">Speed source: {{ source(data?.values?.speedSource) }}</p>
-            <p>30 s match: <strong>{{ !data || data?.bootStabilizing ? 'N/A' : lateralQuality.label }}</strong> · {{ data?.bootStabilizing ? 'Waiting for startup to settle' : status !== 'current' ? 'Last received window' : lateralQuality.detail }}</p></section>
-          <section class="gx-card gx-plots__panel"><div class="gx-section__header"><i class="bi bi-graph-up-arrow" aria-hidden="true"></i><span class="gx-section__title">Longitudinal Acceleration</span></div><p class="gx-note">Target / measured · m/s² · {{ source(data?.values?.longitudinalSource) }}; measured from {{ data?.values?.poseFresh ? 'device motion' : 'unavailable motion source' }}</p>
+            <dl class="gx-plots__readout"><div><dt>Desired</dt><dd>{{ label(data?.values?.desiredLateralAccel) }}</dd></div><div><dt>Actual</dt><dd>{{ label(data?.values?.actualLateralAccel) }}</dd></div></dl>
+            <p class="gx-note gx-plots__source">Speed source: {{ source(data?.values?.speedSource) }}</p>
+            <p class="gx-plots__match">30 s match: <strong>{{ !data || data?.bootStabilizing ? 'N/A' : lateralQuality.label }}</strong> · {{ data?.bootStabilizing ? 'Waiting for startup to settle' : status !== 'current' ? 'Last received window' : lateralQuality.detail }}</p></section>
+          <section class="gx-card gx-plots__panel"><div class="gx-section__header"><i class="bi bi-graph-up-arrow" aria-hidden="true"></i><span class="gx-section__title">Longitudinal Acceleration</span></div><p class="gx-note gx-plots__source">Target / measured · m/s² · {{ source(data?.values?.longitudinalSource) }}; measured from {{ data?.values?.poseFresh ? 'device motion' : 'unavailable motion source' }}</p>
             <plot-graph :chart="longChart" title="Longitudinal acceleration history" />
-            <p>Target: {{ label(data?.values?.desiredLongitudinalAccel) }} · Measured: {{ label(data?.values?.actualLongitudinalAccel) }}</p>
-            <p>30 s match: <strong>{{ !data || data?.bootStabilizing ? 'N/A' : longQuality.label }}</strong> · {{ data?.bootStabilizing ? 'Waiting for startup to settle' : status !== 'current' ? 'Last received window' : longQuality.detail }}</p></section>
-          <section v-if="advanced" class="gx-card gx-plots__panel"><div class="gx-section__header"><i class="bi bi-sliders" aria-hidden="true"></i><span class="gx-section__title">Lateral Controller Terms</span></div><p class="gx-note">P / I / D / F · controller output units · {{ source(data?.values?.lateralTermsSource) }}</p>
+            <dl class="gx-plots__readout"><div><dt>Target</dt><dd>{{ label(data?.values?.desiredLongitudinalAccel) }}</dd></div><div><dt>Measured</dt><dd>{{ label(data?.values?.actualLongitudinalAccel) }}</dd></div></dl>
+            <p class="gx-plots__match">30 s match: <strong>{{ !data || data?.bootStabilizing ? 'N/A' : longQuality.label }}</strong> · {{ data?.bootStabilizing ? 'Waiting for startup to settle' : status !== 'current' ? 'Last received window' : longQuality.detail }}</p></section>
+          <section v-if="advanced" class="gx-card gx-plots__panel"><div class="gx-section__header"><i class="bi bi-sliders" aria-hidden="true"></i><span class="gx-section__title">Lateral Controller Terms</span></div><p class="gx-note gx-plots__source">P / I / D / F · controller output units · {{ source(data?.values?.lateralTermsSource) }}</p>
             <plot-graph :chart="lateralTermsChart" title="Lateral controller terms" :terms="true" /></section>
-          <section v-if="advanced" class="gx-card gx-plots__panel"><div class="gx-section__header"><i class="bi bi-sliders" aria-hidden="true"></i><span class="gx-section__title">Longitudinal Controller Terms</span></div><p class="gx-note">P / I / F · m/s² · {{ source(data?.values?.longitudinalTermsSource) }}</p>
+          <section v-if="advanced" class="gx-card gx-plots__panel"><div class="gx-section__header"><i class="bi bi-sliders" aria-hidden="true"></i><span class="gx-section__title">Longitudinal Controller Terms</span></div><p class="gx-note gx-plots__source">P / I / F · m/s² · {{ source(data?.values?.longitudinalTermsSource) }}</p>
             <plot-graph :chart="longTermsChart" title="Longitudinal controller terms" :terms="true" /></section>
         </div><p class="gx-note">Blue is target, orange is observed. Missing or stale sources are never plotted as zero.</p>
       </template>

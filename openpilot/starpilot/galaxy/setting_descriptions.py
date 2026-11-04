@@ -252,6 +252,10 @@ def purpose(row):
     return 'Selects camera crop dimensions matching the source camera image.'
   if key.startswith('pip:mask:'):
     return 'Moves the camera-image crop center along the indicated axis.'
+  if key.startswith('torque:surface:'):
+    return ('Removes the thirty manual steering overrides while keeping saved Auto Learn history.'
+            if key == 'torque:surface:reset' else
+            'Adjusts this manual steering correction.')
   if key.startswith('torque:'):
     field = key.split(':')[1]
     return {'factor': 'Sets the lateral-acceleration-to-torque conversion for compatible steering controllers.',
@@ -279,6 +283,8 @@ def description(row):
   suffix = INITIALIZATION.get(row.key, '')
   if row.key.startswith('lane_change:') and row.key not in ('lane_change:close_gap', 'lane_change:close_gap_seconds', 'lane_change:reset'):
     suffix = 'Changes apply when the current signal and maneuver end; turning assistance off cancels it after the preference refresh.'
+  if row.key.startswith('torque:surface:'):
+    suffix = row.reason.strip()
   if row.key.startswith('torque:') and row.key.split(':')[1] in ('factor', 'friction', 'gain'):
     suffix = ('First activation of a manual tuning owner requires a driving-process restart. An ' +
       'already active owner refreshes saved adjustments during the drive.')

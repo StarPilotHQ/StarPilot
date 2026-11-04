@@ -1,5 +1,6 @@
 """Default Volt STOP ownership, qualified release, and parsed Controls-to-CAN recurrence."""
 
+from openpilot.starpilot.lateral.controller_selection import default_selection
 from openpilot.starpilot.longitudinal.extension import LongitudinalContext
 from types import SimpleNamespace as NS
 import unittest
@@ -101,7 +102,7 @@ class TestVoltStop(unittest.TestCase):
         raise Registered
       with patch('openpilot.selfdrive.controls.controlsd.Params'), \
            patch('openpilot.selfdrive.controls.controlsd.messaging.log_from_bytes', return_value=cp), \
-           patch('openpilot.selfdrive.controls.controlsd.read_selection', return_value=NS(policy=None)), \
+           patch('openpilot.selfdrive.controls.controlsd.read_selection', return_value=NS(policy=None, mode=default_selection(cp).mode)), \
            patch('openpilot.selfdrive.controls.controlsd.learning_allowed', return_value=False), \
            patch('openpilot.selfdrive.controls.controlsd.feature_enabled', return_value=False), \
            patch('openpilot.starpilot.longitudinal.inputs.toyota_development_enabled', return_value=False), \
