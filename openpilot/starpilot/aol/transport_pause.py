@@ -311,10 +311,8 @@ class TransportPauseFeedback:
 
   def _first_ford_gas_lateral_grant(self, sm, cp, cs, axis, now_ns, *, latched, producer):
     from opendbc.car import structs
-    from opendbc.car.ford.values import CAR
     from opendbc.car.ford.aol import qualified as ford_qualified
-    first_long = (ford_qualified(cp, marked_only=True) and cp.openpilotLongitudinalControl and
-      cp.carFingerprint == CAR.FORD_MUSTANG_MACH_E_MK1)
+    first_long = ford_qualified(cp, marked_only=True) and cp.openpilotLongitudinalControl
     pending_ack = str(axis.mode) == 'off' and not axis.lateralActive
     if (not first_long or not latched or self.failed or self.paused or
       self.pending_event or self.retention_started_ns or self.source_retention_started_ns or

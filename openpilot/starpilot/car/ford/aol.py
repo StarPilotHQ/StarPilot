@@ -27,6 +27,49 @@ def native_latch_rejected(cp, native):
   return qualified(cp, marked_only=True) and native.requestedLateral and not native.lateralAllowed
 
 
+def awaiting_initial_request(cp, cs, sm, native, feedback, intent, *, now_ns, producer):
+  """Retain startup intent while request and first-grant receipts catch up."""
+  from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, current_axis
+  from openpilot.starpilot.aol.transport_pause import _healthy_transport_native, cp_identity
+  try:
+    axis = current_axis(sm, now_ns=now_ns)
+    if (not qualified(cp, marked_only=True) or not intent.allowed_latch or intent.pause_lateral or
+        feedback.ever_lateral_active or feedback.failed or feedback.paused or feedback.pending_event or
+        feedback.cp != cp_identity(cp) or
+        not cs.canValid or cs.canTimeout or cs.steerFaultTemporary or cs.steerFaultPermanent or
+        cs.accFaulted or cs.vehicleSensorsInvalid or cs.steeringDisengage or cs.doorOpen or cs.seatbeltUnlatched or
+        cs.brakePressed or cs.regenBraking or not cs.cruiseState.available or
+        cs.gearShifter != structs.CarState.GearShifter.drive or
+        axis is None or str(axis.faultReason) != 'none' or not axis.sessionId or
+        cs.buttonEvents or axis.sequence <= 0 or axis.sequence < feedback.sequence or
+        axis.observedMonoTime != int(sm.logMonoTime['aolAxisState']) or
+        axis.validUntilMonoTime != axis.observedMonoTime + AXIS_MAX_AGE_NS or
+        axis.faultSessionId != axis.sessionId or axis.sessionId != feedback.session or
+        not producer or axis.intentProducerSessionId != producer or
+        feedback.signature is None or feedback.signature[14:16] != (producer, int(axis.intentIntegrityEpoch)) or
+        axis.sourceCarStateMonoTime < feedback.signature[8] or axis.observedMonoTime < feedback.signature[2] or
+        not 0 < axis.sourceCarStateMonoTime <= axis.observedMonoTime <= now_ns or
+        now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS or
+        axis.lateralActive or
+        native is None or native.axisSessionId != axis.sessionId or not native.pandaInventory or
+        bool(native.requestedLateral) != bool(native.lateralAllowed) or
+        native.lateralAllowed and (axis.desiredLateral or native.observedMonoTime <= axis.observedMonoTime) or
+        _healthy_transport_native(sm, cp, cs, str(axis.sessionId), now_ns, native,
+                                  require_longitudinal=not cs.gasPressed) is None or
+        feedback.healthy_inventory != (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory))):
+      return False
+    state = sm['selfdriveState']
+    state_ns = int(sm.logMonoTime['selfdriveState'])
+    event_ns = int(sm.logMonoTime['onroadEvents'])
+    return bool(sm.seen['selfdriveState'] and sm.valid['selfdriveState'] and sm.alive['selfdriveState'] and
+      state.enabled and state.active and 0 < state_ns <= now_ns and now_ns - state_ns <= AXIS_MAX_AGE_NS and
+      sm.seen['onroadEvents'] and sm.valid['onroadEvents'] and sm.alive['onroadEvents'] and
+      0 < axis.faultEventMonoTime <= event_ns <= now_ns and now_ns - event_ns <= 1_500_000_000 and
+      not any(e.immediateDisable or e.softDisable or e.userDisable for e in sm['onroadEvents']))
+  except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+    return False
+
+
 def ordinary_axis_request_allowed(cp, cs):
   return qualified(cp, marked_only=True) and cs.canValid and not cs.canTimeout and not cs.steerFaultPermanent
 
