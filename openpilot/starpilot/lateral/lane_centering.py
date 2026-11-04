@@ -30,6 +30,7 @@ MAX_LANE_WIDTH = 4.8
 MAX_OFFSET = 0.3
 MIN_CENTER_TO_LINE = 1.1
 MAX_CORRECTION = 0.004 * 0.30
+MAX_CORRECTION_JERK = 1.0
 CENTER_ERROR_DEADBAND = 0.08
 SINGLE_LINE_DEADBAND_MIN = 0.04
 E2E_MAX_PATH_STD = 0.35
@@ -296,6 +297,17 @@ class LaneCenteringController:
       self._correction = 0.0
     return self._result(base, reason)
 
+  def _tracking_correction(self, base: float, correction: float, measured: float, speed: float, delay: float) -> float:
+    if self._tracker.path is None:
+      return correction
+    x, y = self._tracker.path
+    source = self._clearance_observation
+    offset = source.settings.offset_m if source is not None else 0.
+    if self._tracker.side is None and self._tracker.width is not None:
+      bound = min(MAX_OFFSET, max(0., self._tracker.width * .5 - MIN_CENTER_TO_LINE))
+      offset = clip_scalar(offset, -bound, bound)
+    return limit_tracking((x, y + offset), base, correction, measured, speed, delay)
+
   def guard_applied(self, model, base: float, candidate: float, measured: float, speed: float, delay) -> float:
     if self._body_required and (self._body is None or not self._body.valid):
       self.reset()
@@ -306,14 +318,7 @@ class LaneCenteringController:
     delta = candidate - base
     allowed = 0. if checked_delay is None else delta
     if checked_delay is not None:
-      if self._tracker.path is not None:
-        x, y = self._tracker.path
-        source = self._clearance_observation
-        offset = source.settings.offset_m if source is not None else 0.
-        if self._tracker.side is None and self._tracker.width is not None:
-          bound = min(MAX_OFFSET, max(0., self._tracker.width * .5 - MIN_CENTER_TO_LINE))
-          offset = clip_scalar(offset, -bound, bound)
-        allowed = limit_tracking((x, y + offset), base, allowed, measured, speed, checked_delay)
+      allowed = self._tracking_correction(base, allowed, measured, speed, checked_delay)
       if self._body is not None:
         allowed = limit_correction(model, base, allowed, measured, speed, checked_delay, self._body)
     if allowed != delta:
@@ -386,6 +391,12 @@ class LaneCenteringController:
     target = clip_scalar(raw, -0.004, 0.004) * 0.30
     if strength != 1.0:
       target = clip_scalar(target * strength, -MAX_CORRECTION, MAX_CORRECTION)
-    self._correction += (target - self._correction) * (1.0 - math.exp(-dt / ACQUIRE_TAU))
+    measured = _finite_number(observation.measured_curvature)
+    delay = _finite_number(observation.lateral_delay_s)
+    if measured is not None and delay is not None:
+      target = self._tracking_correction(base, target, measured, speed, delay)
+    step = (target - self._correction) * (1.0 - math.exp(-dt / ACQUIRE_TAU))
+    max_step = MAX_CORRECTION_JERK * dt / speed / speed
+    self._correction += clip_scalar(step, -max_step, max_step)
     self._correction = clip_scalar(self._correction, -MAX_CORRECTION, MAX_CORRECTION)
     return self._result(base, "qualified")

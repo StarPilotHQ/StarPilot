@@ -483,10 +483,69 @@ class TestSingleLineTracking(unittest.TestCase):
       controller = LaneCenteringController()
       source = observation(m, base_curvature=0., measured_curvature=0., lateral_delay_s=.1)
       result = controller.update(source)
-      self.assertGreater(-direction * result.correction, 0.)
+      self.assertEqual(result.correction, 0.)
       assert result.candidate_curvature is not None
       self.assertEqual(controller.guard_applied(m, 0., result.candidate_curvature, 0., 20., .1), 0.)
       self.assertEqual(controller._correction, 0.)
+
+  def test_centered_planned_curves_do_not_build_an_opposing_nudge(self):
+    from openpilot.starpilot.lateral.lane_clearance import _center_motion
+    for curvature in (-.006, -.002, .002, .006):
+      x, y, _ = _center_motion(curvature, curvature, 25., .1)
+      x, y = np.r_[0., x, 50.], np.r_[0., y, y[-1]]
+      m = model()
+      for index, shift in ((1, -1.8), (2, 1.8)):
+        m.laneLines[index].x, m.laneLines[index].y = x.tolist(), (y + shift).tolist()
+      m.position.x, m.position.y = x.tolist(), (y - math.copysign(.6, curvature)).tolist()
+      m.position.yStd = [.1] * len(x)
+      controller = LaneCenteringController()
+      source = observation(m, base_curvature=curvature, measured_curvature=curvature,
+                           speed_mps=25., lateral_delay_s=.1)
+      self.assertAlmostEqual(controller.update(source).correction, 0., delta=1e-8)
+
+  def test_curve_spacing_limit_shapes_the_target_before_it_ramps(self):
+    from openpilot.starpilot.lateral.lane_clearance import _center_motion, limit_tracking
+    from openpilot.starpilot.lateral.lane_centering import ACQUIRE_TAU
+    for sign in (-1., 1.):
+      base, delta, speed = sign * .004, sign * .00004, 25.
+      x, y, _ = _center_motion(base + delta, base, speed, .1)
+      x, y = np.r_[0., x, 50.], np.r_[0., y, y[-1]]
+      m = model()
+      for index, shift in ((1, -1.8), (2, 1.8)):
+        m.laneLines[index].x, m.laneLines[index].y = x.tolist(), (y + shift).tolist()
+      m.position.x, m.position.y = x.tolist(), (y - sign * .7).tolist()
+      m.position.yStd = [.1] * len(x)
+      source = observation(m, base_curvature=base, measured_curvature=base, speed_mps=speed, lateral_delay_s=.1)
+      controller = LaneCenteringController()
+      first = controller.update(source)
+      self.assertGreater(sign * first.correction, 0.)
+      self.assertLess(abs(first.correction), abs(delta) * .04)
+      raw = raw_correction(m, speed, 0., 0.)
+      assert raw is not None
+      path = controller._tracker.path
+      assert path is not None
+      target = limit_tracking(path, base, raw * .3 * 1.5, base, speed, .1)
+      self.assertAlmostEqual(first.correction, target * (1. - math.exp(-.01 / ACQUIRE_TAU)), delta=1e-12)
+      assert first.candidate_curvature is not None
+      applied = controller.guard_applied(m, base, first.candidate_curvature, base, speed, .1) - base
+      self.assertAlmostEqual(applied, first.correction, delta=1e-12)
+
+  def test_nudge_build_and_reversal_respect_lateral_acceleration_rate(self):
+    for speed in (5., 20., 35.):
+      controller = LaneCenteringController()
+      previous = 0.
+      for tick in range(160):
+        sign = 1. if tick < 80 else -1.
+        dt = (.01, .02, .05)[tick % 3]
+        source = observation(model(left=-1.8 + sign * 1.4, right=1.8 + sign * 1.4),
+                             speed_mps=speed, elapsed_seconds=dt, model_sample_id=tick,
+                             settings=LaneCenteringSettings(True, e2e_authority=0., strength=3.))
+        result = controller.update(source)
+        self.assertLessEqual(abs(result.correction - previous) * speed * speed / dt, 1. + 1e-12)
+        previous = result.correction
+      self.assertLess(previous, 0.)
+      self.assertEqual(controller.update(replace(source, driver_override=True)).correction, 0.)
+      self.assertEqual(controller.update(replace(source, lateral_active=False)).correction, 0.)
 
   def test_two_line_tracking_interpolates_shared_coordinates_and_bounds_offset(self):
     m = model(left=-1.31, right=1.31)

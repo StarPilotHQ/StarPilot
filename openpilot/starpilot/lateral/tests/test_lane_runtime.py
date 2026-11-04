@@ -162,6 +162,8 @@ class LaneRuntimeTests(unittest.TestCase):
           feed(controls, 1_000_000_000 + tick * 10_000_000, tick)
           controls.state_control()
       self.assertIsNotNone(controls.last_lane_centering_result)
+      assert controls.last_lane_centering_result is not None
+      self.assertEqual(controls.last_lane_centering_result.correction, 0.)
       self.assertEqual(controls.lane_centering_applied, 0.)
       self.assertAlmostEqual(controls.desired_curvature, .0002)
 
