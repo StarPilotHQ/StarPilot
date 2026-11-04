@@ -25,7 +25,8 @@ from openpilot.common.vendor_manifest import validate_revision
 from openpilot.starpilot.software.update_control import UpdaterControlError, UpdaterControlServer
 from openpilot.starpilot.software.preferences import AUTOMATIC_DOWNLOADS, download_permitted
 from openpilot.starpilot.software.fast_update import (
-  FastUpdateError, FastUpdateIncompatible, fetch_files, required_os_version, run as run_git,
+  FastUpdateError, FastUpdateIncompatible, fetch_files, legacy_os_compatible, required_os_version, run as run_git,
+  validate_legacy_return,
 )
 from openpilot.starpilot.software.history import MAX_COMMITS, METADATA_ROOT, commit_history
 from openpilot.starpilot.software.auto_install import InstallSettings, cron_matches, scheduled_restart
@@ -161,7 +162,8 @@ def set_consistent_flag(consistent: bool) -> None:
   os.sync()
   consistent_file = Path(os.path.join(FINALIZED, ".overlay_consistent"))
   if consistent:
-    consistent_file.touch()
+    fd = os.open(consistent_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    os.close(fd)
   elif not consistent:
     consistent_file.unlink(missing_ok=True)
   os.sync()
@@ -261,6 +263,33 @@ def init_overlay() -> None:
   cloudlog.info(f"git diff output:\n{git_diff}")
 
 
+# Audited legacy release, pinned by Git commit identity. Other releases must
+# satisfy the modern source manifest contract.
+TRUSTED_LEGACY_RELEASES = {'StarPilot': frozenset({'4a553da9ac22a14e34513c011aed04c1e93b4619'})}
+LEGACY_OS_MARKER = '.git/starpilot-retain-agnos'
+
+
+def validate_update_revision(repo: str, revision: str, branch: str) -> bool:
+  """Validate a modern source tree or an explicitly supported legacy return."""
+  def git(*args):
+    return run(['git', *args], repo, download='show' in args)
+
+  if git('ls-tree', revision, '--', '.overlay_consistent').strip():
+    raise ValueError('Source tree contains reserved update readiness marker')
+  manifest_entry = git('ls-tree', revision, '--', 'upstream-sync.json').strip()
+  commit = git('rev-parse', '--verify', f'{revision}^{{commit}}').strip()
+  if not manifest_entry and commit in TRUSTED_LEGACY_RELEASES.get(branch, ()):
+    validate_legacy_return(git, revision, branch)
+    launch = git('show', f'{revision}:launch_env.sh')
+    if not legacy_os_compatible(launch, HARDWARE.get_os_version()):
+      raise FastUpdateIncompatible('Update requires a different or unverified operating system')
+    return True
+  if manifest_entry.split()[:1] == ['100644']:
+    git('show', f'{revision}:upstream-sync.json')
+  validate_revision(repo, revision)
+  return False
+
+
 def finalize_update(progress=None) -> None:
   """Take the current OverlayFS merged view and finalize a copy outside of
   OverlayFS, ready to be swapped-in at BASEDIR. Copy using shutil.copytree"""
@@ -268,7 +297,8 @@ def finalize_update(progress=None) -> None:
   # Remove the update ready flag and any old updates
   cloudlog.info("creating finalized version of the overlay")
   set_consistent_flag(False)
-  validate_revision(OVERLAY_MERGED, "HEAD")
+  branch = run(["git", "symbolic-ref", "--short", "HEAD"], OVERLAY_MERGED).strip()
+  legacy_return = validate_update_revision(OVERLAY_MERGED, "HEAD", branch)
 
   # Copy the merged overlay view and set the update ready flag
   if os.path.exists(FINALIZED):
@@ -302,13 +332,25 @@ def finalize_update(progress=None) -> None:
       reported = now
     return destination
   started = time.monotonic()
-  shutil.copytree(OVERLAY_MERGED, FINALIZED, symlinks=True, copy_function=copy_file)
+  def ignore_readiness_marker(directory, names):
+    return {'.overlay_consistent'} if Path(directory) == Path(OVERLAY_MERGED) else set()
+  shutil.copytree(OVERLAY_MERGED, FINALIZED, symlinks=True, copy_function=copy_file, ignore=ignore_readiness_marker)
   cloudlog.event('update copy complete', duration=time.monotonic() - started, files=copied)
 
   if progress is not None:
     progress('Verifying the prepared update...', None)
   run(["git", "reset", "--hard", "--no-recurse-submodules"], FINALIZED)
-  validate_revision(FINALIZED, "HEAD")
+  validate_update_revision(FINALIZED, "HEAD", branch)
+  marker = Path(FINALIZED, LEGACY_OS_MARKER)
+  marker.unlink(missing_ok=True)
+  if legacy_return:
+    # Bind installation to the exact OS validated during staging. The launcher
+    # rechecks this before swapping trees, even for an ordinary manual reboot.
+    os_version = HARDWARE.get_os_version()
+    if not legacy_os_compatible(run(['git', 'show', 'HEAD:launch_env.sh'], FINALIZED), os_version):
+      raise FastUpdateIncompatible('Update requires a different or unverified operating system')
+    with marker.open('x') as f:
+      f.write(os_version + '\n')
 
   if progress is not None:
     progress('Syncing the prepared update to storage...', None)
@@ -381,11 +423,11 @@ class Updater:
       if (not idle() or self.params.get('UpdaterState') != 'idle' or
           self._check_thread is not None or not self.update_ready or Path(FINALIZED, '.overlay_consistent').is_symlink()):
         return False
-      validate_revision(FINALIZED, 'HEAD')
+      validate_update_revision(FINALIZED, 'HEAD', self.get_branch(FINALIZED))
       return True
     try:
       return scheduled_restart(self.params, self.install_settings, ready, parked, now)
-    except (OSError, ValueError, subprocess.SubprocessError):
+    except (OSError, ValueError, FastUpdateError, subprocess.SubprocessError):
       cloudlog.exception('Scheduled update restart was not admitted')
       return False
     finally:
@@ -760,10 +802,9 @@ class Updater:
     fetched_commit = selected_commit or self.branches[branch]
     run(['git', 'fetch', '--progress', '--depth=1', '--filter=blob:none', '--no-tags', '--no-recurse-submodules',
          'origin', f'+{fetched_commit}:refs/remotes/origin/{branch}'], OVERLAY_MERGED, progress=git_progress)
-    # Fetch the manifest under the download guard before read-only validation.
-    if run(["git", "ls-tree", fetched_commit, "--", "upstream-sync.json"], OVERLAY_MERGED).split()[:1] == ['100644']:
-      run(["git", "show", f"{fetched_commit}:upstream-sync.json"], OVERLAY_MERGED, download=True)
-    validate_revision(OVERLAY_MERGED, fetched_commit)
+    # Validate before checkout or executing any target code. Legacy returns are
+    # restricted to known release branches and must already support this OS.
+    legacy_return = validate_update_revision(OVERLAY_MERGED, fetched_commit, branch)
     def git(*args, stdin=None):
       return run(['git', *args], OVERLAY_MERGED, progress=git_progress, stdin=stdin)
     fetch_files(git, fetched_commit)
@@ -786,11 +827,11 @@ class Updater:
       ["git", "clean", "-xdff"],
     ]
     r = [run(cmd, OVERLAY_MERGED, download=cmd[1] in ('checkout', 'reset'), progress=apply_progress) for cmd in cmds]
-    validate_revision(OVERLAY_MERGED, "HEAD")
+    validate_update_revision(OVERLAY_MERGED, "HEAD", branch)
     cloudlog.info("git reset success: %s", '\n'.join(r))
 
     # TODO: show agnos download progress
-    if AGNOS:
+    if AGNOS and not legacy_return:
       handle_agnos_update()
 
     # Create the finalized, ready-to-swap update

@@ -44,6 +44,93 @@ class TestRetainedAgnos(unittest.TestCase):
     patcher.start()
     self.addCleanup(patcher.stop)
 
+  def test_readiness_flag_never_follows_or_replaces_existing_marker(self):
+    updated = load_updater()
+    updated.FINALIZED = str(self.root)
+    marker = self.root / '.overlay_consistent'
+    target = self.root / 'untouched'
+    target.write_text('keep')
+    marker.symlink_to(target)
+    with patch.object(updated.os, 'sync'):
+      with self.assertRaises(FileExistsError):
+        updated.set_consistent_flag(True)
+      self.assertEqual(target.read_text(), 'keep')
+      updated.set_consistent_flag(False)
+      updated.set_consistent_flag(True)
+      self.assertTrue(marker.is_file())
+      self.assertFalse(marker.is_symlink())
+      with self.assertRaises(FileExistsError):
+        updated.set_consistent_flag(True)
+
+  def test_launcher_readiness_rejects_symlink(self):
+    function = shell_function(ROOT / 'launch_chffrplus.sh', 'update_is_ready')
+    target = self.root / 'target'
+    target.touch()
+    marker = self.root / 'marker'
+    marker.symlink_to(target)
+    command = function + f'\nupdate_is_ready {shlex.quote(str(marker))}'
+    self.assertNotEqual(subprocess.run(['bash', '-c', command]).returncode, 0)
+    marker.unlink()
+    marker.touch()
+    self.assertEqual(subprocess.run(['bash', '-c', command]).returncode, 0)
+
+  def test_launch_discards_inherited_os_version_overrides(self):
+    function = shell_function(ROOT / 'launch_chffrplus.sh', 'reset_update_os_environment')
+    env_file = self.root / 'target_launch_env.sh'
+    env_file.write_text('if [ -z "$AGNOS_VERSION" ]; then export AGNOS_VERSION="19.8.1"; fi\n' +
+                        'if [ -z "$AGNOS_ACCEPTED_VERSIONS" ]; then export AGNOS_ACCEPTED_VERSIONS="19.8.1 20.2.1"; fi\n')
+    script = function + '\nexport AGNOS_VERSION=wrong AGNOS_ACCEPTED_VERSIONS=wrong\n' + \
+      f'reset_update_os_environment\nsource {shlex.quote(str(env_file))}\nprintf "%s|%s" "$AGNOS_VERSION" "$AGNOS_ACCEPTED_VERSIONS"'
+    result = subprocess.check_output(['bash', '-c', script], text=True)
+    self.assertEqual(result, '19.8.1|19.8.1 20.2.1')
+
+  def test_legacy_launch_checks_exact_commit_and_os_before_swap_or_slot_activation(self):
+    repo = self.root / 'staged'
+    repo.mkdir()
+    subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+    subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                    'commit', '--allow-empty', '-qm', 'fixture'], check=True)
+    commit = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
+    version = self.root / 'VERSION'
+    version.write_text('20.2.1\n')
+    marker = repo / '.git/starpilot-retain-agnos'
+    launcher = ROOT / 'launch_chffrplus.sh'
+    text = launcher.read_text()
+    audited = next(iter(load_updater().TRUSTED_LEGACY_RELEASES['StarPilot']))
+    self.assertIn(f'TRUSTED_LEGACY_STARPILOT_COMMIT="{audited}"', text)
+    check = shell_function(launcher, 'staged_os_is_compatible').replace('/VERSION', str(version))
+    activate = shell_function(launcher, 'maybe_activate_legacy_agnos')
+    verifier = self.root / 'verifier'
+    log = self.root / 'calls'
+    verifier.write_text(f'#!/bin/sh\necho verify >> {shlex.quote(str(log))}\n')
+    verifier.chmod(0o755)
+    manifest = self.root / 'agnos.json'
+    manifest.write_text('[]')
+    common = f'TRUSTED_LEGACY_STARPILOT_COMMIT={commit}\n{check}\n{activate}\n'
+    def admission():
+      return subprocess.run(['bash', '-c', common + f'staged_os_is_compatible {shlex.quote(str(repo))}'], check=False).returncode
+    self.assertNotEqual(admission(), 0)  # Missing marker is not a modern update.
+    marker.write_text('wrong\n')
+    self.assertNotEqual(admission(), 0)
+    marker.unlink()
+    marker.symlink_to(version)
+    self.assertNotEqual(admission(), 0)
+    marker.unlink()
+    marker.write_text('20.2.1\n')
+    self.assertEqual(admission(), 0)
+    version.write_text('changed\n')
+    self.assertNotEqual(admission(), 0)  # Manual reboot must recheck the OS.
+    shell = common + f'sudo() {{ echo reboot >> {shlex.quote(str(log))}; }}\n' + \
+      f'maybe_activate_legacy_agnos {shlex.quote(str(repo))} {shlex.quote(str(verifier))} {shlex.quote(str(manifest))}\n'
+    subprocess.run(['bash', '-c', shell], check=True)
+    self.assertFalse(log.exists())  # A pinned legacy install never activates a slot.
+    marker.unlink()
+    modern = common.replace(f'TRUSTED_LEGACY_STARPILOT_COMMIT={commit}', 'TRUSTED_LEGACY_STARPILOT_COMMIT=other')
+    self.assertEqual(subprocess.run(['bash', '-c', modern + f'staged_os_is_compatible {shlex.quote(str(repo))}']).returncode, 0)
+    subprocess.run(['bash', '-c', shell.replace(f'TRUSTED_LEGACY_STARPILOT_COMMIT={commit}',
+                                                  'TRUSTED_LEGACY_STARPILOT_COMMIT=other')], check=True)
+    self.assertEqual(log.read_text().splitlines(), ['verify', 'reboot'])
+
   def test_retained_match_never_flashes_or_queries_slot(self):
     with patch.dict(os.environ, {'AGNOS_VERSION': 'unexpected', 'AGNOS_UPDATE_POLICY': 'auto'}):
       self.updater.handle_agnos_update()

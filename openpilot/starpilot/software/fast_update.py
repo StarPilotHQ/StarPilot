@@ -30,6 +30,15 @@ def required_os_version(launch):
   return versions[0] if len(versions) == 1 else None
 
 
+def legacy_os_compatible(launch, current_os):
+  required_os = required_os_version(launch)
+  accepted = re.findall(r'^\s*export\s+AGNOS_ACCEPTED_VERSIONS=["\']([^"\'\n]+)["\']\s*$', launch, re.MULTILINE)
+  accepted_os = {required_os}
+  if len(accepted) == 1:
+    accepted_os.update(accepted[0].split())
+  return bool(required_os and current_os and current_os in accepted_os)
+
+
 def validate_legacy_return(git, revision, branch):
   if branch not in ('Dom', 'StarPilot'):
     raise FastUpdateIncompatible('Legacy return is only available for Dom and StarPilot 6.x releases')
@@ -243,12 +252,7 @@ def fast_update(repo, branch, *, params, parked, expected_commit, current_os=Non
     validate_revision(repo, target)
   launch = git('show', f'{target}:launch_env.sh')
   required_os = required_os_version(launch)
-  accepted_os = {required_os}
-  if legacy_return:
-    accepted = re.findall(r'^\s*export\s+AGNOS_ACCEPTED_VERSIONS=["\']([^"\'\n]+)["\']\s*$', launch, re.MULTILINE)
-    if len(accepted) == 1:
-      accepted_os.update(accepted[0].split())
-  if not required_os or not current_os or current_os not in accepted_os:
+  if not (legacy_os_compatible(launch, current_os) if legacy_return else required_os and current_os == required_os):
     raise FastUpdateIncompatible('Update requires a different or unverified operating system')
   if target == previous and branch == initial_branch and not git('status', '--porcelain', '--untracked-files=no').strip():
     notify('complete', 'Already up to date.')

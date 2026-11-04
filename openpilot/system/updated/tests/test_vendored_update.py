@@ -105,6 +105,7 @@ class TestVendoredUpdate(unittest.TestCase):
     self.git(self.merged, "config", "fetch.recurseSubmodules", "true")
 
     self.updated = load_updater()
+    self.updated.TRUSTED_LEGACY_RELEASES = {}
     self.updated.OVERLAY_MERGED = str(self.merged)
     self.updated.METADATA_ROOT = self.root / 'metadata.git'
     self.updated.FINALIZED = str(self.finalized)
@@ -204,6 +205,137 @@ class TestVendoredUpdate(unittest.TestCase):
     self.updated.init_overlay.assert_not_called()
     self.assertEqual(self.git(self.merged, 'rev-parse', 'HEAD'), self.initial_commit)
     self.assertFalse(self.updater.params.get_bool('DoReboot'))
+
+  def make_legacy_release(self, branch='StarPilot'):
+    self.git(self.source, 'checkout', '-b', branch)
+    (self.source / 'upstream-sync.json').unlink()
+    files = {'prebuilt': '', 'launch_env.sh': 'export AGNOS_VERSION="19.8.1"\nexport AGNOS_ACCEPTED_VERSIONS="19.8.1 20.2.1"\n',
+             'launch_openpilot.sh': '#!/bin/sh\n', 'launch_chffrplus.sh': '#!/bin/sh\n',
+             'selfdrive/ui/lib/starpilot_version.py': 'STARPILOT_DISPLAY_VERSION = "6.7.9"\n',
+             'selfdrive/car/card.py': 'pass\n', 'selfdrive/modeld/modeld.py': 'pass\n'}
+    for name, content in files.items():
+      path = self.source / name
+      path.parent.mkdir(parents=True, exist_ok=True)
+      path.write_text(content)
+      if name in ('launch_openpilot.sh', 'launch_chffrplus.sh'):
+        path.chmod(0o755)
+    target = self.commit_source('Legacy prebuilt release')
+    self.updated.TRUSTED_LEGACY_RELEASES[branch] = frozenset({target})
+    return target
+
+  @patch('openpilot.starpilot.drive_state.evidence.PhysicalSource', return_value=Mock(update_ready=Mock(return_value=True)))
+  def test_download_legacy_starpilot_stages_without_reboot_or_flashing(self, _physical):
+    installed = self.root / 'installed'
+    self.git(self.root, 'clone', '--no-local', str(self.merged), str(installed))
+    self.updated.BASEDIR = str(installed)
+    self.git(installed, 'remote', 'set-url', 'origin', str(self.source))
+    target = self.make_legacy_release()
+    self.updated.AGNOS = True
+    self.updated.HARDWARE.get_os_version.return_value = '20.2.1'
+    with patch.object(self.updater, 'set_params'):
+      self.assertEqual(self.updater.fast_update('StarPilot', self.initial_commit, target, download_only=True), 'downloaded')
+    self.assertEqual(self.git(installed, 'rev-parse', 'HEAD'), self.initial_commit)
+    self.assertEqual(self.git(self.finalized, 'rev-parse', 'HEAD'), target)
+    self.assertTrue(self.updater.update_ready)
+    self.assertFalse(self.updater.params.get_bool('DoReboot'))
+    self.updated.handle_agnos_update.assert_not_called()
+    self.updated.HARDWARE.get_os_version.return_value = 'unverified'
+    with self.assertRaises(self.updated.FastUpdateIncompatible):
+      self.updated.validate_update_revision(str(self.finalized), 'HEAD', 'StarPilot')
+    self.updater.params.put('UpdaterState', 'idle')
+    self.updater.params.put_bool('IsOffroad', True)
+    settings = self.updater.install_settings
+    settings.save(True, '* * * * *', settings.read()['revision'], lambda: True)
+    with patch.object(self.updated, 'system_time_valid', return_value=True):
+      self.assertFalse(self.updater.maybe_install())
+    self.assertFalse(self.updater.params.get_bool('DoReboot'))
+
+  def test_legacy_wrong_os_or_incomplete_release_rejected_before_checkout(self):
+    target = self.make_legacy_release()
+    self.updater.params.put('UpdaterTargetBranch', 'StarPilot')
+    self.updated.HARDWARE.get_os_version.return_value = 'wrong'
+    with self.assertRaises(self.updated.FastUpdateIncompatible):
+      self.updater.fetch_update()
+    self.assertEqual(self.git(self.merged, 'rev-parse', 'HEAD'), self.initial_commit)
+    self.assertFalse(any(command[:2] == ['git', 'checkout'] for command in self.commands))
+    self.assertFalse((self.finalized / '.overlay_consistent').exists())
+    self.updated.HARDWARE.get_os_version.return_value = '19.8.1'
+    (self.source / 'prebuilt').unlink()
+    incomplete = self.commit_source('Incomplete legacy release')
+    self.updated.TRUSTED_LEGACY_RELEASES['StarPilot'] = frozenset({incomplete})
+    self.updater._branches_checked = False
+    with self.assertRaises(self.updated.FastUpdateIncompatible):
+      self.updater.fetch_update()
+    self.assertFalse((self.finalized / '.overlay_consistent').exists())
+    self.assertNotEqual(target, self.git(self.source, 'rev-parse', 'HEAD'))
+
+  def test_legacy_exception_does_not_accept_other_branch_or_malformed_manifest(self):
+    target = self.make_legacy_release()
+    self.updated.HARDWARE.get_os_version.return_value = '19.8.1'
+    with self.assertRaises(ValueError):
+      self.updated.validate_update_revision(str(self.source), target, 'other')
+    (self.source / 'upstream-sync.json').write_text('{}')
+    target = self.commit_source('Invalid modern manifest')
+    with self.assertRaises(ValueError):
+      self.updated.validate_update_revision(str(self.source), target, 'StarPilot')
+
+  def test_legacy_return_rejects_gitlinks_and_submodules(self):
+    self.make_legacy_release()
+    self.updated.HARDWARE.get_os_version.return_value = '19.8.1'
+    self.git(self.source, 'update-index', '--add', '--cacheinfo', f'160000,{self.initial_commit},unsafe')
+    self.git(self.source, 'commit', '-m', 'Invalid legacy gitlink')
+    self.updated.TRUSTED_LEGACY_RELEASES['StarPilot'] = frozenset({self.git(self.source, 'rev-parse', 'HEAD')})
+    with self.assertRaises(self.updated.FastUpdateIncompatible):
+      self.updated.validate_update_revision(str(self.source), 'HEAD', 'StarPilot')
+    self.git(self.source, 'rm', '--cached', 'unsafe')
+    (self.source / '.gitmodules').write_text('[submodule "unsafe"]\npath = unsafe\n')
+    self.commit_source('Invalid legacy submodule metadata')
+    self.updated.TRUSTED_LEGACY_RELEASES['StarPilot'] = frozenset({self.git(self.source, 'rev-parse', 'HEAD')})
+    with self.assertRaises(self.updated.FastUpdateIncompatible):
+      self.updated.validate_update_revision(str(self.source), 'HEAD', 'StarPilot')
+
+  def test_untrusted_legacy_commit_is_rejected_even_if_it_looks_complete(self):
+    target = self.make_legacy_release()
+    self.updated.TRUSTED_LEGACY_RELEASES.clear()
+    self.updated.HARDWARE.get_os_version.return_value = '19.8.1'
+    with self.assertRaises(ValueError):
+      self.updated.validate_update_revision(str(self.source), target, 'StarPilot')
+    audited = load_updater().TRUSTED_LEGACY_RELEASES
+    self.assertEqual(audited, {'StarPilot': frozenset({'4a553da9ac22a14e34513c011aed04c1e93b4619'})})
+
+  def test_reserved_readiness_marker_rejected_in_modern_and_legacy_trees(self):
+    for kind in ('modern-file', 'modern-symlink', 'legacy-file', 'legacy-symlink'):
+      with self.subTest(kind=kind):
+        if kind.startswith('legacy') and self.git(self.source, 'branch', '--show-current') != 'StarPilot':
+          self.make_legacy_release()
+          self.updated.HARDWARE.get_os_version.return_value = '19.8.1'
+        marker = self.source / '.overlay_consistent'
+        if kind.endswith('symlink'):
+          marker.symlink_to('prebuilt')
+        else:
+          marker.write_text('premature')
+        target = self.commit_source(kind)
+        branch = 'StarPilot' if kind.startswith('legacy') else BRANCH
+        self.updated.TRUSTED_LEGACY_RELEASES[branch] = frozenset({target})
+        with self.assertRaisesRegex(ValueError, 'reserved update readiness'):
+          self.updated.validate_update_revision(str(self.source), target, branch)
+        marker.unlink()
+        self.commit_source('Remove marker')
+
+  def test_copy_interruption_never_copies_an_untracked_readiness_marker(self):
+    marker = self.merged / '.overlay_consistent'
+    marker.symlink_to('panda/README.md')
+    original_copy = shutil.copy2
+    def fail_during_copy(src, dst, *args, **kwargs):
+      if Path(src).name == 'README.md':
+        raise OSError('interrupted copy')
+      return original_copy(src, dst, *args, **kwargs)
+    with patch.object(self.updated.shutil, 'copy2', side_effect=fail_during_copy):
+      with self.assertRaises(shutil.Error):
+        self.updated.finalize_update()
+    ready = self.finalized / '.overlay_consistent'
+    self.assertFalse(ready.exists())
+    self.assertFalse(ready.is_symlink())
 
   def test_metadata_refresh_does_not_wake_background_but_check_does(self):
     (self.source / 'new.txt').write_text('available')
