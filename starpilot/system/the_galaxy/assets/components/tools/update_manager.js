@@ -196,10 +196,7 @@ function shouldContinuePolling() {
 }
 
 function shouldShowRebootNotice() {
-  if (state.status?.stage === "rebooting") return true
-  if (reconnectPending) return true
-  const message = String(state.status?.message || "").toLowerCase()
-  return message.includes("reboot")
+  return state.status?.stage === "rebooting"
 }
 
 function isHtmlLike(text) {
@@ -326,10 +323,14 @@ async function fetchStatus(showToast) {
 
     if (isRebootTransitionError) {
       reconnectPending = true
-      setRebootingUiState("Device rebooting, please wait for reconnection...")
-      if (!rebootNoticeShown) {
-        rebootNoticeShown = true
-        showSnackbar("Device rebooting, please wait for reconnection...")
+      if (state.status?.stage === "rebooting") {
+        setRebootingUiState("Device rebooting, please wait for reconnection...")
+        if (!rebootNoticeShown) {
+          rebootNoticeShown = true
+          showSnackbar("Device rebooting, please wait for reconnection...")
+        }
+      } else {
+        state.error = "Connection interrupted. Reconnecting to the comma; update completion is not confirmed."
       }
       ensurePolling()
       return

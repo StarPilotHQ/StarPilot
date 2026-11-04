@@ -2687,7 +2687,15 @@ def _run_git_with_progress(repo_path, args, timeout, step, label):
   if return_code == 0:
     _set_fast_update_progress(step, label, 100.0, last_detail or "Done")
 
-  return return_code, "\n".join(output_tail[-40:])
+  detail = "\n".join(output_tail[-40:])
+  remaining = max(0.0, timeout - (time.monotonic() - started_at)) if timeout else timeout
+  if (return_code != 0 and "fetch" in args and "http.version=HTTP/1.1" not in args and
+      re.search(r"curl 92|HTTP/2 stream", detail, re.IGNORECASE) and (not timeout or remaining > 0)):
+    _set_fast_update_progress(step, label, last_percent or 0.0,
+                             "Download connection interrupted. Retrying once using HTTP/1.1...")
+    return _run_git_with_progress(repo_path, ["-c", "http.version=HTTP/1.1", *args],
+                                  timeout=remaining, step=step, label=label)
+  return return_code, detail
 
 def _run_git(repo_path, args, timeout=30):
   return subprocess.run(
@@ -2893,6 +2901,8 @@ def _finish_update_and_reboot(message):
 
 def _set_fast_update_error_state(message, exception):
   error_text = str(exception).strip() or "Unknown error"
+  if re.search(r"curl 92|HTTP/2 stream|Could not resolve host|Failed to connect", error_text, re.IGNORECASE):
+    message = "Download connection interrupted. Check your network connection and retry the update."
   _set_fast_update_state(
     running=False,
     stage="error",
