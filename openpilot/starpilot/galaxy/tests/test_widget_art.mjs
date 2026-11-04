@@ -10,13 +10,19 @@ function chunk(kind, bytes) {
   return Buffer.concat([size,body,sum])
 }
 const meta={version:1,width:2,height:1,sprites:{conditional_mode:{x:0,y:0,width:2,height:1}}}
-function image(metadata=meta){
+function image(metadata=meta,text=true){
   const header=Buffer.alloc(13);header.writeUInt32BE(2);header.writeUInt32BE(1,4);header[8]=8;header[9]=6
   return new Blob([Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',header),
-    chunk('tEXt',Buffer.from('starpilot-widget-art\0'+JSON.stringify(metadata))),
+    ...(text?[chunk('tEXt',Buffer.from('starpilot-widget-art\0'+JSON.stringify(metadata)))]:[]),
     chunk('IDAT',deflateSync(Buffer.from([0,255,255,255,255,0,0,0,0]))),chunk('IEND',Buffer.alloc(0))])],{type:'image/png'})
 }
 assert.deepEqual(await widgetArtMetadata(image()),meta)
+// A proxy that re-encodes the PNG drops the tEXt chunk; the header still carries the sheet.
+const stripped=image(meta,false),header=Buffer.from(JSON.stringify(meta)).toString('base64')
+assert.deepEqual(await widgetArtMetadata(stripped,header),meta,'Sprite sheet survives a proxy that strips PNG text')
+await assert.rejects(widgetArtMetadata(stripped,null),/metadata/)
+assert.deepEqual(await widgetArtMetadata(image(),'image/png'),meta,'A malformed header falls back to the PNG chunk')
+await assert.rejects(widgetArtMetadata(stripped,Buffer.from(JSON.stringify({...meta,width:3})).toString('base64')))
 const withHeader={...meta,sprites:{speed_limit_actions:{x:0,y:0,width:2,height:1,offsetY:-32.5}}}
 assert.deepEqual(await widgetArtMetadata(image(withHeader)),withHeader,'Native action sprites include the heading above the buttons')
 for(const bad of [{...meta,width:3},{...meta,sprites:{conditional_mode:{x:1,y:0,width:2,height:1}}},
@@ -125,6 +131,7 @@ stalled.feed.stop()
   run()
   await flush();assert.equal(requests.length,1,'The second feed waits instead of being turned away as busy')
   assert.equal(JSON.parse(requests[0].options.body).art,'backdrop')
+  assert.equal([...timers.values()].filter(t=>t.delay>=7000).length,1,'Only the feed holding the renderer runs a response clock; waiting its turn costs no budget')
   backdrop.update(document,'compact','aol');run()
   await flush();assert.equal(requests.length,1,'Cancelling a request does not release the renderer before it answers')
   requests[0].resolve({status:200,ok:true,headers:{get:()=>'image/png'},blob:async()=>image()});await flush()

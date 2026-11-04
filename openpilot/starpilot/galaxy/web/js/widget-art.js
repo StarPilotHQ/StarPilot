@@ -1,17 +1,28 @@
 // Pixels and sprite locations come from the actual onroad renderer, not browser widget copies.
-export async function widgetArtMetadata(blob) {
+// The sheet also travels in an X-Widget-Art header: image-optimising proxies (such as the one in front of the
+// Galaxy tunnel) re-encode PNGs and drop the tEXt chunk, which used to reject the art over the tunnel.
+function headerMetadata(header) {
+  try {
+    const bytes = Uint8Array.from(atob(header), c => c.charCodeAt(0))
+    return JSON.parse(new TextDecoder().decode(bytes))
+  } catch { return null }
+}
+
+export async function widgetArtMetadata(blob, header = null) {
   const bytes = new Uint8Array(await blob.arrayBuffer())
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   if (bytes.length < 45 || bytes.length > 4 * 1024 * 1024 ||
       ![137,80,78,71,13,10,26,10].every((value, index) => bytes[index] === value)) throw new Error("Invalid widget art")
   const text = new TextDecoder(), signature = "starpilot-widget-art\0"
-  let metadata = null
+  let metadata = typeof header === "string" && header.length <= 12288 ? headerMetadata(header) : null
+  const fromHeader = metadata !== null
   for (let offset = 8; offset + 12 <= bytes.length;) {
     const size = view.getUint32(offset), type = text.decode(bytes.subarray(offset + 4, offset + 8))
     if (size > bytes.length - offset - 12) throw new Error("Invalid widget art chunk")
     if (type === "tEXt") {
       const value = text.decode(bytes.subarray(offset + 8, offset + 8 + size))
       if (value.startsWith(signature)) {
+        if (fromHeader) { offset += size + 12; continue }
         if (metadata || size > 8192) throw new Error("Invalid widget art metadata")
         metadata = JSON.parse(value.slice(signature.length))
       }

@@ -175,6 +175,8 @@ class TestRuntimeSnapshot(unittest.TestCase):
     adapter = RuntimeSnapshotAdapter(ui)
     state = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad
     self.assertTrue(state.lead_detected and state.gas_pressed_override and state.right_hand_drive)
+    state = adapter.build(ShellMode.ONROAD, now_ns=NOW + 1_000_000_000).onroad
+    self.assertTrue(state.gas_pressed_override, 'events last until the next once-a-second send, so the blink stays steady')
     ui.sm.recv_frame['longitudinalPlan'] = ui.sm.recv_frame['onroadEvents'] = 0
     state = adapter.build(ShellMode.ONROAD, now_ns=NOW + 1).onroad
     self.assertFalse(state.lead_detected or state.gas_pressed_override)

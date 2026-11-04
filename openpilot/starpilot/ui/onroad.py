@@ -25,7 +25,7 @@ from openpilot.starpilot.ui.onroad_alerts import AlertRenderer
 from openpilot.starpilot.ui.onroad_border import render_compact_half_borders, render_large_half_borders
 from openpilot.starpilot.ui.onroad_compact_widgets import CompactHudRenderer, MiciSidebarWidgets
 from openpilot.starpilot.ui.onroad_personality import PersonalityWidget
-from openpilot.starpilot.ui.onroad_curve import controlling as curve_controlling, glow_color, intensity, render_glow, status_label
+from openpilot.starpilot.ui.onroad_curve import GlowPhase, controlling as curve_controlling, glow_color, intensity, render_glow, status_label
 from openpilot.starpilot.ui.onroad_conditional import stop_active
 from openpilot.starpilot.ui.onroad_corner import CornerHintCache, render_corner_hint
 from openpilot.starpilot.ui.onroad_large_widgets import CurrentSpeedHud, UnifiedSpeedWidget, SteeringWheelWidget
@@ -126,6 +126,7 @@ class OnroadView:
     self.wall_clock = wall_clock or (lambda: datetime.now().astimezone())
     self._corner_cache = CornerHintCache()
     self.quick_select_layer = None
+    self._curve_glow_phase = GlowPhase()
     gui_app.add_render_prepare(self._corner_cache.prepare, self._corner_cache.close)
     self.fonts = fonts
     self.camera_layer = camera_layer
@@ -457,7 +458,8 @@ class OnroadView:
       self.fonts.draw(label, FontRole.SEMI_BOLD, 29, 1390 + right_shift, 56,
                       curve_color)
     self._traffic_badge(state, 56 + 45 * int(label is not None))
-    render_glow(content, state, border_width=30, time_s=state.observed_ns / 1e9 if state.observed_ns else rl.get_time())
+    render_glow(content, state, border_width=30, time_s=state.observed_ns / 1e9 if state.observed_ns else rl.get_time(),
+                phase=getattr(self, "_curve_glow_phase", None))
     rl.draw_rectangle_lines_ex(frame, 30, rl.BLACK)
     rl.draw_rectangle_rounded_lines_ex(content, 0.12, 10, 30, edge)
     render_large_half_borders(state, state.observed_ns / 1e9 if state.observed_ns else rl.get_time(), content, int(height))
