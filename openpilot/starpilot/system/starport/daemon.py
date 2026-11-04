@@ -210,9 +210,11 @@ def main() -> int:
 
   # Core 6 next to the renderer, before any thread starts so all inherit it
   # (see placement.py); re-pinned by housekeeping after power saving.
-  from openpilot.common.hardware import COMMA_HARDWARE
+  from openpilot.common.hardware import COMMA_HARDWARE, HARDWARE
   placement = None
   if COMMA_HARDWARE:
+    if HARDWARE.get_device_type() == "mici":
+      os.setpriority(os.PRIO_PROCESS, 0, 5)
     from openpilot.starpilot.system.starport.placement import RendererPlacement
     placement = RendererPlacement(idle=False, report=lambda event: print(json.dumps(event), flush=True))
     placement.start()

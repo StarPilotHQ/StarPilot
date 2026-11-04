@@ -1,4 +1,12 @@
 import os
+import argparse
+import ast
+import json
+from pathlib import Path
+import sys
+import types
+import unittest
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -162,3 +170,47 @@ def test_background_pool_tracks_online_cores_without_using_driving_cores(monkeyp
 def test_rejects_invalid_core_pools(cores):
   with pytest.raises(ValueError):
     RendererPlacement(core=cores)
+
+
+class PlacementReached(Exception):
+  pass
+
+
+class TestStarPortStartup(unittest.TestCase):
+  def test_transport_priority_before_workers(self):
+    tree = ast.parse((Path(__file__).parents[1] / 'daemon.py').read_text())
+    main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+    for device in ('mici', 'tici', 'tizi', 'pc'):
+      with self.subTest(device=device):
+        order = []
+        hardware = types.ModuleType('openpilot.common.hardware')
+        hardware.COMMA_HARDWARE = device != 'pc'
+        hardware.HARDWARE = types.SimpleNamespace(get_device_type=lambda: device)
+        placement = types.ModuleType('openpilot.starpilot.system.starport.placement')
+        instance = Mock()
+
+        def start():
+          order.append('start')
+          raise PlacementReached
+
+        instance.start.side_effect = start
+        placement.RendererPlacement = Mock(return_value=instance)
+        fake_os = Mock(PRIO_PROCESS=0)
+        fake_os.setpriority.side_effect = lambda *args: order.append(('priority', args))
+        fake_os.unlink.side_effect = PlacementReached
+        namespace = {'argparse': argparse, '__doc__': 'fixture', 'os': fake_os, 'json': json,
+                     'STARPORT_SOCKET_PATH': 'fixture'}
+        exec(compile(ast.Module(body=[main], type_ignores=[]), '<actual-starport-main>', 'exec'), namespace)
+        modules = {'openpilot.common.hardware': hardware, 'openpilot.starpilot.system.starport.placement': placement}
+        with patch.dict(sys.modules, modules), patch.object(sys, 'argv', ['starportd']):
+          with self.assertRaises(PlacementReached):
+            namespace['main']()
+        if device == 'mici':
+          self.assertEqual(order, [('priority', (0, 0, 5)), 'start'])
+        else:
+          fake_os.setpriority.assert_not_called()
+        if device != 'pc':
+          placement.RendererPlacement.assert_called_once()
+          self.assertIs(placement.RendererPlacement.call_args.kwargs['idle'], False)
+        else:
+          placement.RendererPlacement.assert_not_called()
