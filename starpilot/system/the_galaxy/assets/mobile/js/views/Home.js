@@ -1,6 +1,7 @@
 import { api, showSnackbar } from "../api.js"
 import { usePolling } from "../composables.js"
 import { GalaxyConfirm } from "../components/GalaxyModal.js"
+import { t } from "../i18n.js"
 
 const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
 const toInt = (v) => Math.round(toNum(v)).toLocaleString("en-US", { maximumFractionDigits: 0 })
@@ -329,7 +330,7 @@ export const Home = {
         this.keepRefreshing = hasPendingWork(data?.dashboard || {})
       } catch (err) {
         if (this.payload) {
-          showSnackbar("Couldn't refresh dashboard.", "error")
+          showSnackbar(t("Couldn't refresh dashboard."), "error")
         } else {
           this.status = "error"
           this.error = err?.message || String(err)
@@ -342,9 +343,10 @@ export const Home = {
     async toggleDriveStats(drive) {
       if (drive.action === "ignore") {
         const ok = await GalaxyConfirm({
-          title: "Ignore this drive's statistics?",
-          message: "It will no longer affect local weekly totals, records, model usage, engagement, or attention streaks.",
-          confirmLabel: "Ignore",
+          title: t("Ignore this drive's statistics?"),
+          message: t("It will no longer affect local weekly totals, records, model usage, engagement, or attention streaks."),
+          confirmLabel: t("Ignore"),
+          cancelLabel: t("Cancel"),
         })
         if (!ok) return
       }
@@ -353,7 +355,10 @@ export const Home = {
         await api.setDriveStats(drive.action, drive.routeNames)
         await this.load()
       } catch (err) {
-        showSnackbar(err?.message || `Unable to ${drive.action} drive statistics.`, "error")
+        const fallback = drive.action === "ignore"
+          ? "Unable to ignore drive statistics."
+          : "Unable to include drive statistics."
+        showSnackbar(err?.message || t(fallback), "error")
       } finally {
         this.togglingKey = ""
       }
