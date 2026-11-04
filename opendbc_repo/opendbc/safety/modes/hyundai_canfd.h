@@ -659,7 +659,9 @@ static void hyundai_canfd_rx_hook(const CANPacket_t *msg) {
           aol_optional_release_neutral = false;
           aol_optional_release_previous = 0U;
           aol_optional_release_pending = false;
-          aol_optional_release_latch = false;
+          if ((elapsed == 0U) || (elapsed > 100000U)) {
+            aol_optional_release_latch = false;
+          }
         }
         const bool raw_neutral = fresh && !main_button &&
           !(hyundai_canfd_alt_buttons ? GET_BIT(msg, 39U) : GET_BIT(msg, 23U)) && (cruise_button == HYUNDAI_BTN_NONE);
