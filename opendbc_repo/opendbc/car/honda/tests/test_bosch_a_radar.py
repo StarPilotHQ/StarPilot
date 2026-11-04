@@ -6,6 +6,7 @@ import pytest
 
 from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.can_definitions import CanData
+from opendbc.car.honda.bosch_a_radar import bosch_a_range_offset_m
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.radar_interface import RadarInterface
@@ -52,12 +53,12 @@ def make_aux(frame_idx=0, rawc9=0, rawca=0, direct_vrel_raw=BOSCH_A_DIRECT_VREL_
   return bytes([B0, B1, B2, B3, B4, B5, B6, B7])
 
 
-def sweep(bus, index, timestamp, with_aux=True):
+def sweep(bus, index, timestamp, with_aux=True, status=7):
   frames = []
   for slot in range(16):
     base = 0x280 + 4 * slot if slot < 4 else 0x2D0 + 4 * (slot - 4)
     valid = slot == 0
-    frames.extend((CanData(base, make_f0(index, 7 if valid else 15, 1000, 1024), bus),
+    frames.extend((CanData(base, make_f0(index, status if valid else 15, 1000, 1024), bus),
                    CanData(base + 1, make_f1(index), bus),
                    CanData(base + 2, make_f2(index, 1 + index * 2), bus),
                    CanData(base + 3, make_f3(index, track_id=1 if valid else 255), bus)))
@@ -78,12 +79,32 @@ def test_actual_parser_points_silence_retires_and_new_track_recovers(identity):
   second = ri.update(sweep(bus, 1, 1_066_666_667))
   assert not second.errors.canError
   assert len(second.points) == 1
-  assert second.points[0].dRel == pytest.approx(0.05712 * 1000 - 3.0)
+  # firmware range: raw/16 minus the car's ROM offset n0/128 (Civic 346, CR-V 341)
+  assert second.points[0].dRel == pytest.approx(1000 / 16 + bosch_a_range_offset_m(identity))
   assert second.points[0].yRel == pytest.approx(0.0)
   stale = ri.update([(1_400_000_000, [])])
   assert stale is not None and not stale.points and stale.errors.radarUnavailableTemporary
   assert not ri.update(sweep(bus, 2, 1_466_666_667)).points
   assert len(ri.update(sweep(bus, 3, 1_533_333_334)).points) == 1
+
+
+@pytest.mark.parametrize("identity", (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
+def test_point_status_is_the_status_nibble_of_its_latest_observation(identity):
+  # route 34 T479: the phantom lead's track was STATUS 9 for its first ~4 s, then 7
+  cp = CarInterface.get_params(identity, gen_empty_fingerprint(), [], False, False, False)
+  ri = RadarInterface(cp)
+  bus = CanBus(cp).camera
+  assert ri.point_statuses == {}
+  ri.update(sweep(bus, 0, 1_000_000_000, status=9))
+  unconfirmed = ri.update(sweep(bus, 1, 1_066_666_667, status=9))
+  assert ri.point_statuses == {p.trackId: 9 for p in unconfirmed.points} and len(unconfirmed.points) == 1
+  confirmed = ri.update(sweep(bus, 2, 1_133_333_334))
+  assert ri.point_statuses == {p.trackId: 7 for p in confirmed.points} and len(confirmed.points) == 1
+
+
+def test_point_status_is_none_without_a_bosch_a_radar():
+  cp = CarInterface.get_params(CAR.HONDA_CIVIC, gen_empty_fingerprint(), [], False, False, False)
+  assert RadarInterface(cp).point_statuses is None
 
 
 @pytest.mark.parametrize("identity", (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
