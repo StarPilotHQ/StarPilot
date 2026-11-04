@@ -3,6 +3,7 @@
 import math
 import os
 import time
+from collections import defaultdict
 import threading
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
@@ -309,6 +310,7 @@ class FakeGpsMaster:
     from types import SimpleNamespace
     self.ns = SimpleNamespace
     self.messages, self.valid, self.logMonoTime = {}, {}, {}
+    self.updated = defaultdict(bool)
 
   def update(self, _timeout):
     pass
@@ -347,7 +349,7 @@ def test_map_feed_uses_navigation_gps_choice_with_car_fallback(monkeypatch):
   fix = feed.read().fix
   assert fix.latitude == 36.3 and fix.bearing is None, "a receiver wins; an unusable heading is dropped"
   nav = sm.ns(version=2, enabled=True, status="guiding", frameMonoTime=now, destinationName="Home",
-              route=[sm.ns(latitude=36.1, longitude=-115.1)])
+              instruction=sm.ns(distanceMeters=120.0), route=[sm.ns(latitude=36.1, longitude=-115.1)])
   published = {"starpilotNavigation": sm.ns(navigation=nav)}
   class NavigationMaster(dict):
     valid = {"starpilotNavigation": True}
@@ -550,7 +552,8 @@ class FakeNavigationMaster(FakeGpsMaster):
     from openpilot.starpilot.navigation.wire import VERSION
     route = [ns(latitude=lat, longitude=lon) for lat, lon in points]
     self.messages["starpilotNavigation"] = ns(navigation=ns(version=VERSION, status=status, route=route,
-                                                           enabled=True, destinationName='Home', frameMonoTime=time.monotonic_ns()))
+                                                           enabled=True, destinationName='Home', frameMonoTime=time.monotonic_ns(),
+                                                           instruction=ns(distanceMeters=120.0)))
     self.valid["starpilotNavigation"], self.logMonoTime["starpilotNavigation"] = True, stamp
 
 

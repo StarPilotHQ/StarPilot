@@ -96,12 +96,7 @@ def observation(state, now_ns: int) -> CurveObservation | None:
 
 
 class CurvatureDisplay:
-  """Smooth published curvature for the glow, label, and gauge colors.
-
-  roadCurvature is a raw per-model-frame max over the horizon and drops out
-  whenever there is no candidate; the green-to-red ramp turned that jitter
-  into a strobing border. Short dropouts hold the last value.
-  """
+  """Smooth published curvature; short dropouts hold the last value."""
 
   def __init__(self):
     self._value: float | None = None

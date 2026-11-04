@@ -49,16 +49,16 @@ CAR_ANCHOR = 0.68            # the car sits below center so more road ahead is v
 ZOOM_SLOW_M_PER_PX = 0.9     # parking-lot and city detail
 ZOOM_FAST_M_PER_PX = 3.4     # highway overview
 MIN_HEADING_SPEED = 1.5      # m/s; GPS heading is noise below this
-ROTATE_MIN_SPEED = 3.0       # m/s; below this the map holds its rotation instead of chasing GPS heading wobble
+ROTATE_MIN_SPEED = 3.0       # m/s; below this the map holds its rotation
 HEADING_DEADBAND_DEG = 3.0   # heading changes smaller than this leave the map still
 HEADING_RATE = 1.5           # 1/s: how quickly the map eases toward the heading
 MAX_TURN_DEG_S = 45.0        # the map never spins faster than this
-JUNCTION_LOOKAHEAD_S = 14.0  # zoom in on the next maneuver this many seconds before reaching it
+JUNCTION_LOOKAHEAD_S = 14.0  # zoom in on the next maneuver this far ahead
 JUNCTION_MIN_M, JUNCTION_MAX_M = 80.0, 300.0
 STOPPED_SPEED = 0.5          # m/s
-OVERVIEW_AFTER_S = 30.0      # stopped this long: pull back to an overview of the surroundings
+OVERVIEW_AFTER_S = 30.0      # stopped this long: zoom out to an overview
 OVERVIEW_MIN_MANEUVER_M = 50.0  # ...unless a maneuver is about to happen
-NAME_HOLD_S = 1.5            # a new road name must stay this long before it replaces the old one
+NAME_HOLD_S = 1.5            # a new road name must hold this long to replace the old one
 GUIDANCE_SLACK_PX = 4.0      # screen pixels of driven route left under the puck before guidance is trimmed again
 
 
@@ -990,22 +990,14 @@ class MapFeed:
 
   @staticmethod
   def _maneuver(nav) -> float | None:
-    try:
-      meters = float(nav.instruction.distanceMeters)
-    except (AttributeError, TypeError, ValueError):
-      return None
+    meters = float(nav.instruction.distanceMeters)
     return meters if nav.status == "guiding" and math.isfinite(meters) and meters >= 0 else None
 
   def _road_name(self) -> str:
-    """mapd's road name, held until mapd names a different road so gaps and unnamed ways don't blink it away."""
-    try:
-      if self.sm.updated["mapdOut"] and self.sm.valid["mapdOut"]:
-        out = self.sm["mapdOut"]
-        name = out.roadName or out.wayName
-        if name:
-          self._road = name
-    except Exception:
-      pass
+    """The last road name mapd reported."""
+    if self.sm.updated["mapdOut"] and self.sm.valid["mapdOut"]:
+      out = self.sm["mapdOut"]
+      self._road = out.roadName or out.wayName or self._road
     return self._road
 
 

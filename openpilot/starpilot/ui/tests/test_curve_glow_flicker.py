@@ -4,7 +4,7 @@ import random
 import unittest
 from unittest.mock import patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.curve_speed.status import CurvatureDisplay, CurveObservation
 from openpilot.starpilot.ui.developer_preview import OnroadVisualPreview

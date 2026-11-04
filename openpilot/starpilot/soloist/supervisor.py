@@ -60,8 +60,7 @@ def network_ready() -> bool:
 
 
 EXPIRES_IN = re.compile(r'client expires in (\d+) days?')
-# Soloist logs this when restoring the saved account fails (e.g. at boot, before the network really works).
-# It never retries by itself; first-time pairing has no saved account, so it never logs this.
+# Soloist logs this when restoring the saved account fails.
 LOGIN_FAILED = re.compile(r'\blogin failed\b')
 
 
