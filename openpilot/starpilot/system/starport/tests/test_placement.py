@@ -205,7 +205,7 @@ class TestStarPortStartup(unittest.TestCase):
         with patch.dict(sys.modules, modules), patch.object(sys, 'argv', ['starportd']):
           with self.assertRaises(PlacementReached):
             namespace['main']()
-        if device == 'mici':
+        if device != 'pc':
           self.assertEqual(order, [('priority', (0, 0, 5)), 'start'])
         else:
           fake_os.setpriority.assert_not_called()
