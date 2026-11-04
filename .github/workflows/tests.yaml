@@ -198,6 +198,11 @@ jobs:
       run: |
         uv pip install --python .venv/bin/python --only-binary av av==19.0.1
         .venv/bin/python -c "import av; assert 'libx264' in av.codecs_available"
+    - name: Provide pinned OpenCV DNN for vision contract tests
+      if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+      run: |
+        uv pip install --python .venv/bin/python --no-deps --only-binary :all: opencv-python-headless==4.11.0.86
+        .venv/bin/python -c "import cv2; assert cv2.__version__ == '4.11.0'; assert callable(cv2.dnn.readNetFromONNX); assert callable(cv2.dnn.NMSBoxes)"
     - name: Run unit tests
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
       timeout-minutes: ${{ contains(runner.name, 'nsc') && 2 || 20 }}
