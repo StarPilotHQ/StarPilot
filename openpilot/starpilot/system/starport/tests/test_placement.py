@@ -198,13 +198,15 @@ class TestStarPortStartup(unittest.TestCase):
         fake_os = Mock(PRIO_PROCESS=0)
         fake_os.setpriority.side_effect = lambda *args, order=order: order.append(('priority', args))
         fake_os.unlink.side_effect = PlacementReached
-        namespace = {'argparse': argparse, '__doc__': 'fixture', 'os': fake_os, 'json': json,
-                     'STARPORT_SOCKET_PATH': 'fixture'}
+        namespace: dict[str, object] = {'argparse': argparse, '__doc__': 'fixture', 'os': fake_os, 'json': json,
+                                        'STARPORT_SOCKET_PATH': 'fixture'}
         exec(compile(ast.Module(body=[main], type_ignores=[]), '<actual-starport-main>', 'exec'), namespace)
+        run_main = namespace['main']
+        assert callable(run_main)
         modules = {'openpilot.common.hardware': hardware, 'openpilot.starpilot.system.starport.placement': placement}
         with patch.dict(sys.modules, modules), patch.object(sys, 'argv', ['starportd']):
           with self.assertRaises(PlacementReached):
-            namespace['main']()
+            run_main()
         if device != 'pc':
           self.assertEqual(order, [('priority', (0, 0, 5)), 'start'])
         else:

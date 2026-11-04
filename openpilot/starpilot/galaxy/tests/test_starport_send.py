@@ -119,18 +119,34 @@ class SenderJobTest(unittest.TestCase):
 
   def test_sends_in_the_background_and_drops_the_snapshot_when_too_big(self):
     bundles, sent = [], []
+    sending, release = threading.Event(), threading.Event()
 
     def bundle(system_snapshot=True):
       bundles.append(system_snapshot)
       return "logs.zip", b"x" * (DISCORD_FILE_LIMIT + 1 if system_snapshot else 10)
 
-    job = StarPortLogSender(bundle, sender=lambda *args: sent.append(args), summary=lambda: SUMMARY, url=lambda: URL)
-    self.assertEqual(job.start("hello")["state"], "sending")
+    def sender(*args):
+      sending.set()
+      if not release.wait(2):
+        raise TimeoutError("The test did not release the send")
+      sent.append(args)
+
+    job = StarPortLogSender(bundle, sender=sender, summary=lambda: SUMMARY, url=lambda: URL)
+    try:
+      self.assertEqual(job.start("hello")["state"], "sending")
+      self.assertTrue(sending.wait(2))
+      self.assertEqual(job.status()["state"], "sending")
+      self.assertEqual(sent, [])
+    finally:
+      release.set()
+      if job._thread is not None:
+        job._thread.join(2)
+        self.assertFalse(job._thread.is_alive())
     status = self.wait(job)
     self.assertEqual(status["state"], "sent")
     self.assertIn("snapshot was left out", status["message"])
     self.assertEqual(bundles, [True, False])
-    self.assertEqual(sent[0][2], "hello")
+    self.assertEqual(sent, [(b"x" * 10, "logs.zip", "hello", SUMMARY)])
 
   def test_one_send_at_a_time_and_failures_are_reported(self):
     release = threading.Event()
