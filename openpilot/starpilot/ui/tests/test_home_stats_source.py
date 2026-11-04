@@ -7,7 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from openpilot.starpilot.ui.home_stats_source import HomeStatsSource, read_home_stats
 
@@ -55,7 +55,7 @@ class TestHomeStatsSource(unittest.TestCase):
         self.assertIsNone(read_home_stats(False, store=path))
 
   def test_future_read_never_blocks_render_and_changes_units_without_mixing_results(self):
-    pool = unittest.mock.Mock()
+    pool = Mock()
     first, second = Future(), Future()
     pool.submit.side_effect = [first, second]
     with patch('openpilot.starpilot.ui.home_stats_source.ThreadPoolExecutor', return_value=pool):
@@ -76,7 +76,7 @@ class TestHomeStatsSource(unittest.TestCase):
 
   def test_failed_read_retries_and_recovers_instead_of_sticking_unavailable(self):
     now = [10.]
-    pool = unittest.mock.Mock()
+    pool = Mock()
     failed, recovered = Future(), Future()
     failed.set_exception(OSError('cache temporarily unavailable'))
     recovered.set_result('recovered')

@@ -206,24 +206,24 @@ class ClockEditor(Widget):
     self._dragged = False
     self._keyboard_focus = False
 
-  def _handle_mouse_event(self, event):
+  def _handle_mouse_event(self, mouse_event):
     if not isinstance(self._pressed, int):
       return
-    if event.left_pressed:
-      self._last_t = self._last_motion = event.t
+    if mouse_event.left_pressed:
+      self._last_t = self._last_motion = mouse_event.t
       return
-    delta = event.pos.y - self._last_y
-    self._dragged |= abs(event.pos.y - self._start_y) > 12 * self._scale
+    delta = mouse_event.pos.y - self._last_y
+    self._dragged |= abs(mouse_event.pos.y - self._start_y) > 12 * self._scale
     if delta:
       self._scroll(self._pressed, delta)
-      elapsed = event.t - self._last_t
+      elapsed = mouse_event.t - self._last_t
       if 0 < elapsed < 0.15:
         self._velocity = max(-1600 * self._scale, min(1600 * self._scale, delta / elapsed))
-      self._last_motion = event.t
-    self._last_y, self._last_t = event.pos.y, event.t
-    if event.left_released and event.t - self._last_motion > 0.12:
+      self._last_motion = mouse_event.t
+    self._last_y, self._last_t = mouse_event.pos.y, mouse_event.t
+    if mouse_event.left_released and mouse_event.t - self._last_motion > 0.12:
       self._velocity = 0.0
-    if event.left_released and not rl.check_collision_point_rec(event.pos, self._rect):
+    if mouse_event.left_released and not rl.check_collision_point_rec(mouse_event.pos, self._rect):
       self._pressed = None
       self._offset = self._velocity = 0.0
 

@@ -29,7 +29,9 @@ def test_corrupt_cached_package_is_rejected(tmp_path):
 
 
 def test_shipped_offline_payload_matches_the_pinned_bundle():
-  offline = Path(setup.__file__).with_name('offline')
+  setup_file = setup.__file__
+  assert setup_file is not None
+  offline = Path(setup_file).with_name('offline')
   expected = set()
   for package in setup.approved()['packages']:
     digest = package.get('sha512', package.get('sha256'))
