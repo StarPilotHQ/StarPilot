@@ -700,6 +700,7 @@ class RuntimeSnapshotAdapter:
                          traffic_display=traffic,
                          torque_utilization=torque.utilization if torque.utilization is not None else 0.0,
                          torque_source_available=torque.utilization is not None,
+                         torque_is_demand=torque.source == "lateral_acceleration_demand",
                          torque_drive_frame=after if started else None, drive_frame=after if started else None, observed_ns=now_ns,
                          wheel_acceleration=observe_wheel_acceleration(display_car),
                          aol_latched=(display_aol_latch(sm, now_ns, after_frame=after)

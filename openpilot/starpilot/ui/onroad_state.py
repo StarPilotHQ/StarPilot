@@ -236,6 +236,8 @@ class OnroadState:
   toyota_cruise_status: str = ''
   toyota_cruise_target_kph: float | None = None
 
+  torque_is_demand: bool = False
+
   @property
   def cruise_active(self) -> bool:
     return self.longitudinal_active or self.longitudinal_overridden or self.stock_cruise_active
@@ -247,6 +249,8 @@ class OnroadState:
       raise ValueError("Cruise speed must be finite and nonnegative")
     if not math.isfinite(self.torque_utilization) or not -1.0 <= self.torque_utilization <= 1.0:
       raise ValueError("Torque utilization must be normalized")
+    if type(self.torque_is_demand) is not bool:
+      raise ValueError("Steering demand kind must be Boolean")
     if not 0 <= self.personality <= 2:
       raise ValueError("Personality must be aggressive, standard, or relaxed")
     if self.stopped_duration_s is not None and (type(self.stopped_duration_s) is not int or self.stopped_duration_s <= 0):

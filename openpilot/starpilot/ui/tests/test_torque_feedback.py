@@ -1,4 +1,4 @@
-"""Original scalar oracle, actual output identity and unavailable sources."""
+"""Direction-preserving steering demand, output identity and unavailable sources."""
 
 from copy import deepcopy
 from types import SimpleNamespace as NS
@@ -40,16 +40,15 @@ class TorqueFeedbackTests(unittest.TestCase):
     del sm["carOutput"]
     self.assertIsNone(observe(sm).utilization)
 
-  def test_original_angle_oracle_roll_ramp_and_saturation(self):
-    # Dom 6cae0ce, torque_bar.py:176-198: desired accel minus speed-ramped roll.
-    cases = ((0, 0.0), (5, 0.1 / 3), (10, 0.35095 / 3), (15, 0.8019 / 3), (20, 1.5019 / 3))
+  def test_angle_demand_uses_configured_scale_without_roll_bias(self):
+    cases = ((0, 0.0), (5, 0.1 / 3), (10, 0.4 / 3), (15, 0.9 / 3), (20, 1.6 / 3))
     sm = Messages("angleState")
     for speed, expected in cases:
       with self.subTest(speed=speed):
         sm["carState"].vEgo = speed
         result = observe(sm)
         self.assertAlmostEqual(result.utilization, expected)
-        self.assertEqual(result.source, "lateral_acceleration_estimate")
+        self.assertEqual(result.source, "lateral_acceleration_demand")
     sm["controlsState"].desiredCurvature = 0.05
     self.assertEqual(observe(sm).utilization, 1)
     sm["controlsState"].desiredCurvature = -0.05
@@ -57,11 +56,25 @@ class TorqueFeedbackTests(unittest.TestCase):
     sm["carControl"].latActive = False
     self.assertEqual((observe(sm).utilization, observe(sm).reason), (0, "lateral_inactive"))
 
+  def test_angle_and_curvature_demand_preserve_direction_on_banked_roads(self):
+    for state in ("angleState", "curvatureState"):
+      for roll in (-0.15, -0.08, 0, 0.08, 0.15):
+        for direction in (-1, 1):
+          with self.subTest(state=state, roll=roll, direction=direction):
+            sm = Messages(state)
+            sm["vehicleParameters"].roll = roll
+            sm["controlsState"].desiredCurvature = direction * 0.001
+            sm["controlsState"].curvature = -direction * 0.002
+            sm["carOutput"].actuatorsOutput.torque = -direction
+            result = observe(sm, NS(maxLateralAccel=1.5))
+            self.assertAlmostEqual(result.utilization, direction * .1 / 1.5)
+            self.assertEqual(result.source, "lateral_acceleration_demand")
+
   def test_estimate_is_not_measured_torque_and_cp_fallback_is_explicit(self):
     sm = Messages("angleState")
     sm["carOutput"].actuatorsOutput.torque = -1
-    self.assertAlmostEqual(observe(sm, None).utilization, 0.35095 / 3)
-    self.assertAlmostEqual(observe(sm, NS(maxLateralAccel=2)).utilization, 0.35095 / 2)
+    self.assertAlmostEqual(observe(sm, None).utilization, 0.4 / 3)
+    self.assertAlmostEqual(observe(sm, NS(maxLateralAccel=2)).utilization, 0.4 / 2)
     for maximum in (0, -1, float("nan"), float("inf"), True, None):
       self.assertIsNone(observe(sm, NS(maxLateralAccel=maximum)).utilization)
     self.assertIsNone(observe(sm, NS()).utilization)
@@ -100,14 +113,14 @@ class TorqueFeedbackTests(unittest.TestCase):
     self.assertEqual(observe(sm, cp).utilization, -0.25)
     output = sm["carOutput"].actuatorsOutput
     output.lateralControlMode = "angle"
-    self.assertAlmostEqual(observe(sm, cp).utilization, 0.35095 / 3)
-    self.assertEqual(observe(sm, cp).source, "lateral_acceleration_estimate")
+    self.assertAlmostEqual(observe(sm, cp).utilization, 0.4 / 3)
+    self.assertEqual(observe(sm, cp).source, "lateral_acceleration_demand")
     for mode in ("torque", "torqueRecovering", "inactive"):
       output.lateralControlMode = mode
       self.assertEqual(observe(sm, cp).source, "actuator_output")
     output.lateralControlMode = "angle"
     output.torque = 0
-    self.assertEqual(observe(sm, cp).source, "lateral_acceleration_estimate")
+    self.assertEqual(observe(sm, cp).source, "lateral_acceleration_demand")
     self.assertEqual(observe(sm).source, "actuator_output", "other brands cannot inherit Rivian handoff semantics")
     sm["carOutput"] = None
     self.assertIsNone(observe(sm, cp).utilization)

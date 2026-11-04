@@ -133,3 +133,21 @@ def test_shader_failure_never_paints_the_bounding_rectangle(default_shader_id):
       TorqueBarPainter().render(rl.Rectangle(0, 0, 476, 240), .3, 1, 536, 7)
   assert not gpu.frames
   assert gpu.unloads == ([1] if default_shader_id == 0 else [])
+
+
+@pytest.mark.parametrize('width,rect,cap', [
+  (536, (0, 0, 476, 240), 7), (2160, (30, 30, 1800, 1020), 21), (1860, (30, 30, 1800, 1800), 7),
+])
+@pytest.mark.parametrize('utilization', [-1, -.9, -.3, .3, .9, 1])
+def test_demand_has_direction_without_claiming_physical_torque_saturation(width, rect, cap, utilization):
+  with record_gpu() as gpu:
+    painter = TorqueBarPainter()
+    painter.render(rl.Rectangle(*rect), utilization, 1, width, cap, demand_only=True)
+    painter.render(rl.Rectangle(*rect), utilization, 1, width, cap)
+  demand, torque = gpu.frames
+  assert demand.uniforms['gradient'][1:] == pytest.approx((1, 0, 1))
+  assert demand.uniforms['indicatorNormals'][0 if utilization < 0 else 2] * utilization > 0
+  assert demand.uniforms['indicatorNormals'] == torque.uniforms['indicatorNormals']
+  assert demand.vertices == torque.vertices
+  if abs(utilization) > .75:
+    assert torque.uniforms['gradient'][1:] != pytest.approx((1, 0, 1))

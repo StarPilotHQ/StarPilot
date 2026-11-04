@@ -955,7 +955,8 @@ class TestRuntimeSnapshot(unittest.TestCase):
     adapter = RuntimeSnapshotAdapter(ui)
     state = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad
     self.assertTrue(state.torque_source_available)
-    self.assertAlmostEqual(state.torque_utilization, (0.002 * 16 ** 2 - 0.01 * 9.81) / 3)
+    self.assertTrue(state.torque_is_demand)
+    self.assertAlmostEqual(state.torque_utilization, 0.002 * 16 ** 2 / 3)
     ui.sm.logMonoTime["vehicleParameters"] = NOW - 1_000_000_000
     self.assertFalse(adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.torque_source_available)
 

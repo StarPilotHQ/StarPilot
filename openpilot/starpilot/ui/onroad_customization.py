@@ -135,8 +135,8 @@ for _profile, _data in PROFILES.items():
   _bounds = _data["bounds"]
   _x, _y, _width, _height = maximum_footprint(_bounds["x"], _bounds["y"], _bounds["width"], _bounds["height"], _data["width"])
   _data["widgets"]["torque_bar"] = {
-    **_widget("Torque bar", "torque_bar", _width, _height, _x, _y), "layer": "underlay",
-    "note": "Torque output, or steering-effort estimate on angle-controlled vehicles"}
+    **_widget("Steering demand", "torque_bar", _width, _height, _x, _y), "layer": "underlay",
+    "note": "Torque command or lateral-acceleration demand. Full width reflects the configured display scale."}
 ACTIONLESS_WIDGETS = {profile: set(data["widgets"]) - {"speed_limit_actions"} for profile, data in PROFILES.items()}
 
 RAILLESS_WIDGETS = {profile: set(data["widgets"]) for profile, data in PROFILES.items()}
