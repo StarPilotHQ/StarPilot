@@ -185,18 +185,18 @@ class TestStarPortStartup(unittest.TestCase):
         order = []
         hardware = types.ModuleType('openpilot.common.hardware')
         hardware.COMMA_HARDWARE = device != 'pc'
-        hardware.HARDWARE = types.SimpleNamespace(get_device_type=lambda: device)
+        hardware.HARDWARE = types.SimpleNamespace(get_device_type=lambda device=device: device)
         placement = types.ModuleType('openpilot.starpilot.system.starport.placement')
         instance = Mock()
 
-        def start():
+        def start(order=order):
           order.append('start')
           raise PlacementReached
 
         instance.start.side_effect = start
         placement.RendererPlacement = Mock(return_value=instance)
         fake_os = Mock(PRIO_PROCESS=0)
-        fake_os.setpriority.side_effect = lambda *args: order.append(('priority', args))
+        fake_os.setpriority.side_effect = lambda *args, order=order: order.append(('priority', args))
         fake_os.unlink.side_effect = PlacementReached
         namespace = {'argparse': argparse, '__doc__': 'fixture', 'os': fake_os, 'json': json,
                      'STARPORT_SOCKET_PATH': 'fixture'}
