@@ -47,12 +47,14 @@ def stock_lateral_role(self, CS, native, intent=None, *, allow_independent_cance
     settings = getattr(self, 'aol_settings', None)
     previous = getattr(self, 'aol_axis_decision', None)
     from opendbc.car.gm.aol import qualified_gm
+    from opendbc.car.subaru.stock_aol import qualified as subaru_qualified
 
     gas_role = bool((self.CP.brand == 'hyundai' and len(self.CP.safetyConfigs) == 1 and
       stock_canfd_qualified(self.CP, marked_only=True) or self.CP.brand == 'gm' and qualified_gm(self.CP) and self.CP.pcmCruise and
-      not self.CP.openpilotLongitudinalControl) and settings is not None and settings.enabled and
+      not self.CP.openpilotLongitudinalControl or
+      self.CP.brand == 'subaru' and subaru_qualified(self.CP, marked_only=True)) and settings is not None and settings.enabled and
       CS.gasPressed and not CS.brakePressed and not CS.regenBraking and
-      previous is not None and (previous.lateral_active or self.CP.brand == 'gm' and
+      previous is not None and (previous.lateral_active or self.CP.brand in ('gm', 'subaru') and
        getattr(self, 'aol_fault_reason', 'none') == 'availabilityPause' and previous.desired_lateral) and
       previous.native_acknowledged and not previous.longitudinal_active and
       (CS.gearShifter == car.CarState.GearShifter.drive or self.CP.brand == 'gm' and
