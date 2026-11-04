@@ -309,6 +309,14 @@ def unavailable_observation(guard):
           'real_xapk': {'path': shards.REAL_XAPK, 'exists': False}}[guard]
 
 
+def test_audited_capability_fingerprints_match_current_sources():
+  """A binding migration must re-audit pins without broadening any skip guard."""
+  for node, row in shards.policy()['capability_skips'].items():
+    assert shards.blob_id(shards.ROOT / node.split('::')[0]) == row['source_blob'], node
+    if 'guard_source_path' in row:
+      assert shards.blob_id(shards.ROOT / row['guard_source_path']) == row['guard_source_blob'], node
+
+
 def skipped_reports(node, reason):
   return {node: [{'phase': 'setup', 'status': 'skipped', 'duration': .01, 'reason': reason},
                  {'phase': 'teardown', 'status': 'passed', 'duration': .01}]}
