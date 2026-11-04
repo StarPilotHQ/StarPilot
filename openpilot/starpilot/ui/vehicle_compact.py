@@ -16,6 +16,8 @@ def vehicle_identity(cp: object | None) -> str:
   fingerprint = str(getattr(cp, "carFingerprint", "") or "").strip()
   if not fingerprint or fingerprint.upper() == "MOCK" or bool(getattr(cp, "notCar", False)):
     return "not reported"
+  if fingerprint == "HYUNDAI_ELANTRA_HEV_2024":
+    return "hyundai elantra hybrid 2024-2026"
   return fingerprint.replace("_", " ").lower()
 
 
