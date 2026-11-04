@@ -1,6 +1,6 @@
 {
-  "reviewed_schema_commit": "63beafc6af294d0759b47dc3bc546f24082a2a5d",
-  "reviewed_schema_sha256": "ca01ef4f6d2b15c5fac59ce237ec6e49f1167e2408903c9088ee322ca490de31",
+  "reviewed_schema_commit": "0571890b8e6d023050ae0ec1e0c5fa9163422568",
+  "reviewed_schema_sha256": "b550872e5398607440881cd24ee143fedba9a674f1ec64d1ba1f8874786de7c5",
   "incumbent_fixture_sha256": "a36ab54c00b5bbe61d520873d24aadfb8f33babd70c31a07046516d5545838d9",
   "types": {
     "0xf35cc4560bbf6ec2": {
@@ -672,12 +672,57 @@
           "codeOrder": 12
         }
       ]
+    },
+    "0x9e04a179bcb4ab72": {
+      "kind": "struct",
+      "before_name": "StarPilotModelDataV2.VisionObservation",
+      "after_name": "StarPilotModelDataV2.VisionObservation",
+      "old_field_count": 12,
+      "old_storage": {
+        "dataWordCount": 6,
+        "pointerCount": 2,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 6,
+        "pointerCount": 3,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 2,
+            "type": {
+              "struct": {
+                "typeId": 12978956571779529976
+              }
+            },
+            "defaultValue": {
+              "schemaValueHex": "00000000040000000000000002000100100000000000000000000000000000000000000000000000"
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "stopSigns",
+          "codeOrder": 12,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 12
+          }
+        }
+      ]
     }
   },
   "published_addition_commits": {
     "slc": "ab8368f287b78b42f8590722878c7d5834609e19",
     "flm": "b151ca11cb4d88f32d7adfdbcff50baf29f4fbbc",
-    "tesla_cooperative_steering": "63beafc6af294d0759b47dc3bc546f24082a2a5d"
+    "tesla_cooperative_steering": "63beafc6af294d0759b47dc3bc546f24082a2a5d",
+    "vision_stop_signs": "0571890b8e6d023050ae0ec1e0c5fa9163422568"
   },
-  "review_basis": "Published SLC, FLM, and Tesla cooperative-steering additions. Every incumbent wire field descriptor and enum prefix was independently checked unchanged; only the exact typed deltas listed here are permitted. Tesla adds steeringLimitInfo @39 at pointer slot 6 using the existing SteeringLimitInfo type. ToyotaCruise @38 retains pointer slot 5, type, and default; only its declaration codeOrder changes from 38 to 39."
+  "review_basis": "Published SLC, FLM, and Tesla cooperative-steering additions. Every incumbent wire field descriptor and enum prefix was independently checked unchanged; only the exact typed deltas listed here are permitted. Tesla adds steeringLimitInfo @39 at pointer slot 6 using the existing SteeringLimitInfo type. ToyotaCruise @38 retains pointer slot 5, type, and default; only its declaration codeOrder changes from 38 to 39. Published vision stop-sign addition appends VisionObservation.stopSigns @12 at pointer slot 2 with StopObservation type 0xb41e843c9023fcf8 and a null struct default. All 12 incumbent descriptors and nested Status/Stream types remain unchanged; data words stay 6 and pointers grow from 2 to 3. Old-reader relay preserves the populated stop observation and incumbent fields."
 }

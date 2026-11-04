@@ -138,6 +138,50 @@ def test_additive_steering_limits_preserve_defaults_and_survive_incumbent_relay(
     assert recovered.to_dict() == expected
 
 
+@pytest.mark.parametrize('detections', [[], [{'confidence': .875, 'x1Pixels': 11, 'y1Pixels': 22,
+                                           'x2Pixels': 111, 'y2Pixels': 222}]])
+def test_additive_vision_stop_signs_preserve_defaults_and_survive_incumbent_relay(historical, detections):
+  old_type = historical.StarPilotModelDataV2.VisionObservation
+  new_type = custom.StarPilotModelDataV2.VisionObservation
+  original = old_type.new_message(
+    producerSessionId='incumbent', status='valid', speedMps=22.5, confidence=.75, supportCount=3,
+    observedMonoTime=123456, validUntilMonoTime=234567, cameraFrameEofBootTime=112233,
+    episode=7, modelId='incumbent-model', frameId=42, stream='road')
+  incumbent = original.to_dict()
+  assert set(incumbent) == set(old_type.schema.fields)
+  with new_type.from_bytes(original.to_bytes()) as decoded:
+    assert not decoded._has('stopSigns')
+    assert decoded.stopSigns.status == 'unknown'
+    assert not decoded.stopSigns.detections
+    current = decoded.as_builder()
+  current.stopSigns = {
+    'status': 'valid', 'observedMonoTime': 123456, 'validUntilMonoTime': 234567,
+    'cameraFrameEofBootTime': 112233, 'frameId': 42, 'imageWidth': 1920, 'imageHeight': 1080,
+    'detections': detections}
+  expected = current.to_dict()
+  with old_type.from_bytes(current.to_bytes()) as old:
+    assert old.to_dict() == incumbent
+    relayed = old.as_builder().to_bytes()
+  with new_type.from_bytes(relayed) as recovered:
+    assert recovered.to_dict() == expected
+
+
+@pytest.mark.parametrize(('before', 'after'), [
+  ('speedMps @2 :Float32;', 'speedMps @2 :Float64;'),
+  ('stopSigns @12 :StopObservation;', 'stopSigns @12 :StarPilotCarState.Gps;'),
+  ('stopSigns @12 :StopObservation;', 'stopSigns @12 :StopObservation; unreviewed @13 :Bool;'),
+])
+def test_reviewed_vision_addition_does_not_allow_other_schema_changes(historical, tmp_path, before, after):
+  source = Path(CEREAL_PATH, 'custom.capnp').read_text()
+  assert source.count(before) == 1
+  path = tmp_path / 'unreviewed-vision.capnp'
+  path.write_text(source.replace(before, after))
+  parser = capnp.SchemaParser()
+  changed = parser.load(str(path), imports=[CEREAL_PATH, str(files('opendbc') / 'car')])
+  with pytest.raises(AssertionError):
+    compare_node(historical.StarPilotModelDataV2, changed.StarPilotModelDataV2)
+
+
 @pytest.mark.parametrize(('before', 'after'), [
   ('dashboardSpeedLimit @3 :Float32;', 'dashboardSpeedLimit @3 :Float64;'),
   ('toyotaCruise @38 :ToyotaCruise;', 'toyotaCruise @38 :StarPilotCarControl.SteeringLimitInfo;'),
