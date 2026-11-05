@@ -31,6 +31,70 @@ def _external_shader(fragment: str) -> str:
   return result.replace(yuv, "vec3 rgb = pow(texture(texture0, uv).rgb, vec3(1.0/1.28));")
 
 
+# The cabin camera has no IR-cut filter, so the window crops come out red/magenta.
+# Gray-world white balance over the crop being shown. Tuned on a daytime frame
+# (2026-11-04): full strength made gray pavement and a silver car neutral, and the
+# gain clamp keeps a single strongly colored object from being over-corrected.
+WB_STRENGTH = 1.0
+WB_GAIN_MIN, WB_GAIN_MAX = 0.6, 1.6
+WB_SAMPLES = 16          # 16x16 grid of NV12 samples per crop
+WB_INTERVAL = 0.25       # seconds between samples per side
+WB_SMOOTHING = 0.35      # EMA weight of a new sample
+NEUTRAL_GAIN = (1.0, 1.0, 1.0)
+
+
+def crop_white_balance(frame, crop) -> tuple[float, float, float] | None:
+  """Pre-gamma RGB gains that neutralize the crop's average color, or None if unreadable."""
+  try:
+    width, height, stride, uv_offset = int(frame.width), int(frame.height), int(frame.stride), int(frame.uv_offset)
+    raw = np.frombuffer(frame.data, dtype=np.uint8)
+  except (AttributeError, TypeError, ValueError):
+    return None
+  if width <= 0 or height <= 0 or stride < width or uv_offset < stride * height or len(raw) < uv_offset + stride * (height // 2):
+    return None
+  steps = (np.arange(WB_SAMPLES) + 0.5) / WB_SAMPLES * crop.size
+  xs = np.clip((crop.x + steps).astype(np.int64) // 2, 0, width // 2 - 1)
+  ys = np.clip((crop.y + steps).astype(np.int64) // 2, 0, height // 2 - 1)
+  luma = raw[(ys[:, None] * 2) * stride + xs[None, :] * 2].astype(np.float32).mean() / 255.0
+  uv_index = uv_offset + ys[:, None] * stride + xs[None, :] * 2
+  u = raw[uv_index].astype(np.float32).mean() / 255.0 - 0.5
+  v = raw[uv_index + 1].astype(np.float32).mean() / 255.0 - 0.5
+  if luma < 0.02:
+    return None
+  mean_rgb = np.array([luma + 1.402 * v, luma - 0.344 * u - 0.714 * v, luma + 1.772 * u])
+  gains = luma / np.maximum(mean_rgb, 1e-3)
+  gains = np.clip(1.0 + WB_STRENGTH * (gains - 1.0), WB_GAIN_MIN, WB_GAIN_MAX)
+  return float(gains[0]), float(gains[1]), float(gains[2])
+
+
+class _WhiteBalance:
+  """Per-side smoothed gains, resampled a few times a second from the CPU-visible frame."""
+
+  def __init__(self):
+    self.gains: dict[str, np.ndarray] = {}
+    self._sampled_at: dict[str, float] = {}
+
+  def reset(self, side: str | None = None) -> None:
+    if side is None:
+      self.gains.clear()
+      self._sampled_at.clear()
+    else:
+      self.gains.pop(side, None)
+      self._sampled_at.pop(side, None)
+
+  def update(self, side: str, frame, crop, now: float) -> tuple[float, float, float]:
+    last = self._sampled_at.get(side)
+    if last is None or now - last >= WB_INTERVAL or now < last:
+      self._sampled_at[side] = now
+      sample = crop_white_balance(frame, crop)
+      if sample is not None:
+        target = np.array(sample, dtype=np.float32)
+        current = self.gains.get(side)
+        self.gains[side] = target if current is None else current + WB_SMOOTHING * (target - current)
+    gains = self.gains.get(side)
+    return NEUTRAL_GAIN if gains is None else (float(gains[0]), float(gains[1]), float(gains[2]))
+
+
 class PiPRenderer:
   """One renderer; close it on onroad exit or when the owning shell closes."""
 
@@ -50,6 +114,7 @@ class PiPRenderer:
     self._stream_generation: int | None = None
     self._active_sides: set[str] = set()
     self._activated_at: dict[str, float] = {}
+    self._white_balance = _WhiteBalance()
 
   def _shader(self) -> rl.Shader:
     if self.shader is None:
@@ -91,6 +156,7 @@ class PiPRenderer:
     self._stream_generation = None
     self._active_sides.clear()
     self._activated_at.clear()
+    self._white_balance.reset()
 
   def _texture(self, frame) -> rl.Texture | None:
     size = (int(frame.width), int(frame.height), int(frame.stride))
@@ -162,6 +228,7 @@ class PiPRenderer:
       return "inactive"
     for side in set(sides) - self._active_sides:
       self._activated_at[side] = observed_now
+      self._white_balance.reset(side)  # lighting may have changed since this side was last shown
     self._active_sides = set(sides)
     if frame is None:
       self._clear_images()
@@ -189,8 +256,9 @@ class PiPRenderer:
       if placements is not None:
         rect = placements[side]
       warning = (signals.vasm_left or signals.left_blindspot) if side == "left" else (signals.vasm_right or signals.right_blindspot)
-      def draw(rect=rect, crop=crop, warning=warning):
-        self._draw(shader, texture, frame, rect, crop.x, crop.y, crop.size, invert, warning=warning)
+      gain = self._white_balance.update(side, frame, crop, observed_now)
+      def draw(rect=rect, crop=crop, warning=warning, gain=gain):
+        self._draw(shader, texture, frame, rect, crop.x, crop.y, crop.size, invert, warning=warning, gain=gain)
       if submit is None:
         draw()
       else:
@@ -198,7 +266,8 @@ class PiPRenderer:
     return "rendered"
 
   def _draw(self, shader: rl.Shader, texture: rl.Texture, frame, rect: Rect,
-            crop_x: float, crop_y: float, crop_size: float, invert: bool, *, warning: bool = False) -> None:
+            crop_x: float, crop_y: float, crop_size: float, invert: bool, *, warning: bool = False,
+            gain: tuple[float, float, float] = NEUTRAL_GAIN) -> None:
     texture_width = frame.width if COMMA_HARDWARE else frame.stride
     crop_min = rl.Vector2(crop_x / texture_width, crop_y / frame.height)
     crop_extent = rl.Vector2(crop_size / texture_width, crop_size / frame.height)
@@ -215,6 +284,10 @@ class PiPRenderer:
       flip = np.array([1 if invert else 0], dtype=np.int32)
       rl.set_shader_value(shader, rl.get_shader_location(shader, "uFlipX"), flip,
                           rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
+      # The comma samples gamma-adjusted RGB (pow 1/1.28), so a pre-gamma gain g becomes g^(1/1.28).
+      shader_gain = np.power(np.array(gain, dtype=np.float32), 1.0 / 1.28) if COMMA_HARDWARE else np.array(gain, dtype=np.float32)
+      rl.set_shader_value(shader, rl.get_shader_location(shader, "uGain"), shader_gain,
+                          rl.ShaderUniformDataType.SHADER_UNIFORM_VEC3)
       if self.shape == "curved":
         panel = rl.Vector2(rect.width, rect.height)
         rl.set_shader_value(shader, rl.get_shader_location(shader, "uRectSize"), panel,
