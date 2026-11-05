@@ -22,6 +22,7 @@ class CarEvents:
     from opendbc.car.gm.values import is_volt_cc_profile
     self.volt_cc_profile = CP.brand == "gm" and is_volt_cc_profile(CP)
     self.steering_unpressed = 0
+    self.subaru_angle_override = False
     self.low_speed_alert = False
     self.no_steer_warning = False
     self.silent_steer_warning = True
@@ -146,7 +147,16 @@ class CarEvents:
       events.add(EventName.accFaulted)
     if CS.carNotReady:
       events.add(EventName.carNotReady)
-    if CS.steeringPressed:
+    steering_override = CS.steeringPressed
+    if (self.CP.brand == 'subaru' and self.CP.carFingerprint == 'SUBARU_CROSSTREK_2025' and
+        self.CP.steerControlType == structs.CarParams.SteerControlType.angle):
+      torque = abs(CS.steeringTorque)
+      if torque < 100:
+        self.subaru_angle_override = False
+      elif torque > 150:
+        self.subaru_angle_override = True
+      steering_override = self.subaru_angle_override
+    if steering_override:
       events.add(EventName.steerOverride)
     if CS.steeringDisengage and not CS_prev.steeringDisengage:
       events.add(EventName.steerDisengage)
@@ -172,9 +182,9 @@ class CarEvents:
         events.add(EventName.buttonCancel)
 
     # Handle permanent and temporary steering faults
-    self.steering_unpressed = 0 if CS.steeringPressed else self.steering_unpressed + 1
+    self.steering_unpressed = 0 if steering_override else self.steering_unpressed + 1
     if CS.steerFaultTemporary:
-      if CS.steeringPressed and (not CS_prev.steerFaultTemporary or self.no_steer_warning):
+      if steering_override and (not CS_prev.steerFaultTemporary or self.no_steer_warning):
         self.no_steer_warning = True
       else:
         self.no_steer_warning = False
