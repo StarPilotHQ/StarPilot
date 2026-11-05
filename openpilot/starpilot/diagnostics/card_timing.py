@@ -1,4 +1,4 @@
-"""Opt-in, bounded Card phase diagnostics; never changes control policy or scheduling."""
+"""Temporary bounded Card phase diagnostics; never changes control policy or scheduling."""
 
 import os
 import resource

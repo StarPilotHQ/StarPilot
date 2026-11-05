@@ -138,9 +138,8 @@ def test_actual_card_step_preserves_action_order_with_optional_marks():
   assert trace == ['state_update', 'publish', 'control', 'radar_update', 'radar_publish']
 
 
-@pytest.mark.parametrize('enabled', [False, True])
 @pytest.mark.parametrize('fail_startup', [False, True])
-def test_actual_card_loop_keeps_control_errors_and_cleans_probe(enabled, fail_startup):
+def test_actual_card_loop_keeps_control_errors_and_cleans_probe(fail_startup):
   from openpilot.selfdrive.car.card import Car
 
   class StopLoop(Exception):
@@ -151,12 +150,32 @@ def test_actual_card_loop_keeps_control_errors_and_cleans_probe(enabled, fail_st
   fake = NS(configure_conditional_settings_worker=Mock(), params_thread=Mock(),
             vehicle_startup=NS(check=startup), step=Mock(), rk=NS(monitor_time=Mock(side_effect=StopLoop('monitor'))),
             ioniq6_keepalive=None)
-  with patch.dict('os.environ', {'CARD_TIMING': '1' if enabled else '0'}), \
+  with patch.dict('os.environ', {}, clear=True), \
        patch('threading.Thread'), patch('openpilot.starpilot.diagnostics.card_timing.CardTiming', return_value=probe) as factory:
     with pytest.raises(StopLoop, match='startup' if fail_startup else 'monitor'):
       Car.card_thread(cast(Car, fake))
-  assert factory.call_count == int(enabled)
+  assert factory.call_count == 1
   assert fake.step.call_count == int(not fail_startup)
-  assert probe.close.call_count == int(enabled)
-  assert probe.begin.call_count == int(enabled)
-  assert probe.finish.call_count == int(enabled and not fail_startup)
+  assert probe.close.call_count == 1
+  assert probe.begin.call_count == 1
+  assert probe.finish.call_count == int(not fail_startup)
+
+
+def test_actual_card_loop_removes_expired_capture_without_restarting_it():
+  from openpilot.selfdrive.car.card import Car
+
+  class StopLoop(Exception):
+    pass
+
+  sample = Mock(return_value=Sample(CAPTURE_NS, 0, None, None, None))
+  probe = CardTiming(Mock(), sample)
+  probe.deadline = CAPTURE_NS
+  fake = NS(configure_conditional_settings_worker=Mock(), params_thread=Mock(), vehicle_startup=NS(check=Mock()),
+            step=Mock(), rk=NS(monitor_time=Mock(side_effect=[None, StopLoop()])), ioniq6_keepalive=None)
+  with patch('threading.Thread'), patch('openpilot.starpilot.diagnostics.card_timing.CardTiming', return_value=probe):
+    with pytest.raises(StopLoop):
+      Car.card_thread(cast(Car, fake))
+  assert fake._cycle_timing is None
+  assert not probe.enabled and not probe.samples and probe.fd is None
+  assert fake.step.call_count == 2
+  sample.assert_called_once()

@@ -103,7 +103,7 @@ class StarPilotFordController:
   def __init__(self, CP, inputs, shared):
     self.CP = CP
     self.conditioner = CurvatureConditioner()
-    self.native_curvature_bounds = None
+    self.native_curvature_bounds: tuple[float, float] | None = None
     # StarPilot uses the platform defaults, not hidden BluePilot user adjustment knobs.
     for attr, key in ANGLE_SETTINGS:
       setattr(self, attr, default(key))

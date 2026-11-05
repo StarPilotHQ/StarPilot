@@ -3,6 +3,7 @@
 from collections import deque
 from dataclasses import replace
 import math
+from typing import TYPE_CHECKING, cast
 import numpy as np
 
 import openpilot.cereal.messaging as messaging
@@ -22,6 +23,10 @@ from opendbc.car.vehicle_model import calc_slip_factor
 from opendbc.bluepilot_lateral.core.carcontroller_ext import pinion_vehicle_model
 from opendbc.car.lateral import ISO_LATERAL_ACCEL
 from openpilot.starpilot.car.ford.controller_selection import FordController, read_controller
+
+if TYPE_CHECKING:
+  from openpilot.starpilot.car.ford.starpilot_controller import StarPilotFordController
+
 
 STARTUP_KEYS = ("FordPrefSteerAngleCurvature",)
 # Global StarPilot lane settings are the only lane-positioning owner.
@@ -203,7 +208,8 @@ class FordBluePilotController(BluePilotLateral):
     if self.starpilot_selected and (not self.starpilot_frame_valid or not self.angle.inputs_valid(CS, actuators)):
       CC = structs.CarControl.new_message(latActive=False)
     if self.starpilot_selected:
-      self.angle.native_curvature_bounds = None
+      angle = cast("StarPilotFordController", self.angle)
+      angle.native_curvature_bounds = None
       if self.native_pinion_model is not None and self.measured_seen and CS.out.vEgoRaw > 10.:
         # Pinion native limits use 150 CAN curvature units, without learned geometry.
         error = 150 * .00002
@@ -211,9 +217,28 @@ class FordBluePilotController(BluePilotLateral):
         high = min(-min(self.measured_history) * .00002 + error, measured + CarControllerParams.CURVATURE_ERROR)
         # Tighten the host envelope only where both measurements agree on a command.
         if low <= high:
-          self.angle.native_curvature_bounds = (low, high)
+          angle.native_curvature_bounds = (low, high)
     packets, applied = super().step_lateral(CC, CS, actuators, apply_curvature_last)
     return self._constrain_curvature(CC, CS, actuators, apply_curvature_last, packets, applied)
+
+  def order_can_sends(self, frames):
+    if (not self.starpilot_selected or self.curv.primary_lateral_control != PrimaryLateralControl.angle or
+        self.frame % CarControllerParams.STEER_STEP or self.frame % CarControllerParams.LKA_STEP):
+      return frames
+    lka, lmc = [], []
+    steering_address = 0x3D6 if self.CP.flags & FordFlags.CANFD else 0x3D3
+    for index, (address, data, bus) in enumerate(frames):
+      if bus == self.CAN.main and len(data) == 8:
+        if address == 0x3CA:
+          lka.append(index)
+        elif address == steering_address:
+          lmc.append(index)
+    if len(lka) != 1 or len(lmc) != 1 or lka[0] < lmc[0]:
+      return frames
+    # Both were computed this tick; Panda must see the current shadow before its steering command.
+    reordered = list(frames)
+    reordered.insert(lmc[0], reordered.pop(lka[0]))
+    return reordered
 
   def _constrain_curvature(self, CC, CS, actuators, apply_curvature_last, packets, applied):
     state = CS.out

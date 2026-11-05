@@ -95,7 +95,9 @@ def test_pinion_guard_preserves_host_and_native_bounds(car, speed, sign, ratio, 
       assert controller.bp.angle.native_curvature_bounds is None
     else:
       assert not blocked, blocked
-      low, high = controller.bp.angle.native_curvature_bounds
+      bounds = controller.bp.angle.native_curvature_bounds
+      assert bounds is not None
+      low, high = bounds
       assert low <= controller.bp.angle.bp_kappa_cmd <= high
       measured = controller.bp.inputs.get_current_curvature(state)
       assert abs(controller.bp.angle.bp_kappa_cmd - measured) <= CarControllerParams.CURVATURE_ERROR + 1e-12

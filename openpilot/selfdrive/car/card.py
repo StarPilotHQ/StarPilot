@@ -92,7 +92,7 @@ from openpilot.starpilot.feature_runtime import (requested as feature_requested,
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.vehicle_selection import startup_candidate
 from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
-from openpilot.starpilot.controller_extensions import configure_controller, observe_controller_can
+from openpilot.starpilot.controller_extensions import configure_controller, observe_controller_can, order_controller_can
 from openpilot.starpilot.vehicle_startup import VehicleStartupOwner
 from openpilot.starpilot.controllers.wheel_actions import WheelPublisher, key_for
 from openpilot.starpilot.controllers.cruise_action import CruiseActionConsumer, eligible as cruise_action_eligible
@@ -1472,6 +1472,8 @@ class Car:
       self._clear_learning_evidence()
 
   def publish_sendcan(self, frames, valid=True):
+    if valid:
+      frames = order_controller_can(getattr(self, 'CI', None), frames)
     steering_authority = getattr(getattr(getattr(self, 'CI', None), 'CS', None), 'steering_authority', None)
     monitored_steering = (getattr(getattr(self, 'CP', None), 'brand', None) == 'gm' and
                           steering_authority is not None and steering_authority.enabled)
@@ -1902,10 +1904,8 @@ class Car:
       time.sleep(0.1)
 
   def card_thread(self):
-    self._cycle_timing = None
-    if os.getenv('CARD_TIMING') == '1':
-      from openpilot.starpilot.diagnostics.card_timing import CardTiming
-      self._cycle_timing = CardTiming(cloudlog.event)
+    from openpilot.starpilot.diagnostics.card_timing import CardTiming
+    self._cycle_timing = CardTiming(cloudlog.event)
     self.configure_conditional_settings_worker()
     e = threading.Event()
     t = threading.Thread(target=self.params_thread, args=(e, ))

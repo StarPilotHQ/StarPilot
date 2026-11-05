@@ -34,7 +34,9 @@ FORD_BLUEPILOT_TARGETS = (
 
 # Ordinary native suites include inherited, intentionally unsupported cases; RELEASE preserves those skips.
 FORD_BLUEPILOT_NATIVE_TARGETS = tuple(str(path.relative_to(ROOT)) for path in sorted(
-  (ROOT / 'opendbc_repo/opendbc/bluepilot_lateral/safety/tests').glob('test_*.py')))
+  (ROOT / 'opendbc_repo/opendbc/bluepilot_lateral/safety/tests').glob('test_*.py'))) + (
+  'openpilot/starpilot/tests/test_ford_starpilot_ordering.py',
+)
 
 # Representative production callers plus their source/native refusal cases.
 # The emitted selected_test_ids record exact parametrized configurations.

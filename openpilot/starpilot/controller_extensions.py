@@ -180,3 +180,12 @@ def observe_controller_can(CI, can_list):
     from openpilot.starpilot.car.ford.bluepilot import FordBluePilotController
     if isinstance(getattr(controller, 'bp', None), FordBluePilotController):
       controller.bp.observe_can(can_list)
+
+
+def order_controller_can(CI, frames):
+  controller = getattr(CI, "CC", None)
+  if controller is not None and getattr(getattr(CI, 'CP', None), 'brand', None) == 'ford':
+    from openpilot.starpilot.car.ford.bluepilot import FordBluePilotController
+    if isinstance(getattr(controller, 'bp', None), FordBluePilotController):
+      return controller.bp.order_can_sends(frames)
+  return frames
