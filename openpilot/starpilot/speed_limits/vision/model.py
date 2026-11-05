@@ -267,6 +267,25 @@ class HistoryEntry:
   created_at: float
   strong_consensus: bool = False
 
+def _primary_regulatory_panel(image):
+  height, width = image.shape[:2]
+  if image.dtype != np.uint8 or width < 24 or height < 1.8 * width:
+    return image
+
+  gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+  _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+  for foreground in (mask >= 128, mask < 128):
+    occupied = foreground[:, int(width * .2):int(width * .8)].mean(1) > .8
+    edges = np.diff(np.r_[False, occupied, False].astype(np.int8))
+    runs = list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1), strict=False))
+    for (top, bottom), (next_top, next_bottom) in zip(runs, runs[1:], strict=False):
+      if (top <= .3 * width and .75 * width <= bottom - top <= 1.6 * width and
+          next_bottom - next_top >= .5 * width and .02 * width <= next_top - bottom <= .15 * width):
+        # Keep a separate lower plate, such as MINIMUM, out of the number reader.
+        return image[:min(height, int(bottom + .03 * width))]
+  return image
+
+
 class VisionModelCore:
   """The frozen active detector/classifier path, with no camera or Params ownership."""
 
@@ -692,6 +711,7 @@ class VisionModelCore:
     speed_class_count = len(US_CLASSIFIER_SPEED_VALUES)
 
     input_size = self.classifier_input_size
+    sign_crop = _primary_regulatory_panel(sign_crop)
     padded_crop = self._square_resize(sign_crop, size=input_size)
     blob = cv2.dnn.blobFromImage(padded_crop, scalefactor=1 / 255.0, size=(input_size, input_size), swapRB=True, crop=False)
     self.classifier_net.setInput(blob)
