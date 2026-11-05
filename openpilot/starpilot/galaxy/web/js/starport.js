@@ -7,7 +7,7 @@ import { connectionError } from "./polling.js"
 import { BluetoothDeviceList } from "./bluetooth-devices.js"
 import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 import { GalaxySettingRow, switchRow } from "./galaxy-setting-row.js"
-import { StarPortGuidedSetup, guidedState } from "./starport-guided.js"
+import { StarPortGuidedSetup, guidedState, handshakeResettable } from "./starport-guided.js"
 
 export function uploadTimeout(bytes) {
   return Math.max(180000, Math.ceil(bytes / (64 * 1024)) * 1000)
@@ -386,7 +386,7 @@ export class StarPortFeed {
 
   async control(action, extra = {}) {
     if (!this.active || this.busy || !this.setup?.enabled || this.pairing?.active ||
-      !["start", "stop", "select_receiver", "auto_connect", "connection", "car_type", "car_profile"].includes(action)) return false
+      !["start", "stop", "select_receiver", "auto_connect", "connection", "car_type", "car_profile", "reset_handshake"].includes(action)) return false
     const result = await this.request("./api/starport/control", {
       method: "POST",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra })
@@ -635,6 +635,7 @@ export const StarPortPage = {
         !(this.adapterSetup && this.runtime?.car_profile_source !== "override"))
     },
     newSetup() { return this.setup?.newSetup !== false },
+    canResetHandshake() { return !this.wired && !this.app && !!this.selected && handshakeResettable(this.runtime?.setup_ladder) },
     guided() {
       return guidedState({ setup: this.setup, runtime: this.runtime, selected: this.selected, receivers: this.receivers, wired: this.wired,
         app: this.app, carType: this.carType, setupDone: this.setupDone, pairingActive: !!this.pairing?.active, editing: this.showSteps,
@@ -788,6 +789,7 @@ export const StarPortPage = {
     chooseAdapter(key) { this.showSteps = true; return this.saveAdapter(0, ADAPTER_MODELS[key]) },
     chooseApp(key) { this.showSteps = true; return this.saveApp(0, HEAD_UNIT_APPS[key]) },
     useClassic() { return this.feed.setNewSetup(false) },
+    resetHandshake() { return this.control("reset_handshake") },
     useGuided() { return this.feed.setNewSetup(true) },
     saveCarType(index, value) {
       const labels = this.carTypeLabels
@@ -967,7 +969,7 @@ export const StarPortPage = {
           </div>
         </section>
       <StarPortGuidedSetup v-if="setup && newSetup && guided.show" id="gx-starport-guided" :state="guided" :busy="busy" :choices-disabled="appDisabled"
-        @choose-type="chooseType" @choose-adapter="chooseAdapter" @choose-app="chooseApp" @use-car="useCar" @classic="useClassic" @done="showSteps = false">
+        @choose-type="chooseType" @choose-adapter="chooseAdapter" @choose-app="chooseApp" @use-car="useCar" @classic="useClassic" @reset-handshake="resetHandshake" @done="showSteps = false">
         <template #car>
           <GxNotice v-if="wiredUnavailable" tone="warn">Wired AA is unavailable: {{ runtime.wired_blocked }}.</GxNotice>
           <template v-if="carType === 'usb'">
@@ -1059,6 +1061,9 @@ export const StarPortPage = {
             <a class="gx-btn gx-btn--tonal" href="#/theme_maker/starport"><i class="bi bi-layout-text-window" aria-hidden="true"></i> Customize Layout</a>
             <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showSteps" :aria-controls="newSetup ? 'gx-starport-guided' : 'gx-starport-steps'" @click="showSteps = !showSteps">
               <i :class="showSteps ? 'bi bi-chevron-up' : 'bi bi-gear'" aria-hidden="true"></i> {{ showSteps ? 'Hide Setup' : newSetup ? 'Change how your car connects' : 'Setup and Pairing' }}</button>
+            <button v-if="canResetHandshake" type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="resetHandshake"
+              title="Go back to the standard handshake. Your Bluetooth pairing is kept.">
+              <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Reset handshake</button>
           </div>
         </div>
       </section>

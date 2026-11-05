@@ -220,8 +220,7 @@ def session_setup(events: list[dict]) -> dict:
 
 
 def session_ladder(events: list[dict]) -> list[dict]:
-  """The handshake strategies tried in a session, in order, and how each ended (advanced, wrapped, exhausted, counted,
-  dropped, or worked). Kept for working pairings too: it is what shows which strategy a head unit likes."""
+  """Summarize attempted handshakes, outcomes, failure reasons and busy waits."""
   tried: list[dict] = []
   for event in events:
     name = event["event"]
@@ -230,6 +229,10 @@ def session_ladder(events: list[dict]) -> list[dict]:
                     "at_s": elapsed(events[0], event)})
     elif name == "ladder_failed" and tried:
       tried[-1]["outcome"] = str(event.get("outcome", ""))[:16]
+      if event.get("reason"):
+        tried[-1]["reason"] = str(event["reason"])[:16]
+    elif name == "ladder_not_ready" and tried:
+      tried[-1]["not_ready"] = tried[-1].get("not_ready", 0) + 1
     elif name == "ladder_worked" and tried:
       tried[-1].update(outcome="worked", streamed_s=event.get("streamed_s"), t_ready_s=event.get("t_ready_s"))
   return [{key: value for key, value in item.items() if value is not None} for item in tried[-12:]]

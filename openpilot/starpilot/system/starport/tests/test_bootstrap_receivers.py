@@ -185,3 +185,52 @@ def test_version_four_head_units_get_a_phone_shaped_version_reply():
 def test_older_head_units_and_the_first_try_keep_the_reply_that_works_today():
   for reply in (version_reply(FORD_V16), version_reply(KIA_V41, modern=False)):
     assert reply[4] == [0] and 5 not in reply and 6 not in reply
+
+
+# The version request a Mavlou wireless dongle sent a phone (Bluetooth capture): protocol 4.0, 5 GHz channels, its endpoint.
+MAVLOU_V40 = (field(1, 4) + field(2, 0) + field(3, 0) + b"".join(field(4, channel) for channel in (5180, 5200, 5745, 5825, 5720)) +
+              field(5, b"") + field(6, field(1, "192.168.1.101") + field(2, 1234)))
+
+
+def test_the_phone_identity_reply_matches_what_a_phone_sent_the_mavlou_dongle():
+  boot, _ = scripted([])
+  boot.modern_reply, boot.phone_identity, boot.phone_address = True, True, "AA:BB:CC:DD:EE:FF"
+  sent = []
+  boot.send = Mock(side_effect=lambda message_id, payload=b"": sent.append(payload))
+  boot.next_frame = Mock(side_effect=[(bs.WIFI_VERSION_REQUEST, MAVLOU_V40), bs.BootstrapError("wifi_start", "stop")])
+  with pytest.raises(bs.BootstrapError):
+    boot.run(slow_join(0, []))
+  reply = bs.parse_fields(sent[0])
+  assert reply[1] == [4] and reply[2] == [0] and reply[4] == [0] and 5 not in reply
+  assert len(bs.text(reply, 3)) == 8
+  identity = bs.parse_fields(reply[6][0])
+  assert len(bs.text(identity, 1)) == 36 and len(bs.text(identity, 2)) == 36
+  assert bs.text(identity, 3) == "starpilot" and bs.text(identity, 4) == "AA:BB:CC:DD:EE:FF"
+
+
+def test_the_phone_identity_reply_needs_protocol_four_and_leaves_out_an_unknown_address():
+  assert version_reply(FORD_V16)[4] == [0] and 6 not in version_reply(FORD_V16)
+  boot, _ = scripted([])
+  boot.modern_reply, boot.phone_identity = True, True
+  reply = bs.parse_fields(boot._version_response(4, 0, MAVLOU_V40))
+  assert 4 not in bs.parse_fields(reply[6][0])
+
+
+def test_phone_identity_is_sent_but_never_hex_logged_even_with_experiments():
+  records = []
+  address = "AA:BB:CC:DD:EE:FF"
+  boot = bs.WirelessBootstrap(Mock(), lambda event, **values: records.append((event, values)),
+                             modern_reply=True, phone_identity=True, phone_address=address, experiment="all")
+  reply = boot._version_response(4, 0, MAVLOU_V40)
+  boot.send(bs.WIFI_VERSION_RESPONSE, reply)
+  assert address.encode() in reply
+  assert records and not any("hex" in values for _, values in records)
+  boot.sock.sendall.assert_called_once()
+
+
+def test_early_wifi_credentials_show_the_version_reply_was_accepted():
+  boot, _ = scripted([(bs.WIFI_VERSION_REQUEST, MAVLOU_V40), (bs.WIFI_INFO_RESPONSE, INFO),
+                      bs.BootstrapClosed("wifi_start", "closed after credentials")])
+  with pytest.raises(bs.BootstrapClosed) as error:
+    boot.run(slow_join(0, []))
+  assert boot.stage == "wifi_start" and not boot.hung_up_on_reply(error.value)

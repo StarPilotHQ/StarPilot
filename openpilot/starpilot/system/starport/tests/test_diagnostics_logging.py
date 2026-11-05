@@ -463,3 +463,39 @@ def test_session_log_full_queue_close_then_reopen_retires_old_writer(tmp_path, m
   second = [json.loads(line) for line in files[1].read_text().splitlines()]
   assert [item["event"] for item in first] == ["first", "first"]
   assert [item["event"] for item in second] == ["second"]
+
+
+def test_bundle_carries_the_handshake_ladder_state_without_addresses(tmp_path):
+  logs = tmp_path / "logs"
+  logs.mkdir()
+  write_log(logs, "session-000025-20260928-141351.jsonl", CIVIC_SESSION)
+  config = tmp_path / "config.json"
+  config.write_text(json.dumps({"config_version": 2, "receiver_address": "AA:BB:CC:DD:EE:FF", "receiver_name": "Honda CIVIC"}))
+  (tmp_path / "setup_state.json").write_text(json.dumps({"version": 1, "cars": {
+    "AA:BB:CC:DD:EE:FF": {"rung": "standard", "last_good": {"rung": "standard"}, "rejected": ["other_reply"]},
+    "11:22:33:44:55:66": {"rung": "patient"}}}))
+  with zipfile.ZipFile(io.BytesIO(compat_report.bundle(logs, config, snapshot=None))) as archive:
+    shared = archive.read("setup_state.json").decode()
+  assert "AA:BB:CC:DD:EE:FF" not in shared and "11:22:33:44:55:66" not in shared
+  cars = json.loads(shared)["cars"]
+  assert [(car["chosen"], car["rung"]) for car in cars] == [(True, "standard"), (False, "patient")]
+  assert cars[0]["rejected"] == ["other_reply"]
+
+
+def test_bundle_without_a_ladder_state_has_no_setup_state_file(tmp_path):
+  logs = tmp_path / "logs"
+  logs.mkdir()
+  write_log(logs, "session-000025-20260928-141351.jsonl", CIVIC_SESSION)
+  with zipfile.ZipFile(io.BytesIO(compat_report.bundle(logs, tmp_path / "config.json", snapshot=None))) as archive:
+    assert "setup_state.json" not in archive.namelist()
+
+
+def test_setup_state_export_uses_bounded_regular_file_reads(tmp_path, monkeypatch):
+  path = tmp_path / "setup_state.json"
+  path.write_text(json.dumps({"version": 1, "cars": {}}))
+  assert compat_report.shareable_setup_state(path) == {"version": 1, "cars": []}
+  link = tmp_path / "state-link.json"
+  link.symlink_to(path)
+  assert compat_report.shareable_setup_state(link) is None
+  monkeypatch.setattr(compat_report, "MAX_LOG_BYTES", 8)
+  assert compat_report.shareable_setup_state(path) is None

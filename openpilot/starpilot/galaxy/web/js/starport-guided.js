@@ -65,6 +65,14 @@ export function handshakeSteps(ladder) {
   return interesting ? steps.map((step) => ({ id: String(step.id), label: step.label, state: String(step.state) })) : []
 }
 
+// Reset learned or failed handshakes without re-pairing.
+export function handshakeResettable(ladder) {
+  if (!ladder || typeof ladder !== "object") return false
+  const steps = Array.isArray(ladder.steps) ? ladder.steps : []
+  return (typeof ladder.current === "string" && ladder.current !== "standard") ||
+    steps.some((step) => step && (step.state === "failed" || step.state === "skipped"))
+}
+
 // The three steps always shown at the top: the package, the car (choice and pairing), and the connection.
 export function setupSteps({ installed, carDone, live, carType }) {
   const state = (done, current) => (done ? "done" : current ? "current" : "todo")
@@ -86,7 +94,7 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
   const connecting = !!runtime?.running && CONNECTING.has(state)
   const installed = !!setup?.identity?.installed
   const steps = setupSteps({ installed, carDone: setupDone, live: state === "streaming", carType })
-  const base = { show: false, phase: "live", title: "", detail: "", choices: [], carType, candidates: [], progress: [], handshake: [],
+  const base = { show: false, phase: "live", title: "", detail: "", choices: [], carType, candidates: [], progress: [], handshake: [], canResetHandshake: false,
     notice: "", exhausted: false, hint: null, steps, adapter: null, apps: null, editing: false }
   if (setup === null) return base
   const hint = BLUETOOTH_FIRST.test(String(runtime?.error || "")) ? BLUETOOTH_HINT : null
@@ -95,6 +103,7 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
     return { ...base, show: true, phase: "connecting", title: runtime?.label || "Connecting to your car",
       detail: runtime?.detail || "Keep your car’s screen on. We’ll move to the next step automatically.",
       progress: connectionStages(runtime), handshake: handshakeSteps(ladder), exhausted: !!ladder?.exhausted,
+      canResetHandshake: (runtime?.connection || "wireless") === "wireless" && handshakeResettable(ladder),
       notice: ladder?.exhausted ? EXHAUSTED_NOTICE : firstRun ? FIRST_RUN_NOTICE : "", hint }
   }
   if (setupDone && !editing) {
@@ -125,7 +134,7 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
 export const StarPortGuidedSetup = {
   props: { state: { type: Object, required: true }, busy: { type: Boolean, default: false },
     choicesDisabled: { type: Boolean, default: false } },
-  emits: ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "done"],
+  emits: ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "reset-handshake", "done"],
   template: `
     <section class="gx-card gx-guided" :data-phase="state.phase" aria-label="Guided StarPort setup">
       <ol class="gx-guided__steps" aria-label="Setup progress">
@@ -217,6 +226,9 @@ export const StarPortGuidedSetup = {
             <span class="gx-starport-row__text"><strong>{{ step.label }}</strong></span>
           </li>
         </ol>
+        <button v-if="state.canResetHandshake" type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="$emit('reset-handshake')">
+          <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Start over with the standard handshake</button>
+        <p v-if="state.canResetHandshake" class="gx-guided__hint">Your Bluetooth pairing is kept.</p>
       </details>
 
       <p v-if="state.notice" class="gx-guided__callout gx-guided__callout--quiet" role="status">{{ state.notice }}</p>

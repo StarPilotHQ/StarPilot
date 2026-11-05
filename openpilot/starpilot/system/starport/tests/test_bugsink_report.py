@@ -509,6 +509,18 @@ def test_report_shows_what_the_ladder_tried_and_what_worked(tmp_path):
   assert br.session_record(write_session(tmp_path, 2, STREAMED))["ladder"] == []   # older logs report nothing, without error
 
 
+def test_report_says_why_a_rung_failed_and_how_often_the_car_was_only_busy(tmp_path):
+  events: list = [list(item) for item in STREAMED]
+  events.insert(1, (0, 1, "ladder_strategy", {"rung": "standard", "learned": True}))
+  events.insert(2, (0, 60, "ladder_not_ready", {"rung": "standard", "refusals": 11}))
+  events.insert(3, (0, 61, "ladder_strategy", {"rung": "standard", "learned": True}))
+  events.insert(4, (0, 62, "ladder_strategy", {"rung": "other_reply", "learned": False}))
+  events.insert(5, (0, 62, "ladder_failed", {"outcome": "reverted", "rung": "other_reply", "reason": "rejected_reply"}))
+  ladder = br.session_record(write_session(tmp_path, 1, events))["ladder"]
+  assert ladder[0]["not_ready"] == 1 and "outcome" not in ladder[0]
+  assert (ladder[2]["outcome"], ladder[2]["reason"]) == ("reverted", "rejected_reply")
+
+
 def test_report_says_how_the_rfcomm_channel_was_found(tmp_path):
   events: list = [list(item) for item in STREAMED]
   events.insert(1, (0, 1, "sdp_retry", {"error": "x"}))
