@@ -226,7 +226,8 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         if alpha and not cp.autoResumeSng:
           assert cp.minEnableSpeed > 0 and not command.longActive
         if alpha and engage_on_set and cp.autoResumeSng:
-          assert axis.desiredLongitudinal and axis.longitudinalActive and command.longActive, ("VW_STOP_LONG_DROPPED", tick, gearbox, alpha, permission, request, axis.to_dict(), list(sd.events.names))
+          assert axis.desiredLongitudinal and axis.longitudinalActive and command.longActive, (
+            "VW_STOP_LONG_DROPPED", tick, gearbox, alpha, permission, request, axis.to_dict(), list(sd.events.names))
       if stop_and_resume and 60 <= tick < 65:
         assert command.latActive and card.aol_card_intent.allowed_latch
       request = int(axis.desiredLateral) | (int(axis.desiredLongitudinal) << 1)
