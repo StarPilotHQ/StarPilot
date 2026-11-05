@@ -1,5 +1,6 @@
 """The setup ladder moves only when a car that answered the handshake refuses it before any video; nothing else moves it."""
 import json
+from collections.abc import Iterable
 
 import pytest
 
@@ -400,7 +401,7 @@ def test_a_close_after_startup_was_accepted_does_not_reject_the_reply(stage):
   assert not boot.hung_up_on_reply(bs.BootstrapClosed(stage, "closed"))
 
 
-def _failing_bootstrap(monkeypatch, sup, error, refusals=()):
+def _failing_bootstrap(monkeypatch, sup, error, refusals: Iterable[int] = ()):
   from openpilot.starpilot.system.starport import bootstrap as bs
   from openpilot.starpilot.system.starport import supervisor as module
   replies = []

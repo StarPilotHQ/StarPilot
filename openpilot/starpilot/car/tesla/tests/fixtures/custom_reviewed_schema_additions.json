@@ -1,6 +1,6 @@
 {
-  "reviewed_schema_commit": "0571890b8e6d023050ae0ec1e0c5fa9163422568",
-  "reviewed_schema_sha256": "b550872e5398607440881cd24ee143fedba9a674f1ec64d1ba1f8874786de7c5",
+  "reviewed_schema_commit": "0cc9ddddfe89ba679a96e6947e2cc3f9aaf58130",
+  "reviewed_schema_sha256": "3ccbe13345df6d797830e9cb66cdf7f925c3681958967ed54be023b46fcfa488",
   "incumbent_fixture_sha256": "a36ab54c00b5bbe61d520873d24aadfb8f33babd70c31a07046516d5545838d9",
   "types": {
     "0xf35cc4560bbf6ec2": {
@@ -716,13 +716,62 @@
           }
         }
       ]
+    },
+    "0xe4b42a95dcb60d90": {
+      "kind": "struct",
+      "before_name": "StarPilotCarControl.Navigation.Instruction",
+      "after_name": "StarPilotCarControl.Navigation.Instruction",
+      "old_field_count": 6,
+      "old_storage": {
+        "dataWordCount": 2,
+        "pointerCount": 3,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 2,
+        "pointerCount": 4,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 3,
+            "type": {
+              "list": {
+                "elementType": {
+                  "struct": {
+                    "typeId": 17182543244013116018
+                  }
+                }
+              }
+            },
+            "defaultValue": {
+              "schemaValueHex": "000000000400000000000000020001000e0000000000000000000000000000000000000000000000"
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "lanes",
+          "codeOrder": 6,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 6
+          }
+        }
+      ]
     }
   },
   "published_addition_commits": {
     "slc": "ab8368f287b78b42f8590722878c7d5834609e19",
     "flm": "b151ca11cb4d88f32d7adfdbcff50baf29f4fbbc",
     "tesla_cooperative_steering": "63beafc6af294d0759b47dc3bc546f24082a2a5d",
-    "vision_stop_signs": "0571890b8e6d023050ae0ec1e0c5fa9163422568"
+    "vision_stop_signs": "0571890b8e6d023050ae0ec1e0c5fa9163422568",
+    "navigation_lanes": "0cc9ddddfe89ba679a96e6947e2cc3f9aaf58130"
   },
-  "review_basis": "Published SLC, FLM, and Tesla cooperative-steering additions. Every incumbent wire field descriptor and enum prefix was independently checked unchanged; only the exact typed deltas listed here are permitted. Tesla adds steeringLimitInfo @39 at pointer slot 6 using the existing SteeringLimitInfo type. ToyotaCruise @38 retains pointer slot 5, type, and default; only its declaration codeOrder changes from 38 to 39. Published vision stop-sign addition appends VisionObservation.stopSigns @12 at pointer slot 2 with StopObservation type 0xb41e843c9023fcf8 and a null struct default. All 12 incumbent descriptors and nested Status/Stream types remain unchanged; data words stay 6 and pointers grow from 2 to 3. Old-reader relay preserves the populated stop observation and incumbent fields."
+  "review_basis": "Published SLC, FLM, and Tesla cooperative-steering additions. Every incumbent wire field descriptor and enum prefix was independently checked unchanged; only the exact typed deltas listed here are permitted. Tesla adds steeringLimitInfo @39 at pointer slot 6 using the existing SteeringLimitInfo type. ToyotaCruise @38 retains pointer slot 5, type, and default; only its declaration codeOrder changes from 38 to 39. Published vision stop-sign addition appends VisionObservation.stopSigns @12 at pointer slot 2 with StopObservation type 0xb41e843c9023fcf8 and a null struct default. All 12 incumbent descriptors and nested Status/Stream types remain unchanged; data words stay 6 and pointers grow from 2 to 3. Old-reader relay preserves the populated stop observation and incumbent fields. Published navigation lane guidance appends Instruction.lanes @6 at pointer slot 3 as List(Navigation.Lane), type 0xee74a80b1d309a72, with a null list default. All six incumbent descriptors remain unchanged; data words stay 2 and pointers grow from 3 to 4. The new Lane type has one data word and two pointers, with active @0 :Bool, directions @1 :List(Text), and activeDirection @2 :Text; its compiled ID and layout are pinned separately. Old-reader relay preserves empty and populated lane lists on both instruction and nextManeuver, along with all incumbent parent fields."
 }

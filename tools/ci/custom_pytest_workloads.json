@@ -102,7 +102,7 @@
       "guard_source_blob": "b78ee1c0d246edcb22141b4db1b7500d4deb45c6",
       "guard_source_path": "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "e6d250fc454f44298286e05acd361bf11ffb6063"
+      "source_blob": "cf7f248093d8889e02727f96f457317ea4ce84a3"
     },
     "openpilot/starpilot/ui/tests/test_onroad_map.py::test_overlay_opacity_fades_map_background": {
       "basis": "Existing map fixture alias gl=test_gpu_nv12.gpu; both consumer and shared guard definition pinned; unavailable remains SKIPPED, never passed",
@@ -110,7 +110,7 @@
       "guard_source_blob": "b78ee1c0d246edcb22141b4db1b7500d4deb45c6",
       "guard_source_path": "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "e6d250fc454f44298286e05acd361bf11ffb6063"
+      "source_blob": "cf7f248093d8889e02727f96f457317ea4ce84a3"
     },
     "openpilot/starpilot/ui/tests/test_onroad_map.py::test_overlay_without_gps_waits_without_drawing_roads": {
       "basis": "Existing map fixture alias gl=test_gpu_nv12.gpu; both consumer and shared guard definition pinned; unavailable remains SKIPPED, never passed",
@@ -118,7 +118,7 @@
       "guard_source_blob": "b78ee1c0d246edcb22141b4db1b7500d4deb45c6",
       "guard_source_path": "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "e6d250fc454f44298286e05acd361bf11ffb6063"
+      "source_blob": "cf7f248093d8889e02727f96f457317ea4ce84a3"
     },
     "openpilot/starpilot/ui/tests/test_onroad_map.py::test_route_stays_bright_at_minimum_map_opacity": {
       "basis": "Existing map fixture alias gl=test_gpu_nv12.gpu; both consumer and shared guard definition pinned; unavailable remains SKIPPED, never passed",
@@ -126,7 +126,7 @@
       "guard_source_blob": "b78ee1c0d246edcb22141b4db1b7500d4deb45c6",
       "guard_source_path": "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "e6d250fc454f44298286e05acd361bf11ffb6063"
+      "source_blob": "cf7f248093d8889e02727f96f457317ea4ce84a3"
     }
   },
   "independent_functions": {

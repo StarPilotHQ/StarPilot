@@ -203,7 +203,9 @@ def test_the_phone_identity_reply_matches_what_a_phone_sent_the_mavlou_dongle():
   reply = bs.parse_fields(sent[0])
   assert reply[1] == [4] and reply[2] == [0] and reply[4] == [0] and 5 not in reply
   assert len(bs.text(reply, 3)) == 8
-  identity = bs.parse_fields(reply[6][0])
+  identity_payload = reply[6][0]
+  assert isinstance(identity_payload, bytes)
+  identity = bs.parse_fields(identity_payload)
   assert len(bs.text(identity, 1)) == 36 and len(bs.text(identity, 2)) == 36
   assert bs.text(identity, 3) == "starpilot" and bs.text(identity, 4) == "AA:BB:CC:DD:EE:FF"
 
@@ -213,7 +215,9 @@ def test_the_phone_identity_reply_needs_protocol_four_and_leaves_out_an_unknown_
   boot, _ = scripted([])
   boot.modern_reply, boot.phone_identity = True, True
   reply = bs.parse_fields(boot._version_response(4, 0, MAVLOU_V40))
-  assert 4 not in bs.parse_fields(reply[6][0])
+  identity_payload = reply[6][0]
+  assert isinstance(identity_payload, bytes)
+  assert 4 not in bs.parse_fields(identity_payload)
 
 
 def test_phone_identity_is_sent_but_never_hex_logged_even_with_experiments():
