@@ -13,7 +13,7 @@ MAX_FRAME_AGE_NS = 250_000_000
 # Bound sign-processing latency independently of raw camera admission.
 MAX_RESULT_AGE_NS = 2_000_000_000
 MAX_PAIR_SKEW_NS = 5_000_000
-MODEL_ID = "e94f0ef60ce6c631fb69e449b86d50f07518d0031d7d4ec84db912618697d3ed:07c6696e530eb940d2757d5849b4bc0f1d785cda704e5296e18c0a94959f30a5"
+MODEL_ID = "ac735518a3d32108dee9a112ec2f740c2ed573daac22798525ecbbbbc0ed6606:5d861067ab8f50986488f983cbc24f78527775d37af0b9740c5545d5f3173902"
 
 
 def clock_pair_ns() -> tuple[int, int] | None:

@@ -272,7 +272,7 @@ class VisionModelCore:
 
   ASSET_DIR = Path(__file__).resolve().parent / "assets"
   DETECTOR_SHA256 = "82408b68c79c269296f0af942130c5383cace4ee06c78e2a4690e8488720116a"
-  CLASSIFIER_SHA256 = "07c6696e530eb940d2757d5849b4bc0f1d785cda704e5296e18c0a94959f30a5"
+  CLASSIFIER_SHA256 = "5d861067ab8f50986488f983cbc24f78527775d37af0b9740c5545d5f3173902"
   DETECTOR_SIZE = 256
   CLASSIFIER_SIZE = 128
 
@@ -283,12 +283,15 @@ class VisionModelCore:
     self.net = self._load_net("speed_limit_us_detector.onnx", self.DETECTOR_SHA256)
     self.classifier_net = self._load_net("speed_limit_us_value_classifier.onnx", self.CLASSIFIER_SHA256)
     self._validate_model_abi()
+    self.classifier_logits_layer = ("onnx_node!/model.10/linear/Gemm"
+                                    if self.classifier_net.getLayerId("onnx_node!advisory/AddReject") > 0 else None)
     self.detector_input_size = self.DETECTOR_SIZE
     self.classifier_input_size = self.CLASSIFIER_SIZE
     self.last_detector_forward_count = 0
     self.last_detector_forward_duration_s = 0.0
     self.last_classifier_forward_count = 0
     self.last_classifier_forward_duration_s = 0.0
+    self.last_classifier_advisory_rejected = False
     self.temporal_tracking_enabled = False
     self.latest_detector_proposal = None
     self.history: deque[HistoryEntry] = deque()
@@ -304,6 +307,7 @@ class VisionModelCore:
   def reset(self) -> None:
     """Discard evidence from a previous camera, stream or sign-unit setting."""
     self.history.clear()
+    self.last_classifier_advisory_rejected = False
     self.latest_detector_proposal = None
     self.published_speed_limit_mph = 0
     self.published_confidence = 0.0
@@ -667,6 +671,7 @@ class VisionModelCore:
 
 
   def _classify_speed_limit_from_model(self, sign_crop):
+    self.last_classifier_advisory_rejected = False
     if self.classifier_net is None or sign_crop.size == 0:
       return None
 
@@ -678,7 +683,17 @@ class VisionModelCore:
     self.classifier_net.setInput(blob)
 
     forward_started_at = time.monotonic()
-    scores = np.array(self.classifier_net.forward()).reshape(-1)
+    logits_layer = getattr(self, "classifier_logits_layer", None)
+    original_probabilities = None
+    if logits_layer is not None:
+      output, original_logits = self.classifier_net.forward(['output0', logits_layer])
+      original_logits = np.asarray(original_logits).reshape(-1)
+      if original_logits.size != speed_class_count + 1 or not np.isfinite(original_logits).all():
+        raise ValueError("Invalid original classifier logits")
+      original_probabilities = self._normalize_classifier_output(original_logits)
+    else:
+      output = self.classifier_net.forward()
+    scores = np.asarray(output).reshape(-1)
     self.last_classifier_forward_count += 1
     self.last_classifier_forward_duration_s += time.monotonic() - forward_started_at
     has_reject_class = scores.size == speed_class_count + 1
@@ -691,6 +706,10 @@ class VisionModelCore:
     confidence = float(speed_probabilities[class_index])
     speed_limit = US_CLASSIFIER_SPEED_VALUES[class_index]
     if has_reject_class and float(probabilities[speed_class_count]) >= max(confidence, US_CLASSIFIER_REJECT_MIN_CONFIDENCE):
+      self.last_classifier_advisory_rejected = bool(
+        original_probabilities is not None and float(np.max(original_probabilities[:speed_class_count])) >= .98 and
+        float(probabilities[speed_class_count]) >= .90
+      )
       return None
     minimum_confidence = (
       EXTENDED_CLASSIFIER_MIN_CONFIDENCE if speed_limit in EXTENDED_CLASSIFIER_SPEED_VALUES else US_CLASSIFIER_MIN_CONFIDENCE
@@ -705,10 +724,21 @@ class VisionModelCore:
     frame_height, frame_width = frame_bgr.shape[:2]
     best_detection = None
     best_score = 0.0
+    rejected_advisory_boxes: list[tuple[int, int, int, int]] = []
 
     for proposal_confidence, class_id, (x1, y1, x2, y2) in self._collect_detector_classifier_proposals(frame_bgr):
       if class_id == 1:
         continue
+      if class_id == 0:
+        duplicate_advisory = False
+        for rx1, ry1, rx2, ry2 in rejected_advisory_boxes:
+          overlap = max(0, min(x2, rx2) - max(x1, rx1)) * max(0, min(y2, ry2) - max(y1, ry1))
+          union = (x2 - x1) * (y2 - y1) + (rx2 - rx1) * (ry2 - ry1) - overlap
+          if union > 0 and overlap >= .75 * union:
+            duplicate_advisory = True
+            break
+        if duplicate_advisory:
+          continue
 
       box_width = x2 - x1
       box_height = y2 - y1
@@ -814,6 +844,12 @@ class VisionModelCore:
           is_regulatory = True
 
         model_read = self._classify_speed_limit_from_model(sign_crop)
+        if (class_id == 0 and not raw_is_regulatory and model_read is None and
+            getattr(self, "last_classifier_advisory_rejected", False)):
+          # A confident advisory veto applies to this object, not another crop of it.
+          speed_scores.clear()
+          rejected_advisory_boxes.append((x1, y1, x2, y2))
+          break
         trusted_model_read = (
           class_id == 0 and
           model_read is not None and

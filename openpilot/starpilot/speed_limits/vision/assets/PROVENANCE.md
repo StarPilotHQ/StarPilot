@@ -1,12 +1,12 @@
 The joint traffic-sign detector contains the original StarPilot US speed graph
 plus a separate STOP head. The vision producer uses one joint detector forward. Original speed graph weights,
-speed decoding, numeric classifier and resource scheduling are preserved.
+speed decoding, numeric digit logits and resource scheduling are preserved. The classifier adds a learned rejection-only residual.
 
 | File | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `traffic_signs_us_detector.onnx` | 9721639 | `e94f0ef60ce6c631fb69e449b86d50f07518d0031d7d4ec84db912618697d3ed` |
+| `traffic_signs_us_detector.onnx` | 9725014 | `ac735518a3d32108dee9a112ec2f740c2ed573daac22798525ecbbbbc0ed6606` |
 | `speed_limit_us_detector.onnx` | 9,605,948 | `82408b68c79c269296f0af942130c5383cace4ee06c78e2a4690e8488720116a` |
-| `speed_limit_us_value_classifier.onnx` | 6,229,930 | `07c6696e530eb940d2757d5849b4bc0f1d785cda704e5296e18c0a94959f30a5` |
+| `speed_limit_us_value_classifier.onnx` | 6,240,936 | `5d861067ab8f50986488f983cbc24f78527775d37af0b9740c5545d5f3173902` |
 
 The joint detector accepts the existing 256×256 RGB letterbox. `output0` remains the
 original `(1, 5, 1344)` speed output. `stop/output0` is `(1, 5, 4096)`, with four
@@ -28,16 +28,16 @@ Training used the recovered YOLO26n speed checkpoint
 with all backbone/speed weights frozen. LISA, GLARE, COCO and manually reviewed
 comma training scenes supplied STOP/negative examples. Original recording splits
 were retained for LISA/GLARE; augmented and low-light views inherited their source
-split. COCO splits were assigned by image identity. Real driving approaches used
-for evaluation were excluded from training. Public datasets overlap the pretrained
+split. COCO splits were assigned by image identity. Evaluation recordings were kept separate except for the development scenes
+explicitly promoted into training below. Public datasets overlap the pretrained
 backbone's ancestry and do not establish whole-model unseen-scene generalization.
 
 The STOP branch was trained for 30 epochs, selected epoch 20, then fine-tuned
 with mobile Hardswish activations; selected fine-tuning epoch 10.
-A final frozen-backbone hard-negative fine-tune selected epoch 4 of 12. Three
+The initial frozen-backbone hard-negative fine-tune selected epoch 4 of 12. Three
 previous development false positives (Do Not Enter / road closure) were explicitly
 promoted into training, with 195 augmented views; they are no longer held-out
-evidence. The final STOP checkpoint SHA-256 is
+evidence. That STOP checkpoint SHA-256 is
 `4fa350a2e7d177eb9b3f48cbeafd1d406560f7a7c77482eb3f61e90716f6f73c`, using Ultralytics 8.4.32, PyTorch 2.15.0, opset 12.
 Original Ultralytics author/license metadata is retained in the detector. Dataset
 source/license receipts and original recordings are retained with the training
@@ -78,3 +78,75 @@ another device timing pass. A declared-cost replay showed small latency changes
 can shift speed-sign sampling (73 to 69 correct reads in a 100-scene +5% cost
 scenario). Frozen speed outputs preserve per-frame accuracy but do not establish
 identical sampling, loaded-device performance or onroad stopping reliability.
+
+
+## Night and advisory rejection follow-up
+
+The STOP head was fine-tuned with frozen backbone/speed weights and frozen batch
+normalization statistics; selected epoch 6. Six reviewed night images and eight
+reviewed construction-warning negatives were explicitly assigned to training.
+Those recordings are development/training evidence, not independent test data.
+All existing source splits were retained, and original recordings were unchanged.
+
+A 313-parameter RGB rejection branch was added to the same detector forward:
+4x4 average pooling, a 3-to-8 channel 3x3 convolution, Hardswish, an 8-channel
+3x3 depthwise convolution, Hardswish, and an 8-to-1 pointwise convolution with
+Softplus. Its nonnegative output is subtracted from STOP logits before their
+sigmoid. The fine-tuned STOP head and box coordinates stay frozen. The rejection
+branch used 3,000 initial updates followed by 2,000 updates with positive-score
+margin preservation; no detector or confirmation threshold was relaxed.
+The original 402 speed nodes and 204 initializers remain byte-for-byte identical.
+
+In development replay at one source frame per second, five sampling phases and
+400ms assumed completion latency, the previously missed dark approach confirmed
+in all five phases. Existing approach confirmation was preserved. Two reviewed
+warning-sign sequences produced no confirmed STOP observations; isolated raw
+warning proposals can remain. The selected model retained all 108 reviewed strong
+STOP detections in an additional backlog sample and improved a teacher-selected
+difficult sample from 3 to 14 detections among 46 signs inside the existing crop.
+These are selected development samples, not exhaustive road recall estimates.
+The retained GLARE test split remained 36/46 IoU50 hits, one false detection,
+and no detections on its 50 negative images. Public pretraining ancestry limits
+whole-model generalization claims.
+
+The numeric classifier preserves all 147 original nodes preceding the final
+softmax and all 80 original initializers from classifier
+`07c6696e530eb940d2757d5849b4bc0f1d785cda704e5296e18c0a94959f30a5`.
+A 2,204-parameter residual uses frozen classifier features and original logits:
+a 256-to-8 pointwise convolution, Hardswish, concatenated original logits, a
+linear output and Softplus. The residual, scaled by 0.9, is added only to the
+reject logit. Original numeric logits and their ordering are unchanged for the
+same crop; numeric probabilities can decrease. Full-frame proposal selection
+and classifier workload are therefore evaluated separately.
+
+Classifier training retained the original numeric weights and used reviewed
+advisory negatives plus an immutable semantic-label overlay. Yellow advisory
+numerals previously labeled as regulatory speeds were corrected by visual sign
+identity, while warm-white regulatory and school signs were retained. Original
+images and train/validation assignments were not changed; validation examples
+were not used for gradient updates. The selected rejection checkpoint is update
+1,800. Additional validation annotation review was used for model selection.
+
+The 1,486-frame development replay retained all 395 previously correct reads
+among 472 regulatory frames and the same three wrong-value reads. Advisory false
+reads dropped from 137 to 43 among 167 advisory frames. No new numeric reads were
+introduced in the 845 reviewed reject-frame sample. All 1,858 previously accepted
+regulatory crops in the reviewed classifier validation set were retained.
+Classifier forwards were 6,108 before and 6,148 after in the full-frame replay;
+static accuracy preservation does not establish unchanged processing cadence.
+Resource placement, processing-cost cooldown, source freshness, confirmation,
+STOP expiry and braking policy remain unchanged. Closed-loop road behavior and
+co-load performance are not established by offline replay.
+
+
+The runtime retrieves the original classifier logits in the same classifier
+forward. A learned advisory veto can stop further crop expansions only for a
+non-regulatory-looking class-0 proposal whose original numeric probability is
+at least 0.98 and new reject probability at least 0.90. Previous tentative reads
+for that object are discarded. Duplicate class-0 proposals with IoU at least
+0.75 are skipped within that frame; other objects, school proposals and the next
+camera frame remain eligible. White regulatory crops keep their existing
+expansion fallback. Five focused tests cover the real classifier ABI, same-forward logits, invalid/generic
+rejections, duplicate-object scope and regulatory fallback. This reduces repeated
+classifier work after a confident advisory rejection; it does not change
+acceptance, confirmation, expiry or processing-cost cooldown thresholds.
