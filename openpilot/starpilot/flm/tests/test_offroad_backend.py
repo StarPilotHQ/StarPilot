@@ -81,7 +81,7 @@ class TestOffroadCache(unittest.TestCase):
         real_fsync = os.fsync
         calls = 0
 
-        def interrupted(fd):
+        def interrupted(fd, failure_at=failure_at, real_fsync=real_fsync):
           nonlocal calls
           calls += 1
           if calls == failure_at:

@@ -35,7 +35,7 @@ def record_drive(params, *, stopped, on_status=None):
       super().__init__(['extrinsicsCalibration', 'controlsState', 'carState', 'carControl', 'starpilotLateralState'])
 
     def update_msgs(self, cur_time, msgs):
-      packets = tuple(msgs)
+      packets = list(msgs)
       for packet in packets:
         if packet is not None:
           self.original[packet.which()] = packet

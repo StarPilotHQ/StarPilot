@@ -7,12 +7,12 @@ atomic source-bound save and next-drive comparison/rollback.
 
 import hashlib
 from pathlib import Path
+from typing import Any
 
 from openpilot.starpilot.flm.offroad_stable_policy import (
   FLMSample,
   StablePolicy,
   cadenced_runs,
-  classify_torque_samples,
   current_catalog,
   recommended_route_profile,
   ORIGINAL_COMMIT,
@@ -49,7 +49,7 @@ class StableRouteSelector:
     factors = [1.0 + previous[name] for name in CURVE_NAMES]
     # No old platform preset or invented baseline/friction curve is installed.
     self.policy = StablePolicy(self.catalog, {self.family: factors})
-    self.rows = None
+    self.rows: dict[str, list[FLMSample] | None] | None = None
     self.spans = {}
     self.contexts = {}
     for group in assessment.stable_groups:
@@ -160,10 +160,10 @@ class StableRouteSelector:
         or not RouteWindow(key, tuple(original_points[key])).valid()
         or abs(values[0].t * 1e9 - span['start_ns']) > MAX_GAP_NS
         or abs(values[-1].t * 1e9 - span['end_ns']) > MAX_GAP_NS
-        or any(not 0 < b.t - a.t <= MAX_GAP_NS / 1e9 + 1e-9 for a, b in zip(values, values[1:]))
+        or any(not 0 < b.t - a.t <= MAX_GAP_NS / 1e9 + 1e-9 for a, b in zip(values, values[1:], strict=False))
       ):
-        rows[key] = None
-    self.rows = rows
+        invalid.add(key)
+    self.rows = {key: None if key in invalid else values for key, values in rows.items()}
 
   def propose(self, group, cohort):
     ids = {role: tuple(cohort[role]['windows']) for role in ('training', 'heldout')}
@@ -175,11 +175,13 @@ class StableRouteSelector:
       raise ValueError('Disjoint original training and held-out windows required')
     if self.rows is None:
       self._load()
+    rows = self.rows
+    assert rows is not None
     all_ids = ids['training'] + ids['heldout']
-    if any(key not in self.rows or self.rows[key] is None for key in all_ids):
+    if any(key not in rows or rows[key] is None for key in all_ids):
       return None, {'reason': 'original_stable_input_fields_missing', 'original_windows': all_ids}
     mapped = {}
-    reports = {}
+    reports: dict[str, dict[str, Any]] = {}
     brand = str(self.assessment.cp.brand)
     family = 'gm' if brand == 'gm' else 'standard'
     if brand == 'hyundai':
@@ -193,7 +195,9 @@ class StableRouteSelector:
       selected = []
       unavailable = []
       for key in windows:
-        for run in cadenced_runs(self.rows[key]):
+        values = rows[key]
+        assert values is not None
+        for run in cadenced_runs(values):
           summaries, _ = classify_current_stable(list(run))
           for summary in summaries:
             # Capability-based exclusions affect proposals only. No scored

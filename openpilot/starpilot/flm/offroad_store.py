@@ -10,6 +10,7 @@ import json
 import math
 import os
 from pathlib import Path
+from typing import Any
 
 from openpilot.starpilot.flm.canonical_surface_adapter import (
   NAMES as CANONICAL_NAMES,
@@ -143,7 +144,7 @@ def remember(raw, row):
   from openpilot.starpilot.flm.learned_lifecycle import decode, encode
 
   scope = validate_row(row)
-  doc = decode(raw)
+  doc: dict[str, Any] = decode(raw)
   if doc['version'] == 1:
     doc = {'version': 3, 'profiles': doc['profiles'], 'fullSurfaces': {}, NAMESPACE: {}}
   elif doc['version'] == 2:

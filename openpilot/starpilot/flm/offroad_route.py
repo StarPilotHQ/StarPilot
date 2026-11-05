@@ -7,7 +7,6 @@ from pathlib import Path
 import re
 import time
 
-from openpilot.starpilot.flm.local_logs import read_closed_rlog
 from openpilot.starpilot.flm.log_decode import decode_full_rlog_segment
 from openpilot.starpilot.galaxy.drive_history import DriveHistory
 from openpilot.starpilot.galaxy.drive_analysis import _selected, _route_names, _closed_source

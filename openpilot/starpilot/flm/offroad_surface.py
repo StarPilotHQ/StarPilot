@@ -7,7 +7,7 @@ per-coordinate bounds, sign and 25% stage envelopes remain authoritative.
 
 import hashlib
 import math
-from openpilot.starpilot.flm.canonical_surface_adapter import CanonicalSurfaceEffects, MANIFEST_SHA256, NAMES, WINDOWS
+from openpilot.starpilot.flm.canonical_surface_adapter import CanonicalSurfaceEffects, MANIFEST_SHA256, NAMES
 
 LEGACY_REVISION = 'route-reference-relative-v2'
 REVISION = 'route-reference-relative-v3'

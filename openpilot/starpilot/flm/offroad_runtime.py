@@ -58,8 +58,9 @@ def configuration_data(cp, ci, controller, params, *, manual_status):
   if selection.source == 'invalid' or descriptor.controller_mode not in (str(selection.mode), 'native'):
     raise ValueError('Actual controller does not match saved selection')
   fixed_manual = ()
-  if raw[DOCUMENT_KEY] is not None:
-    profile = parse_document(raw[DOCUMENT_KEY]).get(str(cp.carFingerprint))
+  document = raw[DOCUMENT_KEY]
+  if document is not None:
+    profile = parse_document(document).get(str(cp.carFingerprint))
     if profile is not None:
       if profile.flm is not None or profile.manual_coordinates is not None or profile.geometry is not None and profile.geometry.learning == 'force_off':
         raise ValueError('Manual or explicitly disabled tuning selected')

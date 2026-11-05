@@ -138,7 +138,7 @@ def estimate(windows, *, cohort, permitted=lambda: True):
   residual_interval = (max(0.0, residual_interval[0]), residual_interval[1])
   variability = (
     math.sqrt(
-      sum(sum((b.desired - a.desired) ** 2 / ((b.mono_ns - a.mono_ns) / 1e9) for a, b in zip(w.points, w.points[1:])) for w in windows)
+      sum(sum((b.desired - a.desired) ** 2 / ((b.mono_ns - a.mono_ns) / 1e9) for a, b in zip(w.points, w.points[1:], strict=False)) for w in windows)
       / sum((w.points[-1].mono_ns - w.points[0].mono_ns) / 1e9 for w in windows)
     )
     / reference_rms

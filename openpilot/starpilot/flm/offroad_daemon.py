@@ -7,6 +7,7 @@ import signal
 import tempfile
 import time
 import traceback
+from typing import Any
 
 from openpilot.cereal import messaging
 from openpilot.common.params import Params
@@ -19,7 +20,7 @@ class StatusReport:
     self.path = report_path() if path is None else Path(path)
     self.clock_ns = clock_ns
     self.started = self.clock_ns()
-    self.current = {'status': 'collecting', 'reason': 'waiting_for_completed_drive', 'vehicle': ''}
+    self.current: dict[str, Any] = {'status': 'collecting', 'reason': 'waiting_for_completed_drive', 'vehicle': ''}
     self.next_ns = 0
 
   def set(self, value):
@@ -42,7 +43,7 @@ class StatusReport:
       value = counts.get(key, 0)
       return value if type(value) is int and 0 <= value < 2**63 else 0
 
-    details = {'Analysis runs while parked': True, 'Next-drive trial is reversible': True, 'Physical road improvement proven': False}
+    details: dict[str, Any] = {'Analysis runs while parked': True, 'Next-drive trial is reversible': True, 'Physical road improvement proven': False}
     for key, title in (('source_sha256', 'Original completed route hash'), ('assessment_sha256', 'Offroad assessment hash')):
       if key in value:
         details[title] = value[key]

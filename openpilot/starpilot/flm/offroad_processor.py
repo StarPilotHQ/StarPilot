@@ -3,20 +3,19 @@
 from dataclasses import asdict, dataclass, field, replace
 from bisect import bisect_left
 import hashlib
-import json
 
 from openpilot.starpilot.flm.offroad_analysis import analyze, MAX_WINDOWS, cohort, _spread, MAX_COHORT_WINDOWS
 from openpilot.starpilot.flm.offroad_baseline_windows import baseline_windows
 from openpilot.starpilot.flm.canonical_surface_adapter import NAMES as AMPLITUDE_NAMES
 from openpilot.starpilot.flm.offroad_residual import analyze_stable_windows
 from openpilot.starpilot.flm.offroad_evidence import read_point, whole_windows, eligible_points, tracking_metrics
-from openpilot.starpilot.flm.offroad_route import latest_route, walk_completed_route
+from openpilot.starpilot.flm.offroad_route import latest_route, walk_completed_route, RouteReceipt
 from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
 
 
 @dataclass(frozen=True)
 class CompletedAssessment:
-  receipt: object
+  receipt: RouteReceipt
   groups: tuple
   counts: dict
   cp: object = field(repr=False, compare=False)
@@ -172,9 +171,9 @@ def analyze_latest(params, root, previous, *, permitted):
           raise ValueError('Original segment tracking bound exceeded')
       if len(controls) > 12000 or applied_count > 12000:
         raise ValueError('Original segment controller input bound exceeded')
-    if any(b.control_ns <= a.control_ns for a, b in zip(controls, controls[1:])):
+    if any(b.control_ns <= a.control_ns for a, b in zip(controls, controls[1:], strict=False)):
       raise ValueError('Original controller metadata order changed')
-    if any(b[0] <= a[0] for a, b in zip(timeline, timeline[1:])):
+    if any(b[0] <= a[0] for a, b in zip(timeline, timeline[1:], strict=False)):
       raise ValueError('Original controller envelope order changed')
     times = tuple(header for header, _ in timeline)
     for key, groups in rows.items():

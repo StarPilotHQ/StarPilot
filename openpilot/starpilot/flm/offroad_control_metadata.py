@@ -69,10 +69,16 @@ def read_control_metadata(event):
     int(row.sourceReceiptMonoTime),
     int(row.nativeObservedMonoTime),
     int(row.nativeValidUntilMonoTime),
-    *(
-      bool(getattr(row, name))
-      for name in ('enabled', 'active', 'valid', 'manual', 'override', 'fault', 'saturated', 'limited', 'nativeRequired', 'nativeAllowed')
-    ),
+    bool(row.enabled),
+    bool(row.active),
+    bool(row.valid),
+    bool(row.manual),
+    bool(row.override),
+    bool(row.fault),
+    bool(row.saturated),
+    bool(row.limited),
+    bool(row.nativeRequired),
+    bool(row.nativeAllowed),
     mode,
     revision,
     baseline,

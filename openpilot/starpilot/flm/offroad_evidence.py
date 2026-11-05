@@ -71,7 +71,7 @@ class RouteWindow:
       and 20 <= len(self.points) <= MAX_SAMPLES
       and all(p.valid() for p in self.points)
       and len({(p.route, p.segment, p.domain, p.context_key) for p in self.points}) == 1
-      and all(0 < b.mono_ns - a.mono_ns <= MAX_GAP_NS for a, b in zip(self.points, self.points[1:]))
+      and all(0 < b.mono_ns - a.mono_ns <= MAX_GAP_NS for a, b in zip(self.points, self.points[1:], strict=False))
       and self.identity == window_identity(self.points)
     )
 
@@ -141,7 +141,7 @@ def eligible_points(points):
   """Preserve the original override buffers; gaps are never interpolated."""
   if not isinstance(points, tuple) or len(points) > MAX_SAMPLES or any(not p.valid() for p in points):
     raise ValueError('bounded valid original route points required')
-  if any(b.mono_ns <= a.mono_ns for a, b in zip(points, points[1:])):
+  if any(b.mono_ns <= a.mono_ns for a, b in zip(points, points[1:], strict=False)):
     raise ValueError('original route points must increase')
   if len({(p.route, p.domain, p.context_key) for p in points}) > 1:
     raise ValueError('process each original route/controller context separately')
@@ -207,7 +207,8 @@ def tracking_metrics(points, *, model_rmse=0.0):
     'mean_absolute_error': sum(abs(error) for error in errors) / len(errors),
     'worst_absolute_error': max(abs(error) for error in errors),
     'error_slew_rms': math.sqrt(
-      sum(((right - left) / ((b.mono_ns - a.mono_ns) / 1e9)) ** 2 for a, b, left, right in zip(points, points[1:], errors, errors[1:])) / (len(points) - 1)
+      sum(((right - left) / ((b.mono_ns - a.mono_ns) / 1e9)) ** 2 for a, b, left, right in zip(points, points[1:], errors, errors[1:], strict=False))
+      / (len(points) - 1)
     )
     if len(points) > 1
     else 0.0,

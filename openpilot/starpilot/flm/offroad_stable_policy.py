@@ -223,13 +223,15 @@ def _build_plot_svg(plot_data: dict[str, Any]) -> str:
       coords.append(f"{x:.1f},{y:.1f}")
     return " ".join(coords)
 
-  return (
-    "<svg viewBox='0 0 380 140' class='flm-plot' preserveAspectRatio='none'>"
-    "<rect x='0' y='0' width='380' height='140' rx='8' ry='8' fill='#0f172a'/>"
-    "<line x1='0' y1='120' x2='380' y2='120' stroke='#334155' stroke-width='1'/>"
-    f"<polyline fill='none' stroke='#ef4444' stroke-width='2' points='{_points(desired)}'/>"
-    f"<polyline fill='none' stroke='#38bdf8' stroke-width='2' points='{_points(actual)}'/>"
-    "</svg>"
+  return ''.join(
+    (
+      "<svg viewBox='0 0 380 140' class='flm-plot' preserveAspectRatio='none'>",
+      "<rect x='0' y='0' width='380' height='140' rx='8' ry='8' fill='#0f172a'/>",
+      "<line x1='0' y1='120' x2='380' y2='120' stroke='#334155' stroke-width='1'/>",
+      f"<polyline fill='none' stroke='#ef4444' stroke-width='2' points='{_points(desired)}'/>",
+      f"<polyline fill='none' stroke='#38bdf8' stroke-width='2' points='{_points(actual)}'/>",
+      "</svg>",
+    )
   )
 
 
@@ -885,7 +887,7 @@ class StablePolicy:
         continue
       avg_delta_curve = [value / bucket['weight'] for value in bucket['weightedDelta']]
       values = [round(max(0.05, float(bucket['current'][idx]) + avg_delta_curve[idx] * multiplier), 4) for idx in range(len(bucket['current']))]
-      if any((not math.isclose(float(bucket['current'][idx]), values[idx], abs_tol=1e-06) for idx in range(len(values)))):
+      if any(not math.isclose(float(bucket['current'][idx]), values[idx], abs_tol=1e-06) for idx in range(len(values))):
         overrides['baseFrictionThresholds'][family] = {'speedKnots': list(FLM_FRICTION_SPEED_KNOTS), 'values': values}
     overrides = self._normalize(overrides)
     return (params_delta, overrides, requires_force_auto_tune_off)
@@ -899,8 +901,8 @@ class StablePolicy:
     path_key: str = 'cleanup_pass',
     path_label: str = 'Cleanup Pass',
   ) -> list[dict[str, Any]]:
-    ignored = set((str(item) for item in feedback.get('ignoredDimensions', [])))
-    accepted = set((str(item) for item in feedback.get('acceptedDimensions', [])))
+    ignored = {str(item) for item in feedback.get('ignoredDimensions', [])}
+    accepted = {str(item) for item in feedback.get('acceptedDimensions', [])}
     has_feedback_decisions = bool(ignored or accepted)
     considered = [
       suggestion for suggestion in suggestions if suggestion.get('dimensionId') not in ignored and (not accepted or suggestion.get('dimensionId') in accepted)
@@ -1245,7 +1247,16 @@ def _current_stable_build_plot_svg(plot_data: dict[str, Any]) -> str:
       coords.append(f'{x:.1f},{y:.1f}')
     return ' '.join(coords)
 
-  return f"<svg viewBox='0 0 380 140' class='flm-plot' preserveAspectRatio='none'><rect x='0' y='0' width='380' height='140' rx='8' ry='8' fill='#0f172a'/><line x1='0' y1='120' x2='380' y2='120' stroke='#334155' stroke-width='1'/><polyline fill='none' stroke='#ef4444' stroke-width='2' points='{_points(desired)}'/><polyline fill='none' stroke='#38bdf8' stroke-width='2' points='{_points(actual)}'/></svg>"
+  return ''.join(
+    (
+      "<svg viewBox='0 0 380 140' class='flm-plot' preserveAspectRatio='none'>",
+      "<rect x='0' y='0' width='380' height='140' rx='8' ry='8' fill='#0f172a'/>",
+      "<line x1='0' y1='120' x2='380' y2='120' stroke='#334155' stroke-width='1'/>",
+      f"<polyline fill='none' stroke='#ef4444' stroke-width='2' points='{_points(desired)}'/>",
+      f"<polyline fill='none' stroke='#38bdf8' stroke-width='2' points='{_points(actual)}'/>",
+      "</svg>",
+    )
+  )
 
 
 def _current_stable_direction_reversal_count(values: np.ndarray, min_step: float) -> int:
@@ -1383,7 +1394,7 @@ def _current_stable_build_event_summaries(samples: list[FLMSample]) -> tuple[lis
     desired_sign = float(np.mean([sample.desired_la for sample in window]))
     if abs(desired_sign) < 0.35:
       continue
-    if any((sample.desired_la * desired_sign < 0.0 for sample in window)):
+    if any(sample.desired_la * desired_sign < 0.0 for sample in window):
       continue
     error_series = np.array([sample.actual_la - sample.desired_la for sample in window])
     sign_changes = int(np.sum(np.sign(error_series[1:]) != np.sign(error_series[:-1])))
@@ -1424,7 +1435,7 @@ def _current_stable_build_event_summaries(samples: list[FLMSample]) -> tuple[lis
     'highwayStraightAngleP2P': round(float(np.percentile(np.abs(angle), 95) - np.percentile(np.abs(angle), 5)), 4) if angle else 0.0,
     'meanOutputAbs': round(float(np.mean(np.abs(output))), 4) if output else 0.0,
   }
-  if summary_stats['meanErrorAbs'] < 0.08 and (not any((summary['severity'] > 0.65 for summary in summaries))):
+  if summary_stats['meanErrorAbs'] < 0.08 and (not any(summary['severity'] > 0.65 for summary in summaries)):
     summaries.append(
       {
         'bucket': 'model_limited',
@@ -1540,7 +1551,7 @@ def recommended_route_profile(profile, previous, baseline_revision, *, domain):
     curve = curves[family]
     if curve.get('speedKnots') != list(CURVE_SPEEDS) or len(curve.get('values', ())) != 5:
       raise ValueError('Actual five-point threshold curve required')
-    for name, target in zip(CURVE_NAMES, curve['values']):
+    for name, target in zip(CURVE_NAMES, curve['values'], strict=True):
       if type(target) not in (int, float) or not math.isfinite(target) or target <= 0:
         raise ValueError('Finite positive threshold factor required')
       deltas[name] = target - 1.0 - current[name]

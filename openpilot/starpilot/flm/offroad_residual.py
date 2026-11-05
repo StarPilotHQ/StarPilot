@@ -111,7 +111,7 @@ def estimate_residual(windows, *, cohort, permitted=lambda: True):
     normalizer = max(reference, floor)
     normalized.append(metric['rmse'] / normalizer)
     duration = (points[-1].mono_ns - points[0].mono_ns) / 1e9
-    variation = math.sqrt(sum((b.desired - a.desired) ** 2 / ((b.mono_ns - a.mono_ns) / 1e9) for a, b in zip(points, points[1:])) / duration)
+    variation = math.sqrt(sum((b.desired - a.desired) ** 2 / ((b.mono_ns - a.mono_ns) / 1e9) for a, b in zip(points, points[1:], strict=False)) / duration)
     variations.append(variation / normalizer)
     means.append(sum(p.desired for p in points) / len(points))
   source = hashlib.sha256(repr((cohort, tuple(w.identity for w in windows))).encode()).hexdigest()
