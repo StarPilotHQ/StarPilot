@@ -26,7 +26,7 @@ from openpilot.starpilot.lateral import hkg_vehicle_shaping as shaping
 def test_actual_controller_context_defaults_live_tune_limits_and_off(monkeypatch, vehicle, helper, speed, curvature, direction, pressed):
   cp = interfaces[vehicle].get_non_essential_params(vehicle)
   ci = interfaces[vehicle](cp)
-  assert default_selection(cp).mode == ControllerMode.STANDARD
+  assert default_selection(cp).mode == (ControllerMode.STARPILOT if vehicle == CAR.KIA_CARNIVAL_HEV_4TH_GEN else ControllerMode.STANDARD)
   native = LatControlTorque(cp.as_reader(), ci, 0.01, controller_mode=ControllerMode.STANDARD)
   assert native.starpilot_extension is None
   actual = LatControlTorque(cp.as_reader(), ci, 0.01, controller_mode=ControllerMode.STARPILOT)

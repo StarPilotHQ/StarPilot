@@ -14,7 +14,8 @@ CASES = [(vehicle, profile, factor) for profile, (vehicles, factor) in PROFILES.
 def test_exact_profile_defaults_and_saved_controller_selection(vehicle, profile, factor):
   cp = interfaces[vehicle].get_non_essential_params(vehicle)
   assert policy_for(cp) == profile
-  expected = (ControllerMode.STARPILOT if vehicle in (CAR.KIA_FORTE_2019_NON_SCC, CAR.KIA_FORTE_2021_NON_SCC)
+  expected = (ControllerMode.STARPILOT if vehicle in (CAR.KIA_FORTE_2019_NON_SCC, CAR.KIA_FORTE_2021_NON_SCC,
+                                                                    CAR.KIA_CARNIVAL_2025, CAR.KIA_CARNIVAL_HEV_4TH_GEN)
               else ControllerMode.STANDARD)
   assert default_selection(cp).mode == expected
   for raw in (b'{', b'{"version":true,"vehicles":{}}', b'{"version":1,"vehicles":{},"vehicles":{}}', b'x' * 4097):
