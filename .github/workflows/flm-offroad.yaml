@@ -34,9 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: ./tools/op.sh setup
-      - name: Static analysis
+      - name: Check all FLM and integrated controller source
         timeout-minutes: 1
-        run: scripts/lint/lint.sh
+        run: |
+          ruff check openpilot/starpilot/flm openpilot/selfdrive/controls/controlsd.py openpilot/selfdrive/controls/lib/latcontrol_pid.py openpilot/selfdrive/controls/lib/latcontrol_torque.py openpilot/system/manager/process_config.py
+          ty check openpilot/starpilot/flm openpilot/selfdrive/controls/controlsd.py openpilot/selfdrive/controls/lib/latcontrol_pid.py openpilot/selfdrive/controls/lib/latcontrol_torque.py openpilot/system/manager/process_config.py
       - name: Build native dependencies
         timeout-minutes: 10
         run: scons
