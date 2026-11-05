@@ -14,7 +14,7 @@ class SignDetections:
 
 
 class TrafficSignModelCore(model.VisionModelCore):
-  DETECTOR_SHA256 = 'ac735518a3d32108dee9a112ec2f740c2ed573daac22798525ecbbbbc0ed6606'
+  DETECTOR_SHA256 = '989aea753d776f4733a61f02a0ef50af96beb3cc8f456678768fa2fa497353d8'
   MODEL_ID = DETECTOR_SHA256 + ':' + model.VisionModelCore.CLASSIFIER_SHA256
   STOP_THRESHOLD = .6
 

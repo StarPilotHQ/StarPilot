@@ -1,3 +1,45 @@
+## Current shared-feature refinement (November 5, 2026)
+
+The current joint detector is 9,725,066 bytes, SHA-256
+`989aea753d776f4733a61f02a0ef50af96beb3cc8f456678768fa2fa497353d8`.
+It retains the same 483 graph nodes, operators, tensor shapes and output ABI as
+its predecessor `ac735518a3d32108dee9a112ec2f740c2ed573daac22798525ecbbbbc0ed6606`.
+Only existing convolution parameters were refined; no model or inference pass
+was added. STOP-only mode still skips the separate numeric reader entirely.
+The numeric reader and standalone speed detector listed below are unchanged.
+
+Training refined 15,585 existing parameters in early shared features and the
+STOP branch, with remaining weights and batch-normalization statistics fixed.
+The selected checkpoint is update 200, SHA-256
+`e481118b0899c70e9f6dca761202459a0da0d15ac89189983cb047c88dbb8957`.
+The 416 training views include reviewed STOP scenes and existing training-only
+speed/advisory priors. Source-drive splits, originals and immutable annotation
+overlays are retained; validation images received no gradient updates.
+
+Paired evaluation on 1,375 held-out images (388 STOP annotations) improved
+IoU-0.5 detections at score 0.7 from 141 to 152, with four false proposals in
+both models. At score 0.6, detections improved from 169 to 172 with seven false
+proposals in both. No previously detected annotation was lost and no new
+negative-image detection was introduced at either threshold. One visibly
+present front STOP missing from the original validation annotations is included
+through the same immutable semantic correction for both models; original
+labels and raw evaluation receipts are preserved. Public pretraining ancestry
+and repeated model selection limit generalization claims.
+
+The 1,486-frame speed replay retained all 396 correct regulatory reads and the
+same two wrong-value reads among 472 regulatory frames, with no new reviewed
+negative reads. Numeric forwards were 6,137 versus 6,148. All 108 protected
+strong STOP objects and existing recorded confirmation phases were retained;
+known warning tracks gained no confirmations. Nine OpenCV/export parity cases
+and 153 native source, producer, display and control tests passed. Confirmation,
+expiry, clock, authority, model-agreement and Force Stop/HKG policies are unchanged.
+These are offline results, not new device timing or closed-loop road proof.
+Startup model unavailability, missed difficult scenes and loaded-device cadence
+remain limitations. The sections below describe the predecessor training history;
+their frozen-shared-weight statements and earlier counts are historical.
+
+## Retained predecessor history
+
 The joint traffic-sign detector contains the original StarPilot US speed graph
 plus a separate STOP head. The vision producer uses one joint detector forward. Original speed graph weights,
 speed decoding, numeric digit logits and resource scheduling are preserved. The classifier adds a learned rejection-only residual.
