@@ -261,9 +261,12 @@ def main() -> None:
         # Camera/model liveness is separate from costly sign inference. Keep
         # the existing road-limit confirmation and its real support timestamp.
         # No conversion or new detector evidence is needed for this heartbeat.
-        if (admission_pair[0] - last_publish_ns >= INFERENCE_INTERVAL_NS and
-            last_result is not None and session == last_result_session and
-            0 < last_result_observed_ns <= admission_pair[0] <= last_result_valid_until_ns):
+        speed_fresh = (last_result is not None and session == last_result_session and
+                       0 < last_result_observed_ns <= admission_pair[0] <= last_result_valid_until_ns)
+        stop_fresh = (last_stop_sample is not None and last_stop_sample.session == session and
+                      last_stop_sample.stream == stream and
+                      0 <= admission_pair[0] - last_stop_sample.observed_ns < STOP_MAX_AGE_NS)
+        if admission_pair[0] - last_publish_ns >= INFERENCE_INTERVAL_NS and (speed_fresh or stop_fresh):
           sm.update(0)
           heartbeat_pair = clock_pair_ns()
           if (heartbeat_pair is None or
@@ -274,7 +277,10 @@ def main() -> None:
             last_clock_offset_ns = None
             _send(pm, session=session, status='stale', stream=stream, eof_boot_ns=eof_boot_ns, frame_id=frame_id)
             continue
-          if heartbeat_pair[0] > last_result_valid_until_ns:
+          speed_fresh = speed_fresh and heartbeat_pair[0] <= last_result_valid_until_ns
+          stop_fresh = (stop_fresh and last_stop_sample is not None and
+                        0 <= heartbeat_pair[0] - last_stop_sample.observed_ns < STOP_MAX_AGE_NS)
+          if not (speed_fresh or stop_fresh):
             continue
           if not _driving_model_ready(sm, heartbeat_pair[0]):
             core.reset()
@@ -285,10 +291,11 @@ def main() -> None:
             continue
           if params.get_bool('IsMetric') != is_metric:
             continue
-          _send(pm, session=session, status='valid', stream=stream,
-                observed_ns=last_result_observed_ns, eof_boot_ns=eof_boot_ns,
-                frame_id=frame_id, result=last_result, valid_until_ns=last_result_valid_until_ns, is_metric=is_metric,
-                stop_sample=last_stop_sample if last_stop_sample is not None and last_stop_sample.session == session else None)
+          _send(pm, session=session, status='valid' if speed_fresh else 'unknown', stream=stream,
+                observed_ns=last_result_observed_ns if speed_fresh else 0, eof_boot_ns=eof_boot_ns,
+                frame_id=frame_id, result=last_result if speed_fresh else None,
+                valid_until_ns=last_result_valid_until_ns if speed_fresh else None, is_metric=is_metric,
+                stop_sample=last_stop_sample if stop_fresh else None)
           last_publish_ns = heartbeat_pair[0]
         continue
       try:

@@ -394,9 +394,9 @@ class TestVisionProducer(unittest.TestCase):
     core.reset()
     self.assertEqual(core.last_detection_at, 0.)
 
-  def cooldown_messages(self, *, processing_ns=500_000_000, heartbeat_failure=None, metric=False):
+  def cooldown_messages(self, *, processing_ns=500_000_000, heartbeat_failure=None, metric=False, numeric=True, stops=()):
     core = VisionModelCore.__new__(VisionModelCore)
-    core.stop_detections = ()
+    core.stop_detections = stops
     core.is_metric = metric
     core.history = deque()
     core.reset()
@@ -450,12 +450,30 @@ class TestVisionProducer(unittest.TestCase):
          patch.object(producer, '_convert_camera_buffer', side_effect=lambda buffer: frames[buffer[2]]) as convert, \
          patch.object(producer, 'clock_pair_ns', side_effect=clock_pair), \
          patch.object(producer.time, 'sleep'), \
-         patch.object(core, 'infer', side_effect=[Detection(55, 0.90), None]) as infer, \
+         patch.object(core, 'infer', side_effect=[Detection(55, 0.90) if numeric else None, None]) as infer, \
          self.assertRaises(EndProducer):
       producer.main()
     self.assertEqual(infer.call_count, 2)
     self.assertEqual(convert.call_count, 2)
     return messages
+
+  def test_stop_heartbeat_does_not_require_a_numeric_speed_read(self):
+    stop = SimpleNamespace(confidence=.8, bbox=(0, 0, 2, 2))
+    messages = self.cooldown_messages(numeric=False, stops=(stop,))
+    heartbeats = [(event, stamp) for event, stamp in messages if 1_500_000_000 < stamp < 2_250_000_000]
+    self.assertTrue(heartbeats)
+    for event, stamp in heartbeats:
+      self.assertEqual(str(event.status), 'unknown')
+      self.assertEqual(event.speedMps, 0)
+      self.assertEqual(event.validUntilMonoTime, 0)
+      self.assertEqual(str(event.stopSigns.status), 'valid')
+      self.assertEqual(event.stopSigns.observedMonoTime, 1_000_000_000)
+      self.assertEqual(event.stopSigns.cameraFrameEofBootTime, 5_000_000_000)
+      self.assertEqual(event.stopSigns.frameId, 0)
+      self.assertEqual(event.stopSigns.validUntilMonoTime, 2_500_000_000)
+      self.assertLess(stamp, event.stopSigns.validUntilMonoTime)
+      self.assertEqual(len(event.stopSigns.detections), 1)
+    self.assertEqual(len({event.stopSigns.frameId for event, _ in heartbeats}), 1)
 
   def test_metric_heartbeat_keeps_the_original_conversion(self):
     messages = self.cooldown_messages(metric=True)
