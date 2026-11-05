@@ -79,19 +79,21 @@ class TestIndependentAngleEnvelope(unittest.TestCase):
             expected_angle = max(-190., min(190., angle)) if car == CAR.SUBARU_CROSSTREK_2025 else angle
             self.assertAlmostEqual(decoded['LKAS_Output'], expected_angle, places=2)
 
-  def test_ordinary_engagement_respects_crosstrek_bound_and_preserves_other_profiles(self):
+  def test_ordinary_engagement_preserves_transmitted_history_and_other_profiles(self):
     for car in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_LEGACY_2025, CAR.SUBARU_ASCENT_2023,
                 CAR.SUBARU_FORESTER_2022, CAR.SUBARU_OUTBACK_2023):
       for speed, angle in ((5., 200.), (.4, 10.)):
         with self.subTest(car=car, speed=speed, angle=angle):
           _, controller, command, state = setup_controller(car)
+          command.actuators.steeringAngleDeg = -1.45
           state.out.vEgoRaw = state.out.vEgo = speed
           state.out.steeringAngleDeg = angle
           state.out.steeringRateDeg = state.out.steeringTorque = 0
           state.out.standstill = False
           for _ in range(3):
             _, decoded = step(controller, command, state)
-          expected = car != CAR.SUBARU_CROSSTREK_2025 or abs(angle) <= 190.
-          self.assertEqual(bool(decoded['LKAS_Request']), expected)
-          if not expected:
-            self.assertEqual(abs(decoded['LKAS_Output']), 190.)
+          self.assertTrue(decoded['LKAS_Request'])
+          if car == CAR.SUBARU_CROSSTREK_2025:
+            # The EPS bound applies to transmitted commands, not measured-angle admission.
+            # Preserve the zero command history: this target is inside the low-speed deadzone.
+            self.assertEqual(decoded['LKAS_Output'], 0.)
