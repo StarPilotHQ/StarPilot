@@ -276,15 +276,18 @@ class VisionModelCore:
   DETECTOR_SIZE = 256
   CLASSIFIER_SIZE = 128
 
-  def __init__(self, *, is_metric: bool):
+  def __init__(self, *, is_metric: bool, load_classifier: bool = True):
     if cv2 is None:
       raise RuntimeError("OpenCV DNN is unavailable")
     self.is_metric = is_metric
     self.net = self._load_net("speed_limit_us_detector.onnx", self.DETECTOR_SHA256)
-    self.classifier_net = self._load_net("speed_limit_us_value_classifier.onnx", self.CLASSIFIER_SHA256)
+    self.classifier_net = (self._load_net("speed_limit_us_value_classifier.onnx", self.CLASSIFIER_SHA256)
+                           if load_classifier else None)
+    if not load_classifier:
+      self._verified_model_path("speed_limit_us_value_classifier.onnx", self.CLASSIFIER_SHA256)
     self._validate_model_abi()
     self.classifier_logits_layer = ("onnx_node!/model.10/linear/Gemm"
-                                    if self.classifier_net.getLayerId("onnx_node!advisory/AddReject") > 0 else None)
+                                    if self.classifier_net is not None and self.classifier_net.getLayerId("onnx_node!advisory/AddReject") > 0 else None)
     self.detector_input_size = self.DETECTOR_SIZE
     self.classifier_input_size = self.CLASSIFIER_SIZE
     self.last_detector_forward_count = 0
@@ -319,12 +322,17 @@ class VisionModelCore:
     self.episode = 0
 
   @classmethod
-  def _load_net(cls, name: str, expected_sha256: str):
+  def _verified_model_path(cls, name: str, expected_sha256: str) -> Path:
     path = cls.ASSET_DIR / name
     with path.open("rb") as stream:
       actual = hashlib.file_digest(stream, "sha256").hexdigest()
     if actual != expected_sha256:
       raise ValueError(f"Vision model identity mismatch: {name}")
+    return path
+
+  @classmethod
+  def _load_net(cls, name: str, expected_sha256: str):
+    path = cls._verified_model_path(name, expected_sha256)
     net = cv2.dnn.readNetFromONNX(str(path))
     net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
     net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
@@ -333,11 +341,13 @@ class VisionModelCore:
   def _validate_model_abi(self) -> None:
     self.net.setInput(np.zeros((1, 3, self.DETECTOR_SIZE, self.DETECTOR_SIZE), dtype=np.float32))
     detector_output = self.net.forward()
-    self.classifier_net.setInput(np.zeros((1, 3, self.CLASSIFIER_SIZE, self.CLASSIFIER_SIZE), dtype=np.float32))
-    classifier_output = self.classifier_net.forward()
-    if (detector_output.shape != (1, 5, 1344) or classifier_output.shape != (1, 19) or
-        not np.isfinite(detector_output).all() or not np.isfinite(classifier_output).all()):
+    if detector_output.shape != (1, 5, 1344) or not np.isfinite(detector_output).all():
       raise ValueError("Unsupported Vision model output shape or nonfinite output")
+    if self.classifier_net is not None:
+      self.classifier_net.setInput(np.zeros((1, 3, self.CLASSIFIER_SIZE, self.CLASSIFIER_SIZE), dtype=np.float32))
+      classifier_output = self.classifier_net.forward()
+      if classifier_output.shape != (1, 19) or not np.isfinite(classifier_output).all():
+        raise ValueError("Unsupported Vision model output shape or nonfinite output")
 
   def infer(self, frame_bgr: np.ndarray) -> Detection | None:
     if frame_bgr.ndim != 3 or frame_bgr.shape[2] != 3 or frame_bgr.size == 0:
@@ -572,11 +582,7 @@ class VisionModelCore:
       yield crop, weight
 
 
-  def _collect_detector_classifier_proposals_from_region(self, frame_bgr, origin_x, origin_y, full_frame_width, full_frame_height, min_confidence):
-    if self.net is None:
-      return []
-
-    region_height, region_width = frame_bgr.shape[:2]
+  def _forward_detector_region(self, frame_bgr):
     detector_shape = (self.detector_input_size, self.detector_input_size)
     letterboxed, ratio, pad_width, pad_height = self._letterbox(frame_bgr, shape=detector_shape)
     blob = cv2.dnn.blobFromImage(letterboxed, scalefactor=1 / 255.0, size=detector_shape, swapRB=True, crop=False)
@@ -586,6 +592,14 @@ class VisionModelCore:
     predictions = np.squeeze(self.net.forward())
     self.last_detector_forward_count += 1
     self.last_detector_forward_duration_s += time.monotonic() - forward_started_at
+    return predictions, ratio, pad_width, pad_height
+
+
+  def _collect_detector_classifier_proposals_from_region(self, frame_bgr, origin_x, origin_y, full_frame_width, full_frame_height, min_confidence):
+    if self.net is None:
+      return []
+    region_height, region_width = frame_bgr.shape[:2]
+    predictions, ratio, pad_width, pad_height = self._forward_detector_region(frame_bgr)
     if predictions.ndim != 2:
       return []
     if predictions.shape[0] < predictions.shape[1]:

@@ -29,6 +29,9 @@ def _read(params, key: str, limit: int = 4096) -> tuple[bytes | None, bool]:
 
 def requested(params, feature: str, *, include_auxiliary: bool = False, saved_slc: SlcSettings | None = None) -> bool:
   """Read one feature request, including the readable factory CEM default."""
+  if feature == 'vision_stop':
+    return (_read(params, 'ForceStops', 8) == (b'1', True) and
+            _read(params, 'SafeMode', 8) in ((None, True), (b'0', True)))
   if feature == 'conditional':
     raw, document_readable = _read(params, 'ConditionalModeConfig')
     safe, safe_readable = _read(params, 'SafeMode', 8)
@@ -62,6 +65,8 @@ def requested(params, feature: str, *, include_auxiliary: bool = False, saved_sl
 
 def enabled(params, cp, feature: str, environment: Mapping[str, str], *, saved_slc: SlcSettings | None = None) -> bool:
   """Preserve explicit replay opt-ins and each vehicle capability."""
+  if feature == 'vision_stop':
+    return bool(longitudinal_supported(cp) and requested(params, feature))
   flags = {'conditional': 'CONDITIONAL_MODE_REPLAY_RUNTIME', 'curve': 'CURVE_REPLAY_RUNTIME',
            'aol': 'AOL_REPLAY_RUNTIME',
            'slc': 'SLC_REPLAY_RUNTIME', 'vision': 'SLC_VISION_DEVELOPMENT',

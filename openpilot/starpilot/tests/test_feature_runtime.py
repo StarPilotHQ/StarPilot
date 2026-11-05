@@ -201,3 +201,35 @@ def test_honda_slc_controls_only_with_openpilot_long():
     assert not slc_runtime_settings(params, stock, {}).enabled
     assert not slc_transport_capable(honda(dashcamOnly=True), {})
     assert not enabled(params, honda(dashcamOnly=True), 'slc', {})
+
+
+def test_vision_stop_request_is_independent_of_speed_and_preserves_native_authority():
+  from openpilot.system.manager.process_config import vision_slc_development
+  from unittest.mock import patch
+  with TemporaryDirectory() as temporary, patch.dict('os.environ', {}, clear=True):
+    params = Files(Path(temporary))
+    for key, value in {'SpeedLimitController': b'0', 'ShowSpeedLimits': b'0',
+                       'SLCPriority1': b'Dashboard', 'SLCPriority2': b'Map Data', 'ForceStops': b'1'}.items():
+      (params.root / key).write_bytes(value)
+    assert not requested(params, 'slc')
+    assert not requested(params, 'vision')
+    assert requested(params, 'vision_stop')
+    assert enabled(params, long_cp(), 'vision_stop', {})
+    assert vision_slc_development(True, params, long_cp())
+    assert not vision_slc_development(False, params, long_cp())
+    for cp in (stock_cp(), None, object()):
+      assert not enabled(params, cp, 'vision_stop', {})
+      assert not vision_slc_development(True, params, cp)
+    (params.root / 'SpeedLimitController').write_bytes(b'broken')
+    assert requested(params, 'vision_stop')
+    assert vision_slc_development(True, params, long_cp())
+    for key, value in (('ForceStops', b'0'), ('ForceStops', b'true'), ('ForceStops', b'1'),
+                       ('SafeMode', b'1'), ('SafeMode', b'corrupt')):
+      (params.root / key).write_bytes(value)
+      if (key, value) != ('ForceStops', b'1'):
+        assert not enabled(params, long_cp(), 'vision_stop', {})
+    (params.root / 'SafeMode').write_bytes(b'0')
+    assert enabled(params, long_cp(), 'vision_stop', {})
+    (params.root / 'ForceStops').unlink()
+    (params.root / 'ForceStops').mkdir()
+    assert not requested(params, 'vision_stop')

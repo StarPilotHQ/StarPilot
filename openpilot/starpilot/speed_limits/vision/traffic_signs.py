@@ -18,9 +18,22 @@ class TrafficSignModelCore(model.VisionModelCore):
   MODEL_ID = DETECTOR_SHA256 + ':' + model.VisionModelCore.CLASSIFIER_SHA256
   STOP_THRESHOLD = .6
 
-  def __init__(self, *, is_metric: bool):
+  def __init__(self, *, is_metric: bool, speed_enabled: bool = True):
     self.stop_detections: tuple[StopDetection, ...] = ()
-    super().__init__(is_metric=is_metric)
+    self.speed_enabled = speed_enabled
+    super().__init__(is_metric=is_metric, load_classifier=speed_enabled)
+
+  def set_speed_enabled(self, enabled: bool) -> None:
+    if enabled == self.speed_enabled:
+      return
+    self.classifier_net = (self._load_net('speed_limit_us_value_classifier.onnx', self.CLASSIFIER_SHA256)
+                           if enabled else None)
+    self.classifier_logits_layer = ('onnx_node!/model.10/linear/Gemm'
+                                    if self.classifier_net is not None and self.classifier_net.getLayerId('onnx_node!advisory/AddReject') > 0 else None)
+    if enabled:
+      self._validate_model_abi()
+    self.speed_enabled = enabled
+    self.reset()
 
   @classmethod
   def _load_net(cls, name: str, expected_sha256: str):
@@ -34,6 +47,11 @@ class TrafficSignModelCore(model.VisionModelCore):
 
   def infer(self, frame_bgr: np.ndarray) -> model.Detection | None:
     self.stop_detections = ()
+    if not getattr(self, 'speed_enabled', True):
+      if frame_bgr.ndim != 3 or frame_bgr.shape[2] != 3 or frame_bgr.size == 0:
+        raise ValueError('Expected a nonempty BGR frame')
+      self._collect_detector_classifier_proposals(frame_bgr)
+      return None
     return super().infer(frame_bgr)
 
   def infer_signs(self, frame_bgr: np.ndarray) -> SignDetections:
@@ -43,8 +61,13 @@ class TrafficSignModelCore(model.VisionModelCore):
 
   def _collect_detector_classifier_proposals_from_region(self, frame_bgr, origin_x, origin_y,
                                                         full_frame_width, full_frame_height, min_confidence):
-    speed = super()._collect_detector_classifier_proposals_from_region(
-      frame_bgr, origin_x, origin_y, full_frame_width, full_frame_height, min_confidence)
+    if getattr(self, 'speed_enabled', True):
+      speed = super()._collect_detector_classifier_proposals_from_region(
+        frame_bgr, origin_x, origin_y, full_frame_width, full_frame_height, min_confidence)
+    else:
+      speed = []
+      if self.net is not None:
+        self._forward_detector_region(frame_bgr)
     if self.net is not None:
       height, width = frame_bgr.shape[:2]
       ratio = min(self.detector_input_size / height, self.detector_input_size / width)

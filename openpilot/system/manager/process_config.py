@@ -71,7 +71,8 @@ def steering_learning(started: bool, params: Params, CP: car.CarParams) -> bool:
 
 def vision_slc_development(started: bool, params: Params, CP: car.CarParams) -> bool:
   from openpilot.starpilot.feature_runtime import enabled as feature_enabled
-  return started and feature_enabled(params, CP, 'slc', os.environ) and feature_enabled(params, CP, 'vision', os.environ)
+  return started and (feature_enabled(params, CP, 'vision', os.environ) or
+                      feature_enabled(params, CP, 'vision_stop', os.environ))
 
 def galaxy_local(started: bool, params: Params, CP: car.CarParams) -> bool:
   return os.getenv("STARPILOT_GALAXY_DISABLE") != "1"

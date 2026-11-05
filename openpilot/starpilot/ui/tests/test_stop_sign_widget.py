@@ -35,3 +35,16 @@ class TestStopSignWidget(unittest.TestCase):
     with patch('openpilot.starpilot.ui.stop_sign_widget.draw_stop_sign') as draw:
       widget.render(state)
     draw.assert_called_once()
+
+  def test_stop_remains_visible_when_speed_display_and_slc_are_disabled(self):
+    state = self.state()
+    state = replace(state, speed_limit=SpeedLimitObservation(),
+                    appearance=replace(state.appearance, show_speed_limit_sign=False))
+    self.assertFalse(state.speed_limit.action_enabled)
+    widget = SpeedLimitWidget.__new__(SpeedLimitWidget)
+    widget.profile = Profile.COMPACT
+    widget.fonts = MagicMock(profile=Profile.COMPACT)
+    widget.pulse = MagicMock()
+    with patch('openpilot.starpilot.ui.stop_sign_widget.draw_stop_sign') as draw:
+      widget.render(state)
+    draw.assert_called_once()

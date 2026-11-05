@@ -25,6 +25,14 @@ FOLLOWUP_WINDOW_NS = 2_000_000_000
 BUSY_INFERENCE_INTERVAL_NS = MAX_RESULT_AGE_NS * 3 // 2
 
 
+def _requested_tasks(params) -> tuple[bool, bool]:
+  from openpilot.starpilot.feature_runtime import requested
+
+  speed = ((os.environ.get('SLC_REPLAY_RUNTIME') == '1' and os.environ.get('SLC_VISION_DEVELOPMENT') == '1') or
+           requested(params, 'vision'))
+  return speed, requested(params, 'vision_stop')
+
+
 def _inference_interval_ns(processing_interval_ns: int, last_detection_ns: int, now_ns: int) -> int:
   # Original Dom follow-up after a usable candidate, still bounded by measured
   # processing cost. Holding a published sign alone does not renew this window.
@@ -155,11 +163,12 @@ def main() -> None:
   client = None
   core = None
   last_unavailable = 0.0
+  tasks = _requested_tasks(params)
   try:
     if cv2 is not None:
       cv2.setNumThreads(1)
     is_metric = params.get_bool('IsMetric')
-    core = VisionModelCore(is_metric=is_metric)
+    core = VisionModelCore(is_metric=is_metric, speed_enabled=tasks[0])
   except Exception as error:
     cloudlog.error('vision SLC model unavailable: %s', error)
   last_inference_ns = 0
@@ -178,8 +187,32 @@ def main() -> None:
     if now - last_placement_check >= 2.0:
       _place_inference(params)
       last_placement_check = now
+      current_tasks = _requested_tasks(params)
+      if current_tasks != tasks:
+        tasks = current_tasks
+        if core is not None:
+          try:
+            core.set_speed_enabled(tasks[0])
+          except Exception as error:
+            cloudlog.error('vision SLC model unavailable: %s', error)
+            core = None
+          else:
+            core.reset()
+        session = uuid.uuid4().hex
+        last_result = last_stop_sample = None
+        last_result_session = ''
+        last_result_observed_ns = last_result_valid_until_ns = 0
+        last_inference_ns = processing_interval_ns = 0
+        last_clock_offset_ns = None
+        _send(pm, session=session, status='unknown', stream=stream)
     if core is None:
       now = time.monotonic()
+      if now - last_unavailable >= UNAVAILABLE_RETRY_SECONDS:
+        _send(pm, session=session, status='unavailable', stream=stream)
+        last_unavailable = now
+      time.sleep(0.1)
+      continue
+    if not any(tasks):
       if now - last_unavailable >= UNAVAILABLE_RETRY_SECONDS:
         _send(pm, session=session, status='unavailable', stream=stream)
         last_unavailable = now

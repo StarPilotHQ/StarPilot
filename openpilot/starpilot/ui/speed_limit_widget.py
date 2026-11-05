@@ -76,8 +76,7 @@ class SpeedLimitWidget:
     self.shapes.close()
 
   def render(self, state: OnroadState, *, defer_confirmation=False) -> None:
-    if state.appearance.show_speed_limit_sign or state.speed_limit.action_enabled:
-      render_stop_sign(self.fonts, state)
+    render_stop_sign(self.fonts, state)
     bounds = speed_limit_bounds(self.profile, state)
     now = state.observed_ns / 1e9 if state.observed_ns else time.monotonic()
     self.pulse.update(state, now, visible=bounds is not None)

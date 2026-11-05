@@ -76,3 +76,48 @@ class TestStopSigns(unittest.TestCase):
     self.assertEqual(result.stops, ())
     self.assertEqual(joint.net.stops.shape, (1, 5, 4096))
     self.assertEqual(joint.last_classifier_forward_count, speed.last_classifier_forward_count)
+
+  def test_stop_only_does_not_load_or_run_the_numeric_classifier(self):
+    load = VisionModelCore._load_net
+    calls = []
+
+    def checked(cls, name, expected):
+      calls.append(name)
+      self.assertNotEqual(name, 'speed_limit_us_value_classifier.onnx')
+      return load(name, expected)
+
+    with patch.object(VisionModelCore, '_load_net', classmethod(checked)):
+      core = VisionModelCore(is_metric=False, speed_enabled=False)
+      frame = np.zeros((760, 1344, 3), np.uint8)
+      with patch.object(core, '_classify_speed_limit_from_model', side_effect=AssertionError('Unused speed classifier')):
+        self.assertIsNone(core.observe(frame, now=1.0))
+    self.assertIsNone(core.classifier_net)
+    self.assertEqual(core.last_classifier_forward_count, 0)
+    self.assertEqual(core.last_detector_forward_count, 1)
+    self.assertEqual(calls, ['speed_limit_us_detector.onnx'])
+
+  def test_speed_mode_transition_discards_old_speed_evidence(self):
+    core = VisionModelCore(is_metric=False)
+    core.published_speed_limit_mph = 45
+    core.published_support_count = 3
+    core.last_published_support_at = 1.0
+    core.set_speed_enabled(False)
+    self.assertIsNone(core.classifier_net)
+    self.assertEqual(core.published_speed_limit_mph, 0)
+    self.assertEqual(core.last_published_support_at, 0)
+    self.assertIsNone(core.observe(np.zeros((760, 1344, 3), np.uint8), now=2.0))
+    core.set_speed_enabled(True)
+    self.assertIsNotNone(core.classifier_net)
+    self.assertEqual(core.published_speed_limit_mph, 0)
+    self.assertEqual(core.history, deque())
+
+  def test_stop_only_keeps_the_complete_declared_model_identity_check(self):
+    verify = VisionModelCore._verified_model_path
+
+    def checked(cls, name, expected):
+      if name == 'speed_limit_us_value_classifier.onnx':
+        raise ValueError('Vision model identity mismatch')
+      return verify(name, expected)
+
+    with patch.object(VisionModelCore, '_verified_model_path', classmethod(checked)), self.assertRaises(ValueError):
+      VisionModelCore(is_metric=False, speed_enabled=False)

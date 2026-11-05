@@ -72,3 +72,15 @@ class TestVisionForceStop(unittest.TestCase):
           sm['carControl'].longActive = False
         self.sample(sm)
       self.assertFalse(self.owner.policy.sign_confirmed, mutate)
+
+  def test_force_stop_vision_works_with_slc_and_speed_display_disabled(self):
+    self.params.put_bool('SpeedLimitController', False, block=True)
+    self.params.put_bool('ShowSpeedLimits', False, block=True)
+    self.params.put('SLCPriority1', 'Dashboard', block=True)
+    self.params.put('SLCPriority2', 'Map Data', block=True)
+    for tick in range(35):
+      sm = self.frame(tick)
+      sm['modelV2'].action.shouldStop = False
+      plan = self.sample(sm)
+    self.assertTrue(plan.forcing)
+    self.assertTrue(self.owner.policy.sign_confirmed)
