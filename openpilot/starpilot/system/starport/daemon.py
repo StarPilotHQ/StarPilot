@@ -30,7 +30,7 @@ from openpilot.starpilot.system.starport.supervisor import Supervisor
 PAIRING_COMMANDS = {"prepare_pairing", "pairing_status", "pairing_response", "cancel_pairing", "pair_device"}
 AUTHENTICATED_COMMANDS = {"start", "set_auto_connect", "select_receiver", "set_view", "set_connection", "set_car_type", "set_car_profile",
                           "prepare_pairing", "pairing_status", "pairing_response", "cancel_pairing", "pair_device", "devices", "bluetooth_action",
-                          "phone_window", "bluetooth_power"}
+                          "phone_window", "bluetooth_power", "reset_handshake"}
 
 
 def _offroad() -> bool:
@@ -124,6 +124,8 @@ def handle(supervisor: Supervisor, request: dict[str, Any], verifier: StarPortSo
     supervisor.select_receiver(str(request.get("address", "")), str(request.get("name", "")))
   elif command == "forget_receiver":
     return {"cleared": supervisor.forget_receiver(str(request.get("address", "")))}
+  elif command == "reset_handshake":
+    return {"reset": supervisor.reset_handshake()}
   elif command == "set_view":
     supervisor.set_view(str(request.get("view", "")))
   elif command == "set_connection":

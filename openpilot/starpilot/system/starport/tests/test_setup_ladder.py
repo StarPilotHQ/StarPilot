@@ -292,3 +292,177 @@ def test_a_learned_phone_identity_strategy_survives_a_restart(ladder):
   ladder.worked(CAR, strategy)
   again = sl.SetupLadder(ladder.path, boot_id=lambda: "boot-1").strategy(CAR, False)
   assert again.rung == "phone_identity" and again.phone_identity
+
+
+# ---- 2026-11-04: a learned handshake lost to a busy car, then stuck on a reply the car hangs up on -----------------------
+def reject(ladder, strategy, **overrides):
+  return refuse(ladder, strategy, ladder_failure=False, rejected=True, **overrides)
+
+
+def test_a_rejected_rung_goes_straight_back_to_the_last_strategy_that_streamed(ladder):
+  ladder.worked(CAR, sl.resolve("standard", False))
+  learned = ladder.strategy(CAR, False)
+  assert refuse(ladder, learned) == "counted" and refuse(ladder, learned) == "dropped"   # two failures, same drive
+  assert ladder.strategy(CAR, False).rung == "other_reply"
+  assert reject(ladder, ladder.strategy(CAR, False)) == "reverted"
+  back = ladder.strategy(CAR, False)
+  assert (back.rung, back.modern_reply) == ("standard", False)
+  snapshot = ladder.snapshot(CAR)
+  assert snapshot["learned"] and snapshot["steps"][1]["state"] == "failed"
+
+
+def test_a_rejected_rung_is_skipped_from_then_on(ladder):
+  ladder.worked(CAR, sl.resolve("standard", False))
+  for _ in range(2):
+    refuse(ladder, ladder.strategy(CAR, False))
+  reject(ladder, ladder.strategy(CAR, False))                     # other_reply: hung up on
+  for _ in range(2):
+    refuse(ladder, ladder.strategy(CAR, False))                   # standard drops again
+  assert ladder.strategy(CAR, False).rung == "modern_dual"        # not other_reply a second time
+  assert ladder.snapshot(CAR)["steps"][1]["state"] == "failed"
+
+
+def test_the_rung_that_streamed_is_never_marked_rejected(ladder):
+  ladder.worked(CAR, sl.resolve("standard", False))
+  learned = ladder.strategy(CAR, False)
+  assert reject(ladder, learned) == "counted"                     # an ordinary failure for the known-good rung
+  assert reject(ladder, learned) == "dropped"
+  assert ladder.cars[CAR]["rejected"] == [] and ladder.strategy(CAR, False).rung == "other_reply"
+
+
+def test_a_car_that_never_streamed_moves_on_at_once_when_it_hangs_up(ladder):
+  assert reject(ladder, ladder.strategy(CAR, False)) == "advanced"
+  assert ladder.strategy(CAR, False).rung == "other_reply"
+  assert reject(ladder, ladder.strategy(CAR, False)) == "advanced"
+  for _ in range(3):
+    refuse(ladder, ladder.strategy(CAR, False))                   # modern_dual, modern_24ghz, patient: wraps
+  assert ladder.strategy(CAR, False).rung == "modern_dual"        # the new pass starts past the two it hung up on
+
+
+def test_each_drive_starts_with_the_last_strategy_that_streamed(ladder):
+  ladder.worked(CAR, sl.resolve("standard", False), 15.0)
+  for _ in range(2):
+    refuse(ladder, ladder.strategy(CAR, False))
+  refuse(ladder, ladder.strategy(CAR, False))                     # other_reply timed out (not hung up on): modern_dual
+  assert ladder.strategy(CAR, False).rung == "modern_dual" and not ladder.snapshot(CAR)["learned"]
+  ladder.begin_cycle(CAR)
+  assert ladder.strategy(CAR, False).rung == "standard" and ladder.snapshot(CAR)["learned"]
+  ladder.state["boot"] = "boot-2"                                 # a reboot alone keeps the drive's progress
+  assert ladder.strategy(CAR, False).rung == "standard"
+
+
+def test_last_good_and_rejections_survive_a_restart_and_older_files_get_a_last_good(tmp_path):
+  path = tmp_path / "setup_state.json"
+  first = sl.SetupLadder(path, boot_id=lambda: "b")
+  first.worked(CAR, sl.resolve("standard", False))
+  for _ in range(2):
+    refuse(first, first.strategy(CAR, False))
+  second = sl.SetupLadder(path, boot_id=lambda: "b")
+  assert second.strategy(CAR, False).rung == "other_reply"
+  assert reject(second, second.strategy(CAR, False)) == "reverted"
+  assert sl.SetupLadder(path, boot_id=lambda: "b").cars[CAR]["rejected"] == ["other_reply"]
+  old = {"version": 1, "cars": {CAR: {"rung": "patient", "working": sl.resolve("patient", False).as_dict()}}}
+  path.write_text(json.dumps(old))
+  assert sl.SetupLadder(path, boot_id=lambda: "b").cars[CAR]["last_good"]["rung"] == "patient"
+
+
+def test_resetting_starts_over_at_standard(ladder):
+  ladder.worked(CAR, sl.resolve("standard", False))
+  for _ in range(2):
+    refuse(ladder, ladder.strategy(CAR, False))
+  assert ladder.reset(CAR) is True and ladder.reset(CAR) is False
+  assert ladder.strategy(CAR, False).rung == "standard" and ladder.cars[CAR]["last_good"] is None
+
+
+def test_bootstrap_tells_a_busy_car_from_one_that_hangs_up_on_the_reply():
+  from openpilot.starpilot.system.starport import bootstrap as bs
+  boot = bs.WirelessBootstrap(None, lambda *a, **k: None)
+  assert not boot.only_not_ready()                                # silent: still a real timeout
+  boot.refusals = [bs.STATUS_NOT_READY] * 11
+  assert boot.only_not_ready()
+  boot.refusals.append(-4)
+  assert not boot.only_not_ready()
+  boot.refusals, boot.version_major, boot.replied_at = [], 4, _time.monotonic()
+  assert boot.hung_up_on_reply(ConnectionResetError(104, "Connection reset by peer"))
+  assert boot.hung_up_on_reply(bs.BootstrapClosed("rfcomm", "head unit closed the RFCOMM connection"))
+  assert not boot.hung_up_on_reply(bs.BootstrapTimeout("wifi_start", "slow"))
+  boot.replied_at = _time.monotonic() - bs.REPLY_REJECT_SECONDS - 1
+  assert not boot.hung_up_on_reply(ConnectionResetError())         # dropped later: not about the reply
+  boot.replied_at, boot.refusals = _time.monotonic(), [bs.STATUS_NOT_READY]
+  assert not boot.hung_up_on_reply(ConnectionResetError())         # it was already talking Wi-Fi setup
+
+
+def _failing_bootstrap(monkeypatch, sup, error, refusals=()):
+  from openpilot.starpilot.system.starport import bootstrap as bs
+  from openpilot.starpilot.system.starport import supervisor as module
+  replies = []
+
+  class Boot(bs.WirelessBootstrap):
+    def __init__(self, *args, **kwargs):
+      super().__init__(None, lambda *a, **k: None, modern_reply=kwargs["modern_reply"])
+      replies.append(kwargs["modern_reply"])
+
+    def run(self, *args, **kwargs):
+      self.version_major, self.replied_at, self.refusals = 4, _time.monotonic(), list(refusals)
+      raise error(self)
+
+  monkeypatch.setattr(module, "WirelessBootstrap", Boot)
+  monkeypatch.setattr(sup, "_wait", lambda delay: None)
+  monkeypatch.setattr(sup, "_connect_rfcomm", lambda *args: None)
+  return replies
+
+
+def test_a_car_that_only_says_not_ready_keeps_its_learned_handshake(sup, monkeypatch):
+  from openpilot.starpilot.system.starport.bootstrap import STATUS_NOT_READY, BootstrapTimeout
+  sup._ladder.worked(RECEIVER, sl.resolve("standard", False), 18.0)
+  _failing_bootstrap(monkeypatch, sup, lambda boot: BootstrapTimeout("wifi_start", "head unit did not answer in time"),
+                     refusals=[STATUS_NOT_READY] * 11)
+  for _ in range(4):
+    with pytest.raises(BootstrapTimeout):
+      sup._attempt(SimpleNamespace())
+  entry = sup._ladder.cars[RECEIVER]
+  assert entry["working"]["rung"] == "standard" and entry["working_failures"] == 0
+
+
+def test_the_supervisor_reverts_when_the_car_hangs_up_on_the_other_reply(sup, monkeypatch):
+  sup._ladder.worked(RECEIVER, sl.resolve("standard", False), 18.0)
+  for _ in range(2):                                              # a silent car really did drop it
+    sup._ladder.failed(RECEIVER, sup._ladder.strategy(RECEIVER, False), ladder_failure=True, video_seen=False, version_major=4,
+                       adapter=False)
+  replies = _failing_bootstrap(monkeypatch, sup, lambda boot: ConnectionResetError(104, "Connection reset by peer"))
+  for _ in range(2):
+    with pytest.raises(ConnectionResetError):
+      sup._attempt(SimpleNamespace())
+  assert replies == [True, False]                                 # one hang-up on the phone-style reply, then standard again
+  assert sup._ladder.snapshot(RECEIVER)["learned"]
+
+
+def test_reset_handshake_keeps_the_pairing(sup):
+  sup._ladder.worked(RECEIVER, sl.resolve("standard", False))
+  for _ in range(2):
+    sup._ladder.failed(RECEIVER, sup._ladder.strategy(RECEIVER, False), ladder_failure=True, video_seen=False, version_major=4,
+                       adapter=False)
+  assert sup.reset_handshake() is True and sup.reset_handshake() is False
+  assert sup.config["receiver_address"].upper() == RECEIVER and sup._ladder.strategy(RECEIVER, False).rung == "standard"
+  # Done while idle: nothing is written yet, and the next session's log gets it as its first ladder event.
+  assert not any(record["event"] == "ladder_reset" for record in sup.log.recent)
+  note = sup._reset_note
+  assert (note["from_rung"], note["last_good"], note["rejected"]) == ("other_reply", "standard", []) and note["reset_at"]
+  sup._flush_reset_note()
+  logged = [record for record in sup.log.recent if record["event"] == "ladder_reset"]
+  assert len(logged) == 1 and logged[0]["from_rung"] == "other_reply" and sup._reset_note is None
+  sup._flush_reset_note()
+  assert sum(record["event"] == "ladder_reset" for record in sup.log.recent) == 1   # written once
+
+
+def test_a_reset_during_a_session_is_written_at_once(sup, monkeypatch):
+  sup._ladder.worked(RECEIVER, sl.resolve("standard", False))
+  monkeypatch.setattr(sup, "_session_alive", lambda: True)
+  assert sup.reset_handshake() is True
+  assert [record["from_rung"] for record in sup.log.recent if record["event"] == "ladder_reset"] == ["standard"]
+  assert sup._reset_note is None
+
+
+def test_only_galaxy_can_reset_the_handshake():
+  from openpilot.starpilot.system.starport import daemon
+  assert "reset_handshake" in daemon.AUTHENTICATED_COMMANDS

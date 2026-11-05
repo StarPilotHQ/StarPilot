@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { StarPortFeed, StarPortPage } from "../web/js/starport.js"
-import { guidedState, connectionStages, handshakeSteps, StarPortGuidedSetup, FIRST_RUN_NOTICE, EXHAUSTED_NOTICE } from "../web/js/starport-guided.js"
+import { guidedState, connectionStages, handshakeSteps, handshakeResettable, StarPortGuidedSetup, FIRST_RUN_NOTICE, EXHAUSTED_NOTICE } from "../web/js/starport-guided.js"
 
 const setup = { identity: { installed: true } }
 const adapterModels = { aawireless: "AAWireless", default: "Motorola MA1", unofficial: "Unofficial dongle" }
@@ -95,9 +95,32 @@ assert.equal(guidedState({ setup: null, runtime: running("rfcomm") }).show, fals
   assert.deepEqual(handshakeSteps({ steps: [null, { label: 3 }, { id: "a", label: "A", state: "worked" }] }).map((step) => step.id), ["a"])
 }
 
+// A handshake that moved off the standard one (2026-11-04: stuck on a reply the Civic hangs up on) can be started over
+// without re-pairing; a fresh or learned-standard car offers nothing to reset.
+{
+  const steps = (...states) => states.map((state, index) => ({ id: ["standard", "other_reply"][index], label: "x", state }))
+  assert.equal(handshakeResettable(null), false)
+  assert.equal(handshakeResettable(ladder({ current: "standard" })), false)
+  assert.equal(handshakeResettable(ladder({ current: "standard", learned: true, steps: steps("worked", "waiting") })), false)
+  const stuck = ladder({ current: "other_reply", steps: steps("failed", "current") })
+  assert.equal(handshakeResettable(stuck), true)
+  assert.equal(handshakeResettable(ladder({ current: "standard", learned: true, steps: steps("current", "failed") })), true)  // reverted
+  assert.equal(guidedState({ setup, runtime: running("rfcomm", { setup_ladder: stuck }) }).canResetHandshake, true)
+  assert.equal(guidedState({ setup, runtime: running("rfcomm") }).canResetHandshake, false)
+  assert.equal(guidedState({ setup, runtime: running("waiting_for_usb", { connection: "wired", setup_ladder: stuck }) }).canResetHandshake, false)
+  const page = StarPortPage.template
+  assert.match(page, /@reset-handshake="resetHandshake"/)
+  assert.match(page, /v-if="canResetHandshake"[^>]*@click="resetHandshake"/)
+  const can = (over) => StarPortPage.computed.canResetHandshake.call({ wired: false, app: "", selected: { address: "A" }, runtime: { setup_ladder: stuck }, ...over })
+  assert.equal(can({}), true)
+  assert.equal(can({ selected: null }), false)
+  assert.equal(can({ wired: true }), false)
+}
+
 // The component emits the page's actions and never invents state.
 {
-  assert.deepEqual(StarPortGuidedSetup.emits, ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "done"])
+  assert.deepEqual(StarPortGuidedSetup.emits, ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "reset-handshake", "done"])
+  assert.match(StarPortGuidedSetup.template, /v-if="state\.canResetHandshake"[^>]*@click="\$emit\('reset-handshake'\)"/)
   const template = StarPortGuidedSetup.template
   assert.match(template, /\$emit\('choose-type', choice\.key\)/)
   assert.match(template, /\$emit\('use-car', car\.address\)/)
@@ -122,6 +145,23 @@ assert.equal(guidedState({ setup: null, runtime: running("rfcomm") }).show, fals
   assert.equal(path, "./api/starport/control")
   assert.deepEqual(JSON.parse(options.body), { action: "new_setup", enabled: false })
   assert.equal(options.method, "POST")
+}
+
+// Resetting the handshake is one narrow control action.
+{
+  const calls = []
+  const reply = (body, code = 200) => ({ status: code, ok: code < 300, json: async () => structuredClone(body) })
+  const feed = new StarPortFeed({ publish: () => {}, fetcher: async (path, options) => {
+    calls.push([path, options])
+    return reply(path.endsWith("/setup") ? { enabled: true, bluetoothEnabled: true, parked: true, installReady: true, serviceReady: true,
+      identity: { installed: true }, import: {}, maxUploadBytes: 1000, newSetup: true } : { status: {} })
+  }, later: () => 1, cancelTimer: () => {} })
+  feed.active = true
+  feed.setup = { enabled: true }
+  assert.equal(await feed.control("reset_handshake"), true)
+  const [path, options] = calls.find(([target]) => target.endsWith("/control"))
+  assert.equal(path, "./api/starport/control")
+  assert.deepEqual(JSON.parse(options.body), { action: "reset_handshake" })
 }
 
 // The page uses the guided card by default and only when the setup response does not say newSetup is off.

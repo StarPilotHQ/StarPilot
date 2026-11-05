@@ -283,6 +283,21 @@ def _tail(path: Path, limit: int) -> bytes | None:
     return None
 
 
+def shareable_setup_state(path: Path, chosen: str = "") -> dict | None:
+  """The handshake ladder's saved state per car (rungs, counts, times) with each car's address replaced by whether it is
+  the chosen car; None when there is none to read."""
+  try:
+    data = json.loads(path.read_text())
+  except (OSError, ValueError, UnicodeError):
+    return None
+  cars = data.get("cars") if isinstance(data, dict) else None
+  if not isinstance(cars, dict):
+    return None
+  return {"version": data.get("version"),
+          "cars": [{"chosen": bool(chosen) and str(address).upper() == chosen.upper(), **entry}
+                   for address, entry in cars.items() if isinstance(entry, dict)]}
+
+
 def shareable_config(config: dict) -> dict:
   """The settings without the Bluetooth addresses of the car and its companion device."""
   shared = dict(config)
@@ -354,6 +369,10 @@ def bundle(log_dir: Path | None = None, config_path: Path | None = None, *,
       add("report.json", report)
     config = identity_store.load_config(config_path)
     add("config.json", json.dumps(shareable_config(config), indent=2, default=str).encode())
+    setup_state = shareable_setup_state((config_path or identity_store.CONFIG_PATH).with_name("setup_state.json"),
+                                        config.get("receiver_address", ""))
+    if setup_state is not None:
+      add("setup_state.json", json.dumps(setup_state, indent=2, default=str).encode())
     for name in EXTRA_LOGS:
       data = _tail(directory / name, EXTRA_LOG_BYTES)
       if data is not None:

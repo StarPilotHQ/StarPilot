@@ -54,6 +54,11 @@ NAMES = {1: "WifiStartRequest", 2: "WifiInfoRequest", 3: "WifiInfoResponse", 4: 
 
 STATUS_SUCCESS = 0
 STATUS_NETWORK_UNAVAILABLE = -1
+# WifiStartResponse status from a head unit that is not ready yet (2025 Civic): a few are normal before it accepts,
+# and a wait made only of these says the car was busy, not that our handshake is wrong.
+STATUS_NOT_READY = -6
+# A car that drops the RFCOMM link this soon after our version reply, before refusing anything, is rejecting the reply.
+REPLY_REJECT_SECONDS = 2.0
 # Fallback for a v4+ head unit that goes silent after our usual reply: a phone-shaped WifiVersionResponse, where 1 is
 # success (open-android-auto WifiVersionStatus) and the channel type and session info are filled in.
 MODERN_MAJOR = 4
@@ -90,6 +95,10 @@ class BootstrapError(RuntimeError):
 
 
 class BootstrapTimeout(BootstrapError):
+  pass
+
+
+class BootstrapClosed(BootstrapError):
   pass
 
 
@@ -277,6 +286,8 @@ class WirelessBootstrap:
     self.phone_identity = phone_identity     # answer like a phone: status 0 and this device's name and Bluetooth address
     self.phone_address = phone_address
     self.version_major = 0
+    self.refusals: list[int] = []           # WifiStartResponse statuses that were not success, in order
+    self.replied_at: float | None = None    # monotonic time our WifiVersionResponse went out
     self.flags = EXPERIMENTS[self.experiment][1] if self.experiment else set()
     self.initial_kick_delay = initial_kick_delay
     self.join_ping_interval = join_ping_interval
@@ -293,6 +304,16 @@ class WirelessBootstrap:
     self.frames_seen = 0
     self.cancelled: Callable[[], bool] = lambda: False
     self.join_cancelled = threading.Event()
+
+  def only_not_ready(self) -> bool:
+    """Every refusal so far said "not ready": the car was busy, which says nothing about the handshake."""
+    return bool(self.refusals) and all(status == STATUS_NOT_READY for status in self.refusals)
+
+  def hung_up_on_reply(self, error: BaseException) -> bool:
+    """The car closed the link right after our version reply, before refusing anything: it rejected the reply."""
+    closed = isinstance(error, (BootstrapClosed, ConnectionResetError, BrokenPipeError))
+    return (closed and self.version_major > 0 and self.replied_at is not None and not self.refusals
+            and time.monotonic() - self.replied_at <= REPLY_REJECT_SECONDS)
 
   def join_is_cancelled(self) -> bool:
     """For join_wifi: stop on user cancellation or once the handshake has failed."""
@@ -325,7 +346,7 @@ class WirelessBootstrap:
       except TimeoutError:
         continue
       if not data:
-        raise BootstrapError(self.stage, "head unit closed the RFCOMM connection")
+        raise BootstrapClosed(self.stage, "head unit closed the RFCOMM connection")
       self.queue.extend(self.reader.feed(data))
     message_id, payload = self.queue.pop(0)
     if message_id not in (WIFI_PING_REQUEST, WIFI_PING_RESPONSE):
@@ -425,6 +446,7 @@ class WirelessBootstrap:
         self.log("bootstrap_version", major=major, minor=minor, head_unit=info,
                  endpoint=version_endpoint.__dict__ if version_endpoint else None, message=describe_version_request(payload))
         self.send(WIFI_VERSION_RESPONSE, self._version_response(major, minor, payload))
+        self.replied_at = time.monotonic()
         hinted = version_endpoint or hinted
         if hinted is not None and hint_ready_at is None:
           hint_ready_at = time.monotonic() + 3.0
@@ -446,6 +468,7 @@ class WirelessBootstrap:
           endpoint = parsed
         else:
           self.log("bootstrap_start_refused", status=status, endpoint=parsed is not None)
+          self.refusals.append(status)
           deadline = min(latest_deadline, max(deadline, time.monotonic() + self.stage_timeout))  # a car that answers is not gone
           start_request_at = time.monotonic() + self.start_request_delay
       elif message_id == WIFI_SETUP_INFO:

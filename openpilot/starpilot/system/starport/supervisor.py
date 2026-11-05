@@ -404,6 +404,7 @@ class EventLog:
 
 class Supervisor:
   _pairing_note = ""      # why a paired car was not chosen, kept after the pairing window closes
+  _reset_note: dict | None = None   # a handshake reset waiting for a session log to be written to
   _no_starport_since = 0.0
   def __init__(self, bluez_factory=None, lease_factory=None, bluetooth_client=None, frame_path: str | None = None,
                synthetic: bool = False, car_frame_path: str = CAR_FRAME_PATH, touch_path: str = DEFAULT_TOUCH_SOCKET,
@@ -614,6 +615,28 @@ class Supervisor:
       identity_store.save_config(self.config)
     self.log("car_forgotten", address=address, receiver=chosen, companion=companion)
     return chosen
+
+  def reset_handshake(self) -> bool:
+    """Start the chosen car's handshake over from the standard one without touching its Bluetooth pairing.
+
+    Events only reach a file while a session is open, so a reset made while idle is noted and written as the next
+    session's first ladder event; one made mid-session is written at once."""
+    with self._lock:
+      address = self.config["receiver_address"]
+      entry = dict(self._ladder.cars.get(address.upper(), {})) if address else {}
+      reset = bool(address) and self._ladder.reset(address)
+      if reset:
+        self._reset_note = {"reset_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                            "from_rung": (entry.get("working") or {}).get("rung") or entry.get("rung"),
+                            "last_good": (entry.get("last_good") or {}).get("rung"), "rejected": list(entry.get("rejected", []))}
+    if reset and self._session_alive():
+      self._flush_reset_note()
+    return reset
+
+  def _flush_reset_note(self) -> None:
+    note, self._reset_note = self._reset_note, None
+    if note:
+      self.log("ladder_reset", **note)
 
   def set_view(self, view: str) -> None:
     """Choose what the car shows; applies from the next projection session."""
@@ -1339,6 +1362,7 @@ class Supervisor:
              # What the owner chose, so a report can tell a built-in unit from a dongle and say which profile applied.
              setup={"type": {"wired": "usb", "headunitpad": "app", "openheadunit": "app"}.get(connection) or self.car_type(),
                     "profile": profile, "profile_source": profile_source})
+    self._flush_reset_note()   # a handshake reset made while nothing was running
     lease = self._lease() if wireless else NoLease()
     attempt = 0
     car_first = trigger == "onroad" and wireless
@@ -1494,15 +1518,20 @@ class Supervisor:
       if _stray_link(error):
         raise StrayLinkError(f"Bluetooth link to the car is stuck: {error}") from error  # says nothing about the cached channel
       # A car that answered the version exchange and then went silent or refused the Wi-Fi setup says something about the
-      # handshake; every other failure (asleep, local Bluetooth trouble, after video) says nothing and leaves the ladder alone.
+      # handshake, unless every refusal was "not ready" (the car was busy, not unhappy with us). One that hangs up the
+      # moment it reads our version reply rejects that reply. Every other failure (asleep, local Bluetooth trouble,
+      # after video) says nothing and leaves the ladder alone.
+      stopped = self._stop.is_set()
       ladder_failure = (boot is not None and boot.version_major > 0 and isinstance(error, BootstrapTimeout)
-                        and error.stage in ("wifi_start", "wifi_info") and not self._stop.is_set())
-      outcome = self._ladder.failed(address, strategy, ladder_failure=ladder_failure, video_seen=self._video_seen,
-                                    version_major=boot.version_major if boot is not None else 0, adapter=adapter,
-                                    unofficial=unofficial)
+                        and error.stage in ("wifi_start", "wifi_info") and not boot.only_not_ready() and not stopped)
+      rejected = boot is not None and not stopped and boot.hung_up_on_reply(error)
+      outcome = self._ladder.failed(address, strategy, ladder_failure=ladder_failure, rejected=rejected, video_seen=self._video_seen,
+                                    version_major=boot.version_major if boot is not None else 0, adapter=adapter, unofficial=unofficial)
       if outcome:
         self.log("ladder_failed", outcome=outcome, rung=strategy.rung, next=self._ladder.strategy(address, base_modern).rung,
-                 version_major=boot.version_major)
+                 version_major=boot.version_major, reason="rejected_reply" if rejected else "timeout")
+      elif boot is not None and isinstance(error, BootstrapTimeout) and boot.only_not_ready():
+        self.log("ladder_not_ready", rung=strategy.rung, refusals=len(boot.refusals))
       if source == "cache" and not self._stop.is_set() and drops_cached_channel(self._status["last_stage"], error):
         self._remember_channel(address, None)  # the car never answered there; ask it over SDP next time
         self.log("rfcomm_cache_dropped", channel=channel)
