@@ -617,15 +617,16 @@ class Supervisor:
     return chosen
 
   def reset_handshake(self) -> bool:
-    """Start the chosen car's handshake over from the standard one without touching its Bluetooth pairing.
-
-    Events only reach a file while a session is open, so a reset made while idle is noted and written as the next
-    session's first ladder event; one made mid-session is written at once."""
+    """Start the chosen car's handshake over from the standard one, keeping its pairing."""
     with self._lock:
       address = self.config["receiver_address"]
       entry = dict(self._ladder.cars.get(address.upper(), {})) if address else {}
-      reset = bool(address) and self._ladder.reset(address)
+      replies = dict(self.config.get("modern_reply_cache", {}))
+      reset = bool(address) and (self._ladder.reset(address) | (replies.pop(address.upper(), None) is not None))
       if reset:
+        self.config["modern_reply_cache"] = replies
+        self._modern_reply.pop(address.upper(), None)
+        identity_store.save_config(self.config)
         self._reset_note = {"reset_at": datetime.now(UTC).isoformat(timespec="seconds"),
                             "from_rung": (entry.get("working") or {}).get("rung") or entry.get("rung"),
                             "last_good": (entry.get("last_good") or {}).get("rung"), "rejected": list(entry.get("rejected", []))}
@@ -1517,10 +1518,7 @@ class Supervisor:
     except Exception as error:
       if _stray_link(error):
         raise StrayLinkError(f"Bluetooth link to the car is stuck: {error}") from error  # says nothing about the cached channel
-      # A car that answered the version exchange and then went silent or refused the Wi-Fi setup says something about the
-      # handshake, unless every refusal was "not ready" (the car was busy, not unhappy with us). One that hangs up the
-      # moment it reads our version reply rejects that reply. Every other failure (asleep, local Bluetooth trouble,
-      # after video) says nothing and leaves the ladder alone.
+      # Only a silent or refusing car after the version exchange, or one that hangs up on our reply, counts against the handshake.
       stopped = self._stop.is_set()
       ladder_failure = (boot is not None and boot.version_major > 0 and isinstance(error, BootstrapTimeout)
                         and error.stage in ("wifi_start", "wifi_info") and not boot.only_not_ready() and not stopped)

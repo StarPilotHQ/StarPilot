@@ -54,10 +54,9 @@ NAMES = {1: "WifiStartRequest", 2: "WifiInfoRequest", 3: "WifiInfoResponse", 4: 
 
 STATUS_SUCCESS = 0
 STATUS_NETWORK_UNAVAILABLE = -1
-# WifiStartResponse status from a head unit that is not ready yet (2025 Civic): a few are normal before it accepts,
-# and a wait made only of these says the car was busy, not that our handshake is wrong.
+# WifiStartResponse status for a head unit that is busy, not unhappy with our handshake.
 STATUS_NOT_READY = -6
-# A car that drops the RFCOMM link this soon after our version reply, before refusing anything, is rejecting the reply.
+# Dropping the link this soon after our version reply means the reply was rejected.
 REPLY_REJECT_SECONDS = 2.0
 # Fallback for a v4+ head unit that goes silent after our usual reply: a phone-shaped WifiVersionResponse, where 1 is
 # success (open-android-auto WifiVersionStatus) and the channel type and session info are filled in.

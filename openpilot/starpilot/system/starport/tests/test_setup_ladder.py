@@ -294,7 +294,6 @@ def test_a_learned_phone_identity_strategy_survives_a_restart(ladder):
   assert again.rung == "phone_identity" and again.phone_identity
 
 
-# ---- 2026-11-04: a learned handshake lost to a busy car, then stuck on a reply the car hangs up on -----------------------
 def reject(ladder, strategy, **overrides):
   return refuse(ladder, strategy, ladder_failure=False, rejected=True, **overrides)
 
@@ -453,6 +452,13 @@ def test_reset_handshake_keeps_the_pairing(sup):
   assert len(logged) == 1 and logged[0]["from_rung"] == "other_reply" and sup._reset_note is None
   sup._flush_reset_note()
   assert sum(record["event"] == "ladder_reset" for record in sup.log.recent) == 1   # written once
+
+
+def test_reset_handshake_forgets_the_remembered_reply(sup):
+  sup.config["modern_reply_cache"] = {RECEIVER: True}
+  sup._modern_reply[RECEIVER] = True
+  assert sup.reset_handshake() is True
+  assert RECEIVER not in sup.config["modern_reply_cache"] and RECEIVER not in sup._modern_reply
 
 
 def test_a_reset_during_a_session_is_written_at_once(sup, monkeypatch):

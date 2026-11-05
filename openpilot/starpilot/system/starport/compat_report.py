@@ -284,8 +284,7 @@ def _tail(path: Path, limit: int) -> bytes | None:
 
 
 def shareable_setup_state(path: Path, chosen: str = "") -> dict | None:
-  """The handshake ladder's saved state per car (rungs, counts, times) with each car's address replaced by whether it is
-  the chosen car; None when there is none to read."""
+  """The handshake ladder's saved state with car addresses replaced by whether each is the chosen car."""
   try:
     data = json.loads(path.read_text())
   except (OSError, ValueError, UnicodeError):

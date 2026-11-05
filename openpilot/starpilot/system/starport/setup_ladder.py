@@ -4,10 +4,7 @@ Only bootstrap timeouts after a version exchange advance the ladder, and a car t
 version reply rejects that rung outright; failures before the car answers, a car that only ever says "not ready", and
 anything after acknowledged video leave its strategy unchanged.
 
-The last strategy that streamed is never thrown away until the car is forgotten or the ladder is reset: when a rung
-is rejected, and at the start of every drive, the ladder goes back to it. (2026-11-04: two minutes of a Civic saying
-"not ready" dropped its learned standard handshake, and the Civic hangs up on the other reply, so nothing moved again
-until the car was forgotten and paired again.)
+The last strategy that streamed is kept until the car is forgotten or the ladder is reset; a rejected rung and each new drive go back to it.
 """
 from __future__ import annotations
 
@@ -168,8 +165,7 @@ class SetupLadder:
   def begin_cycle(self, address: str) -> None:
     """A new ignition cycle: the passes are used up per drive, not per boot (the comma can stay powered between drives).
 
-    A car whose learned strategy was dropped starts the drive with the last one that streamed again; one that never
-    streamed resumes at the first untried rung. Does nothing for a car with a learned strategy or nothing tried."""
+    A dropped strategy is replaced by the last one that streamed; otherwise resumes at the first untried rung."""
     entry = self.cars.get(address.upper())
     if not entry:
       return
@@ -218,8 +214,7 @@ class SetupLadder:
     """Record a failed attempt; returns what changed ("advanced", "wrapped", "exhausted", "counted", "dropped",
     "reverted") or None.
 
-    Only a handshake the car answered, before any video this session, counts: see the module docstring. `rejected`
-    means the car hung up on our version reply, which no amount of retrying the same rung will change."""
+    Only a handshake the car answered, before any video this session, counts: see the module docstring."""
     if not (ladder_failure or rejected) or video_seen:
       return None
     entry = self._entry(address)
