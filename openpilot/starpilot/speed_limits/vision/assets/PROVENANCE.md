@@ -1,3 +1,46 @@
+## Current STOP-head refinement (November 5, 2026)
+
+The current joint detector is 9,725,049 bytes, SHA-256
+`52bb30f73bf0d166342f33d1b32b29b726bf036004e0359fef10ef7bf1f5556f`.
+It preserves all 483 graph nodes, operators, tensor shapes and output ABI.
+All 204 initializers on the speed output's dependency path are byte-identical
+to the previous qualified shared-feature model
+`989aea753d776f4733a61f02a0ef50af96beb3cc8f456678768fa2fa497353d8`.
+The numeric reader, RGB STOP rejector, scheduling and control policies are unchanged.
+Both sign types still share one detector forward; STOP-only skips numeric reading.
+
+Training updated 4,145 existing STOP-fusion/classification parameters while
+freezing the entire shared/speed body and all batch-normalization statistics.
+Seven new visually reviewed training objects comprise six complete front STOPs
+and one non-STOP sign region. Source-drive identities were reconciled against
+prior STOP/speed registries before assigning previously unseen routes using a
+fixed identity hash. All segments, streams and augmentations inherit the route
+split; the new reserved test route was excluded from training. Original footage,
+teacher proposals, review receipts and immutable semantic overlays are retained.
+The training set has 443 views. A training-only teacher-preservation penalty at
+the existing 0.6 proposal boundary discourages upward crossings outside reviewed
+objects without assigning unreviewed background negative labels. Runtime
+thresholds and regression gates were not changed. Selected update 200 has SHA-256
+`fa15db039e398b245c23f6b837383a2255d4813cc6182ac38e545d272f48d530`.
+
+Paired evaluation on the same 1,375 held-out images and 388 corrected annotations
+improved score-0.7 IoU-0.5 STOP hits from 152 to 154 with the same four false
+proposals; score-0.6 hits improved from 172 to 176 with the same seven false
+proposals. No previously detected annotation was lost and no new negative-image
+read appeared at either threshold. Both models use the same retained immutable
+validation correction described below. Validation images received no gradient
+updates; repeated model selection and public pretraining ancestry limit claims.
+
+Nine export/OpenCV parity cases and 153 current-source native producer, display,
+model-identity and control tests passed. All 1,486 full-frame speed outputs were identical to the previous qualified
+model, retaining 396 correct and two wrong regulatory reads with the same 6,137
+numeric forwards. All 108 protected strong STOP objects and the 14 recorded
+confirmation-phase tracks were retained, with no new known-warning confirmations. No fresh device timing or closed-loop road test is claimed.
+Startup model unavailability, difficult missed scenes, ROI coverage and loaded
+cadence remain limitations. The sections below retain predecessor history.
+
+## Previous qualified shared-feature release
+
 ## Current shared-feature refinement (November 5, 2026)
 
 The current joint detector is 9,725,066 bytes, SHA-256
