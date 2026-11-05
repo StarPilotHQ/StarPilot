@@ -192,6 +192,19 @@ export const LayoutWidgetPreview = {
         <text :x="widget.width / 2" :y="widget.height * 101 / 112" text-anchor="middle" dominant-baseline="middle" :font-size="widget.height * 30 / 112" font-weight="500" fill="#fffffff2"
           style="filter: drop-shadow(2px 2px 1px #000000aa)">14 seconds</text>
       </template>
+      <g v-else-if="widget.kind === 'weather'">
+        <rect x="1" y="1" :width="widget.width - 2" :height="widget.height - 2" :rx="widget.height * .1"
+          :fill="palette.cardFill" :stroke="palette.cardBorder" />
+        <svg :x="widget.height * .1" :y="widget.height * .05" :width="widget.height * .8" :height="widget.height * .8" viewBox="0 0 80 80">
+          <g fill="none" stroke="#c7aef7" stroke-width="3" stroke-linecap="round">
+            <circle cx="27" cy="28" r="13" fill="#c7aef7" />
+            <path d="M27 6v-4 M27 50v4 M5 28H1 M49 28h4 M11 12l-3-3 M43 12l3-3 M11 44l-3 3" />
+          </g>
+          <path d="M20 61a13 13 0 0 1 0-26 18 18 0 0 1 34-3 14 14 0 1 1 4 29Z" fill="#edf0ff" />
+        </svg>
+        <text :x="widget.height" :y="widget.height * .55" :font-size="profile === 'large' ? 44 : 24" font-weight="600">70°F</text>
+        <text :x="widget.height" :y="widget.height * .88" :font-size="profile === 'large' ? 16 : 8" fill="#c7aef7">Open-Meteo</text>
+      </g>
       <template v-else-if="widget.kind === 'clock'">
         <text :x="widget.width / 2" :y="widget.height / 2" text-anchor="middle" dominant-baseline="middle"
           :font-size="profile === 'large' ? 48 : 21" font-weight="600"

@@ -13,6 +13,7 @@ import math
 from typing import Protocol
 
 from openpilot.starpilot.ui.presentation import Profile
+from openpilot.starpilot.ui.weather import WeatherReading
 from openpilot.starpilot.ui.large_speed_geometry import ACTION_BOUNDS, LIMIT_RECTS, confirmation_bounds, confirmation_buttons
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice, OnroadAppearance
 from openpilot.starpilot.curve_speed.status import CurveObservation
@@ -243,6 +244,8 @@ class OnroadState:
     return self.longitudinal_active or self.longitudinal_overridden or self.stock_cruise_active
 
   stop_sign_observed_ns: int = 0
+  weather_location: tuple[float, float] | None = None
+  weather: WeatherReading | None = None
 
   def __post_init__(self) -> None:
     if self.speed_mps is not None and (not math.isfinite(self.speed_mps) or self.speed_mps < 0):

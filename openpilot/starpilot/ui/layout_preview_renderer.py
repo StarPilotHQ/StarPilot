@@ -74,7 +74,8 @@ def sample_state(scene: str, document: dict) -> OnroadState:
   lateral = scene not in ('long_only', 'slc_disengaged')
   longitudinal = scene not in ('aol', 'slc_disengaged')
   pending = scene in ('slc_pending', 'slc_notice')
-  state = OnroadState(engaged=lateral or longitudinal, camera_available=False,
+  from openpilot.starpilot.ui.weather import WeatherReading
+  state = OnroadState(weather=WeatherReading(21, 2, True), engaged=lateral or longitudinal, camera_available=False,
                      speed_mps=0.0 if scene in ("cem_lead", "stopped") else 22.0, cruise_kph=88.0,
                      stopped_duration_s=PREVIEW_DURATION_S if scene == "stopped" else None,
                      speed_limit=SpeedLimitObservation(kind=ObservationKind.VALID, source="dashboard",
