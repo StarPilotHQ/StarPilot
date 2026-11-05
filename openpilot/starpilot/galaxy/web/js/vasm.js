@@ -4,13 +4,14 @@ import { reactive } from "../vendor/vue/vue.esm-browser.js"
 import { SettingsFeed, settingsBusy } from "./settings.js"
 import { GalaxySettingRow } from "./galaxy-setting-row.js"
 import { LiveCameraPreview } from "./cameras.js"
+import { WhiteBalanceSwitch, whiteBalancePref } from "./white-balance.js"
 import { GxNotice } from "./notice.js"
 import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 import { FORMATS, annotationDraft, displaySide, sourcePoint } from "./vasm-geometry.js"
 
 export const VasmPage = {
   name: "VasmPage",
-  components: { GxDialog, GxState, GalaxySettingRow, GxNotice, BluetoothNotice },
+  components: { GxDialog, GxState, GalaxySettingRow, GxNotice, BluetoothNotice, WhiteBalanceSwitch },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, required: true } },
   setup(props) {
@@ -34,7 +35,7 @@ export const VasmPage = {
           "This saved camera size cannot be edited here. Choose a supported size and redraw the regions."
       }
     } })
-    return { state, feed, FORMATS, displaySide, bluetooth: bluetoothConnection() }
+    return { state, feed, FORMATS, displaySide, bluetooth: bluetoothConnection(), pref: whiteBalancePref }
   },
   mounted() {
     this._dragIndex = -1
@@ -49,6 +50,7 @@ export const VasmPage = {
   },
   updated() { this.$nextTick(() => this.redraw()) },
   beforeUnmount() { this.liveCamera.stop(); this.feed.stop() },
+  watch: { "pref.on"() { this.liveCamera?.refresh() } },
   computed: {
     controls() { return (this.state.data?.rows || []).map((row, index) => ({ row, index }))
       .filter(({ index }) => index !== this.state.data?.editorRow && !["Saved spot-monitor settings"].includes(this.state.data.rows[index].label)) },
@@ -181,6 +183,7 @@ export const VasmPage = {
           <section class="gx-card gx-vasm__editor" aria-label="Camera window region editor">
             <div class="gx-section__header"><i class="bi bi-bounding-box" aria-hidden="true"></i><span class="gx-section__title">Camera Window Regions</span></div>
             <p>The display is mirrored: vehicle left is camera right; vehicle right is camera left. Trace visible side glass, leaving pillars and interior out.</p>
+            <WhiteBalanceSwitch v-if="!bluetooth" />
             <p v-if="!bluetooth" class="gx-note gx-camera-status" role="status">{{ state.cameraWarming ? "Warming up the camera · about 10 seconds…" : state.imageName ? "Snapshot ready" : "Take a cabin snapshot while parked." }}</p>
             <div class="gx-actions">
               <button v-for="side in ['cameraRight', 'cameraLeft']" :key="side" type="button" class="gx-btn gx-btn--tonal" :aria-pressed="state.activeSide === side" :disabled="!drawable" :aria-label="displaySide(side)" @click="state.activeSide=side">{{ side === 'cameraRight' ? 'Left' : 'Right' }}</button>

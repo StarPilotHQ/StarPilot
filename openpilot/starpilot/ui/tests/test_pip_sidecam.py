@@ -789,3 +789,25 @@ def test_camera_resolution_adaptation_preserves_saved_crop_and_side_identity():
   assert mask.width == 1928 and mask.center_left == (315, 548)
   assert mask.for_frame(1928, 1208) is mask
   assert mask.for_frame(640, 480) is None
+
+
+def test_white_balance_switch_follows_saved_choice(monkeypatch):
+  import sys
+  import types
+  from openpilot.starpilot.ui.pip_render import _WhiteBalanceSwitch
+
+  class FakeParams:
+    value = True
+
+    def get_bool(self, key):
+      assert key == "CabinWhiteBalance"
+      return self.value
+
+  module = types.ModuleType("openpilot.common.params")
+  module.Params = FakeParams
+  monkeypatch.setitem(sys.modules, "openpilot.common.params", module)
+  switch = _WhiteBalanceSwitch()
+  assert switch.enabled(0.0)
+  FakeParams.value = False
+  assert switch.enabled(0.5)
+  assert not switch.enabled(1.5)

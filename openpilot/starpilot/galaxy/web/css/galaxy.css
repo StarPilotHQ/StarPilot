@@ -36,6 +36,10 @@
 .gx-map-manager { padding: 16px; }
 .gx-map-manager__region { align-items: flex-start; flex-direction: column; }
 }
+@media (max-width: 680px) {
+  .gx-pip .gx-settings__header, .gx-vasm .gx-settings__header { flex-direction: column; align-items: stretch; }
+  .gx-pip .gx-settings__header > .gx-actions, .gx-vasm .gx-settings__header > .gx-actions { flex: 1 1 auto; width: 100%; }
+}
 @media (max-width: 680px) { .gx-settings__header { align-items: flex-start; } .gx-settings__subhead { align-items: flex-start; flex-direction: column; } }
 :root {
 color-scheme: dark;

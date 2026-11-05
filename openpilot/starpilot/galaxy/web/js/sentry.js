@@ -4,6 +4,7 @@ import { GxNotice } from "./notice.js"
 import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 import { SentryNotifications } from "./sentry-notifications.js"
 import { SnapshotFeed } from "./snapshot-feed.js"
+import { BalancedImage, WhiteBalanceSwitch } from "./white-balance.js"
 import { deleteRecords, storedSize } from "./record-deletion.js"
 
 // Historical motion records and independently configured notifications.
@@ -50,7 +51,7 @@ export class SentryEventsFeed extends SnapshotFeed {
 
 export const SentryEventsPage = {
   name: "SentryEventsPage",
-  components: { GxState, GxNotice, BluetoothNotice, SentryNotifications, SettingsPage },
+  components: { GxState, GxNotice, BluetoothNotice, SentryNotifications, SettingsPage, BalancedImage, WhiteBalanceSwitch },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, required: true } },
   data: () => ({ bluetooth: bluetoothConnection(), status: "idle", data: null, error: "", deleting: false }),
@@ -79,12 +80,13 @@ export const SentryEventsPage = {
           <GxNotice v-if="data.scanIncomplete" tone="warn">This scan was incomplete. More local motion events may exist.</GxNotice>
           <GxState v-if="!data.events.length">No local motion events found in this scan.</GxState>
           <BluetoothNotice v-if="bluetooth && data.events.some(event => event.images?.length)" feature="Motion event images" />
+          <WhiteBalanceSwitch v-if="!bluetooth && data.events.some(event => event.images?.includes('cabin'))" />
           <section v-for="event in data.events" :key="event.eventId" class="gx-card gx-home__card">
             <div class="gx-section__header"><i class="bi" :class="event.kind === 'selfie' ? 'bi-camera' : event.kind === 'alarm' ? 'bi-bell' : 'bi-exclamation-triangle'"></i><h2 class="gx-section__title">{{ event.kind === 'selfie' ? 'Selfie' : event.kind === 'alarm' ? 'Alarm' : 'Warning' }}</h2></div>
             <p>System time: {{ systemTime(event.systemTimeMs) }}</p>
             <small>Event ID: {{ event.eventId }}</small>
             <button type="button" class="gx-btn" :disabled="deleting" @click="feed.remove(event.eventId)">Delete</button>
-            <template v-if="!bluetooth"><img v-for="camera in (event.images || [])" :key="camera" :src="'./api/sentry/image/' + event.eventId + '/' + camera" :alt="camera + ' camera at motion event'" class="gx-media" /></template>
+            <template v-if="!bluetooth"><BalancedImage v-for="camera in (event.images || [])" :key="camera" :balance="camera === 'cabin'" :src="'./api/sentry/image/' + event.eventId + '/' + camera" :alt="camera + ' camera at motion event'" class="gx-media" /></template>
           </section>
         </template>
       </template>

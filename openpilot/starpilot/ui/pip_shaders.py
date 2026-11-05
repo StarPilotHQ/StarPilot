@@ -27,6 +27,7 @@ uniform vec2 uCropMin;
 uniform vec2 uCropSize;
 uniform int uFlipX;
 uniform vec3 uGain;
+uniform float uSaturation;
 out vec4 fragColor;
 
 const float BUBBLE_REFRACTION = 0.016;
@@ -65,7 +66,7 @@ void main() {
   // The cast is strongest through the glass and absent in open air, so one gain can't fix both:
   // a mild desaturation hides what's left (pink foliage, a slightly cyan sky).
   rgb = mix(rgb * uGain, rgb, smoothstep(0.95, 1.0, max(rgb.r, max(rgb.g, rgb.b))));
-  rgb = mix(vec3(dot(rgb, vec3(0.299, 0.587, 0.114))), rgb, 0.75);
+  rgb = mix(vec3(dot(rgb, vec3(0.299, 0.587, 0.114))), rgb, uSaturation);
 
   // Keep the interior gradient and use cheap analytic lighting instead of specular math.
   float edgeShade = smoothstep(0.22, 0.98, radius);
@@ -91,6 +92,7 @@ uniform vec2 uCropMin;
 uniform vec2 uCropSize;
 uniform int uFlipX;
 uniform vec3 uGain;
+uniform float uSaturation;
 uniform vec2 uRectSize;
 out vec4 fragColor;
 
@@ -140,7 +142,7 @@ void main() {
   // The cast is strongest through the glass and absent in open air, so one gain can't fix both:
   // a mild desaturation hides what's left (pink foliage, a slightly cyan sky).
   rgb = mix(rgb * uGain, rgb, smoothstep(0.95, 1.0, max(rgb.r, max(rgb.g, rgb.b))));
-  rgb = mix(vec3(dot(rgb, vec3(0.299, 0.587, 0.114))), rgb, 0.75);
+  rgb = mix(vec3(dot(rgb, vec3(0.299, 0.587, 0.114))), rgb, uSaturation);
 
   // Let the rim blend into the camera image and the UI underneath it.
   float edgeShade = smoothstep(-radius, 0.0, dist);

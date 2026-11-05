@@ -41,6 +41,9 @@ WB_SAMPLES = 16          # 16x16 grid of NV12 samples per crop
 WB_INTERVAL = 0.25       # seconds between samples per side
 WB_SMOOTHING = 0.35      # EMA weight of a new sample
 NEUTRAL_GAIN = (1.0, 1.0, 1.0)
+WB_SATURATION = 0.75
+WB_PARAM = "CabinWhiteBalance"
+WB_PARAM_INTERVAL = 1.0
 
 
 def crop_white_balance(frame, crop) -> tuple[float, float, float] | None:
@@ -95,6 +98,27 @@ class _WhiteBalance:
     return NEUTRAL_GAIN if gains is None else (float(gains[0]), float(gains[1]), float(gains[2]))
 
 
+class _WhiteBalanceSwitch:
+  """The saved Galaxy choice, re-read about once a second; on when unreadable."""
+
+  def __init__(self):
+    self._enabled = True
+    self._read_at: float | None = None
+    self._params = None
+
+  def enabled(self, now: float) -> bool:
+    if self._read_at is None or now - self._read_at >= WB_PARAM_INTERVAL or now < self._read_at:
+      self._read_at = now
+      try:
+        if self._params is None:
+          from openpilot.common.params import Params
+          self._params = Params()
+        self._enabled = bool(self._params.get_bool(WB_PARAM))
+      except Exception:
+        self._enabled = True
+    return self._enabled
+
+
 class PiPRenderer:
   """One renderer; close it on onroad exit or when the owning shell closes."""
 
@@ -115,6 +139,7 @@ class PiPRenderer:
     self._active_sides: set[str] = set()
     self._activated_at: dict[str, float] = {}
     self._white_balance = _WhiteBalance()
+    self._white_balance_switch = _WhiteBalanceSwitch()
 
   def _shader(self) -> rl.Shader:
     if self.shader is None:
@@ -256,9 +281,11 @@ class PiPRenderer:
       if placements is not None:
         rect = placements[side]
       warning = (signals.vasm_left or signals.left_blindspot) if side == "left" else (signals.vasm_right or signals.right_blindspot)
-      gain = self._white_balance.update(side, frame, crop, observed_now)
-      def draw(rect=rect, crop=crop, warning=warning, gain=gain):
-        self._draw(shader, texture, frame, rect, crop.x, crop.y, crop.size, invert, warning=warning, gain=gain)
+      balanced = self._white_balance_switch.enabled(observed_now)
+      gain = self._white_balance.update(side, frame, crop, observed_now) if balanced else NEUTRAL_GAIN
+      def draw(rect=rect, crop=crop, warning=warning, gain=gain, balanced=balanced):
+        self._draw(shader, texture, frame, rect, crop.x, crop.y, crop.size, invert, warning=warning, gain=gain,
+                    saturation=WB_SATURATION if balanced else 1.0)
       if submit is None:
         draw()
       else:
@@ -267,7 +294,7 @@ class PiPRenderer:
 
   def _draw(self, shader: rl.Shader, texture: rl.Texture, frame, rect: Rect,
             crop_x: float, crop_y: float, crop_size: float, invert: bool, *, warning: bool = False,
-            gain: tuple[float, float, float] = NEUTRAL_GAIN) -> None:
+            gain: tuple[float, float, float] = NEUTRAL_GAIN, saturation: float = WB_SATURATION) -> None:
     texture_width = frame.width if COMMA_HARDWARE else frame.stride
     crop_min = rl.Vector2(crop_x / texture_width, crop_y / frame.height)
     crop_extent = rl.Vector2(crop_size / texture_width, crop_size / frame.height)
@@ -288,6 +315,8 @@ class PiPRenderer:
       shader_gain = np.power(np.array(gain, dtype=np.float32), 1.0 / 1.28) if COMMA_HARDWARE else np.array(gain, dtype=np.float32)
       rl.set_shader_value(shader, rl.get_shader_location(shader, "uGain"), shader_gain,
                           rl.ShaderUniformDataType.SHADER_UNIFORM_VEC3)
+      rl.set_shader_value(shader, rl.get_shader_location(shader, "uSaturation"), np.array([saturation], dtype=np.float32),
+                          rl.ShaderUniformDataType.SHADER_UNIFORM_FLOAT)
       if self.shape == "curved":
         panel = rl.Vector2(rect.width, rect.height)
         rl.set_shader_value(shader, rl.get_shader_location(shader, "uRectSize"), panel,
