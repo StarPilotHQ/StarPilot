@@ -287,6 +287,7 @@ class WirelessBootstrap:
     self.version_major = 0
     self.refusals: list[int] = []           # WifiStartResponse statuses that were not success, in order
     self.replied_at: float | None = None    # monotonic time our WifiVersionResponse went out
+    self._reply_accepted = False
     self.flags = EXPERIMENTS[self.experiment][1] if self.experiment else set()
     self.initial_kick_delay = initial_kick_delay
     self.join_ping_interval = join_ping_interval
@@ -309,10 +310,11 @@ class WirelessBootstrap:
     return bool(self.refusals) and all(status == STATUS_NOT_READY for status in self.refusals)
 
   def hung_up_on_reply(self, error: BaseException) -> bool:
-    """The car closed the link right after our version reply, before refusing anything: it rejected the reply."""
+    """A close immediately after the version reply, before Wi-Fi setup progressed."""
     closed = isinstance(error, (BootstrapClosed, ConnectionResetError, BrokenPipeError))
-    return (closed and self.version_major > 0 and self.replied_at is not None and not self.refusals
-            and time.monotonic() - self.replied_at <= REPLY_REJECT_SECONDS)
+    return (closed and self.stage == "wifi_start" and not self._reply_accepted and self.version_major > 0
+            and self.replied_at is not None and not self.refusals
+            and 0 <= time.monotonic() - self.replied_at <= REPLY_REJECT_SECONDS)
 
   def join_is_cancelled(self) -> bool:
     """For join_wifi: stop on user cancellation or once the handshake has failed."""
@@ -326,7 +328,7 @@ class WirelessBootstrap:
       self._log_hex("tx", message_id, payload)
 
   def _log_hex(self, direction: str, message_id: int, payload: bytes) -> None:
-    if self.experiment and message_id not in HEX_LOG_SKIP:
+    if self.experiment and message_id not in HEX_LOG_SKIP and not (self.phone_identity and message_id == WIFI_VERSION_RESPONSE):
       self.log("bootstrap_frame_hex", direction=direction, message=NAMES.get(message_id, message_id), hex=payload.hex())
 
   def next_frame(self, timeout: float) -> tuple[int, bytes]:
@@ -377,7 +379,7 @@ class WirelessBootstrap:
     if self.phone_address:
       identity += field(4, self.phone_address)
     reply = field(1, major) + field(2, minor) + field(3, self.lifetime_id[:8]) + field(4, 0) + field(6, identity)
-    self.log("bootstrap_version_reply", style="phone_identity", has_address=bool(self.phone_address), hex=reply.hex())
+    self.log("bootstrap_version_reply", style="phone_identity", has_address=bool(self.phone_address))
     return reply
 
   def service(self, message_id: int, payload: bytes) -> bool:
@@ -446,6 +448,7 @@ class WirelessBootstrap:
                  endpoint=version_endpoint.__dict__ if version_endpoint else None, message=describe_version_request(payload))
         self.send(WIFI_VERSION_RESPONSE, self._version_response(major, minor, payload))
         self.replied_at = time.monotonic()
+        self._reply_accepted = False
         hinted = version_endpoint or hinted
         if hinted is not None and hint_ready_at is None:
           hint_ready_at = time.monotonic() + 3.0
@@ -456,6 +459,7 @@ class WirelessBootstrap:
         if parsed is None:
           raise BootstrapError(self.stage, "WifiStartRequest has no valid IPv4 endpoint")
         endpoint = parsed
+        self._reply_accepted = True
         if "start_response_first" in self.flags:
           self.send(WIFI_START_RESPONSE, field(3, STATUS_SUCCESS))
       elif message_id == WIFI_START_RESPONSE:
@@ -465,6 +469,7 @@ class WirelessBootstrap:
         parsed = parse_endpoint(payload)
         if parsed is not None and status == STATUS_SUCCESS:
           endpoint = parsed
+          self._reply_accepted = True
         else:
           self.log("bootstrap_start_refused", status=status, endpoint=parsed is not None)
           self.refusals.append(status)
@@ -472,6 +477,8 @@ class WirelessBootstrap:
           start_request_at = time.monotonic() + self.start_request_delay
       elif message_id == WIFI_SETUP_INFO:
         setup_endpoint, setup_credentials = parse_setup_info(payload)
+        if setup_endpoint is not None or setup_credentials is not None:
+          self._reply_accepted = True
         hinted = setup_endpoint or hinted
         if hinted is not None and hint_ready_at is None:
           hint_ready_at = time.monotonic() + 3.0
@@ -483,6 +490,7 @@ class WirelessBootstrap:
         # One that cannot be read is ignored as before, and the network is asked for after the endpoint.
         try:
           credentials = parse_info_response(payload)
+          self._reply_accepted = True
         except ValueError as error:
           self.log("bootstrap_early_info_unreadable", error=str(error))
       else:

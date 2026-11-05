@@ -65,7 +65,7 @@ export function handshakeSteps(ladder) {
   return interesting ? steps.map((step) => ({ id: String(step.id), label: step.label, state: String(step.state) })) : []
 }
 
-// A car whose handshake has moved off the standard one, or has rungs marked failed, can be started over without re-pairing.
+// Reset learned or failed handshakes without re-pairing.
 export function handshakeResettable(ladder) {
   if (!ladder || typeof ladder !== "object") return false
   const steps = Array.isArray(ladder.steps) ? ladder.steps : []

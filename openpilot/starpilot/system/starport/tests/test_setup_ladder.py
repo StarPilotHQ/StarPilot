@@ -381,6 +381,7 @@ def test_bootstrap_tells_a_busy_car_from_one_that_hangs_up_on_the_reply():
   assert boot.only_not_ready()
   boot.refusals.append(-4)
   assert not boot.only_not_ready()
+  boot.stage = "wifi_start"
   boot.refusals, boot.version_major, boot.replied_at = [], 4, _time.monotonic()
   assert boot.hung_up_on_reply(ConnectionResetError(104, "Connection reset by peer"))
   assert boot.hung_up_on_reply(bs.BootstrapClosed("rfcomm", "head unit closed the RFCOMM connection"))
@@ -389,6 +390,14 @@ def test_bootstrap_tells_a_busy_car_from_one_that_hangs_up_on_the_reply():
   assert not boot.hung_up_on_reply(ConnectionResetError())         # dropped later: not about the reply
   boot.replied_at, boot.refusals = _time.monotonic(), [bs.STATUS_NOT_READY]
   assert not boot.hung_up_on_reply(ConnectionResetError())         # it was already talking Wi-Fi setup
+
+
+@pytest.mark.parametrize("stage", ["wifi_info", "joining_wifi", "connecting_tcp"])
+def test_a_close_after_startup_was_accepted_does_not_reject_the_reply(stage):
+  from openpilot.starpilot.system.starport import bootstrap as bs
+  boot = bs.WirelessBootstrap(None, lambda *a, **k: None)
+  boot.stage, boot.version_major, boot.replied_at = stage, 4, _time.monotonic()
+  assert not boot.hung_up_on_reply(bs.BootstrapClosed(stage, "closed"))
 
 
 def _failing_bootstrap(monkeypatch, sup, error, refusals=()):
@@ -402,6 +411,7 @@ def _failing_bootstrap(monkeypatch, sup, error, refusals=()):
       replies.append(kwargs["modern_reply"])
 
     def run(self, *args, **kwargs):
+      self.stage = "wifi_start"
       self.version_major, self.replied_at, self.refusals = 4, _time.monotonic(), list(refusals)
       raise error(self)
 
@@ -421,6 +431,35 @@ def test_a_car_that_only_says_not_ready_keeps_its_learned_handshake(sup, monkeyp
       sup._attempt(SimpleNamespace())
   entry = sup._ladder.cars[RECEIVER]
   assert entry["working"]["rung"] == "standard" and entry["working_failures"] == 0
+
+
+def test_a_later_wifi_info_timeout_counts_despite_an_earlier_busy_response(sup, monkeypatch):
+  from openpilot.starpilot.system.starport.bootstrap import STATUS_NOT_READY, BootstrapTimeout
+  _failing_bootstrap(monkeypatch, sup, lambda boot: BootstrapTimeout("wifi_info", "no credentials"), refusals=[STATUS_NOT_READY])
+  with pytest.raises(BootstrapTimeout):
+    sup._attempt(SimpleNamespace())
+  assert sup._ladder.strategy(RECEIVER, False).rung == "other_reply"
+  assert not any(record["event"] == "ladder_not_ready" for record in sup.log.recent)
+
+
+def test_a_reset_during_an_attempt_cannot_be_undone_by_its_failure(sup, monkeypatch):
+  from openpilot.starpilot.system.starport.bootstrap import BootstrapTimeout
+  def reset_then_fail(boot):
+    assert sup.reset_handshake()
+    return BootstrapTimeout("wifi_start", "timeout after reset")
+  _failing_bootstrap(monkeypatch, sup, reset_then_fail)
+  with pytest.raises(BootstrapTimeout):
+    sup._attempt(SimpleNamespace())
+  assert RECEIVER not in sup._ladder.cars
+
+
+def test_a_reset_during_projection_cannot_relearn_the_old_strategy(sup):
+  strategy = sl.resolve("other_reply", False)
+  sup._ladder.worked(RECEIVER, strategy)
+  sup._strategy, sup._run_started = strategy, _time.monotonic() - 150
+  assert sup.reset_handshake()
+  sup._note_streamed(streamed(90))
+  assert RECEIVER not in sup._ladder.cars
 
 
 def test_the_supervisor_reverts_when_the_car_hangs_up_on_the_other_reply(sup, monkeypatch):

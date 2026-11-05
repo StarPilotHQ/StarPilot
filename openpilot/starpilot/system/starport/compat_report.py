@@ -286,7 +286,7 @@ def _tail(path: Path, limit: int) -> bytes | None:
 def shareable_setup_state(path: Path, chosen: str = "") -> dict | None:
   """The handshake ladder's saved state with car addresses replaced by whether each is the chosen car."""
   try:
-    data = json.loads(path.read_text())
+    data = json.loads(read_log(path, MAX_LOG_BYTES))
   except (OSError, ValueError, UnicodeError):
     return None
   cars = data.get("cars") if isinstance(data, dict) else None

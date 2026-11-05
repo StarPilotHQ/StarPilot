@@ -220,9 +220,7 @@ def session_setup(events: list[dict]) -> dict:
 
 
 def session_ladder(events: list[dict]) -> list[dict]:
-  """The handshake strategies tried in a session, in order, and how each ended (advanced, wrapped, exhausted, counted,
-  dropped, reverted, or worked), why (a timeout, or the car hanging up on the reply), and how many waits ended with the
-  car only saying "not ready". Kept for working pairings too: it is what shows which strategy a head unit likes."""
+  """Summarize attempted handshakes, outcomes, failure reasons and busy waits."""
   tried: list[dict] = []
   for event in events:
     name = event["event"]

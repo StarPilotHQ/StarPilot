@@ -488,3 +488,14 @@ def test_bundle_without_a_ladder_state_has_no_setup_state_file(tmp_path):
   write_log(logs, "session-000025-20260928-141351.jsonl", CIVIC_SESSION)
   with zipfile.ZipFile(io.BytesIO(compat_report.bundle(logs, tmp_path / "config.json", snapshot=None))) as archive:
     assert "setup_state.json" not in archive.namelist()
+
+
+def test_setup_state_export_uses_bounded_regular_file_reads(tmp_path, monkeypatch):
+  path = tmp_path / "setup_state.json"
+  path.write_text(json.dumps({"version": 1, "cars": {}}))
+  assert compat_report.shareable_setup_state(path) == {"version": 1, "cars": []}
+  link = tmp_path / "state-link.json"
+  link.symlink_to(path)
+  assert compat_report.shareable_setup_state(link) is None
+  monkeypatch.setattr(compat_report, "MAX_LOG_BYTES", 8)
+  assert compat_report.shareable_setup_state(path) is None

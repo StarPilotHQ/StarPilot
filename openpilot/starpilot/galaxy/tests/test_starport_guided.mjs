@@ -95,8 +95,7 @@ assert.equal(guidedState({ setup: null, runtime: running("rfcomm") }).show, fals
   assert.deepEqual(handshakeSteps({ steps: [null, { label: 3 }, { id: "a", label: "A", state: "worked" }] }).map((step) => step.id), ["a"])
 }
 
-// A handshake that moved off the standard one (2026-11-04: stuck on a reply the Civic hangs up on) can be started over
-// without re-pairing; a fresh or learned-standard car offers nothing to reset.
+// Fresh and learned-standard handshakes need no reset; alternatives and failed rungs do.
 {
   const steps = (...states) => states.map((state, index) => ({ id: ["standard", "other_reply"][index], label: "x", state }))
   assert.equal(handshakeResettable(null), false)

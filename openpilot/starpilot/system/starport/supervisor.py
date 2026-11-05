@@ -624,6 +624,7 @@ class Supervisor:
       replies = dict(self.config.get("modern_reply_cache", {}))
       reset = bool(address) and (self._ladder.reset(address) | (replies.pop(address.upper(), None) is not None))
       if reset:
+        self._strategy = None
         self.config["modern_reply_cache"] = replies
         self._modern_reply.pop(address.upper(), None)
         identity_store.save_config(self.config)
@@ -1494,9 +1495,10 @@ class Supervisor:
     unofficial = self._unofficial_dongle()
     # The ladder decides how to answer this car: what worked before, else the first rung (today's behavior), moving on
     # only when a car that answered the handshake keeps refusing it before any video.
-    base_modern = self._modern_reply.get(address, config.get("modern_reply_cache", {}).get(address, False))
-    strategy = self._strategy = self._ladder.strategy(address, base_modern)
-    learned = self._ladder.snapshot(address, adapter, unofficial)["learned"]
+    with self._lock:
+      base_modern = self._modern_reply.get(address, config.get("modern_reply_cache", {}).get(address, False))
+      strategy = self._strategy = self._ladder.strategy(address, base_modern)
+      learned = self._ladder.snapshot(address, adapter, unofficial)["learned"]
     self.log("ladder_strategy", rung=strategy.rung, label=strategy.label, learned=learned, modern_reply=strategy.modern_reply,
              channel_type=strategy.channel_type, patience=strategy.patience, experiments=strategy.experiments,
              phone_identity=strategy.phone_identity)
@@ -1521,15 +1523,19 @@ class Supervisor:
       # Only a silent or refusing car after the version exchange, or one that hangs up on our reply, counts against the handshake.
       stopped = self._stop.is_set()
       ladder_failure = (boot is not None and boot.version_major > 0 and isinstance(error, BootstrapTimeout)
-                        and error.stage in ("wifi_start", "wifi_info") and not boot.only_not_ready() and not stopped)
+                        and error.stage in ("wifi_start", "wifi_info")
+                        and not (error.stage == "wifi_start" and boot.only_not_ready()) and not stopped)
       rejected = boot is not None and not stopped and boot.hung_up_on_reply(error)
-      outcome = self._ladder.failed(address, strategy, ladder_failure=ladder_failure, rejected=rejected, video_seen=self._video_seen,
-                                    version_major=boot.version_major if boot is not None else 0, adapter=adapter, unofficial=unofficial)
-      if outcome:
-        self.log("ladder_failed", outcome=outcome, rung=strategy.rung, next=self._ladder.strategy(address, base_modern).rung,
-                 version_major=boot.version_major, reason="rejected_reply" if rejected else "timeout")
-      elif boot is not None and isinstance(error, BootstrapTimeout) and boot.only_not_ready():
-        self.log("ladder_not_ready", rung=strategy.rung, refusals=len(boot.refusals))
+      with self._lock:
+        current = self._strategy is strategy
+        outcome = self._ladder.failed(address, strategy, ladder_failure=ladder_failure and current, rejected=rejected and current,
+                                      video_seen=self._video_seen, version_major=boot.version_major if boot is not None else 0,
+                                      adapter=adapter, unofficial=unofficial)
+        if outcome:
+          self.log("ladder_failed", outcome=outcome, rung=strategy.rung, next=self._ladder.strategy(address, base_modern).rung,
+                   version_major=boot.version_major, reason="rejected_reply" if rejected else "timeout")
+        elif boot is not None and isinstance(error, BootstrapTimeout) and error.stage == "wifi_start" and boot.only_not_ready():
+          self.log("ladder_not_ready", rung=strategy.rung, refusals=len(boot.refusals))
       if source == "cache" and not self._stop.is_set() and drops_cached_channel(self._status["last_stage"], error):
         self._remember_channel(address, None)  # the car never answered there; ask it over SDP next time
         self.log("rfcomm_cache_dropped", channel=channel)
@@ -1545,8 +1551,10 @@ class Supervisor:
       self._project(result, lease, ident)
     finally:
       keepalive_stop.set()
-      if boot.version_major >= MODERN_MAJOR and self._ladder.snapshot(address, adapter, unofficial)["learned"]:
-        self._remember_reply(address, boot.modern_reply)
+      with self._lock:
+        if (self._strategy is strategy and boot.version_major >= MODERN_MAJOR and
+            self._ladder.snapshot(address, adapter, unofficial)["learned"]):
+          self._remember_reply(address, boot.modern_reply)
 
   def _connect_rfcomm(self, address: str, channel: int):
     from openpilot.starpilot.system.starport import bt_sockets
@@ -1885,13 +1893,14 @@ class Supervisor:
     if not session.video_confirmed:
       return
     self._video_seen = True
-    strategy, address = self._strategy, self.config["receiver_address"]
     streamed = time.monotonic() - session.video_confirmed_at
-    if strategy is None or not address or streamed < setup_ladder.CLEAN_SECONDS:
-      return
-    self._ladder.worked(address, strategy, t_ready_s=session.video_confirmed_at - self._run_started)
-    self.log("ladder_worked", rung=strategy.rung, streamed_s=round(streamed, 1),
-             t_ready_s=round(session.video_confirmed_at - self._run_started, 1))
+    with self._lock:
+      strategy, address = self._strategy, self.config["receiver_address"]
+      if strategy is None or not address or streamed < setup_ladder.CLEAN_SECONDS:
+        return
+      self._ladder.worked(address, strategy, t_ready_s=session.video_confirmed_at - self._run_started)
+      self.log("ladder_worked", rung=strategy.rung, streamed_s=round(streamed, 1),
+               t_ready_s=round(session.video_confirmed_at - self._run_started, 1))
 
   # ANDROID AUTO VIDEO PERFORMANCE GUARDRAIL: The bounded ACK/input drain and conditional waits keep video and touches responsive.
   # Altering this can degrade video smoothness or introduce lag on Android Auto.

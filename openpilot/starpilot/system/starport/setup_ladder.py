@@ -1,10 +1,7 @@
-"""Try wireless handshakes in order and remember a strategy after sustained video.
+"""Learn wireless handshakes from sustained video and qualified bootstrap failures.
 
-Only bootstrap timeouts after a version exchange advance the ladder, and a car that hangs up the instant it gets our
-version reply rejects that rung outright; failures before the car answers, a car that only ever says "not ready", and
-anything after acknowledged video leave its strategy unchanged.
-
-The last strategy that streamed is kept until the car is forgotten or the ladder is reset; a rejected rung and each new drive go back to it.
+Busy cars and failures after video do not advance the ladder. Preserve the last
+working strategy across drives until pairing is forgotten or the ladder is reset.
 """
 from __future__ import annotations
 
@@ -185,7 +182,7 @@ class SetupLadder:
     return True
 
   def reset(self, address: str) -> bool:
-    """Start this car's handshake over from the standard one, keeping its pairing (the setup screen's reset)."""
+    """Reset learned handshakes without deleting the Bluetooth pairing."""
     return self.forget(address)
 
   def forget(self, address: str) -> bool:
@@ -211,10 +208,7 @@ class SetupLadder:
 
   def failed(self, address: str, strategy: Strategy, *, ladder_failure: bool, video_seen: bool, version_major: int,
              adapter: bool, rejected: bool = False, unofficial: bool = False) -> str | None:
-    """Record a failed attempt; returns what changed ("advanced", "wrapped", "exhausted", "counted", "dropped",
-    "reverted") or None.
-
-    Only a handshake the car answered, before any video this session, counts: see the module docstring."""
+    """Record a qualified failure and return the ladder transition, or None."""
     if not (ladder_failure or rejected) or video_seen:
       return None
     entry = self._entry(address)
