@@ -30,7 +30,8 @@ from openpilot.starpilot.aol.tests.stock_lateral_test_helpers import authority_c
 @pytest.mark.parametrize('offset', (0,))
 @pytest.mark.parametrize('fixed', (False,))
 def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, offset, fixed, engage_on_set,
-                                                               stop_and_resume=False, candidate=CAR.VOLKSWAGEN_GOLF_MK7):
+                                                               stop_and_resume=False, candidate=CAR.VOLKSWAGEN_GOLF_MK7,
+                                                               brake_held_engagement=False):
   with ExitStack() as cleanup:
     cleanup.enter_context(OpenpilotPrefix())
     cleanup.enter_context(mock.patch.dict('os.environ', {'SIMULATION': '0', 'AOL_REPLAY_RUNTIME': '1'}))
@@ -43,7 +44,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
     if gearbox != 'manual':
       fp[offset][0xAD if gearbox == 'automatic' else 0x187] = 8
     fp[offset + 1][0xFD] = 8
-    if stop_and_resume:
+    if stop_and_resume or brake_held_engagement:
       fp[offset + 2][0x126] = 8
       fp[offset][0x6B8] = 8
     cp = CarInterface.get_params(candidate, fp, [], alpha, False, False)
@@ -162,7 +163,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         assert not quiet.get_controls_allowed()
         assert native.get_current_safety_mode() != quiet.get_current_safety_mode()
 
-      brake = 65 <= tick < 75
+      brake = 65 <= tick < 75 or (brake_held_engagement and tick < 29)
       reverse = 85 <= tick < 95
       ordinary = engage_on_set and 21 <= tick < 65
       overrides = {
@@ -175,7 +176,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         'Gateway_72': {'BCM1_Rueckfahrlicht_Schalter': int(reverse)},
         'Motor_EV_01': {'MO_Waehlpos': 3 if reverse else 5},
         'ESP_19': dict.fromkeys(('ESP_VL_Radgeschw_02', 'ESP_VR_Radgeschw_02', 'ESP_HL_Radgeschw_02', 'ESP_HR_Radgeschw_02'),
-                                      0 if stop_and_resume and 45 <= tick < 56 else 72),
+                                      0 if (stop_and_resume and 45 <= tick < 56) or (brake_held_engagement and tick < 30) else 72),
         'Airbag_02': {'AB_Gurtschloss_FA': 0 if 105 <= tick < 111 else 3},
         'GRA_ACC_01': {'GRA_Hauptschalter': 1, 'GRA_Tip_Setzen': int(engage_on_set and tick == 20)},
         'ACC_02': {'ACC_Gesetzte_Zeitluecke': 1},
@@ -217,6 +218,12 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         allowed=bool(permission & 1), long_allowed=bool(permission & 2),
         native_request_lat=bool(request & 1), native_request_long=bool(request & 2),
         panda_controls_allowed=native.get_controls_allowed())
+      if brake_held_engagement and 22 <= tick < 29:
+        assert state.standstill and state.brakePressed
+        assert selfdrive.state == log.SelfdriveState.OpenpilotState.preEnabled
+        assert not command.longActive and not (permission & 2)
+      if brake_held_engagement and 38 <= tick < 45:
+        assert command.longActive and axis.longitudinalActive and permission & 2, "VW_BRAKE_RELEASE_NO_LONG"
       if tick >= 112:
         assert command.driverMonitoringEscalation
       if stop_and_resume and 45 <= tick < 56:
@@ -273,3 +280,10 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
 def test_mqb_stop_pauses_only_lateral_and_recovers_without_mismatch(gearbox, alpha):
   test_mqb_full_engagement_brake_reverse_drive_actual_callers(
     gearbox, alpha, 0, False, True, stop_and_resume=True, candidate=CAR.VOLKSWAGEN_GOLF_MK7 if gearbox == "direct" else CAR.SEAT_ATECA_MK1)
+
+
+@pytest.mark.parametrize('gearbox', ('automatic', 'direct'))
+def test_mqb_brake_held_engagement_waits_for_release_actual_callers(gearbox):
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    gearbox, True, 0, False, True, brake_held_engagement=True,
+    candidate=CAR.SEAT_ATECA_MK1 if gearbox == 'automatic' else CAR.VOLKSWAGEN_GOLF_MK7)

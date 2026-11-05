@@ -141,7 +141,7 @@ static void vw_aol_optional_rx(const CANPacket_t *msg) {
 }
 
 static void vw_aol_rx(const CANPacket_t *msg) {
-  if (vw_aol_longitudinal && brake_pressed) {
+  if (vw_aol_longitudinal && brake_pressed && (!brake_pressed_prev || vehicle_moving)) {
     vw_aol_long_armed = false;
   }
   if (vw_aol_enabled) {
@@ -192,7 +192,7 @@ static void vw_aol_rx(const CANPacket_t *msg) {
           vw_aol_clear();
         } else if (buttons == 0U) {
           if (((vw_aol_buttons & 3U) != 0U) && controls_allowed && acc_main_on &&
-              vw_aol_gear_drive && vw_aol_eps_ready && !brake_pressed) {
+              vw_aol_gear_drive && vw_aol_eps_ready && (!brake_pressed || (!vw_aol_manual && !vehicle_moving))) {
             vw_aol_token = true;
             vw_aol_long_armed = true;
           }
