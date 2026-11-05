@@ -255,6 +255,7 @@ class TestVehicleCollection(unittest.TestCase):
                 for folder in ('opendbc_repo/opendbc/safety/tests', 'opendbc_repo/opendbc/bluepilot_lateral/safety/tests')
                 for path in (root / folder).glob('test_*.py')}
     expected.add('openpilot/starpilot/aol/tests/test_classic_startup_neutral_replacement.py')
+    expected.add('openpilot/starpilot/tests/test_ford_starpilot_ordering.py')
     self.assertEqual({target.split("::", 1)[0] for target in targets_for("safety-debug")}, expected)
     self.assertTrue(all(Path(target.split("::", 1)[0]).parent.name == "tests" for target in targets_for("safety-debug")))
 
