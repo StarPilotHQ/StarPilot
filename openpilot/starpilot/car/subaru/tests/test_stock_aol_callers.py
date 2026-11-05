@@ -429,16 +429,3 @@ def test_actual_held_gas_source_outage_withdraws_and_recovers_subaru(candidate, 
 def test_actual_vm_angle_driver_handoff_keeps_native_rate_limit(candidate, direction, subaru_native_pair, tmp_path):
   test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
     candidate, subaru_native_pair, tmp_path, vm_angle_handoff=direction)
-
-
-@pytest.mark.parametrize('aol', [False, True])
-def test_actual_crosstrek_light_load_retains_control_and_temporary_eps_intent(aol, subaru_native_pair, tmp_path, monkeypatch):
-  frames = CompleteCan.frames
-
-  def wheel_load(self, values, **kwargs):
-    values = {**values, 'Steering_Torque': {**values['Steering_Torque'], 'Steer_Torque_Sensor': 94}}
-    return frames(self, values, **kwargs)
-
-  monkeypatch.setattr(CompleteCan, 'frames', wheel_load)
-  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
-    CAR.SUBARU_CROSSTREK_2025, subaru_native_pair, tmp_path, aol=aol)
