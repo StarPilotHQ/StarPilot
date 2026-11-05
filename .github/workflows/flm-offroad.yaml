@@ -1,0 +1,55 @@
+name: FLM offroad contracts
+
+on:
+  push:
+    branches: [Dom]
+    paths:
+      - 'openpilot/starpilot/flm/**'
+      - 'openpilot/starpilot/lateral/**'
+      - 'openpilot/selfdrive/controls/lib/latcontrol*'
+      - 'openpilot/selfdrive/controls/controlsd.py'
+      - 'openpilot/system/manager/process_config.py'
+      - '.github/workflows/flm-offroad.yaml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flm-offroad-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: 1
+  PYTHONPATH: ${{ github.workspace }}
+  RAYLIB_BACKEND: headless
+
+jobs:
+  contracts:
+    name: offroad backend contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - run: ./tools/op.sh setup
+      - name: Static analysis
+        timeout-minutes: 1
+        run: scripts/lint/lint.sh
+      - name: Build native dependencies
+        timeout-minutes: 10
+        run: scons
+      - name: Test offroad recommendations, storage, startup and rollback contracts
+        timeout-minutes: 3
+        run: >-
+          tools/op.sh test
+          openpilot/starpilot/flm/tests/test_offroad_backend.py
+          --json-output ci-results/flm-offroad.json
+      - name: Retain offroad contract results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flm-offroad-contracts
+          path: ci-results/flm-offroad.json
+          if-no-files-found: warn
