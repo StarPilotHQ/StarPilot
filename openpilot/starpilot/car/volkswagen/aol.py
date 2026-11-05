@@ -10,6 +10,13 @@ def qualified(cp, *, marked_only=False):
   return stock_qualified(cp, marked_only=marked_only) or long_qualified(cp, marked_only=marked_only) or meb_qualified(cp, marked_only=marked_only)
 
 
+
+def lateral_output_inhibited(cp, state):
+  from openpilot.starpilot.aol.runtime import ordinary_lateral_requested
+  return bool(qualified(cp, marked_only=True) and
+              not ordinary_lateral_requested(True, state, cp))
+
+
 def temporary_restriction(cp, state):
   gears = structs.CarState.GearShifter
   return bool(state is not None and qualified(cp, marked_only=True) and state.canValid and not state.canTimeout and

@@ -17,7 +17,7 @@ from opendbc.car.volkswagen.interface import CarInterface
 from opendbc.car.volkswagen.values import CAR
 from opendbc.safety.tests.common import make_msg
 from opendbc.safety.tests.libsafety import libsafety_py
-from openpilot.cereal import messaging
+from openpilot.cereal import log, messaging
 from openpilot.common.params import Params
 from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.selfdrive.car import card as card_module
@@ -29,7 +29,8 @@ from openpilot.starpilot.aol.tests.stock_lateral_test_helpers import authority_c
 @pytest.mark.parametrize('engage_on_set', (False, True))
 @pytest.mark.parametrize('offset', (0,))
 @pytest.mark.parametrize('fixed', (False,))
-def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, offset, fixed, engage_on_set):
+def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, offset, fixed, engage_on_set,
+                                                               stop_and_resume=False, candidate=CAR.VOLKSWAGEN_GOLF_MK7):
   with ExitStack() as cleanup:
     cleanup.enter_context(OpenpilotPrefix())
     cleanup.enter_context(mock.patch.dict('os.environ', {'SIMULATION': '0', 'AOL_REPLAY_RUNTIME': '1'}))
@@ -42,7 +43,10 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
     if gearbox != 'manual':
       fp[offset][0xAD if gearbox == 'automatic' else 0x187] = 8
     fp[offset + 1][0xFD] = 8
-    cp = CarInterface.get_params(CAR.VOLKSWAGEN_GOLF_MK7, fp, [], alpha, False, False)
+    if stop_and_resume:
+      fp[offset + 2][0x126] = 8
+      fp[offset][0x6B8] = 8
+    cp = CarInterface.get_params(candidate, fp, [], alpha, False, False)
     cp.fingerprintSource = structs.CarParams.FingerprintSource.fixed if fixed else structs.CarParams.FingerprintSource.fw
     # Use the standard source-built loader in fresh pytest processes; private runners may preload it.
     native = libsafety_py.libsafety
@@ -170,7 +174,8 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         'Gateway_73': {'GE_Fahrstufe': 6 if reverse else 8},
         'Gateway_72': {'BCM1_Rueckfahrlicht_Schalter': int(reverse)},
         'Motor_EV_01': {'MO_Waehlpos': 3 if reverse else 5},
-        'ESP_19': dict.fromkeys(('ESP_VL_Radgeschw_02', 'ESP_VR_Radgeschw_02', 'ESP_HL_Radgeschw_02', 'ESP_HR_Radgeschw_02'), 72),
+        'ESP_19': dict.fromkeys(('ESP_VL_Radgeschw_02', 'ESP_VR_Radgeschw_02', 'ESP_HL_Radgeschw_02', 'ESP_HR_Radgeschw_02'),
+                                      0 if stop_and_resume and 45 <= tick < 56 else 72),
         'Airbag_02': {'AB_Gurtschloss_FA': 0 if 105 <= tick < 111 else 3},
         'GRA_ACC_01': {'GRA_Hauptschalter': 1, 'GRA_Tip_Setzen': int(engage_on_set and tick == 20)},
         'ACC_02': {'ACC_Gesetzte_Zeitluecke': 1},
@@ -214,6 +219,16 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         panda_controls_allowed=native.get_controls_allowed())
       if tick >= 112:
         assert command.driverMonitoringEscalation
+      if stop_and_resume and 45 <= tick < 56:
+        assert state.standstill and not command.latActive and not axis.desiredLateral, "VW_STOP_LATERAL_REQUEST_NOT_PAUSED"
+        assert log.OnroadEvent.EventName.controlsMismatch not in sd.events.names, "VW_STOP_CONTROLS_MISMATCH"
+        assert card.aol_card_intent.allowed_latch
+        if alpha and not cp.autoResumeSng:
+          assert cp.minEnableSpeed > 0 and not command.longActive
+        if alpha and engage_on_set and cp.autoResumeSng:
+          assert axis.desiredLongitudinal and axis.longitudinalActive and command.longActive, ("VW_STOP_LONG_DROPPED", tick, gearbox, alpha, permission, request, axis.to_dict(), list(sd.events.names))
+      if stop_and_resume and 60 <= tick < 65:
+        assert command.latActive and card.aol_card_intent.allowed_latch
       request = int(axis.desiredLateral) | (int(axis.desiredLongitudinal) << 1)
       # Feed the exact serialized Controls publication into the actual Card caller.
       frames = [controls.pm.messages['carControl'], sd.pm.messages['aolAxisState'],
@@ -250,3 +265,10 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
       assert any(long_commands[35:60])
     else:
       assert not any(long_commands)
+
+
+@pytest.mark.parametrize('gearbox,alpha', [('automatic', False), ('automatic', True), ('manual', False),
+                                           ('direct', False), ('direct', True)])
+def test_mqb_stop_pauses_only_lateral_and_recovers_without_mismatch(gearbox, alpha):
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    gearbox, alpha, 0, False, True, stop_and_resume=True, candidate=CAR.VOLKSWAGEN_GOLF_MK7 if gearbox == "direct" else CAR.SEAT_ATECA_MK1)
