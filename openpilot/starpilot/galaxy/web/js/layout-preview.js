@@ -59,6 +59,9 @@ export function sceneHidesWidget(scene, profile, id, layout = {}, widgets = {}) 
 
 // The device renders one preview at a time and answers a second request with 429.
 // Feeds sharing a queue take turns instead, widget art before the backdrop.
+// Allow for Galaxy tunnel latency.
+const PREVIEW_TIMEOUT_MS = 20000
+
 export class PreviewQueue {
   constructor() { this.running = false; this.waiting = [] }
 
@@ -181,7 +184,8 @@ export class LayoutPreviewFeed {
     this.last = item
     const request = new AbortController()
     this.request = request
-    const timeout = this.later(() => request.abort(), 7000)
+    // Queue time does not consume the response timeout.
+    let timeout = null
     let rejectAborted
     const aborted = new Promise((_, reject) => { rejectAborted = () => reject(new Error("Preview request cancelled")) })
     request.signal.addEventListener("abort", rejectAborted, { once: true })
@@ -190,6 +194,7 @@ export class LayoutPreviewFeed {
     const work = (async () => {
       const held = !!this.queue && await this.queue.acquire(this.art ? 0 : 1, request.signal).then(() => true)
       try {
+        timeout = this.later(() => request.abort(), PREVIEW_TIMEOUT_MS)
         const response = await this.fetcher("./api/ui/layout/preview", { method: "POST", credentials: "same-origin",
           cache: "no-store", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ document: item.document, profile: item.profile, scene: item.scene, ...(this.art ? {art: true} : this.backdrop ? {art: "backdrop"} : {}) }), signal: request.signal })
@@ -202,7 +207,7 @@ export class LayoutPreviewFeed {
         const blob = await response.blob()
         if (!this.active || item.version !== this.version || request.signal.aborted) return
         if (!blob.size || blob.size > 4 * 1024 * 1024) throw new Error("Preview is unavailable. Reconnecting automatically…")
-        const sprites = this.art ? await widgetArtMetadata(blob) : null
+        const sprites = this.art ? await widgetArtMetadata(blob, response.headers.get("X-Widget-Art")) : null
         if (!this.active || item.version !== this.version || request.signal.aborted) return
         const cacheKey = item.profile + "\n" + item.scene
         const previousUrl = this.art ? this.artCache.get(cacheKey)?.url : this.currentUrl
@@ -227,13 +232,13 @@ export class LayoutPreviewFeed {
         this.inputKey = null
         this.failures = denied ? 2 : this.failures + 1
         if (this.art && denied) this.clearImage()
-        // Art retries promptly, as does any feed turned away by a busy renderer; real outages back off.
-        const recovering = (this.art || busy) && this.failures < 2
+        // Art and backdrop retry promptly, as does any feed turned away by a busy renderer; real outages back off.
+        const recovering = (this.art || this.backdrop || busy) && this.failures < 2
         this.publish({ status: recovering ? "updating" : "unavailable", error: recovering ? "" : failure })
         this.timer = this.later(() => { this.timer = null; this.retry() }, recovering ? 600 : 5000)
       }
     } finally {
-      this.cancelTimer(timeout)
+      if (timeout !== null) this.cancelTimer(timeout)
       request.signal.removeEventListener("abort", rejectAborted)
       if (this.request === request) this.request = null
       if (this.active && this.pending && this.timer === null) this.dispatch()

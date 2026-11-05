@@ -12,6 +12,10 @@ class NavigationDisplay:
   remaining_distance_m: float
   remaining_seconds: float
   arrived: bool = False
+  then_type: str = ''
+  then_modifier: str = ''
+  then_distance_m: float | None = None
+  lanes: tuple = ()
 
 
 def navigation_display(message, *, now_ns: int, drive_id: int) -> NavigationDisplay | None:
@@ -30,8 +34,14 @@ def navigation_display(message, *, now_ns: int, drive_id: int) -> NavigationDisp
     text = 'You have arrived' if message.status == 'arrived' else ' '.join(instruction.text.split())[:240]
     if not text:
       return None
+    lanes = tuple((lane.active, tuple(lane.directions), lane.activeDirection) for lane in list(instruction.lanes)[:8])
+    then = message.nextManeuver
+    then_type = '' if message.status == 'arrived' else then.maneuverType
+    then_distance = then.distanceMeters if then_type and math.isfinite(then.distanceMeters) else None
     return NavigationDisplay((message.sessionId, drive_id), text, instruction.maneuverType,
-                             instruction.maneuverModifier, *distances, message.status == 'arrived')
+                             instruction.maneuverModifier, *distances, message.status == 'arrived',
+                             then_type, then.maneuverModifier if then_type else '', then_distance,
+                             () if message.status == 'arrived' else lanes)
   except (AttributeError, TypeError, ValueError, OverflowError):
     return None
 

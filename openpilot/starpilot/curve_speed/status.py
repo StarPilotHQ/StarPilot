@@ -1,12 +1,15 @@
 """Independent curve diagnostics in the existing single-owner planner event."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import math
 import secrets
 
 from openpilot.cereal import messaging
 from openpilot.starpilot.curve_speed.learning import finite_number
 
 STATUS_LIFETIME_NS = 100_000_000
+CURVATURE_DISPLAY_TAU_S = 0.6
+CURVATURE_DISPLAY_HOLD_NS = 1_000_000_000
 
 
 @dataclass(frozen=True)
@@ -90,3 +93,25 @@ def observation(state, now_ns: int) -> CurveObservation | None:
                             str(value.persistenceStatus), bool(value.glow), bool(value.curveOnly), curvature)
   except (AttributeError, TypeError, ValueError, OverflowError):
     return None
+
+
+class CurvatureDisplay:
+  """Smooth published curvature; short dropouts hold the last value."""
+
+  def __init__(self):
+    self._value: float | None = None
+    self._stamp_ns = 0
+
+  def update(self, curve: CurveObservation | None, now_ns: int) -> CurveObservation | None:
+    if curve is None:
+      return None
+    raw, gap = curve.road_curvature, now_ns - self._stamp_ns
+    if self._value is None or not 0 <= gap <= CURVATURE_DISPLAY_HOLD_NS:
+      self._value = raw
+      self._stamp_ns = now_ns
+      return curve
+    if raw is None:
+      return replace(curve, road_curvature=self._value)
+    self._value += (raw - self._value) * (1.0 - math.exp(-gap / 1e9 / CURVATURE_DISPLAY_TAU_S))
+    self._stamp_ns = now_ns
+    return replace(curve, road_curvature=self._value)

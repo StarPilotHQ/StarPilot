@@ -377,3 +377,27 @@ def test_held_phone_position_cannot_authorize_stale_navigation_control(tmp_path,
   runtime.route = route
   result = runtime.update(14_000_000_000, position, 1)
   assert result['status'] == 'guiding' and not result['controlValid']
+
+
+def lane_route(sub):
+  return NavigationRoute({'distance': 1112., 'duration': 100., 'geometry': {'coordinates': [[0., 0.], [.01, 0.]]}, 'legs': [{'steps': [
+    {'distance': 1112., 'duration': 100., 'maneuver': {'type': 'depart', 'instruction': 'Head east'}, 'bannerInstructions': [
+      {'primary': {'type': 'off ramp', 'modifier': 'right', 'text': 'Exit 40'}, 'sub': sub}]},
+    {'distance': 0., 'duration': 0., 'maneuver': {'type': 'arrive', 'instruction': 'You have arrived'}}]}]})
+
+
+def test_lane_guidance_comes_from_the_banner_and_reaches_the_instruction():
+  sub = {'text': '', 'components': [
+    {'type': 'lane', 'active': False, 'directions': ['straight']},
+    {'type': 'lane', 'active': True, 'directions': ['straight', 'right'], 'active_direction': 'right'},
+    {'type': 'text', 'text': 'ignored'}]}
+  lanes = lane_route(sub).progress((.005, 0.), 5., 90.).instruction['lanes']
+  assert lanes == [{'active': False, 'directions': ['straight'], 'activeDirection': ''},
+                   {'active': True, 'directions': ['straight', 'right'], 'activeDirection': 'right'}]
+
+
+@pytest.mark.parametrize('sub', [None, 'text', {'components': 'x'}, {'components': [None, {'type': 'lane'}]},
+                                 {'components': [{'type': 'lane', 'active': False, 'directions': ['left']}]},
+                                 {'components': [{'type': 'lane', 'active': True, 'directions': ['left']}] * 9}])
+def test_missing_unusable_or_malformed_lane_data_is_ignored(sub):
+  assert lane_route(sub).progress((.005, 0.), 5., 90.).instruction['lanes'] == []

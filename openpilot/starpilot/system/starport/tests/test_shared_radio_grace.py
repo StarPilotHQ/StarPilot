@@ -103,6 +103,28 @@ def test_watch_reports_a_carrier_change_without_naming_the_network(tmp_path):
     watch.stop()
 
 
+@pytest.mark.parametrize("carrier, held", [("0\n", True), ("1\n", False), (None, True)])
+def test_watch_holds_home_wifi_only_when_it_was_lost(tmp_path, carrier, held):
+  counter, carrier_path = tmp_path / "carrier_changes", tmp_path / "carrier"
+  counter.write_text("4\n")
+  if carrier is not None:
+    carrier_path.write_text(carrier)  # missing: reading carrier of a down interface fails
+  holds = []
+  watch = SharedRadioWatch(lambda *a, **k: None, interval=0.01, counter=counter, carrier=carrier_path,
+                           on_down=lambda: holds.append(True)).start()
+  try:
+    time.sleep(0.05)
+    counter.write_text("5\n")
+    deadline = time.monotonic() + 2
+    while not watch.recent():
+      assert time.monotonic() < deadline
+      time.sleep(0.01)
+    time.sleep(0.05)
+    assert holds == ([True] if held else [])
+  finally:
+    watch.stop()
+
+
 def test_watch_without_the_counter_never_reports(tmp_path):
   watch = SharedRadioWatch(lambda *a, **k: None, interval=0.01, counter=tmp_path / "missing").start()
   try:

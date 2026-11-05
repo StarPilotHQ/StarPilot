@@ -43,9 +43,9 @@ def test_projection_order_is_independent_from_native_and_survives_decode():
   native['widgetOrder'] = {profile: list(DEFAULT_WIDGET_ORDER[profile]) for profile in PROFILES}
   before = copy.deepcopy(native)
   projection = default_layout_for_viewport((2880, 1080))
-  # Legacy AA layouts must not inherit native large ordering.
-  assert 'large' not in projection_customization(projection, native)['widgetOrder']
+  # Legacy AA layouts must not inherit native large ordering; they draw the editor's default layers.
   default_order = layout_metadata_for_viewport((2880, 1080))['widgetOrder']
+  assert projection_customization(projection, native)['widgetOrder']['large'] == default_order
   projection['widgetOrder'] = [*reversed([key for key in default_order if key != CAR_EXIT]), CAR_EXIT]
   decoded = decode_layout_for_viewport(json.dumps(projection).encode(), (2880, 1080))
   assert decoded == projection

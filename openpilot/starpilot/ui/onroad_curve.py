@@ -91,7 +91,22 @@ def status_label(state: OnroadState) -> str | None:
   return None
 
 
-def render_glow(rect: rl.Rectangle, state: OnroadState, *, border_width: float, time_s: float) -> None:
+class GlowPhase:
+  """Advance the breath by dt/period; (t % period) / period jumps whenever the period changes."""
+
+  def __init__(self):
+    self._phase = 0.0
+    self._time_s: float | None = None
+
+  def advance(self, time_s: float, cycle: float) -> float:
+    if self._time_s is not None and 0.0 <= time_s - self._time_s <= 1.0:
+      self._phase = (self._phase + (time_s - self._time_s) / cycle) % 1.0
+    self._time_s = time_s
+    return self._phase
+
+
+def render_glow(rect: rl.Rectangle, state: OnroadState, *, border_width: float, time_s: float,
+                phase: GlowPhase | None = None) -> None:
   """Draw behind the axis-status border; absent/stale/off draws nothing."""
   preview = state.visual_preview
   preview_curve = preview.curve_curvature if preview is not None and state.alert.size != AlertSize.FULL else None
@@ -109,7 +124,8 @@ def render_glow(rect: rl.Rectangle, state: OnroadState, *, border_width: float, 
   cycle = period(strength)
   fraction = max(0.0, min(1.0, (strength - BASE_INTENSITY) / (1.0 - BASE_INTENSITY)))
   amplitude = 0.3 + 0.7 * fraction
-  breath = max(0.0, min(1.0, 0.5 + amplitude * math.sin((time_s % cycle) / cycle * 2 * math.pi)))
+  position = phase.advance(time_s, cycle) if phase is not None else (time_s % cycle) / cycle
+  breath = max(0.0, min(1.0, 0.5 + amplitude * math.sin(position * 2 * math.pi)))
   alpha = int(200 * strength * (0.6 + 0.4 * breath))
   span = max(1, int(border_width * SPAN))
   edge = rl.Color(color.r, color.g, color.b, alpha)

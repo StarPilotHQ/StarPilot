@@ -87,6 +87,12 @@ struct StarPilotCarControl @0x81c2f05a394cf4af {
       distanceMeters @3 :Float32;
       remainingDistanceMeters @4 :Float32;
       remainingDurationSeconds @5 :Float32;
+      lanes @6 :List(Lane);
+    }
+    struct Lane {
+      active @0 :Bool;
+      directions @1 :List(Text);
+      activeDirection @2 :Text;
     }
     version @12 :UInt16;
   }

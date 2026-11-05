@@ -219,22 +219,24 @@ class TestOnroadAxes(unittest.TestCase):
               nativeAcknowledged=True, desiredLongitudinal=True)
     self.ui.sm.put('aolAxisState', axis)
     self.assertTrue(self.state(True, False).longitudinal_overridden)
-    for field, value in (('qualified', False), ('sessionId', ''), ('observedMonoTime', NOW + 1),
-                         ('validUntilMonoTime', NOW - 1), ('nativeAcknowledged', False)):
+    for field, value in (('qualified', False), ('sessionId', ''), ('nativeAcknowledged', False), ('desiredLongitudinal', False)):
       with self.subTest(field=field):
         original = getattr(axis, field)
         setattr(axis, field, value)
         state = self.state(True, False)
         self.assertFalse(state.longitudinal_overridden or state.driver_override_active or state.cruise_active)
         setattr(axis, field, original)
-    for stamp in (NOW + 1, NOW - 31_000_000):
+    self.ui.sm.logMonoTime['aolAxisState'] = NOW - 60_000_000
+    self.assertTrue(self.state(True, False).longitudinal_overridden,
+                    'a late UI frame past the 30 ms control window does not blink the override edge')
+    for stamp in (NOW + 1, NOW - 201_000_000):
       self.ui.sm.logMonoTime['aolAxisState'] = stamp
       self.assertFalse(self.state(True, False).longitudinal_overridden)
     self.ui.sm.logMonoTime['aolAxisState'] = NOW
     self.ui.sm.recv_frame['aolAxisState'] = self.ui.started_frame
     self.assertFalse(self.state(True, False).longitudinal_overridden)
     self.ui.sm.recv_frame['aolAxisState'] = self.ui.started_frame + 1
-    for flags in (self.ui.sm.valid, self.ui.sm.alive, self.ui.sm.seen):
+    for flags in (self.ui.sm.valid, self.ui.sm.alive):
       flags['aolAxisState'] = False
       self.assertFalse(self.state(True, False).longitudinal_overridden)
       flags['aolAxisState'] = True

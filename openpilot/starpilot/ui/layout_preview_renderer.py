@@ -492,7 +492,9 @@ class LayoutPreviewRenderer:
     if profile == Profile.LARGE:
       from openpilot.starpilot.ui.navigation_state import NavigationDisplay
       state = replace(state, navigation=NavigationDisplay(("preview", 1), "Turn left onto Desert Inn Road", "turn", "left",
-                                                          152.0, 6800.0, 540.0))
+                                                          152.0, 6800.0, 540.0, False, "turn", "right", 300.0,
+                                                          ((True, ("left",), "left"), (True, ("left",), "left"), (False, ("straight",), ""),
+                                                           (False, ("straight",), ""), (False, ("right",), ""))))
     if not rl.is_window_ready():
       raise RuntimeError("Layout preview requires the UI graphics context")
     if self._canvas is None or self._canvas.profile != profile or self._canvas.viewport != viewport:

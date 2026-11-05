@@ -10,7 +10,7 @@ from openpilot.cereal import messaging
 from openpilot.starpilot.ui.navigation_state import NavigationDisplay, distance_text, navigation_display
 from openpilot.starpilot.ui.onroad_navigation import ASSETS, MANIFEST, NavigationCard, arrival_time, icon_name
 from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadAlert, OnroadState, SpeedLimitObservation
-from openpilot.starpilot.ui.presentation import Profile
+from openpilot.starpilot.ui.presentation import FontRole, Profile
 
 NOW = 10_000_000_000
 DRIVE = 1_000_000_000
@@ -136,7 +136,8 @@ def test_renderer_keeps_actual_instruction_and_distance(profile):
   fonts.measure.side_effect = lambda text, role, size: NS(width=len(text) * size * .48)
   card = NavigationCard(fonts, clock=lambda: datetime(2026, 10, 7, 15, 42))
   with patch.object(card, '_icon', return_value=NS(width=100, height=100)), \
-       patch.object(rl, 'draw_rectangle_rounded'), patch.object(rl, 'draw_rectangle_rounded_lines_ex'), patch.object(rl, 'draw_texture_pro'):
+       patch.object(rl, 'draw_rectangle_rounded'), patch.object(rl, 'draw_rectangle_rounded_lines_ex'), patch.object(rl, 'draw_texture_pro'), \
+       patch.object(rl, 'draw_line_ex'), patch.object(rl, 'draw_rectangle_rec'):
     card.render(state())
   text = ' '.join(call.args[0] for call in fonts.draw.call_args_list)
   assert 'Turn left onto Main Street' in text
@@ -201,6 +202,32 @@ def test_unchanged_instruction_reuses_measured_layout():
   assert fonts.measure.call_count > measured
 
 
+def test_single_line_instruction_marks_truncated_text_and_has_its_own_cache():
+  fonts = Mock(profile=Profile.COMPACT)
+  fonts.measure.side_effect = lambda text, role, size: NS(width=len(text) * size * .48)
+  card = NavigationCard(fonts)
+  text = 'Turn left onto West Charleston Boulevard'
+  assert len(card._lines(text, 220, 20)) == 2
+  line, = card._lines(text, 220, 20, max_lines=1)
+  assert line.endswith('...') and fonts.measure(line, FontRole.SEMI_BOLD, 20).width <= 220
+
+
+def test_compact_two_line_instruction_clears_then_chip():
+  fonts = Mock(profile=Profile.COMPACT)
+  fonts.measure.side_effect = lambda text, role, size: NS(width=len(text) * size * .48)
+  card = NavigationCard(fonts)
+  nav = replace(state().navigation, text='Turn left onto West Charleston Boulevard',
+                then_type='turn', then_modifier='right', then_distance_m=300.)
+  with patch.object(card, '_icon', return_value=NS(width=100, height=100)), \
+       patch.object(rl, 'draw_rectangle_rounded') as rounded, patch.object(rl, 'draw_rectangle_rounded_lines_ex'), \
+       patch.object(rl, 'draw_texture_pro'):
+    card.render(replace(state(), navigation=nav))
+  instruction = [call.args for call in fonts.draw.call_args_list if call.args[1] == FontRole.SEMI_BOLD and call.args[2] == 20]
+  assert len(instruction) == 2
+  then_chip = rounded.call_args_list[1].args[0]
+  assert max(args[4] + args[2] for args in instruction) < then_chip.y
+
+
 def test_saved_favorite_revision_does_not_expand_navigation_card():
   card = NavigationCard(Mock(profile=Profile.COMPACT))
   observed = state()
@@ -219,7 +246,8 @@ def test_replay_without_wall_anchor_omits_eta_but_keeps_recorded_navigation():
   fonts.measure.side_effect = lambda text, role, size: NS(width=len(text) * size * .48)
   card = NavigationCard(fonts, clock=lambda: None)
   with patch.object(card, '_icon', return_value=NS(width=100, height=100)), \
-       patch.object(rl, 'draw_rectangle_rounded'), patch.object(rl, 'draw_rectangle_rounded_lines_ex'), patch.object(rl, 'draw_texture_pro'):
+       patch.object(rl, 'draw_rectangle_rounded'), patch.object(rl, 'draw_rectangle_rounded_lines_ex'), patch.object(rl, 'draw_texture_pro'), \
+       patch.object(rl, 'draw_line_ex'), patch.object(rl, 'draw_rectangle_rec'):
     card.render(state())
   text = ' '.join(call.args[0] for call in fonts.draw.call_args_list)
   assert 'Turn left onto Main Street' in text
@@ -241,3 +269,73 @@ def test_replay_without_wall_anchor_omits_optional_hud_clock():
   view.wall_clock = lambda: None
   view._clock(observed)
   view.fonts.draw.assert_not_called()
+
+
+def test_then_maneuver_comes_from_the_next_instruction_and_card_shows_it_when_close():
+  result = message()
+  result.nextManeuver = {'maneuverType': 'turn', 'maneuverModifier': 'right', 'distanceMeters': 300}
+  nav = navigation_display(result, now_ns=NOW, drive_id=DRIVE)
+  assert nav is not None
+  assert (nav.then_type, nav.then_modifier, nav.then_distance_m) == ('turn', 'right', 300.)
+  assert navigation_display(message(), now_ns=NOW, drive_id=DRIVE).then_type == ''
+  fonts = Mock(profile=Profile.LARGE)
+  fonts.measure.side_effect = lambda text, role, size: NS(width=len(text) * size * .48)
+  card = NavigationCard(fonts, clock=lambda: datetime(2026, 10, 7, 15, 42))
+  with patch.object(card, '_icon', return_value=NS(width=100, height=100)) as icon, \
+       patch.object(rl, 'draw_rectangle_rounded'), patch.object(rl, 'draw_rectangle_rounded_lines_ex'), \
+       patch.object(rl, 'draw_texture_pro'), patch.object(rl, 'draw_line_ex'), patch.object(rl, 'draw_rectangle_rec'):
+    card.render(replace(state(), navigation=nav))
+    assert 'Then' in [call.args[0] for call in fonts.draw.call_args_list]
+    assert icon.call_count == 2
+    fonts.draw.reset_mock()
+    card.render(replace(state(), navigation=replace(nav, then_distance_m=900.)))
+    assert 'Then' not in [call.args[0] for call in fonts.draw.call_args_list]
+
+
+def test_progress_bar_tracks_the_longest_remaining_distance_per_trip():
+  fonts = Mock(profile=Profile.LARGE)
+  fonts.measure.side_effect = lambda text, role, size: NS(width=len(text) * size * .48)
+  card = NavigationCard(fonts, clock=lambda: datetime(2026, 10, 7, 15, 42))
+  observed = state()
+  with patch.object(card, '_icon', return_value=NS(width=100, height=100)), \
+       patch.object(rl, 'draw_rectangle_rounded') as rounded, patch.object(rl, 'draw_rectangle_rounded_lines_ex'), \
+       patch.object(rl, 'draw_texture_pro'), patch.object(rl, 'draw_line_ex'):
+    card.render(observed)
+    card.render(replace(observed, navigation=replace(observed.navigation, remaining_distance_m=2150.)))
+  track, fill = (call.args[0] for call in rounded.call_args_list[-2:])
+  eta_width = len('ETA 3:50 PM') * 28 * .48
+  assert track.width == pytest.approx(560 - 48 - eta_width - 18), 'the bar stops short of the ETA beside it'
+  assert fill.width == pytest.approx(track.width * .5)
+  card.bounds(replace(observed, navigation=replace(observed.navigation, key=('other', 1))))
+  assert card._total == 0
+
+
+
+LANES = ((False, ('straight',), ''), (True, ('straight', 'right'), 'right'), (True, ('right',), 'right'))
+
+
+def test_lanes_are_read_from_the_instruction():
+  result = message()
+  result.instruction = {**result.instruction.to_dict(), 'lanes': [
+    {'active': False, 'directions': ['straight']}, {'active': True, 'directions': ['straight', 'right'], 'activeDirection': 'right'}]}
+  assert navigation_display(result, now_ns=NOW, drive_id=DRIVE).lanes == (
+    (False, ('straight',), ''), (True, ('straight', 'right'), 'right'))
+  assert navigation_display(message(), now_ns=NOW, drive_id=DRIVE).lanes == ()
+
+
+def test_lane_strip_shows_near_the_turn_and_replaces_the_then_chip():
+  fonts = Mock(profile=Profile.LARGE)
+  fonts.measure.side_effect = lambda text, role, size: NS(width=len(text) * size * .48)
+  card = NavigationCard(fonts, clock=lambda: datetime(2026, 10, 7, 15, 42))
+  nav = replace(state().navigation, lanes=LANES, then_type='turn', then_modifier='right', then_distance_m=300.)
+  with patch.object(card, '_icon', return_value=NS(width=100, height=100)) as icon, \
+       patch.object(rl, 'draw_rectangle_rounded') as rounded, patch.object(rl, 'draw_rectangle_rounded_lines_ex'), \
+       patch.object(rl, 'draw_texture_pro') as textures, patch.object(rl, 'draw_line_ex'), patch.object(rl, 'draw_rectangle_rec'):
+    card.render(replace(state(), navigation=nav))
+    assert rounded.call_count == 1 + len(LANES) + 1, 'the card, one cell per lane and the progress track; no Then chip'
+    assert 'Then' not in [call.args[0] for call in fonts.draw.call_args_list]
+    assert textures.call_count == len(LANES), 'the lanes carry the maneuver; no separate icon'
+    assert [call.args[0] for call in icon.call_args_list[1:]] == ['direction_turn_straight.png', 'direction_turn_right.png', 'direction_turn_right.png']
+    rounded.reset_mock()
+    card.render(replace(state(), navigation=replace(nav, distance_m=900., then_distance_m=1200.)))
+    assert rounded.call_count == 1 + 1 + 1, 'too far for lanes: the card, the Then chip and the progress track'

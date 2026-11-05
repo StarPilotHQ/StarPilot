@@ -53,6 +53,21 @@ def delete_records(self, path, payload, sentry_events_lock, crash_reports_lock, 
       self.json(401, {'error': 'Sign in to Galaxy'})
 
 
+def widget_art_header(image):
+  """Encode bounded PNG sprite metadata for the preview response header."""
+  import base64
+  import struct
+  signature = b'starpilot-widget-art\0'
+  offset = 8
+  while offset + 12 <= len(image):
+    size, kind = struct.unpack('!I4s', image[offset:offset + 8])
+    if kind == b'tEXt' and image[offset + 8:offset + 8 + len(signature)] == signature:
+      text = image[offset + 8 + len(signature):offset + 8 + size]
+      return base64.b64encode(text).decode() if len(text) <= 8192 else ''
+    offset += size + 12
+  return ''
+
+
 def preview_layout(self, payload, projection_layout_owner, layout_owner, layout_preview_socket):
   identity = self.settings_session()
   if identity is None:
@@ -91,7 +106,14 @@ def preview_layout(self, payload, projection_layout_owner, layout_owner, layout_
     elif not layout_owner().parked():
       self.json(403, {'error': 'Turn off the vehicle to preview this layout'})
     else:
-      self.respond(200, image, 'image/png')
+      headers, cache = {}, None
+      if payload.get('art') is True:
+        # Proxies that re-encode PNGs drop the tEXt chunk, so the sprite sheet also rides in a header.
+        header = widget_art_header(image)
+        if header:
+          headers['X-Widget-Art'] = header
+        cache = 'no-store, no-transform'
+      self.respond(200, image, 'image/png', asset_headers=headers or None, cache_control=cache)
   except PreviewDenied:
     self.json(403, {'error': 'Turn off the vehicle to preview this layout'})
   except PreviewBusy:

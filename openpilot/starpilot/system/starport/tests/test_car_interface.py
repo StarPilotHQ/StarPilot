@@ -48,6 +48,7 @@ class FakeLease:
     self.local_ip = ""
     self.errors: list = []
     self.releases: list = []
+    self.held = False
 
   def prepare_device(self, cancelled):
     self.prepared = True
@@ -64,23 +65,30 @@ class FakeLease:
   def release(self, restore=True):
     self.releases.append(restore)
 
+  def hold_autoconnect(self):
+    self.held = True
+    return True
+
 
 def credentials():
   return WifiCredentials(ssid="Car-4E91", key="secret-key", bssid="C6:B7:57:F7:4E:91", security=8, ap_type=0)
 
 
-def make(fail=False, errors=()):
+def make(fail=False, errors=(), fail_reopen=False):
   leases = []
 
   def factory(log, interface, dedicated=False):
     lease = FakeLease(log, interface, dedicated)
     if dedicated:
-      lease.errors = list(errors)
+      lease.errors = list(errors) if not any(item.dedicated for item in leases) else []
     leases.append(lease)
     return lease
   FakeInterface.instances = []
   log = Log()
-  return DedicatedLease(log, "wlan0", factory, interface_factory=lambda log: FakeInterface(log, fail)), leases, log
+  def interface(log):
+    return FakeInterface(log, fail or (fail_reopen and len(FakeInterface.instances) > 0))
+
+  return DedicatedLease(log, "wlan0", factory, interface_factory=interface), leases, log
 
 
 def test_dedicated_session_keeps_aa0_between_attempts():
@@ -116,10 +124,75 @@ def test_overlapping_car_subnet_finishes_join_on_wlan0():
 
 
 def test_failed_aa0_join_finishes_the_same_join_on_wlan0():
-  lease, leases, log = make(errors=[NetworkError("NetworkManager could not join the projection network")])
+  error = NetworkError("NetworkManager could not join the projection network")
+  lease, leases, log = make(errors=[error])
+  leases_errors = [error]
+
+  def factory(log, interface, dedicated=False):
+    item = FakeLease(log, interface, dedicated)
+    if dedicated:
+      item.errors = list(leases_errors)  # the fresh aa0 fails the same way
+    leases.append(item)
+    return item
+  lease.lease_factory = factory
+  assert lease.acquire(credentials()) == "192.168.180.183"
+  assert [(item.interface, item.dedicated) for item in leases] == [("aa0", True), ("aa0", True), ("wlan0", False)]
+  assert lease.aa0_failed and not lease.aa0_joined and all(item.closed for item in FakeInterface.instances)
+  assert log.names().count("wifi_dedicated_reopen") == 1
+
+
+def test_networkmanager_restart_rebuilds_aa0_instead_of_falling_back():
+  stale = NetworkError("Cannot read ActiveConnection: Object does not exist at path /org/freedesktop/NetworkManager/Devices/116")
+  lease, leases, log = make(errors=[stale, stale])
+  assert lease.acquire(credentials()) == "192.168.180.183"
+  assert [(item.interface, item.dedicated) for item in leases] == [("aa0", True), ("aa0", True)]
+  assert FakeInterface.instances[0].closed and not FakeInterface.instances[1].closed
+  assert lease.interface == "aa0" and lease.dedicated and lease.aa0_joined and not lease.legacy
+  assert "wifi_dedicated_reopen" in log.names() and "wifi_dedicated_unavailable" not in log.names()
+
+
+def test_aa0_that_cannot_be_rebuilt_finishes_on_wlan0():
+  lease, leases, log = make(errors=[NetworkError("stale")], fail_reopen=True)
   assert lease.acquire(credentials()) == "192.168.180.183"
   assert [(item.interface, item.dedicated) for item in leases] == [("aa0", True), ("wlan0", False)]
-  assert lease.aa0_failed and not lease.aa0_joined and FakeInterface.instances[0].closed
+  assert lease.legacy and not lease.dedicated and not lease.aa0_failed
+
+
+def test_lost_home_wifi_is_held_until_the_session_ends():
+  lease, leases, log = make()
+  lease.acquire(credentials())
+  lease.hold_home_wifi()
+  lease.hold_home_wifi()  # a second carrier change keeps the one hold
+  home = [item for item in leases if item.interface == "wlan0"]
+  assert len(home) == 1 and home[0].held and not home[0].dedicated
+  lease.release(restore=False)
+  assert home[0].releases == []  # between attempts the hold stays
+  lease.release(restore=True)
+  assert home[0].releases == [True] and lease.home is None
+  assert log.names().count("wifi_home_held") == 1 and "wifi_home_released" in log.names()
+
+
+def test_home_wifi_is_never_held_while_the_car_uses_it():
+  lease, leases, log = make(fail=True)
+  lease.acquire(credentials())
+  lease.hold_home_wifi()
+  assert lease.home is None and not any(item.held for item in leases)
+
+
+def test_late_radio_callback_cannot_hold_home_wifi_after_release():
+  lease, leases, log = make()
+  lease.acquire(credentials())
+  lease.release(restore=True)
+  lease.hold_home_wifi()
+  assert lease.home is None and not any(item.held for item in leases)
+
+
+def test_home_wifi_that_came_back_is_not_held(monkeypatch):
+  lease, leases, log = make()
+  lease.acquire(credentials())
+  monkeypatch.setattr(FakeLease, "hold_autoconnect", lambda self: False)
+  lease.hold_home_wifi()
+  assert lease.home is None and leases[-1].releases == [True]
 
 
 def test_repeated_aa0_timeouts_fall_back_for_the_session():
@@ -176,8 +249,9 @@ def test_session_stop_cancels_a_slow_aa0_setup():
 
 
 class FakeNM:
-  def __init__(self, devices=None, autoconnect=True, overlap=False, appears_after=0):
+  def __init__(self, devices=None, autoconnect=True, overlap=False, appears_after=0, state=30):
     self.devices = devices if devices is not None else {"/dev/wlan0": "wlan0", "/dev/aa0": "aa0"}
+    self.state = state
     self.autoconnect = autoconnect
     self.overlap = overlap
     self.appears_after = appears_after  # GetDevices calls before NetworkManager lists aa0
@@ -208,7 +282,7 @@ class FakeNM:
       return [{"address": ("s", "192.168.180.183"), "prefix": ("u", 24)}]
     if name == "Frequency":
       return 5745 if path == "/ap/aa0" else 2437
-    return {"WirelessEnabled": True, "DeviceType": 2, "ActiveConnection": "/active/home", "State": 30 if path.startswith("/dev") else 2,
+    return {"WirelessEnabled": True, "DeviceType": 2, "ActiveConnection": "/active/home", "State": self.state if path.startswith("/dev") else 2,
             "Autoconnect": self.autoconnect, "Connection": "/settings/home", "ActiveAccessPoint": "/ap/" + path.rsplit("/", 1)[-1]}[name]
 
   def set_property(self, path, interface, name, signature, value):
@@ -271,6 +345,20 @@ def test_dedicated_network_lease_rejects_overlapping_subnet_without_a_second_joi
     lease.acquire(credentials(), timeout=2.0)
   assert "wifi_subnet_overlap" in lease.log.names()
   assert nm.calls.count("AddAndActivateConnection2") == 1
+
+
+@pytest.mark.parametrize("state, held, disconnected", [(30, True, False), (120, True, False), (50, True, True), (100, False, False)])
+def test_hold_autoconnect_on_lost_home_wifi(tmp_path, state, held, disconnected):
+  nm = FakeNM(state=state)
+  lease: Any = NetworkLease(Log(), "wlan0")
+  lease._call, lease._get, lease._set = nm.call, nm.get, nm.set_property
+  lease.router = type("R", (), {"close": lambda self: None})()
+  lease.marker = tmp_path / "paused.json"
+  assert lease.hold_autoconnect() is held
+  assert ("Disconnect" in nm.calls) is disconnected
+  assert nm.set == ([("/dev/wlan0", "Autoconnect", False)] if held else [])
+  lease.release(restore=True)
+  assert nm.autoconnect and not lease.marker.exists()
 
 
 def test_legacy_lease_still_falls_back():
