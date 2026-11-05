@@ -14,9 +14,7 @@ CASES = [(vehicle, profile, factor) for profile, (vehicles, factor) in PROFILES.
 def test_exact_profile_defaults_and_saved_controller_selection(vehicle, profile, factor):
   cp = interfaces[vehicle].get_non_essential_params(vehicle)
   assert policy_for(cp) == profile
-  expected = (ControllerMode.STARPILOT if vehicle in (CAR.KIA_FORTE_2019_NON_SCC, CAR.KIA_FORTE_2021_NON_SCC,
-                                                                    CAR.KIA_CARNIVAL_2025, CAR.KIA_CARNIVAL_HEV_4TH_GEN)
-              else ControllerMode.STANDARD)
+  expected = ControllerMode.STARPILOT
   assert default_selection(cp).mode == expected
   for raw in (b'{', b'{"version":true,"vehicles":{}}', b'{"version":1,"vehicles":{},"vehicles":{}}', b'x' * 4097):
     assert selection_from_bytes(cp, raw).mode == expected
@@ -60,7 +58,8 @@ def test_unadmitted_and_cross_vehicle_choices_are_not_applied(vehicle, profile, 
   saved = replace_mode(None, cp, ControllerMode.STARPILOT)
   other = interfaces[CAR.HYUNDAI_IONIQ_5].get_non_essential_params(CAR.HYUNDAI_IONIQ_5)
   if vehicle != CAR.HYUNDAI_IONIQ_5:
-    assert selection_from_bytes(other, saved).mode == ControllerMode.STANDARD
+    assert selection_from_bytes(other, saved).mode == ControllerMode.STARPILOT
+    assert selection_from_bytes(other, saved).source == 'default'
 
 
 @pytest.mark.parametrize('vehicle,profile,factor', CASES)
@@ -195,3 +194,16 @@ def test_ev6_taper_keeps_low_speed_and_substantial_curve_effect_small():
         assert old - actual < .002
       if abs(acceleration) >= 1.:
         assert old - actual < .00002
+
+
+@pytest.mark.parametrize('vehicle,profile,factor', CASES)
+@pytest.mark.parametrize('alpha_long', [False, True])
+def test_vehicle_tune_defaults_are_independent_of_longitudinal_choice(vehicle, profile, factor, alpha_long):
+  cp = interfaces[vehicle].get_non_essential_params(vehicle)
+  cp.openpilotLongitudinalControl = alpha_long
+  assert default_selection(cp).mode == ControllerMode.STARPILOT
+  raw = replace_mode(None, cp, ControllerMode.STANDARD)
+  selected = selection_from_bytes(cp, raw)
+  assert selected.mode == ControllerMode.STANDARD
+  assert selected.source == 'saved'
+  assert selected.policy == profile

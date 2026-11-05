@@ -66,7 +66,7 @@ class TestControllerFeature(unittest.TestCase):
     self.assertTrue(_onroad_preference('torque', DOCUMENT_KEY))
     self.assertFalse(self.params.get_bool('AdvancedLateralTune'))
     self.cp = interfaces[HYUNDAI.KIA_EV6].get_non_essential_params(HYUNDAI.KIA_EV6)
-    self.assertEqual(self.require_row().value, "Stock Controller")
+    self.assertEqual(self.require_row().value, "StarPilot Controller")
     self.cp = interfaces[HYUNDAI.HYUNDAI_IONIQ_6].get_non_essential_params(HYUNDAI.HYUNDAI_IONIQ_6)
     self.cp.notCar = True
     self.assertIsNone(self.row())

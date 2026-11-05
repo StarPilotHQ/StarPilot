@@ -173,10 +173,7 @@ def model_turn_assist_supported(CP) -> bool:
 
 def default_selection(CP) -> ControllerSelection:
   policy = policy_for(CP)
-  from openpilot.starpilot.lateral.hkg_vehicle_policy import PROFILES
-  forte_non_scc = policy == 'kia_forte' and str(CP.carFingerprint) in ('KIA_FORTE_2019_NON_SCC', 'KIA_FORTE_2021_NON_SCC')
-  dom_default = forte_non_scc or policy == 'kia_carnival'
-  mode = ControllerMode.STARPILOT if policy and policy != 'generic' and (policy not in PROFILES or dom_default) else ControllerMode.STANDARD
+  mode = ControllerMode.STARPILOT if policy and policy != 'generic' else ControllerMode.STANDARD
   return ControllerSelection(mode, policy, 'default')
 
 

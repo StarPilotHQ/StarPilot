@@ -61,7 +61,7 @@ class TestControllerSelection(unittest.TestCase):
         cp = cp_for(vehicle)
         self.assertEqual(policy_for(cp), policy)
         selected = selection_from_bytes(cp, None)
-        mode = ControllerMode.STANDARD if vehicle in (HYUNDAI.KIA_EV6, HYUNDAI.HYUNDAI_SONATA) or policy is None else ControllerMode.STARPILOT
+        mode = ControllerMode.STARPILOT
         self.assertEqual(selected.mode, mode)
         lateral = LatControlTorque(cp.as_reader(), interfaces[vehicle](cp), DT_CTRL)
         self.assertEqual(lateral.controller_mode, selected.mode)
