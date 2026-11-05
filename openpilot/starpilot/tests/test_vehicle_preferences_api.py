@@ -32,10 +32,3 @@ def test_explicit_door_keywords_do_not_shift_turn_assist():
   preferences = VehicleStartupPreferences(True, True, toyota_lock_doors=True, toyota_unlock_doors=True)
   assert preferences.toyota_auto_hold and preferences.turn_assist
   assert preferences.toyota_lock_doors and preferences.toyota_unlock_doors
-
-
-def test_new_radar_keyword_preserves_all_legacy_positional_fields():
-  preferences = VehicleStartupPreferences(True, True, toyota_radar_mode=2)
-  assert preferences.toyota_auto_hold and preferences.turn_assist
-  assert preferences.toyota_radar_mode == 2
-  assert VehicleStartupPreferences(True, True).toyota_radar_mode == 0

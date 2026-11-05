@@ -26,7 +26,8 @@ def test_filter_preserves_radar_and_existing_tune(alpha):
   assert cp.flags & (1 << 18)
   assert cp.safetyConfigs[0].safetyParam == (0x1449 if alpha else 0x1649)
   expected = plain.to_dict()
-  expected['flags'] = (expected['flags'] & ~int(ToyotaFlags.DISABLE_RADAR)) | (1 << 18)
+  expected['flags'] = (expected['flags'] & ~int(ToyotaFlags.DISABLE_RADAR)) | (1 << 18) | int(ToyotaFlags.ARS510_RADAR)
+  expected['radarUnavailable'] = False
   expected['safetyConfigs'][0]['safetyParam'] = cp.safetyConfigs[0].safetyParam
   assert cp.to_dict() == expected
   with patch('opendbc.car.toyota.interface.disable_ecu') as disable:

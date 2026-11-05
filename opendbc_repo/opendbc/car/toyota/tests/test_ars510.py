@@ -1,5 +1,4 @@
 from math import isfinite, isnan
-from types import SimpleNamespace
 import zlib
 
 import pytest
@@ -9,46 +8,25 @@ from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.toyota.ars510_acc_target import RadarInterface as AccRadarInterface, RADAR_DBC
 from opendbc.car.toyota.ars510_radar import Ars510Radar, IDLE_SLOT, RadarInterface as FusedRadarInterface
 from opendbc.car.toyota.interface import CarInterface
-from opendbc.car.toyota.ars510_preferences import apply_radar_mode
 from opendbc.car.toyota.radar_interface import RadarInterface
 from opendbc.car.toyota.values import ARS510_RADAR_CAR, CAR, ToyotaFlags
 
 
-def configured_params(candidate, fingerprint, car_fw, alpha_long, is_release, docs, toggles=None):
-  cp = CarInterface.get_params(candidate, fingerprint, car_fw, alpha_long, is_release, docs)
-  apply_radar_mode(cp, getattr(toggles, "toyota_radar_mode_requested", 0))
-  return cp
-
-
-@pytest.mark.parametrize("candidate", list(CAR))
-@pytest.mark.parametrize("mode", [0, 1, 2, 3])
-@pytest.mark.parametrize("alpha_long,can_filter", [(False, False), (True, False), (True, True)])
-def test_radar_selection_is_opt_in_and_changes_only_compatible_rav4_radar_fields(candidate, mode, alpha_long, can_filter):
+@pytest.mark.parametrize('candidate', list(CAR))
+@pytest.mark.parametrize('alpha_long,can_filter', [(False, False), (True, False), (True, True)])
+def test_factory_selects_only_live_supported_continental_radar(candidate, alpha_long, can_filter):
   fingerprint = gen_empty_fingerprint()
   if can_filter:
     fingerprint[0][0x2AA] = 8
-  baseline = configured_params(candidate, fingerprint, [], alpha_long, False, False, None)
-  selected = configured_params(candidate, fingerprint, [], alpha_long, False, False, SimpleNamespace(toyota_radar_mode_requested=mode))
-  expected = baseline.to_dict()
-  if candidate in ARS510_RADAR_CAR and mode in (1, 2):
-    expected["flags"] |= ToyotaFlags.ARS510_RADAR
-    if mode == 2:
-      expected["flags"] |= ToyotaFlags.ARS510_FUSED
-    expected["radarUnavailable"] = False
-    radar = RadarInterface(selected)
-    assert isinstance(radar.ars510, FusedRadarInterface if mode == 2 else AccRadarInterface)
-    assert radar.rcp is None
-  assert selected.to_dict() == expected
-  assert selected.safetyConfigs[0].to_dict() == baseline.safetyConfigs[0].to_dict()
-
-
-@pytest.mark.parametrize("candidate", [CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_RAV4_TSS2_2023])
-def test_default_rav4_remains_vision_only(candidate):
-  CP = configured_params(candidate, gen_empty_fingerprint(), [], True, False, False, None)
-  radar = RadarInterface(CP)
-  assert CP.radarUnavailable
-  assert not CP.flags & (ToyotaFlags.ARS510_RADAR | ToyotaFlags.ARS510_FUSED)
-  assert radar.ars510 is radar.rcp is None
+  cp = CarInterface.get_params(candidate, fingerprint, [], alpha_long, False, False)
+  if candidate in ARS510_RADAR_CAR and not cp.flags & ToyotaFlags.DISABLE_RADAR:
+    assert cp.flags & ToyotaFlags.ARS510_RADAR, 'AUTOMATIC_CONTINENTAL_RADAR'
+    assert not cp.flags & ToyotaFlags.ARS510_FUSED and not cp.radarUnavailable
+    assert isinstance(RadarInterface(cp).ars510, AccRadarInterface)
+  else:
+    assert not cp.flags & (ToyotaFlags.ARS510_RADAR | ToyotaFlags.ARS510_FUSED)
+    if candidate in ARS510_RADAR_CAR:
+      assert cp.radarUnavailable and RadarInterface(cp).ars510 is None
 
 
 def set_bits(data, start, length, value):
@@ -234,9 +212,8 @@ def test_acc_target_reports_silence_or_a_stuck_clock_without_stale_points(silent
   assert any(r is not None and r.errors.radarUnavailableTemporary and not r.points for r in outputs)
 
 
-@pytest.mark.parametrize("mode", [1, 2])
-def test_rav4_startup_wait_does_not_stall_live_tracks(mode):
-  CP = configured_params(CAR.TOYOTA_RAV4_TSS2_2023, gen_empty_fingerprint(), [], False, False, False, SimpleNamespace(toyota_radar_mode_requested=mode))
+def test_rav4_startup_wait_does_not_stall_live_tracks():
+  CP = CarInterface.get_params(CAR.TOYOTA_RAV4_TSS2_2023, gen_empty_fingerprint(), [], False, False, False)
   radar = RadarInterface(CP)
   outputs = [radar.update([(1_000_000_000 + i * 10_000_000, [])]) for i in range(700)]
   assert sum(r is not None for r in outputs) == 140

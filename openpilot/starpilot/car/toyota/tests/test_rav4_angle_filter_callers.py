@@ -77,7 +77,7 @@ def run_case(candidate, alpha, disable, radar_mode, tmp_path, *, aol=True, has_f
     for key, value in [('OpenpilotEnabledToggle', True), ('AlphaLongitudinalEnabled', alpha),
                        ('DisableOpenpilotLongitudinal', disable), ('AlwaysOnLateral', aol), ('SafeMode', False)]:
       params.put_bool(key, value, block=True)
-    params.put('ToyotaRadarMode', radar_mode, block=True)
+    params.put('ToyotaRadarMode', radar_mode, block=True)  # Retired values must not affect automatic selection.
     fw = helpers.firmware(candidate) if recorded_firmware is None else recorded_firmware
     exact, found = match_fw_to_car(fw, '', log=False)
     assert exact and found == {candidate}

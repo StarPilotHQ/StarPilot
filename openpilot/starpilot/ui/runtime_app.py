@@ -676,14 +676,11 @@ class StarShellSession:
     if cp is None or not getattr(cp, "carFingerprint", ""):
       return False
     if group in ("lane_change", "conditional", "conditional_wheel", "switchback_wheel", "aol_wheel",
-                 "lane", "long", "toyota_cruise", "long_output", "slc", "torque", "aol", "vehicle", "toyota_radar"):
+                 "lane", "long", "toyota_cruise", "long_output", "slc", "torque", "aol", "vehicle"):
       if not preference_authority:
         return False
       if group == "toyota_cruise":
         from openpilot.starpilot.controllers.toyota_cruise import capability
-        return capability(cp) is not None
-      if group == "toyota_radar":
-        from openpilot.starpilot.car.toyota.radar_preferences import capability
         return capability(cp) is not None
       if group == "vehicle":
         from opendbc.car.toyota.interface import toyota_auto_hold_supported
@@ -716,7 +713,7 @@ class StarShellSession:
                                         if row.key == "AlwaysOnLateral" else row for row in state.rows))
     if self.profile == Profile.LARGE and not favorite:
       state = value_editor_state(state, getattr(self, "feature_edit_key", None) if page is None else None)
-      if state.editor and state.rows[0].key in (*LANE_CHANGE_KEYS, "CustomCruise", "CustomCruiseLong", "ToyotaRadarMode"):
+      if state.editor and state.rows[0].key in (*LANE_CHANGE_KEYS, "CustomCruise", "CustomCruiseLong"):
         state = replace(state, save_hint="Changes require confirmation")
     return state
 
@@ -1184,7 +1181,7 @@ class StarShellSession:
       if request is not None:
         if request.key in VEHICLE_BOOL_KEYS:
           self._confirm_vehicle_bool(request)
-        elif request.key in ("CustomCruise", "CustomCruiseLong", "ToyotaRadarMode"):
+        elif request.key in ("CustomCruise", "CustomCruiseLong"):
           self._confirm_vehicle_bool(request, f"Set {action.row.label.lower()} to {request.value} {action.row.unit}".rstrip() + "?")
         elif request.key in LANE_CHANGE_KEYS:
           self._confirm_lane_change(request)

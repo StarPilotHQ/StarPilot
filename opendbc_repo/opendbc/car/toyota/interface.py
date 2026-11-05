@@ -273,6 +273,8 @@ class CarInterface(CarInterfaceBase):
       stock_aol.apply(ret)
     from opendbc.car.toyota.dom_defaults import apply_defaults
     apply_defaults(ret)
+    from opendbc.car.toyota.ars510_preferences import configure_radar
+    configure_radar(ret)
     return ret
 
   @staticmethod

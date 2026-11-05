@@ -471,21 +471,6 @@ class FeatureSettingsOwner:
     return commit_exact(self.params, key="ToyotaAutoHold", max_bytes=128, raw=b"1" if request.value == "On" else b"0",
                         expected=request.expected, authorized=authorized, temp_prefix=".toyota-auto-hold-").verified
 
-  def _toyota_radar_capability(self):
-    from openpilot.starpilot.car.toyota.radar_preferences import capability
-    return capability(self.vehicle_params())
-
-  def _apply_toyota_radar(self, request: FeatureSettingsRequest) -> bool:
-    from openpilot.starpilot.car.toyota.radar_preferences import CHOICES, KEY
-    if not request.confirmation or request.value not in CHOICES or request.dependencies:
-      return False
-    def authorized():
-      return (bool(request.vehicle_fingerprint) and self.vehicle_fingerprint() == request.vehicle_fingerprint and
-              request.capability is not None and request.capability == self._toyota_radar_capability() and
-              self.authority("toyota_radar") and request.expected in (None, b"0", b"1", b"2"))
-    return commit_exact(self.params, key=KEY, max_bytes=8, raw=str(CHOICES.index(request.value)).encode(),
-                        expected=request.expected, authorized=authorized, temp_prefix=".toyota-radar-").verified
-
   def _cruise_capability(self) -> tuple | None:
     cp = self.vehicle_params()
     if toyota_cruise_capability(cp) is not None:
@@ -842,7 +827,7 @@ class FeatureSettingsOwner:
               FeatureRow("", "Wheel Controls", "Assign steering-wheel buttons and cruise behavior", page=FeaturePage.WHEEL, available=True)]
       if (self._long_pitch_capability() is not None or self._bolt_disable_capability() is not None or
           self._auto_hold_capability() is not None or self._toyota_sng_capability() is not None or self._jeep_hold_capability() is not None or
-          self._toyota_radar_capability() is not None or self._pedal_setup_capability() is not None or
+          self._pedal_setup_capability() is not None or
           self.subaru_smoothing.capability() is not None or
           self._subaru_avh_capability() is not None or self._subaru_startup_capability() is not None or self._subaru_sng_capability() is not None or
           self._subaru_software_capability() is not None or self._gm_stop_capability("VoltSNG") is not None or
@@ -872,16 +857,6 @@ class FeatureSettingsOwner:
                              configurable and parked and self.authority("parked_preferences"),
                              "Automatic resume for Toyota/Lexus vehicles without factory stop-and-go. Applies after the next startup.")
         rows.append(replace(row, available=row.available and self._readable("SNGHack"), capability=sng_capability))
-      radar_capability = self._toyota_radar_capability()
-      if radar_capability is not None:
-        from openpilot.starpilot.car.toyota.radar_preferences import CHOICES, KEY
-        raw, readable = read_saved(self.params, KEY, 8)
-        valid = readable and raw in (None, b"0", b"1", b"2")
-        rows.append(FeatureRow(KEY, "Continental Radar", CHOICES[int(raw or b"0")] if valid else "Invalid saved choice",
-          raw, CHOICES if valid else (), available=bool(valid and configurable and self.authority("toyota_radar")),
-          reason=("Optional RAV4 2022/2023 receiver. Off retains the original radar choice. Applies after startup; " +
-                  "native safety and ECU configuration are unchanged."),
-          capability=radar_capability, default_value="Off"))
       jeep_capability = self._jeep_hold_capability()
       if jeep_capability is not None:
         row = self._bool_row("JeepBrakeHold", "Jeep Brake Hold",
@@ -1430,8 +1405,6 @@ class FeatureSettingsOwner:
       return self._apply_toyota_sng(request)
     if key == "ToyotaAutoHold":
       return self._apply_auto_hold(request)
-    if key == "ToyotaRadarMode":
-      return self._apply_toyota_radar(request)
     if key == PLANNER_SELECTION_KEY:
       if request.value not in ("Off", "On") or not self.authority("preferences"):
         return False
