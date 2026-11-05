@@ -557,7 +557,7 @@ class ModelManager:
               "modelToDownload": job.get("model", ""), "downloadAll": job.get("downloadAll", False),
               "downloading": job["downloading"], "refreshing": job["refreshing"], "progress": job.get("progress", ""),
               "isOnroad": not parked, "gpuAvailable": gpu, "jetlink": jetlink,
-              "capabilities": {"select": parked, "download": parked, "downloadAll": parked, "cancel": True,
+              "capabilities": {"select": True, "download": parked, "downloadAll": parked, "cancel": True,
                                "jetlink": parked, "refresh": parked, "favorites": True, "delete": parked, "randomizer": parked, "exclusions": parked}}
 
   def _require_parked(self) -> None:
@@ -609,7 +609,8 @@ class ModelManager:
           saved.update(payload)
           atomic_json(self.root / "preferences.json", saved)
         return {"message": "Model preferences saved"}
-      self._require_parked()
+      if action != "active":
+        self._require_parked()
       if action in ("download", "download_all", "refresh_manifest"):
         if self.worker is not None and self.worker.is_alive():
           raise ModelError("A model download is already running")
@@ -682,7 +683,8 @@ class ModelManager:
           elif not self._installed(mid, entries):
             raise ModelError("Download and verify this model first")
         with state_lock(self.root):
-          self._require_parked()
+          if jetlink:
+            self._require_parked()
           saved = preferences(self.root)
           if saved["randomizer"]:
             raise ModelError("Turn Model Randomizer off before choosing a model")

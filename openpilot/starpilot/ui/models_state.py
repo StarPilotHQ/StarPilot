@@ -61,9 +61,11 @@ def model_action_allowed(data: dict, action: str, model: dict | None = None, pro
                 "exclusion": "exclusions"}.get(action, action)
   if data.get("capabilities", {}).get(capability) is not True:
     return False
-  if data.get("isOnroad") is not False and action not in ("preferences", "cancel"):
+  if data.get("isOnroad") is not False and action not in ("preferences", "cancel", "active"):
     return False
   if action == "active":
+    if profile == "big" and data.get("jetlinkBig") and data.get("isOnroad") is not False:
+      return False
     return (not data.get("randomizer") and (not data.get("downloading") or data.get("refreshing") is True) and profile in ("small", "big") and
             ((model is None and profile == "big") or
              bool(model and model.get("selectable") is True and model_fits_profile(model, profile))))
@@ -118,11 +120,12 @@ def model_manager_rows(data: dict) -> tuple[FeatureRow, ...]:
   for profile, field in (("small", "activeSmallModel"), ("big", "activeBigModel")):
     mid = data.get(field, "")
     label = next((m.get("label", mid) for m in data.get("models", ()) if m.get("value") == mid), mid or big_none_label(data))
-    available = (data.get("capabilities", {}).get("select") is True and data.get("isOnroad") is False and
+    available = (data.get("capabilities", {}).get("select") is True and
+                 not (profile == "big" and data.get("jetlinkBig") and data.get("isOnroad") is not False) and
                  (not data.get("downloading") or data.get("refreshing") is True) and not data.get("randomizer"))
     rows.append(FeatureRow("", f"Active {profile.title()}", label, source=mid.encode(), available=available,
                            reason="Randomizer selects at the next start" if data.get("randomizer") else
-                           "Change for next start" if available else "Turn the vehicle off to change models", page=f"models:{profile}"))
+                           "Applies next onroad cycle" if available else "Model selection unavailable", page=f"models:{profile}"))
   return tuple(rows)
 
 

@@ -156,7 +156,10 @@ class TestModelManager(unittest.TestCase):
     self.assertTrue(model_action_allowed({**self.data, "activeBigModel": ""}, "delete", self.big))
     self.assertFalse(model_action_allowed({**self.data, "capabilities": {}}, "active", self.small, "small"))
     moving = {**self.data, "isOnroad": True, "downloading": True}
-    self.assertFalse(model_action_allowed(moving, "active", self.small, "small"))
+    self.assertTrue(model_action_allowed(moving, "active", self.small, "small"))
+    self.assertTrue(model_action_allowed(moving, "active", self.big, "big"))
+    self.assertFalse(model_action_allowed(moving | {"jetlinkBig": True}, "active", self.big, "big"))
+    self.assertFalse(model_action_allowed(moving, "download", self.missing))
     self.assertTrue(model_action_allowed(moving, "preferences", self.small))
     self.assertTrue(model_action_allowed(moving, "cancel"))
 
@@ -248,7 +251,7 @@ class TestModelManager(unittest.TestCase):
     self.assertTrue(model_action_allowed(data, "active", self.small, "small"))
     self.assertTrue(model_action_allowed(data, "active", self.big, "big"))
     self.assertFalse(model_action_allowed(data, "active", self.pending, "small"))
-    self.assertFalse(model_action_allowed(data | {"isOnroad": True}, "active", self.big, "big"))
+    self.assertTrue(model_action_allowed(data | {"isOnroad": True}, "active", self.big, "big"))
     self.assertFalse(model_action_allowed(data | {"randomizer": True}, "active", self.big, "big"))
     self.assertFalse(model_action_allowed(data | {"refreshing": False}, "active", self.big, "big"))
     self.assertFalse(model_action_allowed(data, "delete", self.small))

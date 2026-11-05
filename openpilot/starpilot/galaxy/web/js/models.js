@@ -162,9 +162,10 @@ export function fitsModelProfile(model, profile) {
 
 export function modelActionAllowed(data, action, model = null) {
   if (!data || data.capabilities?.[actionCapabilities[action]] !== true) return false
-  if (data.isOnroad !== false && !["favorite", "unfavorite", "cancel"].includes(action)) return false
+  if (data.isOnroad !== false && !["favorite", "unfavorite", "cancel", "select-small", "select-big"].includes(action)) return false
   if (action === "jetlink") return data.jetlink !== undefined
   if (["select-small", "select-big"].includes(action)) {
+    if (action === "select-big" && data.jetlinkBig && data.isOnroad !== false) return false
     if (data.downloading && data.refreshing !== true || data.randomizer === true) return false
     if (action === "select-big" && model === null) return true
     // the manager marks what each Active can take: installed models, or under Jetlink a big one with an ONNX
@@ -469,7 +470,7 @@ export const ModelsPage = {
         if (!this.disposed && result) {
           this.trackingProgress = ["download", "downloadAll", "refresh"].includes(action)
           this.message = (this.trackingProgress && this.status.progress) || result.message ||
-            (action.startsWith("select-") ? "Selection saved for the next start." : "Saved.")
+            (action.startsWith("select-") ? "Selection saved for the next onroad cycle." : "Saved.")
         }
       } finally { if (!this.disposed) { this.pendingChoice = null; this.busy = "" } }
     },
@@ -485,7 +486,7 @@ export const ModelsPage = {
           <p>Manage models, downloads, and Jetlink connections.</p></div></header>
         <GxNotice v-if="message" tone="info">{{ message }}</GxNotice>
         <GxNotice v-if="error" tone="danger" title="Model Manager">{{ error }}</GxNotice>
-        <GxNotice v-if="status.isOnroad" tone="warn">Park the vehicle before changing or downloading models.</GxNotice>
+        <GxNotice v-if="status.isOnroad" tone="warn">Selections apply next onroad cycle. Park before downloading models or changing Jetlink.</GxNotice>
         <GxNotice v-if="status.downloading" :title="'Downloading ' + downloadTargetLabel">{{ status.progress || 'Keep the device connected until the download finishes.' }}</GxNotice>
         <section class="gx-card gx-model-overview">
           <div class="gx-section__header">
@@ -544,14 +545,14 @@ export const ModelsPage = {
 
             <div class="gx-model-control">
               <label class="gx-row__label" for="gx-model-small">Active Small · On-device</label>
-              <GalaxySelect id="gx-model-small" class="gx-field" :value="pendingChoice?.action === 'select-small' ? pendingChoice.value : activeSmallModel" :disabled="selectionUncertain || capabilities.select !== true || status.isOnroad || status.randomizer" @change="runAction('select-small', installedSmallModels.find(m => m.value === $event.target.value))">
+              <GalaxySelect id="gx-model-small" class="gx-field" :value="pendingChoice?.action === 'select-small' ? pendingChoice.value : activeSmallModel" :disabled="selectionUncertain || capabilities.select !== true || status.randomizer" @change="runAction('select-small', installedSmallModels.find(m => m.value === $event.target.value))">
                 <option v-for="m in installedSmallModels" :key="m.value" :value="m.value" :disabled="!m.selectable">{{ m.label || m.value }}</option>
               </GalaxySelect>
             </div>
 
             <div class="gx-model-control">
               <label class="gx-row__label" for="gx-model-big">Active Big · GPU</label>
-              <GalaxySelect id="gx-model-big" class="gx-field" :value="pendingChoice?.action === 'select-big' ? pendingChoice.value : activeBigModel" :disabled="selectionUncertain || capabilities.select !== true || status.isOnroad || status.randomizer" @change="$event.target.value ? runAction('select-big', installedBigModels.find(m => m.value === $event.target.value)) : runAction('select-big')">
+              <GalaxySelect id="gx-model-big" class="gx-field" :value="pendingChoice?.action === 'select-big' ? pendingChoice.value : activeBigModel" :disabled="selectionUncertain || capabilities.select !== true || status.randomizer || status.jetlinkBig && status.isOnroad !== false" @change="$event.target.value ? runAction('select-big', installedBigModels.find(m => m.value === $event.target.value)) : runAction('select-big')">
                 <option value="">{{ bigNoneLabel }}</option>
                 <option v-for="m in installedBigModels" :key="m.value" :value="m.value" :disabled="!m.selectable">{{ m.label || m.value }}</option>
               </GalaxySelect>

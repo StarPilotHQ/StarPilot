@@ -286,13 +286,20 @@ class ModelManagerTest(unittest.TestCase):
     self.assertFalse(self.model_status()['installed'])
     self.assertTrue(self.wait_for_check()['installed'])
 
-  def test_offroad_authority_rechecked_after_validation(self):
+  def test_onroad_selection_preserves_current_runtime_until_next_start(self):
     self.download()
-    samples = iter([True, False])
-    self.manager.parked = lambda: next(samples)
+    current = resolve_runtime(False, root=self.root)
+    self.manager.parked = lambda: False
+    self.assertTrue(self.manager.snapshot()['capabilities']['select'])
+    self.manager.action('active', {'profile': 'small', 'model': 'gwm8223'})
+    self.assertEqual(preferences(self.root)['small'], 'gwm8223')
+    self.assertEqual(current.small_id, DEFAULT_SMALL)
+    self.assertEqual(resolve_runtime(False, root=self.root).small_id, 'gwm8223')
     with self.assertRaises(ModelError):
-      self.manager.action('active', {'profile': 'small', 'model': 'gwm8223'})
-    self.assertEqual(preferences(self.root)['small'], DEFAULT_SMALL)
+      self.manager.action('download', {'model': 'gwm8223'})
+    owner = SimpleNamespace(chooses_big=lambda: True, choose=lambda *args: self.fail('Live Jetlink selection changed'))
+    with patch.object(self.manager, 'jetlink_owner', return_value=owner), self.assertRaises(ModelError):
+      self.manager.action('active', {'profile': 'big', 'model': ''})
 
   def test_hardware_profiles_and_selected_delete(self):
     self.download()
@@ -811,8 +818,8 @@ class ModelManagerTest(unittest.TestCase):
       with patch('openpilot.starpilot.models.manager.verified_artifact', side_effect=AssertionError('unchanged local file rehashed')):
         observer.action('active', {'profile': 'big', 'model': 'cinquev3'})
       self.parked = False
-      with self.assertRaises(ModelError):
-        observer.action('active', {'profile': 'big', 'model': 'cinquev3'})
+      observer.action('active', {'profile': 'big', 'model': 'cinquev3'})
+      self.assertEqual(preferences(self.root)['big'], 'cinquev3')
       self.parked = True
       (self.root / 'cinquev3/cinquev3_driving_tinygrad.pkl').write_bytes(b'corrupt')
       with self.assertRaisesRegex(ModelError, 'verify'):
