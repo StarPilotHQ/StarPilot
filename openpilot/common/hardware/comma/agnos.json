@@ -77,6 +77,9 @@
     "sparse": true,
     "full_check": false,
     "has_ab": true,
-    "ondevice_hash": "753fa431b643775a6dcebd38d9d0b8eaa1a3082848fae36f07882d786d103499"
+    "ondevice_hash": "753fa431b643775a6dcebd38d9d0b8eaa1a3082848fae36f07882d786d103499",
+    "fallback_urls": [
+      "https://files-east.firestar.link/x/eb5jrs089fwc/system33.img.xz"
+    ]
   }
 ]
