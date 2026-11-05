@@ -719,7 +719,8 @@ class CAR(Platforms):
                                                                   centerToFrontRatio=0.4, tireStiffnessFactor=0.997),
   )
   CHEVROLET_SILVERADO_CC = GMPlatformConfig(
-    [GMCommunityCarDocs("Chevrolet Silverado (CC)", "Cruise control; configuration-specific installation")],
+    [GMCommunityCarDocs("Chevrolet Silverado (CC)", "Cruise control; configuration-specific installation"),
+     GMCommunityCarDocs("GMC Sierra 1500 No-ACC 2020-21", "Cruise control; configuration-specific installation")],
     GMCarSpecs(mass=2994, wheelbase=3.75, steerRatio=16.3, tireStiffnessFactor=1.0),
   )
   CHEVROLET_SUBURBAN_CC = GMPlatformConfig(
@@ -1068,7 +1069,7 @@ def is_ordinary_cc_profile(cp):
     return True
   try:
     configs = cp.safetyConfigs
-    return (cp.brand == 'gm' and cp.carFingerprint in ORDINARY_CC_CAR and
+    return (cp.brand == 'gm' and cp.carFingerprint in (ORDINARY_CC_CAR | {CAR.CHEVROLET_SILVERADO_CC}) and
             cp.networkLocation == CarParams.NetworkLocation.gateway and cp.radarUnavailable and not cp.pcmCruise and
             not cp.alphaLongitudinalAvailable and not cp.passive and not cp.dashcamOnly and not cp.notCar and
             control_flags(cp) == int(GMFlags.CC_LONG) and len(configs) == 1 and

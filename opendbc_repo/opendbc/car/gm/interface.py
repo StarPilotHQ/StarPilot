@@ -578,12 +578,28 @@ class CarInterface(CarInterfaceBase):
       ret.dashcamOnly = candidate not in ORDINARY_CC_CAR
       if candidate == CAR.CHEVROLET_SILVERADO_CC:
         pt = fingerprint.get(CanBus.POWERTRAIN, {})
-        ret.dashcamOnly = not (
+        cam = fingerprint.get(CanBus.CAMERA, {})
+        cc_long = (all(pt.get(address) == (8 if address == 0x17D else length)
+                       for address, length in SILVERADO_CC_STOCK_SOURCES.items()) and
+                   pt.get(0xBE) == 6 and 0x201 not in pt and
+                   all(cam.get(address) == length for address, length in ((0x180, 4), (0x320, 6), (0x370, 6))) and
+                   RADAR_HEADER_MSG not in fingerprint.get(CanBus.OBSTACLE, {}) and
+                   CAMERA_DATA_HEADER_MSG not in fingerprint.get(CanBus.OBSTACLE, {}) and not docs)
+        ret.dashcamOnly = not (cc_long or (
           all(pt.get(address) == length for address, length in SILVERADO_CC_STOCK_SOURCES.items()) and
           pt.get(0xBE) in (6, 7, 8) and 0x201 not in pt and
           0x320 not in fingerprint.get(CanBus.CAMERA, {}) and
           RADAR_HEADER_MSG not in fingerprint.get(CanBus.OBSTACLE, {}) and
-          CAMERA_DATA_HEADER_MSG not in fingerprint.get(CanBus.OBSTACLE, {}) and not docs)
+          CAMERA_DATA_HEADER_MSG not in fingerprint.get(CanBus.OBSTACLE, {}) and not docs))
+        if cc_long:
+          # Retain StarPilot's conventional-cruise button owner for this complete source layout.
+          ret.openpilotLongitudinalControl, ret.pcmCruise = True, False
+          ret.flags |= int(GMFlags.CC_LONG)
+          ret.safetyConfigs[0].safetyParam = ORDINARY_CC_WORD
+          ret.minEnableSpeed = 24 * CV.MPH_TO_MS
+          ret.longitudinalActuatorDelay = 1.
+          ret.longitudinalTuning.kiBP, ret.longitudinalTuning.kiV = [0.], [.1]
+          ret.stopAccel = -2.
 
     if candidate in CAMERA_STOCK_CAR:
       ret.dashcamOnly = True  # Require a recognized camera layout for manual identities.
