@@ -61,7 +61,7 @@ export const SentryNotifications = {
   components: { GxNotice },
   name: "SentryNotifications",
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
-  data: () => ({ nativePush: !!window.StarPilotApp?.sentryPush, pushState: {}, testPoll: null, relayUrl: '', channels, labels, notifications: null, notificationBusy: false, notificationError: "",
+  data: () => ({ nativePush: !!window.StarPilotApp?.sentryPush, pushState: {}, testPoll: null, relayUrl: '', enrollmentCode: '', relayConfirmed: false, channels, labels, notifications: null, notificationBusy: false, notificationError: "",
     drafts: Object.fromEntries(channels.map(name => [name, { url: "", token: "" }])) }),
   created() { this.client = new NotificationClient({ publish: update => Object.assign(this.$data, update), unauthorized: this.unauthorized }) },
   mounted() {
@@ -83,6 +83,25 @@ export const SentryNotifications = {
     removePhone(id) { return this.client.run({ action: 'appUnsubscribe', id }) },
     simulate() { return this.client.run({ action: 'simulate' }) },
     canSimulate() { return !!window.StarPilotApp || location.protocol === 'http:' },
+    async enableHostedAlerts() {
+      if (await this.client.run({ action: 'relayEnroll', confirmed: true })) {
+        window.StarPilotApp?.setSentryPush?.(true)
+        this.refreshPush()
+        setTimeout(() => this.client.run(), 1000)
+      }
+    },
+    async enrollRelay() {
+      if (await this.client.run({ action: 'relayEnroll', url: this.relayUrl, invitation: this.enrollmentCode.trim(), confirmed: this.relayConfirmed })) {
+        this.enrollmentCode = ''; this.relayUrl = ''; this.relayConfirmed = false
+      }
+    },
+    async relayAction(action) {
+      if (await this.client.run({ action, confirmed: this.relayConfirmed })) this.relayConfirmed = false
+    },
+    relayStatus() {
+      const state = this.notifications?.relayEnrollment?.state
+      return ({ unenrolled: 'Enable alerts to set up this comma and phone automatically.', enrolling: 'Enrolling — waiting for the relay. Retries continue when internet returns.', enrolled: 'Relay enrolled. Enable alerts on each phone, then send a test.', rotating: 'Updating the relay credential.', confirming: 'Confirming the new relay credential.', revoking: 'Sending paused. Revocation is pending until the relay acknowledges it.', revoked: 'Alerts are disabled. Enable alerts to enroll again.', actionRequired: 'Relay authorization needs attention. Ask the operator to check or revoke the installation before enrolling again.' })[state] || 'This comma does not support relay enrollment.'
+    },
     async saveRelay() {
       if (await this.client.run({ action: 'configure', channel: 'appPush', enabled: true, url: this.relayUrl, token: '' })) this.relayUrl = ''
     },
@@ -137,8 +156,33 @@ export const SentryNotifications = {
           <p class="gx-note">{{ notifications.deliverySemantics }}</p>
           <section class="gx-card gx-panel gx-stack">
             <h3>Galaxy app phones</h3>
-            <label>HTTPS push relay URL <input v-model="relayUrl" class="gx-field" type="password" autocomplete="off" placeholder="Leave blank to keep saved URL"></label>
-            <button type="button" class="gx-btn gx-btn--tonal" @click="saveRelay">Save push relay</button>
+            <p v-if="pushState.status" role="status">{{ pushState.status }}</p>
+            <template v-if="notifications.relayEnrollment?.supported">
+              <p role="status">{{ relayStatus() }}</p>
+              <p v-if="notifications.relayEnrollment.installationId" class="gx-note">Installation ID for operator support: {{ notifications.relayEnrollment.installationId }}</p>
+              <template v-if="['unenrolled', 'revoked', 'actionRequired'].includes(notifications.relayEnrollment.state)">
+                <p class="gx-note">Alerts send phone destinations and Sentry event details to the hosted relay. Your phone will ask for notification permission.</p>
+                <button type="button" class="gx-btn" :disabled="!notifications.relayEnrollment.automaticConfigured" @click="enableHostedAlerts">Enable alerts</button>
+                <p v-if="!notifications.relayEnrollment.automaticConfigured" class="gx-note">Hosted alerts are not configured in this release yet.</p>
+                <details><summary>Custom relay</summary>
+                <label>HTTPS relay address <input v-model="relayUrl" class="gx-field" type="url" autocomplete="off" placeholder="https://your-relay.workers.dev"></label>
+                <label>One-time enrollment code <input v-model="enrollmentCode" class="gx-field" type="password" autocomplete="off"></label>
+                <button type="button" class="gx-btn" :disabled="!relayConfirmed || !relayUrl || !enrollmentCode" @click="enrollRelay">Enroll with custom relay</button>
+                </details>
+              </template>
+              <label><input type="checkbox" v-model="relayConfirmed"> I confirm the selected relay action. Enrollment sends phone destinations and Sentry alert details to this operator. Forgetting locally does not revoke a copied credential.</label>
+              <button v-if="notifications.relayEnrollment.state === 'enrolled'" type="button" class="gx-btn" :disabled="!relayConfirmed" @click="relayAction('relayRotate')">Rotate credential</button>
+              <button v-if="!['unenrolled', 'revoked'].includes(notifications.relayEnrollment.state)" type="button" class="gx-btn" :disabled="!relayConfirmed" @click="relayAction('relayRevoke')">Revoke relay access</button>
+              <button v-if="notifications.relayEnrollment.state !== 'unenrolled'" type="button" class="gx-btn" :disabled="!relayConfirmed" @click="relayAction('relayForget')">Forget locally</button>
+              <details v-if="notifications.relayEnrollment.state === 'unenrolled'"><summary>Legacy private relay</summary>
+                <label>Private relay URL <input v-model="relayUrl" class="gx-field" type="password" autocomplete="off"></label>
+                <button type="button" class="gx-btn" @click="saveRelay">Save private relay</button>
+              </details>
+            </template>
+            <template v-else>
+              <label>HTTPS push relay URL <input v-model="relayUrl" class="gx-field" type="password" autocomplete="off" placeholder="Leave blank to keep saved URL"></label>
+              <button type="button" class="gx-btn gx-btn--tonal" @click="saveRelay">Save push relay</button>
+            </template>
             <p v-if="!notifications.appPushAvailable" class="gx-note">Configure a push relay to deliver phone alerts.</p>
             <button v-if="nativePush" type="button" class="gx-btn" :disabled="!notifications.appPushAvailable" @click="togglePhone">{{ pushState.enabled ? 'Disable phone alerts' : 'Enable phone alerts' }}</button>
             <button v-if="notifications.appPushAvailable && pushState.registered && pushState.id" type="button" class="gx-btn" @click="testPhone(pushState.id)">Send test to this phone</button>
