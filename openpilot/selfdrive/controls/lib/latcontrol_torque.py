@@ -39,14 +39,18 @@ JERK_GAIN = 0.3
 LAT_ACCEL_REQUEST_BUFFER_SECONDS = 1.0
 VERSION = 1
 
+
 class LatControlTorque(LatControl):
   def __init__(self, CP, CI, dt, *, controller_mode: ControllerMode | None = None, turn_assist: bool = False):
     super().__init__(CP, CI, dt)
-    self.hkg_canfd_torque = bool(CP.brand == 'hyundai' and CP.flags & HyundaiFlags.CANFD and
-                                CP.carFingerprint != CAR.HYUNDAI_IONIQ_6 and
-                                CP.steerControlType == structs.CarParams.SteerControlType.torque and
-                                not CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING and
-                                not (CP.notCar or CP.passive or CP.dashcamOnly))
+    self.hkg_canfd_torque = bool(
+      CP.brand == 'hyundai'
+      and CP.flags & HyundaiFlags.CANFD
+      and CP.carFingerprint != CAR.HYUNDAI_IONIQ_6
+      and CP.steerControlType == structs.CarParams.SteerControlType.torque
+      and not CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING
+      and not (CP.notCar or CP.passive or CP.dashcamOnly)
+    )
     self.controller_mode = default_selection(CP).mode if controller_mode is None else ControllerMode(controller_mode)
     self.controller_policy = policy_for(CP)
     if self.controller_mode == ControllerMode.STARPILOT and self.controller_policy is None:
@@ -54,11 +58,11 @@ class LatControlTorque(LatControl):
     self.torque_params = CP.lateralTuning.torque.as_builder()
     self.torque_from_lateral_accel = CI.torque_from_lateral_accel()
     self.lateral_accel_from_torque = CI.lateral_accel_from_torque()
-    self.pid = PIDController([INTERP_SPEEDS, KP_INTERP], KI, rate=1/self.dt)
+    self.pid = PIDController([INTERP_SPEEDS, KP_INTERP], KI, rate=1 / self.dt)
     self.update_limits()
     self.steering_angle_deadzone_deg = self.torque_params.steeringAngleDeadzoneDeg
     self.lat_accel_request_buffer_len = int(LAT_ACCEL_REQUEST_BUFFER_SECONDS / self.dt)
-    self.lat_accel_request_buffer = deque([0.] * self.lat_accel_request_buffer_len , maxlen=self.lat_accel_request_buffer_len)
+    self.lat_accel_request_buffer = deque([0.0] * self.lat_accel_request_buffer_len, maxlen=self.lat_accel_request_buffer_len)
     self.lookahead_frames = int(JERK_LOOKAHEAD_SECONDS / self.dt)
     self.jerk_filter = FirstOrderFilter(0.0, 1 / (2 * np.pi * LP_FILTER_CUTOFF_HZ), self.dt)
     self.turn_assist = create_turn_assist(CP, turn_assist)
@@ -70,6 +74,7 @@ class LatControlTorque(LatControl):
     self.manual_flm_effects = None
     self.manual_flm_status = 'not_configured'
     from openpilot.starpilot.flm.runtime_adapter_registry import baseline_values
+
     self.native_learning_baseline = baseline_values(self)
     self.native_learning_refinement = None
     self.native_learning_provenance = ()
@@ -85,8 +90,7 @@ class LatControlTorque(LatControl):
     self.update_limits()
 
   def update_limits(self):
-    self.pid.set_limits(self.lateral_accel_from_torque(self.steer_max, self.torque_params),
-                        self.lateral_accel_from_torque(-self.steer_max, self.torque_params))
+    self.pid.set_limits(self.lateral_accel_from_torque(self.steer_max, self.torque_params), self.lateral_accel_from_torque(-self.steer_max, self.torque_params))
 
   def friction(self, error, deadzone, threshold, CS, setpoint):
     if self.hkg_canfd_torque and not CS.steeringPressed:
@@ -100,37 +104,45 @@ class LatControlTorque(LatControl):
     self.flm_surface = self.flm_source.sample(active=active, speed=CS.vEgo)
     if self.manual_flm_effects is not None:
       self.manual_flm_effects.begin_frame()
+    if getattr(self, 'route_flm_effects', None) is not None:
+      self.route_flm_effects.begin_frame(self)
     if self.starpilot_extension is not None:
-      result = self.starpilot_extension.update(active, CS, VM, params, steer_limited_by_safety,
-                                                desired_curvature, curvature_limited, lat_delay)
+      result = self.starpilot_extension.update(active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay)
     else:
-      result = self.update_standard(active, CS, VM, params, steer_limited_by_safety,
-                                    desired_curvature, curvature_limited, lat_delay)
-    return auto_stages.apply_selected_output(self, CS, VM, params, desired_curvature, result,
-      active=active, limited=steer_limited_by_safety or curvature_limited, curvature_limited=curvature_limited)
+      result = self.update_standard(active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay)
+    return auto_stages.apply_selected_output(
+      self, CS, VM, params, desired_curvature, result, active=active, limited=steer_limited_by_safety or curvature_limited, curvature_limited=curvature_limited
+    )
 
-  def update_standard(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay,
-                      *, friction_policy=None):
+  def update_standard(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay, *, friction_policy=None):
     pid_log = log.ControlsState.LateralTorqueState.new_message()
     pid_log.version = VERSION
     measured_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
-    measurement = measured_curvature * CS.vEgo ** 2
-    future_desired_lateral_accel = desired_curvature * CS.vEgo ** 2
+    measurement = measured_curvature * CS.vEgo**2
+    future_desired_lateral_accel = desired_curvature * CS.vEgo**2
     self.lat_accel_request_buffer.append(future_desired_lateral_accel)
 
     roll_compensation = params.roll * ACCELERATION_DUE_TO_GRAVITY
     curvature_deadzone = abs(VM.calc_curvature(math.radians(self.steering_angle_deadzone_deg + flm.deadband(self.flm_surface, CS.vEgo)), CS.vEgo, 0.0))
-    lateral_accel_deadzone = curvature_deadzone * CS.vEgo ** 2
-    lateral_accel_deadzone = auto_stages.apply_selected_deadzone(self, CS, VM, float(lateral_accel_deadzone), desired_curvature,
-      active=active, limited=steer_limited_by_safety or curvature_limited, curvature_limited=curvature_limited)
+    lateral_accel_deadzone = curvature_deadzone * CS.vEgo**2
+    lateral_accel_deadzone = auto_stages.apply_selected_deadzone(
+      self,
+      CS,
+      VM,
+      float(lateral_accel_deadzone),
+      desired_curvature,
+      active=active,
+      limited=steer_limited_by_safety or curvature_limited,
+      curvature_limited=curvature_limited,
+    )
 
     delay_frames = int(np.clip(lat_delay / self.dt + 1, 1, self.lat_accel_request_buffer_len))
     expected_lateral_accel = self.lat_accel_request_buffer[-delay_frames]
     setpoint = expected_lateral_accel
     error = setpoint - measurement
 
-    lookahead_idx = int(np.clip(-delay_frames + self.lookahead_frames, -self.lat_accel_request_buffer_len+1, -2))
-    raw_lateral_jerk = (self.lat_accel_request_buffer[lookahead_idx+1] - self.lat_accel_request_buffer[lookahead_idx-1]) / (2 * self.dt)
+    lookahead_idx = int(np.clip(-delay_frames + self.lookahead_frames, -self.lat_accel_request_buffer_len + 1, -2))
+    raw_lateral_jerk = (self.lat_accel_request_buffer[lookahead_idx + 1] - self.lat_accel_request_buffer[lookahead_idx - 1]) / (2 * self.dt)
     desired_lateral_jerk = self.jerk_filter.update(raw_lateral_jerk)
     gravity_adjusted_future_lateral_accel = future_desired_lateral_accel - roll_compensation
     ff = gravity_adjusted_future_lateral_accel
@@ -140,11 +152,21 @@ class LatControlTorque(LatControl):
     ff, threshold = flm.stages(self.flm_surface, CS, setpoint, desired_lateral_jerk, ff, threshold)
     if friction_policy is not None:
       threshold = friction_policy.friction_threshold(CS.vEgo, setpoint, desired_lateral_jerk)
-    ff, threshold = auto_stages.apply_stages(self, CS, setpoint, desired_lateral_jerk, ff, threshold,
-      active=active, limited=steer_limited_by_safety or curvature_limited, curvature_limited=curvature_limited)
+    ff, threshold = auto_stages.apply_stages(
+      self,
+      CS,
+      setpoint,
+      desired_lateral_jerk,
+      ff,
+      threshold,
+      active=active,
+      limited=steer_limited_by_safety or curvature_limited,
+      curvature_limited=curvature_limited,
+    )
     selected_friction = self.friction(error + JERK_GAIN * desired_lateral_jerk, lateral_accel_deadzone, threshold, CS, setpoint)
-    ff += auto_stages.apply_selected_friction(self, CS, setpoint, float(selected_friction),
-      active=active, limited=steer_limited_by_safety or curvature_limited, curvature_limited=curvature_limited)
+    ff += auto_stages.apply_selected_friction(
+      self, CS, setpoint, float(selected_friction), active=active, limited=steer_limited_by_safety or curvature_limited, curvature_limited=curvature_limited
+    )
 
     if not active:
       output_torque = 0.0
@@ -168,7 +190,7 @@ class LatControlTorque(LatControl):
       pid_log.i = float(self.pid.i)
       pid_log.d = float(self.pid.d)
       pid_log.f = float(self.pid.f)
-      pid_log.output = float(-output_torque) # TODO: log lat accel?
+      pid_log.output = float(-output_torque)  # TODO: log lat accel?
       pid_log.actualLateralAccel = float(measurement)
       pid_log.desiredLateralAccel = float(setpoint)
       pid_log.desiredLateralJerk = float(desired_lateral_jerk)

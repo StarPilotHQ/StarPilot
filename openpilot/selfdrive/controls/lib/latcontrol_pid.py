@@ -8,14 +8,20 @@ from openpilot.common.pid import PIDController
 class LatControlPID(LatControl):
   def __init__(self, CP, CI, dt):
     super().__init__(CP, CI, dt)
-    self.pid = PIDController((CP.lateralTuning.pid.kpBP, CP.lateralTuning.pid.kpV),
-                             (CP.lateralTuning.pid.kiBP, CP.lateralTuning.pid.kiV),
-                             pos_limit=self.steer_max, neg_limit=-self.steer_max)
+    self.pid = PIDController(
+      (CP.lateralTuning.pid.kpBP, CP.lateralTuning.pid.kpV),
+      (CP.lateralTuning.pid.kiBP, CP.lateralTuning.pid.kiV),
+      pos_limit=self.steer_max,
+      neg_limit=-self.steer_max,
+    )
     self.ff_factor = CP.lateralTuning.pid.kf
     self.get_steer_feedforward = CI.get_steer_feedforward_function()
     self.automatic_pid_previous_setpoint = None
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
+    if getattr(self, 'route_flm_effects', None) is not None:
+      self.route_flm_effects.begin_frame(self)
+      self.route_flm_observation.begin_frame()
     pid_log = log.ControlsState.LateralPIDState.new_message()
     pid_log.steeringAngleDeg = float(CS.steeringAngleDeg)
     pid_log.steeringRateDeg = float(CS.steeringRateDeg)
@@ -35,21 +41,34 @@ class LatControlPID(LatControl):
       # offset does not contribute to resistive torque
       ff = self.ff_factor * self.get_steer_feedforward(angle_steers_des_no_offset, CS.vEgo)
       from openpilot.starpilot.flm.pid_stages import begin_frame, error_for_frame
-      ff = begin_frame(self, CS, desired_curvature=desired_curvature,
-        desired_angle_deg=angle_steers_des_no_offset, actual_angle_deg=CS.steeringAngleDeg - params.angleOffsetDeg,
-        error_deg=error, baseline_ff=ff, active=active, limited=steer_limited_by_safety or curvature_limited)
+
+      ff = begin_frame(
+        self,
+        CS,
+        desired_curvature=desired_curvature,
+        desired_angle_deg=angle_steers_des_no_offset,
+        actual_angle_deg=CS.steeringAngleDeg - params.angleOffsetDeg,
+        error_deg=error,
+        baseline_ff=ff,
+        active=active,
+        limited=steer_limited_by_safety or curvature_limited,
+      )
       error = error_for_frame(self, CS, error, active=active, limited=steer_limited_by_safety or curvature_limited)
       freeze_integrator = steer_limited_by_safety or CS.steeringPressed or CS.vEgo < 5
 
-      output_torque = self.pid.update(error,
-                                feedforward=ff,
-                                speed=CS.vEgo,
-                                freeze_integrator=freeze_integrator)
+      output_torque = self.pid.update(error, feedforward=ff, speed=CS.vEgo, freeze_integrator=freeze_integrator)
 
       from openpilot.starpilot.flm.pid_stages import finish_frame
-      output_torque = finish_frame(self, CS, desired_angle_deg=angle_steers_des_no_offset,
-        actual_angle_deg=CS.steeringAngleDeg - params.angleOffsetDeg, baseline_output=output_torque,
-        active=active, limited=steer_limited_by_safety or curvature_limited)
+
+      output_torque = finish_frame(
+        self,
+        CS,
+        desired_angle_deg=angle_steers_des_no_offset,
+        actual_angle_deg=CS.steeringAngleDeg - params.angleOffsetDeg,
+        baseline_output=output_torque,
+        active=active,
+        limited=steer_limited_by_safety or curvature_limited,
+      )
       pid_log.active = True
       pid_log.p = float(self.pid.p)
       pid_log.i = float(self.pid.i)

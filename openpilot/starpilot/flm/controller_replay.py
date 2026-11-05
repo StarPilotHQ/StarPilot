@@ -1,4 +1,5 @@
 from openpilot.starpilot.flm.normalized_trace_archive import guarded_archive
+
 """Exact selected torque controller replay, exclusively in the learner process.
 
 Only capture_snapshot/frame_input belong in controls. They copy bounded numeric
@@ -11,7 +12,7 @@ from openpilot.starpilot.flm.torque_eligibility import replay_context
 from openpilot.starpilot.flm.native_refinement_wire import valid_inputs
 
 from collections import deque, OrderedDict
-from openpilot.starpilot.flm.normalized_trace_archive import trace_for,archive_key,stored_record,TraceArchive,read_ref
+from openpilot.starpilot.flm.normalized_trace_archive import trace_for, archive_key, stored_record, TraceArchive, read_ref
 from dataclasses import dataclass
 import math
 import struct
@@ -118,8 +119,10 @@ def capture_snapshot(controller, vm=None):
   implicit default. Refuse this checkpoint rather than erase manual provenance.
   """
   from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
+
   if type(controller) is LatControlPID:
     from openpilot.starpilot.flm.pid_controller_replay import capture_pid_snapshot
+
     return capture_pid_snapshot(controller, vm)
   policy = None if controller.starpilot_extension is None else controller.starpilot_extension.policy
   if controller.flm_surface is not None or policy is not None and getattr(policy, 'surface', None) is not None:
@@ -169,8 +172,10 @@ def _decode(values, path, old=None):
 
 def restore_snapshot(controller, vm, snapshot):
   from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
+
   if type(controller) is LatControlPID:
     from openpilot.starpilot.flm.pid_controller_replay import restore_pid_snapshot
+
     return restore_pid_snapshot(controller, vm, snapshot)
   if not isinstance(snapshot, Snapshot) or snapshot.revision != SNAPSHOT_REVISION:
     raise ValueError('checkpoint revision')
@@ -376,15 +381,21 @@ class SelectedControllerFactory:
     self.manual_baseline, self.manual_source_epoch = tuple(manual_baseline), manual_source_epoch
     if self.manual_baseline:
       from openpilot.starpilot.lateral.torque_settings import bounds
+
       tune = cp.lateralTuning.torque
       basis = (float(tune.latAccelFactor), float(tune.latAccelOffset), float(tune.friction))
       low_factor, high_factor = bounds(basis, 'factor', fingerprint=str(cp.carFingerprint))
       low_friction, high_friction = bounds(basis, 'friction', fingerprint=str(cp.carFingerprint))
-      if (len(self.manual_baseline) != 3 or not all(type(value) in (int, float) and math.isfinite(value) for value in self.manual_baseline)
-          or not low_factor <= self.manual_baseline[0] <= high_factor or self.manual_baseline[1] != basis[1]
-          or not low_friction <= self.manual_baseline[2] <= high_friction
-          or type(manual_source_epoch) is not str or len(manual_source_epoch) != 64
-          or any(c not in '0123456789abcdef' for c in manual_source_epoch)):
+      if (
+        len(self.manual_baseline) != 3
+        or not all(type(value) in (int, float) and math.isfinite(value) for value in self.manual_baseline)
+        or not low_factor <= self.manual_baseline[0] <= high_factor
+        or self.manual_baseline[1] != basis[1]
+        or not low_friction <= self.manual_baseline[2] <= high_friction
+        or type(manual_source_epoch) is not str
+        or len(manual_source_epoch) != 64
+        or any(c not in '0123456789abcdef' for c in manual_source_epoch)
+      ):
         raise ValueError('independent fixed manual constructor source')
     elif manual_source_epoch:
       raise ValueError('manual source epoch without selected manual configuration')
@@ -415,8 +426,8 @@ class _PreparedCarState:
 def _car_state(values, *, first_segment_words=None):
   # Keep the original Capnp conversions, including Float32 fields and enum.
   from opendbc.car import structs
-  cs = (structs.CarState.new_message() if first_segment_words is None else
-        structs.CarState.new_message(num_first_segment_words=first_segment_words))
+
+  cs = structs.CarState.new_message() if first_segment_words is None else structs.CarState.new_message(num_first_segment_words=first_segment_words)
   for name in _CS_FIELDS:
     setattr(cs, name, bool(values[name]) if name in ('steeringPressed', 'standstill', 'steerFaultTemporary', 'steerFaultPermanent') else values[name])
   cs.gearShifter = int(values['gearShifter'])
@@ -425,6 +436,7 @@ def _car_state(values, *, first_segment_words=None):
 
 class _PreparedCarStates:
   """One child job only: immutable input tuple refs, never frame-object refs."""
+
   def __init__(self):
     self.__entries = {}
 
@@ -432,9 +444,11 @@ class _PreparedCarStates:
     saved = self.__entries.get(id(inputs))
     if saved is not None and saved.inputs is inputs:
       return saved
-    if (len(self.__entries) >= 12000 or type(inputs) is not tuple or
-        any(type(row) is not tuple or len(row) != 2 or type(row[0]) is not str or
-            type(row[1]) not in (bool, int, float, str) for row in inputs)):
+    if (
+      len(self.__entries) >= 12000
+      or type(inputs) is not tuple
+      or any(type(row) is not tuple or len(row) != 2 or type(row[0]) is not str or type(row[1]) not in (bool, int, float, str) for row in inputs)
+    ):
       return None
     # Strongly retain the deeply immutable tuple: identity cannot be recycled.
     prepared = _PreparedCarState(inputs, _car_state(dict(inputs), first_segment_words=32).as_reader())
@@ -448,11 +462,14 @@ def _replay_car_state(inputs, values, prepared):
   return _car_state(values)
 
 
-def _run(controller, vm, inputs, objective, coordinates, torque_values=(), centre=None, actual_stage_residual=None, effect_trial=None,
-         _prepared_car_state=None):
+def _run(
+  controller, vm, inputs, objective, coordinates, torque_values=(), centre=None, actual_stage_residual=None, effect_trial=None, _prepared_car_state=None
+):
   from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
+
   if type(controller) is LatControlPID:
     from openpilot.starpilot.flm.pid_controller_replay import run_pid
+
     if torque_values or any(coordinates) or centre is not None and any(centre.values):
       raise ValueError('PID cannot consume torque tuning or legacy residual coordinates')
     kwargs = {} if _prepared_car_state is None else {'_prepared_car_state': _prepared_car_state}
@@ -480,6 +497,7 @@ def _run(controller, vm, inputs, objective, coordinates, torque_values=(), centr
   effect_source = None
   if effect_trial is not None:
     from openpilot.starpilot.flm.selected_effects import EffectReplaySource
+
     effect_source = effect_trial if isinstance(effect_trial, EffectReplaySource) else EffectReplaySource(effect_trial)
     effect_source.begin_frame(int(values['control_frame']))
   controller.automatic_flm_effects = effect_source
@@ -501,8 +519,7 @@ def _run(controller, vm, inputs, objective, coordinates, torque_values=(), centr
     )
   if values['active'] and not cs.steeringPressed and not values['safety_limited'] and source.calls != 1:
     raise ValueError('actual selected stage hook absent or duplicated')
-  if (effect_source is not None and values['active'] and not cs.steeringPressed and
-      not values['curvature_limited']):
+  if effect_source is not None and values['active'] and not cs.steeringPressed and not values['curvature_limited']:
     if effect_source.stage_calls != 1 or effect_source.friction_calls != 1:
       raise ValueError('actual selected effect hook absent or duplicated')
   return float(output), log
@@ -532,6 +549,9 @@ class ReplayFrame:
   desired_kinematic_accel: float | None = None
   vehicle_model_anchor: tuple[float, ...] = ()
   live_applied_coordinates: tuple[float, ...] = ()
+  route_applied_coordinates: tuple[tuple[str, float], ...] = ()
+  route_effect_revision: str = ''
+  route_configuration_scope: str = ''
 
 
 @dataclass(frozen=True)
@@ -645,8 +665,7 @@ class ControllerReplay:
     return ReplayPoint(final_command(output), bool(state.saturated), source.friction_output)
 
   def _frame_context(self, frame):
-    return bool(frame.healthy and not frame.manual and
-                (not frame.limited or self.raw_mode and replay_context(frame)))
+    return bool(frame.healthy and not frame.manual and (not frame.limited or self.raw_mode and replay_context(frame)))
 
   def _recorded_cp_digest(self):
     """One successful canonical CP digest; reread ALL native bytes each lookup.
@@ -663,8 +682,11 @@ class ControllerReplay:
     cp = self.factory.cp
     raw = None
     try:
-      if ((type(self.factory) is SelectedControllerFactory or type(self.factory) is PidControllerFactory) and
-          type(cp) is _DynamicStructReader and cp.schema == structs.CarParams.schema):
+      if (
+        (type(self.factory) is SelectedControllerFactory or type(self.factory) is PidControllerFactory)
+        and type(cp) is _DynamicStructReader
+        and cp.schema == structs.CarParams.schema
+      ):
         raw = cp.as_builder().to_bytes()
     except Exception:
       pass  # Original digest below retains its own errors and unsupported behavior.
@@ -684,7 +706,7 @@ class ControllerReplay:
 
   @guarded_archive()
   def normalize(self, frame, *, epsilon=0.0001, _verify_only=False):
-    return self._normalize_frame(frame,epsilon=epsilon,_verify_only=_verify_only)
+    return self._normalize_frame(frame, epsilon=epsilon, _verify_only=_verify_only)
 
   def _normalize_frame(self, frame, *, epsilon=0.0001, _verify_only=False):
     # Called only by whole-archive guarded public/snapshot operations. Every
@@ -714,18 +736,40 @@ class ControllerReplay:
       before = capture_snapshot(self.actual, self.vm)
       centre = _FixedCentreSource(self.baseline_revision, frame.centre_values)
       recorded_effect = None
-      trace = trace_for(frame,self)
+      trace = trace_for(frame, self)
       if trace is not None:
         from openpilot.starpilot.flm.selected_effects import EffectReplayRecordedSource
-        if (trace.control_ns != frame.effect_prepare_ns or
-            trace.envelope.selected_baseline_revision != self.baseline_revision or
-            trace.envelope.cp_sha256 != self._recorded_cp_digest()):
+
+        if (
+          trace.control_ns != frame.effect_prepare_ns
+          or trace.envelope.selected_baseline_revision != self.baseline_revision
+          or trace.envelope.cp_sha256 != self._recorded_cp_digest()
+        ):
           raise ValueError('recorded full30 trace source/prepare clock mismatch')
         recorded_effect = EffectReplayRecordedSource(trace)
         trace = None
         _verify_only = True
-      actual, _ = _run(self.actual, self.vm, frame.inputs, self.objective, frame.applied_coordinates,
-        frame.torque_values, centre, frame.actual_stage_residual, effect_trial=recorded_effect)
+      if frame.route_effect_revision:
+        from openpilot.starpilot.flm.offroad_surface import REVISION as ROUTE_REVISION, replay_source
+        from openpilot.starpilot.flm.route_recording import _valid
+
+        if frame.route_effect_revision != ROUTE_REVISION or recorded_effect is not None or frame.live_applied_coordinates:
+          raise ValueError('Distinct explicit route replay policy required')
+        _valid(frame.route_applied_coordinates, frame.route_configuration_scope)
+        if any(value for _, value in frame.route_applied_coordinates):
+          recorded_effect = replay_source(dict(frame.route_applied_coordinates), self.baseline_revision)
+        _verify_only = True
+      actual, _ = _run(
+        self.actual,
+        self.vm,
+        frame.inputs,
+        self.objective,
+        frame.applied_coordinates,
+        frame.torque_values,
+        centre,
+        frame.actual_stage_residual,
+        effect_trial=recorded_effect,
+      )
       if not same_final_command(actual, frame.selected_command) or frame.actual_lac_command is not None and not same_float(actual, frame.actual_lac_command):
         raise ValueError('actual same-state replay mismatch')
       self._cache_actual_centre_friction(frame.control_ns, centre)
@@ -770,7 +814,7 @@ class ControllerReplay:
     Intermediate 1 Hz checkpoints verify the actual stream; they never reset a
     counterfactual filter/integrator. No state crosses an omitted window gap.
     """
-    if self.failed or not math.isfinite(epsilon) or not 0 < epsilon <= .03 or self.objective.stage == 'center':
+    if self.failed or not math.isfinite(epsilon) or not 0 < epsilon <= 0.03 or self.objective.stage == 'center':
       raise ValueError('causal selected feature provenance/envelope')
     frames = tuple(self.records)
     windows = self.replay_windows
@@ -807,11 +851,19 @@ class ControllerReplay:
       elif not previous_ns:
         raise ValueError('causal window missing first actual tick')
       actual = self.normalized.get(frame.control_ns)
-      if (actual is None or not actual.verified or not self._frame_context(frame)
-          or any(frame.applied_coordinates) or any(frame.centre_values)
-          or frame.actual_stage_residual is not None and any(frame.actual_stage_residual)
-          or previous_ns and not 0 < frame.control_ns - previous_ns <= MAX_FRAME_GAP_NS
-          or previous_sequence and frame.frame_sequence != previous_sequence + 1):
+      if (
+        actual is None
+        or not actual.verified
+        or not self._frame_context(frame)
+        or any(frame.applied_coordinates)
+        or any(frame.centre_values)
+        or frame.actual_stage_residual is not None
+        and any(frame.actual_stage_residual)
+        or previous_ns
+        and not 0 < frame.control_ns - previous_ns <= MAX_FRAME_GAP_NS
+        or previous_sequence
+        and frame.frame_sequence != previous_sequence + 1
+      ):
         raise ValueError('causal actual replay continuity')
       values = []
       for (controller, vm), coefficient, commands in zip(branches, coordinates, requests, strict=True):
@@ -820,8 +872,7 @@ class ControllerReplay:
         # each checkpoint interval. Never turn a hidden state jump into a
         # verified feature, even if its CarControl rounding would conceal it.
         if coefficient == zero and (
-          not same_final_command(value, frame.selected_command)
-          or frame.actual_lac_command is not None and not same_float(value, frame.actual_lac_command)
+          not same_final_command(value, frame.selected_command) or frame.actual_lac_command is not None and not same_float(value, frame.actual_lac_command)
         ):
           raise ValueError('continuous neutral actual selected replay mismatch')
         value = final_command(value)
@@ -831,16 +882,15 @@ class ControllerReplay:
         values.append(value)
       plus, minus = tuple(values[1::2]), tuple(values[2::2])
       self.normalized[frame.control_ns] = NormalizedTrace(
-        values[0], tuple((a - b) / (2 * epsilon) for a, b in zip(plus, minus, strict=True)),
-        actual.selected_command, True, plus, minus, epsilon)
+        values[0], tuple((a - b) / (2 * epsilon) for a, b in zip(plus, minus, strict=True)), actual.selected_command, True, plus, minus, epsilon
+      )
       previous_ns, previous_sequence = frame.control_ns, frame.frame_sequence
     if window_index != len(windows) - 1 or previous_ns != windows[-1][1]:
       raise ValueError('causal final actual tick absent')
     encoded = [self.emissions.rollout(commands, windows[0][0], windows[-1][1], windows) for commands in requests]
     self.projected.clear()
     for apply_ns, baseline in encoded[0].items():
-      self.projected[apply_ns] = (baseline, tuple((encoded[1 + 2 * i][apply_ns] - encoded[2 + 2 * i][apply_ns]) / (2 * epsilon)
-                                                 for i in range(count)))
+      self.projected[apply_ns] = (baseline, tuple((encoded[1 + 2 * i][apply_ns] - encoded[2 + 2 * i][apply_ns]) / (2 * epsilon) for i in range(count)))
     return len(self.projected)
 
   def record_actual_frame(self, frame):
@@ -1348,10 +1398,18 @@ class ControllerReplay:
         recorded_effect = None
         if frame.effect_trace is not None:
           from openpilot.starpilot.flm.selected_effects import EffectReplayRecordedSource
-          recorded_effect = EffectReplayRecordedSource(trace_for(frame,self))
+
+          recorded_effect = EffectReplayRecordedSource(trace_for(frame, self))
         actual, _ = _run(
-          self.probe, self.probe_vm, frame.inputs, self.objective, frame.applied_coordinates, frame.torque_values,
-          centre, frame.actual_stage_residual, effect_trial=recorded_effect
+          self.probe,
+          self.probe_vm,
+          frame.inputs,
+          self.objective,
+          frame.applied_coordinates,
+          frame.torque_values,
+          centre,
+          frame.actual_stage_residual,
+          effect_trial=recorded_effect,
         )
         if not same_final_command(actual, frame.selected_command):
           return None
@@ -1417,11 +1475,14 @@ class ControllerReplay:
       if self.records:
         windows = [(self.records[0].control_ns, self.records[-1].control_ns)]
     if event_windows is not None:
-      if (not blocks or type(event_windows) is not tuple or not 1 <= len(event_windows) <= 24 or
-          any(type(a) is not int or type(b) is not int or not 0 < a <= b or i and a <= event_windows[i - 1][1]
-              for i, (a, b) in enumerate(event_windows)) or
-          any(a not in dict(self.checkpoints) for a, _ in event_windows) or
-          any(not any(a <= point.control_ns <= b for a, b in event_windows) for block in blocks for point in block.samples)):
+      if (
+        not blocks
+        or type(event_windows) is not tuple
+        or not 1 <= len(event_windows) <= 24
+        or any(type(a) is not int or type(b) is not int or not 0 < a <= b or i and a <= event_windows[i - 1][1] for i, (a, b) in enumerate(event_windows))
+        or any(a not in dict(self.checkpoints) for a, _ in event_windows)
+        or any(not any(a <= point.control_ns <= b for a, b in event_windows) for block in blocks for point in block.samples)
+      ):
         raise ValueError('explicit complete event replay windows')
       windows = list(event_windows)
     frames = [frame for frame in self.records if any(start <= frame.control_ns <= end for start, end in windows)]
@@ -1450,7 +1511,8 @@ class ControllerReplay:
       data['trace_archive'] = self.trace_archive.literal
       from openpilot.starpilot.flm.primitive_source_memo import independent_primitive_graph
       from openpilot.starpilot.flm.normalized_trace_archive import RESERVED_BYTES
-      data = independent_primitive_graph(data,reserved_bytes=RESERVED_BYTES)
+
+      data = independent_primitive_graph(data, reserved_bytes=RESERVED_BYTES)
     return pack_primitive_snapshot(data)
 
   @guarded_archive()
@@ -1465,7 +1527,8 @@ class ControllerReplay:
           row[name] = tuple(row[name])
       if row.get('effect_trace') is not None:
         from openpilot.starpilot.flm.effect_trace import trace_from_dict
-        row = dict(row, effect_trace=read_ref(row['effect_trace'],self.trace_archive) if normalized else trace_from_dict(row['effect_trace']))
+
+        row = dict(row, effect_trace=read_ref(row['effect_trace'], self.trace_archive) if normalized else trace_from_dict(row['effect_trace']))
       frame = ReplayFrame(**row)
       if frame.control_ns in checkpoints:
         self.checkpoint(frame.control_ns, checkpoints[frame.control_ns])
@@ -1489,9 +1552,10 @@ class ControllerReplay:
     if values.get('version') == 2:
       from openpilot.starpilot.flm.primitive_source_memo import independent_primitive_graph
       from openpilot.starpilot.flm.normalized_trace_archive import RESERVED_BYTES
-      values = independent_primitive_graph(values,reserved_bytes=RESERVED_BYTES)
+
+      values = independent_primitive_graph(values, reserved_bytes=RESERVED_BYTES)
     if (
-      values.get('version') not in (1,2)
+      values.get('version') not in (1, 2)
       or values.get('objective') != asdict(objective)
       or values.get('mode') != str(factory.mode)
       or values.get('turn_assist') != factory.turn_assist
@@ -1513,7 +1577,7 @@ class ControllerReplay:
     frames = values['frames']
     if not frames or len(frames) > MAX_REPLAY_FRAMES or len(checkpoints) > 600:
       raise ValueError('fit job history bound')
-    engine._load_snapshot_frames(frames,checkpoints,normalized=values.get('version') == 2)
+    engine._load_snapshot_frames(frames, checkpoints, normalized=values.get('version') == 2)
     engine.replay_windows = tuple(values.get('windows', ()))
     if rebuild:
       engine.rebuild_causal_features(epsilon=0.01)
@@ -1579,7 +1643,7 @@ def pack_primitive_snapshot(value):
       raise ValueError('fit job requires primitives')
     active.add(identity)
     try:
-      for child in (item.values() if kind is dict else item):
+      for child in item.values() if kind is dict else item:
         recurse(child, recurse)
     finally:
       active.remove(identity)
@@ -1631,15 +1695,25 @@ def factory_from_snapshot(data):
     raise ValueError('fit job CP byte bound')
   with structs.CarParams.from_bytes(cp_bytes) as cp:
     from openpilot.starpilot.flm.pid_controller_replay import PidControllerFactory
+
     factory_type = PidControllerFactory if cp.lateralTuning.which() == 'pid' else SelectedControllerFactory
-    factory = factory_type(cp, values['mode'], turn_assist=values['turn_assist'],
-      manual_baseline=tuple(values.get('manual_baseline', ())), manual_source_epoch=values.get('manual_source_epoch', ''))
+    factory = factory_type(
+      cp,
+      values['mode'],
+      turn_assist=values['turn_assist'],
+      manual_baseline=tuple(values.get('manual_baseline', ())),
+      manual_source_epoch=values.get('manual_source_epoch', ''),
+    )
   if factory.manual_baseline:
     from openpilot.starpilot.flm.runtime_adapter_registry import baseline_values, baseline_revision, selected_descriptor, selected_identity
+
     controller, _ = factory.create()
     descriptor = selected_descriptor(factory.cp, factory.interface_class(factory.cp), controller)
     revision = baseline_revision(descriptor, baseline_values(controller))
-    if (descriptor is None or revision != values['baseline_revision'] or
-        selected_identity(descriptor, factory.manual_source_epoch, revision) != values['identity']):
+    if (
+      descriptor is None
+      or revision != values['baseline_revision']
+      or selected_identity(descriptor, factory.manual_source_epoch, revision) != values['identity']
+    ):
       raise ValueError('fixed manual child configuration identity')
   return factory, Objective(**values['objective'])

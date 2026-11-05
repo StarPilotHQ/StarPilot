@@ -41,12 +41,15 @@ FF_KEYS = tuple(('feedforward', speed, phase) for speed in ('low', 'high') for p
 def event_capable(evidence):
   return bool(getattr(evidence, 'effect_prepare_ns', 0) > 0 or getattr(evidence, 'effect_trace', None) is not None)
 
+
 def objective_key(evidence):
   if evidence.stage_schema_revision == 'pid-selected-stage-snapshot-v2':
     from openpilot.starpilot.flm.pid_collection import event_key
+
     return event_key(evidence)
   if event_capable(evidence):
     from openpilot.starpilot.flm.event_collection import event_key
+
     return event_key(evidence)
   stage = dict(evidence.stage_values)
   phase = stage['setpoint'] * stage['jerk']
@@ -56,9 +59,11 @@ def objective_key(evidence):
 def collection_keys(evidence):
   if evidence.stage_schema_revision == 'pid-selected-stage-snapshot-v2':
     from openpilot.starpilot.flm.pid_collection import event_keys
+
     return event_keys()
   if event_capable(evidence):
     from openpilot.starpilot.flm.event_collection import event_keys
+
     return event_keys(evidence)
   key = objective_key(evidence)
   # Ten bounded fit metadata entries cover six FF cells and four centre bands;
@@ -67,8 +72,30 @@ def collection_keys(evidence):
 
 
 def _frame(evidence):
+  if getattr(evidence, 'route_effect_revision', ''):
+    from dataclasses import replace
+    from openpilot.starpilot.flm.route_recording import SCHEMAS, _valid
+    from openpilot.starpilot.flm.offroad_surface import REVISION as ROUTE_REVISION
+
+    if evidence.stage_schema_revision not in SCHEMAS or evidence.route_effect_revision != ROUTE_REVISION:
+      raise ValueError('Explicit route recording schema required')
+    _valid(evidence.route_applied_coordinates, evidence.route_configuration_scope)
+    original = replace(
+      evidence,
+      stage_schema_revision=SCHEMAS[evidence.stage_schema_revision],
+      route_applied_coordinates=(),
+      route_effect_revision='',
+      route_configuration_scope='',
+    )
+    return replace(
+      _frame(original),
+      route_applied_coordinates=evidence.route_applied_coordinates,
+      route_effect_revision=evidence.route_effect_revision,
+      route_configuration_scope=evidence.route_configuration_scope,
+    )
   if evidence.stage_schema_revision == 'pid-selected-stage-snapshot-v2':
     from openpilot.starpilot.flm.pid_controller_replay import pid_frame
+
     return pid_frame(evidence)
   stage = dict(evidence.stage_values)
   return ReplayFrame(
@@ -110,14 +137,20 @@ class TorqueCollectionAdapter:
     manual_baseline = ()
     if source is not None:
       from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
-      if (not source.enabled or source.manual or source.source_epoch != evidence.source_epoch or
-          source.cp_sha256 != car_params_digest(cp)):
+
+      if not source.enabled or source.manual or source.source_epoch != evidence.source_epoch or source.cp_sha256 != car_params_digest(cp):
         raise ValueError('independent current manual configuration source')
       manual_baseline = source.manual_baseline
-    factory = self.factory_type(cp, evidence.controller_mode, turn_assist=evidence.turn_assist,
-      manual_baseline=manual_baseline, manual_source_epoch=evidence.source_epoch if manual_baseline else '')
+    factory = self.factory_type(
+      cp,
+      evidence.controller_mode,
+      turn_assist=evidence.turn_assist,
+      manual_baseline=manual_baseline,
+      manual_source_epoch=evidence.source_epoch if manual_baseline else '',
+    )
     controller, vm = factory.create()
     from openpilot.starpilot.flm.native_baseline import static_values
+
     is_pid = self.command_family == 'torque_pid'
     if is_pid and manual_baseline:
       raise ValueError('torque manual tuple cannot configure PID')
@@ -135,20 +168,26 @@ class TorqueCollectionAdapter:
       raise ValueError('actual selected constructor identity')
     if evidence.replay_snapshot:
       from openpilot.starpilot.flm.controller_replay import restore_snapshot
+
       if is_pid:
         from openpilot.starpilot.flm.pid_controller_replay import pid_snapshot_from_values
+
         restore_snapshot(controller, vm, pid_snapshot_from_values(evidence.replay_snapshot))
       else:
         restore_snapshot(controller, vm, snapshot_from_values(evidence.replay_snapshot))
     from openpilot.starpilot.flm.native_baseline import checkpoint_native_valid
+
     if is_pid:
       if baseline_values(controller) != constructor_baseline:
         raise ValueError('PID checkpoint altered immutable constructor gains')
     elif (
       tuple(controller.native_learning_baseline) != vehicle_constructor_baseline
       or static_values(controller) != constructor_static
-      or (bool(baseline_values(controller) != constructor_baseline or tuple(controller.native_learning_provenance))
-          if manual_baseline else not checkpoint_native_valid(controller, cp, now_ns=evidence.control_ns))
+      or (
+        bool(baseline_values(controller) != constructor_baseline or tuple(controller.native_learning_provenance))
+        if manual_baseline
+        else not checkpoint_native_valid(controller, cp, now_ns=evidence.control_ns)
+      )
     ):
       raise ValueError('actual native checkpoint provenance')
     self.identity, self.baseline_revision = evidence.identity, evidence.baseline_revision
@@ -191,6 +230,7 @@ class TorqueCollectionAdapter:
         return None
       if self.command_family == 'torque_pid':
         from openpilot.starpilot.flm.pid_controller_replay import pid_snapshot_from_values
+
         checkpoint = pid_snapshot_from_values(evidence.replay_snapshot)
       else:
         checkpoint = snapshot_from_values(evidence.replay_snapshot)
@@ -400,13 +440,17 @@ def from_evidence(cp, evidence, key=None, *, source=None, event_replay_version=2
       if key[0] != 'event':
         return None
       from openpilot.starpilot.flm.pid_collection import PidEventCollectionAdapter
-      return PidEventCollectionAdapter(cp, evidence, key, source=source,
-        replay_version=event_replay_version, clipping_quality=event_clipping_quality, restore_version=event_restore_version)
+
+      return PidEventCollectionAdapter(
+        cp, evidence, key, source=source, replay_version=event_replay_version, clipping_quality=event_clipping_quality, restore_version=event_restore_version
+      )
     if evidence.stage_schema_revision == RAW_TORQUE:
       if key[0] == 'event':
         from openpilot.starpilot.flm.event_collection import EventCollectionAdapter
-        return EventCollectionAdapter(cp, evidence, key, source=source,
-          replay_version=event_replay_version, clipping_quality=event_clipping_quality, restore_version=event_restore_version)
+
+        return EventCollectionAdapter(
+          cp, evidence, key, source=source, replay_version=event_replay_version, clipping_quality=event_clipping_quality, restore_version=event_restore_version
+        )
       return TorqueCollectionAdapter(cp, evidence, key, source=source)
     return None  # PID/angle/curvature remain explicitly outside torque learning.
   except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
@@ -463,15 +507,17 @@ def fit_snapshot(snapshot):
   if payload.get('version') != 1 or payload.get('family') != snapshot.get('family'):
     raise ValueError('fit family')
   if 'plant_protocol' in payload:
-    if tuple(snapshot.get('objective_key',())) != tuple(payload.get('objective_key',())):
+    if tuple(snapshot.get('objective_key', ())) != tuple(payload.get('objective_key', ())):
       raise ValueError('source experiment wrapper objective key')
     from openpilot.starpilot.flm.source_plant_pipeline import fit_snapshot as fit_source_plant
+
     return fit_source_plant(payload)
   event_version = payload.get('event_version')
   event_job = type(event_version) is int and event_version in (2, 3, 4, 5, 6)
   if 'event_version' in payload and not event_job:
     raise ValueError('unknown explicit torque event evidence version')
   from openpilot.starpilot.flm.clipping_quality import event_clipping_quality
+
   event_clipping_quality(payload)
   if event_version == 3 and payload.get('event_operation') != 'trial':
     raise ValueError('declared activation is an explicit trial experiment only')
@@ -482,6 +528,7 @@ def fit_snapshot(snapshot):
   retain_chatter = False
   if event_job:
     from openpilot.starpilot.flm.event_objective import EffectObjective
+
     objective_row = payload['event_objective']
     event_objective = EffectObjective(**cast(_EffectObjectiveFields, {**objective_row, 'names': tuple(objective_row['names'])}))
     # A fixed historical full-map restore is not a friction-only trial. It
@@ -496,6 +543,7 @@ def fit_snapshot(snapshot):
     raise ValueError('actual selected controller family mismatch')
   if event_job:
     from openpilot.starpilot.flm.event_fit_factory import fit_event_snapshot
+
     return fit_event_snapshot(payload, factory, unpack_primitive_snapshot(payload['replay']))
   objective = Objective(**payload['objective'])
   # Bind the recorded actual stream to the fitting objective only in the child;

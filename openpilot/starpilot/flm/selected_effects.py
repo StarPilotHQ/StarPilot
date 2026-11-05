@@ -339,22 +339,30 @@ class EffectReplaySource:
 
 def _selected_source(parent):
   from openpilot.starpilot.flm.manual_coordinates import ManualEffects
+
   source = getattr(parent, 'manual_flm_effects', None)
   if source is not None:
     policy = getattr(getattr(parent, 'starpilot_extension', None), 'policy', None)
     if getattr(parent, 'flm_surface', None) is not None or getattr(policy, 'surface', None) is not None:
       return None
     return source if type(source) is ManualEffects else None
+  if getattr(parent, 'route_flm_effects', None) is not None:
+    from openpilot.starpilot.flm.offroad_runtime import selected_route
+
+    return selected_route(parent)
   return getattr(parent, 'automatic_flm_effects', None)
 
 
 def manual(parent):
   policy = getattr(getattr(parent, 'starpilot_extension', None), 'policy', None)
-  return (getattr(parent, 'manual_flm_effects', None) is not None
-          or getattr(parent, 'flm_surface', None) is not None or getattr(policy, 'surface', None) is not None)
+  return (
+    getattr(parent, 'manual_flm_effects', None) is not None or getattr(parent, 'flm_surface', None) is not None or getattr(policy, 'surface', None) is not None
+  )
 
 
 def bounded_profile_on_limited_frame(parent):
+  if getattr(parent, 'route_flm_effects', None) is not None:
+    return False
   if getattr(parent, 'manual_flm_effects', None) is not None:
     return False
   # This is parameter shaping, not a native grant. The live owner must already
@@ -414,8 +422,13 @@ def apply_selected_friction(parent, cs, setpoint, baseline, *, active, limited, 
 
 def apply_selected_deadzone(parent, cs, vm, baseline_accel, requested_curvature, *, active, limited, curvature_limited=False):
   source = _selected_source(parent)
-  if (source is None or not active or (limited and (curvature_limited or not bounded_profile_on_limited_frame(parent)))
-      or cs.steeringPressed or (manual(parent) and source is not getattr(parent, 'manual_flm_effects', None))):
+  if (
+    source is None
+    or not active
+    or (limited and (curvature_limited or not bounded_profile_on_limited_frame(parent)))
+    or cs.steeringPressed
+    or (manual(parent) and source is not getattr(parent, 'manual_flm_effects', None))
+  ):
     return baseline_accel
   try:
     speed = float(cs.vEgo)

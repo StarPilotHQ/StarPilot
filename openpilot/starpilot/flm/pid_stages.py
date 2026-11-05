@@ -6,6 +6,7 @@ There is no inferred torque_params/friction baseline for a PID union.
 
 from dataclasses import dataclass
 import math
+from openpilot.starpilot.flm.selected_effects import _selected_source
 from openpilot.starpilot.flm.canonical_surface_adapter import NAMES, DEADBANDS
 
 REVISION = 'pid-selected-stage-snapshot-v2'
@@ -104,9 +105,9 @@ def canonical_error(source, frame, *, original_anchor):
 
 
 def error_for_frame(parent, cs, baseline_error, *, active, limited):
-  observation = getattr(parent, 'automatic_flm_observation', None)
+  observation = getattr(parent, 'automatic_flm_observation', None) or getattr(parent, 'route_flm_observation', None)
   frame = observation.stage if observation is not None else None
-  source = getattr(parent, 'automatic_flm_effects', None)
+  source = _selected_source(parent)
   if (
     source is None
     or observation is None
@@ -191,12 +192,12 @@ def begin_frame(parent, cs, *, desired_curvature, desired_angle_deg, actual_angl
     bool(cs.steeringPressed),
     bool(limited),
   )
-  observation = getattr(parent, 'automatic_flm_observation', None)
+  observation = getattr(parent, 'automatic_flm_observation', None) or getattr(parent, 'route_flm_observation', None)
   if observation is not None:
     observation.stage, observation.learned_ff = frame, baseline_ff
     observation.learned_error = frame.error_deg
   parent.automatic_pid_stage_admitted = False
-  source = getattr(parent, 'automatic_flm_effects', None)
+  source = _selected_source(parent)
   if source is None or not frame.valid() or not active or frame.driver_override or limited:
     return baseline_ff
   try:
@@ -217,8 +218,8 @@ def begin_frame(parent, cs, *, desired_curvature, desired_angle_deg, actual_angl
 
 
 def finish_frame(parent, cs, *, desired_angle_deg, actual_angle_deg, baseline_output, active, limited):
-  source = getattr(parent, 'automatic_flm_effects', None)
-  observation = getattr(parent, 'automatic_flm_observation', None)
+  source = _selected_source(parent)
+  observation = getattr(parent, 'automatic_flm_observation', None) or getattr(parent, 'route_flm_observation', None)
   frame = observation.stage if observation is not None else None
   if (
     source is None

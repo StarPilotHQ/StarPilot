@@ -14,22 +14,29 @@ def control_from_dict(value, *, trace_archive=None):
   for key in ('features', 'applied_coordinates', 'applied_parameter_names', 'baseline_values', 'vehicle_model_anchor', 'live_applied_coordinates'):
     if key in value:
       value[key] = tuple(value[key])
-  for key in ('stage_values', 'replay_inputs', 'replay_snapshot'):
+  for key in ('stage_values', 'replay_inputs', 'replay_snapshot', 'route_applied_coordinates'):
     if key in value:
       value[key] = tuple(tuple(row) for row in value[key])
   if value.get('effect_trace') is not None:
     from openpilot.starpilot.flm.effect_trace import trace_from_dict
+
     if trace_archive is None:
       value['effect_trace'] = trace_from_dict(value['effect_trace'])
     else:
       from openpilot.starpilot.flm.normalized_trace_archive import read_ref
-      value['effect_trace'] = read_ref(value['effect_trace'],trace_archive)
+
+      value['effect_trace'] = read_ref(value['effect_trace'], trace_archive)
   control = ControlEvidence(**value)
   import math
   from openpilot.starpilot.flm.canonical_surface_adapter import NAMES, coordinate_bounds
-  if (type(control.vehicle_model_anchor) is not tuple or len(control.vehicle_model_anchor) not in (0, 3) or
-      any(type(v) is not float or not math.isfinite(v) or v == 0. for v in control.vehicle_model_anchor) or
-      type(control.live_applied_coordinates) is not tuple or len(control.live_applied_coordinates) not in (0, 30)):
+
+  if (
+    type(control.vehicle_model_anchor) is not tuple
+    or len(control.vehicle_model_anchor) not in (0, 3)
+    or any(type(v) is not float or not math.isfinite(v) or v == 0.0 for v in control.vehicle_model_anchor)
+    or type(control.live_applied_coordinates) is not tuple
+    or len(control.live_applied_coordinates) not in (0, 30)
+  ):
     raise ValueError('explicit actual live source metadata shape')
   if control.live_applied_coordinates:
     if control.effect_trace is not None:
@@ -82,7 +89,8 @@ def fit_raw_torque(payload, engine, objective):
         or command.override
         or command.fault
         or command.saturated
-        or command.limited and not exact_unclipped_pair(command, output)
+        or command.limited
+        and not exact_unclipped_pair(command, output)
         or command.model_wobble
         or command.controller_chatter
         or output.control_ns != command.control_ns
@@ -144,7 +152,8 @@ def fit_raw_torque(payload, engine, objective):
         or command.override
         or command.fault
         or command.saturated
-        or command.limited and not exact_unclipped_pair(command, output)
+        or command.limited
+        and not exact_unclipped_pair(command, output)
         or command.model_wobble
         or command.controller_chatter
         or not output.valid

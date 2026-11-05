@@ -99,6 +99,9 @@ class ControlEvidence:
   effect_prepare_ns: int = 0
   vehicle_model_anchor: tuple[float, ...] = ()
   live_applied_coordinates: tuple[float, ...] = ()
+  route_applied_coordinates: tuple[tuple[str, float], ...] = ()
+  route_effect_revision: str = ''
+  route_configuration_scope: str = ''
 
 
 @dataclass(frozen=True)
@@ -204,10 +207,12 @@ class FullrateCollector:
   def enable_original_source_capture(self, *, clock_contract=None):
     """Explicit private experiment; never called by the production parent."""
     from openpilot.starpilot.flm.original_source_capture import OriginalSourceCapture, OriginalSourceClockContract
+
     if getattr(self, 'original_source_capture', None) is not None:
       raise ValueError('original source capture already enabled')
     if clock_contract is None:
       from openpilot.starpilot.flm.producer_clock_equivalence import pinned_default_contract
+
       clock_contract = pinned_default_contract()
     if not isinstance(clock_contract, OriginalSourceClockContract):
       raise ValueError('independently pinned original producer-clock contract required')
@@ -233,12 +238,22 @@ class FullrateCollector:
     if hard:
       # Revoke every previously seen/pending source publication. Clearing seen
       # alone would recapture the same old KF publication after OFF/ON.
-      floor = max((getattr(self, '_original_source_revoked_before_ns', 0),
-        getattr(self, '_original_source_seen_pose', 0),
-        *(row.mono_ns for row in pending), *(row.mono_ns for row in capture.rows[-1:])))
+      floor = max(
+        (
+          getattr(self, '_original_source_revoked_before_ns', 0),
+          getattr(self, '_original_source_seen_pose', 0),
+          *(row.mono_ns for row in pending),
+          *(row.mono_ns for row in capture.rows[-1:]),
+        )
+      )
       self._original_source_revoked_before_ns = floor
-      for name in ('_original_source_pose_context', '_original_source_clock',
-          '_original_source_calibrator', '_original_source_vm_anchor', '_original_source_equivalence'):
+      for name in (
+        '_original_source_pose_context',
+        '_original_source_clock',
+        '_original_source_calibrator',
+        '_original_source_vm_anchor',
+        '_original_source_equivalence',
+      ):
         self.__dict__.pop(name, None)
       self._original_source_seen_pose = 0
       self._original_source_clock_generation = getattr(self, '_original_source_clock_generation', 0) + 1
@@ -288,7 +303,7 @@ class FullrateCollector:
   def _retain_original_pair(self, command, output):
     # Called only AFTER existing source/receiver/native admission above.
     # Keep the exact same objects and clocks; this supplies no new proof.
-    pair=(command,output)
+    pair = (command, output)
     self.ready.append(pair)
     self.probe_ready.append(pair)
 
@@ -306,17 +321,27 @@ class FullrateCollector:
     if isinstance(value, ControlEvidence) and value.effect_trace is not None:
       try:
         from openpilot.starpilot.flm.effect_trace import FullEffectTrace
+
         trace = value.effect_trace
         if not isinstance(trace, FullEffectTrace):
           raise ValueError('typed full effect trace')
         trace.validate()
-        if (trace.control_ns != value.effect_prepare_ns or trace.envelope.source_epoch != value.source_epoch or
-            trace.envelope.selected_baseline_revision != value.baseline_revision or
-            trace.envelope.controller_revision != value.controller_revision or any(value.applied_coordinates)):
+        if (
+          trace.control_ns != value.effect_prepare_ns
+          or trace.envelope.source_epoch != value.source_epoch
+          or trace.envelope.selected_baseline_revision != value.baseline_revision
+          or trace.envelope.controller_revision != value.controller_revision
+          or any(value.applied_coordinates)
+        ):
           raise ValueError('full effect trace source mismatch')
-        if trace.qualified and (value.applied_profile_sequence <= 0 or not
-            0 < value.applied_profile_observed_ns <= value.control_ns <= value.applied_profile_expires_ns <=
-            value.applied_profile_observed_ns + 500_000_000):
+        if trace.qualified and (
+          value.applied_profile_sequence <= 0
+          or not 0
+          < value.applied_profile_observed_ns
+          <= value.control_ns
+          <= value.applied_profile_expires_ns
+          <= value.applied_profile_observed_ns + 500_000_000
+        ):
           raise ValueError('applied full30 lacks original profile lease')
       except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
         self.split('full_effect_trace_invalid')
@@ -329,7 +354,8 @@ class FullrateCollector:
       or type(value.control_ns) is not int
       or type(value.state_ns) is not int
       or not 0 < value.state_ns <= value.control_ns <= now_ns
-      or value.domain != 'normalized_torque' and value.control_ns - value.state_ns > JOIN_NS
+      or value.domain != 'normalized_torque'
+      and value.control_ns - value.state_ns > JOIN_NS
       or not 1 <= len(value.features) <= 8
       or not all(finite(v) for v in (value.requested, value.baseline_prediction, *value.features, *value.applied_coordinates))
       or len(value.stage_values) > 40
@@ -405,9 +431,11 @@ class FullrateCollector:
       or value.override
       or value.fault
       or value.saturated
-      or value.limited and not (getattr(self.adapter, 'raw_collection', False) and asynchronous_hint(value))
+      or value.limited
+      and not (getattr(self.adapter, 'raw_collection', False) and asynchronous_hint(value))
       or value.model_wobble
-      or value.controller_chatter and not self._retains_controller_chatter(value)
+      or value.controller_chatter
+      and not self._retains_controller_chatter(value)
       or now_ns < self.excluded_until
     ):
       self.split('ineligible_control')
@@ -415,8 +443,11 @@ class FullrateCollector:
     if now_ns - value.control_ns > MAX_AGE_NS or value.control_ns - value.state_ns > JOIN_NS:
       # Receiver or normalized source-state delay still rejects this row.
       # Only inert study data may survive; native refusal is not a timing gap.
-      if value.native_required and (not value.native_allowed or not identity(value.native_identity) or
-          not 0 < value.native_observed_ns <= value.control_ns <= value.native_expires_ns <= value.native_observed_ns + 200_000_000):
+      if value.native_required and (
+        not value.native_allowed
+        or not identity(value.native_identity)
+        or not 0 < value.native_observed_ns <= value.control_ns <= value.native_expires_ns <= value.native_observed_ns + 200_000_000
+      ):
         self.split('original_native_admission_unavailable')
         return False
       self.split('stale_control')
@@ -434,8 +465,7 @@ class FullrateCollector:
       return False
     self._last_live_ingest_ns = now_ns
     if self.live_tracking is not None:
-      self.live_tracking.observe_source_control(value, now_ns=now_ns,
-        current_native=getattr(self, '_learning_current_native_allowed', False))
+      self.live_tracking.observe_source_control(value, now_ns=now_ns, current_native=getattr(self, '_learning_current_native_allowed', False))
     self.controls[value.control_ns] = value
     self.recent_controls[value.control_ns] = value
     while len(self.recent_controls) > MAX_PENDING:
@@ -461,9 +491,15 @@ class FullrateCollector:
       return False
     if value.override:
       self.excluded_until = now_ns + EXCLUSION_NS
-    if (not value.valid or not value.active or value.override or value.fault or
-        value.limited and not (getattr(self.adapter, 'raw_collection', False) and bounded_context_output(value)) or
-        now_ns < self.excluded_until):
+    if (
+      not value.valid
+      or not value.active
+      or value.override
+      or value.fault
+      or value.limited
+      and not (getattr(self.adapter, 'raw_collection', False) and bounded_context_output(value))
+      or now_ns < self.excluded_until
+    ):
       self.split('ineligible_applied_output')
       return False
     if value.domain == 'normalized_torque':
@@ -519,10 +555,14 @@ class FullrateCollector:
     if output.domain != self.adapter.command_domain:
       self.split('consumed_source_mismatch', reset=True)
       return
-    current_sources = (consumed_sources_current(command, output) if command.domain == 'normalized_torque' else
-                       command.state_ns <= output.state_ns <= output.apply_ns and output.state_ns - command.state_ns <= JOIN_NS)
+    current_sources = (
+      consumed_sources_current(command, output)
+      if command.domain == 'normalized_torque'
+      else command.state_ns <= output.state_ns <= output.apply_ns and output.state_ns - command.state_ns <= JOIN_NS
+    )
     if not current_sources:
       from openpilot.starpilot.flm.unchanged_output import redundant_late_output
+
       if redundant_late_output(self, command, output):
         # The original on-time pair remains untouched. This repeat creates no
         # ready row, sample, application time, physical witness or permission.
@@ -568,8 +608,9 @@ class FullrateCollector:
     if self.live_tracking is not None:
       try:
         profile = self.live_tracking.profile(command)
-        self.live_tracking.observe_control(command, output, profile_sha256=profile,
-          now_ns=self._last_live_ingest_ns, current_native=getattr(self, '_learning_current_native_allowed', False))
+        self.live_tracking.observe_control(
+          command, output, profile_sha256=profile, now_ns=self._last_live_ingest_ns, current_native=getattr(self, '_learning_current_native_allowed', False)
+        )
       except (AttributeError, KeyError, TypeError, ValueError):
         self.live_tracking.interrupt('actual_tracking_native_pair_unqualified')
 
@@ -648,7 +689,7 @@ class FullrateCollector:
     cohort = self.adapter.cohort(command, physical)
     if not cohort or not isinstance(cohort, str) or len(cohort) > 96:
       complete = getattr(self.adapter, 'raw_maneuver_complete', None)
-      if (cohort is None and raw and complete is not None and complete(command, physical)):
+      if cohort is None and raw and complete is not None and complete(command, physical):
         self._seal_raw()
         self.raw_points.clear()
         self.cohort, self.sealed = None, False
@@ -712,8 +753,12 @@ class FullrateCollector:
       control = self.raw_points[0].control
       self.blocks.append(
         RawBlock(
-          control.identity, f'{self.session}:{self.block_sequence}', cast(str, self.cohort),
-          control.stage_revision, control.response_revision, tuple(self.raw_points)
+          control.identity,
+          f'{self.session}:{self.block_sequence}',
+          cast(str, self.cohort),
+          control.stage_revision,
+          control.response_revision,
+          tuple(self.raw_points),
         )
       )
       self.block_sequence += 1
@@ -853,7 +898,8 @@ class FullrateCollector:
       or control.override
       or control.fault
       or control.saturated
-      or control.limited and not exact_unclipped_pair(control, output)
+      or control.limited
+      and not exact_unclipped_pair(control, output)
       or control.model_wobble
       or control.controller_chatter
       or not output.active
@@ -869,6 +915,7 @@ class FullrateCollector:
     # Only the registered event adapter accepts the collector's trusted clock;
     # legacy/custom adapter signatures and conservative calls stay unchanged.
     from openpilot.starpilot.flm.event_collection import EventCollectionAdapter
+
     admission_clock = {'now_ns': now_ns} if isinstance(self.adapter, EventCollectionAdapter) else {}
     admission = self.adapter.current_admission(fit.profile, control, output, self.physical_context, **admission_clock)
     admitted = readmit_profile(fit.profile, self.fit_validation, admission, now_ns=now_ns, sequence=self.live_profile_sequence)
@@ -922,6 +969,7 @@ class _DrainOverrun(Exception):
 
 class PairedDrainState:
   """Run-owned FIFO lookahead, bounded to one original event per socket."""
+
   def __init__(self, control_socket, applied_socket):
     self.sockets = (control_socket, applied_socket)
     self.heads: tuple = (None, None)

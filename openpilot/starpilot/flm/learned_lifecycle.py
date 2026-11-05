@@ -37,9 +37,16 @@ def decode(raw):
     raise ValueError('Invalid profile document') from error
   if (
     type(doc) is not dict
-    or set(doc) != ({'version', 'profiles'} if doc.get('version') == 1 else {'version', 'profiles', 'fullSurfaces'})
+    or set(doc)
+    != (
+      {'version', 'profiles'}
+      if doc.get('version') == 1
+      else {'version', 'profiles', 'fullSurfaces', 'routeSurfaces'}
+      if doc.get('version') == 3
+      else {'version', 'profiles', 'fullSurfaces'}
+    )
     or type(doc['version']) is not int
-    or doc['version'] not in (1, 2)
+    or doc['version'] not in (1, 2, 3)
     or type(doc['profiles']) is not dict
     or len(doc['profiles']) > MAX_PROFILES
   ):
@@ -76,9 +83,14 @@ def decode(raw):
     expected_scope = hashlib.sha256(json.dumps([row['identity'], row['parameters']], separators=(',', ':'), allow_nan=False).encode()).hexdigest()
     if identity != expected_scope:
       raise ValueError('Stored profile scope mismatch')
-  if doc['version'] == 2:
+  if doc['version'] in (2, 3):
     from openpilot.starpilot.flm.full_surface_store import validate_rows
+
     validate_rows(doc['fullSurfaces'])
+  if doc['version'] == 3:
+    from openpilot.starpilot.flm.offroad_store import validate_rows as validate_routes
+
+    validate_routes(doc['routeSurfaces'])
   return doc
 
 
@@ -180,9 +192,13 @@ class StorageOwner:
         return False
       if profile.policy in ('event_effect_coordinate_v2', 'event_effect_restore_v1'):
         from openpilot.starpilot.flm.full_surface_store import remember_full
-        if (profile.effect_envelope is None or profile.effect_envelope.reset_generation != reset or
-            profile.effect_envelope.source_binding() != full_binding or
-            replay_validation.baseline_revision != profile.effect_envelope.selected_baseline_revision):
+
+        if (
+          profile.effect_envelope is None
+          or profile.effect_envelope.reset_generation != reset
+          or profile.effect_envelope.source_binding() != full_binding
+          or replay_validation.baseline_revision != profile.effect_envelope.selected_baseline_revision
+        ):
           return False
         desired = remember_full(raw, profile, validation_sha256=validation_sha256)
       else:
@@ -252,6 +268,7 @@ class ProducerPersistence:
   def full_prior(self, *, identity, binding, reset, current_sources):
     from openpilot.starpilot.flm.full_surface_store import load_prior
     from openpilot.starpilot.saved_source import read_saved
+
     try:
       captured = current_sources()
       if captured != (identity, True, False, reset) or binding[3] != reset:
