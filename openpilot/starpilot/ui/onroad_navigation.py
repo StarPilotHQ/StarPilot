@@ -98,8 +98,8 @@ class NavigationCard:
     self._textures.move_to_end(name)
     return self._textures[name]
 
-  def _lines(self, text, width, size):
-    key = (text, width, size)
+  def _lines(self, text, width, size, max_lines=2):
+    key = (text, width, size, max_lines)
     if self._text_layout is not None and self._text_layout[0] == key:
       return self._text_layout[1]
     words, lines, line = text.split(), [], ''
@@ -111,8 +111,8 @@ class NavigationCard:
       else:
         line = candidate
     lines.append(line)
-    if len(lines) > 2:
-      lines = lines[:2]
+    if len(lines) > max_lines:
+      lines = lines[:max_lines]
       lines[-1] += '...'
     for i, line in enumerate(lines):
       while len(line) > 3 and self.fonts.measure(line, FontRole.SEMI_BOLD, size).width > width:
@@ -147,14 +147,14 @@ class NavigationCard:
                           rl.Rectangle(rect.x + padding, rect.y + (header - size) / 2, size, size), rl.Vector2(0, 0), 0, rl.WHITE)
     x = rect.x + padding * (1 if lanes else 2) + (0 if lanes else size)
     width = rect.x + rect.width - padding - x
-    distance_size, text_size = (36, 22) if compact else (54, 30 if lanes else 28)
+    distance_size, text_size = (32, 20) if compact else (54, 30 if lanes else 28)
     distance = 'Arrived' if nav.arrived else distance_text(nav.distance_m, state.metric)
     far = not nav.arrived and nav.distance_m > FAR_TURN_M
     y = rect.y + (8 if compact else 12)
     self.fonts.draw(distance, FontRole.BOLD, distance_size, x, y, rl.WHITE)
     y += distance_size + (2 if compact else 4)
-    lines = self._lines(nav.text, width, text_size)
-    for i, text in enumerate(lines[:1] if far or lanes else lines):
+    lines = self._lines(nav.text, width, text_size, max_lines=1 if far or lanes else 2)
+    for i, text in enumerate(lines):
       self.fonts.draw(text, FontRole.SEMI_BOLD, text_size, x, y + i * (text_size + 2), rl.Color(222, 214, 244, 255))
     if nav.arrived:
       return
@@ -174,7 +174,7 @@ class NavigationCard:
       self._lane_strip(lanes, rect.x + padding, lane_top, right, bar_center - (8 if compact else 12) - 6 - lane_top)
     else:
       chip = 20 if compact else 24
-      self._then(nav, rect.x + padding, top + (7 if compact else 7), chip, state.metric)
+      self._then(nav, rect.x + padding, top + 7, chip)
       if not compact:
         trip = f'{distance_text(nav.remaining_distance_m, state.metric)} | {max(1, round(nav.remaining_seconds / 60))} min'
         trip_size = 27
@@ -203,7 +203,7 @@ class NavigationCard:
                           rl.Rectangle(box.x + (box.width - size) / 2, box.y + (box.height - size) / 2, size, size),
                           rl.Vector2(0, 0), 0, rl.WHITE if active else rl.Color(112, 104, 134, 255))
 
-  def _then(self, nav, x, y, size, metric):
+  def _then(self, nav, x, y, size):
     """A "Then <arrow>" chip when the turn after this one comes soon after it."""
     if not nav.then_type or nav.then_distance_m is None:
       return

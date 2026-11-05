@@ -258,7 +258,7 @@ class HotspotController:
     self.failures = 0
 
   def backoff(self):
-    return min(RETRY_S * 2 ** self.failures, MAX_RETRY_S)
+    return min(RETRY_S * 2 ** min(self.failures, 5), MAX_RETRY_S)
 
   def tick(self, config):
     if not config['enabled']:

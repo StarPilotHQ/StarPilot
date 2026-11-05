@@ -441,6 +441,7 @@ class Supervisor:
       self.answered = self.answered or connected
       if snapshot.get('loggedIn'):
         self.authenticated_once = True
+        self.login_failed = False
         self.login_failures = 0
         self.last_playing = bool(snapshot.get('active') and snapshot.get('status') in ('playing', 'buffering'))
       elif self.login_failed:
@@ -476,7 +477,7 @@ class Supervisor:
   def _retry_login(self, now: float) -> None:
     self.stop_children()
     self.login_failures += 1
-    delay = min(LOGIN_RETRY_MAX_SECONDS, 5.0 * 2 ** (self.login_failures - 1)) * random.uniform(0.8, 1.2)
+    delay = min(LOGIN_RETRY_MAX_SECONDS, 5.0 * 2 ** min(self.login_failures - 1, 6)) * random.uniform(0.8, 1.2)
     self.retry_at = now + delay
     rejected = self.login_failures >= LOGIN_REJECTED_AFTER
     self._set('retrying', 'Spotify keeps refusing the sign-in. Check your API key or network connection. Trying again…' if rejected

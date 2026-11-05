@@ -129,6 +129,25 @@ def test_first_pairing_and_audio_lines_never_trigger_a_login_retry(tmp_path, mon
   assert len(spawned) == 2 and sup.status()['state'] == 'waiting'
 
 
+def test_successful_login_clears_prior_failure_and_preserves_logout_grace(tmp_path, monkeypatch):
+  layout = Layout(tmp_path / 'soloist')
+  ready_layout(layout, monkeypatch)
+  monkeypatch.setattr(supervisor, '_kill_group', lambda _p: None)
+  spawned = []
+  sup, now = make_supervisor(layout, spawned, logged_in=False)
+  sup.tick()
+  sup._record(io.BytesIO(LOGIN_FAILED_LINE), 'soloist')
+  sup.client.snapshot = lambda: {'connected': True, 'loggedIn': True}
+  sup.tick()
+  sup.client.snapshot = lambda: {'connected': True, 'loggedIn': False}
+  sup.tick()
+  assert not sup.login_failed and sup.player is not None
+  monkeypatch.setattr(supervisor.random, 'uniform', lambda _a, _b: 1.0)
+  sup.login_failures = 10000
+  sup._retry_login(now[0])
+  assert sup.retry_at == now[0] + supervisor.LOGIN_RETRY_MAX_SECONDS
+
+
 def test_lost_login_while_playing_gets_a_longer_grace(tmp_path, monkeypatch):
   layout = Layout(tmp_path / 'soloist')
   ready_layout(layout, monkeypatch)

@@ -179,6 +179,14 @@ def test_home_wifi_is_never_held_while_the_car_uses_it():
   assert lease.home is None and not any(item.held for item in leases)
 
 
+def test_late_radio_callback_cannot_hold_home_wifi_after_release():
+  lease, leases, log = make()
+  lease.acquire(credentials())
+  lease.release(restore=True)
+  lease.hold_home_wifi()
+  assert lease.home is None and not any(item.held for item in leases)
+
+
 def test_home_wifi_that_came_back_is_not_held(monkeypatch):
   lease, leases, log = make()
   lease.acquire(credentials())

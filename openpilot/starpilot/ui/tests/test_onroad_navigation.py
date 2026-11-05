@@ -10,7 +10,7 @@ from openpilot.cereal import messaging
 from openpilot.starpilot.ui.navigation_state import NavigationDisplay, distance_text, navigation_display
 from openpilot.starpilot.ui.onroad_navigation import ASSETS, MANIFEST, NavigationCard, arrival_time, icon_name
 from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadAlert, OnroadState, SpeedLimitObservation
-from openpilot.starpilot.ui.presentation import Profile
+from openpilot.starpilot.ui.presentation import FontRole, Profile
 
 NOW = 10_000_000_000
 DRIVE = 1_000_000_000
@@ -200,6 +200,32 @@ def test_unchanged_instruction_reuses_measured_layout():
   assert fonts.measure.call_count == measured
   card._lines('Turn right onto Broad Street', 220, 28)
   assert fonts.measure.call_count > measured
+
+
+def test_single_line_instruction_marks_truncated_text_and_has_its_own_cache():
+  fonts = Mock(profile=Profile.COMPACT)
+  fonts.measure.side_effect = lambda text, role, size: NS(width=len(text) * size * .48)
+  card = NavigationCard(fonts)
+  text = 'Turn left onto West Charleston Boulevard'
+  assert len(card._lines(text, 220, 20)) == 2
+  line, = card._lines(text, 220, 20, max_lines=1)
+  assert line.endswith('...') and fonts.measure(line, FontRole.SEMI_BOLD, 20).width <= 220
+
+
+def test_compact_two_line_instruction_clears_then_chip():
+  fonts = Mock(profile=Profile.COMPACT)
+  fonts.measure.side_effect = lambda text, role, size: NS(width=len(text) * size * .48)
+  card = NavigationCard(fonts)
+  nav = replace(state().navigation, text='Turn left onto West Charleston Boulevard',
+                then_type='turn', then_modifier='right', then_distance_m=300.)
+  with patch.object(card, '_icon', return_value=NS(width=100, height=100)), \
+       patch.object(rl, 'draw_rectangle_rounded') as rounded, patch.object(rl, 'draw_rectangle_rounded_lines_ex'), \
+       patch.object(rl, 'draw_texture_pro'):
+    card.render(replace(state(), navigation=nav))
+  instruction = [call.args for call in fonts.draw.call_args_list if call.args[1] == FontRole.SEMI_BOLD and call.args[2] == 20]
+  assert len(instruction) == 2
+  then_chip = rounded.call_args_list[1].args[0]
+  assert max(args[4] + args[2] for args in instruction) < then_chip.y
 
 
 def test_saved_favorite_revision_does_not_expand_navigation_card():

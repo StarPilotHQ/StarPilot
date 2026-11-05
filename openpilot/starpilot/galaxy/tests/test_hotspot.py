@@ -360,6 +360,8 @@ def test_repeated_failures_back_off_and_success_resets():
   now[0] += 300
   assert controller.tick(CONFIG)['state'] == 'starting'
   assert controller.tick(CONFIG)['active'] and controller.failures == 0 and controller.backoff() == 15
+  controller.failures = 10000
+  assert controller.backoff() == hotspot_worker.MAX_RETRY_S
 
 
 def test_ap_that_keeps_exiting_backs_off():

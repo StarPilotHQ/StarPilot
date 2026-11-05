@@ -54,7 +54,7 @@ def delete_records(self, path, payload, sentry_events_lock, crash_reports_lock, 
 
 
 def widget_art_header(image):
-  """The renderer's widget-art tEXt chunk, base64-encoded for an HTTP header ('' when absent or oversized)."""
+  """Encode bounded PNG sprite metadata for the preview response header."""
   import base64
   import struct
   signature = b'starpilot-widget-art\0'

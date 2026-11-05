@@ -151,6 +151,9 @@ export class OnroadLayoutFeed {
 
 export const LayoutWidgetPreview = {
   props: ["widget", "palette", "profile", "scene", "clock24Hour", "native", "art"],
+  computed: {
+    roadNameSize() { return Math.max(18, Math.min(this.widget.width, this.widget.height) * .075) },
+  },
   methods: {
     withAlpha,
     modeLines(scene, profile) {
@@ -299,8 +302,8 @@ export const LayoutWidgetPreview = {
           <circle r="22" fill="#8f6bff40" /><path d="M0 -17 L13 13 L0 6 L-13 13 Z" fill="white" stroke="#6e4fe0" stroke-width="3" stroke-linejoin="round" />
         </g>
         <g :transform="'translate(' + widget.width / 2 + ' ' + (widget.height * .68 + 38) + ')'">
-          <rect :x="-Math.max(18, Math.min(widget.width, widget.height) * .075) * 4.4" y="0" :width="Math.max(18, Math.min(widget.width, widget.height) * .075) * 8.8" :height="Math.max(18, Math.min(widget.width, widget.height) * .075) * 1.55" :rx="Math.max(18, Math.min(widget.width, widget.height) * .075) * .78" fill="#080c14be" />
-          <text x="0" :y="Math.max(18, Math.min(widget.width, widget.height) * .075) * 1.12" text-anchor="middle" :font-size="Math.max(18, Math.min(widget.width, widget.height) * .075)" fill="#eceef6">Desert Inn Road</text>
+          <rect :x="-roadNameSize * 4.4" y="0" :width="roadNameSize * 8.8" :height="roadNameSize * 1.55" :rx="roadNameSize * .78" fill="#080c14be" />
+          <text x="0" :y="roadNameSize * 1.12" text-anchor="middle" :font-size="roadNameSize" fill="#eceef6">Desert Inn Road</text>
         </g>
       </g>
       <template v-else>

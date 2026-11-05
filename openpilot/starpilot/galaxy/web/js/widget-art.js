@@ -1,6 +1,5 @@
 // Pixels and sprite locations come from the actual onroad renderer, not browser widget copies.
-// The sheet also travels in an X-Widget-Art header: image-optimising proxies (such as the one in front of the
-// Galaxy tunnel) re-encode PNGs and drop the tEXt chunk, which used to reject the art over the tunnel.
+// X-Widget-Art preserves metadata when proxies strip PNG text chunks.
 function headerMetadata(header) {
   try {
     const bytes = Uint8Array.from(atob(header), c => c.charCodeAt(0))

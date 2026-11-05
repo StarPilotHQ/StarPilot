@@ -59,6 +59,7 @@ STOPPED_SPEED = 0.5          # m/s
 OVERVIEW_AFTER_S = 30.0      # stopped this long: zoom out to an overview
 OVERVIEW_MIN_MANEUVER_M = 50.0  # ...unless a maneuver is about to happen
 NAME_HOLD_S = 1.5            # a new road name must hold this long to replace the old one
+ROAD_NAME_MAX_AGE_S = 3.0
 GUIDANCE_SLACK_PX = 4.0      # screen pixels of driven route left under the puck before guidance is trimmed again
 
 
@@ -788,7 +789,7 @@ class MapOverlay:
                       rect.y + rect.height * CAR_ANCHOR + 40, rl.Color(225, 228, 238, round(200 * opacity)))
 
   def _draw_road_name(self, rect: rl.Rectangle) -> None:
-    """The road under the car, in a pill just below it; solid whatever the map's opacity so it always reads."""
+    """Draw the current road below the car, independent of map opacity."""
     from openpilot.starpilot.ui.presentation import FontRole
     size = max(18, round(min(rect.width, rect.height) * 0.075))
     limit = rect.width * 0.8 - size
@@ -920,6 +921,7 @@ class MapFeed:
     self._destination = ''
     self._maneuver_m: float | None = None
     self._road = ''
+    self._road_at = -math.inf
     self._acquisition = acquisition if acquisition is not None else GpsAcquisition()
     self._acquisition_polled = -math.inf
 
@@ -986,19 +988,19 @@ class MapFeed:
     return MapInput(self._fix, route, active if navigation_requested is None else navigation_requested,
                     None if fresh else self._acquisition.satellites(now),
                     acquisition_elapsed, self._destination if destination is None else destination,
-                    self._source if self._fix is not None else '', self._maneuver_m if route else None, self._road_name())
+                    self._source if self._fix is not None else '', self._maneuver_m if route else None, self._road_name(now))
 
   @staticmethod
   def _maneuver(nav) -> float | None:
     meters = float(nav.instruction.distanceMeters)
     return meters if nav.status == "guiding" and math.isfinite(meters) and meters >= 0 else None
 
-  def _road_name(self) -> str:
-    """The last road name mapd reported."""
-    if self.sm.updated["mapdOut"] and self.sm.valid["mapdOut"]:
+  def _road_name(self, now: float) -> str:
+    if self.sm.updated.get("mapdOut", False):
       out = self.sm["mapdOut"]
-      self._road = out.roadName or out.wayName or self._road
-    return self._road
+      self._road = (out.roadName or out.wayName) if self.sm.valid["mapdOut"] else ''
+      self._road_at = now
+    return self._road if 0 <= now - self._road_at <= ROAD_NAME_MAX_AGE_S else ''
 
 
 

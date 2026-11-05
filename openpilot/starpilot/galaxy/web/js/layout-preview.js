@@ -59,7 +59,7 @@ export function sceneHidesWidget(scene, profile, id, layout = {}, widgets = {}) 
 
 // The device renders one preview at a time and answers a second request with 429.
 // Feeds sharing a queue take turns instead, widget art before the backdrop.
-// Room for a rendered PNG to cross the Galaxy tunnel, not just the local network.
+// Allow for Galaxy tunnel latency.
 const PREVIEW_TIMEOUT_MS = 20000
 
 export class PreviewQueue {
@@ -184,8 +184,7 @@ export class LayoutPreviewFeed {
     this.last = item
     const request = new AbortController()
     this.request = request
-    // The clock starts once this feed holds the renderer: waiting behind the other feed (slow over a tunnel)
-    // used to eat the whole budget and flip the backdrop to "unavailable" before it was even sent.
+    // Queue time does not consume the response timeout.
     let timeout = null
     let rejectAborted
     const aborted = new Promise((_, reject) => { rejectAborted = () => reject(new Error("Preview request cancelled")) })

@@ -810,15 +810,18 @@ def test_map_feed_reports_maneuver_distance_and_road_name(monkeypatch):
   sm.messages["mapdOut"] = NS(roadName="", wayName="Main Street")
   data = feed.read(sm)
   assert (data.maneuver_distance_m, data.road_name) == (240., "Main Street")
-  clock[0] += 3.1
+  clock[0] += 2.9
   sm.updated["mapdOut"] = False
   data = feed.read(sm)
+  assert data.road_name == "Main Street", "a brief gap in mapd does not blink the name away"
+  clock[0] += .2
+  data = feed.read(sm)
   assert data.maneuver_distance_m is None, "no stale distance once the route lease lapses"
-  assert data.road_name == "Main Street", "a gap in mapd does not blink the name away"
+  assert data.road_name == "", "road names expire when mapd stops publishing"
   sm.updated["mapdOut"] = True
   sm.messages["mapdOut"] = NS(roadName="", wayName="")
-  assert feed.read(sm).road_name == "Main Street", "nor does a briefly unnamed way"
-  clock[0] += 60.
-  assert feed.read(sm).road_name == "Main Street", "it stays until a new name arrives"
+  assert feed.read(sm).road_name == "", "unnamed roads do not inherit the preceding road's name"
   sm.messages["mapdOut"] = NS(roadName="Desert Inn Road", wayName="")
   assert feed.read(sm).road_name == "Desert Inn Road"
+  sm.valid["mapdOut"] = False
+  assert feed.read(sm).road_name == "", "an invalid road match clears its name"

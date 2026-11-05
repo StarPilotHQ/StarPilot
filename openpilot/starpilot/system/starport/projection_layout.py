@@ -385,8 +385,7 @@ def projection_customization(document, base_customization):
   shifts['torque_bar'] = (tx - native['torque_bar']['default']['x'], ty - native['torque_bar']['default']['y'])
   result = copy.deepcopy(base_customization)
   result['clock24Hour'] = document.get('clock24Hour', False)
-  # Without a saved order the car screen draws the same default layers the theme maker shows,
-  # instead of the native view's unordered fallback (which puts the map over PiP).
+  # Match the editor's default layers, keeping PiP above the map.
   result.setdefault('widgetOrder', {})['large'] = list(document['widgetOrder'] if 'widgetOrder' in document else
                                                        layout_metadata_for_viewport((width, height))['widgetOrder'])
   result['layouts']['large'] = {}

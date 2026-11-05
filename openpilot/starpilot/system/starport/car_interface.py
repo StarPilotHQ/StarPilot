@@ -100,7 +100,7 @@ class DedicatedLease:
     self._opening: threading.Thread | None = None
     self._open_error: Exception | None = None
     self._cancel = threading.Event()
-    self.home = None  # a hold on wlan0's autoconnect, from hold_home_wifi until the session ends
+    self.home = None
     self._home_lock = threading.Lock()
 
   @property
@@ -109,7 +109,7 @@ class DedicatedLease:
 
   @property
   def dedicated(self) -> bool:
-    """The car is on aa0, sharing the radio with wlan0; the supervisor's radio watch keys off this."""
+    """Whether the car uses aa0 on the shared radio."""
     return not self.legacy
 
   @property
@@ -159,7 +159,7 @@ class DedicatedLease:
   def hold_home_wifi(self) -> None:
     """Keep wlan0 from searching on the shared radio until the session ends."""
     with self._home_lock:
-      if self.legacy or self.home is not None:
+      if self.legacy or self._cancel.is_set() or self.home is not None:
         return
       home = self.lease_factory(self.log, self.fallback_interface)
       try:
@@ -184,6 +184,7 @@ class DedicatedLease:
         self.log("wifi_home_release_failed", error=str(error))
 
   def _fall_back(self, error: Exception) -> None:
+    self.legacy = True
     self._release_home()  # the car's join moves onto wlan0, which keeps its own autoconnect pause
     self.log("wifi_dedicated_unavailable", error=str(error) or type(error).__name__)
     if self.lease is not None:
@@ -194,7 +195,6 @@ class DedicatedLease:
     if self.iface is not None:
       self.iface.close()
     self.lease = self.iface = None
-    self.legacy = True
 
   def _reopen(self) -> None:
     """Drop aa0 and its lease, then create both again; a failure to recreate falls back to wlan0."""
