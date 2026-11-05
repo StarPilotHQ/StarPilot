@@ -985,7 +985,7 @@ def is_ordinary_ascm_profile(cp, *, longitudinal):
     word = int(configs[0].safetyParam)
     return (cp.brand == "gm" and cp.carFingerprint in ORDINARY_ASCM_CAR and
             cp.networkLocation == CarParams.NetworkLocation.fwdCamera and
-            not cp.passive and not cp.dashcamOnly and not cp.notCar and cp.flags == 0 and
+            not cp.passive and not cp.dashcamOnly and not cp.notCar and control_flags(cp) == 0 and
             cp.openpilotLongitudinalControl == longitudinal and cp.pcmCruise != longitudinal and
             (not longitudinal or cp.alphaLongitudinalAvailable) and
             len(configs) == 1 and configs[0].safetyModel == CarParams.SafetyModel.gm and
@@ -1009,7 +1009,7 @@ def is_ordinary_sdgm_profile(cp, *, longitudinal):
     configs = cp.safetyConfigs
     return (cp.brand == 'gm' and cp.carFingerprint in ORDINARY_SDGM_CAR and
             cp.networkLocation == CarParams.NetworkLocation.fwdCamera and
-            not cp.passive and not cp.dashcamOnly and not cp.notCar and cp.flags == 0 and
+            not cp.passive and not cp.dashcamOnly and not cp.notCar and control_flags(cp) == 0 and
             cp.openpilotLongitudinalControl == longitudinal and cp.pcmCruise != longitudinal and
             (not longitudinal or cp.alphaLongitudinalAvailable) and
             len(configs) == 1 and configs[0].safetyModel == CarParams.SafetyModel.gm and
