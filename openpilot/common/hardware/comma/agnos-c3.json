@@ -56,30 +56,27 @@
   },
   {
     "name": "boot",
-    "url": "https://files.firestar.link/x/oh3w445196yn/boot32.img.xz",
-    "hash": "c32ce946bdb5fb72a0670751befa3fbec67946a06d6c72597d9913277f8b2e1a",
-    "hash_raw": "c32ce946bdb5fb72a0670751befa3fbec67946a06d6c72597d9913277f8b2e1a",
+    "url": "https://files.firestar.link/x/9wnjcvwijyva/boot33.img.xz",
+    "hash": "75dcac3828edbe9ea23720158e66068016c398bec7268d9631026f9a9a898908",
+    "hash_raw": "75dcac3828edbe9ea23720158e66068016c398bec7268d9631026f9a9a898908",
     "size": 49039360,
     "sparse": false,
     "full_check": true,
     "has_ab": true,
-    "ondevice_hash": "13154dd5e5c9d6e3f0c7e27e161c667a51a8b2ecfd6fa04a78dfa31f7af901be",
+    "ondevice_hash": "9c39a5dc219051b9fd441945e82d87431ed6594a1bdad7b314a49b5479ea707f",
     "fallback_urls": [
-      "https://files-east.firestar.link/x/ceojnfb6xz8x/boot32.img.xz"
+      "https://files-east.firestar.link/x/xsngjn2xoubj/boot33.img.xz"
     ]
   },
   {
     "name": "system",
-    "url": "https://files.firestar.link/x/h1abg6uz6t3a/system32.img.xz",
-    "hash": "d1e8aa1854513a5e8abafa78346f6608748d0d3099246e6c38fcea85f3163e12",
-    "hash_raw": "c1ac3bfb5aaa8151272392d1d2b354c8d2782ddfb4cf36c3e91941771e5189ec",
+    "url": "https://files.firestar.link/x/02it0a5qbzuh/system33.img.xz",
+    "hash": "04d55b32073b6cef899e46816f283f07d733aa5050bf3d3fed19fa945c6952c2",
+    "hash_raw": "c66ba21f7eea6a608d17234d63b7b1ea15c1263af3bcee70069bd622999789c7",
     "size": 4718592000,
     "sparse": true,
     "full_check": false,
     "has_ab": true,
-    "ondevice_hash": "14937ae1fa2eef00643d154a48ce967e0aff8068393702aae6cb4f7bb54828f0",
-    "fallback_urls": [
-      "https://files-east.firestar.link/x/1jisyjusij9q/system32.img.xz"
-    ]
+    "ondevice_hash": "753fa431b643775a6dcebd38d9d0b8eaa1a3082848fae36f07882d786d103499"
   }
 ]
