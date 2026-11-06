@@ -37,7 +37,8 @@ DESCRIPTIONS = {
   'NostalgiaMode': 'Lets the Ioniq 5 or Ioniq 6 left paddle pause acceleration and braking while Always On Lateral keeps steering.',
   'TurnAssist': 'Uses steering-angle feedback to assist rolling low-speed turns above the vehicle minimum steering speed.',
   'LateralControllerSelection': 'Chooses the stock steering controller or the vehicle-specific StarPilot controller.',
-  'ForceAutoTuneOff': 'StarPilot’s FLM tuning will attempt to automatically correct torque profiles as you drive.',
+  'ForceAutoTuneOff': ('StarPilot’s FLM tuning will attempt to automatically correct torque profiles as you drive. ' +
+                       'On allows automatic learning; Off disables it. Nonzero manual FLM overrides pause Auto Learn.'),
   'torque_prepare_firestar': 'Prepares steering settings for a tuning-request recording. Turning it off restores the previous settings.',
   'SteerLatAccel': 'Sets the legacy lateral-acceleration-to-torque conversion. Review the vehicle-specific tuning profile before applying it.',
   'SteerFriction': 'Sets legacy steering friction compensation. Review the vehicle-specific tuning profile before applying it.',
@@ -205,6 +206,117 @@ CONDITIONS = {
 }
 
 
+FLM_DESCRIPTIONS = {
+  'center_taper_max': (
+    'Softens planned steering near straight ahead. Higher reduces small steering corrections more; lower keeps a ' +
+    'firmer response. This can calm weaving, but too much can make centering less precise.'),
+  'highway_center_taper_max': (
+    'Adds straight-ahead softening at highway speeds. Higher softens small corrections more; lower keeps more ' +
+    'steering response. This changes steering feel, not your target position in the lane.'),
+  'low_speed_angle_assist_max_torque': (
+    'Adds low-speed steering help when the wheels have not reached the requested turn angle. Higher allows more ' +
+    'extra help; lower limits it. This is an extra-assistance limit, not the car’s overall steering limit.'),
+  'curvy_speed_min': (
+    'Sets the lower end of the curve-exit smoothing speed range. Higher starts the effect at faster speeds; lower ' +
+    'extends it to slower speeds. This changes where steering smoothing applies, not cruise speed.'),
+  'curvy_speed_max': (
+    'Sets the upper end of the curve-exit smoothing speed range. Higher extends the effect to faster speeds; ' +
+    'lower ends it at slower speeds. This changes where steering smoothing applies, not cruise speed.'),
+  'curvy_turn_in_trim_speed_min': (
+    'Sets the lower end of the curve-entry softening speed range. Higher starts the effect at faster speeds; ' +
+    'lower extends it to slower speeds. This changes where Turn-in trim applies, not cruise speed.'),
+  'curvy_turn_in_trim_speed_max': (
+    'Sets the upper end of the curve-entry softening speed range. Higher extends the effect to faster speeds; ' +
+    'lower ends it at slower speeds. This changes where Turn-in trim applies, not cruise speed.'),
+  'center_deadband_crawl_deg': (
+    'Ignores very small steering tracking errors at crawling speeds. Higher tolerates a larger error before ' +
+    'correcting; lower reacts to smaller errors. This can reduce constant tiny corrections, but too much allows ' +
+    'more tracking error. Blends with the neighboring speed settings.'),
+  'center_deadband_low_deg': (
+    'Ignores very small steering tracking errors at low speeds. Higher tolerates a larger error before ' +
+    'correcting; lower reacts to smaller errors. This can reduce constant tiny corrections, but too much allows ' +
+    'more tracking error. Blends with the neighboring speed settings.'),
+  'center_deadband_mid_deg': (
+    'Ignores very small steering tracking errors at medium speeds. Higher tolerates a larger error before ' +
+    'correcting; lower reacts to smaller errors. This can reduce constant tiny corrections, but too much allows ' +
+    'more tracking error. Blends with the neighboring speed settings.'),
+  'center_deadband_fast_deg': (
+    'Ignores very small steering tracking errors at higher speeds. Higher tolerates a larger error before ' +
+    'correcting; lower reacts to smaller errors. This can reduce constant tiny corrections, but too much allows ' +
+    'more tracking error. Blends with the neighboring speed settings.'),
+  'center_deadband_highway_deg': (
+    'Ignores very small steering tracking errors at highway speeds. Higher tolerates a larger error before ' +
+    'correcting; lower reacts to smaller errors. This can reduce constant tiny corrections, but too much allows ' +
+    'more tracking error. Blends with the neighboring speed settings.'),
+  'ff_gain_left': (
+    'Sets the extra planned steering effort in left curves, before tracking-error corrections. Higher adds more ' +
+    'effort; lower adds less. Negative values reduce the baseline effort. This is the FF gain used by the ' +
+    'entry-boost and unwind settings.'),
+  'turn_in_boost_left': (
+    'Strengthens the FF-gain adjustment while entering a left curve, mainly at lower speeds. Higher strengthens ' +
+    'that adjustment; lower weakens it. A positive FF gain adds effort; a negative gain reduces it. No effect ' +
+    'with FF gain at zero.'),
+  'unwind_taper_left': (
+    'Fades the FF-gain adjustment as a left turn straightens out. Higher fades it more; lower keeps more of it ' +
+    'during the exit. No effect with FF gain at zero.'),
+  'turn_in_threshold_reduction_left': (
+    'Makes friction compensation respond sooner to small tracking errors when entering a left curve. Higher makes ' +
+    'that response sharper; lower makes it more gradual. Changes the response ramp, not maximum friction ' +
+    'compensation. Torque controllers only; no PID friction effect.'),
+  'unwind_threshold_increase_left': (
+    'Softens friction compensation while straightening out of a left curve, mainly at higher speeds. Higher ' +
+    'builds compensation more gradually; lower responds more sharply. Changes the response ramp, not maximum ' +
+    'friction compensation. Torque controllers only; no PID friction effect.'),
+  'crawl_turn_in_ff_boost_left': (
+    'Adds planned steering effort while starting a left turn at very low speeds. Higher adds more help; lower ' +
+    'adds less. Unlike Turn-in boost, this can act with FF gain at zero.'),
+  'curvy_turn_in_trim_left': (
+    'Softens planned steering while entering a left curve within the Turn-in trim speed range. Higher softens the ' +
+    'entry more; lower keeps more steering effort. Too much can make turn-in feel weak.'),
+  'curvy_unwind_floor_relief_left': (
+    'Allows the FF-gain adjustment to fade further when exiting a left curve within the curve-exit speed range. ' +
+    'Higher allows more fading; lower retains a higher minimum. Works with Unwind taper or Curvy unwind extra ' +
+    'reduction; no effect with FF gain at zero.'),
+  'curvy_unwind_extra_reduction_left': (
+    'Adds more fading of the FF-gain adjustment when exiting a left curve within the curve-exit speed range. ' +
+    'Higher fades it more; lower keeps more. The fade can be limited by Curvy unwind floor relief. No effect with ' +
+    'FF gain at zero.'),
+  'ff_gain_right': (
+    'Sets the extra planned steering effort in right curves, before tracking-error corrections. Higher adds more ' +
+    'effort; lower adds less. Negative values reduce the baseline effort. This is the FF gain used by the ' +
+    'entry-boost and unwind settings.'),
+  'turn_in_boost_right': (
+    'Strengthens the FF-gain adjustment while entering a right curve, mainly at lower speeds. Higher strengthens ' +
+    'that adjustment; lower weakens it. A positive FF gain adds effort; a negative gain reduces it. No effect ' +
+    'with FF gain at zero.'),
+  'unwind_taper_right': (
+    'Fades the FF-gain adjustment as a right turn straightens out. Higher fades it more; lower keeps more of it ' +
+    'during the exit. No effect with FF gain at zero.'),
+  'turn_in_threshold_reduction_right': (
+    'Makes friction compensation respond sooner to small tracking errors when entering a right curve. Higher ' +
+    'makes that response sharper; lower makes it more gradual. Changes the response ramp, not maximum friction ' +
+    'compensation. Torque controllers only; no PID friction effect.'),
+  'unwind_threshold_increase_right': (
+    'Softens friction compensation while straightening out of a right curve, mainly at higher speeds. Higher ' +
+    'builds compensation more gradually; lower responds more sharply. Changes the response ramp, not maximum ' +
+    'friction compensation. Torque controllers only; no PID friction effect.'),
+  'crawl_turn_in_ff_boost_right': (
+    'Adds planned steering effort while starting a right turn at very low speeds. Higher adds more help; lower ' +
+    'adds less. Unlike Turn-in boost, this can act with FF gain at zero.'),
+  'curvy_turn_in_trim_right': (
+    'Softens planned steering while entering a right curve within the Turn-in trim speed range. Higher softens ' +
+    'the entry more; lower keeps more steering effort. Too much can make turn-in feel weak.'),
+  'curvy_unwind_floor_relief_right': (
+    'Allows the FF-gain adjustment to fade further when exiting a right curve within the curve-exit speed range. ' +
+    'Higher allows more fading; lower retains a higher minimum. Works with Unwind taper or Curvy unwind extra ' +
+    'reduction; no effect with FF gain at zero.'),
+  'curvy_unwind_extra_reduction_right': (
+    'Adds more fading of the FF-gain adjustment when exiting a right curve within the curve-exit speed range. ' +
+    'Higher fades it more; lower keeps more. The fade can be limited by Curvy unwind floor relief. No effect with ' +
+    'FF gain at zero.'),
+}
+
+
 def purpose(row):
   key = row.key
   if key in DESCRIPTIONS:
@@ -253,7 +365,7 @@ def purpose(row):
   if key.startswith('torque:surface:'):
     return ('Removes the thirty manual steering overrides while keeping saved Auto Learn history.'
             if key == 'torque:surface:reset' else
-            'Adjusts this manual steering correction.')
+            FLM_DESCRIPTIONS.get(key.removeprefix('torque:surface:')))
   if key.startswith('torque:'):
     field = key.split(':')[1]
     return {'factor': 'Sets the lateral-acceleration-to-torque conversion for compatible steering controllers.',
@@ -283,6 +395,9 @@ def description(row):
     suffix = 'Changes apply when the current signal and maneuver end; turning assistance off cancels it after the preference refresh.'
   if row.key.startswith('torque:surface:'):
     suffix = row.reason.strip()
+    if row.key != 'torque:surface:reset':
+      suffix = ('Zero keeps this stage’s original baseline. The % is an adjustment to this stage, ' +
+                'not a percentage of overall steering strength. ' + suffix).strip()
   if row.key.startswith('torque:') and row.key.split(':')[1] in ('factor', 'friction', 'gain'):
     suffix = ('First activation of a manual tuning owner requires a driving-process restart. An ' +
       'already active owner refreshes saved adjustments during the drive.')

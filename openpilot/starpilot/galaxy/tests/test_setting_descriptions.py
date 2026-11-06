@@ -3,7 +3,7 @@ from dataclasses import replace
 import json
 from pathlib import Path
 
-from openpilot.starpilot.galaxy.setting_descriptions import DESCRIPTIONS, INITIALIZATION, description, purpose
+from openpilot.starpilot.galaxy.setting_descriptions import DESCRIPTIONS, FLM_DESCRIPTIONS, INITIALIZATION, description, purpose
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow
 from openpilot.starpilot.ui.long_profile_feature import CATEGORY_HELP, VALUE_HELP
 from openpilot.starpilot.longitudinal.profile_preferences import SCALARS
@@ -120,10 +120,28 @@ def test_manual_coordinate_purposes_preserve_startup_and_context_warnings():
   from openpilot.starpilot.flm.canonical_surface_adapter import NAMES
   startup = "Parked only. Saved for the next drive; zero restores this stage's original baseline. Manual overrides pause Auto Learn."
   changed = "Vehicle tune, controller or effect definition changed. Reset this manual tune before editing."
+  assert set(FLM_DESCRIPTIONS) == set(NAMES)
+  assert len(set(FLM_DESCRIPTIONS.values())) == len(NAMES)
   for name in NAMES:
     row = FeatureRow('torque:surface:' + name, 'Manual correction', '0', reason=startup)
-    assert purpose(row) == 'Adjusts this manual steering correction.'
+    assert 'higher' in purpose(row).lower() and 'lower' in purpose(row).lower()
+    assert 'Zero keeps this stage' in description(row)
+    assert 'not a percentage of overall steering strength' in description(row)
     assert description(row).endswith(startup)
     assert description(replace(row, available=False, reason=changed)).endswith(changed)
   reset = FeatureRow('torque:surface:reset', 'Reset manual tune', 'Reset')
   assert purpose(reset) == 'Removes the thirty manual steering overrides while keeping saved Auto Learn history.'
+
+
+def test_manual_descriptions_explain_direction_dependencies_and_pid_limits():
+  for side in ('left', 'right'):
+    for name in ('ff_gain_', 'turn_in_boost_', 'unwind_taper_', 'crawl_turn_in_ff_boost_',
+                 'turn_in_threshold_reduction_', 'unwind_threshold_increase_', 'curvy_turn_in_trim_',
+                 'curvy_unwind_floor_relief_', 'curvy_unwind_extra_reduction_'):
+      assert side in FLM_DESCRIPTIONS[name + side]
+    for name in ('turn_in_threshold_reduction_', 'unwind_threshold_increase_'):
+      assert 'no PID friction effect' in FLM_DESCRIPTIONS[name + side]
+    assert 'No effect with FF gain at zero' in FLM_DESCRIPTIONS['turn_in_boost_' + side]
+    assert 'can act with FF gain at zero' in FLM_DESCRIPTIONS['crawl_turn_in_ff_boost_' + side]
+  for name in ('curvy_speed_min', 'curvy_speed_max', 'curvy_turn_in_trim_speed_min', 'curvy_turn_in_trim_speed_max'):
+    assert 'not cruise speed' in FLM_DESCRIPTIONS[name]
