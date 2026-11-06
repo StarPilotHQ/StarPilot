@@ -64,7 +64,8 @@ class CarEvents:
       # TODO: when we check for unexpected disengagement, check gear not S1, S2, S3
       if self.CP.openpilotLongitudinalControl:
         # Only can leave standstill when planner wants to move
-        if CS.cruiseState.standstill and not CS.brakePressed and (CC.cruiseControl.resume or self.CP.flags & ToyotaFlags.HYBRID.value):
+        if (not self.CP.autoResumeSng and CS.standstill and CS.cruiseState.standstill and not CS.brakePressed and
+            (CC.cruiseControl.resume or self.CP.flags & ToyotaFlags.HYBRID.value)):
           events.add(EventName.resumeRequired)
         if CS.vEgo < self.CP.minEnableSpeed:
           events.add(EventName.belowEngageSpeed)
