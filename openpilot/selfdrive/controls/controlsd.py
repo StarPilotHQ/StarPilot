@@ -489,11 +489,15 @@ class Controls:
       and CS.gearShifter in (car.CarState.GearShifter.drive, car.CarState.GearShifter.low)
     ):
       self.model_turn_assist.curvature = self.curvature
-      self.model_turn_assist.twitch_guard_remaining = update_twitch_guard(self.model_turn_assist.twitch_guard_remaining, CS.vEgo, CS.standstill)
+      self.model_turn_assist.twitch_guard_armed = update_twitch_guard(self.model_turn_assist.twitch_guard_armed, CS.vEgo, CS.standstill)
       new_desired_curvature = self.model_turn_assist.update(CS, model_v2, CC, new_desired_curvature)
     elif getattr(self, 'model_turn_assist', None) is not None:
       self.model_turn_assist.reset()
+<<<<<<< Updated upstream
       self.model_turn_assist.twitch_guard_remaining = update_twitch_guard(0.0, CS.vEgo, CS.standstill)
+=======
+      self.model_turn_assist.twitch_guard_armed = update_twitch_guard(False, CS.vEgo, CS.standstill)
+>>>>>>> Stashed changes
     lane_base_curvature = new_desired_curvature
     self.lane_centering_applied = 0.0
     self.lane_centering_inactive_reason = 'inactive'
