@@ -1,2 +1,2 @@
-"""Set once by the release maintainer after deploying the hosted relay."""
-DEFAULT_RELAY_URL = ''
+"""Hosted Sentry push relay used for one-tap enrollment."""
+DEFAULT_RELAY_URL = 'https://galaxy-sentry-relay.dannyirwin31.workers.dev'

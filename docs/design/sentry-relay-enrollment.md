@@ -6,7 +6,7 @@ Implemented across [StarPilot #18](https://github.com/dirwin31/openpilot/pull/18
 
 The user connects the phone app to comma and enables alerts. The app requests OS notification permission, registers its FCM/APNs token with comma, and asks comma to enroll automatically. Galaxy's Enable alerts action starts the same flow. Users never copy keys, invitations, tokens or URLs. Each phone must grant permission; comma and phone need internet for delivery.
 
-The operator deploys the Worker and configures provider credentials once. The StarPilot maintainer sets `DEFAULT_RELAY_URL` in `openpilot/starpilot/sentry_mode/relay_config.py` once before release. Hosting is not deployed yet, so that value is intentionally empty: the UI reports that hosting is not configured and does not claim success. The apps discover readiness from comma and need no duplicate URL configuration.
+The operator deploys the Worker and configures provider credentials once. The StarPilot maintainer sets `DEFAULT_RELAY_URL` in `openpilot/starpilot/sentry_mode/relay_config.py` once before release. It points at `https://galaxy-sentry-relay.dannyirwin31.workers.dev`. With an empty value the UI reports that hosting is not configured and does not claim success. The apps discover readiness from comma and need no duplicate URL configuration.
 
 Enabling is explicit. Existing subscriptions or app upgrades do not silently opt into a new relay. Custom invitation-based relays remain available under advanced controls; they are not the normal user flow.
 
