@@ -176,7 +176,7 @@ def test_bootstrap_waits_out_a_busy_start_response():
   result, joined, _, events = run_bootstrap(start_request_delay=0.1, version_first=True, wait_for_phone_start=True,
                                             answer_start=True, busy_replies=1, busy_follow_up=True)
   assert result.endpoint.port == 5288 and joined[0].ssid == "HondaAA"
-  assert ("bootstrap_start_refused", {"status": -1, "endpoint": False}) in events
+  assert ("bootstrap_start_refused", {"status": -1, "endpoint": False, "hex": "18ffffffffffffffffff01"}) in events
 
 
 def test_bootstrap_asks_again_after_a_busy_start_response():
