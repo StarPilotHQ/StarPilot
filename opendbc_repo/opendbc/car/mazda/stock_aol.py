@@ -116,6 +116,15 @@ def admitted(cp, *, marked_only=False):
   return qualified(cp, marked_only=marked_only) or gen2_qualified(cp, marked_only=marked_only)
 
 
+# Panda withholds lateral while a temporary restriction holds (standstill: its
+# vehicle_moving gate; a TI2 pause; not in Drive) and keeps its AOL token. Its
+# status reaches the host late, and the host may judge a sample up to
+# SAFETY_MAX_AGE_NS (200 ms) old. A denial seen just after the restriction ends was
+# sampled while it held, so the host keeps its intent for this long after release.
+# Past it, a denial is a real revocation again. Host policy only: panda is unchanged.
+RESTRICTION_RELEASE_GRACE_NS = 250_000_000
+
+
 def temporary_restriction(cp, state):
   return bool(state is not None and admitted(cp, marked_only=True) and state.canValid and not state.canTimeout and
               not state.steerFaultPermanent and (state.gearShifter != structs.CarState.GearShifter.drive or
