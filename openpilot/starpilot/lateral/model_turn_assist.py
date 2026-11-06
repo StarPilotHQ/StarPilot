@@ -34,6 +34,10 @@ TWITCH_GUARD_FLOOR = 0.002
 TWITCH_GUARD_STRAIGHT_LO = 0.005
 TWITCH_GUARD_STRAIGHT_HI = 0.014
 TWITCH_GUARD_MIN_REACH = 12.0
+STOP_HOLD_MAX_SPEED = 2.5
+STOP_HOLD_DIST = 1.5
+STOP_HOLD_RELEASE_DIST = 3.0
+STOP_HOLD_MIN_DECEL = 0.3
 
 
 def _plan_circle_curvature(xs, ys, lookahead: float) -> float:
@@ -124,6 +128,12 @@ def update_twitch_guard(remaining: float, v_ego: float, standstill: bool) -> flo
   if standstill or abs(v_ego) <= 0.3:
     return TWITCH_GUARD_DURATION
   return max(remaining - DT_CTRL, 0.0)
+
+
+def stopping_distance(v_ego: float, a_ego: float) -> float:
+  if not (math.isfinite(v_ego) and math.isfinite(a_ego)) or v_ego >= STOP_HOLD_MAX_SPEED:
+    return math.inf
+  return v_ego ** 2 / (2.0 * max(-a_ego, 0.01))
 TURN_LEAD_T = 1.3
 TURN_LEAD_MIN_M = 4.0
 TURN_LEAD_MAX_M = 14.0
@@ -150,11 +160,23 @@ class ModelTurnAssist:
     self.turn_hold_handoff_t = 0.0
     self.turn_blinker_swept = 0.0
     self.twitch_guard_remaining = 0.0
+    self.stop_hold_curvature = None
     self.curvature = 0.0
     self.turn_hold_done = False
 
   def update(self, CS, model_v2, CC, new_desired_curvature):
     blinker_dir = float(CS.rightBlinker) - float(CS.leftBlinker)
+    stop_dist = stopping_distance(CS.vEgo, CS.aEgo)
+    entering = CS.aEgo < -STOP_HOLD_MIN_DECEL and stop_dist < STOP_HOLD_DIST
+    holding = self.stop_hold_curvature is not None and stop_dist < STOP_HOLD_RELEASE_DIST
+    if CC.latActive and blinker_dir == 0.0 and self.turn_hold_curvature == 0.0 and (entering or holding):
+      if CS.steeringPressed:
+        self.stop_hold_curvature = self.curvature
+      elif self.stop_hold_curvature is None:
+        self.stop_hold_curvature = new_desired_curvature
+      new_desired_curvature = self.stop_hold_curvature
+    else:
+      self.stop_hold_curvature = None
     if CC.latActive and self.twitch_guard_remaining > 0.0 and (blinker_dir == 0.0) and (self.turn_hold_curvature == 0.0):
       new_desired_curvature = limit_curvature_to_plan(model_v2, new_desired_curvature, CS.vEgo)
     if blinker_dir == 0.0:
