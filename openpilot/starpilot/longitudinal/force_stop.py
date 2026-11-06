@@ -187,7 +187,7 @@ class ForceStop:
     else:
       self.timer = max(0, self.timer - DT_MDL * .25)
     force = self.timer >= .5 or self.forcing and not frame.standstill or held
-    light_cleared = (not held and self.forcing and self.from_light and not frame.standstill and
+    light_cleared = (not held and self.forcing and self.from_light and not frame.standstill and not self.sign_confirmed and
                      available and not frame.light and not frame.sign and go_scene)
     low_speed_hold = (light_cleared and tune.low_speed_hold_mps is not None and self.entry_speed is not None and
                       speed <= tune.low_speed_hold_mps and speed < self.entry_speed - .25)
@@ -228,8 +228,6 @@ class ForceStop:
         if frame.sign and available:
           if horizon < SIGN_MODEL_AGREE_M:
             self.distance = min(self.distance, SIGN_SEED_M)
-          if horizon < SIGN_SEED_M:
-            self.distance = horizon
         effective = self.distance + offset + tune.distance_bias_m
         decel = SIGN_APPROACH_DECEL if frame.sign else MODEL_APPROACH_DECEL
         ceiling = math.sqrt(2 * decel * max(0, effective - tune.handoff_m))
@@ -245,10 +243,11 @@ class ForceStop:
         if effective > tune.handoff_m:
           ceiling = math.sqrt(2 * MODEL_APPROACH_DECEL * (effective - tune.handoff_m))
     self.previously_enabled = frame.enabled
-    stop_length = self.distance if self.forcing and self.distance > tune.handoff_m else approach
+    stop_length = self.distance if self.forcing else approach
     # The MPC obstacle includes its standing-distance term; adding it at the
     # native boundary avoids moving the actual stop line by that buffer.
-    obstacle = stop_length * .93 + offset + tune.distance_bias_m if stop_length > tune.handoff_m else None
+    obstacle = (stop_length * .93 + offset + tune.distance_bias_m
+                if stop_length > 0 and stop_length + offset > tune.handoff_m else None)
     return StopPlan(now, ceiling, obstacle, self.forcing, bool(self.forcing and ceiling is not None and ceiling <= .5),
                     self.distance if self.forcing else 0.0, approach,
                     tune.jerk_scale if self.forcing or approach > 0 else 1.0, bool(held and self.forcing and not overridden),

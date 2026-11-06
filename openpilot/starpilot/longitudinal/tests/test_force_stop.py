@@ -229,6 +229,28 @@ class ForceStopTests(unittest.TestCase):
           plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=190., light=False, standstill=True), self.tune)
           self.assertFalse(plan.forcing)
 
+  def test_latched_sign_survives_light_and_sign_dropout(self):
+    for tick in range(15):
+      self.owner.step(frame(tick, speed_mps=8., horizon_m=45., sign=True), self.tune)
+    self.assertTrue(self.owner.sign_confirmed)
+    for tick in range(15, 45):
+      plan = self.owner.step(frame(tick, speed_mps=1., horizon_m=190., light=False), self.tune)
+      self.assertTrue(plan.forcing)
+
+  def test_sign_seed_never_moves_the_stop_farther(self):
+    for tick in range(50):
+      previous = self.owner.step(frame(tick, speed_mps=8., horizon_m=45., sign=True), self.tune)
+    self.assertLess(previous.tracked_distance_m, 20.)
+    plan = self.owner.step(frame(50, speed_mps=8., horizon_m=20., sign=True), self.tune)
+    self.assertLessEqual(plan.tracked_distance_m, previous.tracked_distance_m)
+
+  def test_positive_offset_keeps_stop_target_until_native_stop(self):
+    for tick in range(40):
+      plan = self.owner.step(frame(tick, horizon_m=12.), self.tune, 8)
+      if plan.forcing:
+        self.assertTrue(plan.should_stop or plan.obstacle_m is not None)
+    self.assertTrue(plan.should_stop)
+
   def test_odometry_ceiling_bounds_reopened_model(self):
     for tick in range(15):
       self.owner.step(frame(tick), self.tune)
