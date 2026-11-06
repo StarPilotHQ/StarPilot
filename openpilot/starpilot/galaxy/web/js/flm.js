@@ -61,9 +61,10 @@ export const FlmPage = {
     current() { return this.report?.current },
     preference() { return validLearningPreference(this.report?.preference) ? this.report.preference : null },
     choiceLive() { return !this.error && !!this.preference && Math.max(0, this.now - this.receivedAt) <= 2000 },
-    live() { return !this.error && !!this.current?.fresh && this.current.ageSeconds + Math.max(0, this.now - this.receivedAt) / 1000 <= 2 &&
+    reportFresh() { return !this.error && !!this.current?.fresh && this.current.ageSeconds + Math.max(0, this.now - this.receivedAt) / 1000 <= 2 },
+    live() { return this.reportFresh &&
       !(this.choiceLive && (this.preference.enabled === false || this.preference.parked === true)) },
-    state() { return tunerStatus(this.report, this.live, this.choiceLive, this.error) },
+    state() { return tunerStatus(this.report, this.live, this.choiceLive, this.error, this.reportFresh) },
     vehicle() { return this.preference?.vehicle ? this.preference.vehicle.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) : "Your steering, measured" },
     currentApplied() { return this.live && this.current?.enabled === true && this.current?.application?.applied === true },
     rows() { return surfaceRows(this.report, this.live) },

@@ -224,3 +224,27 @@ countsReport.current.details['GLOBAL original source capture'].poses=-1
 assert.equal(progressContext.trackingProgress,null,'Invalid original counts stay unknown')
 assert.equal(progressContext.measurements,null,'Missing live counts cannot be replaced with legacy zero')
 console.log('Live pose count uses existing producer data, without extra telemetry or an eligibility claim')
+
+// Parked analysis has a fresh report but deliberately has NO live application.
+ctx.report = {version:1,history:[],preference:{version:1,valid:true,enabled:true,parked:true,vehicle:'declared-torque-car'},
+ current:{fresh:true,ageSeconds:.1,enabled:null,status:'collecting',reason:'recorded_tracking_suggestion_not_yet_qualified_for_automatic_application',
+ progress:{samples:241573,blocks:251,requiredBlocks:6},fit:null,application:{applied:false,reason:'saved_configuration_is_not_current_application'},
+ details:{'Completed drive analyzed':'declared-drive','Recorded steering observations':241573,
+ 'Analysis decision':'recorded_tracking_suggestion_not_yet_qualified_for_automatic_application','Automatic configuration changed':false,
+ 'Recorded route suggestions':['highway_center_taper_max','turn_in_boost_left','unwind_taper_left','turn_in_boost_right','unwind_taper_right']
+ .map(name=>[name,.005,9,'controller_native_checks_not_passed'])}}}
+assert.equal(ctx.live,false,'Parked report is never a live application acknowledgement')
+assert.equal(ctx.reportFresh,true)
+assert.equal(ctx.state.title,'Completed drive analyzed')
+const offroadText=text(render.call(ctx,ctx,[]))
+for(const label of ['Highway center taper','Left turn-in boost','Left unwind taper','Right turn-in boost','Right unwind taper'])assert(offroadText.includes(label))
+assert(!offroadText.includes('Waiting for driving samples'))
+assert(!offroadText.includes('Real measurements go here'))
+assert.equal(ctx.currentApplied,false)
+ctx.report.current.details['Saved route configuration state']='ready_for_next_drive'
+assert.equal(ctx.state.title,'Tune saved for the next drive')
+assert.equal(ctx.currentApplied,false,'Next-drive saving never fabricates live application')
+ctx.now=3000
+assert.equal(ctx.reportFresh,false)
+assert.notEqual(ctx.state.title,'Tune saved for the next drive','Expired report cannot assert the current saved tune')
+console.log('Actual parked Vue render exposes all five route candidates, distinguishes saving/application and expires stale status')

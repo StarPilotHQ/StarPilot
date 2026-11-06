@@ -300,6 +300,73 @@ class TestOffroadReport(unittest.TestCase):
 
 
 class TestOffroadRouteCoverage(unittest.TestCase):
+  def test_actual_aggregation_keeps_classifier_and_separate_qualification_windows(self):
+    import math
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_processor as processor
+    from openpilot.starpilot.flm.offroad_evidence import RoutePoint, RouteWindow, window_identity
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+
+    # Declared post-collection fixture. This exercises the original aggregation
+    # path; no real source, native permission, acceptance or saved tune is mocked.
+    def windows(duration):
+      result = []
+      for segment in range(6):
+        points = tuple(
+          RoutePoint(
+            'declared-aggregation',
+            segment,
+            1_000_000_000 + segment * 10_000_000_000 + i * 10_000_000,
+            'lateral_acceleration',
+            'a' * 64,
+            0.02 * math.sin(i / 20),
+            0.018 * math.sin(i / 20),
+            25.0,
+            0.1,
+            0.1,
+            1,
+            1,
+            True,
+            False,
+            False,
+            True,
+          )
+          for i in range(duration * 100)
+        )
+        result.append(RouteWindow(window_identity(points), points))
+      return result
+
+    continuous, observed = windows(2), windows(6)
+    metadata = {'route_values': tuple(values().items()), 'route_revision': REVISION}
+    route = {'routeId': 'declared-aggregation'}
+    receipt = RouteReceipt('declared-aggregation', 'b' * 64, (), 'c' * 64, 1, 2, 3, ())
+
+    def collected(root, selected, *, permitted, consume):
+      self.assertEqual(selected, route)
+      self.assertTrue(permitted())
+      self.assertIsNotNone(consume.__closure__)
+      cells = dict(zip(consume.__code__.co_freevars, consume.__closure__, strict=True))
+      cells['state'].cell_contents['cp'] = SimpleNamespace()
+      cells['windows'].cell_contents['a' * 64] = continuous
+      cells['stable_windows'].cell_contents['a' * 64] = continuous
+      cells['baseline_tracking'].cell_contents['a' * 64] = observed
+      cells['context_metadata'].cell_contents['a' * 64] = metadata
+      cells['bookends'].cell_contents.update({w.identity: (w.points[0].mono_ns, w.points[-1].mono_ns) for w in observed})
+      return receipt
+
+    with patch.object(processor, 'latest_route', return_value=route), patch.object(processor, 'walk_completed_route', side_effect=collected):
+      assessment = processor.analyze_latest(None, None, dict.fromkeys(NAMES, 0.0), permitted=lambda: True)
+    self.assertEqual(len(assessment.stable_groups), 1)
+    group = assessment.stable_groups[0]
+    self.assertEqual(group['tracking_source_grade'], 'bookended_zero_route_tracking')
+    self.assertEqual({w['identity'] for w in group['selected_original_windows']}, {w.identity for w in observed})
+    self.assertEqual({w['identity'] for w in group['qualification_original_windows']}, {w.identity for w in continuous})
+    roles = group['cohorts'][0]['qualification_roles']
+    self.assertEqual(len(roles['training']['windows']), 3)
+    self.assertEqual(len(roles['heldout']['windows']), 3)
+    self.assertFalse(set(roles['training']['windows']) & set(roles['heldout']['windows']))
+    self.assertFalse(assessment.report()['automatically_saved'])
+
   def test_continuous_center_does_not_hide_other_baseline_maneuvers(self):
     from openpilot.starpilot.flm.offroad_baseline_windows import stable_proposal_windows
 

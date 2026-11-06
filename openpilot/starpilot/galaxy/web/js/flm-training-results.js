@@ -214,15 +214,15 @@ export function offroadView(report) {
     moreSuggestions: details['More recorded suggestions omitted'] === true }
 }
 
-export function tunerStatus(report, live = false, choiceLive = false, error = "") {
+export function tunerStatus(report, live = false, choiceLive = false, error = "", reportFresh = live) {
   const preference = choiceLive && validLearningPreference(report?.preference) ? report.preference : null
   const current = report?.current
   if (error) return { key: "offline", tone: "muted", title: "Connection interrupted", description: "Earlier results are available below. Current steering activity is unknown." }
   if (preference?.valid && preference.enabled === false || !preference && live && current?.enabled === false)
     return { key: "off", tone: "muted", title: "Auto Learn is off", description: "No driving samples are being collected by the learner. Turn it on in steering settings to begin." }
-  if (live && current?.status === 'fitting' && ['analyzing_last_completed_drive', 'checking_recorded_steering_recommendations'].includes(current.reason))
+  if (reportFresh && current?.status === 'fitting' && ['analyzing_last_completed_drive', 'checking_recorded_steering_recommendations'].includes(current.reason))
     return { key: 'fitting', tone: 'active', title: 'Analyzing your completed drive', description: learningReason(current.reason) }
-  const route = live && (!preference || preference.parked) ? offroadView(report) : null
+  const route = reportFresh && (!preference || preference.parked) ? offroadView(report) : null
   if (route) {
     if (route.configurationState === 'ready_for_next_drive')
       return { key: 'next-drive', tone: 'ready', title: 'Tune saved for the next drive', description: learningReason('bounded_trial_configured_for_next_drive') }

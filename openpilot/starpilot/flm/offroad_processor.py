@@ -253,7 +253,7 @@ def analyze_latest(params, root, previous, *, permitted):
     if not values:
       continue
     report = analyze(tuple(values), amplitude_prior, permitted=permitted)
-    selected_ids = {wid for cohort in report['cohorts'] for role in ('training', 'heldout') for wid in cohort.get(role, {}).get('windows', ())}
+    selected_ids = {wid for cohort_row in report['cohorts'] for role in ('training', 'heldout') for wid in cohort_row.get(role, {}).get('windows', ())}
     report.update(
       original_context_sha256=key,
       original_metadata=context_metadata[key],
