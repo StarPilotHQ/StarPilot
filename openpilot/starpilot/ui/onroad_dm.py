@@ -48,10 +48,14 @@ def draw_monitor_art(renderer, bounds, profile):
     rl.rl_pop_matrix()
 
 
-def monitor_visible(profile, state, *, fresh, onroad, top_icons):
+def monitor_visible(profile, state, *, fresh, onroad, top_icons, bounds=None):
+  from openpilot.starpilot.ui.onroad_state import slc_action_occludes
+
+  monitor = bounds if bounds is not None else monitor_bounds(state.customization, profile, state.right_hand_drive)
+  if slc_action_occludes(profile, state, (monitor.x, monitor.y, monitor.x + monitor.width, monitor.y + monitor.height)):
+    return False
   occluded = False
   if profile == Profile.COMPACT and top_icons:
-    monitor = monitor_bounds(state.customization, profile, False)
     speed = placement(state.customization, profile, 'max_speed')
     widget = PROFILES['compact']['widgets']['max_speed']
     occluded = rl.check_collision_recs(monitor, rl.Rectangle(speed['x'], speed['y'], widget['width'], widget['height']))
@@ -86,12 +90,13 @@ class DriverMonitorLayer:
       self.renderer.set_rect(rl.Rectangle(0, 0, 128, 128))
       self.renderer.load_icons()
 
-  def render(self, state, *, monitor, driver, fresh, onroad, top_icons=False):
+  def render(self, state, *, monitor, driver, fresh, onroad, top_icons=False, y_offset=0):
     ready = fresh and valid_observation(monitor, driver)
-    visible = monitor_visible(self.profile, state, fresh=ready, onroad=onroad, top_icons=top_icons)
-    self.renderer.set_should_draw(visible)
     is_rhd = monitor.isRHD if ready else getattr(self.renderer, '_is_rhd', False)
     bounds = monitor_bounds(state.customization, self.profile, is_rhd)
+    bounds.y += y_offset
+    visible = monitor_visible(self.profile, state, fresh=ready, onroad=onroad, top_icons=top_icons, bounds=bounds)
+    self.renderer.set_should_draw(visible)
     self.renderer.set_position(bounds.x, bounds.y)
     if ready:
       self.renderer._update_state()

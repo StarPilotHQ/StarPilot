@@ -116,3 +116,32 @@ def test_confirmation_proposal_uses_the_pending_target_and_its_offset(pending, a
   observation = replace(current.speed_limit, pending_speed_limit_mps=pending, pending_adjusted_limit_mps=adjusted,
                         presentation_adjusted_limit_mps=presentation, offset_mps=offset)
   assert resolve_unified_speed(replace(current, speed_limit=observation)).proposal_text == expected
+
+
+@pytest.mark.parametrize('change', ['none', 'retained', 'hold', 'recovering', 'pending', 'source', 'rounded-posted',
+                                  'rounded-target', 'pedal', 'override', 'display-only', 'not-limiting', 'disengaged'])
+def test_in_use_requires_fresh_accepted_source_and_actual_control(change):
+  current = state()
+  obs = replace(current.speed_limit, accepted_speed_limit_mps=30., accepted_adjusted_limit_mps=32.,
+                accepted_source='vision', effective_cluster_target_mps=32., limiting_max_set=True)
+  changes = {
+    'retained': {'kind': ObservationKind.STALE, 'speed_limit_mps': None, 'last_received_speed_limit_mps': 30.},
+    'hold': {'status': 'display_hold'}, 'recovering': {'sign_recovering': True},
+    'pending': {'pending_speed_limit_mps': 30.}, 'source': {'accepted_source': 'dashboard'},
+    'rounded-posted': {'accepted_speed_limit_mps': 30.01},
+    'rounded-target': {'effective_cluster_target_mps': 32.01},
+    'override': {'driver_override_active': True}, 'display-only': {'action_enabled': False},
+    'not-limiting': {'limiting_max_set': False},
+  }
+  current = replace(current, speed_limit=replace(obs, **changes.get(change, {})),
+                    longitudinal_overridden=change == 'pedal', longitudinal_active=change != 'disengaged')
+  assert resolve_unified_speed(current).limit_in_use == (change == 'none')
+
+
+def test_pedal_basis_cannot_be_presented_as_a_held_override_between_message_updates():
+  current = state()
+  current = replace(current, speed_limit=replace(current.speed_limit, driver_override_active=True,
+                    effective_cluster_target_mps=26., override_basis='pedal'))
+  assert resolve_unified_speed(current).override_text is None
+  released = replace(current, speed_limit=replace(current.speed_limit, override_basis='persistent'))
+  assert resolve_unified_speed(released).override_text == '94'

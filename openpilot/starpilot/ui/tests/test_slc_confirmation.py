@@ -50,19 +50,19 @@ def test_closed_and_open_card_share_anchor_and_physically_scaled_targets(profile
   opened = touch.present(current)
   after = speed_limit_bounds(profile, opened)
   assert before is not None and after is not None
-  assert before[1::2] == after[1::2]
-  assert before[0 if profile == Profile.LARGE else 2] == after[0 if profile == Profile.LARGE else 2]
+  assert before[1] == after[1] and before[3] <= after[3]
+  assert after[0] <= before[0] < before[2] <= after[2]
   first, last = slc_controls(profile, opened)
   scale = CONFIRMATION_SCALE[profile]
-  assert (first.bounds[2] - first.bounds[0]) / scale == pytest.approx(144)
-  assert (first.bounds[3] - first.bounds[1]) / scale == pytest.approx(112)
-  assert (last.bounds[0] - first.bounds[2]) / scale == pytest.approx(8)
+  assert (first.bounds[2] - first.bounds[0]) / scale == pytest.approx(180 if profile == Profile.LARGE else 150)
+  assert (first.bounds[3] - first.bounds[1]) / scale == pytest.approx(128 if profile == Profile.LARGE else 112)
+  assert (last.bounds[0] - first.bounds[2]) / scale == pytest.approx(12)
   assert (first.bounds[0] - after[0]) / scale == pytest.approx(8)
   assert (after[2] - last.bounds[2]) / scale == pytest.approx(8)
   torque = current.customization['layouts'][str(profile)]['torque_bar']
   assert after[3] < torque['y']
   if profile == Profile.COMPACT:
-    assert after == (148., 8, 460., 160.)
+    assert after == (148., 8, 476., 160.)
     assert after[0] > 146
 
 
@@ -136,19 +136,19 @@ def test_new_layouts_reject_torque_overlap_and_legacy_migration_is_targeted(prof
   original = deepcopy(doc)
   migrated = validate_document(doc)
   assert doc == original
-  assert migrated['version'] == 12
+  assert migrated['version'] == 13
   assert migrated['palette'] == doc['palette']
   assert migrated['layouts']['large']['current_speed'] == doc['layouts']['large']['current_speed']
   assert migrated['layouts'][str(profile)][owner]['y'] == default_document()['layouts'][str(profile)][owner]['y']
   assert validate_document(migrated) == migrated
 
 
-def test_legacy_sources_keep_guidance_below_the_row_and_above_the_gauge():
+def test_legacy_sources_keep_the_saved_action_area_below_the_row():
   doc = default_document()
   doc.update(version=11, speedSources=True, speedSourcesCard=True)
   doc['layouts']['large']['speed_limit_actions']['y'] = 351
   migrated = validate_document(doc)
-  assert migrated['layouts']['large']['speed_limit_actions']['y'] == 367
+  assert migrated['layouts']['large']['speed_limit_actions']['y'] == 389
   assert validate_document(migrated) == migrated
 
 

@@ -43,14 +43,21 @@ With **Confirm limits** set to **Off**, qualified new limits are adopted immedia
 accepted posted limit. An unselected direction is automatic.
 Without a previous limit, any manual policy asks for the first one unless it
 already matches SET.
-The stationary confirmation card gives two gentle purple pulses
+The stationary New Limit caption gives two gentle pulses
 (700 ms each, separated by 200 ms), then rests until the 3.2-second cycle repeats.
-Only the lower part of the card pulses; the speed and source remain steady.
+Only the caption changes color; the speed and source remain steady.
 The arrow remains relative to vehicle speed.
 Outside manual confirmation, large UI uses the same US or Vienna sign at 1.25×
 scale beside SET speed.
-US signs share a cached antialiased white outline with a transparent interior;
-the offset fits inside the fixed sign height on both screens.
+Signs and confirmation choices have transparent interiors. Cached sign outlines and
+tight dark glyph edges keep the camera visible without sampling its brightness.
+SET keeps its label and value in both profiles. When the displayed road limit
+matches the fresh accepted cap actually limiting SET, it gets an IN USE label;
+the rectangular sign also turns green.
+An applied offset target uses a large LIMIT value with the source reading below.
+A held override uses the same rectangular readout labeled OVERRIDE, including in
+Vienna mode; the road limit remains readable below it. While the accelerator is
+pressed, PEDAL identifies the temporary driver input without claiming a held speed.
 Both sign styles identify the displayed source: DASH for Dashboard, OSM for offline
 Maps, and VISION for the vision model. Explicit Mapbox readings in historical
 replay use NAV; unidentified live sources show SPEED. A retained road reading
@@ -58,10 +65,17 @@ shows LAST alongside its source when known. For the same source and speed, the
 label clears after 150 ms of live updates. Vision keeps a confirmed sign current
 after it leaves view while the camera pipeline stays healthy. DASH follows the
 current OEM reading, and Maps keeps the current road limit separate from its
-upcoming preview. The binding SLC speed is shown separately beside SET, including
-during a new-limit confirmation.
-Both styles place only this source above the number, beside any pending arrow.
-The source and arrow share a centered row; all sign contents use the same geometry
+upcoming preview. Retained and recovering readings never claim IN USE.
+During a new-limit confirmation the applied LIMIT or OVERRIDE stays below SET;
+if SET is hidden, that status appears in the confirmation header with a `Now:`
+label. The expanded Accept button contains the proposed limit including its offset
+and unit; Reject says `new limit`. Source readings and offset arithmetic stay in
+the collapsed notice, outside the expanded decision. Accept and Reject retain their original touch
+areas and action validation. Green Accept and red Reject outlines contain each
+button without filling its interior; pressing strengthens the outline and colors
+the label. Disabled choices use muted ink.
+Ordinary signs keep the source above the number, beside any pending arrow.
+The source and arrow share a centered row; sign contents use the same geometry
 on both screens. Small arrows are baked at double resolution and text is aligned
 to final pixels for clear native rendering.
 Steering-wheel + accepts and − declines. Tapping the sign opens the same

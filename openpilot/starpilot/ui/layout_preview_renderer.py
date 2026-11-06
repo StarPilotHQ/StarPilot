@@ -30,7 +30,6 @@ from openpilot.starpilot.ui.layout_preview_sidebar import SIDEBAR_WIDTH, render_
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile, default_font_directory
 from openpilot.starpilot.ui.rainbow_path import RainbowPath
 from openpilot.starpilot.ui.road_colors import edge_gradient, lane_color, path_mode, solid_gradient
-from openpilot.starpilot.ui.speed_limit_shapes import SPRITES
 from openpilot.starpilot.ui.onroad_customization import ROAD_COLORS
 from openpilot.system.ui.lib.shader_polygon import Gradient, draw_polygon
 
@@ -190,10 +189,11 @@ class _DriverMonitorArt:
       self.close()
       raise
 
-  def render(self, _content: rl.Rectangle, state: OnroadState, *, top_icons: bool = False) -> None:
-    if not monitor_visible(self.profile, state, fresh=True, onroad=True, top_icons=top_icons):
+  def render(self, _content: rl.Rectangle, state: OnroadState, *, top_icons: bool = False, y_offset=0) -> None:
+    bounds = monitor_bounds(state.customization, self.profile, state.right_hand_drive)
+    bounds.y += y_offset
+    if not monitor_visible(self.profile, state, fresh=True, onroad=True, top_icons=top_icons, bounds=bounds):
       return
-    bounds = monitor_bounds(state.customization, self.profile, False)
     draw_widget_frame(bounds, state.customization, self.profile, "driver_monitor")
     draw_monitor_art(self.renderer, bounds, self.profile)
 
@@ -283,15 +283,7 @@ class _Canvas:
                  state.appearance.camera_view != CameraViewChoice.DRIVER and not state.reverse_driver_camera and
                  self.view.compact_hud._set_speed_alpha.x > 0.01 and
                  placement(state.customization, self.profile, "max_speed")["enabled"])
-    if self.viewport is None:
-      self.monitor.render(rect, state, top_icons=top_icons)
-    else:
-      rl.rl_push_matrix()
-      rl.rl_translatef(0, self.viewport[1] - 1080, 0)
-      try:
-        self.monitor.render(rect, state, top_icons=top_icons)
-      finally:
-        rl.rl_pop_matrix()
+    self.monitor.render(rect, state, top_icons=top_icons, y_offset=self.viewport[1] - 1080 if self.viewport else 0)
 
   def render(self, state: OnroadState, scene: str) -> bytes:
     if self.view is None or self.fonts is None or self.target is None:
@@ -349,13 +341,10 @@ class _Canvas:
       crop_y = max(0, math.floor(position['y'] - widget.get('visualInsetTop', 0)))
       offset_x, offset_y = crop_x - position['x'], crop_y - position['y']
       width, height = math.ceil(logical_width - offset_x), math.ceil(logical_height - offset_y)
-      if self.profile == Profile.COMPACT and key == 'speed_limit' and state.speed_limit.driver_override_active:
-        sprite = 'override_circle' if state.appearance.use_vienna_sign else 'override_outline'
-        # The override sign is wider than the saved sign footprint.
-        outset = (SPRITES[sprite][2] - logical_width) / 2
-        crop_x = max(0, math.floor(position['x'] - outset))
+      if self.profile == Profile.COMPACT and key == 'speed_limit':
+        crop_x = max(0, math.floor(position['x'] - 2))
         offset_x = crop_x - position['x']
-        width = min(canvas_width - crop_x, math.ceil(logical_width - offset_x + outset))
+        width = math.ceil(logical_width + 2 - offset_x)
       if state.speed_limit.pending_speed_limit_mps is not None and (area := widget.get('confirmation')) is not None:
         crop_x = math.floor(min(crop_x, position['x'] + area['x']))
         crop_y = math.floor(min(crop_y, position['y'] + area['y']))
@@ -396,7 +385,9 @@ class _Canvas:
         rl.image_format(image, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)
         rl.image_flip_vertical(image)
         rl.image_crop(image, rl.Rectangle(crop_x, crop_y, width, height))
-        captures.append((key, _straight_rgba(bytes(image.data[:width * height * 4]))))
+        data = _straight_rgba(bytes(image.data[:width * height * 4]))
+        sprites[key]['visible'] = any(data[3::4])
+        captures.append((key, data))
       finally:
         rl.unload_image(image)
     sheet_width = max(slot['x'] + slot['width'] for slot in sprites.values())

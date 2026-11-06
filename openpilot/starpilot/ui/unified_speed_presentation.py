@@ -20,6 +20,7 @@ class UnifiedSpeedPresentation:
   override_text: str | None
   slc_target_text: str | None = None
   posted_retained: bool = False
+  limit_in_use: bool = False
 
   @property
   def max_status(self) -> str:
@@ -105,12 +106,12 @@ def resolve_unified_speed(state, *, confirmation=False) -> UnifiedSpeedPresentat
     status = 'Unavailable'
   elif not obs.action_enabled:
     status = 'Display only'
+  elif state.longitudinal_overridden:
+    status = 'Using accelerator'
   elif obs.driver_override_active:
     status = 'Set-speed override'
   elif pending:
     status = 'Adopting limit' if getattr(obs, 'automatic_adoption_pending', False) else 'Confirm speed limit'
-  elif state.longitudinal_overridden:
-    status = 'Using accelerator'
   elif state.cruise_active and slc_limiting:
     status = 'Using speed limit'
   elif state.cruise_active:
@@ -124,12 +125,20 @@ def resolve_unified_speed(state, *, confirmation=False) -> UnifiedSpeedPresentat
     proposal = obs.pending_adjusted_limit_mps or (
       target if obs.pending_speed_limit_mps == posted else obs.pending_speed_limit_mps + (obs.offset_mps or 0))
   active_target = obs.effective_cluster_target_mps
+  # A matching displayed number alone does not establish that this source is controlling.
+  limit_in_use = bool(slc_limiting and not pending and not posted_retained and not obs.sign_recovering and
+                      positive(posted) and positive(target) and positive(active_target) and
+                      positive(obs.accepted_speed_limit_mps) and source == obs.accepted_source and
+                      math.isclose(posted, obs.accepted_speed_limit_mps, abs_tol=.001) and
+                      math.isclose(target, active_target, abs_tol=.001))
   return UnifiedSpeedPresentation(mode, max_text, speed(posted), offset, 'km/h' if state.metric else 'mph',
                                   source, pending,
                                   ('limit' if slc_limiting else 'max') if state.cruise_active else 'none',
                                   speed(target), status,
                                   speed(proposal),
                                   speed(obs.effective_cluster_target_mps) if obs.driver_override_active and
+                                  obs.action_enabled and state.longitudinal_active and not state.longitudinal_overridden and
+                                  obs.override_basis != 'pedal' and
                                   positive(obs.effective_cluster_target_mps) else None,
                                   speed(active_target) if slc_limiting and positive(active_target) else None,
-                                  posted_retained)
+                                  posted_retained, limit_in_use)

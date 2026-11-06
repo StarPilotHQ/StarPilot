@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 import shutil
 import subprocess
@@ -70,7 +71,9 @@ def test_every_scene_matches_native_border_mode_and_widget_visibility(target):
           expected['steering_wheel'] = not state.lateral_active
           expected['max_speed'] = not state.cruise_active
           expected['speed_limit'] = str(state.speed_limit.kind) != 'valid'
-          expected['driver_monitor'] = not monitor_visible(profile, state, fresh=True, onroad=True,
+          # Before native art arrives, scene rules cover eligibility; native pixels supply prompt occlusion.
+          eligibility = replace(state, speed_limit=replace(state.speed_limit, pending_speed_limit_mps=None))
+          expected['driver_monitor'] = not monitor_visible(profile, eligibility, fresh=True, onroad=True,
                                                          top_icons=state.cruise_active and layout['max_speed']['enabled'])
       assert scene['hidden'] == expected, (target, scene['id'], move)
 

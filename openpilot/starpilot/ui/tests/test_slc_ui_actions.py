@@ -13,7 +13,7 @@ from openpilot.starpilot.ui.preview_settings import reference_settings_state
 from openpilot.starpilot.ui.shell import ShellInput, ShellMode, ShellSnapshot
 from openpilot.starpilot.ui.slc_action_dispatch import SlcActionDispatcher
 
-from openpilot.starpilot.ui.large_speed_geometry import sources_extent
+from openpilot.starpilot.ui.large_speed_geometry import CARD_HEIGHT, GAP, ACTION_Y, sources_extent
 from openpilot.starpilot.ui.onroad_customization import default_document, placement, validate_document
 from openpilot.starpilot.ui.onroad_torque_geometry import maximum_footprint
 from openpilot.starpilot.ui.tests.test_onroad_customization import road
@@ -275,7 +275,7 @@ def test_large_attached_actions_follow_source_row_and_custom_actions_stay_put():
   state.customization['speedSources'] = True
   state = replace(state, customization=validate_document(state.customization))
   after = slc_action_bounds(Profile.LARGE, state)
-  assert after[0][1] - before[0][1] == sources_extent(state.customization) - 16
+  assert after[0][1] - before[0][1] == CARD_HEIGHT + sources_extent(state.customization) + GAP - (ACTION_Y - 75)
   assert after[0][:2] == tuple(placement(state.customization, Profile.LARGE, 'speed_limit_actions')[key] for key in ('x', 'y'))
   state.customization['layouts']['large']['speed_limit_actions'].update(x=600, y=500)
   assert slc_action_bounds(Profile.LARGE, state)[0][:2] == (600, 500)
@@ -300,11 +300,12 @@ def test_v10_default_migration_preserves_unrelated_customization_and_optional_wi
 
 
 def test_large_controls_with_source_card_clear_the_default_cem_gauge():
-  state = road()
-  state.customization.update(speedSources=True, speedSourcesCard=True)
-  state = replace(state, customization=validate_document(state.customization))
-  bounds = slc_action_bounds(Profile.LARGE, state)
-  assert bounds[-1][3] < state.customization['layouts']['large']['cem_gauge']['y']
+  current = replace(state(), slc_prompt_open=True)
+  current.customization.update(speedSources=True, speedSourcesCard=True)
+  current = replace(current, customization=validate_document(current.customization))
+  controls = slc_controls(Profile.LARGE, current)
+  assert len(controls) == 2
+  assert controls[-1].bounds[3] < current.customization['layouts']['large']['cem_gauge']['y']
 
 
 if __name__ == "__main__":
