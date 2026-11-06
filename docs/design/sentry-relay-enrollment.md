@@ -6,7 +6,7 @@ Implemented across [StarPilot #18](https://github.com/dirwin31/openpilot/pull/18
 
 The user connects the phone app to comma and enables alerts. The app requests OS notification permission, registers its FCM/APNs token with comma, and asks comma to enroll automatically. Galaxy's Enable alerts action starts the same flow. Users never copy keys, invitations, tokens or URLs. Each phone must grant permission; comma and phone need internet for delivery.
 
-The operator deploys the Worker and configures provider credentials once. The StarPilot maintainer sets `DEFAULT_RELAY_URL` in `openpilot/starpilot/sentry_mode/relay_config.py` once before release. It points at `https://galaxy-sentry-relay.dannyirwin31.workers.dev`. With an empty value the UI reports that hosting is not configured and does not claim success. The apps discover readiness from comma and need no duplicate URL configuration.
+The relay is deployed with its provider credentials, and `DEFAULT_RELAY_URL` in `openpilot/starpilot/sentry_mode/relay_config.py` points at it (`https://galaxy-sentry-relay.dannyirwin31.workers.dev`). With an empty value the UI reports that hosting is not configured and does not claim success. The apps discover readiness from comma and need no duplicate URL configuration.
 
 Enabling is explicit. Existing subscriptions or app upgrades do not silently opt into a new relay. Custom invitation-based relays remain available under advanced controls; they are not the normal user flow.
 
@@ -43,6 +43,6 @@ Operator-only routes issue optional private invitations and revoke installations
 
 ## Setup and validation
 
-The host follows [HOSTING.md](https://github.com/dirwin31/StarPilotAndroid/blob/sentry-cloudflare/push-relay/HOSTING.md); the launch checklist is in [SETUP.md](https://github.com/dirwin31/StarPilotAndroid/blob/sentry-cloudflare/push-relay/SETUP.md). Required external work is Nate's APNs signing credentials, Worker deployment, the release host setting, signed app distribution and physical-device delivery testing. Firebase is configured.
+The relay is running (see [HOSTING.md](https://github.com/dirwin31/StarPilotAndroid/blob/sentry-cloudflare/push-relay/HOSTING.md)). Remaining work is registering the iOS app and Nate's APNs key in Firebase, signed app builds and delivery tests on real phones.
 
 Focused notification/recovery tests, Galaxy browser checks, Worker unit tests, Android Play builds/tests and iOS production-model regressions cover the implementation. The Worker was also run locally in the Cloudflare runtime against the real Firebase project. A relay rejecting one phone skips that phone instead of blocking the comma. Full Galaxy HTTP tests need Linux GUI dependencies; full iOS compilation needs upstream's newer SDK. Live delivery to phones has not been tested.
