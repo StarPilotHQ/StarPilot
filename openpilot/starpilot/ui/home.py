@@ -226,13 +226,17 @@ class HomeView:
     white = rl.Color(255, 255, 255, 229)
     self._text("StarPilot", FontRole.BRAND, 64, 6, 8, white)
     version_branch = f"{state.version}  {state.branch}".strip()
-    for text, y, color in ((version_branch, 98, rl.GRAY), (state.model_label, 140, white)):
+    date_width = self._measure(state.commit_date, FontRole.ROMAN, 30).width if state.commit_date else 0
+    version_width = 520 - date_width - 16 if state.commit_date else 520
+    for text, y, color, width in ((version_branch, 98, rl.GRAY, version_width), (state.model_label, 140, white, 520)):
       size = 30
-      while size > 22 and self._measure(text, FontRole.ROMAN, size).width > 520:
+      while size > 22 and self._measure(text, FontRole.ROMAN, size).width > width:
         size -= 1
-      while text and self._measure(text, FontRole.ROMAN, size).width > 520:
+      while text and self._measure(text, FontRole.ROMAN, size).width > width:
         text = text[:-2].rstrip('…') + '…'
       self._text(text, FontRole.ROMAN, size, 6, y, color)
+    if state.commit_date:
+      self._text(state.commit_date, FontRole.ROMAN, 30, 526 - date_width, 98, rl.GRAY)
     self._icon("icons_mici/settings.png", 48, 48, 8, 192, 0.9)
     if state.network == "wifi":
       suffix = "none" if state.network_strength == 0 else "medium" if state.network_strength == 3 else "full" if state.network_strength >= 4 else "low"
