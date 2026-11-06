@@ -19,7 +19,7 @@ def get_hw1_params(ret, fingerprint, alpha_long):
   ret.radarUnavailable = fingerprint.get(1, {}).get(0x301) != 8
   ret.alphaLongitudinalAvailable = True
   ret.openpilotLongitudinalControl = alpha_long
-  ret.pcmCruise = not alpha_long
+  ret.pcmCruise = True
   return ret
 
 

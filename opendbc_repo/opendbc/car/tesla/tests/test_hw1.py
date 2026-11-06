@@ -18,7 +18,7 @@ class TestModelSHW1Host(unittest.TestCase):
         cp = CarInterface._get_params(cp, CAR.TESLA_MODEL_S_HW1, {0: {}, 1: {}, 2: {}}, [], long, False, False)
         assert cp.safetyConfigs[0].safetyParam == 16 + int(long)
         assert cp.openpilotLongitudinalControl == long
-        assert cp.pcmCruise == (not long)
+        assert cp.pcmCruise
         model = VehicleModel(cp)
         assert cp.steerRatio == 15 and cp.wheelbase == pytest.approx(2.96)
         assert calc_slip_factor(model) == pytest.approx(-0.0005666493436310427)
