@@ -31,10 +31,7 @@ def _external_shader(fragment: str) -> str:
   return result.replace(yuv, "vec3 rgb = pow(texture(texture0, uv).rgb, vec3(1.0/1.28));")
 
 
-# The cabin camera has no IR-cut filter, so the window crops come out red/magenta.
-# Gray-world white balance over the crop being shown. Tuned on a daytime frame
-# (2026-11-04): full strength made gray pavement and a silver car neutral, and the
-# gain clamp keeps a single strongly colored object from being over-corrected.
+# Gray-world white balance for the cabin camera's magenta cast.
 WB_STRENGTH = 1.0
 WB_GAIN_MIN, WB_GAIN_MAX = 0.6, 1.6
 WB_SAMPLES = 16          # 16x16 grid of NV12 samples per crop
@@ -99,7 +96,7 @@ class _WhiteBalance:
 
 
 class _WhiteBalanceSwitch:
-  """The saved Galaxy choice, re-read about once a second; on when unreadable."""
+  """The saved Galaxy choice, re-read about once a second."""
 
   def __init__(self):
     self._enabled = True
@@ -109,13 +106,10 @@ class _WhiteBalanceSwitch:
   def enabled(self, now: float) -> bool:
     if self._read_at is None or now - self._read_at >= WB_PARAM_INTERVAL or now < self._read_at:
       self._read_at = now
-      try:
-        if self._params is None:
-          from openpilot.common.params import Params
-          self._params = Params()
-        self._enabled = bool(self._params.get_bool(WB_PARAM))
-      except Exception:
-        self._enabled = True
+      if self._params is None:
+        from openpilot.common.params import Params
+        self._params = Params()
+      self._enabled = self._params.get_bool(WB_PARAM)
     return self._enabled
 
 
@@ -311,7 +305,7 @@ class PiPRenderer:
       flip = np.array([1 if invert else 0], dtype=np.int32)
       rl.set_shader_value(shader, rl.get_shader_location(shader, "uFlipX"), flip,
                           rl.ShaderUniformDataType.SHADER_UNIFORM_INT)
-      # The comma samples gamma-adjusted RGB (pow 1/1.28), so a pre-gamma gain g becomes g^(1/1.28).
+      # The comma samples gamma-adjusted RGB, so the gain is raised to 1/1.28.
       shader_gain = np.power(np.array(gain, dtype=np.float32), 1.0 / 1.28) if COMMA_HARDWARE else np.array(gain, dtype=np.float32)
       rl.set_shader_value(shader, rl.get_shader_location(shader, "uGain"), shader_gain,
                           rl.ShaderUniformDataType.SHADER_UNIFORM_VEC3)

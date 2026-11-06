@@ -1997,20 +1997,16 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         if identity is None:
           self.json(401, {'error': 'Sign in to Galaxy'})
           return
-        try:
-          from openpilot.common.params import Params
-          params = Params()
-          with effect_lock:
-            if 'enabled' in payload:
-              params.put_bool('CabinWhiteBalance', payload['enabled'])
-            enabled = params.get_bool('CabinWhiteBalance')
-        except Exception:
-          self.json(503, {'error': 'White balance is unavailable'})
+        from openpilot.common.params import Params
+        params = Params()
+        with effect_lock:
+          if 'enabled' in payload:
+            params.put_bool('CabinWhiteBalance', payload['enabled'])
+          enabled = params.get_bool('CabinWhiteBalance')
+        if self.settings_session() == identity:
+          self.json(200, {'enabled': enabled})
         else:
-          if self.settings_session() == identity:
-            self.json(200, {'enabled': enabled})
-          else:
-            self.json(401, {'error': 'Sign in to Galaxy'})
+          self.json(401, {'error': 'Sign in to Galaxy'})
         return
       if path == '/api/galaxy/device-name':
         if not self.require_session():

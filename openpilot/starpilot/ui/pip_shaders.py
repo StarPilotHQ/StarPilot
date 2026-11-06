@@ -62,9 +62,7 @@ void main() {
   float y = texture(texture0, uv).r;
   vec2 c = texture(texture1, uv).ra - 0.5;
   vec3 rgb = vec3(y + 1.402 * c.y, y - 0.344 * c.x - 0.714 * c.y, y + 1.772 * c.x);
-  // Cancel the cabin camera's IR (no IR-cut filter) magenta cast; leave clipped highlights white.
-  // The cast is strongest through the glass and absent in open air, so one gain can't fix both:
-  // a mild desaturation hides what's left (pink foliage, a slightly cyan sky).
+  // Cancel the cabin camera's magenta cast; leave clipped highlights white.
   rgb = mix(rgb * uGain, rgb, smoothstep(0.95, 1.0, max(rgb.r, max(rgb.g, rgb.b))));
   rgb = mix(vec3(dot(rgb, vec3(0.299, 0.587, 0.114))), rgb, uSaturation);
 
@@ -138,9 +136,7 @@ void main() {
   float y = texture(texture0, uv).r;
   vec2 c = texture(texture1, uv).ra - 0.5;
   vec3 rgb = vec3(y + 1.402 * c.y, y - 0.344 * c.x - 0.714 * c.y, y + 1.772 * c.x);
-  // Cancel the cabin camera's IR (no IR-cut filter) magenta cast; leave clipped highlights white.
-  // The cast is strongest through the glass and absent in open air, so one gain can't fix both:
-  // a mild desaturation hides what's left (pink foliage, a slightly cyan sky).
+  // Cancel the cabin camera's magenta cast; leave clipped highlights white.
   rgb = mix(rgb * uGain, rgb, smoothstep(0.95, 1.0, max(rgb.r, max(rgb.g, rgb.b))));
   rgb = mix(vec3(dot(rgb, vec3(0.299, 0.587, 0.114))), rgb, uSaturation);
 
