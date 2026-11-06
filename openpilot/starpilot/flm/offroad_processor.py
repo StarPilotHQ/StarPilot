@@ -351,7 +351,9 @@ def collect_route_inputs(root, route, *, permitted, walker=None):
     # Known-zero proposals and their controller checks use the same original
     # endpoints. Every intervening envelope still has to pass independently.
     for context in baseline_tracking:
-      windows[context] = baseline_qualified[context]
+      # Keep the published collection separate from the next segment's
+      # continuous-window appends; aliasing duplicates original identities.
+      windows[context] = list(baseline_qualified[context])
     if sum(map(len, windows.values())) + sum(map(len, stable_windows.values())) + sum(map(len, baseline_tracking.values())) > MAX_WINDOWS:
       raise ValueError('Whole-drive tracking window bound exceeded')
 

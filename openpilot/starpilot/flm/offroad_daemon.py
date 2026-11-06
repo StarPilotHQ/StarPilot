@@ -261,8 +261,8 @@ def main():
           report.set(worker.run_once())
         except (ValueError, OSError, RuntimeError) as error:
           traceback.print_exc()
-          worker.record_failure(error)
-          report.set({'status': 'unavailable', 'reason': str(error)[:300]})
+          failure = worker.record_failure(error)
+          report.set(failure if failure is not None else {'status': 'unavailable', 'reason': str(error)[:300]})
       report.publish()
       if not stopped:
         time.sleep(0.05)

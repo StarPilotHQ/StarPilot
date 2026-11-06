@@ -270,6 +270,7 @@ class OffroadWorker:
     self.permitted, self.assessor, self.checker, self.scope_for = permitted, assessor, checker, scope_for
     self.source_revision = _digest([(p.name, hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted(Path(__file__).parent.glob('*.py'))])
     self.pending_input = None
+    self.pending_failure_data = None
     self.on_analysis = on_analysis
     self.on_assessment = on_assessment
     self.prior_provider = prior_provider
@@ -288,25 +289,29 @@ class OffroadWorker:
     # Preserve a failed immutable input without re-decoding it every poll.
     # Settings/source/code changes create a different fingerprint. Onroad
     # cancellation never marks a new drive completed or writes a tune.
+    pending, self.pending_failure_data = self.pending_failure_data, None
     if self.pending_input is None or not self.permitted():
       return
     route, fingerprint = self.pending_input
     if self._snapshot(route) != fingerprint or latest_route(self.params, self.root, permitted=self.permitted) != route:
       return
-    self.cache.checkpoint(
-      {
-        'input_fingerprint': fingerprint,
-        'result': {
-          'status': 'unavailable',
-          'reason': str(error)[:300],
-          'configuration_changed': False,
-          'actual_application_proven': False,
-          'road_improvement_confirmed': False,
-        },
-      }
-    )
+    result = {
+      'status': 'unavailable',
+      'reason': str(error)[:300],
+      'configuration_changed': False,
+      'actual_application_proven': False,
+      'road_improvement_confirmed': False,
+    }
+    if pending is not None:
+      authorized, recorded = pending
+      if not authorized():
+        return
+      result.update(recorded)
+    self.cache.checkpoint({'input_fingerprint': fingerprint, 'result': result})
+    return result
 
   def run_once(self):
+    self.pending_failure_data = None
     if not self.permitted():
       raise ValueError('Offroad analysis not permitted')
     route = latest_route(self.params, self.root, permitted=self.permitted)
@@ -350,6 +355,18 @@ class OffroadWorker:
 
     if not authorized():
       raise ValueError('Source or settings changed after fitting')
+    # A qualification failure must not erase completed, source-bound measurements.
+    # Keep their original authority check; no suggestion, save or application is implied.
+    self.pending_failure_data = (
+      authorized,
+      {
+        'completed_route': assessment.receipt.route_id,
+        'source_sha256': assessment.receipt.source_sha256,
+        'vehicle': str(assessment.cp.carFingerprint),
+        'analysis_counts': dict(assessment.counts),
+        'recorded_tracking': assessment.recorded_tracking,
+      },
+    )
     report = assessment.report()
     report.update(policy=POLICY, current_scope=scope.document(), road_improvement_confirmed=False)
     reason = 'more_independent_eligible_tracking_required'
@@ -627,4 +644,5 @@ class OffroadWorker:
     if not authorized():
       raise ValueError('Offroad source changed before checkpoint')
     self.cache.checkpoint({'input_fingerprint': self._snapshot(route), 'result': result})
+    self.pending_failure_data = None
     return result

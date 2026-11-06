@@ -1184,6 +1184,34 @@ class TestOffroadRouteCoverage(unittest.TestCase):
     self.assertEqual(recorded['sampling'], 'input_ordered_original_endpoints_no_interpolation')
     self.assertFalse(assessment.report()['automatically_saved'])
 
+  def test_segment_snapshots_do_not_alias_cumulative_original_windows(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_processor as processor
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+
+    # Isolate the real segment boundary. The next segment appends a continuous
+    # child and independently adds that same original to the cumulative native list.
+    originals = [SimpleNamespace(identity=str(i) * 64) for i in range(1, 7)]
+    receipt = RouteReceipt('declared-two-segments', 'd' * 64, (), 'a' * 64, 1, 2, 3, ())
+
+    def walk(root, route, *, permitted, consume):
+      self.assertTrue(permitted())
+      cells = dict(zip(consume.__code__.co_freevars, consume.__closure__, strict=True))
+      native = cells['baseline_qualified'].cell_contents
+      published = cells['windows'].cell_contents
+      cells['baseline_tracking'].cell_contents['context'] = []
+      native['context'] = list(originals[:3])
+      consume(0, ())
+      published['context'].extend(originals[3:])
+      native['context'].extend(originals[3:])
+      consume(1, ())
+      return receipt
+
+    inputs = processor.collect_route_inputs(None, {'routeId': receipt.route_id}, permitted=lambda: True, walker=walk)
+    self.assertEqual(inputs.windows['context'], originals)
+    self.assertEqual(len({w.identity for w in inputs.windows['context']}), 6)
+    self.assertEqual(inputs.counts['whole_control_window_refusals'], 0)
+
   def test_primary_statistics_keep_original_children_and_never_supply_qualification(self):
     from openpilot.starpilot.flm.offroad_baseline_windows import tracking_proposal_windows
     from openpilot.starpilot.flm.offroad_evidence import RouteWindow, whole_windows, window_identity
@@ -1454,6 +1482,75 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'changed during source comparison'):
           recorded_source_contract(cp, metadata, current, params)
       self.assertEqual(read_saved(params, KEY, MAX_BYTES), (None, True))
+
+  def test_completed_measurements_survive_failed_qualification_and_cached_restart(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_worker as module
+    from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+
+    roles = trial()['before']
+    proposal = {'values': values(0.005), 'parameter': 'center_taper_max', 'delta': 0.005}
+    cohort = dict(roles, cohort='declared-refusal', whole_windows=6, proposal=proposal)
+    metadata = {'route_values': tuple(values().items()), 'route_revision': REVISION, 'controller_mode': 'starpilot', 'route_scope': scope().key()}
+    group = {'original_metadata': metadata, 'original_context_sha256': 'f' * 64, 'cohorts': [cohort]}
+    receipt = RouteReceipt('declared-completed-drive', 'd' * 64, (), 'a' * 64, 1, 2, 3, ())
+    inventory = {'routeId': receipt.route_id}
+    recorded = {'domain': 'lateral_acceleration', 'samples': 1200, 'windows': 6, 'error_rms': 0.1, 'points': [[1, 0.2, 0.1], [2, 0.3, 0.2]]}
+    assessment = CompletedAssessment(
+      receipt,
+      (group,),
+      {'recorded_tracking': 1200, 'qualified_whole_windows': 6},
+      SimpleNamespace(carFingerprint='declared-unit-car'),
+      (),
+      inventory,
+      recorded_tracking=recorded,
+    )
+
+    def assessed(params, root, previous, *, permitted):
+      previous(assessment.cp)
+      return assessment
+
+    def refused(*args, **kwargs):
+      raise ValueError('Declared original-window refusal')
+
+    with tempfile.TemporaryDirectory() as directory, patch.object(module, 'latest_route', return_value=inventory):
+      params = Params(directory)
+      worker = module.OffroadWorker(
+        params, directory, Path(directory) / 'cache', permitted=lambda: True, assessor=assessed, checker=refused, scope_for=lambda cp, params: scope()
+      )
+      with self.assertRaisesRegex(ValueError, 'Declared original-window refusal') as caught:
+        worker.run_once()
+      result = worker.record_failure(caught.exception)
+      self.assertIsNotNone(result)
+      assert result is not None
+      self.assertEqual(result['status'], 'unavailable')
+      self.assertEqual(result['completed_route'], receipt.route_id)
+      self.assertEqual(result['source_sha256'], receipt.source_sha256)
+      self.assertEqual(result['recorded_tracking'], recorded)
+      self.assertFalse(result['configuration_changed'])
+      self.assertFalse(result['actual_application_proven'])
+      self.assertNotIn('suggestion', result)
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES), (None, True))
+      fresh = module.OffroadWorker(
+        params,
+        directory,
+        Path(directory) / 'cache',
+        permitted=lambda: True,
+        assessor=lambda *args, **kwargs: self.fail('A cached refusal must not repeat numerical work'),
+      )
+      self.assertEqual(fresh.run_once(), result)
+      status_path = Path(directory) / 'status.json'
+      report = StatusReport(path=status_path)
+      report.set(result)
+      report.publish()
+      current = json.loads(status_path.read_bytes())['current']
+      self.assertEqual(current['details']['Recorded steering response'], recorded)
+      self.assertEqual(current['progress']['samples'], 1200)
+      self.assertFalse(current['application']['applied'])
+      # Source change invalidates the completed-data error checkpoint as well.
+      with patch.object(module, 'latest_route', return_value={'routeId': 'changed-input'}):
+        self.assertIsNone(worker.record_failure(caught.exception))
 
   def test_saved_unit_configuration_reports_successful_original_checks(self):
     from types import SimpleNamespace
