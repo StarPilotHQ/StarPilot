@@ -70,6 +70,7 @@ export const SentryNotifications = {
     this.start()
   },
   beforeUnmount() { clearInterval(this.testPoll); this.client.stop(); clearInterval(this.poll); document.removeEventListener("visibilitychange", this.visibility) },
+  computed: { relay() { return this.notifications?.relayEnrollment?.supported ? this.notifications.relayEnrollment : null } },
   methods: {
     reportSave,
     refreshPush() { try { this.pushState = JSON.parse(window.StarPilotApp?.sentryPush?.() || '{}') } catch { this.pushState = {} } },
@@ -97,6 +98,9 @@ export const SentryNotifications = {
     },
     async relayAction(action) {
       if (await this.client.run({ action, confirmed: this.relayConfirmed })) this.relayConfirmed = false
+    },
+    relayChip() {
+      return ({ unenrolled: 'Not set up', enrolling: 'Setting up', enrolled: 'On', rotating: 'Updating', confirming: 'Updating', revoking: 'Paused', revoked: 'Off', actionRequired: 'Needs attention' })[this.relay?.state] || 'Unknown'
     },
     relayStatus() {
       const state = this.notifications?.relayEnrollment?.state
@@ -154,45 +158,61 @@ export const SentryNotifications = {
         <GxNotice tone="danger" v-if="notifications?.queueFull">The notification queue is full. Some events could not be queued.</GxNotice>
         <template v-if="notifications">
           <p class="gx-note">{{ notifications.deliverySemantics }}</p>
-          <section class="gx-card gx-panel gx-stack">
-            <h3>Galaxy app phones</h3>
-            <p v-if="pushState.status" role="status">{{ pushState.status }}</p>
-            <template v-if="notifications.relayEnrollment?.supported">
-              <p role="status">{{ relayStatus() }}</p>
-              <p v-if="notifications.relayEnrollment.installationId" class="gx-note">Installation ID for operator support: {{ notifications.relayEnrollment.installationId }}</p>
-              <template v-if="['unenrolled', 'revoked', 'actionRequired'].includes(notifications.relayEnrollment.state)">
-                <p class="gx-note">Alerts send phone destinations and Sentry event details to the hosted relay. Your phone will ask for notification permission.</p>
-                <button type="button" class="gx-btn" :disabled="!notifications.relayEnrollment.automaticConfigured" @click="enableHostedAlerts">Enable alerts</button>
-                <p v-if="!notifications.relayEnrollment.automaticConfigured" class="gx-note">Hosted alerts are not configured in this release yet.</p>
-                <details><summary>Custom relay</summary>
-                <label>HTTPS relay address <input v-model="relayUrl" class="gx-field" type="url" autocomplete="off" placeholder="https://your-relay.workers.dev"></label>
-                <label>One-time enrollment code <input v-model="enrollmentCode" class="gx-field" type="password" autocomplete="off"></label>
-                <button type="button" class="gx-btn" :disabled="!relayConfirmed || !relayUrl || !enrollmentCode" @click="enrollRelay">Enroll with custom relay</button>
-                </details>
-              </template>
-              <label><input type="checkbox" v-model="relayConfirmed"> I confirm the selected relay action. Enrollment sends phone destinations and Sentry alert details to this operator. Forgetting locally does not revoke a copied credential.</label>
-              <button v-if="notifications.relayEnrollment.state === 'enrolled'" type="button" class="gx-btn" :disabled="!relayConfirmed" @click="relayAction('relayRotate')">Rotate credential</button>
-              <button v-if="!['unenrolled', 'revoked'].includes(notifications.relayEnrollment.state)" type="button" class="gx-btn" :disabled="!relayConfirmed" @click="relayAction('relayRevoke')">Revoke relay access</button>
-              <button v-if="notifications.relayEnrollment.state !== 'unenrolled'" type="button" class="gx-btn" :disabled="!relayConfirmed" @click="relayAction('relayForget')">Forget locally</button>
-              <details v-if="notifications.relayEnrollment.state === 'unenrolled'"><summary>Legacy private relay</summary>
-                <label>Private relay URL <input v-model="relayUrl" class="gx-field" type="password" autocomplete="off"></label>
-                <button type="button" class="gx-btn" @click="saveRelay">Save private relay</button>
+          <section class="gx-card" aria-label="Phone alerts">
+            <div class="gx-section__header"><i class="bi bi-phone" aria-hidden="true"></i><span class="gx-section__title">Phone alerts</span><span v-if="relay" class="gx-chip">{{ relayChip() }}</span></div>
+            <div class="gx-panel gx-stack">
+              <p class="gx-note" role="status">{{ relay ? relayStatus() : notifications.appPushAvailable ? 'Push relay configured.' : 'Configure a push relay to deliver phone alerts.' }}</p>
+              <div v-if="relay && ['unenrolled', 'revoked', 'actionRequired'].includes(relay.state)" class="gx-actions">
+                <button type="button" class="gx-btn" :disabled="!relay.automaticConfigured" @click="enableHostedAlerts">Enable alerts</button>
+                <span class="gx-note">{{ relay.automaticConfigured ? 'Sends phone destinations and alert details to the hosted relay.' : 'Hosted alerts are not configured in this release yet.' }}</span>
+              </div>
+              <div v-if="nativePush" class="gx-row gx-row--borderless gx-row--wrap">
+                <div class="gx-row__info gx-row__info--wide"><span class="gx-row__label">This phone</span><span class="gx-row__desc">{{ pushState.status || (pushState.enabled ? 'Alerts on' : 'Alerts off') }}</span></div>
+                <div class="gx-actions">
+                  <button v-if="notifications.appPushAvailable && pushState.registered && pushState.id" type="button" class="gx-btn gx-btn--tonal" @click="testPhone(pushState.id)">Send test</button>
+                  <button type="button" class="gx-btn gx-btn--tonal" :disabled="!notifications.appPushAvailable" @click="togglePhone">{{ pushState.enabled ? 'Turn off' : 'Turn on' }}</button>
+                </div>
+              </div>
+              <div v-for="phone in (notifications.appSubscriptions || [])" :key="phone.id" class="gx-row gx-row--wrap">
+                <div class="gx-row__info gx-row__info--wide"><span class="gx-row__label">{{ phone.label || 'Phone' }}</span>
+                  <span class="gx-row__desc">{{ phone.lastResult || 'Not tested yet' }}<template v-if="phone.lastAt">, {{ new Date(phone.lastAt * 1000).toLocaleString() }}</template></span></div>
+                <div class="gx-actions">
+                  <button type="button" class="gx-btn gx-btn--tonal" :disabled="!notifications.appPushAvailable" @click="testPhone(phone.id)">Test</button>
+                  <button type="button" class="gx-btn gx-btn--tonal" @click="removePhone(phone.id)">Remove</button>
+                </div>
+              </div>
+              <p v-for="phone in (notifications.removedAppSubscriptions || [])" :key="phone.id" class="gx-note">{{ phone.lastResult }}</p>
+              <details>
+                <summary class="gx-link">Relay settings</summary>
+                <div class="gx-stack gx-sentry-relay">
+                  <template v-if="relay">
+                    <dl v-if="relay.installationId" class="gx-details"><dt>Installation ID</dt><dd>{{ relay.installationId }}</dd></dl>
+                    <template v-if="['unenrolled', 'revoked', 'actionRequired'].includes(relay.state)">
+                      <div class="gx-sentry-channel__fields">
+                        <label>Custom relay address <input v-model="relayUrl" class="gx-field" type="url" autocomplete="off" placeholder="https://your-relay.workers.dev"></label>
+                        <label>One-time enrollment code <input v-model="enrollmentCode" class="gx-field" type="password" autocomplete="off"></label>
+                      </div>
+                    </template>
+                    <label><input type="checkbox" v-model="relayConfirmed"> I confirm this relay action. Enrolling sends phone destinations and alert details to the relay operator. Forgetting locally does not revoke a copied credential.</label>
+                    <div class="gx-actions">
+                      <button v-if="['unenrolled', 'revoked', 'actionRequired'].includes(relay.state)" type="button" class="gx-btn gx-btn--tonal" :disabled="!relayConfirmed || !relayUrl || !enrollmentCode" @click="enrollRelay">Enroll with custom relay</button>
+                      <button v-if="relay.state === 'enrolled'" type="button" class="gx-btn gx-btn--tonal" :disabled="!relayConfirmed" @click="relayAction('relayRotate')">Rotate credential</button>
+                      <button v-if="!['unenrolled', 'revoked'].includes(relay.state)" type="button" class="gx-btn gx-btn--tonal" :disabled="!relayConfirmed" @click="relayAction('relayRevoke')">Revoke relay access</button>
+                      <button v-if="relay.state !== 'unenrolled'" type="button" class="gx-btn gx-btn--tonal" :disabled="!relayConfirmed" @click="relayAction('relayForget')">Forget locally</button>
+                    </div>
+                  </template>
+                  <div v-if="!relay || relay.state === 'unenrolled'" class="gx-sentry-channel__fields">
+                    <label>{{ relay ? 'Legacy private relay URL' : 'HTTPS push relay URL' }} <input v-model="relayUrl" class="gx-field" type="password" autocomplete="off" placeholder="Leave blank to keep saved URL"></label>
+                  </div>
+                  <div class="gx-actions">
+                    <button v-if="!relay || relay.state === 'unenrolled'" type="button" class="gx-btn gx-btn--tonal" @click="saveRelay">Save push relay</button>
+                    <button v-if="canSimulate()" type="button" class="gx-btn gx-btn--tonal" @click="simulate">Simulate event</button>
+                  </div>
+                </div>
               </details>
-            </template>
-            <template v-else>
-              <label>HTTPS push relay URL <input v-model="relayUrl" class="gx-field" type="password" autocomplete="off" placeholder="Leave blank to keep saved URL"></label>
-              <button type="button" class="gx-btn gx-btn--tonal" @click="saveRelay">Save push relay</button>
-            </template>
-            <p v-if="!notifications.appPushAvailable" class="gx-note">Configure a push relay to deliver phone alerts.</p>
-            <button v-if="nativePush" type="button" class="gx-btn" :disabled="!notifications.appPushAvailable" @click="togglePhone">{{ pushState.enabled ? 'Disable phone alerts' : 'Enable phone alerts' }}</button>
-            <button v-if="notifications.appPushAvailable && pushState.registered && pushState.id" type="button" class="gx-btn" @click="testPhone(pushState.id)">Send test to this phone</button>
-            <p v-for="phone in (notifications.appSubscriptions || [])" :key="phone.id">{{ phone.label }} · {{ phone.lastResult || 'Not tested' }} · {{ phone.lastAt ? new Date(phone.lastAt * 1000).toLocaleString() : '' }}
-              <button type="button" class="gx-btn" :disabled="!notifications.appPushAvailable" @click="testPhone(phone.id)">Test</button><button type="button" class="gx-btn" @click="removePhone(phone.id)">Remove</button>
-            </p>
-            <p v-for="phone in (notifications.removedAppSubscriptions || [])" :key="phone.id">{{ phone.lastResult }}</p>
-            <button v-if="canSimulate()" class="gx-btn" @click="simulate">Simulate event</button>
+            </div>
           </section>
-          <button class="gx-btn" @click="client.run({action: 'test', target: 'all'})">Test all channels</button>
+          <div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="client.run({action: 'test', target: 'all'})">Test all channels</button></div>
           <section v-for="name in channels" :key="name" class="gx-card gx-sentry-channel">
             <div class="gx-section__header"><i class="bi" :class="{webPush: 'bi-bell', discord: 'bi-discord', webhook: 'bi-link-45deg', ntfy: 'bi-broadcast'}[name]" aria-hidden="true"></i><span class="gx-section__title">{{ labels[name] }}</span></div>
             <div class="gx-panel gx-stack"><div class="gx-row gx-row--borderless"><div class="gx-row__info"><span class="gx-row__label">Enabled</span>
@@ -213,8 +233,8 @@ export const SentryNotifications = {
             <button class="gx-btn gx-btn--tonal" type="button" @click="forget(name)">Forget configuration</button>
             </div></div>
           </section>
-          <p v-if="notifications.subscriptionCount">Subscribed browsers: {{ notifications.subscriptionCount }}</p>
-          <button v-for="(subscription, index) in notifications.subscriptions" :key="subscription.id" class="gx-btn gx-btn--tonal" type="button" @click="remove(subscription.id)">Remove browser {{ index + 1 }}</button>
+          <div v-if="notifications.subscriptionCount" class="gx-actions"><span class="gx-note">Subscribed browsers: {{ notifications.subscriptionCount }}</span>
+            <button v-for="(subscription, index) in notifications.subscriptions" :key="subscription.id" class="gx-btn gx-btn--tonal" type="button" @click="remove(subscription.id)">Remove browser {{ index + 1 }}</button></div>
         </template>
       </template></div>
     </section>`,

@@ -1160,6 +1160,16 @@ mask: radial-gradient(farthest-side, transparent calc(100% - 22px), #000 calc(10
 }
 .gx-sentry-channel__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: var(--sp-3); margin: var(--sp-3) 0; }
 .gx-sentry-channel__fields .gx-field { width: 100%; min-width: 0; box-sizing: border-box; }
+.gx-sentry-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: var(--sp-3); }
+.gx-sentry-event { display: flex; flex-direction: column; overflow: hidden; }
+.gx-sentry-event .gx-row__info { display: grid; gap: var(--sp-1); }
+.gx-sentry-event .gx-row__info small { word-break: break-all; }
+.gx-sentry-event__media { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; grid-template-rows: minmax(0, 1fr); gap: 2px; aspect-ratio: 4 / 3; overflow: hidden; }
+.gx-sentry-event__media .gx-media { width: 100%; height: 100%; object-fit: cover; }
+.gx-sentry-events__bar { justify-content: space-between; }
+.gx-sentry-events__bar p { margin: 0; }
+.gx-sentry-relay { margin-top: var(--sp-3); }
+
 /* Recording library follows the shared section/row control hierarchy. */
 .gx-recordings__library, .gx-recordings__list, .gx-recordings__delete { overflow: hidden; }
 .gx-recordings__heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); }

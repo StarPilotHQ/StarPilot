@@ -63,6 +63,7 @@ export const SentryEventsPage = {
   },
   beforeUnmount() { document.removeEventListener("visibilitychange", this.visibility); this.feed.stop() },
   methods: { systemTime, storedSize },
+  computed: { kinds: () => ({ alarm: { label: 'Alarm', icon: 'bi-bell' }, warning: { label: 'Motion', icon: 'bi-exclamation-triangle' }, selfie: { label: 'Selfie', icon: 'bi-camera' } }) },
   template: `
     <div class="gx-view gx-home" aria-label="Sentry motion events">
       <header class="gx-settings__header gx-page-header"><div><h2>Sentry</h2>
@@ -76,18 +77,20 @@ export const SentryEventsPage = {
         <GxState v-if="status === 'loading'" loading>Reading local motion events…</GxState>
         <GxNotice tone="danger" v-if="error">{{ error }}</GxNotice>
         <template v-if="status === 'ready' && data">
-          <div class="gx-actions"><p>{{ data.events.length }} events · {{ data.storageIncomplete ? 'At least ' : '' }}{{ storedSize(data.storageBytes) }} stored</p><button type="button" class="gx-btn" :disabled="deleting" @click="feed.remove(null)">Delete All</button></div>
+          <div class="gx-actions gx-sentry-events__bar"><p class="gx-note">{{ data.events.length }} {{ data.events.length === 1 ? 'event' : 'events' }}, {{ data.storageIncomplete ? 'at least ' : '' }}{{ storedSize(data.storageBytes) }} stored</p>
+            <button v-if="data.events.length" type="button" class="gx-btn gx-btn--tonal" :disabled="deleting" @click="feed.remove(null)">Delete All</button></div>
           <GxNotice v-if="data.scanIncomplete" tone="warn">This scan was incomplete. More local motion events may exist.</GxNotice>
-          <GxState v-if="!data.events.length">No local motion events found in this scan.</GxState>
+          <GxState v-if="!data.events.length">No motion events yet. Events appear here when Sentry detects motion while parked.</GxState>
           <BluetoothNotice v-if="bluetooth && data.events.some(event => event.images?.length)" feature="Motion event images" />
           <WhiteBalanceSwitch v-if="!bluetooth && data.events.some(event => event.images?.includes('cabin'))" />
-          <section v-for="event in data.events" :key="event.eventId" class="gx-card gx-home__card">
-            <div class="gx-section__header"><i class="bi" :class="event.kind === 'selfie' ? 'bi-camera' : event.kind === 'alarm' ? 'bi-bell' : 'bi-exclamation-triangle'"></i><h2 class="gx-section__title">{{ event.kind === 'selfie' ? 'Selfie' : event.kind === 'alarm' ? 'Alarm' : 'Warning' }}</h2></div>
-            <p>System time: {{ systemTime(event.systemTimeMs) }}</p>
-            <small>Event ID: {{ event.eventId }}</small>
-            <button type="button" class="gx-btn" :disabled="deleting" @click="feed.remove(event.eventId)">Delete</button>
-            <template v-if="!bluetooth"><BalancedImage v-for="camera in (event.images || [])" :key="camera" :balance="camera === 'cabin'" :src="'./api/sentry/image/' + event.eventId + '/' + camera" :alt="camera + ' camera at motion event'" class="gx-media" /></template>
-          </section>
+          <div class="gx-sentry-events">
+            <article v-for="event in data.events" :key="event.eventId" class="gx-card gx-sentry-event">
+              <div class="gx-section__header"><i class="bi" :class="kinds[event.kind].icon" aria-hidden="true"></i><span class="gx-section__title">{{ kinds[event.kind].label }}</span></div>
+              <div v-if="!bluetooth && event.images?.length" class="gx-sentry-event__media"><BalancedImage v-for="camera in event.images" :key="camera" :balance="camera === 'cabin'" :src="'./api/sentry/image/' + event.eventId + '/' + camera" :alt="(camera === 'cabin' ? 'Cabin' : 'Road') + ' camera at motion event'" class="gx-media" /></div>
+              <div class="gx-panel gx-row gx-row--borderless"><div class="gx-row__info"><span class="gx-row__label">{{ systemTime(event.systemTimeMs) }}</span><small class="gx-note">Event {{ event.eventId }}</small></div>
+                <button type="button" class="gx-btn gx-btn--tonal" :aria-label="'Delete ' + kinds[event.kind].label.toLowerCase() + ' event'" :disabled="deleting" @click="feed.remove(event.eventId)">Delete</button></div>
+            </article>
+          </div>
         </template>
       </template>
     </div>`,
