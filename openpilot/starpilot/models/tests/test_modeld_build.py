@@ -99,6 +99,15 @@ def test_supported_backend_retains_models_and_camera_warp_graph(graph, monkeypat
   # Token checks retain every required flag without requiring adjacent assignments.
   for call in calls:
     target, dependencies, command = call.args
+    if callable(command):
+      assert arch == "comma_arm64"
+      assert Path(target).name in {"dmonitoring_model_tinygrad.pkl", "dm_warp_1344x760_tinygrad.pkl", "dm_warp_1928x1208_tinygrad.pkl"}
+      owner = Mock()
+      monkeypatch.setitem(command.__globals__, "preserve_stock_artifact", owner)
+      command([target], [], env)
+      owner.assert_called_once_with(Path(target))
+      assert dependencies[-1].startswith(backend)
+      continue
     tokens = shlex.split(command)
     assert set(shlex.split(backend)) <= set(tokens)
     assert str(compiler_root / "examples/openpilot" / ("compile_onnx.py" if target.endswith("dmonitoring_model_tinygrad.pkl")
@@ -149,3 +158,15 @@ def test_build_does_not_probe_chestnut_or_regenerate_shipped_big_artifacts(graph
   assert not any(Path(call.args[0]).name.startswith("big_driving_") for call in env.Command.call_args_list)
   env.SideEffect.assert_not_called()
   env.Execute.assert_not_called()
+
+
+def test_device_monitoring_nodes_never_recompile_pinned_artifacts(graph):
+  evaluate, env, _ = graph
+  evaluate("comma_arm64")
+  stock = [call for call in env.Command.call_args_list if Path(call.args[0]).name.startswith(("dm_warp_", "dmonitoring_model_"))]
+  assert len(stock) == 3
+  assert env.Precious.call_count == 3
+  assert env.NoClean.call_count == 3
+  assert env.AlwaysBuild.call_count == 3
+  assert all(callable(call.args[2]) for call in stock)
+  assert all(isinstance(call.args[2], str) for call in env.Command.call_args_list if Path(call.args[0]).name.startswith("driving_warp_"))

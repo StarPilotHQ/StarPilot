@@ -195,6 +195,12 @@ def require_qcom_pickle(path: Path) -> None:
     raise ValueError(f"{path}: missing TinyJit capture structure")
 
 
+def require_stock_monitoring(model_dir: Path) -> None:
+  from openpilot.starpilot.models.runtime_bridge.runtime import _stock_bytes
+  for name in MODELS + tuple(f"dm_warp_{size}_tinygrad.pkl" for size in WARP_SIZES):
+    _stock_bytes(materialize_file_chunked(model_dir / name))
+
+
 def validate(root: Path) -> None:
   from tools.laptop_device_build.validate_flm_native import validate as validate_flm_native
   validate_flm_native(root)
@@ -210,6 +216,7 @@ def validate(root: Path) -> None:
   actual_warps.update(p.name for p in model_dir.glob("dm_warp_*_tinygrad.pkl"))
   if actual_warps != set(WARPS):
     raise ValueError(f"camera warp set differs from current camera configs: {sorted(actual_warps)}")
+  require_stock_monitoring(model_dir)
   for name in (*MODELS, *WARPS):
     require_qcom_pickle(model_dir / name)
   shipped = materialize_file_chunked(model_dir / f"{DEFAULT_SMALL}_driving_tinygrad.pkl", DEFAULT_SMALL_SHA256)

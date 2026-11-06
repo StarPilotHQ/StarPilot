@@ -6,7 +6,7 @@ from SCons.Script import Action, Value
 from openpilot.common.transformations.camera import _ar_ox_fisheye, _os_fisheye
 from openpilot.common.transformations.model import MEDMODEL_INPUT_SIZE, DM_INPUT_SIZE
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
-from tools.laptop_device_build.qcom_artifact_contract import import_artifact
+from tools.laptop_device_build.qcom_artifact_contract import import_artifact, preserve_stock_artifact
 
 
 Import('env', 'arch')
@@ -35,7 +35,11 @@ laptop_qcom_import = arch == 'comma_arm64' and os.getenv('COMMA_LAPTOP_CROSS_BUI
 qcom_package = Dir('#.cache/qcom-artifact-package').abspath
 
 
-def model_action(command):
+def model_action(command, *, stock=False):
+  if arch == 'comma_arm64' and stock and not laptop_qcom_import:
+    def keep_stock(target, source, env):
+      preserve_stock_artifact(Path(str(target[0])))
+    return Action(keep_stock, "  [STOCK MODEL VERIFY] $TARGET")
   if not laptop_qcom_import:
     return Action(command, "  [ONNX] $TARGET")
 
@@ -47,8 +51,8 @@ def model_action(command):
   return Action(do_import, "  [QCOM IMPORT] $TARGET")
 
 
-def warp_action(command):
-  return model_action(command) if laptop_qcom_import else command
+def warp_action(command, *, stock=False):
+  return model_action(command, stock=stock) if laptop_qcom_import or stock else command
 
 if arch == 'comma_arm64':
   tg_flags = 'DEV=QCOM IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1'
@@ -72,8 +76,12 @@ def compile_model(onnx_path, pkl_path):
   node = lenv.Command(
     target_pkl_path,
     tinygrad_files + [onnx_path, Value(cmd)],
-    model_action(cmd),
+    model_action(cmd, stock=True),
   )
+  if arch == 'comma_arm64' and not laptop_qcom_import:
+    lenv.Precious(node)
+    lenv.NoClean(node)
+    lenv.AlwaysBuild(node)
   if laptop_qcom_import:
     lenv.AlwaysBuild(node)
 
@@ -98,6 +106,10 @@ for cam_w, cam_h in camera_configs:
   cmd = (f'{tg_flags} {mac_brew_string} python3 "{compiler}/compile_warp.py" '
          f'--frame {cam_w},{cam_h},{stride},{y_height},{uv_height},{frame_size} --warp-to {dm_w}x{dm_h} '
          f'--layout luma --border-fill 16 --transform-device NPY --output {dm_pkl_path}')
-  node = lenv.Command(dm_pkl_path, tinygrad_files + warp_deps + [Value(cmd)], warp_action(cmd))
+  node = lenv.Command(dm_pkl_path, tinygrad_files + warp_deps + [Value(cmd)], warp_action(cmd, stock=True))
+  if arch == 'comma_arm64' and not laptop_qcom_import:
+    lenv.Precious(node)
+    lenv.NoClean(node)
+    lenv.AlwaysBuild(node)
   if laptop_qcom_import:
     lenv.AlwaysBuild(node)
