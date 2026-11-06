@@ -471,7 +471,7 @@ class WirelessBootstrap:
           endpoint = parsed
           self._reply_accepted = True
         else:
-          self.log("bootstrap_start_refused", status=status, endpoint=parsed is not None)
+          self.log("bootstrap_start_refused", status=status, endpoint=parsed is not None, hex=payload.hex())
           self.refusals.append(status)
           deadline = min(latest_deadline, max(deadline, time.monotonic() + self.stage_timeout))  # a car that answers is not gone
           start_request_at = time.monotonic() + self.start_request_delay
