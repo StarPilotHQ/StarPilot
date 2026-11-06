@@ -71,7 +71,6 @@ def analyze_latest(params, root, previous, *, permitted):
   stable_windows = {}
   baseline_tracking = {}
   bookends = {}
-  stable_grades = {}
   raw_windows = {}
   context_metadata = {}
   counts = {
@@ -243,15 +242,9 @@ def analyze_latest(params, root, previous, *, permitted):
   receipt = walk_completed_route(root, route, permitted=permitted, consume=consume)
   if not permitted():
     raise ValueError('Parked authority lost after analysis')
-  for key, values in baseline_tracking.items():
-    strict = {}
-    for window in stable_windows.get(key, ()):
-      label = cohort(window)
-      if label is not None:
-        strict[label] = strict.get(label, 0) + 1
-    if not any(n >= 6 for n in strict.values()):
-      stable_windows[key] = values
-      stable_grades[key] = 'bookended_zero_route_tracking'
+  from openpilot.starpilot.flm.offroad_baseline_windows import stable_proposal_windows
+
+  stable_windows, stable_grades = stable_proposal_windows(stable_windows, baseline_tracking)
   counts['qualified_whole_windows'] = sum(map(len, windows.values()))
   prior = previous(state['cp']) if callable(previous) else previous
   amplitude_prior = {name: prior[name] for name in AMPLITUDE_NAMES}

@@ -56,8 +56,14 @@ class StatusReport:
       details['Joined steering observations'] = count('joined_tracking')
       details['Retained control windows'] = count('qualified_whole_windows')
       details['Retained tracking windows'] = count('stable_qualified_whole_windows')
+      details['Original controller observations'] = count('original_control_metadata_rows')
+      details['Controller eligibility refusals'] = count('controller_fit_refusals')
       details['Automatic configuration changed'] = bool(value.get('configuration_changed', False))
       details['Analysis decision'] = value['reason']
+      suggestions = value.get('suggestions', ())
+      details['Recorded route suggestions'] = [[s['parameter'], s['delta'], s['whole_windows'], s['qualification']] for s in suggestions[:16]]
+      details['Recorded suggestion count'] = value.get('suggestion_count', len(suggestions))
+      details['More recorded suggestions omitted'] = value.get('suggestion_count', len(suggestions)) > len(suggestions)
     proposal = value.get('suggestion')
     if proposal is not None:
       details['Full surface coordinates'] = [[n, proposal['values'][n]] for n in NAMES]

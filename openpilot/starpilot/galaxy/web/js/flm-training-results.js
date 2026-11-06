@@ -157,6 +157,14 @@ export const SURFACE_GROUPS = Object.freeze([
 ])
 
 const REASONS = {
+  analyzing_last_completed_drive: "Analyzing the last completed drive while parked.",
+  checking_recorded_steering_recommendations: "Checking the recorded-drive recommendations against the original controller and steering outputs.",
+  recorded_tracking_suggestion_not_yet_qualified_for_automatic_application: "Recommendations were found, but none has passed the controller and steering-output checks required for automatic saving.",
+  original_controller_or_registered_encoder_check_refused: "The recommendation failed an original controller or steering-output check. The saved tune was kept.",
+  no_consistent_adjustment_in_completed_drive: "The independent parts of this drive did not support the same adjustment. The saved tune was kept.",
+  more_independent_eligible_tracking_required: "The drive was analyzed. More complete independent steering windows are needed before saving a tune.",
+  bounded_trial_configured_for_next_drive: "A bounded, reversible tune was saved automatically for the next drive. Its road improvement is not yet confirmed.",
+  recorded_steering_window_inputs_unavailable: "The recording is missing inputs needed to verify its recommendations. The saved tune was kept.",
   controller_collection_required: "Waiting for active steering before collecting samples.",
   fresh_physical_residual_window_required: "Checking the car's current steering response.",
   qualified_tracking_episodes_required: "Collecting complete, comparable steering windows.",
@@ -191,12 +199,35 @@ const HISTORY_LABELS = { collecting: 'Collecting samples', calibrating: 'Measuri
   trial_active: 'Evaluating a trial', confirmed: 'Correction confirmed', rollback: 'Returning to baseline', paused: 'Learning paused' }
 export const historyTitle = status => Object.hasOwn(HISTORY_LABELS, status) ? HISTORY_LABELS[status] : readable(status)
 
+export function offroadView(report) {
+  const details = report?.current?.details
+  if (!record(details) || !text(details['Completed drive analyzed'], 180) || !details['Completed drive analyzed'] ||
+      !stamp(details['Recorded steering observations']) || !text(details['Analysis decision'])) return null
+  const rows = details['Recorded route suggestions'] ?? []
+  if (!Array.isArray(rows) || rows.length > 16 || rows.some(row => !Array.isArray(row) || row.length !== 4 ||
+      !text(row[0], 500) || typeof row[1] !== 'number' || !Number.isFinite(row[1]) || Math.abs(row[1]) > .25 ||
+      !stamp(row[2]) || row[3] !== 'controller_native_checks_not_passed')) return null
+  return { route: details['Completed drive analyzed'], samples: details['Recorded steering observations'],
+    reason: details['Analysis decision'], saved: details['Automatic configuration changed'] === true,
+    configurationState: details['Saved route configuration state'] ?? null,
+    suggestions: rows.map(([parameter, delta, windows, qualification]) => ({ parameter, delta, windows, qualification })),
+    moreSuggestions: details['More recorded suggestions omitted'] === true }
+}
+
 export function tunerStatus(report, live = false, choiceLive = false, error = "") {
   const preference = choiceLive && validLearningPreference(report?.preference) ? report.preference : null
   const current = report?.current
   if (error) return { key: "offline", tone: "muted", title: "Connection interrupted", description: "Earlier results are available below. Current steering activity is unknown." }
   if (preference?.valid && preference.enabled === false || !preference && live && current?.enabled === false)
     return { key: "off", tone: "muted", title: "Auto Learn is off", description: "No driving samples are being collected by the learner. Turn it on in steering settings to begin." }
+  if (live && current?.status === 'fitting' && ['analyzing_last_completed_drive', 'checking_recorded_steering_recommendations'].includes(current.reason))
+    return { key: 'fitting', tone: 'active', title: 'Analyzing your completed drive', description: learningReason(current.reason) }
+  const route = live && (!preference || preference.parked) ? offroadView(report) : null
+  if (route) {
+    if (route.configurationState === 'ready_for_next_drive')
+      return { key: 'next-drive', tone: 'ready', title: 'Tune saved for the next drive', description: learningReason('bounded_trial_configured_for_next_drive') }
+    return { key: 'analyzed', tone: route.suggestions.length ? 'warning' : 'ready', title: 'Completed drive analyzed', description: learningReason(route.reason) }
+  }
   if (preference?.valid && preference.enabled && preference.parked)
     return { key: "parked", tone: "ready", title: "Auto Learn is on", description: "Collection starts while driving. No new correction is being applied while parked." }
   if (!current) return { key: "waiting", tone: "muted", title: "Waiting for the learner", description: preference?.enabled ? "Auto Learn is on, but no learner report has arrived yet." : preference ? "The device has not identified a current vehicle and Auto Learn setting." : "Connect to your device to see its learning activity and steering tune." }

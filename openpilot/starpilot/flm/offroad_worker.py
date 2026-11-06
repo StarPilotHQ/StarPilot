@@ -406,9 +406,9 @@ class OffroadWorker:
           else:
             report['all_original_window_checks'] = checked
             reason = 'original_controller_or_registered_encoder_check_refused'
+    diagnostics = [(g, c, c['proposal']) for g in assessment.diagnostic_groups for c in g['cohorts'] if c.get('proposal') is not None]
+    diagnostics.sort(key=lambda v: (-v[1]['whole_windows'], v[1]['cohort'], v[0]['original_tracking_context_sha256']))
     if offered is None:
-      diagnostics = [(g, c, c['proposal']) for g in assessment.diagnostic_groups for c in g['cohorts'] if c.get('proposal') is not None]
-      diagnostics.sort(key=lambda v: (-v[1]['whole_windows'], v[1]['cohort'], v[0]['original_tracking_context_sha256']))
       if diagnostics:
         _, c, v = diagnostics[0]
         offered = {
@@ -437,6 +437,11 @@ class OffroadWorker:
       'assessment_sha256': self.cache.put({'kind': 'completed_assessment', 'assessment': report}),
       'source_sha256': assessment.receipt.source_sha256,
       'vehicle': str(assessment.cp.carFingerprint),
+      'suggestion_count': len(diagnostics),
+      'suggestions': [
+        {'parameter': v['parameter'], 'delta': v['delta'], 'whole_windows': c['whole_windows'], 'qualification': 'controller_native_checks_not_passed'}
+        for _, c, v in diagnostics[:16]
+      ],
     }
     if offered is not None:
       result['suggestion'] = offered

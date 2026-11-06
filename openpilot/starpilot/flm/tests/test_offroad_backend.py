@@ -216,6 +216,35 @@ class TestOffroadStore(unittest.TestCase):
 
 
 class TestOffroadReport(unittest.TestCase):
+  def test_completed_drive_reports_every_candidate_without_claiming_application(self):
+    from openpilot.starpilot.flm.training_report import read_report
+
+    with tempfile.TemporaryDirectory() as directory:
+      path = Path(directory) / 'report.json'
+      report = StatusReport(path=path, clock_ns=lambda: 10_000_000_000)
+      names = ['highway_center_taper_max', 'turn_in_boost_left', 'unwind_taper_left', 'turn_in_boost_right', 'unwind_taper_right']
+      suggestions = [{'parameter': name, 'delta': 0.005, 'whole_windows': 9, 'qualification': 'controller_native_checks_not_passed'} for name in names]
+      report.set(
+        {
+          'status': 'collecting',
+          'reason': 'recorded_tracking_suggestion_not_yet_qualified_for_automatic_application',
+          'completed_route': 'declared-completed-drive',
+          'analysis_counts': {'recorded_tracking': 241573},
+          'suggestions': suggestions,
+          'suggestion_count': len(suggestions),
+          'configuration_changed': False,
+        }
+      )
+      report.publish()
+      current = read_report(path, now_ns=10_000_000_000)['current']
+      assert current is not None
+      self.assertEqual([r[0] for r in current['details']['Recorded route suggestions']], names)
+      self.assertEqual(current['details']['Recorded suggestion count'], 5)
+      self.assertEqual(current['progress']['samples'], 241573)
+      self.assertFalse(current['details']['Automatic configuration changed'])
+      self.assertFalse(current['application']['applied'])
+      self.assertFalse(current['details']['Physical road improvement proven'])
+
   def test_typed_current_application_and_completed_analysis_remain_distinct(self):
     with tempfile.TemporaryDirectory() as directory:
       now = 10_000_000_000
@@ -268,6 +297,70 @@ class TestOffroadReport(unittest.TestCase):
           report.set(dict(current, actual_control=replacement))
           report.publish()
           self.assertFalse(json.loads(path.read_bytes())['current']['application']['applied'])
+
+
+class TestOffroadRouteCoverage(unittest.TestCase):
+  def test_continuous_center_does_not_hide_other_baseline_maneuvers(self):
+    from openpilot.starpilot.flm.offroad_baseline_windows import stable_proposal_windows
+
+    center = tuple(w for i in range(3) for w in TestOffroadTrackingPolicy.windows('declared-continuous-center-' + str(i), 1.0))
+    observed = TestOffroadTrackingPolicy.windows('declared-observed-maneuvers', 0.9)
+    continuous = {'zero-context': center, 'nonzero-context': center}
+    selected, grades = stable_proposal_windows(continuous, {'zero-context': observed})
+    self.assertEqual(selected['zero-context'], observed)
+    self.assertEqual(selected['nonzero-context'], center)
+    self.assertEqual(grades, {'zero-context': 'bookended_zero_route_tracking'})
+    self.assertEqual(continuous['zero-context'], center)
+    # Continuous controller/native evidence remains separate and unchanged.
+    self.assertNotEqual(selected['zero-context'], continuous['zero-context'])
+
+  def test_missing_observed_baseline_retains_continuous_outcome_windows(self):
+    from openpilot.starpilot.flm.offroad_baseline_windows import stable_proposal_windows
+
+    windows = TestOffroadTrackingPolicy.windows('declared-nonzero-outcome', 1.0)
+    for observed in ({}, {'same-context': ()}):
+      with self.subTest(observed=observed):
+        selected, grades = stable_proposal_windows({'same-context': windows}, observed)
+        self.assertEqual(selected, {'same-context': windows})
+        self.assertEqual(grades, {})
+
+  def test_observed_baseline_requires_zero_map_and_unchanged_original_context(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_baseline_windows import baseline_windows
+    from openpilot.starpilot.flm.offroad_evidence import RoutePoint
+
+    points = tuple(
+      RoutePoint(
+        'declared-baseline-only',
+        0,
+        1_000_000_000 + i * 10_000_000,
+        'lateral_acceleration',
+        'a' * 64,
+        0.1,
+        0.1,
+        25.0,
+        0.1,
+        0.1,
+        1_000_000_000 + i * 10_000_000,
+        1_000_000_000 + i * 10_000_000,
+        True,
+        False,
+        False,
+        True,
+      )
+      for i in range(600)
+    )
+    metadata = {'route_values': tuple(values().items()), 'route_revision': REVISION, 'baseline_revision': 'b' * 64}
+    timeline = tuple((p.mono_ns, SimpleNamespace(control_ns=p.mono_ns, metadata=metadata)) for p in (points[0], points[300], points[-1]))
+    result = baseline_windows(points, timeline, lambda control, domain: control.metadata)
+    self.assertEqual(len(result), 1)
+    self.assertEqual(tuple((p.mono_ns, p.desired, p.actual) for p in result[0][1].points), tuple((p.mono_ns, p.desired, p.actual) for p in points))
+    for changed in ({**metadata, 'route_values': tuple(values(0.005).items())}, {**metadata, 'baseline_revision': 'c' * 64}):
+      conflicting = list(timeline)
+      conflicting[1] = (points[300].mono_ns, SimpleNamespace(control_ns=points[300].mono_ns, metadata=changed))
+      self.assertEqual(baseline_windows(points, conflicting, lambda control, domain: control.metadata), ())
+    self.assertEqual(baseline_windows(points, timeline[:-1] + ((points[-1].mono_ns, None),), lambda control, domain: control.metadata), ())
+    self.assertEqual(baseline_windows(tuple(replace(p, driver_override=True) for p in points), timeline, lambda control, domain: control.metadata), ())
 
 
 class TestOffroadTrackingPolicy(unittest.TestCase):

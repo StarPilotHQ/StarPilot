@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { validTrainingResults, trainingSummary, detailText } from "../web/js/flm-training-results.js"
+import { validTrainingResults, trainingSummary, detailText, offroadView, tunerStatus } from "../web/js/flm-training-results.js"
 
 const report = () => ({ version: 1, current: { fresh: true, ageSeconds: .1, enabled: true,
   status: "collecting", reason: "independent_evidence", progress: { samples: 140, blocks: 3, requiredBlocks: 16 },
@@ -50,3 +50,35 @@ for(const mutate of [v=>v.current.details['Applied correction coordinates'].pop(
 const alias=report();alias.current.details['GLOBAL source observation refusals ']=sourceRefusals
 assert(!validTrainingResults(alias),'No generic nesting or alias relaxation')
 console.log('Exact live full30 acknowledgement and bounded source-refusal telemetry accepted; malformed and unknown fields refused')
+
+const completed = report()
+completed.preference = { version: 1, valid: true, enabled: true, parked: true, vehicle: 'declared-torque-car' }
+completed.current.reason = 'recorded_tracking_suggestion_not_yet_qualified_for_automatic_application'
+completed.current.details = {
+  'Completed drive analyzed': 'declared-drive', 'Recorded steering observations': 241573,
+  'Analysis decision': completed.current.reason, 'Automatic configuration changed': false,
+  'Recorded route suggestions': ['highway_center_taper_max', 'turn_in_boost_left', 'unwind_taper_left',
+    'turn_in_boost_right', 'unwind_taper_right'].map(name => [name, .005, 9, 'controller_native_checks_not_passed']),
+}
+assert(validTrainingResults(completed))
+assert.equal(offroadView(completed).suggestions.length, 5)
+assert.equal(offroadView(completed).samples, 241573)
+assert.equal(tunerStatus(completed, true, true).title, 'Completed drive analyzed', 'Parked status must not mask completed analysis')
+assert.match(tunerStatus(completed, true, true).description, /none has passed/)
+assert.equal(completed.current.application.applied, false)
+const configured = structuredClone(completed)
+configured.current.details['Saved route configuration state'] = 'ready_for_next_drive'
+assert.equal(tunerStatus(configured, true, true).title, 'Tune saved for the next drive')
+assert.equal(configured.current.application.applied, false, 'Saving is not current application')
+assert.notEqual(tunerStatus(configured, false, true).title, 'Tune saved for the next drive', 'Old reports cannot assert current saved state')
+const fitting = structuredClone(completed)
+fitting.current.status = 'fitting'; fitting.current.reason = 'analyzing_last_completed_drive'
+assert.equal(tunerStatus(fitting, true, true).title, 'Analyzing your completed drive')
+const disabled = structuredClone(completed); disabled.preference.enabled = false
+assert.equal(tunerStatus(disabled, true, true).title, 'Auto Learn is off')
+for (const mutate of [v => v.current.details['Recorded route suggestions'][0][1] = .251,
+  v => v.current.details['Recorded route suggestions'][0][3] = 'confirmed',
+  v => v.current.details['Recorded route suggestions'][0][2] = -1]) {
+  const malformed = structuredClone(completed); mutate(malformed); assert.equal(offroadView(malformed), null)
+}
+console.log('Completed-drive recommendations, parked analysis, saved-versus-applied state and malformed candidate refusal passed')
