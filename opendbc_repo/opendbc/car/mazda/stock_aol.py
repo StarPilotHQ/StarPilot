@@ -125,6 +125,11 @@ def admitted(cp, *, marked_only=False):
 RESTRICTION_RELEASE_GRACE_NS = 250_000_000
 
 
+def within_restriction_grace(restricted_ns, now_ns):
+  """A temporary restriction last held at restricted_ns: true now and for the release grace after."""
+  return bool(restricted_ns and 0 <= now_ns - restricted_ns <= RESTRICTION_RELEASE_GRACE_NS)
+
+
 def temporary_restriction(cp, state):
   return bool(state is not None and admitted(cp, marked_only=True) and state.canValid and not state.canTimeout and
               not state.steerFaultPermanent and (state.gearShifter != structs.CarState.GearShifter.drive or
