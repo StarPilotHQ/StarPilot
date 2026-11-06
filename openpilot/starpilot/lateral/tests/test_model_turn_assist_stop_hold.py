@@ -1,12 +1,6 @@
 import unittest
 from types import SimpleNamespace
 
-<<<<<<< Updated upstream
-from openpilot.starpilot.lateral.model_turn_assist import STOP_HOLD_MAX_SPEED, ModelTurnAssist
-
-STRAIGHT = SimpleNamespace(position=SimpleNamespace(x=[0., 1., 2., 3.], y=[0., 0., 0., 0.]),
-                           meta=SimpleNamespace(laneChangeState=0))
-=======
 from openpilot.starpilot.lateral.model_turn_assist import (
   STOP_HOLD_MAX_SPEED, TWITCH_GUARD_FLOOR, TWITCH_GUARD_MAX_SPEED, ModelTurnAssist, update_twitch_guard,
 )
@@ -15,7 +9,6 @@ STRAIGHT = SimpleNamespace(position=SimpleNamespace(x=[0., 1., 2., 3.], y=[0., 0
                            meta=SimpleNamespace(laneChangeState=0))
 LONG_STRAIGHT = SimpleNamespace(position=SimpleNamespace(x=[float(x) for x in range(0, 80, 4)], y=[0.] * 20),
                                 meta=SimpleNamespace(laneChangeState=0))
->>>>>>> Stashed changes
 
 
 def car(speed, accel, blinker=0, pressed=False):
@@ -23,13 +16,8 @@ def car(speed, accel, blinker=0, pressed=False):
                          steeringPressed=pressed, steeringTorque=0.)
 
 
-<<<<<<< Updated upstream
-def step(assist, speed, accel, desired, active=True, **kwargs):
-  return assist.update(car(speed, accel, **kwargs), STRAIGHT, SimpleNamespace(latActive=active), desired)
-=======
 def step(assist, speed, accel, desired, active=True, model=STRAIGHT, **kwargs):
   return assist.update(car(speed, accel, **kwargs), model, SimpleNamespace(latActive=active), desired)
->>>>>>> Stashed changes
 
 
 class TestStopHold(unittest.TestCase):
@@ -72,8 +60,6 @@ class TestStopHold(unittest.TestCase):
     self.assertEqual(step(assist, .6, -2.0, .015), -.003)
 
 
-<<<<<<< Updated upstream
-=======
 class TestTwitchGuardArming(unittest.TestCase):
   def test_armed_from_standstill_until_max_speed(self):
     self.assertTrue(update_twitch_guard(False, 0., True))
@@ -95,6 +81,5 @@ class TestTwitchGuardArming(unittest.TestCase):
     self.assertEqual(step(assist, 1.0, 0., .012, model=LONG_STRAIGHT), .012)
 
 
->>>>>>> Stashed changes
 if __name__ == '__main__':
   unittest.main()
