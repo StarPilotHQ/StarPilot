@@ -6,9 +6,9 @@ import hashlib
 import json
 import time
 
-from openpilot.starpilot.flm.offroad_analysis import cohort
+from openpilot.starpilot.flm.offroad_analysis import cohort, _spread
 from openpilot.starpilot.flm.offroad_processor import collect_route_inputs, window_demand
-from openpilot.starpilot.flm.offroad_route import LOCAL_ID, MAX_SEGMENTS, MAX_TOTAL_BYTES, RETAIN, SelectedSourceReceipt
+from openpilot.starpilot.flm.offroad_route import LOCAL_ID, MAX_SEGMENTS, MAX_TOTAL_BYTES, MAX_ANALYSIS_SECONDS, RETAIN, SelectedSourceReceipt
 from openpilot.starpilot.flm.log_decode import decode_full_rlog_segment
 from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
 from openpilot.starpilot.galaxy.drive_analysis import _selected, _route_names, _closed_source
@@ -22,6 +22,8 @@ class PriorOriginals:
   source_inventory: dict
   windows: tuple
   tracking_windows: tuple
+  profile_windows: tuple = ()
+  profile_metadata: dict | None = None
 
 
 class PriorIdentityMismatch(ValueError):
@@ -34,12 +36,19 @@ def interior_segments(count):
   return tuple(sorted({(i + 1) * (count - 1) // 13 for i in range(12)} - {0, count - 1}))
 
 
-def _selected_sources(root, route, *, permitted, consume, cp_sha256):
+def selected_segments(count, *, expanded=False):
+  selected = set(interior_segments(count)) | {0, count - 1}
+  if expanded:
+    selected.update([n for n in range(count) if n not in selected][:29])
+  return tuple(sorted(selected))
+
+
+def _selected_sources(root, route, *, permitted, consume, cp_sha256, expanded=False):
   root = Path(root)
   route_id, names = _selected(route)
   if not LOCAL_ID.fullmatch(route_id) or not 1 <= len(names) <= MAX_SEGMENTS or set(names) != _route_names(root, route_id, permitted):
     raise ValueError('Complete local prior recording required')
-  selected = set(interior_segments(len(names))) | {0, len(names) - 1}
+  selected = set(selected_segments(len(names), expanded=expanded))
   receipts, revisions, contexts = [], [], set()
   total = 0
   start, end, clock, actual_cp = None, 0, None, None
@@ -92,7 +101,7 @@ def _selected_sources(root, route, *, permitted, consume, cp_sha256):
   return SelectedSourceReceipt(route_id, source_sha, tuple(receipts), actual_cp, start, end, clock[1], tuple(sorted(contexts)), tuple(sorted(selected)))
 
 
-def prior_originals(assessment, group, selected_cohort, root, *, permitted):
+def _prior_originals(assessment, group, selected_cohort, root, *, permitted, stable):
   """Freeze the latest compatible older input set BEFORE any strength is fitted."""
   inventory = DriveHistory(Path(root), max_segments_per_route=MAX_SEGMENTS).snapshot()
   if inventory['scanIncomplete']:
@@ -111,12 +120,12 @@ def prior_originals(assessment, group, selected_cohort, root, *, permitted):
   started = time.monotonic()
 
   def allowed():
-    return permitted() and time.monotonic() - started <= 900.0
+    return permitted() and time.monotonic() - started <= (MAX_ANALYSIS_SECONDS if stable else 900.0)
 
   for _, _, route in sorted(candidates):
 
     def walk(actual_root, original_route, *, permitted, consume):
-      return _selected_sources(actual_root, original_route, permitted=permitted, consume=consume, cp_sha256=assessment.receipt.cp_sha256)
+      return _selected_sources(actual_root, original_route, permitted=permitted, consume=consume, cp_sha256=assessment.receipt.cp_sha256, expanded=stable)
 
     try:
       collected = collect_route_inputs(root, route, permitted=allowed, walker=walk)
@@ -125,6 +134,11 @@ def prior_originals(assessment, group, selected_cohort, root, *, permitted):
     if collected.receipt.completed_wall_ns >= assessment.receipt.completed_wall_ns:
       raise ValueError('Independent prior chronology invalid')
     compatible = []
+    profile_windows = {}
+    if stable:
+      from openpilot.starpilot.flm.offroad_baseline_windows import stable_proposal_windows
+
+      profile_windows, _ = stable_proposal_windows(collected.stable_windows, collected.baseline_tracking)
     for context, windows in collected.windows.items():
       metadata = collected.context_metadata[context]
       if json.dumps({k: metadata.get(k) for k in expected}, sort_keys=True, allow_nan=False) != json.dumps(expected, sort_keys=True, allow_nan=False):
@@ -138,7 +152,10 @@ def prior_originals(assessment, group, selected_cohort, root, *, permitted):
     compatible = [(w, metadata) for w, metadata in compatible if w.points[0].context_key == context]
     chosen = []
     tracking = []
-    for number in interior_segments(len(route['segments'])):
+    input_segments = (
+      tuple(n for n in collected.receipt.decoded_segments if 0 < n < len(route['segments']) - 1) if stable else interior_segments(len(route['segments']))
+    )
+    for number in input_segments:
       windows = sorted(((w, m) for w, m in compatible if w.points[0].segment == number), key=lambda row: row[0].points[0].mono_ns)
       if windows:
         w, metadata = windows[0]
@@ -153,6 +170,36 @@ def prior_originals(assessment, group, selected_cohort, root, *, permitted):
             'original_metadata': metadata,
           }
         )
-    if 6 <= len(chosen) <= 12:
-      return PriorOriginals(collected.state['cp'], collected.receipt, route, tuple(chosen), tuple(tracking))
+    profile_spans = []
+    if stable:
+      for number in input_segments:
+        candidates = sorted(
+          (w for w in profile_windows.get(context, ()) if w.points[0].segment == number and cohort(w) == selected_cohort['cohort']),
+          key=lambda w: w.points[0].mono_ns,
+        )
+        if candidates:
+          w = candidates[0]
+          profile_spans.append({'identity': w.identity, 'segment': number, 'start_ns': w.points[0].mono_ns, 'end_ns': w.points[-1].mono_ns})
+    if stable:
+      chosen = _spread(chosen, 12)
+      tracking = _spread(tracking, 12)
+      profile_spans = _spread(profile_spans, 12)
+    if 6 <= len(chosen) <= 12 and (not stable or 3 <= len(profile_spans) <= 12):
+      return PriorOriginals(
+        collected.state['cp'],
+        collected.receipt,
+        route,
+        tuple(chosen),
+        tuple(tracking),
+        tuple(profile_spans),
+        collected.context_metadata[context] if stable else None,
+      )
   return None
+
+
+def prior_originals(assessment, group, selected_cohort, root, *, permitted):
+  return _prior_originals(assessment, group, selected_cohort, root, permitted=permitted, stable=False)
+
+
+def prior_stable_originals(assessment, group, selected_cohort, root, *, permitted):
+  return _prior_originals(assessment, group, selected_cohort, root, permitted=permitted, stable=True)

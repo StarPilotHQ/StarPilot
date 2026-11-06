@@ -254,6 +254,7 @@ class OffroadWorker:
     on_analysis=None,
     on_assessment=None,
     prior_provider=None,
+    stable_prior_provider=None,
   ):
     self.params, self.root = params, log_root
     self.cache = cache if isinstance(cache, AssessmentCache) else AssessmentCache(cache)
@@ -263,6 +264,7 @@ class OffroadWorker:
     self.on_analysis = on_analysis
     self.on_assessment = on_assessment
     self.prior_provider = prior_provider
+    self.stable_prior_provider = stable_prior_provider
 
   def _snapshot(self, route):
     values = []
@@ -451,16 +453,13 @@ class OffroadWorker:
             from openpilot.starpilot.flm.offroad_checks import fit_training_step
 
             independent = None
-            # Recommended profiles already require identical bounded maps from
-            # disjoint original roles. The scalar-response evaluator cannot
-            # validate a multi-coordinate profile by a single parameter name.
-            if proposal.get('policy') != 'original_stable_recommended_bounded_route_v1':
-              provider = self.prior_provider
-              if provider is None and self.assessor is analyze_latest:
-                from openpilot.starpilot.flm.offroad_prior_inputs import prior_originals
+            stable = proposal.get('policy') == 'original_stable_recommended_bounded_route_v1'
+            provider = self.stable_prior_provider if stable else self.prior_provider
+            if provider is None and self.assessor is analyze_latest:
+              from openpilot.starpilot.flm.offroad_prior_inputs import prior_originals, prior_stable_originals
 
-                provider = prior_originals
-              independent = None if provider is None else provider(assessment, group, cohort, self.root, permitted=self.permitted)
+              provider = prior_stable_originals if stable else prior_originals
+            independent = None if provider is None else provider(assessment, group, cohort, self.root, permitted=self.permitted)
             if independent is not None and row is not None and independent.receipt.source_sha256 in row['route_sha256s']:
               independent = None
             if independent is None:
@@ -469,7 +468,7 @@ class OffroadWorker:
               from openpilot.starpilot.flm.offroad_checks import fit_independent_route
 
               fitted, fit_proof, independent_checks = fit_independent_route(
-                assessment, group, cohort, independent, proposal, current, self.root, permitted=self.permitted
+                assessment, group, cohort, independent, proposal, current, self.root, permitted=self.permitted, scope=scope
               )
             report['native_training_feasibility'] = fit_proof
             feasible = fitted is not None

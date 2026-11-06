@@ -1389,6 +1389,19 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
     from openpilot.starpilot.flm.offroad_tracking import TrackingEstimate
 
     self.assertEqual(interior_segments(100), (7, 15, 22, 30, 38, 45, 53, 60, 68, 76, 83, 91))
+    from openpilot.starpilot.flm.offroad_prior_inputs import selected_segments
+
+    base = set(interior_segments(100)) | {0, 99}
+    additional = [n for n in range(100) if n not in base][:29]
+    self.assertEqual(selected_segments(100), tuple(sorted(base)))
+    self.assertEqual(selected_segments(100, expanded=True), tuple(sorted(base | set(additional))))
+    self.assertEqual(len(selected_segments(100, expanded=True)), 43)
+    for count in (1, 2, 3, 41, 100, 180):
+      selected = selected_segments(count, expanded=True)
+      self.assertLessEqual(len(selected), 43)
+      self.assertEqual(tuple(sorted(set(selected))), selected)
+      self.assertTrue({0, count - 1}.issubset(selected))
+      self.assertTrue(all(0 <= n < count for n in selected))
     cp = SimpleNamespace(carFingerprint='declared-independent-unit')
     ids = tuple(str(i) * 64 for i in range(1, 7))
     valid_ids = tuple(str(i) * 64 for i in range(7, 10)) + ('a' * 64, 'b' * 64, 'c' * 64)
@@ -1457,6 +1470,93 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
     self.assertEqual(qualification_summary(result), {'passed': 6, 'required': 12, 'refusals': [('independent_native_validation_not_run', 6)]})
     with patch('openpilot.starpilot.flm.runtime_adapter_registry.car_params_digest', return_value='0' * 64), self.assertRaises(ValueError):
       checks.fit_independent_route(current, group, cohort, prior, proposed, values(), '.', permitted=lambda: True)
+
+  def test_independent_stable_profile_freezes_before_validation_and_never_retries(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_checks as checks
+    from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
+    from openpilot.starpilot.flm.offroad_prior_inputs import PriorOriginals
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt, SelectedSourceReceipt
+
+    cp = SimpleNamespace(carFingerprint='declared-independent-stable-unit')
+    ids = tuple(str(i) * 64 for i in range(1, 7))
+    valid_ids = tuple(str(i) * 64 for i in range(7, 10)) + ('a' * 64, 'b' * 64, 'c' * 64)
+    roles = {'training': {'windows': ids[:3]}, 'heldout': {'windows': ids[3:]}}
+    metadata = {'controller_mode': 'starpilot', 'route_scope': scope().key(), 'baseline_values': (1.0,), 'route_values': tuple(values().items())}
+    cohort = {'cohort': '2:right:steady', 'qualification_roles': roles}
+    group = {'original_metadata': metadata, 'qualification_original_windows': tuple({'identity': wid} for wid in ids)}
+    current = CompletedAssessment(RouteReceipt('declared-current', 'd' * 64, (), 'a' * 64, 10, 20, 30, ()), (), {}, cp, (), {})
+    prior = PriorOriginals(
+      cp,
+      SelectedSourceReceipt('declared-prior', 'e' * 64, (), 'a' * 64, 1, 2, 3, (), (0, 1)),
+      {},
+      tuple({'identity': wid, 'original_metadata': dict(metadata)} for wid in valid_ids),
+      (),
+      tuple({'identity': wid} for wid in valid_ids[:3]),
+      dict(metadata),
+    )
+    proposed_values = values()
+    proposed_values['friction_threshold_fast'] = 0.01
+    proposal = {
+      'parameter': 'stable:friction_threshold_fast',
+      'delta': 0.01,
+      'values': proposed_values,
+      'policy': 'original_stable_recommended_bounded_route_v1',
+    }
+    events = []
+    observed = {'values': dict(proposed_values)}
+
+    class DeclaredSelector:
+      def __init__(self, actual, root, previous, actual_scope, *, permitted):
+        self.asserted = actual is prior and actual_scope == scope() and permitted()
+        if not self.asserted:
+          raise ValueError('Wrong independent source/scope')
+
+      def profile(self, windows, actual_cohort):
+        events.append(('independent_profile', windows))
+        return observed, {'declared_unit_only': True}
+
+    def recorded(actual, source, selected, trial_values, root, *, permitted):
+      amount = trial_values['friction_threshold_fast']
+      events.append(('validation' if actual is prior else 'training', tuple(selected), amount))
+      okay = actual is not prior and amount <= 0.001
+      return [
+        {
+          'window': wid,
+          'qualified': okay,
+          'numerical': {'qualified': True, 'changed_frames': 1},
+          'registered_encoder': {'qualified': okay, 'candidate_changed_emissions': 1},
+        }
+        for wid in selected
+      ]
+
+    with (
+      patch('openpilot.starpilot.flm.runtime_adapter_registry.car_params_digest', return_value='a' * 64),
+      patch.object(checks, '_original_results', new=recorded),
+      patch('openpilot.starpilot.flm.offroad_stable_bridge.StableRouteSelector', new=DeclaredSelector),
+    ):
+      fitted, proof, result = checks.fit_independent_route(current, group, cohort, prior, proposal, values(), '.', permitted=lambda: True, scope=scope())
+    assert fitted is not None and result is not None
+    self.assertEqual(proof['selected_fraction'], 0.1)
+    self.assertEqual(proof['validation_evaluations'], 1)
+    self.assertFalse(result['qualified'], 'A failed independent native window must refuse the entire map')
+    self.assertEqual([e[0] for e in events], ['training'] * 6 + ['independent_profile', 'validation'])
+    self.assertEqual(events[-1][1], valid_ids)
+    self.assertEqual(fitted['values']['friction_threshold_fast'], 0.001)
+    self.assertEqual(proposed_values['friction_threshold_fast'], 0.01)
+
+    events.clear()
+    observed['values']['friction_threshold_fast'] = -0.01
+    with (
+      patch('openpilot.starpilot.flm.runtime_adapter_registry.car_params_digest', return_value='a' * 64),
+      patch.object(checks, '_original_results', new=recorded),
+      patch('openpilot.starpilot.flm.offroad_stable_bridge.StableRouteSelector', new=DeclaredSelector),
+    ):
+      _, proof, result = checks.fit_independent_route(current, group, cohort, prior, proposal, values(), '.', permitted=lambda: True, scope=scope())
+    assert result is not None
+    self.assertFalse(result['qualified'])
+    self.assertEqual(result['unperformed_windows'], 6)
+    self.assertEqual([e[0] for e in events], ['training'] * 6 + ['independent_profile'])
 
   def test_training_feasibility_is_bounded_and_heldout_refusal_never_retries(self):
     from types import SimpleNamespace

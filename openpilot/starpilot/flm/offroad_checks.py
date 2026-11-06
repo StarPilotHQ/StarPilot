@@ -64,7 +64,7 @@ def fit_training_step(assessment, group, cohort, proposal, previous, root, *, pe
   }
 
 
-def fit_independent_route(assessment, group, cohort, prior, proposal, previous, root, *, permitted):
+def fit_independent_route(assessment, group, cohort, prior, proposal, previous, root, *, permitted, scope=None):
   """Known current windows train strength; one independent drive validates it."""
   from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
   import json
@@ -101,7 +101,11 @@ def fit_independent_route(assessment, group, cohort, prior, proposal, previous, 
     'selected_fraction': None,
     'validation_evaluations': 0,
   }
-  for fraction in (1.0, 0.8, 0.6, 0.4, 0.2):
+  stable = proposal.get('policy') == 'original_stable_recommended_bounded_route_v1'
+  if stable and (scope is None or not 3 <= len(prior.profile_windows) <= 12):
+    raise ValueError('Independent original Stable profile inputs and current scope required')
+  fractions = (1.0, 0.8, 0.6, 0.4, 0.2) + ((0.1, 0.05) if stable else ())
+  for fraction in fractions:
     values = (
       dict(proposal['values']) if fraction == 1 else {name: previous[name] + fraction * (value - previous[name]) for name, value in proposal['values'].items()}
     )
@@ -116,16 +120,24 @@ def fit_independent_route(assessment, group, cohort, prior, proposal, previous, 
     from openpilot.starpilot.flm.offroad_tracking import estimate, suggest
     from openpilot.starpilot.flm.canonical_surface_adapter import NAMES
 
-    observed = estimate(prior.tracking_windows, cohort=cohort['cohort'], permitted=permitted)
-    _, side, phase = cohort['cohort'].split(':')
-    replication = None if observed is None else suggest(observed, {name: previous[name] for name in NAMES}, side=side, phase=phase)
-    supported = (
-      replication is not None
-      and replication['parameter'] == proposal['parameter']
-      and replication['delta'] * proposal['delta'] > 0
-      and abs(proposal['delta'] * fraction) <= abs(replication['delta'])
-    )
-    proof['independent_tracking'] = {'qualified': supported, 'estimate': None if observed is None else asdict(observed), 'replication': replication}
+    if stable:
+      from openpilot.starpilot.flm.offroad_stable_bridge import StableRouteSelector, independent_profile_support
+
+      selector = StableRouteSelector(prior, root, previous, scope, permitted=permitted)
+      replicated, profile_proof = selector.profile(tuple(w['identity'] for w in prior.profile_windows), cohort['cohort'])
+      supported = independent_profile_support({'values': values}, replicated, previous)
+      proof['independent_tracking'] = {'qualified': supported, 'profile': profile_proof, 'replication': replicated}
+    else:
+      observed = estimate(prior.tracking_windows, cohort=cohort['cohort'], permitted=permitted)
+      _, side, phase = cohort['cohort'].split(':')
+      replication = None if observed is None else suggest(observed, {name: previous[name] for name in NAMES}, side=side, phase=phase)
+      supported = (
+        replication is not None
+        and replication['parameter'] == proposal['parameter']
+        and replication['delta'] * proposal['delta'] > 0
+        and abs(proposal['delta'] * fraction) <= abs(replication['delta'])
+      )
+      proof['independent_tracking'] = {'qualified': supported, 'estimate': None if observed is None else asdict(observed), 'replication': replication}
     proof['validation_evaluations'] = 1
     if not supported:
       checks = {
