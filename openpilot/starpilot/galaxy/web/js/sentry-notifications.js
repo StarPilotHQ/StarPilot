@@ -62,6 +62,7 @@ export const SentryNotifications = {
   name: "SentryNotifications",
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ nativePush: !!window.StarPilotApp?.sentryPush, pushState: {}, testPoll: null, relayUrl: '', enrollmentCode: '', relayConfirmed: false, channels, labels, notifications: null, notificationBusy: false, notificationError: "",
+    channelSetup: {},
     drafts: Object.fromEntries(channels.map(name => [name, { url: "", token: "" }])) }),
   created() { this.client = new NotificationClient({ publish: update => Object.assign(this.$data, update), unauthorized: this.unauthorized }) },
   mounted() {
@@ -116,16 +117,25 @@ export const SentryNotifications = {
       this.client.run()
       this.poll = setInterval(() => { if (!this.notificationBusy && !this.client.pending) this.client.run() }, 5000)
     },
+    channelExpanded(name) { return this.notifications.channels[name].enabled || !!this.channelSetup[name] },
+    toggleChannel(name) {
+      if (!this.notifications.channels[name].configured) {
+        this.channelSetup[name] = !this.channelSetup[name]
+        return
+      }
+      return this.reportSave(() => this.save(name, !this.notifications.channels[name].enabled))
+    },
     async save(name, enabled) {
       const draft = this.drafts[name]
       const saved = await this.client.run({ action: "configure", channel: name, enabled, url: draft.url, token: draft.token })
       if (saved) {
         draft.url = ""; draft.token = ""
+        this.channelSetup[name] = false
       }
       return saved
     },
     test(name) { return this.client.run({ action: "test", channel: name }) },
-    async forget(name) { if (await this.client.run({ action: "forget", channel: name })) { this.drafts[name].url = ""; this.drafts[name].token = "" } },
+    async forget(name) { if (await this.client.run({ action: "forget", channel: name })) { this.drafts[name].url = ""; this.drafts[name].token = ""; this.channelSetup[name] = false } },
     remove(id) { return this.client.run({ action: "unsubscribe", id }) },
     async subscribe() {
       if (!isSecureContext || !("serviceWorker" in navigator) || !("PushManager" in window)) {
@@ -215,10 +225,10 @@ export const SentryNotifications = {
           <div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="client.run({action: 'test', target: 'all'})">Test all channels</button></div>
           <section v-for="name in channels" :key="name" class="gx-card gx-sentry-channel">
             <div class="gx-section__header"><i class="bi" :class="{webPush: 'bi-bell', discord: 'bi-discord', webhook: 'bi-link-45deg', ntfy: 'bi-broadcast'}[name]" aria-hidden="true"></i><span class="gx-section__title">{{ labels[name] }}</span>
-              <label class="gx-switch"><input type="checkbox" role="switch" :aria-label="labels[name] + ' notifications'" :checked="notifications.channels[name].enabled"
-                :disabled="!notifications.channels[name].configured || notificationBusy"
-                @change="$event.target.checked=notifications.channels[name].enabled; reportSave(() => save(name, !notifications.channels[name].enabled))"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label></div>
-            <div class="gx-panel gx-stack">
+              <label class="gx-switch"><input type="checkbox" role="switch" :aria-label="labels[name] + ' notifications'" :checked="channelExpanded(name)"
+                :disabled="notificationBusy"
+                @change="$event.target.checked=channelExpanded(name); toggleChannel(name)"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label></div>
+            <div v-if="channelExpanded(name)" class="gx-panel gx-stack">
             <p class="gx-note" role="status">{{ notifications.channels[name].configured ? 'Configured' : 'Not configured' }}<template v-if="notifications.channels[name].configured && notifications.channels[name].lastState !== 'idle'">, last delivery {{ notifications.channels[name].lastState }}<template v-if="notifications.channels[name].pending">, {{ notifications.channels[name].pending }} pending</template></template></p>
             <GxNotice tone="danger" v-if="notifications.channels[name].lastError">Delivery status: {{ notifications.channels[name].lastError.replaceAll('_', ' ') }}</GxNotice>
             <div v-if="name !== 'webPush'" class="gx-sentry-channel__fields">
