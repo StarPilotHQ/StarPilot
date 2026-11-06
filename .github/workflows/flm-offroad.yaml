@@ -6,6 +6,8 @@ on:
     paths:
       - 'openpilot/starpilot/flm/**'
       - 'openpilot/starpilot/lateral/**'
+      - 'openpilot/starpilot/galaxy/web/js/flm*.js'
+      - 'openpilot/starpilot/galaxy/tests/test_flm*.mjs'
       - 'openpilot/selfdrive/controls/lib/latcontrol*'
       - 'openpilot/selfdrive/controls/controlsd.py'
       - 'openpilot/system/manager/process_config.py'
@@ -13,6 +15,11 @@ on:
       - 'pyproject.toml'
       - 'uv.lock'
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full candidate commit SHA to qualify without creating a branch
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -33,6 +40,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+      - name: Verify exact source under test
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          git rev-parse HEAD
+          test -z "$SOURCE_SHA" || test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - run: ./tools/op.sh setup
       - name: Check all FLM and integrated controller source
         timeout-minutes: 1
@@ -48,6 +63,11 @@ jobs:
           tools/op.sh test
           openpilot/starpilot/flm/tests/test_offroad_backend.py
           --json-output ci-results/flm-offroad.json
+      - name: Test completed-drive and steering-result presentation
+        timeout-minutes: 1
+        run: |
+          node openpilot/starpilot/galaxy/tests/test_flm_training_results.mjs
+          node openpilot/starpilot/galaxy/tests/test_flm_tracking_results.mjs
       - name: Retain offroad contract results
         if: always()
         uses: actions/upload-artifact@v4
