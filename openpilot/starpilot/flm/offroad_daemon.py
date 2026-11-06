@@ -168,6 +168,28 @@ def parked_status(sm, params, *, stopped=False, now=None):
   return bool(not sm['deviceState'].started and pandas and all(not (p.ignitionLine or p.ignitionCan or p.controlsAllowed or p.faults) for p in pandas))
 
 
+def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic):
+  """Refresh a lapped subscriber before resuming analysis; never use stale permission."""
+  deadline = clock() + 0.75
+  timeout = 0
+  while True:
+    sm.update(timeout)
+    if parked_status(sm, params, stopped=stopped(), now=clock()):
+      return True
+    if (
+      stopped()
+      or not params.get_bool('IsOffroad')
+      or params.get_bool('IsEngaged')
+      or sm['deviceState'].started
+      or any(p.ignitionLine or p.ignitionCan or p.controlsAllowed or p.faults for p in sm['pandaStates'])
+      or clock() >= deadline
+    ):
+      return False
+    # A lost/invalid/freshness check grants nothing. Wait for an actual new
+    # message and re-run the identical predicate before any analysis continues.
+    timeout = 20
+
+
 def main():
   from openpilot.common.hardware.hw import Paths
   from openpilot.starpilot.flm.offroad_cache import directory_for_params
@@ -187,8 +209,7 @@ def main():
     sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState'])
 
     def parked():
-      sm.update(0)
-      return parked_status(sm, params, stopped=stopped)
+      return wait_for_parked(sm, params, stopped=lambda: stopped)
 
     def permitted():
       okay = parked()
@@ -203,7 +224,14 @@ def main():
       permitted=permitted,
       on_analysis=lambda: report.set({'status': 'fitting', 'reason': 'analyzing_last_completed_drive'}),
       on_assessment=lambda a: report.set(
-        {'status': 'fitting', 'reason': 'checking_recorded_steering_recommendations', 'completed_route': a.receipt.route_id, 'analysis_counts': dict(a.counts)}
+        {
+          'status': 'fitting',
+          'reason': 'checking_recorded_steering_recommendations',
+          'completed_route': a.receipt.route_id,
+          'vehicle': str(a.cp.carFingerprint),
+          'analysis_counts': dict(a.counts),
+          'recorded_tracking': a.recorded_tracking,
+        }
       ),
     )
     next_analysis = 0.0

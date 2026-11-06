@@ -734,6 +734,77 @@ class TestOffroadStore(unittest.TestCase):
 
 
 class TestOffroadReport(unittest.TestCase):
+  def test_lapped_parked_subscriber_waits_for_real_freshness_and_preserves_safety_refusals(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_daemon import parked_status, wait_for_parked
+
+    def fixture(refresh=True):
+      now = [100.0]
+      flags = {'IsOffroad': True, 'IsEngaged': False}
+      params = SimpleNamespace(get_bool=lambda key: flags[key])
+
+      class Messages:
+        def __init__(self):
+          self.data = {
+            'deviceState': SimpleNamespace(started=False),
+            'pandaStates': [SimpleNamespace(ignitionLine=False, ignitionCan=False, controlsAllowed=False, faults=[])],
+            'peripheralState': SimpleNamespace(),
+          }
+          self.seen = dict.fromkeys(self.data, True)
+          self.alive = dict.fromkeys(self.data, True)
+          self.valid = dict.fromkeys(self.data, True)
+          self.recv_time = dict.fromkeys(self.data, now[0])
+          self.alive['pandaStates'] = False
+          self.recv_time['pandaStates'] = 97.0
+          self.calls = []
+
+        def __getitem__(self, service):
+          return self.data[service]
+
+        def update(self, timeout):
+          self.calls.append(timeout)
+          now[0] += timeout / 1000
+          if timeout and refresh:
+            self.alive['pandaStates'] = True
+            self.recv_time['pandaStates'] = now[0]
+
+      return now, flags, params, Messages()
+
+    now, _, params, sm = fixture()
+    self.assertFalse(parked_status(sm, params, now=now[0]))
+    self.assertTrue(wait_for_parked(sm, params, clock=lambda now=now: now[0]))
+    self.assertEqual(sm.calls, [0, 20])
+    self.assertTrue(parked_status(sm, params, now=now[0]))
+
+    for unavailable in ('no_new_message', 'invalid', 'unseen'):
+      with self.subTest(unavailable=unavailable):
+        now, _, params, sm = fixture(refresh=unavailable != 'no_new_message')
+        if unavailable == 'invalid':
+          sm.valid['pandaStates'] = False
+        elif unavailable == 'unseen':
+          sm.seen['pandaStates'] = False
+        self.assertFalse(wait_for_parked(sm, params, clock=lambda now=now: now[0]))
+        self.assertLessEqual(now[0], 100.8)
+        self.assertLessEqual(len(sm.calls), 40)
+
+    for unsafe in ('onroad', 'engaged', 'started', 'ignition', 'controls', 'fault', 'stopped'):
+      with self.subTest(unsafe=unsafe):
+        now, flags, params, sm = fixture()
+        if unsafe == 'onroad':
+          flags['IsOffroad'] = False
+        elif unsafe == 'engaged':
+          flags['IsEngaged'] = True
+        elif unsafe == 'started':
+          sm['deviceState'].started = True
+        elif unsafe == 'ignition':
+          sm['pandaStates'][0].ignitionCan = True
+        elif unsafe == 'controls':
+          sm['pandaStates'][0].controlsAllowed = True
+        elif unsafe == 'fault':
+          sm['pandaStates'][0].faults.append('declared-fault')
+        self.assertFalse(wait_for_parked(sm, params, stopped=lambda unsafe=unsafe: unsafe == 'stopped', clock=lambda now=now: now[0]))
+        self.assertEqual(sm.calls, [0], 'Actual unsafe state refuses immediately instead of waiting')
+
   def test_completed_drive_reports_every_candidate_without_claiming_application(self):
     from openpilot.starpilot.flm.training_report import read_report
     from openpilot.starpilot.flm.offroad_worker import qualification_summary
