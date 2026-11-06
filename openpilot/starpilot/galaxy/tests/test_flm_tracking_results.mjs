@@ -246,6 +246,16 @@ const measuredWindow={version:1,domain:'lateral_acceleration',samples:2000,windo
  sampling:'input_ordered_original_endpoints_no_interpolation'}
 ctx.report.current.details['Recorded steering response']=measuredWindow
 ctx.report.current.details['Saved route adjustment count']=0
+assert(validTrainingResults(ctx.report),'The whole wire report must accept its bounded recorded graph before rendering')
+const completeGraph=structuredClone(ctx.report)
+completeGraph.current.details['Recorded steering response']={...measuredWindow,source_end_ns:7.3e9,
+ points:Array.from({length:64},(_,i)=>[1e9+i*1e8,.2,.08])}
+assert(validTrainingResults(completeGraph),'The production 64-point recorded graph fits the wire contract')
+completeGraph.current.details['Recorded steering response'].points.push([7.4e9,.2,.08])
+assert(!validTrainingResults(completeGraph),'The recorded graph retains its 64-point bound')
+const unboundedDetails=structuredClone(ctx.report)
+unboundedDetails.current.details['Unknown nested diagnostic']={points:measuredWindow.points}
+assert(!validTrainingResults(unboundedDetails),'Unrelated nested details retain their original bounds')
 ctx.report.current.details['Controller and encoder check windows']=[22,24]
 ctx.report.current.details['Automatic tune refusal reasons']=[['original_scored_frame_not_eligible',1],['candidate changed an actual limiter/support',1]]
 assert.equal(ctx.offroad.observed.errorRms,.12)
@@ -268,6 +278,7 @@ for(const changed of [{points:measuredWindow.points.toReversed()},{error_rms:NaN
  {source_end_ns:measuredWindow.source_end_ns+1}]){
  ctx.report.current.details['Recorded steering response']={...measuredWindow,...changed}
  assert.equal(ctx.offroad.observed,null,'Malformed recorded data cannot populate the graph')
+ assert(!validTrainingResults(ctx.report),'Malformed recorded graphs must be refused at the wire boundary')
 }
 ctx.report.current.details['Recorded steering response']={...measuredWindow,domain:'steering_angle'}
 assert.equal(ctx.offroad.observed.units,'degrees','PID observations retain their angle units')

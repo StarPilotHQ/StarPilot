@@ -52,7 +52,8 @@ export function validTrainingResults(value) {
       (["Full surface coordinates", "Actual full surface coordinates"].includes(key) ? fullCoordinates(item) !== null :
         key === 'Applied correction coordinates' && Array.isArray(item) && item.length === 30 ?
           item.every(number => typeof number === 'number' && Number.isFinite(number) && Math.abs(number) <= .25) :
-        key === 'GLOBAL source observation refusals' ? validSourceRefusals(item) : detailValue(item)))
+        key === 'GLOBAL source observation refusals' ? validSourceRefusals(item) :
+        key === 'Recorded steering response' ? item === null || recordedSteeringView(item) !== null : detailValue(item)))
 }
 const labels = { collecting: "Gathering driving examples", unavailable: "Waiting for usable driving data",
   qualifiedFit: "Fit passed validation", qualified: "Fit passed validation", rejected: "Fit did not pass validation",
