@@ -74,6 +74,7 @@ def test_launch_commands_isolate_the_server_and_player(layout):
   assert player.argv[player.argv.index('--cache-size') + 1] == '256'
   assert player.argv[player.argv.index('--initial-volume') + 1] == '60'
   assert player.env['PULSE_SERVER'] == f'unix:{layout.runtime}/pulse/native'
+  assert player.env['LD_LIBRARY_PATH'] == str(backend.SERVER_ROOT / 'lib')
 
 
 def test_vendored_server_matches_its_checksums():
@@ -84,8 +85,11 @@ def test_vendored_server_matches_its_checksums():
   assert {name for _, name in sums} >= {'bin/pulseaudio', 'lib/libpulsecore-16.1.so', 'modules/module-pipe-sink.so'}
   for digest, name in sums:
     assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, name
-  for name in ('pulseaudio', 'libltdl7', 'liborc-0.4-0t64', 'libsoxr0', 'libspeexdsp1', 'libtdb1'):
+  for name in ('pulseaudio', 'libpulse0', 'libsndfile1', 'libltdl7', 'liborc-0.4-0t64', 'libsoxr0', 'libspeexdsp1', 'libtdb1'):
     assert (root / 'licenses' / f'{name}.copyright').is_file()
+  # AGNOS 20 dropped libpulse0 and libsndfile1; Soloist and the phone relay load them from the bundle.
+  for name in ('libpulse.so.0', 'libpulse-simple.so.0', 'libpulsecommon-16.1.so', 'libsndfile.so.1'):
+    assert any(path == f'lib/{name}' for _, path in sums), name
 
 
 def test_starport_output_is_a_real_time_pipe(layout):

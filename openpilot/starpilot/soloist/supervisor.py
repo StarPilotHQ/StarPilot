@@ -334,7 +334,8 @@ class Supervisor:
       if not socket_path.exists():
         raise RuntimeError('Audio output could not open')
       env = {**os.environ, 'PULSE_SERVER': f'unix:{socket_path}', 'STARPILOT_AUDIO_PARENT_PID': str(os.getpid()),
-             'STARPILOT_SOLOIST_CONFIG': str(self.layout.config)}
+             'STARPILOT_SOLOIST_CONFIG': str(self.layout.config),
+             'LD_LIBRARY_PATH': backend.library_path(inherited=os.environ.get('LD_LIBRARY_PATH', ''))}
       argv = [sys.executable, '-m', 'openpilot.starpilot.soloist.phone_audio', prefs.phone_address,
               env['PULSE_SERVER'], str(self.layout.runtime / 'phone-alsa.conf')]
       # Resolve this checkout explicitly; the worker runs in the private runtime directory.
