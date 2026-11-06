@@ -176,6 +176,7 @@ export const SentryNotifications = {
                 <button type="button" class="gx-btn" :disabled="!relay.automaticConfigured" @click="enableHostedAlerts">Enable alerts</button>
                 <span class="gx-note">{{ relay.automaticConfigured ? 'Sends phone destinations and alert details to the hosted relay.' : 'Hosted alerts are not configured in this release yet.' }}</span>
               </div>
+              <p v-if="notifications.appPushAvailable && (nativePush || notifications.appSubscriptions?.length)" class="gx-note">Test alerts may take up to 20 seconds to arrive.</p>
               <div v-if="nativePush" class="gx-row gx-row--borderless gx-row--wrap">
                 <div class="gx-row__info gx-row__info--wide"><span class="gx-row__label">This phone</span><span class="gx-row__desc">{{ pushState.status || (pushState.enabled ? 'Alerts on' : 'Alerts off') }}</span></div>
                 <div class="gx-actions">
