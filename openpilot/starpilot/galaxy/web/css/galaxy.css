@@ -895,6 +895,8 @@ transition: transform var(--motion-fast), background-color var(--motion-fast);
 .gx-menu-tile:disabled { cursor: default; opacity: .65; }
 .gx-menu-tile:disabled:hover { background: var(--surface-container); transform: none; }
 .gx-note--danger { color: var(--error); }
+.gx-note--warning { color: var(--warning); }
+.gx-sentry-busy { min-height: 1.5em; }
 .gx-empty { padding: var(--sp-4); color: var(--text-muted); }
 .gx-chip {
 display: inline-flex;

@@ -30,12 +30,12 @@ export class NotificationClient {
     this.controller = new AbortController()
     this.pending = true
     const foreground = payload !== null || !this.hasStatus
-    if (foreground) this.publish({ notificationBusy: true, notificationError: "" })
+    if (foreground) this.publish({ notificationBusy: true, notificationError: "", notificationTesting: payload?.action === "test" })
     this.timer = setTimeout(() => {
       if (revision !== this.revision) return
       this.stop()
       this.publish({ notificationBusy: false, notificationError: "Notification request timed out. Refresh status before repeating a test." })
-    }, 4000)
+    }, payload?.action === "test" ? 25000 : 4000)
     try {
       const response = await this.fetcher("./api/sentry/notifications", { credentials: "same-origin", cache: "no-store",
         signal: this.controller.signal, ...(payload === null ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }) })
@@ -61,7 +61,7 @@ export const SentryNotifications = {
   components: { GxNotice },
   name: "SentryNotifications",
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
-  data: () => ({ nativePush: !!window.StarPilotApp?.sentryPush, pushState: {}, testPoll: null, relayUrl: '', enrollmentCode: '', relayConfirmed: false, channels, labels, notifications: null, notificationBusy: false, notificationError: "",
+  data: () => ({ nativePush: !!window.StarPilotApp?.sentryPush, pushState: {}, testPoll: null, relayUrl: '', enrollmentCode: '', relayConfirmed: false, channels, labels, notifications: null, notificationBusy: false, notificationTesting: false, notificationError: "",
     channelSetup: {},
     drafts: Object.fromEntries(channels.map(name => [name, { url: "", token: "" }])) }),
   created() { this.client = new NotificationClient({ publish: update => Object.assign(this.$data, update), unauthorized: this.unauthorized }) },
@@ -164,7 +164,7 @@ export const SentryNotifications = {
       <p v-if="mode !== 'local'">Notification configuration is available on your connected device.</p>
       <template v-else>
         <GxNotice tone="danger" v-if="notificationError">{{ notificationError }}</GxNotice>
-        <p v-if="notificationBusy" class="gx-note" role="status">Updating notifications…</p>
+        <p class="gx-note gx-sentry-busy" :class="{'gx-note--warning': notificationTesting}" role="status">{{ notificationBusy ? (notificationTesting ? 'Test notifications may take up to 20 seconds.' : 'Updating notifications…') : '' }}</p>
         <GxNotice tone="danger" v-if="notifications?.queueFull">The notification queue is full. Some events could not be queued.</GxNotice>
         <template v-if="notifications">
           <p class="gx-note">{{ notifications.deliverySemantics }}</p>
@@ -191,6 +191,7 @@ export const SentryNotifications = {
                   <button type="button" class="gx-btn gx-btn--tonal" @click="removePhone(phone.id)">Remove</button>
                 </div>
               </div>
+              <p v-if="(notifications.appSubscriptions || []).length" class="gx-note">Remove only clears a phone from this comma. To stop it re-adding itself, also turn Sentry alerts off in the phone's app.</p>
               <p v-for="phone in (notifications.removedAppSubscriptions || [])" :key="phone.id" class="gx-note">{{ phone.lastResult }}</p>
               <details>
                 <summary class="gx-link">Relay settings</summary>
@@ -203,7 +204,7 @@ export const SentryNotifications = {
                         <label>One-time enrollment code <input v-model="enrollmentCode" class="gx-field" type="password" autocomplete="off"></label>
                       </div>
                     </template>
-                    <label><input type="checkbox" v-model="relayConfirmed"> I confirm this relay action. Enrolling sends phone destinations and alert details to the relay operator. Forgetting locally does not revoke a copied credential.</label>
+                    <label><input type="checkbox" v-model="relayConfirmed"> Tick to enable the buttons below. Enrolling shares your phone destinations and alert details with the relay operator. Forget locally does not revoke a copied credential.</label>
                     <div class="gx-actions">
                       <button v-if="['unenrolled', 'revoked', 'actionRequired'].includes(relay.state)" type="button" class="gx-btn gx-btn--tonal" :disabled="!relayConfirmed || !relayUrl || !enrollmentCode" @click="enrollRelay">Enroll with custom relay</button>
                       <button v-if="relay.state === 'enrolled'" type="button" class="gx-btn gx-btn--tonal" :disabled="!relayConfirmed" @click="relayAction('relayRotate')">Rotate credential</button>
