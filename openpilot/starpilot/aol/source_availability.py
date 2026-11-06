@@ -150,7 +150,8 @@ def ordinary_source_availability(self, CS, now_ns, native=None, *, replay: bool,
       events = [event for event in events if not (event.name == stock_user and event.userDisable and
         not event.softDisable and not event.immediateDisable)]
   if (replay or not self.aol_replay or not self.axis_transport_required or anchor is None or
-      not self.initialized or getattr(self, 'aol_availability_long_inhibit', False) or self.aol_authority_lost or
+      not self.initialized or self.aol_authority_lost or
+      getattr(self, 'aol_availability_long_inhibit', False) and stock_user is None or
       getattr(self, 'aol_fault_reason', 'none') not in ('none', 'availabilityPause', 'critical') or
       any(event.userDisable or event.immediateDisable for event in events) or
       any(e.softDisable and e.name not in HOST_SOURCE_AVAILABILITY_EVENTS
