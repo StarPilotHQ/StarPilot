@@ -1160,7 +1160,9 @@ class SelfdriveD:
     from openpilot.starpilot.audio.blindspot_alert import ALERT_TYPE as BSM_ALERT, blindspot_alert
     loud, without_lateral = getattr(self, 'blindspot_alert_settings', (False, False))
     blindspot = blindspot_alert(CS, self.sm, loud=loud, without_lateral=without_lateral,
-                                lane_change_blocked=EventName.laneChangeBlocked in self.events.names, now_ns=now_ns)
+                                lane_change_blocked=EventName.laneChangeBlocked in self.events.names, now_ns=now_ns,
+                                car_ns=getattr(self, 'aol_car_state_log_ns', 0),
+                                car_valid=getattr(self, 'conditional_car_state_valid', False))
     if blindspot is not None:
       alerts = [alert for alert in alerts if alert.alert_type != 'laneChangeBlocked/warning']
       self.AM.alerts.pop('laneChangeBlocked/warning', None)

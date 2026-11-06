@@ -5,14 +5,17 @@ ALERT_TYPE = "blindSpotAdvisory/warning"
 EVENT_TYPE = "blindSpotAdvisory"
 
 
-def blindspot_alert(cs, sm, *, loud: bool, without_lateral: bool, lane_change_blocked: bool, now_ns: int):
+def blindspot_alert(cs, sm, *, loud: bool, without_lateral: bool, lane_change_blocked: bool, now_ns: int,
+                    car_ns: int, car_valid: bool):
   if not loud and not without_lateral:
     return None
   try:
-    if not sm['deviceState'].started or not sm.all_checks(['deviceState', 'carState', 'carControl']):
+    if not car_valid or not 0 < car_ns <= now_ns or now_ns - car_ns > 200_000_000:
+      return None
+    if not sm['deviceState'].started or not sm.all_checks(['deviceState', 'carControl']):
       return None
     if any(not 0 < int(sm.logMonoTime[key]) <= now_ns or now_ns - int(sm.logMonoTime[key]) > limit
-           for key, limit in (('deviceState', 2_000_000_000), ('carState', 200_000_000), ('carControl', 200_000_000))):
+           for key, limit in (('deviceState', 2_000_000_000), ('carControl', 200_000_000))):
       return None
     if not cs.canValid or cs.canTimeout:
       return None
