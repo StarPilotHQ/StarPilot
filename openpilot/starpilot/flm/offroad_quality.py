@@ -6,7 +6,9 @@ Only complete, input-matched original windows can trigger a withdrawal.
 """
 
 from collections import deque
+from collections.abc import Callable
 import math
+import os
 
 from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES as NAMES
 from openpilot.starpilot.flm.offroad_analysis import cohort
@@ -38,6 +40,7 @@ class TrialGuard:
     self.last_ns = 0
     self.override_ns = 0
     self.stopped = None
+    self.start_trial: Callable[[], bool] | None = None
     self.cohort = None
     self.baseline = ()
     try:
@@ -106,6 +109,15 @@ class TrialGuard:
     ):
       self.rows.clear()
       return None
+    if self.start_trial is not None:
+      start, self.start_trial = self.start_trial, None
+      try:
+        claimed = start()
+      except (OSError, ValueError):
+        claimed = False
+      if not claimed:
+        self.stopped = 'baseline_unavailable'
+        return self.marker
     point = read_point(event, companions, route='current-route-revocation-only', segment=0, context_key=self.scope_key)
     if point is None:
       self.rows.clear()
@@ -167,8 +179,11 @@ def from_configuration(cp, params, cache_directory, *, vehicle_session):
     cache = AssessmentCache(cache_directory)
     trial = trial_document(cache, row['analysis_sha256'])
     guard = TrialGuard(scope.key(), row['values'], trial)
-    if row['state'] == 'ready_for_next_drive' and guard.stopped is None and not cache.claim_trial(row['analysis_sha256'], vehicle_session):
-      guard.stopped = 'baseline_unavailable'
+    if row['state'] == 'ready_for_next_drive' and guard.stopped is None:
+      if os.path.lexists(cache.directory / ('trial-' + row['analysis_sha256'] + '.json')):
+        guard.stopped = 'baseline_unavailable'
+      else:
+        guard.start_trial = lambda digest=row['analysis_sha256'], session=vehicle_session: cache.claim_trial(digest, session)
   except (OSError, KeyError, TypeError, ValueError, OverflowError):
     guard = TrialGuard(scope.key(), row['values'], {})
   return guard

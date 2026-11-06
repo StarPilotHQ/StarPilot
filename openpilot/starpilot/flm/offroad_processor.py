@@ -189,6 +189,9 @@ def collect_route_inputs(root, route, *, permitted, walker=None):
   raw_windows = {}
   context_metadata = {}
   counts = {
+    'recorded_lateral_request_rows': 0,
+    'active_lateral_request_rows': 0,
+    'invalid_lateral_request_rows': 0,
     'recorded_tracking': 0,
     'joined_tracking': 0,
     'missing_join': 0,
@@ -226,6 +229,10 @@ def collect_route_inputs(root, route, *, permitted, walker=None):
       if index % 128 == 0 and not permitted():
         raise ValueError('Parked analysis cancelled')
       kind = event.which()
+      if kind == 'carControl':
+        counts['recorded_lateral_request_rows'] += 1
+        counts['active_lateral_request_rows'] += bool(event.carControl.latActive)
+        counts['invalid_lateral_request_rows'] += not event.valid
       if kind == 'carParams':
         # Own the actual CP reader independently of this segment's byte buffer.
         cp = event.carParams.as_builder().as_reader()
@@ -352,9 +359,52 @@ def collect_route_inputs(root, route, *, permitted, walker=None):
   return RecordedInputs(receipt, state, windows, stable_windows, baseline_tracking, bookends, raw_windows, context_metadata, counts, quality_stops)
 
 
-def analyze_latest(params, root, previous, *, permitted):
+def collect_latest_steering_inputs(params, root, *, permitted):
   route = latest_route(params, root, permitted=permitted)
-  collected = collect_route_inputs(root, route, permitted=permitted)
+  import time
+  from openpilot.starpilot.flm.offroad_route import MAX_ANALYSIS_SECONDS, MAX_SEGMENTS, LOCAL_ID
+  from openpilot.starpilot.galaxy.drive_history import DriveHistory
+
+  started = time.monotonic()
+
+  def allowed():
+    return permitted() and time.monotonic() - started <= MAX_ANALYSIS_SECONDS
+
+  collected = collect_route_inputs(root, route, permitted=allowed)
+  current_cp = collected.receipt.cp_sha256
+  skipped = 0
+
+  def inactive(inputs):
+    c = inputs.counts
+    return (
+      c['recorded_lateral_request_rows'] >= 40 and c['active_lateral_request_rows'] == 0 and c['invalid_lateral_request_rows'] == 0 and not inputs.quality_stops
+    )
+
+  if inactive(collected) and LOCAL_ID.fullmatch(route['routeId']):
+    snapshot = DriveHistory(root, max_segments_per_route=MAX_SEGMENTS).snapshot()
+    if snapshot['scanIncomplete']:
+      raise ValueError('Latest steering drive inventory incomplete')
+    counter = int(route['routeId'].split('--')[0], 16)
+    candidates = []
+    for candidate in snapshot['routes']:
+      if LOCAL_ID.fullmatch(candidate['routeId']):
+        distance = (counter - int(candidate['routeId'].split('--')[0], 16)) % 2**32
+        if 1 <= distance <= 3 and candidate['segments'] and all(s['files']['rlog'] for s in candidate['segments']):
+          candidates.append((distance, candidate['routeId'], candidate))
+    for _, _, candidate in sorted(candidates):
+      earlier = collect_route_inputs(root, candidate, permitted=allowed)
+      if earlier.receipt.cp_sha256 != current_cp:
+        continue
+      skipped += 1
+      if not inactive(earlier):
+        route, collected = candidate, earlier
+        collected.counts['inactive_recordings_skipped'] = skipped
+        break
+  return route, collected
+
+
+def analyze_latest(params, root, previous, *, permitted):
+  route, collected = collect_latest_steering_inputs(params, root, permitted=permitted)
   receipt, state = collected.receipt, collected.state
   if type(receipt) is not RouteReceipt:
     raise ValueError('A whole completed-route assessment requires all original segments')

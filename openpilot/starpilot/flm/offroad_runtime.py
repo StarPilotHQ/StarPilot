@@ -4,6 +4,7 @@ No permissions, response witnesses, ACKs or source clocks are loaded from disk.
 """
 
 import time
+import os
 
 from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES as NAMES
 from openpilot.starpilot.flm.offroad_store import RouteScope, startup_row
@@ -273,6 +274,11 @@ def configure(cp, ci, controller, params, *, manual_status):
     row, status = startup_row(params, scope)
     if row is None:
       return None, status
+    if row['state'] == 'ready_for_next_drive':
+      from openpilot.starpilot.flm.offroad_cache import directory_for_params
+
+      if os.path.lexists(directory_for_params(params) / ('trial-' + row['analysis_sha256'] + '.json')):
+        return None, 'provisional_trial_already_started'
     values = tuple((n, float(row['values'][n])) for n in NAMES)
     previous = tuple((n, float(row['previous'][n])) for n in NAMES)
     fixed = None if not fixed_manual else fixed_manual_numeric(controller, fixed_manual)

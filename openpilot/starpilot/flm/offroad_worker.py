@@ -8,6 +8,7 @@ from dataclasses import replace
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 
 from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES as NAMES
@@ -148,7 +149,7 @@ def quality_withdrawn(assessment, scope, values):
   return any(stop_marker(scope.key(), values, r) in reasons for r in STOP_REASONS)
 
 
-def assess_next_drive(trial, assessment, scope):
+def assess_next_drive(trial, assessment, scope, *, trial_started=True):
   """Compare independently held-out actual observations; no raw-RMS reward."""
   if trial.get('policy') != POLICY or trial.get('kind') != 'next_drive_trial':
     raise ValueError('Exact provisional assessment provenance required')
@@ -200,6 +201,14 @@ def assess_next_drive(trial, assessment, scope):
         else:
           results.append(compare_observed(old, new))
       comparisons.append({'original_context_sha256': group['original_context_sha256'], 'comparison_contract_sha256': contract, 'independent': results})
+  if not comparisons and not trial_started:
+    return {
+      'outcome': 'pending',
+      'reason': 'trial_not_applied_waiting_for_eligible_drive',
+      'observed_only': True,
+      'causal_road_benefit_proven': False,
+      'comparisons': [],
+    }
   improved = bool(comparisons and all(all(r['improved'] for r in c['independent']) for c in comparisons))
   return {
     'outcome': 'accepted_after_drive' if improved else 'rolled_back',
@@ -327,11 +336,17 @@ class OffroadWorker:
     scope, row, expected = state['scope'], state['row'], state['raw']
 
     def authorized():
-      return (
-        self.permitted()
-        and self.scope_for(assessment.cp, self.params) == scope
-        and latest_route(self.params, self.root, permitted=self.permitted) == assessment.source_inventory
-      )
+      if not (
+        self.permitted() and self.scope_for(assessment.cp, self.params) == scope and latest_route(self.params, self.root, permitted=self.permitted) == route
+      ):
+        return False
+      if assessment.source_inventory == route:
+        return True
+      from openpilot.starpilot.flm.offroad_route import MAX_SEGMENTS
+      from openpilot.starpilot.galaxy.drive_history import DriveHistory
+
+      inventory = DriveHistory(self.root, max_segments_per_route=MAX_SEGMENTS).snapshot()
+      return not inventory['scanIncomplete'] and sum(r == assessment.source_inventory for r in inventory['routes']) == 1
 
     if not authorized():
       raise ValueError('Source or settings changed after fitting')
@@ -360,7 +375,7 @@ class OffroadWorker:
               observed_checks.append(
                 {'qualified': actual['qualified'] and contribution['qualified'], 'actual_recorded_map': actual, 'compared_with_prior_map': contribution}
               )
-      outcome = assess_next_drive(trial, assessment, scope)
+      outcome = assess_next_drive(trial, assessment, scope, trial_started=os.path.lexists(self.cache.directory / ('trial-' + row['analysis_sha256'] + '.json')))
       if outcome['outcome'] == 'accepted_after_drive' and (not observed_checks or not all(r['qualified'] for r in observed_checks)):
         outcome = {
           'outcome': 'rolled_back',
@@ -369,28 +384,33 @@ class OffroadWorker:
           'causal_road_benefit_proven': False,
           'comparisons': outcome['comparisons'],
         }
-      record = {
-        'kind': 'next_drive_outcome',
-        'policy': POLICY,
-        'trial_analysis_sha256': row['analysis_sha256'],
-        'assessment': report,
-        'all_actual_next_drive_checks': observed_checks,
-        **outcome,
-      }
-      digest = self.cache.put(record)
-      saved = RouteStorage(self.params).resolve(
-        scope=scope,
-        expected=expected,
-        outcome=outcome['outcome'],
-        route_sha256=assessment.receipt.source_sha256,
-        completed_wall_ns=assessment.receipt.completed_wall_ns,
-        analysis_sha256=digest,
-        authorized=authorized,
-      )
-      if not saved:
-        raise ValueError('Next-drive outcome compare-and-swap refused')
-      status = outcome['outcome']
-      reason = outcome['reason']
+      if outcome['outcome'] == 'pending':
+        status, reason = 'ready_for_next_drive', outcome['reason']
+        report['unused_recording_review'] = outcome
+        report['recorded_tracking'] = trial.get('assessment', {}).get('recorded_tracking')
+      else:
+        record = {
+          'kind': 'next_drive_outcome',
+          'policy': POLICY,
+          'trial_analysis_sha256': row['analysis_sha256'],
+          'assessment': report,
+          'all_actual_next_drive_checks': observed_checks,
+          **outcome,
+        }
+        digest = self.cache.put(record)
+        saved = RouteStorage(self.params).resolve(
+          scope=scope,
+          expected=expected,
+          outcome=outcome['outcome'],
+          route_sha256=assessment.receipt.source_sha256,
+          completed_wall_ns=assessment.receipt.completed_wall_ns,
+          analysis_sha256=digest,
+          authorized=authorized,
+        )
+        if not saved:
+          raise ValueError('Next-drive outcome compare-and-swap refused')
+        status = outcome['outcome']
+        reason = outcome['reason']
     else:
       current = dict(ZERO) if row is None else dict(row['values'])
       choices = []

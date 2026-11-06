@@ -123,6 +123,34 @@ class TestOffroadCache(unittest.TestCase):
       first = from_configuration(None, None, self.cache.directory, vehicle_session='a' * 32)
       self.assertIsNotNone(first)
       self.assertIsNone(first.stopped)
+      claim = self.cache.directory / ('trial-' + row['analysis_sha256'] + '.json')
+      self.assertFalse(claim.exists(), 'A parked constructor does not consume an untested trial')
+      from types import SimpleNamespace
+
+      stamp = 1_000_000_000
+      control = SimpleNamespace(
+        valid=True,
+        enabled=True,
+        active=False,
+        manual=False,
+        override=False,
+        fault=False,
+        limited=False,
+        saturated=False,
+        control_ns=stamp,
+        route_effect_revision=REVISION,
+        route_configuration_scope=scope().key(),
+        route_applied_coordinates=tuple(values(0.01).items()),
+      )
+      event = SimpleNamespace(logMonoTime=stamp)
+      first.observe(event, {}, control, now_ns=stamp)
+      self.assertFalse(claim.exists())
+      stamp += 10_000_000
+      event.logMonoTime = control.control_ns = stamp
+      control.active = True
+      with patch('openpilot.starpilot.flm.offroad_quality.read_point', return_value=None):
+        first.observe(event, {}, control, now_ns=stamp)
+      self.assertTrue(claim.exists(), 'The first valid current active route frame consumes the trial once')
       restarted = from_configuration(None, None, self.cache.directory, vehicle_session='b' * 32)
       self.assertEqual(restarted.stopped, 'baseline_unavailable')
       owner = RouteEffects(scope(), tuple(values(0.01).items()), (), previous=tuple(values(0.005).items()))
@@ -132,6 +160,118 @@ class TestOffroadCache(unittest.TestCase):
       self.assertEqual(owner.admitted_ns, 0)
       row['state'] = 'accepted_after_drive'
       self.assertIsNone(from_configuration(None, None, self.cache.directory, vehicle_session='c' * 32).stopped)
+
+  def test_unused_session_waits_but_started_or_withdrawn_trials_still_roll_back(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_worker import assess_next_drive, POLICY
+    from openpilot.starpilot.flm.offroad_surface import stop_marker
+
+    declared = dict(trial(), policy=POLICY, values=values(0.01), original_metadata={})
+    empty = SimpleNamespace(groups=(), stable_groups=(), quality_stop_markers=())
+    self.assertEqual(assess_next_drive(declared, empty, scope(), trial_started=False)['outcome'], 'pending')
+    self.assertEqual(assess_next_drive(declared, empty, scope(), trial_started=True)['outcome'], 'rolled_back')
+    marker = stop_marker(scope().key(), declared['values'], 'gross_tracking_or_oscillation_worse')
+    stopped = SimpleNamespace(groups=(), stable_groups=(), quality_stop_markers=({'reason': marker},))
+    self.assertEqual(assess_next_drive(declared, stopped, scope(), trial_started=False)['outcome'], 'rolled_back')
+
+  def test_actual_start_is_blocked_before_controller_reuse_and_rollback_restores_prior_map(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_runtime import configure
+
+    params = Params(str(self.root / 'startup'))
+    cache = AssessmentCache(directory_for_params(params))
+    row = {'state': 'ready_for_next_drive', 'values': values(0.01), 'previous': values(), 'analysis_sha256': cache.put(trial())}
+    with (
+      patch('openpilot.starpilot.flm.offroad_runtime.configuration_data', return_value=(scope(), (), ())),
+      patch('openpilot.starpilot.flm.offroad_runtime.startup_row', return_value=(row, 'loaded')),
+    ):
+      owner, status = configure(None, None, SimpleNamespace(), params, manual_status='not_configured')
+      self.assertIsNotNone(owner)
+      self.assertEqual(status, 'configured_pending_actual_stage')
+      self.assertTrue(cache.claim_trial(row['analysis_sha256'], 'a' * 32))
+      owner, status = configure(None, None, SimpleNamespace(), params, manual_status='not_configured')
+      self.assertIsNone(owner, 'A genuine consumed trial cannot apply even one frame after restart')
+      self.assertEqual(status, 'provisional_trial_already_started')
+      row['state'] = 'rolled_back'
+      row['values'] = values(0.005)
+      owner, status = configure(None, None, SimpleNamespace(), params, manual_status='not_configured')
+      self.assertIsNotNone(owner, 'Rollback must restore the previous known map, including a nonzero accepted tune')
+      assert owner is not None
+      self.assertEqual(dict(owner.values), row['values'])
+      self.assertEqual(status, 'configured_pending_actual_stage')
+
+  def test_last_steering_drive_selection_ignores_only_recorded_inactive_sessions(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_processor as module
+
+    latest = {'routeId': '00000012--aaaaaaaaaa', 'segments': [{'files': {'rlog': True}}]}
+    earlier = {'routeId': '00000011--bbbbbbbbbb', 'segments': [{'files': {'rlog': True}}]}
+    counts = {'recorded_lateral_request_rows': 100, 'active_lateral_request_rows': 0, 'invalid_lateral_request_rows': 0}
+    parked = SimpleNamespace(receipt=SimpleNamespace(cp_sha256='a' * 64), counts=dict(counts), quality_stops=[])
+    driving = SimpleNamespace(receipt=SimpleNamespace(cp_sha256='a' * 64), counts=dict(counts, active_lateral_request_rows=70), quality_stops=[])
+    calls = []
+
+    def collect(root, route, *, permitted):
+      self.assertTrue(permitted())
+      calls.append(route['routeId'])
+      return parked if route is latest else driving
+
+    history = SimpleNamespace(snapshot=lambda: {'scanIncomplete': False, 'routes': [latest, earlier]})
+    with (
+      patch.object(module, 'latest_route', return_value=latest),
+      patch.object(module, 'collect_route_inputs', new=collect),
+      patch('openpilot.starpilot.galaxy.drive_history.DriveHistory', return_value=history),
+    ):
+      route, collected = module.collect_latest_steering_inputs(None, '.', permitted=lambda: True)
+      self.assertIs(route, earlier)
+      self.assertIs(collected, driving)
+      self.assertEqual(calls, [latest['routeId'], earlier['routeId']])
+      calls.clear()
+      parked.counts['active_lateral_request_rows'] = 1
+      route, _ = module.collect_latest_steering_inputs(None, '.', permitted=lambda: True)
+      self.assertIs(route, latest, 'A failed or weak active drive must never cause a search for favorable older results')
+      self.assertEqual(calls, [latest['routeId']])
+      calls.clear()
+      parked.counts['active_lateral_request_rows'] = 0
+      driving.receipt.cp_sha256 = 'b' * 64
+      route, _ = module.collect_latest_steering_inputs(None, '.', permitted=lambda: True)
+      self.assertIs(route, latest, 'An older car cannot be substituted')
+
+  def test_selected_previous_drive_keeps_both_source_inventories_guarded(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_worker as module
+    from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+
+    parked = {'routeId': '00000012--aaaaaaaaaa'}
+    selected = {'routeId': '00000011--bbbbbbbbbb'}
+    cp = SimpleNamespace(carFingerprint='declared-unit-only')
+    receipt = RouteReceipt(selected['routeId'], 'd' * 64, (), 'a' * 64, 1, 2, 3, ())
+    assessment = CompletedAssessment(receipt, (), {}, cp, (), selected)
+
+    def assessed(params, root, previous, *, permitted):
+      previous(cp)
+      return assessment
+
+    for intact in (True, False):
+      with self.subTest(selected_source_intact=intact), tempfile.TemporaryDirectory() as directory:
+        history = SimpleNamespace(snapshot=lambda intact=intact: {'scanIncomplete': False, 'routes': [parked, selected] if intact else [parked]})
+        with (
+          patch.object(module, 'latest_route', return_value=parked),
+          patch('openpilot.starpilot.galaxy.drive_history.DriveHistory', return_value=history),
+        ):
+          params = Params(directory)
+          worker = module.OffroadWorker(
+            params, directory, Path(directory) / 'cache', permitted=lambda: True, assessor=assessed, scope_for=lambda cp, params: scope()
+          )
+          if intact:
+            result = worker.run_once()
+            self.assertEqual(result['completed_route'], selected['routeId'])
+            self.assertFalse(result['configuration_changed'])
+          else:
+            with self.assertRaisesRegex(ValueError, 'Source or settings changed'):
+              worker.run_once()
+          self.assertEqual(read_saved(params, KEY, MAX_BYTES), (None, True))
 
 
 class TestOffroadSurface(unittest.TestCase):
