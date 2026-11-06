@@ -1638,6 +1638,53 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
         self.assertTrue(readable)
         self.assertEqual(decode(raw)[NAMESPACE][scope().key()]['route_sha256s'], ['d' * 64] + (['e' * 64] if independent else []))
 
+  def test_prior_profile_join_keeps_original_metadata_key_and_rejects_other_map(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_prior_inputs as module
+    from openpilot.starpilot.flm.offroad_route import SelectedSourceReceipt
+
+    # Declared input-join fixture only; no candidate fitting or accepted tune is mocked.
+    current_id, prior_id = '0000000a--aaaaaaaaaa', '00000009--bbbbbbbbbb'
+    metadata_key, comparison_key, other_key = 'd' * 64, 'e' * 64, 'f' * 64
+    metadata = {'route_values': tuple(values().items()), 'route_revision': REVISION, 'baseline_revision': 'c' * 64}
+    changed = dict(metadata, route_values=tuple(values(0.01).items()))
+
+    def window(segment, identity):
+      points = tuple(
+        SimpleNamespace(segment=segment, mono_ns=segment * 10_000_000_000 + i * 10_000_000, context_key=comparison_key, desired=0.2, speed_mps=25.0)
+        for i in range(8)
+      )
+      return SimpleNamespace(identity=identity, points=points, domain='lateral_acceleration')
+
+    native = [window(n, f'{n:064x}') for n in range(1, 7)]
+    profile = [window(n, f'{n + 10:064x}') for n in range(1, 4)]
+    wrong_map = [window(n, f'{n + 20:064x}') for n in range(1, 7)]
+    receipt = SelectedSourceReceipt(prior_id, 'b' * 64, (), 'a' * 64, 1, 2, 3, (), tuple(range(8)))
+    collected = SimpleNamespace(
+      receipt=receipt,
+      state={'cp': object()},
+      windows={metadata_key: native, other_key: wrong_map},
+      context_metadata={metadata_key: metadata, other_key: changed},
+      baseline_tracking={},
+      stable_windows={metadata_key: profile, other_key: wrong_map},
+    )
+    route = {'routeId': prior_id, 'segments': [{'files': {'rlog': True}} for _ in range(8)]}
+    assessment = SimpleNamespace(receipt=SimpleNamespace(route_id=current_id, cp_sha256='a' * 64, completed_wall_ns=10))
+    with (
+      patch.object(module.DriveHistory, 'snapshot', return_value={'scanIncomplete': False, 'routes': [route]}),
+      patch.object(module, 'collect_route_inputs', return_value=collected),
+      patch.object(module, 'cohort', return_value='2:right:steady'),
+    ):
+      result = module.prior_stable_originals(assessment, {'original_metadata': metadata}, {'cohort': '2:right:steady'}, '.', permitted=lambda: True)
+    self.assertIsNotNone(result)
+    assert result is not None
+    self.assertEqual(tuple(row['identity'] for row in result.windows), tuple(w.identity for w in native))
+    self.assertEqual(tuple(row['identity'] for row in result.profile_windows), tuple(w.identity for w in profile))
+    self.assertEqual(result.profile_metadata, metadata)
+    self.assertEqual(result.receipt, receipt)
+    self.assertEqual(result.source_inventory, route)
+    self.assertFalse({row['identity'] for row in result.profile_windows} & {w.identity for w in wrong_map})
+
   def test_prior_source_reader_requires_real_end_and_matching_cp(self):
     import bz2
     from contextlib import contextmanager
