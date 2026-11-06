@@ -10,7 +10,7 @@ import requests
 
 def fresh():
   return {'version': 1, 'url': '', 'id': '', 'secret': '', 'invitation': '', 'requestId': '',
-          'candidate': '', 'state': 'unenrolled', 'registered': {}, 'next': 0, 'attempts': 0}
+          'candidate': '', 'state': 'unenrolled', 'registered': {}, 'rejected': {}, 'next': 0, 'attempts': 0}
 
 
 def validate(value):
@@ -25,9 +25,9 @@ def validate(value):
     raise ValueError('Invalid relay address')
   if value['url']:
     normalized_url(value['url'])
-  if (not isinstance(value['registered'], dict) or len(value['registered']) > 8 or
-      any(not re.fullmatch(r'[a-f0-9]{12}', k) or not isinstance(v, str) or not re.fullmatch(r'[a-f0-9]{64}', v)
-          for k, v in value['registered'].items()) or
+  if (any(not isinstance(value[key], dict) or len(value[key]) > 8 or
+          any(not re.fullmatch(r'[a-f0-9]{12}', k) or not isinstance(v, str) or not re.fullmatch(r'[a-f0-9]{64}', v)
+              for k, v in value[key].items()) for key in ('registered', 'rejected')) or
       type(value['next']) not in (int, float) or not 0 <= value['next'] < 2**63 or
       type(value['attempts']) is not int or not 0 <= value['attempts'] <= 16):
     raise ValueError('Invalid relay recovery state')
@@ -91,12 +91,13 @@ def step(state, subscriptions, now, send=request):
     elif phase == 'revoking':
       code = send(state, 'DELETE', 'installation')
       if 200 <= code < 300 or code == 401:
-        state.update(fresh()); state['state'] = 'revoked'
+        state.update(fresh(), state='revoked')
         return
     else:
       desired = {sub['id']: fingerprint(sub) for sub in subscriptions}
+      state['rejected'] = {key: value for key, value in state['rejected'].items() if desired.get(key) == value}
       removed = next((key for key in state['registered'] if key not in desired), None)
-      pending = next((sub for sub in subscriptions if state['registered'].get(sub['id']) != desired[sub['id']]), None)
+      pending = next((sub for sub in subscriptions if desired[sub['id']] not in (state['registered'].get(sub['id']), state['rejected'].get(sub['id']))), None)
       if removed:
         code = send(state, 'DELETE', 'subscriptions/' + removed)
         if 200 <= code < 300:
@@ -105,6 +106,9 @@ def step(state, subscriptions, now, send=request):
         code = send(state, 'PUT', 'subscriptions/' + pending['id'], {key: pending[key] for key in ('token', 'appId')})
         if 200 <= code < 300:
           state['registered'][pending['id']] = desired[pending['id']]
+        elif code in (400, 409):
+          state['rejected'][pending['id']] = desired[pending['id']]
+          code = 200
       else:
         return
     if 200 <= code < 300:

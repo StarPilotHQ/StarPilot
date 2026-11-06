@@ -40,6 +40,49 @@ def test_subscription_reconciliation_removes_before_adding():
   assert state['registered'] == {sub['id']: relay.fingerprint(sub)}
 
 
+def test_rejected_destination_is_skipped_without_blocking_other_phones():
+  state = relay.begin('https://relay.example', 'a' * 64)
+  state.update(state='enrolled', invitation='')
+  iphone = {'id': 'aaaaaaaaaaaa', 'token': 'apns.production.' + 'ab' * 32, 'appId': 'link.galaxy.bluetooth.natehuby76'}
+  android = {'id': 'bbbbbbbbbbbb', 'token': 'fcm', 'appId': 'com.starpilot.galaxy'}
+  calls = []
+  def send(state, method, path, data=None):
+    calls.append(path)
+    return 400 if data and data['appId'] == iphone['appId'] else 200
+  for now in range(100, 104):
+    relay.step(state, [iphone, android], now, send)
+  assert state['state'] == 'enrolled'
+  assert calls == ['subscriptions/' + iphone['id'], 'subscriptions/' + android['id']]
+  assert state['registered'] == {android['id']: relay.fingerprint(android)}
+  assert state['rejected'] == {iphone['id']: relay.fingerprint(iphone)}
+  relay.validate(state)
+  relay.step(state, [android], 104, send)
+  assert state['rejected'] == {}
+
+
+def test_resubscribing_retries_a_rejected_phone_and_old_state_loads(tmp_path):
+  import json
+  from types import SimpleNamespace
+  from openpilot.starpilot.sentry_mode.notifications import NotificationOwner
+  root = tmp_path / 'notifications'
+  store = SimpleNamespace(snapshot=lambda: {'events': []})
+  owner = NotificationOwner(root, store)
+  token = 'apns.production.' + 'ab' * 32
+  owner.action({'action': 'appSubscribe', 'token': token, 'appId': 'link.galaxy.bluetooth.natehuby76', 'label': 'iPhone'})
+  sub_id = owner.state['appSubscriptions'][0]['id']
+  owner.state['relayEnrollment']['rejected'] = {sub_id: relay.fingerprint(owner.state['appSubscriptions'][0])}
+  assert owner.snapshot()['appSubscriptions'][0]['lastResult'] == 'Relay does not accept this app'
+  owner.action({'action': 'appSubscribe', 'token': token, 'appId': 'link.galaxy.bluetooth.natehuby76', 'label': 'iPhone'})
+  assert owner.state['relayEnrollment']['rejected'] == {}
+  del owner.state['relayEnrollment']['rejected']
+  saved = json.dumps(owner.state)
+  owner.close()
+  (root / 'state.json').write_text(saved)
+  owner = NotificationOwner(root, store)
+  assert owner.state['relayEnrollment']['rejected'] == {}
+  owner.close()
+
+
 def test_owner_persists_candidate_redacts_secrets_and_recovers_restart(tmp_path, monkeypatch):
   import json
   from types import SimpleNamespace

@@ -146,6 +146,8 @@ class NotificationOwner:
           state['channels']['appPush'] = fresh_state()['channels']['appPush']
       if type(state) is dict:
         state.setdefault('relayEnrollment', relay_enrollment.fresh())
+        if type(state['relayEnrollment']) is dict:
+          state['relayEnrollment'].setdefault('rejected', {})
       self._validate_state(state)
       self.state = state
       self.saved_bytes = json.dumps(state, separators=(',', ':'), allow_nan=False).encode()
@@ -241,13 +243,16 @@ class NotificationOwner:
                 'subscriptionCount': len(self.state['subscriptions']),
                 'subscriptions': [{'id': sub['id']} for sub in self.state['subscriptions']],
                 'deliverySemantics': 'Retries may repeat delivery after an interrupted remote response.'}
-      result['appSubscriptions'] = [{key: sub[key] for key in ('id', 'label', 'appId', 'addedAt', 'lastResult', 'lastAt')}
+      rejected = self.state['relayEnrollment']['rejected']
+      result['appSubscriptions'] = [{key: sub[key] for key in ('id', 'label', 'appId', 'addedAt', 'lastResult', 'lastAt')} |
+                                    ({'lastResult': 'Relay does not accept this app'} if sub['id'] in rejected else {})
                                     for sub in self.state['appSubscriptions']]
       result['removedAppSubscriptions'] = [
         {'id': job['subscriptionId'], 'lastResult': 'Phone unregistered — removed', 'lastAt': job['next']}
         for job in jobs.values() if job['channel'] == 'appPush' and job['error'] == 'expired'][-8:]
       enrollment = self.state['relayEnrollment']
-      result['relayEnrollment'] = {'supported': True, 'automaticConfigured': bool(DEFAULT_RELAY_URL), 'state': enrollment['state'], 'installationId': enrollment['id'], 'registeredCount': len(enrollment['registered'])}
+      result['relayEnrollment'] = {'supported': True, 'automaticConfigured': bool(DEFAULT_RELAY_URL), 'state': enrollment['state'],
+                                   'installationId': enrollment['id'], 'registeredCount': len(enrollment['registered'])}
       result['appPushAvailable'] = self.state['channels']['appPush']['enabled'] and bool(self.state['channels']['appPush']['url'] or APP_PUSH_RELAY_URL)
       if enrollment['state'] != 'unenrolled':
         result['appPushAvailable'] = result['appPushAvailable'] and enrollment['state'] == 'enrolled'
@@ -369,6 +374,7 @@ class NotificationOwner:
           raise ValueError('Invalid app subscription')
         current = self.state['appSubscriptions']
         existing = next((sub for sub in current if sub['token'] == payload['token']), None)
+        self.state['relayEnrollment']['rejected'].pop(hashlib.sha256(payload['token'].encode()).hexdigest()[:12], None)
         if existing:
           existing.update(appId=payload['appId'], label=payload['label'])
         elif len(current) < 8:
