@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from openpilot.common.swaglog import cloudlog
 from openpilot.starpilot.galaxy.batch_routes import change_drive_state, delete_records, non_default_settings, preview_layout, preview_settings_recovery
+from openpilot.starpilot.audio.preview import AlertPreview, AlertPreviewError
 from openpilot.starpilot.galaxy.access import AccessStatus, default_owner
 from openpilot.starpilot.galaxy.auth import LocalSessions
 from openpilot.starpilot.galaxy.http_server import (_LocalHTTPHandler, _LocalHTTPServer, allowed_authority,
@@ -99,7 +100,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                 starport_client=None, navigation=None, offline_maps=None, drive_state=None, cloud_provider=None, cloud_offroad=None, projection_layout=None,
                 local_access=None, tmux_live=None, starport_logs=None, starport_log_sender=None, hotspot=None, toyota_tools=None,
                 replay_client=None, replay_root=None,
-                spotify_setup=None, companion=None, phone_location=None, reverse_proxy=None, local_hostnames=None):
+                spotify_setup=None, companion=None, phone_location=None, reverse_proxy=None, local_hostnames=None, sound_preview=None):
   from openpilot.starpilot.galaxy.local_hostnames import LocalHostnames
   hostname_source = local_hostnames if local_hostnames is not None else LocalHostnames(clock=clock)
   from openpilot.starpilot.galaxy.companion import CompanionRegistry, APK_PATH
@@ -252,6 +253,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
   favorites_source = favorites
   favorites_lock = threading.Lock()
   sound_source = sounds
+  alert_preview = sound_preview or AlertPreview(parked=parked)
   sounds_lock = threading.Lock()
 
   def drive_owner():
@@ -1413,7 +1415,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           return
         try:
           result = sound_owner().snapshot()
-        except SoundDownloadError as error:
+        except (SoundDownloadError, AlertPreviewError) as error:
           self.json(error.status, {'error': str(error)})
         except (OSError, ValueError, RuntimeError):
           self.json(503, {'error': 'Sound packs are unavailable'})
@@ -1680,7 +1682,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/models/active', '/api/models/preferences', '/api/models/download', '/api/models/download_all',
                       '/api/models/cancel', '/api/models/delete', '/api/models/refresh_manifest', '/api/models/jetlink',
                       '/api/models/laboratory', '/api/models/laboratory/download', '/api/models/laboratory/delete',
-                      '/api/sounds/download', '/api/sounds/cancel', '/api/software/action', '/api/drives/ignore',
+                      '/api/sounds/preview', '/api/sounds/download', '/api/sounds/cancel', '/api/software/action', '/api/drives/ignore',
                       '/api/recordings/delete-videos', '/api/sentry/notifications', '/api/sentry/events/delete', '/api/crash-reports/delete',
                       '/api/navigation/search', '/api/navigation/action', '/api/navigation/offline', '/api/drive-state/action',
                       '/api/toyota-tools/action', '/api/vehicle-selection/preview', '/api/vehicle-selection/confirm'):
@@ -2269,8 +2271,9 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             if self.settings_session() != identity:
               self.json(401, {'error': 'Sign in to Galaxy'})
               return
-            result = sound_owner().action(path.rsplit('/', 1)[-1], payload)
-        except SoundDownloadError as error:
+            result = (alert_preview.play(payload) if path == '/api/sounds/preview' else
+                      sound_owner().action(path.rsplit('/', 1)[-1], payload))
+        except (SoundDownloadError, AlertPreviewError) as error:
           self.json(error.status, {'error': str(error)})
         except (OSError, ValueError, RuntimeError):
           self.json(503, {'error': 'Sound packs are unavailable'})

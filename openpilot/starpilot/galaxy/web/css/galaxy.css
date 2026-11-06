@@ -1892,3 +1892,12 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-guided__link:hover:not(:disabled) { text-decoration: underline; }
 .gx-guided__link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .gx-guided__link:disabled { opacity: .5; cursor: default; }
+
+.gx-slider-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.gx-alert-preview { min-width: 118px; min-height: 44px; gap: 8px; white-space: nowrap; }
+.gx-alert-preview[aria-busy="true"] .bi { animation: gx-preview-pulse .7s ease-in-out infinite alternate; }
+.gx-alert-preview-note { margin: 0; font-size: var(--fs-xs); color: var(--on-surface-variant); line-height: 1.4; }
+@keyframes gx-preview-pulse { to { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .gx-alert-preview[aria-busy="true"] .bi { animation: none; } }
+.gx-slider-header--preview { align-items: center; flex-wrap: wrap; }
+.gx-slider-header .gx-slider-actions .gx-setting-default { margin: 0; }

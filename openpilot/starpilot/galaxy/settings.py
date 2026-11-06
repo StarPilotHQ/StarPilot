@@ -394,7 +394,8 @@ def _projection(row: FeatureRow) -> dict:
           "repairValue": row.repair_value, "defaultValue": row.default_value, "resetAvailable": row_default(row) is not None,
           "displayScale": "lane-strength" if row.key == "LaneCenteringStrength" else None,
           **({"coordinate": row.key.removeprefix("torque:surface:")} if row.key.startswith("torque:surface:") and row.key != "torque:surface:reset" else {}),
-          "heading": is_heading(row.key)}
+          "heading": is_heading(row.key),
+          **({"previewSound": row.key} if row.key in SOUND_SPECS else {})}
 
 
 def _question(row: FeatureRow, request: FeatureSettingsRequest) -> str:

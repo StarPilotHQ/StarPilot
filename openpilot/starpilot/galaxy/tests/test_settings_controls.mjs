@@ -239,3 +239,26 @@ for (const row of [{ value: "30", minimum: 1, maximum: 30, step: 1, unit: "h" },
   assert.match(template, /presentedRow\.reason && !row\.heading/)
 }
 console.log("Settings controls: section headings render as labels only")
+
+
+const previewVolume = control({ ...numeric, previewSound: "EngageVolume" })
+let finishPreview
+const playedKeys = []
+previewVolume.vm.testAlert = key => { playedKeys.push(key); return new Promise(resolve => { finishPreview = resolve }) }
+const playing = previewVolume.vm.previewSound()
+assert.equal(previewVolume.vm.testingSound, true)
+assert.deepEqual(playedKeys, ["EngageVolume"])
+await previewVolume.vm.previewSound()
+assert.equal(playedKeys.length, 1)
+finishPreview()
+await playing
+assert.equal(previewVolume.vm.testingSound, false)
+assert.deepEqual(previewVolume.commits, [])
+previewVolume.vm.testAlert = async () => { throw new Error("Keep the comma offroad") }
+await previewVolume.vm.previewSound()
+assert.equal(previewVolume.vm.soundError, "Keep the comma offroad")
+assert.equal(previewVolume.vm.testingSound, false)
+previewVolume.vm.disabled = true
+previewVolume.vm.testAlert = () => { throw new Error("disabled preview must not run") }
+await previewVolume.vm.previewSound()
+assert.equal(previewVolume.vm.soundError, "Keep the comma offroad")
