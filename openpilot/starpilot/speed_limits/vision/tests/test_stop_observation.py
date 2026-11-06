@@ -121,6 +121,21 @@ class TestStopObservation(unittest.TestCase):
       owner.observe(evidence(), now_ns=BASE)
       self.assertEqual(owner.observe(evidence(BASE + 700_000_000, frame=15, boxes=(box,)), now_ns=BASE + 800_000_000), 0)
 
+  def test_confirmed_road_box_carries_forward_distance(self):
+    box = StopBox(.875, (1214, 400, 1294, 480))
+    for stream, expected in (('road', 27.025), ('wideRoad', None)):
+      owner = StopConfirmation()
+      owner.observe(evidence(boxes=(box,), stream=stream, width=1928, height=1208), now_ns=BASE)
+      self.assertIsNone(owner.distance_m)
+      second = evidence(BASE + 700_000_000, frame=15, boxes=(box,), stream=stream, width=1928, height=1208)
+      self.assertEqual(owner.observe(second, now_ns=BASE + 800_000_000), second.observed_ns)
+      if expected is None:
+        self.assertIsNone(owner.distance_m)
+      else:
+        self.assertAlmostEqual(owner.distance_m, expected, places=2)
+      owner.observe(None, now_ns=BASE + 900_000_000)
+      self.assertIsNone(owner.distance_m)
+
   def test_brief_warning_burst_cannot_confirm_but_sustained_sign_can(self):
     owner = StopConfirmation()
     for i in range(3):

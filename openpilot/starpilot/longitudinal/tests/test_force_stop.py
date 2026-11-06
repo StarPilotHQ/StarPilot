@@ -229,6 +229,138 @@ class ForceStopTests(unittest.TestCase):
           plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=190., light=False, standstill=True), self.tune)
           self.assertFalse(plan.forcing)
 
+  def test_latched_sign_survives_light_and_sign_dropout(self):
+    for tick in range(15):
+      self.owner.step(frame(tick, speed_mps=8., horizon_m=45., sign=True), self.tune)
+    self.assertTrue(self.owner.sign_confirmed)
+    for tick in range(15, 45):
+      plan = self.owner.step(frame(tick, speed_mps=1., horizon_m=190., light=False), self.tune)
+      self.assertTrue(plan.forcing)
+
+  def test_sign_seed_never_moves_the_stop_farther(self):
+    for tick in range(50):
+      previous = self.owner.step(frame(tick, speed_mps=8., horizon_m=45., sign=True), self.tune)
+    self.assertLess(previous.tracked_distance_m, 20.)
+    plan = self.owner.step(frame(50, speed_mps=8., horizon_m=20., sign=True), self.tune)
+    self.assertLessEqual(plan.tracked_distance_m, previous.tracked_distance_m)
+
+  def test_sign_latches_and_seeds_over_long_path_once_light_committed(self):
+    for tick in range(15):
+      plan = self.owner.step(frame(tick, horizon_m=60.), self.tune)
+    self.assertTrue(plan.forcing)
+    self.assertGreater(plan.tracked_distance_m, 50.)
+    plan = self.owner.step(frame(15, horizon_m=60., sign=True), self.tune)
+    self.assertTrue(self.owner.sign_confirmed)
+    self.assertLessEqual(plan.tracked_distance_m, 27.)
+    plan = self.owner.step(frame(16, horizon_m=60., light=False), self.tune)
+    self.assertLess(plan.tracked_distance_m, 27.)
+
+  def test_long_path_sign_needing_a_hard_stop_is_ignored(self):
+    for tick in range(15):
+      plan = self.owner.step(frame(tick, speed_mps=13., horizon_m=90.), self.tune)
+    self.assertTrue(plan.forcing)
+    for tick in range(15, 55):
+      plan = self.owner.step(frame(tick, speed_mps=13., horizon_m=90., sign=True, dashboard_sign=True), self.tune)
+      self.assertFalse(self.owner.sign_confirmed)
+      self.assertGreater(plan.tracked_distance_m, 50.)
+
+  def test_long_path_sign_alone_does_not_commit(self):
+    for tick in range(20):
+      plan = self.owner.step(frame(tick, horizon_m=60., light=False, sign=True), self.tune)
+    self.assertFalse(plan.forcing)
+    self.assertFalse(self.owner.sign_confirmed)
+
+  def test_vision_distance_replaces_assumed_sign_distance(self):
+    for tick in range(15):
+      plan = self.owner.step(frame(tick, horizon_m=60.), self.tune)
+    plan = self.owner.step(frame(15, horizon_m=60., sign=True, vision_distance_m=35.), self.tune)
+    self.assertTrue(self.owner.sign_confirmed)
+    self.assertAlmostEqual(plan.tracked_distance_m, 35.)
+    plan = self.owner.step(frame(16, horizon_m=60., sign=True), self.tune)
+    self.assertAlmostEqual(plan.tracked_distance_m, 34.5)
+    plan = self.owner.step(frame(17, horizon_m=60., sign=True, vision_distance_m=31.), self.tune)
+    self.assertAlmostEqual(plan.tracked_distance_m, 32.5)
+
+  def test_dashboard_and_vision_distances_are_averaged(self):
+    for tick in range(15):
+      self.owner.step(frame(tick, horizon_m=60.), self.tune)
+    plan = self.owner.step(frame(15, horizon_m=60., sign=True, dashboard_sign=True), self.tune)
+    self.assertAlmostEqual(plan.tracked_distance_m, 27.)
+    plan = self.owner.step(frame(16, horizon_m=60., sign=True, dashboard_sign=True, vision_distance_m=35.), self.tune)
+    self.assertAlmostEqual(plan.tracked_distance_m, (26.5 + 35.) / 2)
+
+  def test_sign_distance_expires_without_evidence_and_never_jumps_back(self):
+    for tick in range(15):
+      self.owner.step(frame(tick, horizon_m=60.), self.tune)
+    self.owner.step(frame(15, horizon_m=60., sign=True, vision_distance_m=30.), self.tune)
+    for tick in range(16, 70):
+      plan = self.owner.step(frame(tick, speed_mps=4., horizon_m=60., light=True), self.tune)
+      self.assertLess(plan.tracked_distance_m, 30.)
+    self.assertIsNone(self.owner.vision_distance)
+
+  def queue_behind_lead(self, sign=True):
+    for tick in range(10):
+      plan = self.owner.step(frame(tick, speed_mps=8., horizon_m=45., light=False, sign=sign, lead_present=True,
+                                   lead_distance_m=20., lead_speed_mps=0.), self.tune)
+      self.assertFalse(plan.forcing)
+    for tick in range(10, 30):
+      plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=5., light=False, standstill=True, lead_present=True,
+                                   lead_distance_m=5., lead_speed_mps=0.), self.tune)
+      self.assertFalse(plan.forcing)
+
+  def test_sign_behind_stopped_lead_stops_at_line_after_lead_leaves(self):
+    self.queue_behind_lead()
+    self.assertAlmostEqual(self.owner.queue_line, 9.5)
+    for tick in range(30, 35):
+      plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=12., light=False, standstill=True, lead_present=True,
+                                   lead_distance_m=7., lead_speed_mps=3.), self.tune)
+      self.assertFalse(plan.forcing)
+    for tick in range(35, 45):
+      plan = self.owner.step(frame(tick, speed_mps=1., horizon_m=15., light=False), self.tune)
+    self.assertTrue(plan.forcing)
+    self.assertTrue(self.owner.sign_confirmed)
+    self.assertAlmostEqual(plan.tracked_distance_m, 9.5 - 10 * .05)
+    for tick in range(45, 100):
+      plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=15., light=False, standstill=True), self.tune)
+      self.assertTrue(plan.manual_hold)
+    released = self.owner.step(frame(100, speed_mps=0., horizon_m=15., light=False, standstill=True,
+                                     pedal_override=True), self.tune)
+    self.assertFalse(released.manual_hold)
+    self.assertIsNone(self.owner.queue_line)
+
+  def test_lead_stop_without_sign_is_not_remembered(self):
+    self.queue_behind_lead(sign=False)
+    self.assertIsNone(self.owner.queue_line)
+    for tick in range(30, 50):
+      plan = self.owner.step(frame(tick, speed_mps=1., horizon_m=15., light=False), self.tune)
+      self.assertFalse(plan.forcing)
+
+  def test_lead_moving_up_the_queue_is_followed_not_stopped_for(self):
+    self.queue_behind_lead()
+    for tick in range(30, 60):
+      plan = self.owner.step(frame(tick, speed_mps=1., horizon_m=15., light=False, lead_present=True,
+                                   lead_distance_m=6., lead_speed_mps=1.5), self.tune)
+      self.assertFalse(plan.forcing)
+    plan = self.owner.step(frame(60, speed_mps=0., horizon_m=5., light=False, standstill=True, lead_present=True,
+                                 lead_distance_m=4., lead_speed_mps=0.), self.tune)
+    self.assertFalse(plan.forcing)
+    self.assertAlmostEqual(self.owner.queue_line, 8.5)
+
+  def test_driver_gas_while_queued_forgets_the_sign(self):
+    self.queue_behind_lead()
+    self.owner.step(frame(30, speed_mps=0., horizon_m=5., light=False, standstill=True, pedal_override=True), self.tune)
+    self.assertIsNone(self.owner.queue_line)
+    for tick in range(31, 50):
+      plan = self.owner.step(frame(tick, speed_mps=1., horizon_m=15., light=False), self.tune)
+      self.assertFalse(plan.forcing)
+
+  def test_positive_offset_keeps_stop_target_until_native_stop(self):
+    for tick in range(40):
+      plan = self.owner.step(frame(tick, horizon_m=12.), self.tune, 8)
+      if plan.forcing:
+        self.assertTrue(plan.should_stop or plan.obstacle_m is not None)
+    self.assertTrue(plan.should_stop)
+
   def test_odometry_ceiling_bounds_reopened_model(self):
     for tick in range(15):
       self.owner.step(frame(tick), self.tune)
