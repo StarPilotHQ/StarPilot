@@ -1,5 +1,5 @@
 from opendbc.car import structs
-from opendbc.car.mazda.stock_aol import RESTRICTION_RELEASE_GRACE_NS, admitted, temporary_restriction
+from opendbc.car.mazda.stock_aol import admitted, temporary_restriction, within_restriction_grace
 from openpilot.selfdrive.car.cruise import CRUISE_LONG_PRESS
 from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE, ButtonType
 
@@ -153,8 +153,7 @@ class MazdaStockCardIntent(AolCardIntent):
     now_ns = kwargs.get('now_ns', 0)
     if getattr(self.cp, 'brand', None) == 'mazda' and temporary_restriction(self.cp, state):
       self.restricted_ns = now_ns
-    elif (kwargs.get('native_rejection_ns', 0) and self.restricted_ns and
-          0 <= now_ns - self.restricted_ns <= RESTRICTION_RELEASE_GRACE_NS):
+    elif kwargs.get('native_rejection_ns', 0) and within_restriction_grace(self.restricted_ns, now_ns):
       kwargs['native_rejection_ns'] = 0
     super().update(state.as_reader(), **kwargs)
     if startup_main and not self._fault_inhibit:
