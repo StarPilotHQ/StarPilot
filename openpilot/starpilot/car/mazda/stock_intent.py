@@ -1,15 +1,7 @@
 from opendbc.car import structs
-from opendbc.car.mazda.stock_aol import admitted, temporary_restriction
+from opendbc.car.mazda.stock_aol import RESTRICTION_RELEASE_GRACE_NS, admitted, temporary_restriction
 from openpilot.selfdrive.car.cruise import CRUISE_LONG_PRESS
 from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE, ButtonType
-
-# Panda withholds lateral while a temporary restriction holds (standstill: its
-# vehicle_moving gate; a TI2 pause; not in Drive) and keeps its AOL token. Its
-# status reaches the host late, and the host may judge a sample up to
-# SAFETY_MAX_AGE_NS (200 ms) old. A denial seen just after the restriction ends was
-# sampled while it held, so it is not a revocation. Past this grace a denial is
-# real again.
-RESTRICTION_RELEASE_GRACE_NS = 250_000_000
 
 
 class MazdaStockCardIntent(AolCardIntent):
