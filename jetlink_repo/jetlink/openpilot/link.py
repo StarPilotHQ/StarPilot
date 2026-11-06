@@ -225,18 +225,16 @@ def connect_patiently(link: Link):
 # -- making the Jetson ready ------------------------------------------------------
 
 def identity(parts, entry: dict) -> tuple[str, int]:
-  """The picked model's sha256 and byte count, from the catalog model's LFS
-  pointer, so the comma can name the model without holding or hashing the
-  ONNX. Looked up once per model ever and kept in a param: the one part of
-  provisioning that needs the internet. A model picked by its hash alone is
-  only sized."""
+  """The picked model's sha256 and byte count, from the model index, so the
+  comma can name the model without holding or hashing the ONNX. A row has
+  them already where the comma's copy of the index knows the model; one it
+  does not fetches the index again, the one part of provisioning that may
+  need the internet."""
   sha256, nbytes = entry.get('oid'), entry.get('size')
   if sha256 and nbytes:
     return sha256, int(nbytes)
   parts.progress.report('connect', 0.0, 'finding model', code='finding_model')
-  if entry.get('ref'):
-    return parts.models.resolve_pointer(entry['ref'])
-  return parts.models.resolve_size(sha256)
+  return parts.models.resolve(entry.get('ref'), sha256)
 
 
 # What has already been hashed in this process, keyed on the file as it was
@@ -326,8 +324,7 @@ def stand_in(parts, hello: dict, pick: str, built) -> tuple[str, int] | None:
     if pick in have:
       return None
     if loaded:
-      # its size names it to the server, and only a catalog model resolved
-      # here, or the record, has one
+      # its size names it to the server: the record's, else the index's
       nbytes = built.nbytes if built is not None and built.sha256 == loaded else parts.models.size_for(loaded)
       if nbytes:
         return loaded, nbytes
@@ -357,7 +354,8 @@ def open_link(parts, link: Link, should_stop=None):
   # booting; both resolve on their own
   client = connect_patiently(link)
   try:
-    hello = parts.models.heard(client.hello(timeout=10.0, pick=parts.models.hello_pick()))
+    sent = parts.models.hello_pick()
+    hello = parts.models.heard(client.hello(timeout=10.0, pick=sent), sent)
     parts.log.warning("jetlink: %s trt %s, engine %s, loaded %s",
                    hello.get('device'), hello.get('trt_version'),
                    hello.get('engine_state'), str(hello.get('loaded'))[:16])

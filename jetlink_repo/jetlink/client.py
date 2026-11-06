@@ -228,8 +228,9 @@ class JetlinkClient:
     """Introduce this client. The server starts its session over on a hello,
     so this is also how a new owner of the gadget takes over one the server
     never saw end; see Session.greet in JetlinkServer. `pick` is the comma's
-    own big-model pick and its age, {ref, sha256, nbytes, name, age_s}; the
-    answer's `pick` is the newer of it and the server's (PickStore)."""
+    own big-model pick with its age and its date by the comma's clock, {ref,
+    sha256, nbytes, name, age_s, at}; the answer's `pick` is the newer of it
+    and the server's (PickStore)."""
     seq = self._next_seq()
     client = {'nonce': self.nonce, 'name': self.name}
     if pick is not None:

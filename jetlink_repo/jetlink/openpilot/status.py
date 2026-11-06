@@ -433,11 +433,11 @@ def read(parts, mode: str) -> Status:
 
 
 def model_state(parts, ref: str) -> str | None:
-  """One catalog model, for the picker's list: 'ready' when the Jetson has
+  """One listed model, for the picker's list: 'ready' when the Jetson has
   built it (the spec record), 'downloaded' when the comma has its file, else
-  None. Records and one stat; a model never resolved has neither."""
+  None. Records and one stat."""
   model = next((m for m in parts.models.model_index() if m['ref'] == ref), None)
-  if model is None or not model.get('oid'):
+  if model is None:
     return None
   if parts.spec.engine_ready_for(model['oid']):
     return 'ready'

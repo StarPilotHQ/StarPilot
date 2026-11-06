@@ -191,7 +191,8 @@ class ProvisioningRun:
     what it costs, never speaks the protocol to learn it, and keeps the
     server's pick and whether it downloads for the comma (Models.heard)."""
     models = self.parts.models
-    hello = models.heard(self.client.hello(timeout=10.0, pick=models.hello_pick()))
+    sent = models.hello_pick()
+    hello = models.heard(self.client.hello(timeout=10.0, pick=sent), sent)
     if self.loan is not None:
       self.loan.note_server(hello)
     return hello

@@ -10,4 +10,4 @@ jetlink: run openpilot's large driving models on an attached Jetson.
 # so does the release check (macos/scripts/check-version.sh). The comma runs
 # jetlink from a checkout, not an install, so this is also all it has. The Swift
 # reads it from Pinned.swift: run JetlinkKit/Scripts/make_pins.py after a bump.
-__version__ = '0.8.12'
+__version__ = '0.9.0'
