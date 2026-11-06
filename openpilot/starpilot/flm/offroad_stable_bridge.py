@@ -6,6 +6,7 @@ atomic source-bound save and next-drive comparison/rollback.
 """
 
 import hashlib
+import math
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,25 @@ from openpilot.starpilot.flm.offroad_evidence import read_point, MAX_GAP_NS, Rou
 from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
 from openpilot.starpilot.flm.log_decode import decode_full_rlog_segment
 from openpilot.starpilot.galaxy.drive_analysis import _closed_source
+
+
+def independent_profile_support(training, heldout, previous):
+  """Held-out estimates must support the frozen training step, not match its bits."""
+  if training is None or heldout is None:
+    return False
+  if any(type(row.get('values')) is not dict or set(row['values']) != set(previous) for row in (training, heldout)):
+    return False
+  changed = False
+  for name, baseline in previous.items():
+    values = (baseline, training['values'][name], heldout['values'][name])
+    if any(type(value) not in (int, float) or not math.isfinite(value) for value in values):
+      return False
+    proposed, observed = values[1] - baseline, values[2] - baseline
+    if proposed:
+      changed = True
+      if proposed * observed <= 0 or abs(proposed) > abs(observed):
+        return False
+  return changed
 
 
 class StableRouteSelector:
@@ -229,18 +249,20 @@ class StableRouteSelector:
           mapped[role] = None
           reports[role]['conversion_refusal'] = str(error)
     training, heldout = mapped['training'], mapped['heldout']
-    agrees = training is not None and heldout is not None and training['values'] == heldout['values']
+    agrees = independent_profile_support(training, heldout, self.previous)
     proof = {
       'source_policy_commit': ORIGINAL_COMMIT,
       'source_classifier_commit': CURRENT_CLASSIFIER_SOURCE,
       'policy': 'original_stable_recommended_bounded_route_v1',
-      'reason': 'replicated_recommended_profile' if agrees else 'independent_stable_profiles_do_not_agree',
+      'reason': 'independent_support_for_frozen_training_profile' if agrees else 'heldout_profile_does_not_support_training_step',
+      'selection': 'training_values_only_no_heldout_resizing',
       'roles': reports,
       'all_original_windows_still_required': True,
       'physical_improvement_proven': False,
     }
     if not agrees:
       return None, proof
+    assert training is not None
     return {
       'parameter': 'stable:' + ','.join(training['changed_parameters']),
       'delta': training['maximum_coordinate_step'],

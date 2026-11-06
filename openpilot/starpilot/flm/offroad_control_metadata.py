@@ -36,6 +36,31 @@ class RecordedControlMetadata:
   route_effect_revision: str
   route_configuration_scope: str
   full_replay_validated: bool = False
+  stage_schema_revision: str = ''
+  replay_inputs: tuple = ()
+
+
+def _inhibited_inputs(row, schema):
+  # Only two original flags are needed here; full replay stays a separate check.
+  if not row.limited or schema.split('@', 1)[0] != 'torque-selected-stage-snapshot-v1':
+    return ()
+  from openpilot.starpilot.flm.native_refinement_wire import EXTENDED_INPUTS
+
+  if len(row.replayInputs) > EXTENDED_INPUTS:
+    return ()
+  inputs = {}
+  for value in row.replayInputs:
+    name = str(value.name)
+    if name not in ('active', 'safety_limited'):
+      continue
+    kind = value.which()
+    if name in inputs or kind not in ('number', 'boolean'):
+      return ()
+    number = float(value.number) if kind == 'number' else float(value.boolean)
+    if number not in (0.0, 1.0):
+      return ()
+    inputs[name] = number
+  return tuple(inputs.items()) if set(inputs) == {'active', 'safety_limited'} else ()
 
 
 def read_control_metadata(event):
@@ -87,4 +112,6 @@ def read_control_metadata(event):
     coordinates,
     route_revision,
     scope,
+    stage_schema_revision=schema,
+    replay_inputs=_inhibited_inputs(row, schema),
   )

@@ -36,7 +36,10 @@ def fit_training_step(assessment, group, cohort, proposal, previous, root, *, pe
   if set(previous) != set(proposal['values']):
     raise ValueError('Exact original full-map prior required')
   attempts = []
-  for fraction in (1.0, 0.8, 0.6, 0.4, 0.2):
+  fractions = (1.0, 0.8, 0.6, 0.4, 0.2)
+  if proposal.get('policy') == 'original_stable_recommended_bounded_route_v1':
+    fractions += (0.1, 0.05)
+  for fraction in fractions:
     values = (
       dict(proposal['values']) if fraction == 1 else {name: previous[name] + fraction * (value - previous[name]) for name, value in proposal['values'].items()}
     )
@@ -254,8 +257,9 @@ def _original_results(assessment, original, ids, values, root, *, permitted):
         results.append({'window': wid, 'qualified': False, 'reason': 'original_checkpoint_preroll_missing'})
         continue
       checkpoint = max(c.control_ns for c in before)
-      block = tuple(c for c in controls if checkpoint <= c.control_ns <= end)
-      numerical = check_candidate(assessment.cp, block, values, score_start_ns=start, score_end_ns=end, require_change=False)
+      block = tuple(c for c in controls if checkpoint <= c.control_ns <= end + 30_000_000)
+      original_outputs = tuple(outputs)
+      numerical = check_candidate(assessment.cp, block, values, score_start_ns=start, score_end_ns=end, require_change=False, original_outputs=original_outputs)
       commands = numerical.pop('commands', ())
       native = None
       if numerical['qualified']:

@@ -196,6 +196,323 @@ class TestOffroadSurface(unittest.TestCase):
         with patch.object(controller, 'update', side_effect=duplicate_effect), self.assertRaisesRegex(ValueError, 'selected effect hook'):
           _run(controller, vm, inputs, objective, neutral, effect_trial=replay_source(values(), 'b' * 64))
 
+  def test_inhibited_original_frames_are_verified_unchanged_and_cannot_earn_a_trial(self):
+    from types import SimpleNamespace
+    from opendbc.car import structs
+    from opendbc.car.car_helpers import interfaces
+    from opendbc.car.hyundai.values import CAR
+    from openpilot.starpilot.flm import controller_replay
+    from openpilot.starpilot.flm.controller_replay import SelectedControllerFactory, capture_snapshot, frame_input, final_command
+    from openpilot.starpilot.flm.offroad_controller_checks import check_candidate
+    from openpilot.starpilot.flm.torque_adapter import Objective
+    from openpilot.starpilot.flm.torque_observation import TorqueObservation
+
+    # Declared input epoch through the actual selected controller; no live source or native grant.
+    cp = interfaces[CAR.HYUNDAI_IONIQ_6].get_non_essential_params(CAR.HYUNDAI_IONIQ_6).as_reader()
+    actual, vm = SelectedControllerFactory(cp, 'starpilot').create()
+    observation = TorqueObservation()
+    actual.automatic_flm_observation = observation
+    cs = structs.CarState.new_message(vEgo=25.0, steeringAngleDeg=0.0, gearShifter='drive')
+    params = SimpleNamespace(angleOffsetDeg=0.0, roll=0.0)
+    objective = Objective('feedforward', 'high', 'steady')
+    captured = []
+    for tick in range(140):
+      stamp = 1_000_000_000 + tick * 10_000_000
+      inhibited = tick % 20 < 4
+      before = capture_snapshot(actual, vm)
+      inputs = frame_input(
+        cs, vm, params, active=True, safety_limited=inhibited, desired_curvature=0.00002, curvature_limited=inhibited and tick % 2 == 0, lat_delay=0.1
+      )
+      inputs += (('control_frame', float(tick + 1)),)
+      observation.begin_frame()
+      output, log = controller_replay._run(actual, vm, inputs, objective, (0.0, 0.0))
+      trace = observation.finish_frame(actual, log, selected_command=output)
+      self.assertIsNotNone(trace)
+      assert trace is not None
+      schema, stage, coordinates = trace
+      captured.append(
+        ControlEvidence(
+          identity='a' * 64,
+          generation=1,
+          control_ns=stamp,
+          state_ns=stamp,
+          domain='normalized_torque',
+          stage_revision='declared-selected-controller',
+          response_revision='declared-no-plant',
+          requested=final_command(output),
+          features=(0.0, 0.0),
+          baseline_prediction=final_command(output),
+          enabled=True,
+          manual=False,
+          active=True,
+          valid=True,
+          override=False,
+          fault=False,
+          saturated=bool(log.saturated),
+          limited=inhibited,
+          model_wobble=False,
+          controller_chatter=False,
+          stage_schema_revision=schema,
+          stage_values=stage + (('actual_delta_ff', 0.0), ('actual_delta_threshold', 0.0)),
+          applied_coordinates=coordinates,
+          source_epoch='b' * 64,
+          source_receipt_ns=stamp,
+          controller_mode='starpilot',
+          baseline_revision='c' * 64,
+          controller_revision='declared-component-controller',
+          replay_inputs=inputs,
+          replay_snapshot=before.values,
+          snapshot_sequence=tick + 1,
+        )
+      )
+    original = tuple(captured)
+    result = check_candidate(cp, original, values(), require_change=False)
+    self.assertTrue(result['qualified'], result)
+    self.assertGreater(result['verified_inhibited_frames'], 0)
+    self.assertGreaterEqual(result['scored_frames'], 50)
+    self.assertEqual(len(result['commands']), len(original))
+    self.assertTrue(all(before == after for _, before, after in result['commands']))
+    self.assertFalse(check_candidate(cp, original, values(), require_change=True)['qualified'])
+    hinted = tuple(replace(row, limited=True) for row in original)
+    no_delivery = check_candidate(cp, hinted, values(), require_change=False)
+    self.assertFalse(no_delivery['qualified'])
+    self.assertEqual(no_delivery['reason'], 'original_hint_requires_exact_unclipped_native_pair')
+    with patch('openpilot.starpilot.flm.offroad_controller_checks.original_delivery_context', return_value='clipped_context'):
+      # Declared context classification only; real encoder proofs are tested separately.
+      context_only = check_candidate(cp, hinted, values(), require_change=False)
+    self.assertFalse(context_only['qualified'])
+    self.assertEqual(context_only['scored_frames'], 0)
+    self.assertEqual(context_only['changed_frames'], 0)
+    self.assertGreater(context_only['verified_clipped_context_frames'], 0)
+    with patch('openpilot.starpilot.flm.offroad_controller_checks.original_nonemitted_control', return_value=True):
+      # Declared classification only; the separate test uses real native carriers.
+      not_emitted = check_candidate(cp, hinted, values(), require_change=False, original_outputs=(SimpleNamespace(control_ns=0),))
+    self.assertFalse(not_emitted['qualified'])
+    self.assertEqual(not_emitted['scored_frames'], 0)
+    self.assertEqual(not_emitted['changed_frames'], 0)
+    self.assertGreater(not_emitted['verified_nonemitted_context_frames'], 0)
+    original_run = controller_replay._run
+
+    def corrupt_only_candidate(*args, **kwargs):
+      output, log = original_run(*args, **kwargs)
+      if kwargs.get('effect_trial') is not None and dict(args[2])['safety_limited']:
+        output += 0.0001
+      return output, log
+
+    with patch.object(controller_replay, '_run', new=corrupt_only_candidate):
+      refused = check_candidate(cp, original, values(), require_change=False)
+    self.assertFalse(refused['qualified'])
+    self.assertEqual(refused['reason'], 'original_limited_frame_was_changed')
+
+  def test_combined_original_inhibition_is_context_only(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.torque_eligibility import replay_context
+
+    frame = SimpleNamespace(
+      healthy=True,
+      manual=False,
+      actual_lac_command=0.05,
+      actual_stage_residual=(0.0, 0.0),
+      controller_domain='torque',
+      torque_values=tuple({'effective_factor': 3.0, 'offset': 0.0, 'friction': 0.09, 'pid_pos_limit': 1.0, 'pid_neg_limit': -1.0}.items()),
+      inputs=(('curvature_limited', 1.0), ('safety_limited', 1.0)),
+    )
+    self.assertTrue(replay_context(frame))
+    for change in (
+      {'healthy': False},
+      {'manual': True},
+      {'actual_lac_command': None},
+      {'actual_stage_residual': None},
+      {'torque_values': ()},
+      {'controller_domain': 'torque_pid', 'torque_values': ()},
+      {'inputs': (('curvature_limited', 1.0), ('safety_limited', 0.0))},
+      {'inputs': (('curvature_limited', 2.0), ('safety_limited', 1.0))},
+      {'inputs': (('curvature_limited', float('nan')), ('safety_limited', 1.0))},
+      {'inputs': (('curvature_limited', 1.0),)},
+    ):
+      with self.subTest(change=change):
+        self.assertFalse(replay_context(SimpleNamespace(**(vars(frame) | change))))
+
+  def test_historical_hint_requires_every_exact_original_unclipped_delivery(self):
+    from opendbc.car.toyota.values import CAR
+    from openpilot.starpilot.flm.offroad_controller_checks import original_unclipped_hint
+    from openpilot.starpilot.flm.tests.test_torque_emission_join import interface, settle, cc, emitted
+
+    with tempfile.TemporaryDirectory() as directory:
+      ci = interface(CAR.TOYOTA_COROLLA_TSS2)
+      settle(ci, cc(0.01))
+      base, output = emitted(ci, cc(0.01), Path(directory))
+      control = ControlEvidence(
+        **vars(base),
+        generation=1,
+        state_ns=output.state_ns,
+        domain='normalized_torque',
+        stage_revision='declared-codec-source',
+        response_revision='declared-no-plant',
+        features=(0.0,),
+        baseline_prediction=base.requested,
+        enabled=True,
+        manual=False,
+        active=True,
+        valid=True,
+        override=False,
+        fault=False,
+        saturated=False,
+        limited=True,
+        model_wobble=False,
+        controller_chatter=False,
+        stage_schema_revision='torque-selected-stage-snapshot-v1@' + REVISION,
+        source_receipt_ns=base.control_ns - 1,
+        replay_inputs=(('active', 1.0), ('safety_limited', 0.0), ('curvature_limited', 0.0)),
+      )
+      self.assertTrue(original_unclipped_hint(control, (output,)))
+      self.assertFalse(original_unclipped_hint(control, ()))
+      for changed in (
+        replace(output, limited=True),
+        replace(output, native_allowed=False),
+        replace(output, fault=True),
+        replace(output, override=True),
+        replace(output, control_ns=output.control_ns + 1),
+        replace(output, apply_ns=control.control_ns + 30_000_001),
+      ):
+        with self.subTest(changed=changed):
+          self.assertFalse(original_unclipped_hint(control, (output, changed)))
+      old = replace(control, source_receipt_ns=control.control_ns - 500_000_001)
+      self.assertFalse(original_unclipped_hint(old, (output,)))
+      required = replace(
+        control,
+        native_required=True,
+        native_allowed=True,
+        native_identity='a' * 64,
+        native_observed_ns=control.control_ns - 1,
+        native_expires_ns=output.apply_ns,
+      )
+      self.assertTrue(original_unclipped_hint(required, (output,)))
+      self.assertFalse(original_unclipped_hint(replace(required, native_expires_ns=output.apply_ns - 1), (output,)))
+      self.assertTrue(control.limited)
+      self.assertFalse(output.limited)
+
+  def test_real_clipped_encoder_output_is_context_and_never_an_unclipped_sample(self):
+    from openpilot.starpilot.flm.tests.test_trace_context import clipped_context
+    from openpilot.starpilot.flm.tests.test_torque_emission_join import cc, emitted
+    from openpilot.starpilot.flm.offroad_controller_checks import original_delivery_context, original_unclipped_hint
+
+    with tempfile.TemporaryDirectory() as directory:
+      ci, base, output = clipped_context(Path(directory))
+      control = ControlEvidence(
+        **vars(base),
+        generation=1,
+        state_ns=output.state_ns,
+        domain='normalized_torque',
+        stage_revision='declared-codec-source',
+        response_revision='declared-no-plant',
+        features=(0.0,),
+        baseline_prediction=base.requested,
+        enabled=True,
+        manual=False,
+        active=True,
+        valid=True,
+        override=False,
+        fault=False,
+        saturated=False,
+        limited=True,
+        model_wobble=False,
+        controller_chatter=False,
+        stage_schema_revision='torque-selected-stage-snapshot-v1@' + REVISION,
+        source_receipt_ns=base.control_ns - 1,
+        replay_inputs=(('active', 1.0), ('safety_limited', 0.0), ('curvature_limited', 0.0)),
+      )
+      self.assertEqual(original_delivery_context(control, (output,)), 'clipped_context')
+      self.assertFalse(original_unclipped_hint(control, (output,)))
+      for changed in (
+        replace(output, native_allowed=False),
+        replace(output, fault=True),
+        replace(output, override=True),
+        replace(output, control_ns=output.control_ns + 1),
+        replace(output, apply_ns=control.control_ns + 30_000_001),
+      ):
+        with self.subTest(changed=changed):
+          self.assertIsNone(original_delivery_context(control, (changed,)))
+      self.assertIsNone(original_delivery_context(replace(control, source_receipt_ns=control.control_ns - 500_000_001), (output,)))
+      required = replace(
+        control,
+        native_required=True,
+        native_allowed=True,
+        native_identity='a' * 64,
+        native_observed_ns=control.control_ns - 1,
+        native_expires_ns=output.apply_ns,
+      )
+      self.assertEqual(original_delivery_context(required, (output,)), 'clipped_context')
+      self.assertIsNone(original_delivery_context(replace(required, native_expires_ns=output.apply_ns - 1), (output,)))
+      self.assertTrue(output.limited)
+      # A repeated real request may leave the limiter on the following Card tick.
+      _, next_output = emitted(ci, cc(base.requested), Path(directory), control_ns=control.control_ns)
+      no_hint = replace(control, limited=False)
+      self.assertFalse(next_output.limited)
+      self.assertEqual(original_delivery_context(no_hint, (output, next_output)), 'clipped_context')
+      self.assertFalse(original_unclipped_hint(no_hint, (output, next_output)))
+      self.assertIsNone(original_delivery_context(no_hint, (output, replace(next_output, native_allowed=False))))
+
+  def test_consecutive_real_native_carriers_prove_a_control_tick_was_not_emitted(self):
+    from opendbc.car.toyota.values import CAR
+    from openpilot.starpilot.flm.offroad_controller_checks import original_nonemitted_control
+    from openpilot.starpilot.flm.tests.test_torque_emission_join import interface, settle, cc, emitted
+
+    def command(base, output):
+      return ControlEvidence(
+        **vars(base),
+        generation=1,
+        state_ns=output.state_ns,
+        domain='normalized_torque',
+        stage_revision='declared-codec-source',
+        response_revision='declared-no-plant',
+        features=(0.0,),
+        baseline_prediction=base.requested,
+        enabled=True,
+        manual=False,
+        active=True,
+        valid=True,
+        override=False,
+        fault=False,
+        saturated=False,
+        limited=True,
+        model_wobble=False,
+        controller_chatter=False,
+        controller_mode='native',
+        controller_revision='declared-encoder-controller',
+        stage_schema_revision='torque-selected-stage-snapshot-v1@' + REVISION,
+        source_receipt_ns=base.control_ns - 1,
+        replay_inputs=(('active', 1.0), ('safety_limited', 0.0), ('curvature_limited', 0.0)),
+      )
+
+    with tempfile.TemporaryDirectory() as directory:
+      ci = interface(CAR.TOYOTA_COROLLA_TSS2)
+      settle(ci, cc(0.01))
+      first, before = emitted(ci, cc(0.01), Path(directory))
+      second, after = emitted(ci, cc(0.01), Path(directory))
+      a, b = command(first, before), command(second, after)
+      stamp = (a.control_ns + b.control_ns) // 2
+      skipped = replace(a, control_ns=stamp, source_receipt_ns=stamp - 1)
+      originals = {a.control_ns: a, b.control_ns: b, stamp: skipped}
+      self.assertTrue(original_nonemitted_control(ci.CP, skipped, (before, after), originals))
+      self.assertFalse(original_nonemitted_control(ci.CP, skipped, (before,), originals))
+      self.assertFalse(original_nonemitted_control(ci.CP, a, (before, after), originals))
+      for changed in (
+        replace(after, carrier_frame=after.carrier_frame + 1),
+        replace(after, native_allowed=False),
+        replace(after, fault=True),
+        replace(after, apply_ns=stamp + 30_000_001),
+      ):
+        with self.subTest(changed=changed):
+          self.assertFalse(original_nonemitted_control(ci.CP, skipped, (before, changed), originals))
+      changed_originals = {**originals, b.control_ns: replace(b, identity='f' * 64)}
+      self.assertFalse(original_nonemitted_control(ci.CP, skipped, (before, after), changed_originals))
+      self.assertFalse(original_nonemitted_control(ci.CP, replace(skipped, source_receipt_ns=stamp - 500_000_001), (before, after), originals))
+      expired = replace(
+        skipped, native_required=True, native_allowed=True, native_identity='a' * 64, native_observed_ns=stamp - 1, native_expires_ns=after.apply_ns - 1
+      )
+      self.assertFalse(original_nonemitted_control(ci.CP, expired, (before, after), originals))
+
   def test_zero_curves_preserve_canonical_and_interpolation_is_relative(self):
     for speed, expected in ((0.0, 0.0), (2.5, 0.005), (5.0, 0.01), (10.0, 0.02), (20.0, 0.035), (30.0, 0.04)):
       with self.subTest(speed=speed):
@@ -398,6 +715,74 @@ class TestOffroadReport(unittest.TestCase):
 
 
 class TestOffroadRouteCoverage(unittest.TestCase):
+  def test_actual_log_metadata_preserves_only_original_inhibited_input_flags(self):
+    from openpilot.cereal import log, messaging
+    from openpilot.starpilot.flm.offroad_control_metadata import read_control_metadata
+    from openpilot.starpilot.flm.offroad_processor import _control_eligible, _control_reconstructible
+    from openpilot.starpilot.flm.native_refinement_wire import EXTENDED_INPUTS
+
+    stamp = 1_000_000_000
+    original = [{'name': 'active', 'number': 1.0}, {'name': 'safety_limited', 'boolean': True}]
+
+    def decoded(inputs, **changes):
+      event = messaging.new_message('starpilotLateralState')
+      event.valid, event.logMonoTime = True, stamp
+      payload = {
+        'version': 1,
+        'controlMonoTime': stamp,
+        'sourceStateMonoTime': stamp,
+        'sourceReceiptMonoTime': stamp,
+        'enabled': True,
+        'active': True,
+        'valid': True,
+        'limited': True,
+        'controllerMode': 'starpilot',
+        'controllerRevision': 'declared-serialized-metadata-only',
+        'baselineRevision': 'b' * 64,
+        'baselineValues': [1.0],
+        'stageSchemaRevision': 'torque-selected-stage-snapshot-v1',
+        'replayInputs': inputs,
+        **changes,
+      }
+      event.starpilotLateralState.learningEvidence = payload
+      with log.Event.from_bytes(event.to_bytes()) as reader:
+        return read_control_metadata(reader)
+
+    metadata = decoded(original)
+    self.assertEqual(dict(metadata.replay_inputs), {'active': 1.0, 'safety_limited': 1.0})
+    self.assertTrue(_control_reconstructible(metadata, stamp))
+    self.assertFalse(_control_eligible(metadata, stamp))
+    self.assertFalse(metadata.full_replay_validated)
+    pending = decoded([original[0], {'name': 'safety_limited', 'number': 0.0}])
+    self.assertTrue(_control_reconstructible(pending, stamp))
+    self.assertFalse(_control_eligible(pending, stamp))
+    self.assertFalse(pending.full_replay_validated)
+    for bad in (
+      [],
+      original[:1],
+      original + original[:1],
+      [original[0], {'name': 'safety_limited', 'text': 'true'}],
+      [original[0], {'name': 'safety_limited', 'number': float('nan')}],
+      original + [{'name': 'unneeded', 'number': 0.0}] * EXTENDED_INPUTS,
+    ):
+      with self.subTest(inputs=bad):
+        self.assertFalse(_control_reconstructible(decoded(bad), stamp))
+    for changes in (
+      {'stageSchemaRevision': 'unknown-original-stage'},
+      {'manual': True},
+      {'override': True},
+      {'fault': True},
+      {'saturated': True},
+      {'nativeRequired': True, 'nativeAllowed': False},
+    ):
+      with self.subTest(changes=changes):
+        self.assertFalse(_control_reconstructible(decoded(original, **changes), stamp))
+    # Unneeded malformed replay vectors remain unvalidated metadata, never replay proof.
+    strict = decoded([{'name': 'unneeded', 'text': 'not-a-frame'}], limited=False)
+    self.assertTrue(_control_eligible(strict, stamp))
+    self.assertEqual(strict.replay_inputs, ())
+    self.assertFalse(strict.full_replay_validated)
+
   def test_native_windows_veto_ineligible_envelopes_between_tracking_samples(self):
     from types import SimpleNamespace
     from openpilot.starpilot.flm.offroad_processor import continuous_control_window
@@ -438,9 +823,74 @@ class TestOffroadRouteCoverage(unittest.TestCase):
         changed = list(timeline)
         changed[index] = (timeline[index][0], SimpleNamespace(**(vars(control) | changes)))
         self.assertFalse(continuous_control_window(window, changed, reader, metadata))
+    limited = SimpleNamespace(
+      **(
+        vars(control)
+        | {'limited': True, 'replay_inputs': (('active', 1.0), ('safety_limited', 1.0)), 'stage_schema_revision': 'torque-selected-stage-snapshot-v1'}
+      )
+    )
+    from openpilot.starpilot.flm.offroad_processor import _control_eligible
+
+    self.assertFalse(_control_eligible(limited, timeline[index][0]))
+    changed = list(timeline)
+    changed[index] = (timeline[index][0], limited)
+    self.assertTrue(continuous_control_window(window, changed, reader, metadata))
+    for flags in ({'native_allowed': False}, {'saturated': True}, {'manual': True}, {'override': True}, {'fault': True}):
+      changed[index] = (timeline[index][0], SimpleNamespace(**(vars(limited) | flags)))
+      self.assertFalse(continuous_control_window(window, changed, reader, metadata))
     absent: list[tuple[int, SimpleNamespace | None]] = list(timeline)
     absent[index] = (timeline[index][0], None)
     self.assertFalse(continuous_control_window(window, absent, reader, metadata))
+
+  def test_baseline_children_keep_observed_endpoints_and_all_original_envelope_vetoes(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_evidence import RouteWindow, whole_windows, window_identity
+    from openpilot.starpilot.flm.offroad_processor import baseline_control_windows
+
+    # Declared clocks differ from a second controller-run grid by14ms.
+    template = TestOffroadTrackingPolicy.windows('declared-aligned-inputs', 1.0)[0].points[0]
+    points = tuple(replace(template, mono_ns=1_014_000_000 + i * 10_000_000) for i in range(600))
+    parent = RouteWindow(window_identity(points), points)
+    metadata = {'route_values': tuple(values().items()), 'scope': 'declared-original'}
+    timeline = []
+    for stamp in range(points[0].mono_ns - 30_000_000, points[-1].mono_ns + 30_000_001, 5_000_000):
+      control = SimpleNamespace(
+        control_ns=stamp,
+        state_ns=stamp,
+        source_receipt_ns=stamp,
+        enabled=True,
+        active=True,
+        valid=True,
+        manual=False,
+        override=False,
+        fault=False,
+        saturated=False,
+        limited=False,
+        native_required=True,
+        native_allowed=True,
+        native_observed_ns=stamp - 1_000_000,
+        native_expires_ns=stamp + 100_000_000,
+        metadata=metadata,
+      )
+      timeline.append((stamp, control))
+
+    def reader(control, domain):
+      return control.metadata
+
+    observed = whole_windows(parent.points)
+    aligned = baseline_control_windows(parent, timeline, reader, metadata)
+    self.assertEqual(len(aligned), 3)
+    self.assertEqual(aligned, observed)
+    self.assertEqual(baseline_control_windows(parent, timeline, reader, dict(metadata, route_values=tuple(values(0.005).items()))), ())
+    index = next(i for i, (stamp, _) in enumerate(timeline) if stamp == points[0].mono_ns + 5_000_000)
+    original = timeline[index]
+    for change in (None, {'native_allowed': False}, {'metadata': dict(metadata, scope='changed')}, {'override': True}):
+      changed: list[tuple[int, SimpleNamespace | None]] = list(timeline)
+      changed[index] = (original[0], None if change is None else SimpleNamespace(**(vars(original[1]) | change)))
+      with self.subTest(change=change):
+        actual = baseline_control_windows(parent, changed, reader, metadata)
+        self.assertEqual(actual, observed[1:], 'One bad original envelope vetoes its entire fixed child')
+    self.assertEqual(parent.points, points)
 
   def test_actual_aggregation_keeps_classifier_and_separate_qualification_windows(self):
     import math
@@ -607,6 +1057,193 @@ class TestOffroadRouteCoverage(unittest.TestCase):
 
 
 class TestOffroadTrackingPolicy(unittest.TestCase):
+  def test_heldout_profile_supports_frozen_training_step_without_identical_floats(self):
+    import copy
+    from openpilot.starpilot.flm.offroad_stable_bridge import independent_profile_support
+
+    previous = values()
+    training = {'values': values()}
+    heldout = {'values': values()}
+    training['values']['ff_gain_right'] = 0.0099
+    heldout['values']['ff_gain_right'] = 0.0109
+    training['values']['unwind_taper_right'] = -0.0074
+    heldout['values']['unwind_taper_right'] = -0.0082
+    original = copy.deepcopy(training)
+    self.assertTrue(independent_profile_support(training, heldout, previous))
+    self.assertTrue(independent_profile_support(training, training, previous))
+    for invalid in (0.0, -0.0109, 0.0098, float('nan'), float('inf'), True):
+      unsupported = copy.deepcopy(heldout)
+      unsupported['values']['ff_gain_right'] = invalid
+      with self.subTest(invalid=invalid):
+        self.assertFalse(independent_profile_support(training, unsupported, previous))
+    self.assertFalse(independent_profile_support(None, heldout, previous))
+    self.assertFalse(independent_profile_support(training, None, previous))
+    self.assertFalse(independent_profile_support({'values': values()}, heldout, previous))
+    self.assertFalse(independent_profile_support(training, {'values': {}}, previous))
+    self.assertEqual(training, original, 'Held-out evidence must never resize the proposed map')
+
+  def test_recommended_profile_is_ranked_before_fit_even_with_a_tracking_proposal(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_worker as module
+    from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+
+    # Declared dispatch test. The final checker REFUSES; no accepted tune is mocked.
+    events = []
+    roles = trial()['before']
+    metadata = {'route_values': tuple(values().items()), 'route_revision': REVISION, 'controller_mode': 'starpilot', 'route_scope': scope().key()}
+    tracking = {
+      'cohort': 'declared-center',
+      'whole_windows': 6,
+      'proposal': {'parameter': 'center_taper_max', 'delta': 0.005, 'values': values(0.005)},
+      'training': dict(roles['training'], reference_rms=0.05),
+      'heldout': dict(roles['heldout'], reference_rms=0.05),
+    }
+    stable = {
+      'cohort': 'declared-steady',
+      'whole_windows': 6,
+      'qualification_roles': roles,
+      'training': dict(roles['training'], reference_rms=0.6),
+      'heldout': dict(roles['heldout'], reference_rms=0.5),
+    }
+    group = {'original_metadata': metadata, 'original_context_sha256': 'f' * 64, 'cohorts': [tracking]}
+    stable_group = dict(group, cohorts=[stable])
+    cp = SimpleNamespace(carFingerprint='declared-dispatch-only')
+    receipt = RouteReceipt('declared-profile-drive', 'd' * 64, (), 'a' * 64, 1, 2, 3, ())
+    inventory = {'routeId': receipt.route_id}
+    assessment = CompletedAssessment(receipt, (group,), {}, cp, (), inventory, stable_groups=(stable_group,))
+    mapped = values()
+    mapped['ff_gain_right'] = 0.005
+    proposal = {'parameter': 'stable:ff_gain_right', 'delta': 0.005, 'values': mapped, 'policy': 'original_stable_recommended_bounded_route_v1'}
+
+    class DeclaredSelector:
+      def __init__(self, *args, **kwargs):
+        pass
+
+      def propose(self, *args):
+        events.append('profile_before_fit')
+        return proposal, {'reason': 'declared_replicated_profile', 'all_original_windows_still_required': True}
+
+    def assessed(params, root, previous, *, permitted):
+      previous(cp)
+      return assessment
+
+    def training(actual, original, cohort, selected, previous, root, *, permitted):
+      self.assertIs(actual, assessment)
+      self.assertEqual(selected, proposal)
+      events.append('training')
+      return selected, {'declared_dispatch_only': True}
+
+    def refused(actual, original, cohort, selected, root, *, permitted):
+      self.assertEqual(selected, mapped)
+      events.append('all_original_checks')
+      return {'qualified': False, 'windows': [], 'reason': 'declared_native_refusal'}
+
+    def scalar_provider(*args, **kwargs):
+      self.fail('A multi-coordinate profile must not enter the single-parameter response validator')
+
+    with tempfile.TemporaryDirectory() as directory:
+      params = Params(directory)
+      with (
+        patch.object(module, 'latest_route', return_value=inventory),
+        patch.object(module, 'qualify', new=refused),
+        patch('openpilot.starpilot.flm.offroad_stable_bridge.StableRouteSelector', new=DeclaredSelector),
+        patch('openpilot.starpilot.flm.offroad_checks.fit_training_step', new=training),
+      ):
+        worker = module.OffroadWorker(
+          params,
+          directory,
+          Path(directory) / 'cache',
+          permitted=lambda: True,
+          assessor=assessed,
+          checker=refused,
+          scope_for=lambda cp, params: scope(),
+          prior_provider=scalar_provider,
+        )
+        result = worker.run_once()
+      self.assertEqual(events, ['profile_before_fit', 'training', 'all_original_checks'])
+      self.assertEqual(result['suggestion']['parameter'], proposal['parameter'])
+      self.assertEqual(result['suggestion_count'], 1)
+      self.assertEqual(
+        result['suggestions'],
+        [
+          {
+            'parameter': 'ff_gain_right',
+            'delta': 0.005,
+            'whole_windows': stable['whole_windows'],
+            'qualification': 'controller_native_checks_not_passed',
+          }
+        ],
+      )
+      self.assertEqual(result['reason'], 'declared_native_refusal')
+      self.assertFalse(result['configuration_changed'])
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES), (None, True))
+
+  def test_reference_input_coverage_never_ranks_by_actual_errors_or_fit_results(self):
+    from openpilot.starpilot.flm.offroad_worker import input_coverage
+
+    straight = {'whole_windows': 195, 'training': {'reference_rms': 0.05}, 'heldout': {'reference_rms': 0.05}}
+    turn = {'whole_windows': 6, 'training': {'reference_rms': 0.45}, 'heldout': {'reference_rms': 0.40}}
+    self.assertGreater(input_coverage(turn), input_coverage(straight))
+    original = input_coverage(turn)
+    turn['training'].update(residual_rms=1000.0, gain=-1000.0, error_reversal_hz=1000.0)
+    self.assertEqual(input_coverage(turn), original)
+    self.assertEqual(input_coverage({'whole_windows': 100000}), 0.0)
+
+  def test_old_source_inputs_require_exact_current_vehicle_settings_and_numeric_baseline(self):
+    import copy
+    from opendbc.car.car_helpers import interfaces
+    from opendbc.car.hyundai.values import CAR
+    from openpilot.starpilot.flm.offroad_worker import _current_configuration, recorded_source_contract
+    from openpilot.starpilot.flm.runtime_adapter_registry import baseline_revision
+
+    cp = interfaces[CAR.HYUNDAI_IONIQ_6].get_non_essential_params(CAR.HYUNDAI_IONIQ_6)
+    cp.carVin = 'KMHM34AA0NA000001'
+    cp = cp.as_reader()
+    with tempfile.TemporaryDirectory() as directory:
+      params = Params(directory)
+      params.put_bool('OpenpilotEnabledToggle', True, block=True)
+      params.put_bool('ForceAutoTuneOff', False, block=True)
+      self.assertEqual(read_saved(params, 'OpenpilotEnabledToggle', 8), (b'1', True))
+      self.assertEqual(read_saved(params, 'ForceAutoTuneOff', 8), (b'0', True))
+      current, descriptor, numeric = _current_configuration(cp, params)
+      previous_descriptor = replace(descriptor, controller_revision='declared-previous-implementation')
+      previous_baseline = baseline_revision(previous_descriptor, numeric)
+      previous = replace(current, controller_revision=previous_descriptor.controller_revision, baseline_revision=previous_baseline)
+      metadata = {
+        'cp_sha256': current.cp_sha256,
+        'controller_mode': current.controller_mode,
+        'controller_revision': previous.controller_revision,
+        'baseline_revision': previous_baseline,
+        'baseline_values': numeric,
+        'route_scope': previous.key(),
+      }
+      original = copy.deepcopy(metadata)
+      contract = recorded_source_contract(cp, metadata, current, params)
+      self.assertIsNotNone(contract)
+      assert contract is not None
+      self.assertEqual(contract['original_scope'], previous.document())
+      self.assertEqual(contract['current_scope'], current.document())
+      self.assertFalse(contract['stored_tune_migrated'])
+      self.assertEqual(metadata, original)
+      for changed in (
+        {'route_scope': ''},
+        {'cp_sha256': 'f' * 64},
+        {'controller_mode': 'stock'},
+        {'baseline_values': (numeric[0] + 0.01, *numeric[1:])},
+        {'baseline_revision': 'f' * 64},
+        {'controller_revision': 'different-previous-implementation'},
+        {'route_scope': replace(previous, persistent_source_epoch='f' * 64).key()},
+        {'route_scope': replace(previous, reset_generation='1').key()},
+        {'baseline_revision': baseline_revision(replace(previous_descriptor, policy='different-policy'), numeric)},
+      ):
+        with self.subTest(changed=changed):
+          self.assertIsNone(recorded_source_contract(cp, dict(metadata, **changed), current, params))
+      with patch('openpilot.starpilot.flm.offroad_worker._current_configuration', return_value=(replace(current, reset_generation='1'), descriptor, numeric)):
+        with self.assertRaisesRegex(ValueError, 'changed during source comparison'):
+          recorded_source_contract(cp, metadata, current, params)
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES), (None, True))
+
   def test_saved_unit_configuration_reports_successful_original_checks(self):
     from types import SimpleNamespace
     from openpilot.starpilot.flm.offroad_worker import OffroadWorker
@@ -878,6 +1515,48 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
     self.assertIsNone(fitted)
     self.assertEqual(calls, [train] * 5)
     self.assertIsNone(proof['selected_fraction'])
+
+  def test_recommended_profile_can_fit_below_coarse_native_quantization_boundary(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_checks import fit_training_step, qualify
+
+    train = tuple(str(i) * 64 for i in range(1, 4))
+    heldout = tuple(str(i) * 64 for i in range(4, 7))
+    roles = {'training': {'windows': train}, 'heldout': {'windows': heldout}}
+    group = {'qualification_original_windows': []}
+    cohort = {'qualification_roles': roles}
+    previous = values()
+    desired = values()
+    desired['friction_threshold_fast'] = 0.0099
+    desired['friction_threshold_highway'] = 0.0099
+    proposal = {'values': desired, 'delta': 0.0099, 'policy': 'original_stable_recommended_bounded_route_v1'}
+    assessment = SimpleNamespace()
+    calls = []
+    boundary = desired['friction_threshold_fast'] * 0.1
+
+    def checked(actual, original, ids, trial_values, root, *, permitted):
+      self.assertIs(actual, assessment)
+      self.assertTrue(permitted())
+      self.assertTrue(set(ids) in (set(train), set(train + heldout)))
+      amount = trial_values['friction_threshold_fast']
+      self.assertEqual(amount, trial_values['friction_threshold_highway'])
+      calls.append((tuple(ids), amount))
+      return [{'window': wid, 'qualified': amount <= boundary and wid not in heldout} for wid in ids]
+
+    with patch('openpilot.starpilot.flm.offroad_checks._original_results', new=checked):
+      fitted, proof = fit_training_step(assessment, group, cohort, proposal, previous, '.', permitted=lambda: True)
+      assert fitted is not None
+      frozen = dict(fitted['values'])
+      self.assertEqual(proof['selected_fraction'], 0.1)
+      self.assertEqual([ids for ids, _ in calls], [train] * 6)
+      self.assertEqual(frozen['friction_threshold_fast'], boundary)
+      self.assertEqual(previous, values())
+      self.assertEqual(desired['friction_threshold_fast'], 0.0099)
+      result = qualify(assessment, group, cohort, frozen, '.', permitted=lambda: True)
+      self.assertFalse(result['qualified'])
+      self.assertEqual(calls[-1], (train + heldout, boundary))
+      self.assertEqual(len(calls), 7)
+      self.assertEqual(fitted['values'], frozen)
 
   @staticmethod
   def windows(prefix, gain, amplitude=1.0):
