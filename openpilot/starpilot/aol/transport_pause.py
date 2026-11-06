@@ -269,6 +269,9 @@ class TransportPauseFeedback:
   """Card accepts pause provenance only after a healthy same-session baseline."""
   def __init__(self, cp):
     self.cp = cp_identity(cp)
+    # Last observation at which a Mazda temporary restriction held (see
+    # opendbc.car.mazda.stock_aol.RESTRICTION_RELEASE_GRACE_NS).
+    self.mazda_restricted_ns = 0
     self.session = ''
     self.sequence = 0
     self.signature = None
@@ -1210,11 +1213,16 @@ class TransportPauseFeedback:
   def _angle_stop_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
     from opendbc.car.structs import car
     from opendbc.car.hyundai.canfd_angle_aol import qualified, temporary_restriction
-    from opendbc.car.mazda.stock_aol import admitted as mazda_admitted, temporary_restriction as mazda_restriction
+    from opendbc.car.mazda.stock_aol import (RESTRICTION_RELEASE_GRACE_NS, admitted as mazda_admitted,
+                                             temporary_restriction as mazda_restriction)
     from opendbc.car.subaru.stock_aol import temporary_restriction as subaru_restriction
 
     from opendbc.car.hyundai.values import CAR
 
+    # Panda's denial lags the end of a Mazda restriction (e.g. pulling away from a
+    # stop); keep the same bounded retention until a fresh sample can reflect it.
+    mazda_release = bool(mazda_admitted(cp, marked_only=True) and self.mazda_restricted_ns and
+      0 <= now_ns - self.mazda_restricted_ns <= RESTRICTION_RELEASE_GRACE_NS)
     ccnc_stop = bool((cs.standstill or 0 <= cs.vEgoRaw <= .3) and cp.openpilotLongitudinalControl and
       cp.carFingerprint in (CAR.KIA_EV9, CAR.HYUNDAI_IONIQ_5_PE) and not cs.accFaulted and not cs.steeringDisengage)
     combined_stop = bool(ccnc_stop and axis.desiredLongitudinal and axis.longitudinalActive)
@@ -1222,7 +1230,8 @@ class TransportPauseFeedback:
     subaru_stop = cs.standstill and subaru_restriction(cp, cs)
     if (not (qualified(cp, marked_only=True) or mazda_admitted(cp, marked_only=True) or subaru_stop or ccnc_stop) or
       cs.gearShifter != car.CarState.GearShifter.drive or
-      not (temporary_restriction(cp, cs) or mazda_restriction(cp, cs) or subaru_stop) or cs.steerFaultTemporary or cs.steerFaultPermanent or
+      not (temporary_restriction(cp, cs) or mazda_restriction(cp, cs) or mazda_release or subaru_stop) or
+      cs.steerFaultTemporary or cs.steerFaultPermanent or
       not latched or self.failed or self.paused or self.pending_event or self.retention_started_ns or
       not (self.lateral_only_baseline or ccnc_stop) or not self.lateral_inventory or not self.lateral_baseline_ns or
       not self.session or axis.sessionId != self.session or str(axis.faultReason) != 'none' or
@@ -1361,6 +1370,10 @@ class TransportPauseFeedback:
     self.awaiting = False
     self.retention_qualified = False
     self.retention_pending = False
+    if getattr(cp, 'brand', None) == 'mazda':
+      from opendbc.car.mazda.stock_aol import temporary_restriction as mazda_restriction
+      if mazda_restriction(cp, cs):
+        self.mazda_restricted_ns = now_ns
     try:
       axis = sm['aolAxisState']
       if not latched or cp_identity(cp) != self.cp or self.session and str(axis.sessionId) != self.session:
