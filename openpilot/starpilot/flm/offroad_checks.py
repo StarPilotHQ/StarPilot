@@ -11,9 +11,59 @@ def qualify(assessment, group, cohort, values, root, *, permitted, require_chang
   roles = cohort.get('qualification_roles', cohort)
   ids = tuple(roles['training']['windows']) + tuple(roles['heldout']['windows'])
   original = group['qualification_original_windows'] if 'qualification_roles' in cohort else group['selected_original_windows']
+  if not all(3 <= len(roles[role]['windows']) <= 12 for role in ('training', 'heldout')) or len(set(ids)) != len(ids):
+    raise ValueError('Disjoint original training and held-out windows required')
+  results = _original_results(assessment, original, ids, values, root, permitted=permitted)
+  return {
+    'qualified': qualified_originals(results, roles, require_change=require_change),
+    'policy': 'every_preselected_window_controller_and_registered_encoder_v1',
+    'windows': results,
+    'physical_improvement_proven': False,
+    'current_permission_provided': False,
+    'requires_changed_emission': require_change,
+    'changed_emission_scope': 'both_preselected_roles' if require_change else 'observed_original_map',
+  }
+
+
+def fit_training_step(assessment, group, cohort, proposal, previous, root, *, permitted):
+  """Fit deterministic actuator feasibility on training only; never retry held-out."""
+  roles = cohort.get('qualification_roles', cohort)
+  train, heldout = (tuple(roles[role]['windows']) for role in ('training', 'heldout'))
+  if not 3 <= len(train) <= 12 or not 3 <= len(heldout) <= 12 or len(set(train + heldout)) != len(train + heldout):
+    raise ValueError('Original disjoint training and held-out windows required')
+  original = group['qualification_original_windows'] if 'qualification_roles' in cohort else group['selected_original_windows']
+  if set(previous) != set(proposal['values']):
+    raise ValueError('Exact original full-map prior required')
+  attempts = []
+  for fraction in (1.0, 0.8, 0.6, 0.4, 0.2):
+    values = (
+      dict(proposal['values']) if fraction == 1 else {name: previous[name] + fraction * (value - previous[name]) for name, value in proposal['values'].items()}
+    )
+    checked = _original_results(assessment, original, train, values, root, permitted=permitted)
+    feasible = len(checked) == len(train) and all(row['qualified'] for row in checked)
+    attempts.append({'fraction': fraction, 'feasible': feasible, 'original_training_windows': checked})
+    if feasible:
+      fitted = dict(proposal, values=values, delta=proposal['delta'] * fraction)
+      return fitted, {
+        'policy': 'training_only_native_feasibility_v1',
+        'training_windows': train,
+        'heldout_windows_not_evaluated': heldout,
+        'attempts': attempts,
+        'selected_fraction': fraction,
+      }
+  return None, {
+    'policy': 'training_only_native_feasibility_v1',
+    'training_windows': train,
+    'heldout_windows_not_evaluated': heldout,
+    'attempts': attempts,
+    'selected_fraction': None,
+  }
+
+
+def _original_results(assessment, original, ids, values, root, *, permitted):
   spans = {w['identity']: w for w in original if w['identity'] in ids}
-  if not 6 <= len(ids) <= 24 or len(set(ids)) != len(ids) or set(spans) != set(ids):
-    raise ValueError('Every original training and held-out window required')
+  if not 3 <= len(ids) <= 24 or len(set(ids)) != len(ids) or set(spans) != set(ids):
+    raise ValueError('Every preselected original window required')
   from openpilot.starpilot.flm.learning_wire import read_control, read_applied
   import hashlib
 
@@ -55,6 +105,8 @@ def qualify(assessment, group, cohort, values, root, *, permitted, require_chang
             missing.append(int(event.logMonoTime))
       if not current() or not permitted():
         raise ValueError('Original input changed during checks')
+    # Parsed evidence owns primitives; release segment readers before replay.
+    del events, raw
     for wid, w in sorted(spans.items()):
       if w['segment'] != number:
         continue
@@ -88,15 +140,7 @@ def qualify(assessment, group, cohort, values, root, *, permitted, require_chang
       controls = []
       outputs = []
       missing = []
-  return {
-    'qualified': qualified_originals(results, roles, require_change=require_change),
-    'policy': 'every_preselected_window_controller_and_registered_encoder_v1',
-    'windows': results,
-    'physical_improvement_proven': False,
-    'current_permission_provided': False,
-    'requires_changed_emission': require_change,
-    'changed_emission_scope': 'both_preselected_roles' if require_change else 'observed_original_map',
-  }
+  return results
 
 
 def qualified_originals(results, cohort, *, require_change):

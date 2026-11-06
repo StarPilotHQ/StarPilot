@@ -28,6 +28,13 @@ def stable_proposal_windows(continuous, observed):
   return selected, grades
 
 
+def tracking_proposal_windows(continuous, observed):
+  # Two-second statistics use the same known-zero observations as the Stable
+  # reader. These children supply no missing controller/native evidence.
+  children = {key: [child for parent in parents for child in whole_windows(parent.points)] for key, parents in observed.items()}
+  return stable_proposal_windows(continuous, children)
+
+
 def baseline_windows(points, timeline, metadata_for):
   times = tuple(t for t, _ in timeline)
   result = []

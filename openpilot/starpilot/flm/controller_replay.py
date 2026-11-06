@@ -520,7 +520,12 @@ def _run(
   if values['active'] and not cs.steeringPressed and not values['safety_limited'] and source.calls != 1:
     raise ValueError('actual selected stage hook absent or duplicated')
   if effect_source is not None and values['active'] and not cs.steeringPressed and not values['curvature_limited']:
-    if effect_source.stage_calls != 1 or effect_source.friction_calls != 1:
+    from openpilot.starpilot.flm.selected_effects import bounded_profile_on_limited_frame
+
+    # Route profiles retain the real safety-limit inhibition. Zero hooks are
+    # required there; admitted limited-profile replay still requires both once.
+    expected_calls = 0 if values['safety_limited'] and not bounded_profile_on_limited_frame(controller) else 1
+    if effect_source.stage_calls != expected_calls or effect_source.friction_calls != expected_calls:
       raise ValueError('actual selected effect hook absent or duplicated')
   return float(output), log
 

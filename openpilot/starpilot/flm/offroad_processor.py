@@ -26,6 +26,7 @@ class CompletedAssessment:
   quality_stop_markers: tuple = ()
   diagnostic_groups: tuple = ()
   stable_groups: tuple = ()
+  recorded_tracking: dict | None = None
 
   def report(self):
     return {
@@ -38,6 +39,7 @@ class CompletedAssessment:
       'quality_stop_markers': list(self.quality_stop_markers),
       'diagnostic_groups': list(self.diagnostic_groups),
       'stable_groups': list(self.stable_groups),
+      'recorded_tracking': self.recorded_tracking,
       'source_role': 'Historical diagnostic alignment, not a statement of actual Controls consumption or current permission.',
     }
 
@@ -62,6 +64,82 @@ def window_demand(window):
   }
 
 
+def _separate_qualification(report, continuous):
+  qualification = {}
+  for c in report['cohorts']:
+    native = [w for w in continuous if cohort(w) == c['cohort']]
+    chosen = _spread(sorted(native, key=lambda w: (w.points[0].segment, w.points[0].mono_ns)), MAX_COHORT_WINDOWS)
+    c['qualification_roles'] = {role: {'windows': tuple(w.identity for w in chosen[offset::2])} for role, offset in (('training', 0), ('heldout', 1))}
+    qualification.update((w.identity, w) for w in chosen)
+  report['qualification_original_windows'] = [
+    {
+      'identity': w.identity,
+      'segment': w.points[0].segment,
+      'start_ns': w.points[0].mono_ns,
+      'end_ns': w.points[-1].mono_ns,
+      'metrics': tracking_metrics(w.points),
+      'demand': window_demand(w),
+    }
+    for w in qualification.values()
+  ]
+
+
+def _recorded_tracking(windows):
+  """Measured route summary and one input-ordered window, never a trial result."""
+  import math
+
+  ordered = sorted((w for rows in windows.values() for w in rows), key=lambda w: (w.points[0].segment, w.points[0].mono_ns))
+  if not ordered or len({w.domain for w in ordered}) != 1:
+    return None
+  samples = sum(len(w.points) for w in ordered)
+  squared_error = sum((p.desired - p.actual) ** 2 for w in ordered for p in w.points)
+  first = ordered[0]
+  return {
+    'version': 1,
+    'domain': first.domain,
+    'samples': samples,
+    'windows': len(ordered),
+    'error_rms': math.sqrt(squared_error / samples),
+    'route': first.points[0].route,
+    'segment': first.points[0].segment,
+    'source_start_ns': first.points[0].mono_ns,
+    'source_end_ns': first.points[-1].mono_ns,
+    'points': [[p.mono_ns, p.desired, p.actual] for p in _spread(first.points, 64)],
+    'sampling': 'input_ordered_original_endpoints_no_interpolation',
+  }
+
+
+def _control_eligible(control, stamp):
+  return bool(
+    control is not None
+    and abs(control.control_ns - stamp) <= 30_000_000
+    and control.enabled
+    and control.active
+    and control.valid
+    and not (control.manual or control.override or control.fault or control.saturated or control.limited)
+    and 0 < control.state_ns <= control.control_ns <= control.state_ns + 100_000_000
+    and 0 < control.source_receipt_ns <= control.control_ns <= control.source_receipt_ns + 500_000_000
+    and (
+      not control.native_required
+      or control.native_allowed
+      and 0 < control.native_observed_ns <= control.control_ns <= control.native_expires_ns <= control.native_observed_ns + 200_000_000
+    )
+  )
+
+
+def continuous_control_window(window, timeline, metadata_for, expected):
+  """Check ALL original envelopes, including those between tracking samples."""
+  start, end = window.points[0].mono_ns, window.points[-1].mono_ns
+  rows = [(stamp, control) for stamp, control in timeline if start - 30_000_000 <= stamp <= end + 30_000_000]
+  return bool(
+    rows
+    and rows[0][0] <= start
+    and rows[-1][0] >= end
+    and all(b[0] - a[0] <= 50_000_000 for a, b in zip(rows, rows[1:], strict=False))
+    and all(_control_eligible(control, stamp) and metadata_for(control, window.domain) == expected for stamp, control in rows)
+  )
+
+
 def analyze_latest(params, root, previous, *, permitted):
   from openpilot.starpilot.flm.offroad_control_metadata import read_control_metadata as read_control
 
@@ -82,6 +160,7 @@ def analyze_latest(params, root, previous, *, permitted):
     'original_applied_envelopes': 0,
     'controller_fit_refusals': 0,
     'omitted_control_metadata': 0,
+    'whole_control_window_refusals': 0,
   }
   quality_stops = []
 
@@ -197,21 +276,7 @@ def analyze_latest(params, root, previous, *, permitted):
           candidates = tuple(i for i in (at - 1, at) if 0 <= i < len(timeline))
           nearest = min(candidates, key=lambda i: abs(times[i] - point.mono_ns)) if candidates else None
           control = None if nearest is None else timeline[nearest][1]
-          okay = bool(
-            control is not None
-            and abs(control.control_ns - point.mono_ns) <= 30_000_000
-            and control.enabled
-            and control.active
-            and control.valid
-            and not (control.manual or control.override or control.fault or control.saturated or control.limited)
-            and 0 < control.state_ns <= control.control_ns <= control.state_ns + 100_000_000
-            and 0 < control.source_receipt_ns <= control.control_ns <= control.source_receipt_ns + 500_000_000
-            and (
-              not control.native_required
-              or control.native_allowed
-              and 0 < control.native_observed_ns <= control.control_ns <= control.native_expires_ns <= control.native_observed_ns + 200_000_000
-            )
-          )
+          okay = _control_eligible(control, point.mono_ns)
           if not okay:
             counts['controller_fit_refusals'] += 1
             run_context = None
@@ -231,10 +296,12 @@ def analyze_latest(params, root, previous, *, permitted):
           run_context = context
         for context, runs in selected.items():
           for qualified in runs:
-            windows.setdefault(context, []).extend(whole_windows(tuple(qualified)))
-            # The original Stable chatter window needs genuine multi-second
-            # context. Keep the existing two-second path and fast gross guard.
-            stable_windows.setdefault(context, []).extend(whole_windows(tuple(qualified), duration_ns=6_000_000_000))
+            for duration, destination in ((2_000_000_000, windows), (6_000_000_000, stable_windows)):
+              for window in whole_windows(tuple(qualified), duration_ns=duration):
+                if continuous_control_window(window, timeline, metadata_for, context_metadata[context]):
+                  destination.setdefault(context, []).append(window)
+                else:
+                  counts['whole_control_window_refusals'] += 1
 
     if sum(map(len, windows.values())) + sum(map(len, stable_windows.values())) + sum(map(len, baseline_tracking.values())) > MAX_WINDOWS:
       raise ValueError('Whole-drive tracking window bound exceeded')
@@ -242,17 +309,24 @@ def analyze_latest(params, root, previous, *, permitted):
   receipt = walk_completed_route(root, route, permitted=permitted, consume=consume)
   if not permitted():
     raise ValueError('Parked authority lost after analysis')
-  from openpilot.starpilot.flm.offroad_baseline_windows import stable_proposal_windows
+  from openpilot.starpilot.flm.offroad_baseline_windows import stable_proposal_windows, tracking_proposal_windows
 
+  proposal_windows, proposal_grades = tracking_proposal_windows(windows, baseline_tracking)
   stable_windows, stable_grades = stable_proposal_windows(stable_windows, baseline_tracking)
+  if sum(map(len, proposal_windows.values())) + sum(map(len, stable_windows.values())) > MAX_WINDOWS:
+    raise ValueError('Whole-drive proposal window bound exceeded')
   counts['qualified_whole_windows'] = sum(map(len, windows.values()))
+  counts['proposal_tracking_whole_windows'] = sum(map(len, proposal_windows.values()))
   prior = previous(state['cp']) if callable(previous) else previous
   amplitude_prior = {name: prior[name] for name in AMPLITUDE_NAMES}
   reports = []
-  for key, values in sorted(windows.items()):
+  for key, values in sorted(proposal_windows.items()):
     if not values:
       continue
     report = analyze(tuple(values), amplitude_prior, permitted=permitted)
+    if key in proposal_grades:
+      report['tracking_source_grade'] = proposal_grades[key]
+      _separate_qualification(report, windows.get(key, ()))
     selected_ids = {wid for cohort_row in report['cohorts'] for role in ('training', 'heldout') for wid in cohort_row.get(role, {}).get('windows', ())}
     report.update(
       original_context_sha256=key,
@@ -296,25 +370,8 @@ def analyze_latest(params, root, previous, *, permitted):
     report = analyze_stable_windows(tuple(values), permitted=permitted)
     grade = stable_grades.get(key, 'continuous_original_control_metadata')
     report['tracking_source_grade'] = grade
-    qualification = []
     if grade == 'bookended_zero_route_tracking':
-      for c in report['cohorts']:
-        native = [w for w in windows.get(key, ()) if cohort(w) == c['cohort']]
-        chosen = _spread(sorted(native, key=lambda w: (w.points[0].segment, w.points[0].mono_ns)), MAX_COHORT_WINDOWS)
-        c['qualification_roles'] = {role: {'windows': tuple(w.identity for w in chosen[offset::2])} for role, offset in (('training', 0), ('heldout', 1))}
-        qualification.extend(chosen)
-      unique = {w.identity: w for w in qualification}
-      report['qualification_original_windows'] = [
-        {
-          'identity': w.identity,
-          'segment': w.points[0].segment,
-          'start_ns': w.points[0].mono_ns,
-          'end_ns': w.points[-1].mono_ns,
-          'metrics': tracking_metrics(w.points),
-          'demand': window_demand(w),
-        }
-        for w in unique.values()
-      ]
+      _separate_qualification(report, windows.get(key, ()))
     selected = {wid for c in report['cohorts'] for role in ('training', 'heldout') for wid in c.get(role, {}).get('windows', ())}
     report.update(
       original_context_sha256=key,
@@ -349,4 +406,6 @@ def analyze_latest(params, root, previous, *, permitted):
       }
     )
   counts['diagnostic_whole_windows'] = sum(map(len, raw_windows.values()))
-  return CompletedAssessment(receipt, reports, counts, state['cp'], (), route, tuple(quality_stops), tuple(diagnostic), tuple(stable))
+  return CompletedAssessment(
+    receipt, reports, counts, state['cp'], (), route, tuple(quality_stops), tuple(diagnostic), tuple(stable), _recorded_tracking(proposal_windows)
+  )

@@ -160,7 +160,11 @@ const REASONS = {
   analyzing_last_completed_drive: "Analyzing the last completed drive while parked.",
   checking_recorded_steering_recommendations: "Checking the recorded-drive recommendations against the original controller and steering outputs.",
   recorded_tracking_suggestion_not_yet_qualified_for_automatic_application: "Recommendations were found, but none has passed the controller and steering-output checks required for automatic saving.",
+  original_controller_or_registered_encoder_check_refused: "A tune was suggested, but at least one original controller or encoder check refused it. Your saved tune was kept.",
+  original_scored_frame_not_eligible: "An original frame was inactive, limited or otherwise ineligible.",
+  "candidate changed an actual limiter/support": "The candidate triggered an encoder limiter that the recorded request did not.",
   original_controller_or_registered_encoder_check_refused: "The recommendation failed an original controller or steering-output check. The saved tune was kept.",
+  no_new_native_feasible_training_step: "No bounded training step passed the original steering-output checks. The saved tune was kept.",
   no_consistent_adjustment_in_completed_drive: "The independent parts of this drive did not support the same adjustment. The saved tune was kept.",
   more_independent_eligible_tracking_required: "The drive was analyzed. More complete independent steering windows are needed before saving a tune.",
   bounded_trial_configured_for_next_drive: "A bounded, reversible tune was saved automatically for the next drive. Its road improvement is not yet confirmed.",
@@ -207,11 +211,35 @@ export function offroadView(report) {
   if (!Array.isArray(rows) || rows.length > 16 || rows.some(row => !Array.isArray(row) || row.length !== 4 ||
       !text(row[0], 500) || typeof row[1] !== 'number' || !Number.isFinite(row[1]) || Math.abs(row[1]) > .25 ||
       !stamp(row[2]) || row[3] !== 'controller_native_checks_not_passed')) return null
+  const observed = recordedSteeringView(details['Recorded steering response'])
+  const savedCount = details['Saved route adjustment count']
+  const checked = details['Controller and encoder check windows'], refused = details['Automatic tune refusal reasons']
+  const checks = Array.isArray(checked) && checked.length === 2 && checked.every(stamp) && checked[0] <= checked[1] && checked[1] <= 24 &&
+    Array.isArray(refused) && refused.length <= 24 && refused.every(r => Array.isArray(r) && r.length === 2 && text(r[0]) && stamp(r[1])) ?
+    { passed: checked[0], required: checked[1], refusals: refused.map(([reason, count]) => ({ reason, count })) } : null
   return { route: details['Completed drive analyzed'], samples: details['Recorded steering observations'],
     reason: details['Analysis decision'], saved: details['Automatic configuration changed'] === true,
     configurationState: details['Saved route configuration state'] ?? null,
+    observed, checks, savedCount: stamp(savedCount) && savedCount <= 35 ? savedCount : null,
     suggestions: rows.map(([parameter, delta, windows, qualification]) => ({ parameter, delta, windows, qualification })),
     moreSuggestions: details['More recorded suggestions omitted'] === true }
+}
+
+export function recordedSteeringView(value) {
+  if (!record(value) || value.version !== 1 || !['lateral_acceleration', 'steering_angle'].includes(value.domain) ||
+      !stamp(value.samples) || value.samples < 20 || !stamp(value.windows) || value.windows < 1 ||
+      !Number.isFinite(value.error_rms) || value.error_rms < 0 || !text(value.route, 180) ||
+      !stamp(value.segment) || !stamp(value.source_start_ns) || !stamp(value.source_end_ns) ||
+      value.source_start_ns <= 0 || value.source_end_ns <= value.source_start_ns ||
+      value.sampling !== 'input_ordered_original_endpoints_no_interpolation' ||
+      !Array.isArray(value.points) || value.points.length < 20 || value.points.length > 64 ||
+      value.points.some((r, i) => !Array.isArray(r) || r.length !== 3 || !stamp(r[0]) ||
+        r[0] < value.source_start_ns || r[0] > value.source_end_ns || i > 0 && r[0] <= value.points[i - 1][0] ||
+        !r.slice(1).every(v => Number.isFinite(v) && Math.abs(v) <= 10000)) ||
+      value.points[0][0] !== value.source_start_ns || value.points.at(-1)[0] !== value.source_end_ns) return null
+  return { errorRms: value.error_rms, samples: value.samples, windows: value.windows, route: value.route,
+    segment: value.segment, units: value.domain === 'lateral_acceleration' ? 'm/s²' : 'degrees',
+    points: value.points.map(([ns, desired, actual]) => ({ at: (ns - value.source_start_ns) / 1e6, desired, actual })) }
 }
 
 export function tunerStatus(report, live = false, choiceLive = false, error = "", reportFresh = live) {

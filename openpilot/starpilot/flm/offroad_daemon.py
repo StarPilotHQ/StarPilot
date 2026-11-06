@@ -60,6 +60,12 @@ class StatusReport:
       details['Controller eligibility refusals'] = count('controller_fit_refusals')
       details['Automatic configuration changed'] = bool(value.get('configuration_changed', False))
       details['Analysis decision'] = value['reason']
+      details['Saved route adjustment count'] = value.get('saved_adjustments')
+      details['Recorded steering response'] = value.get('recorded_tracking')
+      checks = value.get('qualification_summary')
+      if checks is not None:
+        details['Controller and encoder check windows'] = [checks['passed'], checks['required']]
+        details['Automatic tune refusal reasons'] = [list(row) for row in checks['refusals']]
       suggestions = value.get('suggestions', ())
       details['Recorded route suggestions'] = [[s['parameter'], s['delta'], s['whole_windows'], s['qualification']] for s in suggestions[:16]]
       details['Recorded suggestion count'] = value.get('suggestion_count', len(suggestions))
