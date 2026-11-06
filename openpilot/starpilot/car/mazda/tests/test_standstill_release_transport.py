@@ -119,7 +119,7 @@ class Drive:
   def panda_allows(self, observed):
     return not self.panda_revoked and 0 < self.moving_since and observed >= self.moving_since + PANDA_CATCHUP_NS
 
-  def sample(self, cs, *, desired, allowed, observed):
+  def sample(self, cs, *, desired, allowed, observed, pause_event=False, extra_event=None):
     cfg = self.cp.safetyConfigs[0]
     slot = PandaSlot(0, SERIAL, cfg.safetyModel.raw, cfg.safetyParam, 32, False)
     native = SafetyState(1, True, observed, observed + SAFETY_MAX_AGE_NS, cfg.safetyModel.raw, cfg.safetyParam,
@@ -142,21 +142,34 @@ class Drive:
     panda = event('pandaStates', observed, 1)
     panda.pandaStates[0].safetyModel, panda.pandaStates[0].safetyParam = cfg.safetyModel, cfg.safetyParam
     panda.pandaStates[0].alternativeExperience = 32
-    events = event('onroadEvents', self.now, 1)
-    events.onroadEvents[0].name, events.onroadEvents[0].userDisable = EVENT.pcmDisable, True
+    names = [(EVENT.pcmDisable, False, False, True)]
+    if pause_event:
+      # selfdrived: audible-and-soft while moving, silent at standstill (as logged).
+      names.append((EVENT.steerTempUnavailableSilent, False, False, False) if cs.standstill else
+                   (EVENT.steerTempUnavailable, False, True, False))
+    if extra_event is not None:
+      names.append(extra_event)
+    events = event('onroadEvents', self.now, len(names))
+    for slot, (name, immediate, soft, user) in zip(events.onroadEvents, names, strict=True):
+      slot.name, slot.immediateDisable, slot.softDisable, slot.userDisable = name, immediate, soft, user
     return Peers([wire, axis, panda, events]), native
 
-  def tick(self, *, standstill=False, available=True):
+  def tick(self, *, standstill=False, available=True, temp_fault=False, pause_event=False, extra_event=None):
     self.now += FRAME_NS
     if standstill:
       self.moving_since = 0
     elif not self.moving_since:
       self.moving_since = self.now
-    cs = structs.CarState(canValid=True, gearShifter='drive', standstill=standstill, vEgo=0.0 if standstill else 0.05)
+    cs = structs.CarState(canValid=True, gearShifter='drive', standstill=standstill, vEgo=0.0 if standstill else 0.05,
+                          steerFaultTemporary=temp_fault)
     cs.cruiseState.available = available
     observed = self.now - self.wire_lag_ns
     latched = self.intent.allowed_latch
-    sm, native = self.sample(cs, desired=latched, allowed=self.panda_allows(observed), observed=observed)
+    # The runtime withdraws its lateral request during a temporary steering fault;
+    # panda withholds lateral during a TI2 pause (and while stopped, as modelled above).
+    sm, native = self.sample(cs, desired=latched and not temp_fault,
+                             allowed=self.panda_allows(observed) and not temp_fault, observed=observed,
+                             pause_event=pause_event, extra_event=extra_event)
     # As card.py: transport feedback raises fault_active; native denial stamps a rejection.
     transport_reset = self.feedback.observe(sm, self.cp, cs.as_reader(), self.now, latched=latched,
                                             intent_producer_session=PRODUCER)
@@ -213,9 +226,10 @@ def test_denial_without_a_preceding_restriction_disarms_at_once():
 def test_each_retention_is_needed(monkeypatch, path):
   # Remove one of the two releases: the pull-away must disarm through the other path.
   if path == 'transport':
-    monkeypatch.setattr(stock_aol, 'RESTRICTION_RELEASE_GRACE_NS', -1)
+    # transport_pause imports the helper at call time; stock_intent bound its own.
+    monkeypatch.setattr(stock_aol, 'within_restriction_grace', lambda restricted_ns, now_ns: False)
   else:
-    monkeypatch.setattr(stock_intent, 'RESTRICTION_RELEASE_GRACE_NS', -1)
+    monkeypatch.setattr(stock_intent, 'within_restriction_grace', lambda restricted_ns, now_ns: False)
   drive = Drive()
   drive.arm_and_cruise()
   for _ in range(200):
@@ -230,7 +244,113 @@ def test_stale_inventory_is_not_retained():
   drive.arm_and_cruise()
   for _ in range(200):
     drive.tick(standstill=True)
-  drive.feedback.lateral_inventory = ('other-panda', ('other-panda',))
+  drive.feedback.mazda_inventory = ('other-panda', ('other-panda',))
   assert not drive.tick()
   assert drive.disarmed_by == 'transport'
 
+
+
+# TI2 0x02 pauses that overlap a stop (route 00000036--7daad355da, 2026-11-03).
+# A: the pause ends while still stopped. Its first post-pause frame is a healthy idle
+#    frame (request withdrawn), which clears the active-lateral baseline; panda's normal
+#    standstill denial on the next frame then had nothing to retain it (438-468 s).
+# B: the pause starts on the frame the car stops. The standstill path excluded a temporary
+#    steering fault and the pause event arrives a frame or two later (572, 2929, 3187 s).
+
+def pause(drive, frames, *, standstill, event_delay=2):
+  # A TI2 pause: the temporary fault at once, selfdrived's event event_delay frames later.
+  for frame in range(frames):
+    assert drive.tick(standstill=standstill, temp_fault=True, pause_event=frame >= event_delay), \
+      f"pause frame {frame} (standstill={standstill}): disarmed by {drive.disarmed_by}"
+
+
+def stopped(drive, frames, label):
+  for frame in range(frames):
+    assert drive.tick(standstill=True), f"{label} frame {frame}: disarmed by {drive.disarmed_by}"
+
+
+def pull_away(drive, frames=300):
+  for frame in range(frames):
+    assert drive.tick(), f"pull-away frame {frame}: disarmed by {drive.disarmed_by}"
+
+
+def test_pattern_a_pause_ends_while_still_stopped():
+  drive = Drive()
+  drive.arm_and_cruise()
+  stopped(drive, 100, 'stopped before pause')
+  pause(drive, 1000, standstill=True)
+  stopped(drive, 2000, 'stopped after pause')
+  pull_away(drive)
+
+
+def test_pattern_b_pause_starts_as_the_car_stops():
+  drive = Drive()
+  drive.arm_and_cruise()
+  pause(drive, 1000, standstill=True)
+  stopped(drive, 500, 'stopped after pause')
+  pull_away(drive)
+
+
+def test_pause_that_continues_after_pulling_away():
+  drive = Drive()
+  drive.arm_and_cruise()
+  stopped(drive, 100, 'stopped before pause')
+  pause(drive, 200, standstill=True)
+  pause(drive, 300, standstill=False, event_delay=0)
+  pull_away(drive)
+
+
+@pytest.mark.parametrize('pattern', ('a', 'b'))
+def test_the_mazda_retention_is_what_keeps_a_and_b_armed(monkeypatch, pattern):
+  monkeypatch.setattr(TransportPauseFeedback, '_mazda_restricted_lateral_current', lambda self, *a, **k: False)
+  drive = Drive()
+  drive.arm_and_cruise()
+  ticks = [drive.tick(standstill=True) for _ in range(100 if pattern == 'a' else 0)]
+  ticks += [drive.tick(standstill=True, temp_fault=True, pause_event=frame >= 2) for frame in range(1000)]
+  ticks += [drive.tick(standstill=True) for _ in range(500)]
+  assert not all(ticks) and drive.disarmed_by == 'transport'
+
+
+@pytest.mark.parametrize('event_spec', [(EVENT.controlsMismatch, True, False, False),
+                                        (EVENT.steerUnavailable, False, True, False)])
+def test_disabling_event_during_a_stopped_pause_disarms(event_spec):
+  drive = Drive()
+  drive.arm_and_cruise()
+  stopped(drive, 100, 'stopped before pause')
+  pause(drive, 50, standstill=True)
+  assert not drive.tick(standstill=True, temp_fault=True, pause_event=True, extra_event=event_spec)
+
+
+@pytest.mark.parametrize('anchor', ('inventory', 'producer', 'epoch'))
+def test_changed_session_anchor_after_a_stopped_pause_disarms(anchor):
+  # After the pause ends while stopped, only the Mazda retention holds intent; it
+  # must not survive a different panda, intent producer or integrity epoch.
+  drive = Drive()
+  drive.arm_and_cruise()
+  stopped(drive, 100, 'stopped before pause')
+  pause(drive, 300, standstill=True)
+  stopped(drive, 50, 'stopped after pause')
+  if anchor == 'inventory':
+    drive.feedback.mazda_inventory = ('other-panda', ('other-panda',))
+  elif anchor == 'producer':
+    drive.feedback.mazda_producer = 'other-card'
+  else:
+    drive.feedback.mazda_epoch = 2
+  assert not drive.tick(standstill=True)
+  assert drive.disarmed_by == 'transport'
+
+
+def test_persistent_denial_after_a_stopped_pause_still_disarms_after_pulling_away():
+  drive = Drive()
+  drive.arm_and_cruise()
+  stopped(drive, 100, 'stopped before pause')
+  pause(drive, 300, standstill=True)
+  stopped(drive, 200, 'stopped after pause')
+  drive.panda_revoked = True
+  stopped(drive, 300, 'stopped, panda revoked')  # explained by the stop until the car moves
+  last_stopped = drive.now
+  frames = 0
+  while drive.tick():
+    frames += 1
+    assert frames < 100, "a persistent denial never disarmed"
+  assert RESTRICTION_RELEASE_GRACE_NS < drive.now - last_stopped <= RESTRICTION_RELEASE_GRACE_NS + FRAME_NS

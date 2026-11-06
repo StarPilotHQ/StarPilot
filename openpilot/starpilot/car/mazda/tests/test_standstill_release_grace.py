@@ -21,7 +21,8 @@ from opendbc.car.mazda.values import CAR, MazdaSafetyFlags
 from openpilot.starpilot.aol.intent import AolSettings
 from openpilot.starpilot.aol.runtime import SAFETY_MAX_AGE_NS
 from openpilot.starpilot.aol.vehicle import native_latch_rejected
-from openpilot.starpilot.car.mazda.stock_intent import RESTRICTION_RELEASE_GRACE_NS, MazdaStockCardIntent
+from opendbc.car.mazda.stock_aol import RESTRICTION_RELEASE_GRACE_NS
+from openpilot.starpilot.car.mazda.stock_intent import MazdaStockCardIntent
 
 GEN2 = int(MazdaSafetyFlags.GEN2)
 MAZDA_MODEL = int(structs.CarParams.SafetyModel.mazda)
