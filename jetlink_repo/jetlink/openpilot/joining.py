@@ -116,7 +116,7 @@ LAGS = (BEHIND, BAD_OUTPUT)
 RECONNECTING = {LOST: ('reconnecting', 'lost'), BEHIND: ('fell behind, reconnecting', 'behind'),
                 NOT_UP: ('load failed, reconnecting', 'load_failed'),
                 BAD_OUTPUT: ('bad output, reconnecting', 'bad_output')}
-# how long a model name the catalog had not resolved stays the sha's
+# how long a model name the comma's index did not have stays the sha's
 NAME_RETRY = 30.0
 
 
@@ -694,8 +694,9 @@ class JoiningModelState:
             'lags': self._lags}
 
   def _name_of(self, sha: str, names: dict) -> str:
-    """The catalog's name, kept once it is one. The sha's stand-in (a row not
-    resolved yet, or a lookup that failed) is asked again after NAME_RETRY."""
+    """The index's name, kept once it is one. The sha's stand-in (a model the
+    comma's index does not list yet, or a lookup that failed) is asked again
+    after NAME_RETRY."""
     name, retry_at = names.get(sha, (None, 0.0))
     if time.monotonic() >= retry_at:
       try:

@@ -16,8 +16,8 @@ capnp, swaglog loads zmq, and model_face() imports modeld itself, so it is for
 modeld alone, where that module is already loaded.
 
 Data are class attributes, behaviour small methods, each a fork may override;
-one override point per value: a fork sets KEYS and CATALOG_SELECTOR, and the
-interface's keys and catalog_selector read them. Both are jetlink's contract:
+one override point per value: a fork sets KEYS, and the interface's keys
+reads it. It is jetlink's contract:
 renaming or removing one, or changing what one means, is a breaking change
 and bumps API. scripts/upstream (the upstream-paths CI job) checks the paths
 and literals here against commaai/openpilot master weekly.
@@ -57,9 +57,7 @@ class Stock:
   # the canonical names, which a fork declares in params_keys.h. No model
   # manager upstream: no big-model slot or catalog, so jetlink runs its default
   KEYS = Keys(link='JetlinkLink', offroad='IsOffroad', progress='JetlinkProgress', spec='JetlinkSpec',
-              pointers='JetlinkModelPointers', charge_phone='JetlinkChargePhone')
-  # the model manager's catalog version; none upstream
-  CATALOG_SELECTOR = 0
+              charge_phone='JetlinkChargePhone')
   # comma's chestnut, running and in its ROM (common.hardware.usb's
   # CHESTNUT_USB_IDS + CHESTNUT_ROM_USB_IDS, which CI holds this to): written
   # out, as the owner cannot import that package
@@ -87,10 +85,6 @@ class Stock:
   @property
   def keys(self) -> Keys:
     return self.KEYS
-
-  @property
-  def catalog_selector(self) -> int:
-    return self.CATALOG_SELECTOR
 
   @cached_property
   def log(self):

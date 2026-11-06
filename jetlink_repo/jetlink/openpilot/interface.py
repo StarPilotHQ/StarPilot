@@ -45,7 +45,6 @@ class Keys:
   offroad: str                   # BOOL: is the car parked (manager's IsOffroad)
   progress: str                  # JSON {stage, frac, msg, drops}: provisioning and join progress
   spec: str                      # JSON: the built model's spec and whether its engine is built
-  pointers: str                  # JSON: catalog ref, or a hash-named pick's sha256 -> {oid, size}
   # sunnypilot's model manager: the big-model pick, JSON {ref, displayName},
   # and the big-model catalog, JSON {bundles}. Without one both are None, and
   # jetlink runs its own default big model, or the one picked on the server.
@@ -62,6 +61,8 @@ class Keys:
   # the server is written there, so the comma's own list shows it; without
   # the key it drives all the same
   select: str | None = None
+  # API 3's kept pointers, unread since the model index: until the next minor release
+  pointers: str | None = None
 
 
 @dataclass(frozen=True)
@@ -97,7 +98,6 @@ class StatusSide(Protocol):
   """Every reader: manager, the UI, hardwared, the model manager."""
   keys: Keys
   log: Any                  # logging.Logger-like (cloudlog): debug, info, warning, error, exception
-  catalog_selector: int     # the model manager's REQUIRED_JSON_VERSION; 0 without a model manager
 
   def params_dir(self) -> Path:
     """The params store's directory, by params.cc's rule, worked out on every

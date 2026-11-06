@@ -40,7 +40,7 @@ from jetlink.openpilot.interface import MODES, STATES, Keys, ModelFace, Openpilo
 from jetlink.openpilot.parts import Parts, for_this_process
 from jetlink.openpilot.status import Status
 
-API = 3
+API = 4
 
 __all__ = ['API', 'MODES', 'STATES', 'Jetlink', 'Keys', 'ModelFace', 'Openpilot', 'OwnerConfig', 'Status', 'bind',
            'conformance', 'SHUTDOWN_TIMEOUT', 'Flags', 'SwapEvents']
@@ -302,13 +302,34 @@ class Jetlink:
     self._shutdown_asked = time.monotonic()
     return True
 
-  def should_extend_catalog(self) -> bool:
-    """Should the model manager's big-model catalog carry the newer catalogs'
-    models? With no chestnut fitted. Hardware, not the link setting: the model
-    manager drops a pick its catalog does not list."""
+  def lists_big_models(self) -> bool:
+    """Is the model manager's big-model list jetlink's (big_catalog) rather
+    than sunnypilot's? With no chestnut fitted. Hardware, not the link
+    setting: the model manager drops a pick its catalog does not list."""
     return not self._parts.chestnut_fitted()
 
+  def big_catalog(self, selector: int) -> dict | None:
+    """The model index as the model manager's big-model catalog, every bundle
+    at `selector` (its REQUIRED_JSON_VERSION), fetched again
+    (Models.big_catalog). None when it cannot be had, offline say, and the
+    model manager keeps the list it has."""
+    from jetlink.registry.index import RegistryError
+    try:
+      return self._parts.models.big_catalog(selector)
+    except RegistryError as e:
+      self._log.warning("jetlink: could not fetch the model index: %s", e)
+      return None
+
+  def listed_ref(self, ref: str) -> str | None:
+    """The ref big_catalog() lists a pick's model under, for a pick a new list
+    no longer names: a recompile is listed once, under its newest ref. None
+    while the list is not jetlink's (lists_big_models)."""
+    return self._parts.models.listed_ref(ref) if self.lists_big_models() else None
+
+  # API 3's, until the next minor release: the catalog is left as fetched.
+  # Its picks still drive, since the index knows every ref it ever saw
+  def should_extend_catalog(self) -> bool:
+    return False
+
   def extend_catalog(self, catalog: dict) -> dict:
-    """The big-model catalog the model manager fetched, with the models newer
-    catalogs list folded in. Never raises."""
-    return self._parts.models.big_catalog(catalog)
+    return catalog
