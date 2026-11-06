@@ -120,7 +120,7 @@ def test_vasm_uses_its_own_core_with_vision_and_restores_solo_cores(tmp_path):
   params = Params(str(tmp_path / "params"))
   clock = [1_000_000_000]
   runtime = VASMRuntime(params, Messages(clock), Client, lambda _event: None)
-  with patch('openpilot.starpilot.spot_monitor.runtime.feature_requested', side_effect=[True, False]), \
+  with patch('openpilot.starpilot.spot_monitor.runtime.feature_requested', side_effect=[True, False, False]), \
        patch('openpilot.starpilot.spot_monitor.runtime.set_core_affinity') as affinity:
     runtime._refresh_settings(clock[0])
     assert runtime.inference_cores == (2,)
@@ -129,6 +129,22 @@ def test_vasm_uses_its_own_core_with_vision_and_restores_solo_cores(tmp_path):
     assert runtime.inference_cores == (0, 1, 2)
   assert [call.args[0] for call in affinity.call_args_list] == [[2], [0, 1, 2]]
 
+
+
+def test_vasm_reserves_own_core_for_speed_or_stop_vision_requests(tmp_path):
+  params = Params(str(tmp_path / "params"))
+  clock = [1_000_000_000]
+  runtime = VASMRuntime(params, Messages(clock), Client, lambda _event: None)
+  for vision, vision_stop in ((False, False), (True, False), (False, True), (True, True)):
+    requests = {"vision": vision, "vision_stop": vision_stop}
+    clock[0] += 2_000_000_000
+    with patch('openpilot.starpilot.spot_monitor.runtime.feature_requested',
+               side_effect=lambda _params, feature, requests=requests: requests[feature]), \
+         patch('openpilot.starpilot.spot_monitor.runtime.set_core_affinity') as affinity:
+      runtime._refresh_settings(clock[0])
+      expected = (2,) if vision or vision_stop else (0, 1, 2)
+      assert runtime.inference_cores == expected
+      affinity.assert_called_once_with(list(expected))
 
 def test_enabled_fresh_drive_new_frames_and_stale_reset(tmp_path):
   from opendbc.car.structs import car

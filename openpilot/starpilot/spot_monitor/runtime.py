@@ -252,7 +252,7 @@ class VASMRuntime:
     if now_ns - self.settings_read_ns < SETTINGS_REFRESH_NS:
       return
     self.settings_read_ns = now_ns
-    self.inference_cores = VASM_WITH_VISION if feature_requested(self.params, "vision") else LITTLE_CORES
+    self.inference_cores = VASM_WITH_VISION if (feature_requested(self.params, "vision") or feature_requested(self.params, "vision_stop")) else LITTLE_CORES
     try:
       set_core_affinity(list(self.inference_cores))
     except OSError:
