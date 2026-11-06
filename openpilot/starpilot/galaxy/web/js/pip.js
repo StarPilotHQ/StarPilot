@@ -3,7 +3,7 @@ import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
 import { reactive } from "../vendor/vue/vue.esm-browser.js"
 import { LiveCameraPreview } from "./cameras.js"
-import { WhiteBalanceSwitch, whiteBalancePref } from "./white-balance.js"
+import { whiteBalancePref } from "./white-balance.js"
 import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 import { SettingsFeed, isPipCropRow, settingsBusy } from "./settings.js"
 import { GalaxySettingRow } from "./galaxy-setting-row.js"
@@ -16,7 +16,7 @@ const SIDES = [
 
 export const PipPage = {
   name: "PipPage",
-  components: { GxDialog, GxState, GxNotice, BluetoothNotice, GalaxySettingRow, WhiteBalanceSwitch },
+  components: { GxDialog, GxState, GxNotice, BluetoothNotice, GalaxySettingRow },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, required: true } },
   setup(props) {
@@ -46,6 +46,7 @@ export const PipPage = {
     return { state, feed, FORMATS, SIDES, bluetooth: bluetoothConnection(), pref: whiteBalancePref }
   },
   mounted() {
+    this.pref.load()
     this._dragIndex = -1
     this._dragSide = null
     this.liveCamera = new LiveCameraPreview({
@@ -191,7 +192,6 @@ export const PipPage = {
           <section class="gx-card gx-vasm__editor" aria-label="Blind Spot Camera crop editor">
             <div class="gx-section__header"><i class="bi bi-crop" aria-hidden="true"></i><span class="gx-section__title">Camera Crop</span></div>
             <p class="gx-note">Drag a circle onto the cabin window you want to watch. Both crops share one size.</p>
-            <WhiteBalanceSwitch v-if="!bluetooth" />
             <p v-if="!bluetooth" class="gx-note gx-camera-status" role="status">{{ state.cameraWarming ? "Warming up the camera · about 10 seconds…" : state.imageName ? "Snapshot ready" : "Take a cabin snapshot while parked." }}</p>
             <div class="gx-actions">
               <button v-for="side in SIDES" :key="side.key" type="button" class="gx-btn gx-btn--tonal" :disabled="!editable" :aria-pressed="state.activeSide === side.key" :aria-label="side.label" @click="choose(side.key)">{{ side.key === "centerRight" ? "Left" : "Right" }}</button>

@@ -4,7 +4,7 @@ import { GxNotice } from "./notice.js"
 import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 import { SentryNotifications } from "./sentry-notifications.js"
 import { SnapshotFeed } from "./snapshot-feed.js"
-import { BalancedImage, WhiteBalanceSwitch } from "./white-balance.js"
+import { BalancedImage } from "./white-balance.js"
 import { deleteRecords, storedSize } from "./record-deletion.js"
 
 // Historical motion records and independently configured notifications.
@@ -51,7 +51,7 @@ export class SentryEventsFeed extends SnapshotFeed {
 
 export const SentryEventsPage = {
   name: "SentryEventsPage",
-  components: { GxState, GxNotice, BluetoothNotice, SentryNotifications, SettingsPage, BalancedImage, WhiteBalanceSwitch },
+  components: { GxState, GxNotice, BluetoothNotice, SentryNotifications, SettingsPage, BalancedImage },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, required: true } },
   data: () => ({ bluetooth: bluetoothConnection(), status: "idle", data: null, error: "", deleting: false }),
@@ -82,7 +82,6 @@ export const SentryEventsPage = {
           <GxNotice v-if="data.scanIncomplete" tone="warn">This scan was incomplete. More local motion events may exist.</GxNotice>
           <GxState v-if="!data.events.length">No motion events yet. Events appear here when Sentry detects motion while parked.</GxState>
           <BluetoothNotice v-if="bluetooth && data.events.some(event => event.images?.length)" feature="Motion event images" />
-          <WhiteBalanceSwitch v-if="!bluetooth && data.events.some(event => event.images?.includes('cabin'))" />
           <div class="gx-sentry-events">
             <article v-for="event in data.events" :key="event.eventId" class="gx-card gx-sentry-event">
               <div class="gx-section__header"><i class="bi" :class="kinds[event.kind].icon" aria-hidden="true"></i><span class="gx-section__title">{{ kinds[event.kind].label }}</span></div>
