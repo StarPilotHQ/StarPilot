@@ -277,6 +277,8 @@ struct StarPilotLongitudinalPlan @0xda96579883444c35 {
   modelMonoTime @2 :UInt64;
   driveStartMonoTime @3 :UInt64;
   forceStopHolding @4 :Bool;
+  forceStopBraking @5 :Bool;
+  forceStopEpisodeMonoTime @6 :UInt64;
 }
 
 struct SlcState @0xa1680744031fdb2d {
@@ -1571,3 +1573,4 @@ struct LiveTrackingResponseWitness @0xdaa1a9f0d8968e31 {
  windowStartMonoTime @4 :UInt64; independentPoses @5 :UInt16;
  residualRmse @6 :Float64; validUntilMonoTime @7 :UInt64;
 }
+

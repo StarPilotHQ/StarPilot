@@ -15,11 +15,46 @@ def frame(tick, **changes):
 
 
 class ForceStopTests(unittest.TestCase):
+  def test_ioniq_positive_offset_continues_to_consume_remaining_distance(self):
+    owner = ForceStop()
+    tune = vehicle_tune('HYUNDAI_IONIQ_6')
+    for tick in range(100):
+      plan = owner.step(frame(tick,speed_mps=4.,horizon_m=10.),tune,8)
+    self.assertTrue(plan.should_stop)
+    self.assertEqual(plan.tracked_distance_m,0.)
+    self.assertEqual(plan.obstacle_m,0.)
+
+  def test_ioniq_keeps_rolling_goal_and_stop_intent_separate(self):
+    owner = ForceStop()
+    tune = vehicle_tune('HYUNDAI_IONIQ_6')
+    for tick in range(35):
+      plan = owner.step(frame(tick,speed_mps=4.,horizon_m=10.),tune)
+      if plan.forcing and plan.tracked_distance_m < 6:
+        self.assertTrue(plan.should_stop)
+        self.assertGreater(plan.speed_ceiling_mps,.5)
+        self.assertIsNotNone(plan.obstacle_m)
+    self.assertTrue(plan.should_stop)
+
+  def test_episode_is_retained_until_release_and_new_commit_gets_new_identity(self):
+    owner = ForceStop()
+    tune = vehicle_tune('HYUNDAI_IONIQ_6')
+    for tick in range(20):
+      plan = owner.step(frame(tick),tune)
+    episode = plan.episode_ns
+    self.assertGreater(episode,BASE)
+    for tick in range(20,30):
+      self.assertEqual(owner.step(frame(tick),tune).episode_ns,episode)
+    self.assertEqual(owner.step(frame(30,pedal_override=True),tune).episode_ns,0)
+    for tick in range(31,260):
+      plan = owner.step(frame(tick),tune)
+    self.assertGreater(plan.episode_ns,episode)
+
   def setUp(self):
     self.owner = ForceStop()
     self.tune = vehicle_tune('HYUNDAI_IONIQ_6')
 
   def test_original_approach_commit_kinematics_and_obstacle(self):
+    self.tune = vehicle_tune('OTHER')
     for tick in range(40):
       plan = self.owner.step(frame(tick, model_should_stop=True), self.tune)
       # The existing 0.5s accumulator crosses .5 on frame 10 with binary floats.
@@ -260,6 +295,7 @@ class ForceStopTests(unittest.TestCase):
     self.assertLessEqual(plan.tracked_distance_m, cap - .5 + 15)
 
   def test_offset_and_handoff_keep_native_should_stop(self):
+    self.tune = vehicle_tune('OTHER')
     for offset in (-20, 0, 20):
       with self.subTest(offset=offset):
         self.owner.reset()
