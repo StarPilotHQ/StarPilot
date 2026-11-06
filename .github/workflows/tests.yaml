@@ -57,6 +57,9 @@ jobs:
     - name: Test CI tools
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
       run: python3 -m unittest discover -s tools/ci/tests -v
+    - name: Test authenticated monitoring release artifacts
+      if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+      run: python3 -m pytest -q tools/ci/tests/test_stock_monitoring_release.py
     - name: Test updater
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
       run: python3 -m unittest discover -s openpilot/system/updated/tests -v

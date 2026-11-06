@@ -13,6 +13,8 @@ import tempfile
 import types
 import unittest
 
+from openpilot.common.file_chunker import get_existing_chunks
+
 
 SOURCE = Path(__file__).resolve().parents[3] / "build"
 HELPER = SOURCE.parent / "scripts/laptop_device_build.sh"
@@ -434,6 +436,9 @@ class ArtifactCheckTest(unittest.TestCase):
     chunks.parent.mkdir(parents=True)
     (self.root / "openpilot/__init__.py").touch()
     shutil.copy2(SOURCE.parent / "openpilot/common/file_chunker.py", chunks)
+    bridge = Path("openpilot/starpilot/models/runtime_bridge")
+    for name in ("__init__.py", "runtime.py", "bootstrap.py"):
+      self.write(str(bridge / name), (SOURCE.parent / bridge / name).read_bytes())
     shipped = b"verified RDF artifact fixture"
     self.write("openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl", shipped)
     self.write("openpilot/starpilot/models/catalog.py",
@@ -489,13 +494,15 @@ class ArtifactCheckTest(unittest.TestCase):
     }).encode())
     for name in ("openpilot/cereal/libcereal.a", "openpilot/cereal/libsocketmaster.a"):
       self.write(name, archive)
-    for name in ("dmonitoring_model_tinygrad.pkl",):
-      code = captured_pickle("QCOM", host_backend="CPU")
-      self.write(f"openpilot/selfdrive/modeld/models/{name}", struct.pack("<q", len(code)) + code + b"buffer")
-    for kind in ("driving", "dm"):
-      for size in ("1344x760", "1928x1208"):
-        self.write(f"openpilot/selfdrive/modeld/models/{kind}_warp_{size}_tinygrad.pkl",
-                   captured_pickle("QCOM", host_backend="CPU"))
+    # Exercise the real stock guard with the checkout's authenticated DM bytes.
+    # Read numbered parts directly so fixture setup does not create source caches.
+    for name in ("dmonitoring_model_tinygrad.pkl", "dm_warp_1344x760_tinygrad.pkl", "dm_warp_1928x1208_tinygrad.pkl"):
+      path = Path("openpilot/selfdrive/modeld/models") / name
+      parts = get_existing_chunks(SOURCE.parent / path)
+      self.write(str(path), b"".join(part.read_bytes() for part in (parts if parts == [SOURCE.parent / path] else parts[1:])))
+    for size in ("1344x760", "1928x1208"):
+      self.write(f"openpilot/selfdrive/modeld/models/driving_warp_{size}_tinygrad.pkl",
+                 captured_pickle("QCOM", host_backend="CPU"))
 
   def write(self, name, data):
     path = self.root / name
@@ -511,6 +518,19 @@ class ArtifactCheckTest(unittest.TestCase):
     self.assertEqual(result.returncode, 0, result.stderr)
     (self.root / "openpilot/selfdrive/modeld/models/dmonitoring_model_tinygrad.pkl").unlink()
     self.assertNotEqual(self.verify().returncode, 0)
+
+  def test_stock_monitoring_artifacts_remain_pinned(self):
+    self.assertEqual(self.verify().returncode, 0)
+    for name in ("dmonitoring_model_tinygrad.pkl", "dm_warp_1344x760_tinygrad.pkl", "dm_warp_1928x1208_tinygrad.pkl"):
+      with self.subTest(name=name):
+        path = self.root / "openpilot/selfdrive/modeld/models" / name
+        original = path.read_bytes()
+        path.write_bytes(original[:-1] + bytes([original[-1] ^ 1]))
+        result = self.verify()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Stock model artifact changed", result.stderr)
+        path.write_bytes(original)
+    self.assertEqual(self.verify().returncode, 0)
 
   def test_replay_runtime_required_before_prebuilt(self):
     for name in ("openpilot/tools/replay/replay", "openpilot/tools/replay/libmedia_mux.so"):
