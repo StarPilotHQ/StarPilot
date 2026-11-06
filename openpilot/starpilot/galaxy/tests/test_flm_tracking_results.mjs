@@ -257,6 +257,12 @@ assert(measuredText.includes('Saved adjustments') && measuredText.includes('Awai
 assert(measuredText.includes('No interpolation or delay alignment'))
 assert(measuredText.includes('22 / 24 original controller and encoder windows passed'))
 assert(measuredText.includes('candidate triggered an encoder limiter'))
+ctx.report.current.details['Controller and encoder check windows']=[35,35]
+ctx.report.current.details['Automatic tune refusal reasons']=[]
+assert(text(render.call(ctx,ctx,[])).includes('35 / 35 original controller and encoder windows passed'))
+ctx.report.current.details['Controller and encoder check windows']=[36,37]
+assert.equal(ctx.offroad.checks,null,'The independent-drive count remains bounded')
+ctx.report.current.details['Controller and encoder check windows']=[22,24]
 assert.equal(ctx.currentApplied,false)
 for(const changed of [{points:measuredWindow.points.toReversed()},{error_rms:NaN},{domain:'torque'},
  {source_end_ns:measuredWindow.source_end_ns+1}]){

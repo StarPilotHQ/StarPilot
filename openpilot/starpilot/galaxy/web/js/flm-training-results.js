@@ -164,6 +164,7 @@ const REASONS = {
   original_scored_frame_not_eligible: "An original frame was inactive, limited or otherwise ineligible.",
   "candidate changed an actual limiter/support": "The candidate triggered an encoder limiter that the recorded request did not.",
   original_controller_or_registered_encoder_check_refused: "The recommendation failed an original controller or steering-output check. The saved tune was kept.",
+  independent_drive_tracking_does_not_support_change: "The separate drive did not support the same adjustment. Your saved tune was kept.",
   no_new_native_feasible_training_step: "No bounded training step passed the original steering-output checks. The saved tune was kept.",
   no_consistent_adjustment_in_completed_drive: "The independent parts of this drive did not support the same adjustment. The saved tune was kept.",
   more_independent_eligible_tracking_required: "The drive was analyzed. More complete independent steering windows are needed before saving a tune.",
@@ -214,8 +215,8 @@ export function offroadView(report) {
   const observed = recordedSteeringView(details['Recorded steering response'])
   const savedCount = details['Saved route adjustment count']
   const checked = details['Controller and encoder check windows'], refused = details['Automatic tune refusal reasons']
-  const checks = Array.isArray(checked) && checked.length === 2 && checked.every(stamp) && checked[0] <= checked[1] && checked[1] <= 24 &&
-    Array.isArray(refused) && refused.length <= 24 && refused.every(r => Array.isArray(r) && r.length === 2 && text(r[0]) && stamp(r[1])) ?
+  const checks = Array.isArray(checked) && checked.length === 2 && checked.every(stamp) && checked[0] <= checked[1] && checked[1] <= 36 &&
+    Array.isArray(refused) && refused.length <= 36 && refused.every(r => Array.isArray(r) && r.length === 2 && text(r[0]) && stamp(r[1])) ?
     { passed: checked[0], required: checked[1], refusals: refused.map(([reason, count]) => ({ reason, count })) } : null
   return { route: details['Completed drive analyzed'], samples: details['Recorded steering observations'],
     reason: details['Analysis decision'], saved: details['Automatic configuration changed'] === true,

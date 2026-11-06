@@ -1,6 +1,7 @@
 """All preselected original windows must pass; never substitute favorable rows."""
 
 from pathlib import Path
+from typing import Any
 from openpilot.starpilot.flm.offroad_controller_checks import check_candidate, check_original_native
 from openpilot.starpilot.flm.offroad_route import RETAIN
 from openpilot.starpilot.flm.log_decode import decode_full_rlog_segment
@@ -60,10 +61,144 @@ def fit_training_step(assessment, group, cohort, proposal, previous, root, *, pe
   }
 
 
+def fit_independent_route(assessment, group, cohort, prior, proposal, previous, root, *, permitted):
+  """Known current windows train strength; one independent drive validates it."""
+  from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
+  import json
+
+  roles = cohort.get('qualification_roles', cohort)
+  train = tuple(roles['training']['windows']) + tuple(roles['heldout']['windows'])
+  original = group['qualification_original_windows'] if 'qualification_roles' in cohort else group['selected_original_windows']
+  validation = tuple(row['identity'] for row in prior.windows)
+  if (
+    not all(3 <= len(roles[role]['windows']) <= 12 for role in ('training', 'heldout'))
+    or not 6 <= len(validation) <= 12
+    or len(set(train + validation)) != len(train + validation)
+    or assessment.receipt.source_sha256 == prior.receipt.source_sha256
+    or assessment.receipt.route_id == prior.receipt.route_id
+    or prior.receipt.completed_wall_ns >= assessment.receipt.completed_wall_ns
+    or prior.receipt.cp_sha256 != assessment.receipt.cp_sha256
+    or car_params_digest(prior.cp) != assessment.receipt.cp_sha256
+    or set(previous) != set(proposal['values'])
+  ):
+    raise ValueError('Independent original same-vehicle input partitions required')
+  expected = {k: v for k, v in group['original_metadata'].items() if k != 'vehicle_model_anchor'}
+  for row in prior.windows:
+    metadata = row['original_metadata']
+    if json.dumps({k: metadata.get(k) for k in expected}, sort_keys=True, allow_nan=False) != json.dumps(expected, sort_keys=True, allow_nan=False):
+      raise ValueError('Independent original controller/settings identity differs')
+  attempts = []
+  proof: dict[str, Any] = {
+    'policy': 'all_current_native_windows_training_independent_drive_validation_v1',
+    'training_source_sha256': assessment.receipt.source_sha256,
+    'training_windows': train,
+    'validation_source_sha256': prior.receipt.source_sha256,
+    'validation_windows': validation,
+    'attempts': attempts,
+    'selected_fraction': None,
+    'validation_evaluations': 0,
+  }
+  for fraction in (1.0, 0.8, 0.6, 0.4, 0.2):
+    values = (
+      dict(proposal['values']) if fraction == 1 else {name: previous[name] + fraction * (value - previous[name]) for name, value in proposal['values'].items()}
+    )
+    checked = _original_results(assessment, original, train, values, root, permitted=permitted)
+    feasible = len(checked) == len(train) and {r['window'] for r in checked} == set(train) and all(r['qualified'] for r in checked)
+    attempts.append({'fraction': fraction, 'feasible': feasible, 'original_training_windows': checked})
+    if not feasible:
+      continue
+    proof['selected_fraction'] = fraction
+    # The independent drive's actual response is read only after strength freezes.
+    from dataclasses import asdict
+    from openpilot.starpilot.flm.offroad_tracking import estimate, suggest
+    from openpilot.starpilot.flm.canonical_surface_adapter import NAMES
+
+    observed = estimate(prior.tracking_windows, cohort=cohort['cohort'], permitted=permitted)
+    _, side, phase = cohort['cohort'].split(':')
+    replication = None if observed is None else suggest(observed, {name: previous[name] for name in NAMES}, side=side, phase=phase)
+    supported = (
+      replication is not None
+      and replication['parameter'] == proposal['parameter']
+      and replication['delta'] * proposal['delta'] > 0
+      and abs(proposal['delta'] * fraction) <= abs(replication['delta'])
+    )
+    proof['independent_tracking'] = {'qualified': supported, 'estimate': None if observed is None else asdict(observed), 'replication': replication}
+    proof['validation_evaluations'] = 1
+    if not supported:
+      checks = {
+        'qualified': False,
+        'policy': proof['policy'],
+        'windows': checked,
+        'reason': 'independent_drive_tracking_does_not_support_change',
+        'physical_improvement_proven': False,
+        'current_permission_provided': False,
+        'independent_tracking': proof['independent_tracking'],
+        'independent_native_windows_checked': 0,
+        'unperformed_windows': len(validation),
+      }
+      return dict(proposal, values=values, delta=proposal['delta'] * fraction), proof, checks
+    # This is the sole native validation evaluation; failure cannot resize or retry.
+    final = _original_results(prior, prior.windows, validation, values, root, permitted=permitted)
+    proof['validation_evaluations'] = 1
+    joined = checked + final
+    split = {'training': {'windows': train}, 'heldout': {'windows': validation}}
+    # Existing per-call original input bounds remain24; all24 training and up
+    # to12 independent validation rows are required in this combined evidence.
+    qualified = (
+      len(final) == len(validation)
+      and {r['window'] for r in final} == set(validation)
+      and all(r['qualified'] for r in joined)
+      and _changed_in_each(joined, split)
+    )
+    checks = {
+      'qualified': qualified,
+      'policy': proof['policy'],
+      'windows': joined,
+      'physical_improvement_proven': False,
+      'current_permission_provided': False,
+      'requires_changed_emission': True,
+      'source_partitions': {'training': assessment.receipt.source_sha256, 'heldout': prior.receipt.source_sha256},
+    }
+    return dict(proposal, values=values, delta=proposal['delta'] * fraction), proof, checks
+  return None, proof, None
+
+
+def _changed_in_each(results, roles):
+  changed = {
+    r['window']
+    for r in results
+    if r.get('numerical', {}).get('qualified')
+    and r['numerical'].get('changed_frames', 0) > 0
+    and r.get('registered_encoder') is not None
+    and r['registered_encoder'].get('qualified')
+    and r['registered_encoder'].get('candidate_changed_emissions', 0) > 0
+  }
+  return all(changed.intersection(roles[role]['windows']) for role in ('training', 'heldout'))
+
+
+def _release_unused_analysis_heap():
+  # Parked only: return unused analysis pages before decoding native evidence.
+  import gc
+  import sys
+
+  gc.collect()
+  if sys.platform.startswith('linux'):
+    import ctypes
+
+    trim = getattr(ctypes.CDLL(None), 'malloc_trim', None)
+    if trim is not None:
+      trim.argtypes = (ctypes.c_size_t,)
+      trim.restype = ctypes.c_int
+      trim(0)
+
+
 def _original_results(assessment, original, ids, values, root, *, permitted):
   spans = {w['identity']: w for w in original if w['identity'] in ids}
   if not 3 <= len(ids) <= 24 or len(set(ids)) != len(ids) or set(spans) != set(ids):
     raise ValueError('Every preselected original window required')
+  if not permitted():
+    raise ValueError('Parked checks cancelled')
+  _release_unused_analysis_heap()
   from openpilot.starpilot.flm.learning_wire import read_control, read_applied
   import hashlib
 

@@ -167,6 +167,9 @@ def assess_next_drive(trial, assessment, scope):
 
 def qualification_summary(checks):
   refusals = {}
+  unperformed = checks.get('unperformed_windows', 0)
+  if unperformed:
+    refusals['independent_native_validation_not_run'] = unperformed
   for window in checks['windows']:
     if window['qualified']:
       continue
@@ -177,14 +180,25 @@ def qualification_summary(checks):
     refusals[reason] = refusals.get(reason, 0) + 1
   return {
     'passed': sum(w['qualified'] for w in checks['windows']),
-    'required': len(checks['windows']),
+    'required': len(checks['windows']) + unperformed,
     'refusals': sorted(refusals.items()),
   }
 
 
 class OffroadWorker:
   def __init__(
-    self, params, log_root, cache, *, permitted, assessor=analyze_latest, checker=qualify, scope_for=_current_scope, on_analysis=None, on_assessment=None
+    self,
+    params,
+    log_root,
+    cache,
+    *,
+    permitted,
+    assessor=analyze_latest,
+    checker=qualify,
+    scope_for=_current_scope,
+    on_analysis=None,
+    on_assessment=None,
+    prior_provider=None,
   ):
     self.params, self.root = params, log_root
     self.cache = cache if isinstance(cache, AssessmentCache) else AssessmentCache(cache)
@@ -193,6 +207,7 @@ class OffroadWorker:
     self.pending_input = None
     self.on_analysis = on_analysis
     self.on_assessment = on_assessment
+    self.prior_provider = prior_provider
 
   def _snapshot(self, route):
     values = []
@@ -368,10 +383,26 @@ class OffroadWorker:
           reason = 'same_rejected_change_requires_different_evidence_or_reset'
         else:
           feasible = True
+          independent_checks = None
           if self.checker is qualify:
             from openpilot.starpilot.flm.offroad_checks import fit_training_step
 
-            fitted, fit_proof = fit_training_step(assessment, group, cohort, proposal, current, self.root, permitted=self.permitted)
+            provider = self.prior_provider
+            if provider is None and self.assessor is analyze_latest:
+              from openpilot.starpilot.flm.offroad_prior_inputs import prior_originals
+
+              provider = prior_originals
+            independent = None if provider is None else provider(assessment, group, cohort, self.root, permitted=self.permitted)
+            if independent is not None and row is not None and independent.receipt.source_sha256 in row['route_sha256s']:
+              independent = None
+            if independent is None:
+              fitted, fit_proof = fit_training_step(assessment, group, cohort, proposal, current, self.root, permitted=self.permitted)
+            else:
+              from openpilot.starpilot.flm.offroad_checks import fit_independent_route
+
+              fitted, fit_proof, independent_checks = fit_independent_route(
+                assessment, group, cohort, independent, proposal, current, self.root, permitted=self.permitted
+              )
             report['native_training_feasibility'] = fit_proof
             feasible = fitted is not None
             if fitted is not None:
@@ -383,7 +414,11 @@ class OffroadWorker:
           if not feasible:
             reason = 'no_new_native_feasible_training_step'
           else:
-            checked = self.checker(assessment, group, cohort, proposal['values'], self.root, permitted=self.permitted)
+            checked = (
+              independent_checks
+              if independent_checks is not None
+              else self.checker(assessment, group, cohort, proposal['values'], self.root, permitted=self.permitted)
+            )
             report['all_original_window_checks'] = checked
             if checked['qualified']:
               record = {
@@ -427,7 +462,8 @@ class OffroadWorker:
                 'scope': scope.document(),
                 'values': proposal['values'],
                 'previous': current,
-                'route_sha256s': [assessment.receipt.source_sha256],
+                'route_sha256s': [assessment.receipt.source_sha256]
+                + ([] if independent_checks is None else [independent_checks['source_partitions']['heldout']]),
                 'source_start_ns': assessment.receipt.original_start_ns,
                 'source_end_ns': assessment.receipt.original_end_ns,
                 'completed_wall_ns': assessment.receipt.completed_wall_ns,
@@ -441,7 +477,7 @@ class OffroadWorker:
               status = 'ready_for_next_drive'
               reason = 'bounded_trial_configured_for_next_drive'
             else:
-              reason = 'original_controller_or_registered_encoder_check_refused'
+              reason = checked.get('reason', 'original_controller_or_registered_encoder_check_refused')
     diagnostics = [(g, c, c['proposal']) for g in assessment.diagnostic_groups for c in g['cohorts'] if c.get('proposal') is not None]
     diagnostics.sort(key=lambda v: (-v[1]['whole_windows'], v[1]['cohort'], v[0]['original_tracking_context_sha256']))
     if offered is None:

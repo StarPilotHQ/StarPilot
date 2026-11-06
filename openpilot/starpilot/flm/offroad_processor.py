@@ -140,10 +140,23 @@ def continuous_control_window(window, timeline, metadata_for, expected):
   )
 
 
-def analyze_latest(params, root, previous, *, permitted):
+@dataclass
+class RecordedInputs:
+  receipt: RouteReceipt
+  state: dict
+  windows: dict
+  stable_windows: dict
+  baseline_tracking: dict
+  bookends: dict
+  raw_windows: dict
+  context_metadata: dict
+  counts: dict
+  quality_stops: list
+
+
+def collect_route_inputs(root, route, *, permitted, walker=None):
   from openpilot.starpilot.flm.offroad_control_metadata import read_control_metadata as read_control
 
-  route = latest_route(params, root, permitted=permitted)
   state = {'cp': None, 'cp_sha': None, 'context': None}
   windows = {}
   stable_windows = {}
@@ -306,7 +319,19 @@ def analyze_latest(params, root, previous, *, permitted):
     if sum(map(len, windows.values())) + sum(map(len, stable_windows.values())) + sum(map(len, baseline_tracking.values())) > MAX_WINDOWS:
       raise ValueError('Whole-drive tracking window bound exceeded')
 
-  receipt = walk_completed_route(root, route, permitted=permitted, consume=consume)
+  receipt = (walk_completed_route if walker is None else walker)(root, route, permitted=permitted, consume=consume)
+  return RecordedInputs(receipt, state, windows, stable_windows, baseline_tracking, bookends, raw_windows, context_metadata, counts, quality_stops)
+
+
+def analyze_latest(params, root, previous, *, permitted):
+  route = latest_route(params, root, permitted=permitted)
+  collected = collect_route_inputs(root, route, permitted=permitted)
+  receipt, state = collected.receipt, collected.state
+  if type(receipt) is not RouteReceipt:
+    raise ValueError('A whole completed-route assessment requires all original segments')
+  windows, stable_windows, baseline_tracking = collected.windows, collected.stable_windows, collected.baseline_tracking
+  bookends, raw_windows, context_metadata = collected.bookends, collected.raw_windows, collected.context_metadata
+  counts, quality_stops = collected.counts, collected.quality_stops
   if not permitted():
     raise ValueError('Parked authority lost after analysis')
   from openpilot.starpilot.flm.offroad_baseline_windows import stable_proposal_windows, tracking_proposal_windows

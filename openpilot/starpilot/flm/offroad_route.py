@@ -85,6 +85,14 @@ class RouteReceipt:
   original_controller_contexts: tuple
 
 
+@dataclass(frozen=True)
+class SelectedSourceReceipt(RouteReceipt):
+  """Whole-file identity with selected dense inputs, NOT a whole-drive assessment."""
+
+  decoded_segments: tuple = ()
+  whole_route_decoded: bool = False
+
+
 def walk_completed_route(root, route, *, permitted, consume):
   """Process complete segments one at a time, then revalidate all source identities.
 

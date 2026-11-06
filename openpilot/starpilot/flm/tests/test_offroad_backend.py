@@ -15,7 +15,7 @@ from openpilot.starpilot.flm.offroad_cache import AssessmentCache, directory_for
 from openpilot.starpilot.flm.offroad_daemon import StatusReport
 from openpilot.starpilot.flm.offroad_quality import from_configuration
 from openpilot.starpilot.flm.offroad_runtime import RouteEffects
-from openpilot.starpilot.flm.offroad_store import KEY, MAX_BYTES, RouteScope, RouteStorage, startup_row
+from openpilot.starpilot.flm.offroad_store import KEY, MAX_BYTES, NAMESPACE, RouteScope, RouteStorage, startup_row
 from openpilot.starpilot.flm.offroad_surface import CURVE_NAMES, REVISION, ROUTE_NAMES, RouteSurfaceEffects
 from openpilot.starpilot.flm.route_recording import BASES, decode as decode_recording, encode as encode_recording
 from openpilot.starpilot.flm.torque_stages import StageFrame
@@ -648,18 +648,178 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
         for wid in ids
       ]
 
-    with tempfile.TemporaryDirectory() as directory:
-      params = Params(directory)
-      with (
-        patch('openpilot.starpilot.flm.offroad_worker.latest_route', return_value=inventory),
-        patch('openpilot.starpilot.flm.offroad_checks._original_results', new=declared_checks),
-      ):
-        worker = OffroadWorker(params, directory, Path(directory) / 'cache', permitted=lambda: True, assessor=assessed, scope_for=lambda cp, params: scope())
-        result = worker.run_once()
-      self.assertTrue(result['configuration_changed'])
-      self.assertEqual(result['qualification_summary'], {'passed': 6, 'required': 6, 'refusals': []})
-      self.assertEqual(result['saved_adjustments'], 1)
-      self.assertFalse(result['actual_application_proven'])
+    from openpilot.starpilot.flm.offroad_prior_inputs import PriorOriginals
+    from openpilot.starpilot.flm.offroad_route import SelectedSourceReceipt
+    from openpilot.starpilot.flm.offroad_tracking import TrackingEstimate
+    from openpilot.starpilot.flm.learned_lifecycle import decode
+
+    prior = PriorOriginals(
+      cp,
+      SelectedSourceReceipt('declared-independent', 'e' * 64, (), 'a' * 64, 1, 2, 2, (), (0,)),
+      {},
+      tuple({'identity': str(i) * 64, 'original_metadata': metadata} for i in range(7, 10))
+      + tuple({'identity': c * 64, 'original_metadata': metadata} for c in ('a', 'b', 'c')),
+      (),
+    )
+    observed = TrackingEstimate(
+      'declared', 'lateral_acceleration', '2:both:center', 1.0, 0, 0.0, (0.9, 1.1), (0, 0), (-0.1, 0.1), 1.0, 0.1, (), 'f' * 64, 1.0, 0.1, 0.1
+    )
+    cohort['cohort'] = '2:both:center'
+    for independent in (False, True):
+      with self.subTest(independent=independent), tempfile.TemporaryDirectory() as directory:
+        params = Params(directory)
+        with (
+          patch('openpilot.starpilot.flm.offroad_worker.latest_route', return_value=inventory),
+          patch('openpilot.starpilot.flm.offroad_checks._original_results', new=declared_checks),
+          patch('openpilot.starpilot.flm.runtime_adapter_registry.car_params_digest', return_value='a' * 64),
+          patch('openpilot.starpilot.flm.offroad_tracking.estimate', return_value=observed),
+          patch('openpilot.starpilot.flm.offroad_tracking.suggest', return_value=proposed),
+        ):
+          worker = OffroadWorker(
+            params,
+            directory,
+            Path(directory) / 'cache',
+            permitted=lambda: True,
+            assessor=assessed,
+            scope_for=lambda cp, params: scope(),
+            prior_provider=(lambda *args, **kwargs: prior) if independent else None,
+          )
+          result = worker.run_once()
+        self.assertTrue(result['configuration_changed'])
+        self.assertEqual(result['qualification_summary'], {'passed': 12 if independent else 6, 'required': 12 if independent else 6, 'refusals': []})
+        self.assertEqual(result['saved_adjustments'], 1)
+        self.assertFalse(result['actual_application_proven'])
+        raw, readable = read_saved(params, KEY, MAX_BYTES)
+        self.assertTrue(readable)
+        self.assertEqual(decode(raw)[NAMESPACE][scope().key()]['route_sha256s'], ['d' * 64] + (['e' * 64] if independent else []))
+
+  def test_prior_source_reader_requires_real_end_and_matching_cp(self):
+    import bz2
+    from contextlib import contextmanager
+    from openpilot.cereal import log
+    from opendbc.car import structs
+    from openpilot.starpilot.flm import offroad_prior_inputs as inputs
+    from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
+
+    cp = structs.CarParams.new_message(carFingerprint='declared-source-unit').as_reader()
+    cp_sha = car_params_digest(cp)
+    names = ('declared--0', 'declared--1', 'declared--2')
+    route = {'routeId': '00000001--1234567890', 'segments': [{'files': {}} for _ in names]}
+    payloads = {}
+    for i, name in enumerate(names):
+      stamp = (i + 1) * 1_000_000_000
+      events = []
+      if i == 0:
+        event = log.Event.new_message(logMonoTime=stamp, carParams=cp)
+        events.append(event.to_bytes())
+      event = log.Event.new_message(logMonoTime=stamp, valid=True)
+      event.init('carState')
+      events.append(event.to_bytes())
+      if i == 2:
+        event = log.Event.new_message(logMonoTime=stamp, valid=True)
+        event.init('clocks').wallTimeNanos = 1_800_000_000_000_000_000
+        events.append(event.to_bytes())
+        event = log.Event.new_message(logMonoTime=stamp, valid=True)
+        event.init('sentinel').type = 'endOfRoute'
+        events.append(event.to_bytes())
+      payloads[name] = bz2.compress(b''.join(events))
+
+    @contextmanager
+    def source(root, name, expected, permitted, **kwargs):
+      yield payloads[name], 'bz2', lambda: True, ('declared-original', name)
+
+    with (
+      patch.object(inputs, '_selected', return_value=(route['routeId'], names)),
+      patch.object(inputs, '_route_names', return_value=set(names)),
+      patch.object(inputs, '_closed_source', new=source),
+    ):
+      receipt = inputs._selected_sources('.', route, permitted=lambda: True, consume=lambda *args: None, cp_sha256=cp_sha)
+      self.assertFalse(receipt.whole_route_decoded)
+      self.assertEqual(receipt.cp_sha256, cp_sha)
+      self.assertEqual(receipt.decoded_segments, (0, 1, 2))
+      with self.assertRaises(inputs.PriorIdentityMismatch):
+        inputs._selected_sources('.', route, permitted=lambda: True, consume=lambda *args: None, cp_sha256='f' * 64)
+      payloads[names[-1]] = bz2.compress(b'')
+      with self.assertRaises(ValueError):
+        inputs._selected_sources('.', route, permitted=lambda: True, consume=lambda *args: None, cp_sha256=cp_sha)
+
+  def test_independent_drive_fits_all_current_windows_and_never_retries_validation(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_checks as checks
+    from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
+    from openpilot.starpilot.flm.offroad_prior_inputs import PriorOriginals, interior_segments
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt, SelectedSourceReceipt
+    from openpilot.starpilot.flm.offroad_tracking import TrackingEstimate
+
+    self.assertEqual(interior_segments(100), (7, 15, 22, 30, 38, 45, 53, 60, 68, 76, 83, 91))
+    cp = SimpleNamespace(carFingerprint='declared-independent-unit')
+    ids = tuple(str(i) * 64 for i in range(1, 7))
+    valid_ids = tuple(str(i) * 64 for i in range(7, 10)) + ('a' * 64, 'b' * 64, 'c' * 64)
+    roles = {'training': {'windows': ids[:3]}, 'heldout': {'windows': ids[3:]}}
+    metadata = {'controller_mode': 'starpilot', 'route_scope': scope().key(), 'baseline_values': (1.0,), 'route_values': tuple(values().items())}
+    original = tuple({'identity': wid} for wid in ids)
+    cohort = {'cohort': '2:both:center', 'qualification_roles': roles}
+    group = {'original_metadata': metadata, 'qualification_original_windows': original}
+    current = CompletedAssessment(RouteReceipt('declared-current', 'd' * 64, (), 'a' * 64, 10, 20, 30, ()), (), {}, cp, (), {})
+    prior = PriorOriginals(
+      cp,
+      SelectedSourceReceipt('declared-prior', 'e' * 64, (), 'a' * 64, 1, 2, 3, (), (0, 1)),
+      {},
+      tuple({'identity': wid, 'original_metadata': dict(metadata)} for wid in valid_ids),
+      (),
+    )
+    proposed = {'parameter': 'center_taper_max', 'delta': 0.005, 'values': values(0.005)}
+    replication = dict(proposed)
+    observed = TrackingEstimate(
+      'declared', 'lateral_acceleration', '2:both:center', 1.0, 0, 0.0, (0.9, 1.1), (0, 0), (-0.1, 0.1), 1.0, 0.1, (), 'f' * 64, 1.0, 0.1, 0.1
+    )
+    calls = []
+
+    def recorded(actual, source, selected, trial_values, root, *, permitted):
+      self.assertTrue(permitted())
+      calls.append((actual is prior, tuple(selected), trial_values['center_taper_max']))
+      okay = actual is not prior and trial_values['center_taper_max'] <= 0.004
+      return [
+        {
+          'window': wid,
+          'qualified': okay,
+          'numerical': {'qualified': True, 'changed_frames': 1},
+          'registered_encoder': {'qualified': okay, 'candidate_changed_emissions': 1},
+        }
+        for wid in selected
+      ]
+
+    with (
+      patch('openpilot.starpilot.flm.runtime_adapter_registry.car_params_digest', return_value='a' * 64),
+      patch.object(checks, '_original_results', new=recorded),
+      patch('openpilot.starpilot.flm.offroad_tracking.estimate', return_value=observed),
+      patch('openpilot.starpilot.flm.offroad_tracking.suggest', return_value=replication),
+    ):
+      fitted, proof, result = checks.fit_independent_route(current, group, cohort, prior, proposed, values(), '.', permitted=lambda: True)
+    self.assertIsNotNone(fitted)
+    assert fitted is not None and result is not None
+    self.assertEqual(calls, [(False, ids, 0.005), (False, ids, 0.004), (True, valid_ids, 0.004)])
+    self.assertEqual(proof['validation_evaluations'], 1)
+    self.assertFalse(result['qualified'])
+    self.assertEqual(proof['selected_fraction'], 0.8)
+
+    calls.clear()
+    with (
+      patch('openpilot.starpilot.flm.runtime_adapter_registry.car_params_digest', return_value='a' * 64),
+      patch.object(checks, '_original_results', new=recorded),
+      patch('openpilot.starpilot.flm.offroad_tracking.estimate', return_value=observed),
+      patch('openpilot.starpilot.flm.offroad_tracking.suggest', return_value=None),
+    ):
+      fitted, proof, result = checks.fit_independent_route(current, group, cohort, prior, proposed, values(), '.', permitted=lambda: True)
+    self.assertEqual(calls, [(False, ids, 0.005), (False, ids, 0.004)])
+    assert result is not None
+    self.assertEqual(result['reason'], 'independent_drive_tracking_does_not_support_change')
+    self.assertFalse(result['qualified'])
+    from openpilot.starpilot.flm.offroad_worker import qualification_summary
+
+    self.assertEqual(qualification_summary(result), {'passed': 6, 'required': 12, 'refusals': [('independent_native_validation_not_run', 6)]})
+    with patch('openpilot.starpilot.flm.runtime_adapter_registry.car_params_digest', return_value='0' * 64), self.assertRaises(ValueError):
+      checks.fit_independent_route(current, group, cohort, prior, proposed, values(), '.', permitted=lambda: True)
 
   def test_training_feasibility_is_bounded_and_heldout_refusal_never_retries(self):
     from types import SimpleNamespace
