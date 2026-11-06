@@ -30,9 +30,10 @@ def native_accepts_cp(cp, model: int, param: int) -> bool:
 
 def cc_independent_lateral_below_engage(cp, intent, *, enabled, active):
   """An armed conventional-cruise LAT request uses its steering speed gate."""
-  from opendbc.car.gm.values import is_bolt_cc_profile, is_volt_cc_profile
+  from opendbc.car.gm.values import is_bolt_cc_profile, is_volt_cc_profile, is_ordinary_cc_profile
   return bool(not enabled and not active and qualified_gm(cp) and aol_enabled(cp) and
-              (is_bolt_cc_profile(cp) or is_volt_cc_profile(cp)) and intent is not None and intent.settingsQualified and
+              (is_bolt_cc_profile(cp) or is_volt_cc_profile(cp) or is_ordinary_cc_profile(cp)) and
+              intent is not None and intent.settingsQualified and
               intent.allowedLatch and intent.lateralArmed and not intent.pauseLateral)
 
 

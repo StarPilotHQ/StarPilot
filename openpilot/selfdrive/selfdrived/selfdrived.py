@@ -1463,7 +1463,8 @@ class SelfdriveD:
       if (toyota_qualified(self.CP, marked_only=True) and CS.standstill or
           angle_qualified(self.CP, marked_only=True) or
           self.CP.brand == 'hyundai' and len(self.CP.safetyConfigs) == 1 and
-          stock_canfd_qualified(self.CP, marked_only=True)):
+          stock_canfd_qualified(self.CP, marked_only=True) or
+          self.CP.brand == 'gm' and qualified_gm(self.CP) and self.CP.pcmCruise and not self.CP.openpilotLongitudinalControl):
         native = current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
         if stock_lateral_role(self, CS, native, intent, allow_independent_cancel=True,
                               allow_independent_brake=True, allow_independent_gas=True, now_ns=now_ns):
