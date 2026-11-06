@@ -352,8 +352,11 @@ class Runtime:
     authority = replace(authority, accelerator_override=bool(CP.openpilotLongitudinalControl and long_enabled and car_state.gasPressed))
     selected = float(car_state.vCruise) if car_fresh and _number(car_state.vCruise) else 0.0
     selected_cluster = float(car_state.vCruiseCluster) if car_fresh and _number(car_state.vCruiseCluster) else None
-    ego_valid = car_fresh and _number(car_state.vEgo) and _number(car_state.vEgoCluster)
-    ego = (sd.SpeedPair(sd.DomainStatus.VALID, float(car_state.vEgo), float(car_state.vEgoCluster), self.session_id, now_ns)
+    # Filtered ego speed can undershoot zero after the wheels stop.
+    ego_speeds = (car_state.vEgo, car_state.vEgoCluster)
+    ego_valid = car_fresh and all(type(speed) in (int, float) and math.isfinite(speed) and
+                                  (car_state.standstill or speed >= 0.) for speed in ego_speeds)
+    ego = (sd.SpeedPair(sd.DomainStatus.VALID, *(max(0., speed) for speed in ego_speeds), self.session_id, now_ns)
            if ego_valid else sd.SpeedPair(sd.DomainStatus.STALE if sm.logMonoTime.get("carState", 0) else sd.DomainStatus.UNKNOWN))
     host = comp.HostState(bool(CP.openpilotLongitudinalControl), host_long, bool(selfdrive.enabled and selfdrive_fresh),
                           bool(controls.forceDecel) if controls_fresh else True, selected, selected_cluster)

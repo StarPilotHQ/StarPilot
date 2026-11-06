@@ -12,6 +12,11 @@ unavailable target/pair produces `UNAVAILABLE`; malformed values produce
 speed; resolution clamps each delta to `max(cluster - raw, 0)`. Only a `VALID`
 resolution supplies a planner coordinate.
 
+Before entering this domain, the runtime floors finite negative ego-speed estimates
+to zero when fresh `carState` evidence reports standstill. The speed filter can
+undershoot zero after the wheels stop. Negative estimates while moving, nonfinite
+values and stale vehicle data remain unavailable; the original messages are unchanged.
+
 A finite negative offset that would make the target nonpositive in cluster or
 planner coordinates is ignored for that limit. The unadjusted accepted limit
 is used instead; the result stays within the ordinary cruise-speed bounds.

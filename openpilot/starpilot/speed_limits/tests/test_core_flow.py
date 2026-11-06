@@ -14,6 +14,8 @@ from openpilot.starpilot.speed_limits.speed_domain import OffsetBand, OffsetSche
 from openpilot.starpilot.speed_limits.tests import test_runtime_replay as replay
 
 START = 2_000_000_000
+# Observed stop jitter, plus a larger normal filter undershoot.
+STOPPED_SPEEDS = (0., -0.0005728941, 0.0000374307, -0.0000785884, -.08, 0.)
 
 
 @pytest.fixture
@@ -182,15 +184,19 @@ def test_wheel_override_survives_engaged_stop(drive, cruise_standstill):
 
   stopped = sm['carState'].cruiseState if cruise_standstill else sm['carState']
   stopped.standstill = True
-  sm['carState'].vEgo = sm['carState'].vEgoCluster = 0.
   sm['controlsState'].longControlState = 'stopping'
-  held = tick(runtime, sm, cp, 2)
-  assert held.message.slcState.overrideBasis == 'wheel'
-  assert held.message.slcState.wheelOverrideSince == 0
+  for step, speed in enumerate((0.,) if cruise_standstill else STOPPED_SPEEDS, 2):
+    sm['carState'].vEgo = sm['carState'].vEgoCluster = speed
+    held = tick(runtime, sm, cp, step)
+    assert held.message.slcState.overrideBasis == 'wheel'
+    assert held.message.slcState.effectiveClusterTarget == pytest.approx(91. / 3.6)
+    assert held.message.slcState.wheelOverrideSince == 0
+    assert held.result.ceiling is None
 
   stopped.standstill = False
+  sm['carState'].vEgo = sm['carState'].vEgoCluster = 1.
   sm['controlsState'].longControlState = 'pid'
-  assert tick(runtime, sm, cp, 3).message.slcState.overrideBasis == 'wheel'
+  assert tick(runtime, sm, cp, step + 1).message.slcState.overrideBasis == 'wheel'
 
 
 def test_wheel_override_survives_gas_handoff_without_latching_pedal_speed(drive):
@@ -213,11 +219,15 @@ def test_wheel_override_survives_gas_handoff_without_latching_pedal_speed(drive)
 
 
 @pytest.mark.parametrize('missing', ['absent', 'unknown', 'stale'])
-def test_source_gap_uses_the_previous_limit_and_current_offset(drive, missing):
+@pytest.mark.parametrize('stopped', [False, True])
+def test_source_gap_uses_the_previous_limit_and_current_offset(drive, missing, stopped):
   sm, cp = drive
   runtime = controller(2.)
   first = tick(runtime, sm, cp, 0)
   assert first.result.ceiling.speed_mps == 27.
+  if stopped:
+    sm['carState'].standstill = True
+    sm['carState'].vEgo = sm['carState'].vEgoCluster = -.08
   sm['slcDashboardObservation'].status = missing
   runtime.update_offsets(OffsetSchedule((OffsetBand(0., None, 4.),)))
   gap = tick(runtime, sm, cp, 1)
@@ -324,16 +334,31 @@ def test_gas_above_limit_holds_the_selected_override_after_release(drive, mode, 
   planner.update(sm, cruise_ceiling=released.result.ceiling)
   assert planner.last_cruise_ceiling_status == ('applied' if mode is PedalOverride.SPEED_REACHED else 'above_driver')
 
+  sm['carState'].standstill = True
+  sm['controlsState'].longControlState = 'stopping'
+  for step, speed in enumerate(STOPPED_SPEEDS, 5):
+    sm['carState'].vEgo = sm['carState'].vEgoCluster = speed
+    held = tick(runtime, sm, cp, step)
+    assert held.message.slcState.overrideBasis == 'persistent'
+    assert held.result.ceiling == released.result.ceiling
+    assert held.message.slcState.effectiveClusterTarget == pytest.approx(target)
+    assert sm['carState'].vCruise == sm['carState'].vCruiseCluster == 100.
+
+  sm['carState'].standstill = False
+  sm['carState'].vEgo = sm['carState'].vEgoCluster = 1.
+  sm['controlsState'].longControlState = 'pid'
+  assert tick(runtime, sm, cp, step + 1).result.ceiling == released.result.ceiling
   sm['carControl'].enabled = sm['carControl'].longActive = sm['selfdriveState'].enabled = False
-  assert tick(runtime, sm, cp, 5).result.ceiling is None
+  assert tick(runtime, sm, cp, step + 2).result.ceiling is None
   sm['carControl'].enabled = sm['carControl'].longActive = sm['selfdriveState'].enabled = True
-  resumed = tick(runtime, sm, cp, 6)
+  resumed = tick(runtime, sm, cp, step + 3)
   assert resumed.result.ceiling.speed_mps == 25.
   assert not resumed.message.slcState.driverOverrideActive
 
 
-@pytest.mark.parametrize('clear_with', ['lower SET', 'higher limit', 'explicit accept'])
-def test_override_clears_when_the_driver_or_limit_takes_back_control(drive, clear_with):
+@pytest.mark.parametrize('change', ['lower SET', 'higher limit', 'accept', 'reject', 'adopt'])
+@pytest.mark.parametrize('stopped', [False, True])
+def test_driver_and_limit_changes_preserve_override_rules(drive, change, stopped):
   sm, cp = drive
   runtime = controller()
   tick(runtime, sm, cp, 0)
@@ -341,21 +366,30 @@ def test_override_clears_when_the_driver_or_limit_takes_back_control(drive, clea
   sm['carState'].gasPressed = True
   assert tick(runtime, sm, cp, 1).result.ceiling.speed_mps == pytest.approx(100. / 3.6)
   sm['carState'].gasPressed = False
+  if stopped:
+    sm['carState'].standstill = True
+    sm['carState'].vEgo = sm['carState'].vEgoCluster = -.08
   action = None
   expected = 25.
-  if clear_with == 'lower SET':
+  if change == 'lower SET':
     sm['carState'].vCruise = sm['carState'].vCruiseCluster = 90.
-  elif clear_with == 'higher limit':
+  elif change == 'higher limit':
     sm['slcDashboardObservation'].speedMps = expected = 28.
   else:
     runtime.settings = replace(runtime.settings, acceptance=acc.Policy())
     sm['slcDashboardObservation'].speedMps = expected = 20.
     pending = tick(runtime, sm, cp, 2).message.slcState
     assert pending.hasPending and pending.driverOverrideActive
-    action = Action(runtime.session_id, 1, pending.decisionId, pending.presentationId, 'accept')
-  cleared = tick(runtime, sm, cp, 3, request=action)
-  assert cleared.result.ceiling.speed_mps == expected
-  assert not cleared.message.slcState.driverOverrideActive
+    action = Action(runtime.session_id, 1, pending.decisionId, pending.presentationId, change)
+    if change == 'reject':
+      expected = 100. / 3.6
+  changed = tick(runtime, sm, cp, 3, request=action)
+  assert changed.result.ceiling.speed_mps == expected
+  assert changed.message.slcState.driverOverrideActive == (change == 'reject')
+  assert not changed.message.slcState.hasPending
+  if change == 'reject':
+    assert changed.message.slcState.acceptedSpeedLimit == 25.
+    assert changed.message.slcState.speedLimit == 20.
   sm['carState'].vCruise = sm['carState'].vCruiseCluster = 100.
   assert tick(runtime, sm, cp, 4).result.ceiling.speed_mps == expected
 
@@ -440,6 +474,60 @@ def test_raw_cluster_conversion_is_applied_once_including_during_source_loss(dri
   sm['slcDashboardObservation'].status = 'unknown'
   sm['carState'].vEgoCluster = sm['carState'].vEgo + .5
   assert tick(runtime, sm, cp, 1).result.ceiling.speed_mps == 26.5
+
+
+@pytest.mark.parametrize('stopped,raw,cluster,cap', [
+  (True, 0., 0., 25.),
+  (True, -.08, -.08, 25.),
+  (True, -.08, .1, 24.9),
+  (True, .1, -.08, 25.),
+  (True, .1, .2, 24.9),
+  (False, -.08, 0., None),
+  (False, 0., -.08, None),
+  (True, float('nan'), 0., None),
+  (True, 0., float('nan'), None),
+  (True, float('inf'), 0., None),
+  (True, 0., float('inf'), None),
+  (True, float('-inf'), 0., None),
+  (True, 0., float('-inf'), None),
+])
+def test_ego_coordinates_are_normalized_only_at_standstill(drive, stopped, raw, cluster, cap):
+  sm, cp = drive
+  runtime = controller()
+  tick(runtime, sm, cp, 0)
+  sm['carState'].standstill = stopped
+  sm['carState'].vEgo, sm['carState'].vEgoCluster = raw, cluster
+  output = tick(runtime, sm, cp, 1)
+  assert not output.message.slcState.driverOverrideActive
+  if cap is None:
+    assert output.result.ceiling is None
+  else:
+    assert output.result.ceiling.speed_mps == pytest.approx(cap)
+  assert (sm['carState'].vEgo, sm['carState'].vEgoCluster) == pytest.approx((raw, cluster), nan_ok=True)
+
+
+@pytest.mark.parametrize('unavailable', ['stale', 'invalid', 'not alive', 'CAN timeout', 'cruise standstill only'])
+def test_standstill_normalization_requires_fresh_vehicle_evidence(drive, unavailable):
+  sm, cp = drive
+  runtime = controller()
+  tick(runtime, sm, cp, 0)
+  sm['carState'].standstill = unavailable != 'cruise standstill only'
+  sm['carState'].cruiseState.standstill = True
+  sm['carState'].vEgo = sm['carState'].vEgoCluster = -.08
+  now = START + 50_000_000
+  sm.advance(now)
+  if unavailable == 'stale':
+    sm.logMonoTime['carState'] = now - 1_000_000_000
+  elif unavailable == 'invalid':
+    sm.valid['carState'] = False
+  elif unavailable == 'not alive':
+    sm.alive['carState'] = False
+  elif unavailable == 'CAN timeout':
+    sm['carState'].canTimeout = True
+  output = runtime.step(sm, cp, now_ns=now)
+  assert not output.result.errors
+  assert output.result.ceiling is None
+  assert not output.message.slcState.driverOverrideActive
 
 
 @pytest.mark.parametrize('pcm', [False, True])

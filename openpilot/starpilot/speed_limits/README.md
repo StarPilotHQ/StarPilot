@@ -201,6 +201,7 @@ the gas above the accepted limit plus offset lets cruise hold the fastest speed 
 reach, up to SET. **Use your SET speed** targets SET. **Resume the adjusted limit**
 returns to the accepted limit plus offset on release. The override clears when cruise disengages,
 the adjusted limit catches up, or the driver explicitly accepts or adopts a limit.
+Stopping while cruise stays engaged preserves the override.
 After an explicit choice, the current accelerator press cannot start another
 override. Releasing and pressing again can start one.
 SET and the accepted limit are separate from the override. Lead, curve and
