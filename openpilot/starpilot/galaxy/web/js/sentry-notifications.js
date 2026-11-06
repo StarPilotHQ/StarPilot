@@ -214,13 +214,12 @@ export const SentryNotifications = {
           </section>
           <div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="client.run({action: 'test', target: 'all'})">Test all channels</button></div>
           <section v-for="name in channels" :key="name" class="gx-card gx-sentry-channel">
-            <div class="gx-section__header"><i class="bi" :class="{webPush: 'bi-bell', discord: 'bi-discord', webhook: 'bi-link-45deg', ntfy: 'bi-broadcast'}[name]" aria-hidden="true"></i><span class="gx-section__title">{{ labels[name] }}</span></div>
-            <div class="gx-panel gx-stack"><div class="gx-row gx-row--borderless"><div class="gx-row__info"><span class="gx-row__label">Enabled</span>
-              <span class="gx-row__desc">{{ notifications.channels[name].configured ? 'Configured' : 'Not configured' }}</span></div>
+            <div class="gx-section__header"><i class="bi" :class="{webPush: 'bi-bell', discord: 'bi-discord', webhook: 'bi-link-45deg', ntfy: 'bi-broadcast'}[name]" aria-hidden="true"></i><span class="gx-section__title">{{ labels[name] }}</span>
               <label class="gx-switch"><input type="checkbox" role="switch" :aria-label="labels[name] + ' notifications'" :checked="notifications.channels[name].enabled"
                 :disabled="!notifications.channels[name].configured || notificationBusy"
                 @change="$event.target.checked=notifications.channels[name].enabled; reportSave(() => save(name, !notifications.channels[name].enabled))"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label></div>
-            <p role="status">Delivery: {{ notifications.channels[name].lastState }} · Pending: {{ notifications.channels[name].pending }}</p>
+            <div class="gx-panel gx-stack">
+            <p class="gx-note" role="status">{{ notifications.channels[name].configured ? 'Configured' : 'Not configured' }}<template v-if="notifications.channels[name].configured && notifications.channels[name].lastState !== 'idle'">, last delivery {{ notifications.channels[name].lastState }}<template v-if="notifications.channels[name].pending">, {{ notifications.channels[name].pending }} pending</template></template></p>
             <GxNotice tone="danger" v-if="notifications.channels[name].lastError">Delivery status: {{ notifications.channels[name].lastError.replaceAll('_', ' ') }}</GxNotice>
             <div v-if="name !== 'webPush'" class="gx-sentry-channel__fields">
               <label>HTTPS URL <input v-model="drafts[name].url" class="gx-field" type="password" autocomplete="off" placeholder="Leave blank to keep saved URL"></label>
