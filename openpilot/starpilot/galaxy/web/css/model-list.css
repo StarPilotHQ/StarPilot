@@ -1,0 +1,102 @@
+/* Model Manager (js/models.js): Single model / Model pair selector and the compact model list. */
+
+/* Mode selector: two halves of one pill. */
+.gx-tabs.gx-model-mode { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: var(--radius-full);
+  border: 1px solid var(--glass-border); background: var(--surface-container-high); }
+.gx-model-mode > button { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2); min-height: 40px; border: 0; border-radius: var(--radius-full);
+  background: transparent; color: var(--on-surface-variant); font: inherit; font-weight: var(--fw-bold); cursor: pointer; }
+.gx-model-mode > button[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); box-shadow: 0 4px 12px var(--primary-glow); }
+.gx-model-mode > button:disabled { opacity: .5; cursor: not-allowed; }
+.gx-model-mode__hint { color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.45; }
+.gx-model-choose .gx-model-laboratory { display: grid; gap: var(--sp-3); }
+/* Active Small / Big pickers carry the same Small / eGPU tags as the model list. */
+.gx-model-control__label { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Jetlink: a card that opens from its header (collapsed by default). */
+button.gx-model-collapse { width: 100%; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+button.gx-model-collapse:hover { background: rgba(255, 255, 255, .05); }
+button.gx-model-collapse:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.gx-section__header > i.gx-model-collapse__chevron { color: var(--text-muted); font-size: 1rem; transition: transform .2s ease; }
+.gx-model-collapse[aria-expanded="true"] .gx-model-collapse__chevron { transform: rotate(180deg); }
+
+/* Refresh (and cancel while downloading) sit beside the search. */
+.gx-model-searchbar .gx-model-btn { flex: none; }
+.gx-model-refresh { flex: none; }
+.gx-model-spin { animation: gx-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .gx-model-spin { animation: none; } }
+
+/* Search with the funnel (filter menu) beside it; Sort by below as a row of chips. */
+.gx-model-tools { gap: var(--sp-3); }
+.gx-model-searchbar { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.gx-model-searchbar .gx-model-search { flex: 1; min-width: 0; }
+.gx-model-filter { position: relative; flex: none; }
+.gx-model-filter__button, .gx-model-refresh { position: relative; width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+.gx-model-filter__button--on, .gx-model-filter__button[aria-expanded="true"] { background: var(--primary-container); color: var(--on-primary-container); }
+.gx-model-filter__count { position: absolute; top: 2px; right: 2px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: var(--radius-full);
+  background: var(--primary); color: var(--on-primary); font-size: .66rem; font-weight: 700; line-height: 17px; text-align: center; }
+.gx-model-filter__menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; display: grid; gap: 2px; width: min(290px, calc(100vw - 32px)); padding: 8px;
+  border: 1px solid var(--outline-variant, var(--glass-border)); border-radius: var(--radius-md); color: var(--on-surface);
+  background: linear-gradient(var(--surface-container-high), var(--surface-container-high)), #1d1833; box-shadow: 0 12px 36px #0006; }
+[data-theme="light"] .gx-model-filter__menu { background: #fff; }
+.gx-model-filter__heading { padding: 8px 10px 2px; color: var(--text-muted); font-size: var(--fs-xs); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.gx-model-filter__option { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 0 10px; border-radius: 10px; font-size: .9rem; cursor: pointer; }
+.gx-model-filter__option:hover { background: rgba(255, 255, 255, .06); }
+[data-theme="light"] .gx-model-filter__option:hover { background: rgba(0, 0, 0, .05); }
+.gx-model-filter__option input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); flex: none; }
+.gx-model-filter__menu .gx-model-clear { justify-self: start; margin: 4px 0 0 4px; }
+.gx-model-clear:disabled { opacity: .45; cursor: default; }
+.gx-model-filters { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); min-width: 0; }
+.gx-model-filters__label { flex: 0 0 64px; color: var(--text-muted); font-size: var(--fs-xs); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.gx-model-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+button.gx-chip.gx-model-chip { min-height: 32px; padding: 4px 12px; font-size: .78rem; font-weight: 600; }
+button.gx-chip.gx-model-chip[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.gx-model-clear { min-height: 32px; padding: 0 6px; border: 0; background: transparent; color: var(--primary); font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
+
+/* The list: one row per model, details on one quiet line, actions on the right. */
+.gx-model-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--outline); }
+.gx-model-item { display: flex; align-items: center; gap: var(--sp-3); min-height: 60px; padding: 10px var(--sp-4); border-top: 1px solid var(--outline); }
+.gx-model-item:first-child { border-top: 0; }
+.gx-model-item:hover { background: rgba(255, 255, 255, .02); }
+.gx-model-item.gx-model-card--polaris { border-color: var(--outline); }
+/* Active models are marked only by their purple Active Small / Big tag (no row border or tint). */
+.gx-model-item__main { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.gx-model-item__title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.gx-model-item__title strong { font-weight: var(--fw-bold); overflow-wrap: anywhere; }
+.gx-model-item__title .gx-chip { padding: 2px 8px; font-size: .7rem; }
+.gx-model-about { width: 28px; height: 28px; min-width: 28px; min-height: 28px; font-size: .9rem; }
+.gx-model-item__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; color: var(--text-muted); font-size: .8rem; line-height: 1.45; }
+.gx-model-item__facts > span:not(:last-child)::after { content: "·"; margin: 0 6px; color: var(--text-muted); opacity: .6; }
+
+/* Tags: green eGPU, blue Small, orange Pairable, purple Active Small / Big. */
+.gx-model-tag { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid; border-radius: var(--radius-full); font-size: .7rem; font-weight: 700; line-height: 1.6; white-space: nowrap; }
+.gx-model-tag i { font-size: .9em; }
+.gx-model-tag--egpu { color: #6ee7a0; background: rgba(110, 231, 160, .12); border-color: rgba(110, 231, 160, .4); }
+.gx-model-tag--small { color: #7cc4ff; background: rgba(124, 196, 255, .12); border-color: rgba(124, 196, 255, .4); }
+.gx-model-tag--pair { color: #fdba74; background: rgba(253, 186, 116, .12); border-color: rgba(253, 186, 116, .4); }
+.gx-model-tag--active { color: var(--on-primary); background: var(--primary); border-color: var(--primary); }
+.gx-model-tag--unknown { color: var(--text-muted); background: transparent; border-color: var(--outline); }
+[data-theme="light"] .gx-model-tag--egpu { color: #15803d; background: rgba(21, 128, 61, .08); border-color: rgba(21, 128, 61, .35); }
+[data-theme="light"] .gx-model-tag--small { color: #1d4ed8; background: rgba(29, 78, 216, .08); border-color: rgba(29, 78, 216, .35); }
+[data-theme="light"] .gx-model-tag--pair { color: #c2410c; background: rgba(194, 65, 12, .08); border-color: rgba(194, 65, 12, .35); }
+.gx-model-item .gx-model-reason { margin: 0; font-size: .8rem; }
+.gx-model-item .gx-model-lab { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: .8rem; }
+.gx-model-item__actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; flex: none; }
+.gx-model-btn { min-height: 36px; padding: 0 14px; font-size: .8rem; }
+.gx-model-delete { color: var(--error); }
+.gx-model-random { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: .78rem; color: var(--on-surface-variant); }
+.gx-model-random.disabled { opacity: .45; }
+
+/* Phone: icon buttons (download or delete, then the star) sit beside the name; text buttons go on the line below. */
+@media (max-width: 600px) {
+  .gx-model-item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; gap: 8px 2px; padding: 10px var(--sp-3) 10px var(--sp-4); }
+  .gx-model-item__main { grid-column: 1; grid-row: 1; }
+  .gx-model-item__actions { display: contents; }
+  .gx-model-item__actions > .gx-icon-btn { grid-row: 1; grid-column: 2; width: 40px; height: 40px; min-width: 40px; min-height: 40px; }
+  .gx-model-item__actions > .gx-icon-btn:last-child { grid-column: 3; }
+  .gx-model-item__actions > :not(.gx-icon-btn) { grid-row: 2; grid-column: 1 / -1; justify-self: start; }
+  .gx-model-item__actions > .gx-model-random { grid-row: 3; }
+  .gx-model-filters__label { flex-basis: 100%; }
+  .gx-model-count-word { display: none; }
+  .gx-model-browse > .gx-section__header .gx-section__title { flex-basis: auto; }
+  .gx-model-searchbar .gx-model-btn { padding: 0 10px; }
+}
