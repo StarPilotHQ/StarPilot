@@ -6,6 +6,7 @@ const absent = homeSummary({ status: "unavailable", snapshot: null }, { status: 
   { status: "unavailable", data: null })
 assert.equal(absent.system.cpu, "Unavailable")
 assert.equal(absent.system.storage, "Unavailable")
+assert.equal(absent.system.recordingStorage, null)
 assert.equal(absent.model.health, "Unavailable")
 assert.equal(absent.software.update, "Unavailable")
 
@@ -22,6 +23,28 @@ const current = homeSummary({ status: "current", snapshot: { sampledAt: 1_700_00
 assert.equal(current.system.cpu, "22%")
 assert.equal(current.system.memory, "Unavailable")
 assert.equal(current.system.storage, "12.3 GiB / 64.0 GiB")
+assert.equal(current.system.recordingStorage, null)
+const c3Snapshot = { sampledAt: 1_700_000_000, deviceType: "tici",
+  storage: { usedGiB: 20.6, totalGiB: 29.8, freeGiB: 7.6 },
+  recordingStorage: { usedGiB: 598, totalGiB: 916, freeGiB: 273 } }
+const storageSummary = (snapshot, status = "current") => homeSummary({ status, snapshot },
+  { status: "unavailable" }, { status: "unavailable" }).system
+const dualStorage = storageSummary(c3Snapshot)
+assert.equal(dualStorage.storage, "20.6 GiB / 29.8 GiB")
+assert.equal(dualStorage.storageLabel, "Internal storage")
+assert.equal(dualStorage.storageFree, "7.6 GiB")
+assert.deepEqual(dualStorage.recordingStorage, { usage: "598.0 GiB / 916.0 GiB", free: "273.0 GiB" })
+assert.equal(storageSummary({ ...c3Snapshot, recordingStorage: null }).recordingStorage, null)
+assert.equal(storageSummary(c3Snapshot, "stale").recordingStorage, null)
+for (const deviceType of ["tizi", "mici", "pc", undefined]) {
+  const summary = storageSummary({ ...c3Snapshot, deviceType })
+  assert.equal(summary.storageLabel, "Storage")
+  assert.equal(summary.storageFree, null)
+  assert.equal(summary.recordingStorage, null)
+}
+assert.match(Home.template, /v-if="summary.system.recordingStorage"/)
+assert.match(Home.template, /Recording drive:/)
+assert.match(Home.template, /summary.system.recordingStorage.free }} free/)
 assert.equal(current.model.variant, "Chestnut big")
 assert.equal(current.software.branch, "Unavailable")
 assert.equal(current.software.version, "StarPilot 0.11.2")

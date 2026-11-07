@@ -8,14 +8,20 @@ import threading
 import time
 from pathlib import Path
 
+from openpilot.common.hardware import HARDWARE
+from openpilot.common.hardware.hw import Paths
+
 
 class SystemMonitor:
-  def __init__(self, root=Path('/proc'), *, storage=Path('/data'), clock=time.monotonic,
+  def __init__(self, root=Path('/proc'), *, storage=Path('/data'), recording_storage=None, device_type=None, stat=os.stat, clock=time.monotonic,
                wall_clock=time.time, disk_usage=shutil.disk_usage, page_size=None, messages=None,  # noqa: TID251 - Display capture date; intervals use monotonic.
                boot_clock=lambda: time.clock_gettime(getattr(time, 'CLOCK_BOOTTIME', time.CLOCK_MONOTONIC))):
     self.messages, self.boot_clock = messages, boot_clock
     self.root = Path(root)
     self.storage = Path(storage)
+    self.recording_storage = Path(Paths.log_root() if recording_storage is None else recording_storage)
+    self.device_type = HARDWARE.get_device_type() if device_type is None else device_type
+    self.stat = stat
     self.clock, self.wall_clock, self.disk_usage = clock, wall_clock, disk_usage
     self.page_size = os.sysconf('SC_PAGE_SIZE') if page_size is None else page_size
     self.lock = threading.Lock()
@@ -47,6 +53,31 @@ class SystemMonitor:
       volts = state.voltage / 1000
       return round(volts, 2) if math.isfinite(volts) and 0 < volts < 60 else None
     except (OSError, RuntimeError, AttributeError, KeyError, TypeError, ValueError, OverflowError):
+      return None
+
+  def _storage_usage(self, path):
+    try:
+      disk = self.disk_usage(path)
+      return {'usedGiB': round(disk.used / 1073741824, 1), 'totalGiB': round(disk.total / 1073741824, 1),
+              'freeGiB': round(disk.free / 1073741824, 1)}
+    except OSError:
+      return {'usedGiB': None, 'totalGiB': None, 'freeGiB': None}
+
+  def _recording_storage_usage(self):
+    # Only C3 supports an added recording drive. A directory on userdata is
+    # not a second drive, and mount changes must not leave a stale SSD reading.
+    if self.device_type != 'tici':
+      return None
+    try:
+      internal = self.stat(self.storage).st_dev
+      recording = self.stat(self.recording_storage).st_dev
+      if internal == recording:
+        return None
+      usage = self._storage_usage(self.recording_storage)
+      if self.stat(self.storage).st_dev != internal or self.stat(self.recording_storage).st_dev != recording:
+        return None
+      return usage
+    except OSError:
       return None
 
   def _sample(self):
@@ -122,25 +153,25 @@ class SystemMonitor:
     if available is not None and not 0 <= available <= total:
       available = None
     used = total - available if available is not None else None
-    storage = {'usedGiB': None, 'totalGiB': None}
-    try:
-      disk = self.disk_usage(self.storage)
-      storage = {'usedGiB': round(disk.used / 1073741824, 1), 'totalGiB': round(disk.total / 1073741824, 1)}
-    except OSError:
-      pass
+    # Keep the internal storage fields for older clients. Recordings can live
+    # on a separately mounted C3 SSD; do not add the two filesystem capacities.
+    storage = self._storage_usage(self.storage)
+    recording_storage = self._recording_storage_usage()
     uptime = float((self.root / 'uptime').read_text().split()[0])
     sampled_at = self.wall_clock()
     if not math.isfinite(uptime) or uptime < 0 or not math.isfinite(now) or not math.isfinite(sampled_at) or sampled_at <= 0:
       raise ValueError('Invalid sample time')
     result = {
       'schemaVersion': 1, 'mode': 'local-runtime', 'source': 'Local Linux system telemetry',
+      'deviceType': self.device_type,
       'sampledAt': sampled_at, 'cpuPercent': overall, 'cores': cores,
       'memory': {'totalMiB': round(total / 1024, 1),
                  'usedMiB': round(used / 1024, 1) if used is not None else None,
                  'availableMiB': round(available / 1024, 1) if available is not None else None,
                  'percent': round(100 * used / total, 1) if used is not None else None},
       'batteryVoltage': self._battery_voltage(),
-      'storage': storage, 'uptimeSeconds': uptime, 'processCount': len(rows), 'processes': rows,
+      'storage': storage, 'recordingStorage': recording_storage,
+      'uptimeSeconds': uptime, 'processCount': len(rows), 'processes': rows,
     }
     self.previous, self.cpu_previous, self.previous_time = process_ticks, cpu_now, now
     return result

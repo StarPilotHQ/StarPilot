@@ -40,6 +40,28 @@ const impossible = normalizeSnapshot({ ...fixture,
 assert.equal(impossible.memory.usedMiB, null)
 assert.equal(impossible.memory.percent, null)
 assert.equal(impossible.storage.usedGiB, null)
+const twoFilesystems = normalizeSnapshot({ ...fixture, deviceType: "tici",
+  storage: { usedGiB: 20.6, totalGiB: 29.8, freeGiB: 7.6 },
+  recordingStorage: { usedGiB: 598, totalGiB: 916, freeGiB: 273 } })
+assert.deepEqual(twoFilesystems.storage, { usedGiB: 20.6, totalGiB: 29.8, freeGiB: 7.6 })
+assert.deepEqual(twoFilesystems.recordingStorage, { usedGiB: 598, totalGiB: 916, freeGiB: 273 })
+for (const deviceType of ["tizi", "mici", "pc", "tici2", undefined]) {
+  assert.equal(normalizeSnapshot({ ...fixture, deviceType,
+    recordingStorage: { usedGiB: 598, totalGiB: 916, freeGiB: 273 } }).recordingStorage, null)
+}
+for (const absent of [undefined, null, [], "SSD"]) {
+  assert.equal(normalizeSnapshot({ ...fixture, deviceType: "tici", recordingStorage: absent }).recordingStorage, null)
+}
+for (const bad of [{}, { usedGiB: "598", totalGiB: Infinity, freeGiB: -1 },
+  { usedGiB: -1, totalGiB: NaN, freeGiB: "273" }]) {
+  assert.deepEqual(normalizeSnapshot({ ...fixture, deviceType: "tici", recordingStorage: bad }).recordingStorage,
+    { usedGiB: null, totalGiB: null, freeGiB: null })
+}
+assert.deepEqual(normalizeSnapshot({ ...fixture, deviceType: "tici",
+  recordingStorage: { usedGiB: 200, totalGiB: 100, freeGiB: 101 } }).recordingStorage,
+  { usedGiB: null, totalGiB: 100, freeGiB: null })
+assert.equal(normalizeSnapshot({ ...fixture, deviceType: "tici",
+  recordingStorage: { usedGiB: 90, totalGiB: 100, freeGiB: 0 } }).recordingStorage.freeGiB, 0)
 assert.equal(vital(impossible, "memoryUsedBytes", "memoryMaxAgeMs"), null)
 assert.equal(vital(impossible, "memoryTotalBytes", "memoryMaxAgeMs"), null)
 console.log("System Monitor data contract: pass")

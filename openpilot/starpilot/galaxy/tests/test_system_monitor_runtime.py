@@ -19,8 +19,8 @@ class SystemMonitorRuntimeTest(unittest.TestCase):
     self.addCleanup(self.directory.cleanup)
     self.root = Path(self.directory.name)
     self.time = 10.0
-    self.monitor = SystemMonitor(self.root, clock=lambda: self.time, wall_clock=lambda: 1_000_000 + self.time,
-                                 disk_usage=lambda _: SimpleNamespace(used=2 ** 30, total=4 * 2 ** 30), page_size=4096)
+    self.monitor = SystemMonitor(self.root, device_type='pc', clock=lambda: self.time, wall_clock=lambda: 1_000_000 + self.time,
+                                 disk_usage=lambda _: SimpleNamespace(used=2 ** 30, total=4 * 2 ** 30, free=3 * 2 ** 30), page_size=4096)
     self.write_snapshot(100, 100, 10)
 
   def write_snapshot(self, user, idle, ticks, *, start=1000):
@@ -96,6 +96,8 @@ class SystemMonitorRuntimeTest(unittest.TestCase):
       status, body, headers = request('/api/system/monitor', headers=auth)
       self.assertEqual(status, 200)
       self.assertEqual(json.loads(body)['mode'], 'local-runtime')
+      self.assertEqual(json.loads(body)['storage'], {'usedGiB': 1, 'totalGiB': 4, 'freeGiB': 3})
+      self.assertIsNone(json.loads(body)['recordingStorage'])
       self.assertEqual(headers['Cache-Control'], 'no-store')
       self.assertNotIn('Access-Control-Allow-Origin', headers)
       self.assertEqual(json.loads(request('/data/runtime.json')[1])['monitor'], 'local')

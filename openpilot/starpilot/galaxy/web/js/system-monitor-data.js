@@ -4,6 +4,12 @@ const number = (value, min = 0, max = Infinity) => typeof value === "number" && 
 const text = (value) => typeof value === "string" && value.trim() ? value : null
 const percent = (value) => number(value, 0, 100)
 const integer = (value, min = 0) => Number.isSafeInteger(value) && value >= min ? value : null
+const storageUsage = (raw) => {
+  const usage = { usedGiB: number(raw?.usedGiB), totalGiB: number(raw?.totalGiB), freeGiB: number(raw?.freeGiB) }
+  if (usage.totalGiB !== null && usage.usedGiB !== null && usage.usedGiB > usage.totalGiB) usage.usedGiB = null
+  if (usage.totalGiB !== null && usage.freeGiB !== null && usage.freeGiB > usage.totalGiB) usage.freeGiB = null
+  return usage
+}
 
 export function normalizeSnapshot(raw, expectedMode = "synthetic-preview") {
   if (!["synthetic-preview", "local-runtime"].includes(expectedMode) ||
@@ -26,16 +32,17 @@ export function normalizeSnapshot(raw, expectedMode = "synthetic-preview") {
   if (new Set(processes.map((process) => process.pid)).size !== processes.length) throw new Error("Duplicate process PID in sample")
   const memory = { totalMiB: number(raw.memory.totalMiB, 0.01), usedMiB: number(raw.memory.usedMiB),
     availableMiB: number(raw.memory.availableMiB), percent: percent(raw.memory.percent) }
-  const storage = { usedGiB: number(raw.storage.usedGiB), totalGiB: number(raw.storage.totalGiB) }
+  const storage = storageUsage(raw.storage)
+  const deviceType = ["tici", "tizi", "mici", "pc"].includes(raw.deviceType) ? raw.deviceType : null
+  const recordingStorage = deviceType === "tici" && object(raw.recordingStorage) ? storageUsage(raw.recordingStorage) : null
   if (memory.totalMiB !== null && (memory.usedMiB !== null && memory.usedMiB > memory.totalMiB ||
       memory.availableMiB !== null && memory.availableMiB > memory.totalMiB)) {
     memory.usedMiB = null; memory.availableMiB = null; memory.percent = null
   }
-  if (storage.totalGiB !== null && storage.usedGiB !== null && storage.usedGiB > storage.totalGiB) storage.usedGiB = null
   const v = object(raw.vitals) ? raw.vitals : {}
   const vitals = Object.fromEntries(["cpuTempC", "gpuTempC", "hotspotTempC", "gpuEdgeTempC", "memoryUsedBytes", "memoryTotalBytes",
     "onboardMaxAgeMs", "maxAgeMs", "memoryMaxAgeMs"].map((key) => [key, number(v[key])]))
-  return { source: raw.source, sampledAt: raw.sampledAt, cpuPercent: percent(raw.cpuPercent), cores, memory, storage,
+  return { source: raw.source, sampledAt: raw.sampledAt, cpuPercent: percent(raw.cpuPercent), cores, memory, storage, recordingStorage, deviceType,
     batteryVoltage: number(raw.batteryVoltage, 0.01, 60),
     uptimeSeconds: number(raw.uptimeSeconds), processCount: integer(raw.processCount), processes, vitals }
 }
