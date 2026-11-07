@@ -193,6 +193,8 @@ def test_stopped_full_request_keeps_existing_lateral_intent_without_granting_com
       state.buttonEvents = ([structs.CarState.ButtonEvent(type='accelCruise', pressed=False)] if tick == 4 else [])
       requested_long = tick >= 5 or tick == 4 and native_long_pending
       allowed_long = tick >= 5
+      state.cruiseState.enabled = allowed_long
+      state.cruiseState.standstill = allowed_long and state.standstill
       axis, _, command = drive(tick, observed_state=state, native_request_lat=True,
         allowed=not state.standstill, native_request_long=requested_long, long_allowed=allowed_long,
         panda_controls_allowed=allowed_long)
@@ -207,6 +209,10 @@ def test_stopped_full_request_keeps_existing_lateral_intent_without_granting_com
       if tick == 4:
         assert axis.desiredLongitudinal and not axis.longitudinalActive
         assert not axis.lateralActive and not command.latActive and not command.longActive
+      stopped_role = feedback._angle_stop_intent_current(sm, sd.CP, state, axis, int(sm.logMonoTime['aolAxisState']), now,
+        latched=True, producer='authority-card')
+      before = {'tick': tick, 'stopped_role': stopped_role, 'pending_event': feedback.pending_event,
+        'axis': axis.to_dict(), 'events': [str(e.name) for e in sm['onroadEvents']]}
       assert not feedback.observe(sm, sd.CP, state, now, latched=True,
-        intent_producer_session='authority-card'), 'STOPPED_FULL_REQUEST_DISARMED'
+        intent_producer_session='authority-card'), ('STOPPED_FULL_REQUEST_DISARMED', before)
       assert not feedback.failed

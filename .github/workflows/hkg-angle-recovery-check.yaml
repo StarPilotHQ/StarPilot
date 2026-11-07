@@ -11,6 +11,7 @@ jobs:
     env:
       PYTHONPATH: ${{ github.workspace }}
       SCALE: '1'
+      RAYLIB_BACKEND: headless
     steps:
       - uses: actions/checkout@v7
       - name: Fetch exact baseline source
@@ -28,6 +29,7 @@ jobs:
       - name: Build matching Linux dependencies
         run: >-
           .venv/bin/scons -j2
+          openpilot/starpilot/ui/native/_raylib_extra.so
           openpilot/common/libparams_c.so
           msgq_repo/msgq/_ipc.so
           msgq_repo/msgq/visionipc/_visionipc.so
