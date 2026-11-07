@@ -41,7 +41,7 @@ def test_actual_controls_pid_collects_own_trace_without_changing_disabled_baseli
       assert candidate.LaC.ff_factor==baseline.LaC.ff_factor
       assert candidate.CP.as_builder().to_bytes()==original
     evidence=runtime.capture_evidence(control_ns=now,state_ns=now,active=True,limited=False)
-    assert evidence is not None, repr({'reason': runtime.reason, 'eligible': runtime.eligible, 'healthy': runtime.healthy, 'active': runtime.active, 'source': runtime.source, 'frame': runtime.frame, 'observation': vars(runtime.observation), 'identity': runtime.identity})
+    assert evidence is not None
     assert evidence.stage_schema_revision==REVISION
     stage=dict(evidence.stage_values)
     assert 'friction' not in stage and 'effective_factor' not in stage
