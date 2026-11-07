@@ -597,8 +597,10 @@ class CarController(CarControllerBase):
           can_now_ns = getattr(CS, "ioniq6_bsm_now_ns", 0)
           status = (sources.status(can_now_ns) if sources is not None and can_now_ns > self.ioniq6_bsm_last_can_ns else None)
           if status is not None:
-            # Neutralize only the injected dashboard indication below 5 mph.
-            if CS.out.vEgoRaw < 5 * CV.MPH_TO_MS:
+            left_queued = CC.leftBlinker and not CC.rightBlinker
+            right_queued = CC.rightBlinker and not CC.leftBlinker
+            if (CS.out.vEgoRaw < 5 * CV.MPH_TO_MS or
+                status.left == 2 and not left_queued or status.right == 2 and not right_queued):
               status = BlindspotStatus(0, 0)
             can_sends.extend(hyundaicanfd.create_ioniq6_blindspot_status(self.ioniq6_bsm_counter, status))
             self.ioniq6_bsm_counter = (self.ioniq6_bsm_counter + 1) & 0xff

@@ -1,0 +1,85 @@
+name: Ioniq 6 queued BSM qualification
+on:
+  push:
+    branches: [codex/ioniq6-bsm-queued-20261107]
+permissions:
+  contents: read
+jobs:
+  host-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+      SCALE: '1'
+      RAYLIB_BACKEND: headless
+    steps:
+      - uses: actions/checkout@v7
+      - run: git -c gc.auto=0 -c maintenance.auto=false fetch --no-tags --depth=1 --filter=blob:none origin 1d30dc343469e93967d2de3afdc966901009ed5d
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.1'
+          cache-dependency-path: mapd_repo/go.sum
+      - working-directory: mapd_repo
+        env:
+          GOTOOLCHAIN: local
+        run: go mod download
+      - run: ./tools/op.sh setup
+      - name: Build matching Linux dependencies
+        run: >-
+          .venv/bin/scons -j2
+          openpilot/starpilot/ui/native/_raylib_extra.so
+          openpilot/common/libparams_c.so
+          msgq_repo/msgq/_ipc.so
+          msgq_repo/msgq/visionipc/_visionipc.so
+          opendbc_repo/opendbc/can/_raw_value.so
+          opendbc_repo/opendbc/dbc
+          openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/acados_ocp_solver_pyx.so
+          openpilot/selfdrive/locationd/models/generated/libcar.so
+      - run: .venv/bin/python .github/bsm-qualification.py qualify
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bsm-host-native
+          path: bsm-results/
+          if-no-files-found: error
+  firmware:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [debug, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+      BSM_VARIANT: ${{ matrix.variant }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: ./tools/op.sh setup
+      - name: Build and verify all firmware variants
+        shell: bash
+        run: |
+          if [[ "$BSM_VARIANT" == release ]]; then
+            export RELEASE=1
+            export CERT="$PWD/panda/board/crypto/certs/debug"
+          else
+            unset RELEASE
+          fi
+          .venv/bin/python .github/bsm-qualification.py firmware
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bsm-firmware-${{ matrix.variant }}
+          path: bsm-results/
+          if-no-files-found: error
+  arm64-helper:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 .github/bsm-qualification.py helper
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bsm-arm64-helper
+          path: bsm-results/
+          if-no-files-found: error
