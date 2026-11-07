@@ -1,4 +1,4 @@
-"""Untuned EV6 lateral selection and steering command boundaries."""
+"""EV6 vehicle-policy defaults and steering command boundaries."""
 
 import unittest
 
@@ -15,6 +15,7 @@ from opendbc.car.hyundai.values import CAR, DBC, HyundaiFlags, CarControllerPara
 from opendbc.car.lateral import apply_driver_steer_torque_limits
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
 from openpilot.starpilot.lateral.torque_extension import selected_policy
+from openpilot.starpilot.lateral.hkg_vehicle_policy import HKGVehicleTorquePolicy
 from openpilot.starpilot.lateral.torque_runtime import runtime_enabled
 
 
@@ -26,7 +27,7 @@ def ev6(lka_steering: bool):
 
 
 class TestEV6DefaultLateral(unittest.TestCase):
-  def test_hda_topologies_keep_vehicle_tune_and_generic_controller(self):
+  def test_hda_topologies_keep_vehicle_tune_and_vehicle_policy(self):
     for lka_steering in (False, True):
       with self.subTest(lka_steering=lka_steering), OpenpilotPrefix():
         cp = ev6(lka_steering)
@@ -40,7 +41,8 @@ class TestEV6DefaultLateral(unittest.TestCase):
         self.assertFalse(runtime_enabled(cp, Params()))
         self.assertEqual(cp.lateralTuning.to_dict(), original_tune)
         lateral = LatControlTorque(cp.as_reader(), CarInterface(cp), DT_CTRL)
-        self.assertIsNone(selected_policy(lateral))
+        self.assertIsInstance(selected_policy(lateral), HKGVehicleTorquePolicy)
+        self.assertEqual(selected_policy(lateral).profile, "kia_ev6")
         self.assertAlmostEqual(lateral.torque_params.latAccelFactor, cp.lateralTuning.torque.latAccelFactor)
         controller = CarController(DBC[cp.carFingerprint], cp)
         self.assertIsNone(controller.ioniq6_longitudinal)

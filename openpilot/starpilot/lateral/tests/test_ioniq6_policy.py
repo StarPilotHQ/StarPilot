@@ -28,7 +28,7 @@ def _legacy_friction(controller, error, deadzone, threshold, _cs, _setpoint):
 
 
 def _rows(car, sequence, *, profile='2023', matched_frozen_cp=False, passive=False, direct_original_controller=False, turn_assist=True,
-          roll=None):
+          roll=None, controller_mode=None):
   cp = interfaces[car].get_non_essential_params(car)
   cp.passive = passive
   if matched_frozen_cp:
@@ -44,7 +44,7 @@ def _rows(car, sequence, *, profile='2023', matched_frozen_cp=False, passive=Fal
       versions[0].fwVersion = b'IONIQ6-230915'
       versions[1].fwVersion = b'IONIQ6-240206'
   ci = interfaces[car](cp)
-  controller = LatControlTorque(cp.as_reader(), ci, DT_CTRL, turn_assist=turn_assist)
+  controller = LatControlTorque(cp.as_reader(), ci, DT_CTRL, turn_assist=turn_assist, controller_mode=controller_mode)
   if direct_original_controller:
     # The older frozen vectors called the controller directly, before the
     # original controlsd drive loop replaced the PID gain curve each tick.
@@ -178,7 +178,8 @@ class Ioniq6PolicyTests(unittest.TestCase):
     parent = json.loads((TESTDATA / 'non_ioniq_parent.json').read_text())
     for car in (TOYOTA.TOYOTA_COROLLA_TSS2, HYUNDAI.HYUNDAI_IONIQ_5):
       with self.subTest(car=str(car)):
-        controller, actual = _rows(car, sequence, passive=car == TOYOTA.TOYOTA_COROLLA_TSS2, turn_assist=False)
+        controller, actual = _rows(car, sequence, passive=car == TOYOTA.TOYOTA_COROLLA_TSS2, turn_assist=False,
+                                   controller_mode='standard')
         self.assertIsNone(selected_policy(controller))
         for row, expected in zip(actual, parent[str(car)], strict=True):
           for value, reference in zip(row, expected, strict=True):

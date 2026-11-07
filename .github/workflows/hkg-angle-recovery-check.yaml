@@ -37,12 +37,23 @@ jobs:
           opendbc_repo/opendbc/dbc
           openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/acados_ocp_solver_pyx.so
           openpilot/selfdrive/locationd/models/generated/libcar.so
-      - name: Verify paired controller-default replay contract
-        run: .venv/bin/python tools/ci/review_hkg_defaults/review.py
+      - name: Run steering retention and independent safety veto regressions
+        run: |
+          .venv/bin/python -m pytest -q --junitxml=qualification.xml             openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py             openpilot/starpilot/aol/tests/test_pe_combined_profile_contract.py             openpilot/starpilot/aol/tests/test_stock_eps_recovery.py             openpilot/starpilot/aol/tests/test_runtime.py             openpilot/starpilot/aol/tests/test_source_pause_driver_monitoring.py             openpilot/system/hardware/tests             openpilot/starpilot/drive_state/tests/test_hardware_lifecycle.py             openpilot/starpilot/ui/tests/test_weather.py openpilot/starpilot/flm/tests/test_pid_global_capture.py openpilot/starpilot/flm/tests/test_registered_controls_global.py::test_actual_controls_source_freshness_calibration_and_override_rejection openpilot/starpilot/lateral/tests/test_ev6_default.py openpilot/starpilot/lateral/tests/test_ioniq6_policy.py tools/ci/tests/test_replay_references.py
+      - name: Check owned Python files
+        run: |
+          .venv/bin/ruff check openpilot/starpilot/aol/temporary_steering.py openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py openpilot/starpilot/aol/transport_pause.py openpilot/system/hardware/hardwared.py openpilot/system/hardware/hardware_timing.py openpilot/system/hardware/tests/test_hardware_timing.py openpilot/starpilot/ui/tests/test_weather.py openpilot/starpilot/lateral/tests/test_ev6_default.py openpilot/starpilot/lateral/tests/test_ioniq6_policy.py
+          .venv/bin/ty check openpilot/starpilot/aol/temporary_steering.py openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py openpilot/starpilot/aol/transport_pause.py openpilot/system/hardware/hardwared.py openpilot/system/hardware/hardware_timing.py openpilot/system/hardware/tests/test_hardware_timing.py openpilot/starpilot/ui/tests/test_weather.py openpilot/starpilot/lateral/tests/test_ev6_default.py openpilot/starpilot/lateral/tests/test_ioniq6_policy.py
+      - name: Compare both reviewed default-controller recordings
+        run: .venv/bin/python openpilot/selfdrive/test/process_replay/test_processes.py --whitelist-cars HYUNDAI HYUNDAI2 --whitelist-procs controlsd --output reviewed-defaults -j2
       - name: Save exact results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: hkg-angle-recovery-results
           path: |
-            review-results/
+            baseline.xml
+            baseline-result.json
+            qualification.xml
+            reviewed-defaults/coverage.json
+            reviewed-defaults/diff.txt
