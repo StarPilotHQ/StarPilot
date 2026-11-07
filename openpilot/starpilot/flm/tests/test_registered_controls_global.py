@@ -200,6 +200,7 @@ def controls_for(cp, mode=None, enabled=False):
     mock.patch('openpilot.selfdrive.controls.controlsd.messaging.PubMaster'),
   ):
     params = Params()
+    params.put_bool('OpenpilotEnabledToggle', True, block=True)
     selected = published_cp(cp, params)
     params.put('CarParams', selected.to_bytes(), block=True)
     params.put(KEY, replace_preference(None, cp, enabled), block=True)
