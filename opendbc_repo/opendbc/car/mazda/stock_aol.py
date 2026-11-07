@@ -96,7 +96,9 @@ def gen2_qualified(cp, gates=GEN2_EVIDENCE_GATES, *, marked_only=False):
   table can never admit the car (all({}.values()) is True, so a bare
   all(gates.values()) would silently admit it).
   """
-  return bool(set(gates) == set(GEN2_EVIDENCE_GATES) and all(gates.values()) and
+  # Key views compare as sets without allocating two new sets on every call (this
+  # runs several times per card frame).
+  return bool(gates.keys() == GEN2_EVIDENCE_GATES.keys() and all(gates.values()) and
               gen2_configuration(cp, marked_only=marked_only))
 
 
