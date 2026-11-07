@@ -6,6 +6,9 @@ from opendbc.car.interfaces import MAX_CTRL_SPEED
 from opendbc.car.toyota.values import ToyotaFlags
 
 from openpilot.selfdrive.selfdrived.events import Events
+
+# Longest Mazda TI2 power-up window shown as temporary (route 0000003a: ~15 s).
+TI2_STARTUP_SECONDS = 60.
 from openpilot.starpilot.car.events import event_rules, unsupported_gear
 from openpilot.starpilot.car.ford.aol import stock_conventional_cruise_supported
 
@@ -26,6 +29,31 @@ class CarEvents:
     self.low_speed_alert = False
     self.no_steer_warning = False
     self.silent_steer_warning = True
+
+    from opendbc.car.mazda.values import MazdaSafetyFlags
+    mazda_ti2 = CP.brand == 'mazda' and bool(int(CP.flags) & int(MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.GEN3))
+    self.ti2_startup_frames = 0
+    self.ti2_startup_over = not mazda_ti2
+
+  def _ti2_startup(self, CS) -> bool:
+    """Mazda TI2 power-up: a steering fault present from the first valid sample.
+
+    At ignition the interceptor reports start-up violation codes (0x13, then 0x02)
+    before it has proven healthy. CarState and panda treat that as a fault, which
+    keeps arming refused until the TI2 has recovered, and that recovery is automatic
+    (about 10-20 s). Only the alert changes: the window is shown as a temporary
+    restriction, not "Restart the car". The window ends for good at the first valid
+    sample without the fault, once cruise engages, or after TI2_STARTUP_SECONDS. A
+    fault after that is shown as before.
+    """
+    if self.ti2_startup_over:
+      return False
+    if (CS.canValid and not CS.steerFaultPermanent or CS.cruiseState.enabled or
+        self.ti2_startup_frames >= int(TI2_STARTUP_SECONDS / DT_CTRL)):
+      self.ti2_startup_over = True
+      return False
+    self.ti2_startup_frames += 1
+    return CS.steerFaultPermanent
 
   def update(self, CS: car.CarState, CS_prev: car.CarState, CC: car.CarControl):
     if self.CP.brand in ('body', 'mock'):
@@ -191,8 +219,10 @@ class CarEvents:
     else:
       self.no_steer_warning = False
       self.silent_steer_warning = False
+    # The fault itself is unchanged (arming stays refused); see _ti2_startup.
+    ti2_startup = self._ti2_startup(CS)
     if CS.steerFaultPermanent:
-      events.add(EventName.steerUnavailable)
+      events.add(EventName.steerTempUnavailable if ti2_startup else EventName.steerUnavailable)
 
     # we engage when pcm is active (rising edge)
     # enabling can optionally be blocked by the car interface
