@@ -42,7 +42,9 @@ DESCRIPTIONS = {
   'torque_prepare_firestar': 'Prepares steering settings for a tuning-request recording. Turning it off restores the previous settings.',
   'SteerLatAccel': 'Sets the legacy lateral-acceleration-to-torque conversion. Review the vehicle-specific tuning profile before applying it.',
   'SteerFriction': 'Sets legacy steering friction compensation. Review the vehicle-specific tuning profile before applying it.',
-  'UseStarPilotLongitudinalPlanner': 'Selects the StarPilot acceleration, braking and following planner. Off selects the upstream planner.',
+  'UseStarPilotLongitudinalPlanner': ("On uses StarPilot's planner, which runs Speed Limit Controller, Curve Speed Controller, Force Stop, " +
+    "driving profile tuning and the other StarPilot speed features. Off uses comma's stock openpilot planner: " +
+    "those features stop working, but Conditional Driving Modes still runs."),
   'CustomCruise': 'Sets how much a short cruise-button press changes the set speed.',
   'CustomCruiseLong': 'Sets how much holding a cruise button changes the set speed.',
   'ReverseCruise': 'Swaps the Toyota short-press and held-press cruise-speed increments.',
@@ -167,7 +169,7 @@ INITIALIZATION = {
   'StarPortDedicatedWifi': 'Applies from the next StarPort connection.',
   'LateralControllerSelection': ('Applies when driving processes next start: the controller class, vehicle policy and ' +
     'PID/filter state are constructed together.'),
-  'UseStarPilotLongitudinalPlanner': 'Applies when the planner next starts: each choice runs a different planner process with its own subscriptions and state.',
+  'UseStarPilotLongitudinalPlanner': 'Applies on the next drive.',
   'TurnAssist': ('Applies when driving processes next start: the selected torque controller creates its ' +
     'low-speed feedback controller and filter state at initialization.'),
   'ToyotaAutoHold': 'Requires the next vehicle startup to configure the brake-hold permission in CarParams and Panda safety.',

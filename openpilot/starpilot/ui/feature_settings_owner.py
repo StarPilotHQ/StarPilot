@@ -977,14 +977,21 @@ class FeatureSettingsOwner:
                                  "Invalid saved learning; turn off without changing it" if not learning.valid else
                                  "Adjusts speed for curves while StarPilot controls acceleration and braking" if allowed and curve_supported else
                                  "Curve Speed control is not supported for this vehicle yet" if allowed else master_row.reason))
-      no_lead_row = self._bool_row(CURVE_NO_LEAD_KEY, "Pause while following a lead", allowed and learning.valid)
+      # The settings below the master switch grey out while it is off; Restore defaults can still reset them.
+      curve_on = master == "1"
+      curve_off_reason = "Turn on Curve Speed Controller first"
+      no_lead_row = self._bool_row(CURVE_NO_LEAD_KEY, "Pause while following a lead", allowed and learning.valid and curve_on)
       rows.append(replace(no_lead_row, dependencies=dependencies,
+                          default_reset_available=allowed and parked and learning.valid and no_lead_row.value in ("On", "Off"),
                           reason=no_lead_row.reason if no_lead_row.value not in ("On", "Off") else
                                  "Invalid saved learning" if not learning.valid else
+                                 curve_off_reason if allowed and not curve_on else
                                  "Pauses curve speed adjustments while following a lead vehicle" if allowed else
                                  "Unavailable with the current vehicle or feature settings"))
-      rows.append(self._bool_row("ShowCSCStatus", "Show Curve status", allowed,
-                                 reason="Display preference only; it does not enable control"))
+      status_row = self._bool_row("ShowCSCStatus", "Show Curve status", allowed and curve_on,
+                                  reason="Display preference only; it does not enable control")
+      rows.append(replace(status_row, default_reset_available=allowed and parked and status_row.value in ("On", "Off"),
+                          reason=curve_off_reason if allowed and not curve_on and status_row.value in ("On", "Off") else status_row.reason))
       rows.append(FeatureRow("", "Saved learning", "Valid" if learning.valid else "Unavailable",
                              reason="Used automatically when Curve Speed Controller is on" if learning.valid else
                                     "Saved data remains untouched; runtime control is disabled"))
@@ -1032,7 +1039,8 @@ class FeatureSettingsOwner:
       rows.extend(numeric_rows)
     elif page == FeaturePage.AOL:
       title = "Always On Lateral"
-      rows.extend(self._lateral_pause_rows(configurable))
+      # The switch leads the page; the steering-pause rows follow it and grey while it is off (they only pause AOL steering).
+      pause_rows = self._lateral_pause_rows(configurable)
       capability = self._capability("aol")
       vehicle_cp = self.vehicle_params()
       policy = self.aol_settings_policy(vehicle_cp)
@@ -1056,16 +1064,22 @@ class FeatureSettingsOwner:
                                  "Keep steering assistance available independently of cruise control"))
       threshold_available = allowed and unit_valid and all(self._readable(key) for key in
                                                           (AOL_THRESHOLD, AOL_LEGACY_THRESHOLD, "IsMetric"))
+      # Brake pause only acts while AOL is on, so it greys with the switch; an invalid saved value stays repairable
+      # (AOL cannot be switched on until it is repaired). Restore defaults can still reset it while greyed.
+      aol_greyed = threshold_available and threshold_valid and not (master_valid and master == "1")
       source_label = "Current saved threshold" if canonical is not None else "Prior saved threshold" if legacy is not None else "Default threshold"
       rows.append(FeatureRow(AOL_THRESHOLD, "Brake pause below", str(round((threshold or 0.0) * multiplier, 2)) if threshold_valid and unit_valid else
                              "Invalid saved threshold" if not threshold_valid else "Invalid saved units", canonical,
                              step=1.0 if threshold_valid and unit_valid else 0.0, minimum=0.0, maximum=round(100 * multiplier, 2),
-                             unit=unit if unit_valid else "", available=threshold_available,
-                             reason=source_label if threshold_valid else "Choose zero to repair the saved threshold",
+                             unit=unit if unit_valid else "", available=threshold_available and not aol_greyed,
+                             reason="Turn on Always On Lateral first" if aol_greyed else
+                                    source_label if threshold_valid else "Choose zero to repair the saved threshold",
                              capability=capability,
                              dependencies=(("IsMetric", unit_raw), (AOL_LEGACY_THRESHOLD, legacy),
                                            ("AlwaysOnLateral", self._raw("AlwaysOnLateral"))), display_unit=unit if unit_valid else "",
-                             repair_value="0" if not threshold_valid and unit_valid else "", default_value="0"))
+                             repair_value="0" if not threshold_valid and unit_valid else "", default_value="0",
+                             default_reset_available=aol_greyed and parked))
+      rows.extend(pause_rows)
     elif page == FeaturePage.WHEEL:
       title = "Wheel Controls"
       if self.show_cruise_intervals or toyota_cruise_capability(self.vehicle_params()) is not None:
@@ -1129,20 +1143,29 @@ class FeatureSettingsOwner:
       strength_supported = runtime_supported(self.vehicle_params())
       allowed = strength_supported and ((configurable and lateral_context) or (not parked and self.authority("lane_live")))
       lane_enabled, _, _ = self._value("LaneCentering")
+      # Everything below the master switch greys out while it is off; Restore defaults can still reset those rows.
+      lane_on = lane_enabled == "1"
+      lane_off_reason = "Turn on Lane Centering first"
+
+      def lane_child(row: FeatureRow, reason: str | None = None) -> FeatureRow:
+        valid = bool(row.choices) or row.step > 0  # switches lose their choices, sliders their step, on an invalid saved value
+        if allowed and not lane_on and valid:
+          reason = lane_off_reason
+        return replace(row, default_reset_available=allowed and parked and valid,
+                       **({"reason": reason} if reason is not None else {}))
+
       rows.extend((self._bool_row("LaneCentering", "Enable Lane Centering", allowed),
-                   replace(self._bool_row("LaneCenteringPauseOnSignal", "Pause on signal", allowed and lane_enabled == "1"),
-                           default_reset_available=allowed and parked and self._value("LaneCenteringPauseOnSignal")[2] and
-                           self._value("LaneCenteringPauseOnSignal")[0] in ("0", "1")),
-                   self._number_row("LaneCenterOffset", "Lane offset", allowed),
-                   replace(self._number_row("LaneCenteringE2EAuthority", "Model path preference", allowed, scale=100, unit="%"),
-                           reason="Higher values let a confident model path reduce lane-centering correction when it differs from the lane center")))
+                   lane_child(self._bool_row("LaneCenteringPauseOnSignal", "Pause on signal", allowed and lane_on)),
+                   lane_child(self._number_row("LaneCenterOffset", "Lane offset", allowed and lane_on)),
+                   lane_child(self._number_row("LaneCenteringE2EAuthority", "Model path preference", allowed and lane_on, scale=100, unit="%"),
+                              "Higher values let a confident model path reduce lane-centering correction when it differs from the lane center")))
       strength_row = self._number_row("LaneCenteringStrength", "Lane Centering Strength",
-                                      allowed and strength_supported, scale=100 / STRENGTH_BASELINE, unit="%")
-      rows.append(replace(strength_row,
+                                      allowed and lane_on, scale=100 / STRENGTH_BASELINE, unit="%")
+      rows.append(lane_child(replace(strength_row,
                           value=str(round(float(strength_row.value))) if strength_row.step > 0 else strength_row.value,
                           default_value=str(round(float(strength_row.default_value))) if strength_row.default_value is not None else None,
-                          minimum=33, maximum=round(STRENGTH_MAX / STRENGTH_BASELINE * 100), step=1 if strength_row.step > 0 else 0,
-                          reason="100% is normal; lower values reduce centering and higher values strengthen it" if strength_supported else
+                          minimum=33, maximum=round(STRENGTH_MAX / STRENGTH_BASELINE * 100), step=1 if strength_row.step > 0 else 0),
+                          "100% is normal; lower values reduce centering and higher values strengthen it" if strength_supported else
                           "Not available with this vehicle configuration"))
     elif page == FeaturePage.LANE_CHANGE:
       title = "Lane Changes"
@@ -1151,7 +1174,8 @@ class FeatureSettingsOwner:
     elif page == FeaturePage.PROFILES:
       title = "Long Planner"
       rows.append(self._bool_row(PLANNER_SELECTION_KEY, "Use StarPilot Longitudinal Planner", self.authority("preferences"),
-                                 reason="Off uses the upstream planner. Supported longitudinal control stays active. Changes apply on the next drive."))
+                                 reason=("On runs StarPilot's speed features (Speed Limit Controller, Curve Speed Controller, Force Stop, profile tuning). " +
+                                         "Off uses comma's stock planner without them. Applies on the next drive.")))
       allowed = configurable and system_long
       force_enabled, _, _ = self._value("ForceStops")
       rows.append(self._bool_row("ForceStops", "Force Stop", allowed or
@@ -1174,9 +1198,9 @@ class FeatureSettingsOwner:
         rows.append(self._bool_row("DisengageOnAccelerator", "Disengage on Accelerator Pedal", self.authority("preferences")))
       document, raw, valid = self._document()
       for category, field, label, choices in (
-        ('acceleration', 'selectedAccelerationProfile', 'Selected Acceleration Profile',
+        ('acceleration', 'selectedAccelerationProfile', 'Acceleration Profile',
          ('dom_default', 'standard', 'eco', 'sport', 'sport_plus')),
-        ('braking', 'selectedDecelerationProfile', 'Selected Deceleration Profile',
+        ('braking', 'selectedDecelerationProfile', 'Deceleration Profile',
          ('dom_default', 'standard', 'eco', 'sport')),
       ):
         selected = document[field] if document is not None else ('dom_default' if category == 'acceleration' else DEFAULT_DECELERATION_PROFILE)
@@ -1184,8 +1208,8 @@ class FeatureSettingsOwner:
                                preset_label(selected) if valid else 'Invalid document', raw,
                                tuple(preset_label(choice) for choice in choices) if valid else (),
                                available=allowed and valid,
-                               reason=(CATEGORY_HELP[category] if category == 'braking' else
-                                       'Personalities set to Selected Profile follow this choice; explicit overrides stay unchanged.'),
+                               reason=("Used by every driving personality unless its own preset in Driving Personalities overrides it." +
+                                       (" " + CATEGORY_HELP[category] if category == 'braking' else "")),
                                default_value=preset_label('dom_default' if category == 'acceleration' else DEFAULT_DECELERATION_PROFILE)))
       unit_value, unit_raw, unit_valid = self._value("IsMetric")
       unit_valid = unit_valid and unit_value in ("0", "1") and self._readable("IsMetric")
@@ -1503,6 +1527,10 @@ class FeatureSettingsOwner:
         from openpilot.starpilot.lateral.lane_runtime import runtime_supported
         if not runtime_supported(self.vehicle_params()):
           return False
+      # Greyed while Curve Speed Controller is off; only Restore defaults may reset them.
+      if (key in (CURVE_NO_LEAD_KEY, "ShowCSCStatus") and self._value(CURVE_MASTER_KEY)[0] != "1" and
+          not (reset_default and request.value == ("On" if self._default(key) == "1" else "Off"))):
+        return False
       if (key == "LaneCenteringPauseOnSignal" and self._value("LaneCentering")[0] != "1" and
           not (reset_default and request.value == ("On" if self._default(key) == "1" else "Off"))):
         return False
@@ -1563,6 +1591,8 @@ class FeatureSettingsOwner:
         mps = number / 3.6 if units == "1" else number * MPH_TO_MPS
         if not math.isfinite(mps) or not 0.0 <= mps <= 100.0:
           return False
+        if self._value("AlwaysOnLateral")[0] != "1" and self._aol_threshold()[1] and not (reset_default and mps == 0.0):
+          return False  # greyed while AOL is off; repairing an invalid value and Restore defaults stay allowed
         encoded = mps
       elif key in AOL_BUTTONS:
         cp = self.vehicle_params()
@@ -1615,6 +1645,10 @@ class FeatureSettingsOwner:
           number = max(low, number * STRENGTH_BASELINE / 100)
         elif key == "LaneCenteringE2EAuthority":
           number /= 100
+        if (key in ("LaneCenterOffset", "LaneCenteringE2EAuthority", "LaneCenteringStrength") and
+            self._value("LaneCentering")[0] != "1" and
+            not (reset_default and math.isclose(number, float(self._default(key)), rel_tol=0, abs_tol=1e-9))):
+          return False  # greyed while Lane Centering is off; only Restore defaults may reset them
         if not valid or not math.isfinite(float(current)) or not low <= float(current) <= high or not math.isfinite(number) or not low <= number <= high:
           return False
         if key == "ForceStopDistanceOffset" and not number.is_integer():
