@@ -228,13 +228,16 @@ class TestIoniq6BlindspotStatus(unittest.TestCase):
       cp = long_params()
       ci = CarInterface(cp)
       controller = CarController(DBC[cp.carFingerprint], cp)
+      packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
       state = structs.CarState(vEgo=20.0, leftBlinker=left, rightBlinker=not left)
       helper = DesireHelper(LaneChangePolicy(auto_lane_change=True))
       control = structs.CarControl()
 
       def check(expected):
         t = 10_000_000_000 + controller.frame * 10_000_000
-        ci.CS.ioniq6_bsm_now_ns = t
+        ci.update([(t, [packer.make_can_msg('BLINDSPOTS_FRONT_CORNER_2', 1,
+                                            {'SIDE_DETECT_STATE': 0x10 if left else 0x08}),
+                         packer.make_can_msg('BLINKERS', 1, {})])])
         ci.CS.out.vEgoRaw = 20.0
         sources = Ioniq6BlindspotSources()
         sources.observe(corner_source_ns=t, corner_state=0x10 if left else 0x08,

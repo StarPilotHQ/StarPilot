@@ -88,12 +88,12 @@ def firmware():
       assert int.from_bytes(payload[-12:-8], 'little') == zlib.crc32(payload[:-12])
       assert payload[-8:-4] == b'VERS'
       elf = name.removesuffix('.bin.signed') + '/main.elf'
-      symbols = subprocess.check_output(['arm-none-eabi-nm', elf], text=True)
+      symbols = subprocess.check_output(['readelf', '-sW', elf], text=True)
       if variant == 'debug' and not name.endswith('/body_h7.bin.signed'):
         assert 'hyundai_canfd_ioniq6_bsm_wheel_valid' in symbols
     if '/bootstub.' in name:
       project = Path(name).name.removeprefix('bootstub.').removesuffix('.bin')
-      symbols = subprocess.check_output(['arm-none-eabi-nm', f'panda/board/obj/{project}/bootstub.elf'], text=True)
+      symbols = subprocess.check_output(['readelf', '-sW', f'panda/board/obj/{project}/bootstub.elf'], text=True)
       assert ' RSA_verify' in symbols
     checks[name] = {'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data), 'mode': Path(name).stat().st_mode & 511}
   (OUT / 'all-firmware.json').write_text(json.dumps({'variant': variant, 'artifacts': checks}, indent=2))
