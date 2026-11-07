@@ -211,8 +211,8 @@ def test_stopped_full_request_keeps_existing_lateral_intent_without_granting_com
         assert not axis.lateralActive and not command.latActive and not command.longActive
       stopped_role = feedback._angle_stop_intent_current(sm, sd.CP, state, axis, int(sm.logMonoTime['aolAxisState']), now,
         latched=True, producer='authority-card')
-      before = {'tick': tick, 'stopped_role': stopped_role, 'pending_event': feedback.pending_event,
+      before = {'feedback': repr(vars(feedback)), 'state': state.to_dict(), 'native': repr(sd.sm['aolSafetyWire']), 'pandas': repr(sd.sm['pandaStates']), 'tick': tick, 'stopped_role': stopped_role, 'pending_event': feedback.pending_event,
         'axis': axis.to_dict(), 'events': [str(e.name) for e in sm['onroadEvents']]}
       assert not feedback.observe(sm, sd.CP, state, now, latched=True,
-        intent_producer_session='authority-card'), ('STOPPED_FULL_REQUEST_DISARMED', before)
+        intent_producer_session='authority-card'), 'STOPPED_FULL_REQUEST_DISARMED ' + repr(before)
       assert not feedback.failed
