@@ -9,7 +9,8 @@ from openpilot.starpilot.ui.feature_settings_state import SLC_OFFSET_KEYS
 DESCRIPTIONS = {
   'DisengageOnAccelerator': 'When enabled, pressing the accelerator pedal will disengage openpilot.',
   'ReduceMotion': 'Reduces interface animations for a steadier display.',
-  'IsMetric': "The comma's own speed units. Metric shows km/h on the driving screen; Imperial uses mph. The comma's settings and driving-screen distances use these units; saved speed-limit offsets keep their real meaning.",
+  'IsMetric': ("The comma's own speed units. Metric shows km/h on the driving screen; Imperial uses mph. The comma's settings and " +
+    "driving-screen distances use these units; saved speed-limit offsets keep their real meaning."),
   'IsRhdDetected': 'Sets the initial steering-wheel side used by driver monitoring. Applies next drive; automatic side detection continues.',
   'lane_change:turn_signal_guidance': 'Uses your turn signal to help the model choose a turning path at intersections.',
   'AlphaLongitudinalEnabled': ('Requests StarPilot speed control instead of factory ACC. May disable Automatic Emergency Braking. ' +

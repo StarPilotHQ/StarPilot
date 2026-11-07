@@ -45,8 +45,10 @@ def _sliders(gateway, name, session, generation):
 
 
 def _numeric(value):
-  try: return math.isfinite(float(value))
-  except (TypeError, ValueError): return False
+  try:
+    return math.isfinite(float(value))
+  except (TypeError, ValueError):
+    return False
 
 
 def _on(value, step):

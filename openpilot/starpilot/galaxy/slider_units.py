@@ -14,8 +14,8 @@ SPECS = {
   SPEED: ("Galaxy speed units", CHOICES, 0,
           "How Galaxy shows speeds on its sliders. Same as comma follows Comma speed units. Galaxy only."),
   DISTANCE: ("Galaxy distance units", CHOICES, 0,
-             "How Galaxy shows distances on its sliders (lane widths, offsets, clearances, stopping distances). Same as comma "
-             "follows Comma speed units. Galaxy only; changing units does not change your saved tune."),
+             ("How Galaxy shows distances on its sliders (lane widths, offsets, clearances, stopping distances). Same as comma " +
+              "follows Comma speed units. Galaxy only; changing units does not change your saved tune.")),
 }
 SI = {"mph": .44704, "km/h": 1 / 3.6, "m": 1., "cm": .01, "in": .0254, "ft": .3048, "km": 1000., "mi": 1609.344}
 ROAD_KEYS = frozenset(("ForceStopDistanceOffset",))
@@ -37,15 +37,18 @@ def rows(params, authorized):
 
 
 def apply(params, request, authorized):
-  if request.key not in SPECS or not authorized(): return False
+  if request.key not in SPECS or not authorized():
+    return False
   choices = SPECS[request.key][1]
-  if request.value not in choices or request.dependencies or request.display_unit: return False
+  if request.value not in choices or request.dependencies or request.display_unit:
+    return False
   return commit_exact(params, key=request.key, max_bytes=8, expected=request.expected,
     raw=str(choices.index(request.value)).encode(), authorized=authorized, temp_prefix=".galaxy-units-").verified
 
 
 def category(row):
-  if not row.key or row.unit not in SI or not row.step or row.repair_value: return None
+  if not row.key or row.unit not in SI or not row.step or row.repair_value:
+    return None
   return SPEED if row.unit in ("mph", "km/h") else DISTANCE
 
 
@@ -57,12 +60,17 @@ def comma_distance(params):
 
 def target(row, index, metric_comma=False):
   # Same as comma: speed rows already follow the comma's units; distances follow them too.
-  if index == 0 and category(row) == SPEED: return row.unit
+  if index == 0 and category(row) == SPEED:
+    return row.unit
   metric = metric_comma if index == 0 else index == 1
-  if category(row) == SPEED: return "km/h" if metric else "mph"
-  if row.unit in ("km", "mi"): return "km" if metric else "mi"
-  if row.key in ROAD_KEYS: return "m" if metric else "ft"
-  if row.unit in ("cm", "in") and not row.key.endswith("CarWidth"): return "cm" if metric else "in"
+  if category(row) == SPEED:
+    return "km/h" if metric else "mph"
+  if row.unit in ("km", "mi"):
+    return "km" if metric else "mi"
+  if row.key in ROAD_KEYS:
+    return "m" if metric else "ft"
+  if row.unit in ("cm", "in") and not row.key.endswith("CarWidth"):
+    return "cm" if metric else "in"
   return "m" if metric else "ft"
 
 
@@ -71,7 +79,8 @@ def number(value):
 
 
 def convert_text(text, source, dest):
-  if source == dest: return text
+  if source == dest:
+    return text
   factor = SI[source] / SI[dest]
   # SLC bands carry speed units in the label as well as the value suffix.
   pattern = r"(-?\d+(?:\.\d+)?)(?:–<(-?\d+(?:\.\d+)?))? " + re.escape(source)
@@ -85,14 +94,16 @@ def convert_text(text, source, dest):
 
 
 def help_text(text, unit):
-  names = {"m": "metres", "cm": "centimetres", "ft": "feet", "in": "inches"}
-  if unit not in names: return text
-  return re.sub(r"\b(?:centimetres|metres|inches|feet)\b", names[unit], text)
+  names = {"m": "meters", "cm": "centimeters", "ft": "feet", "in": "inches"}
+  if unit not in names:
+    return text
+  return re.sub(r"\b(?:centimeters|meters|inches|feet)\b", names[unit], text)
 
 
 def project(params, row, owner=None):
   key = category(row)
-  if key is None: return row
+  if key is None:
+    return row
   index, raw = selection(params, key)
   deps = row.dependencies + ((key, raw),)
   if index is None:
@@ -110,10 +121,13 @@ def project(params, row, owner=None):
   low, high = display_range(row.minimum * factor, row.maximum * factor, step, keep_on_step=dest == row.unit)
 
   def shown(value):
-    if not _numeric(value): return value
+    if not _numeric(value):
+      return value
     native = float(value)
-    if math.isclose(native, row.maximum, rel_tol=0, abs_tol=row.step * 1e-6): return number(high)
-    if math.isclose(native, row.minimum, rel_tol=0, abs_tol=row.step * 1e-6): return number(low)
+    if math.isclose(native, row.maximum, rel_tol=0, abs_tol=row.step * 1e-6):
+      return number(high)
+    if math.isclose(native, row.minimum, rel_tol=0, abs_tol=row.step * 1e-6):
+      return number(low)
     return number(round(min(max(round(native * factor / step) * step, low), high), 6))
 
   converted = replace(row, unit=dest, display_unit=dest, dependencies=deps,
@@ -143,22 +157,27 @@ def sensible(value, step):
 def display_range(low, high, step, keep_on_step=False):
   """Round range ends; falls back to the step grid if rounding would close the range. A slider in its own units keeps
   an end that is already on its step (a deliberate 0.75 stays 0.75)."""
-  on_step = lambda value: math.isclose(value / step, round(value / step), rel_tol=0, abs_tol=1e-6)
+  def on_step(value):
+    return math.isclose(value / step, round(value / step), rel_tol=0, abs_tol=1e-6)
   ends = tuple(round(value, 6) if keep_on_step and on_step(value) else sensible(value, step) for value in (low, high))
-  if ends[0] < ends[1]: return ends
+  if ends[0] < ends[1]:
+    return ends
   return round(math.ceil(low / step - 1e-9) * step, 6), round(math.floor(high / step + 1e-9) * step, 6)
 
 
 def _numeric(value):
-  try: return value is not None and math.isfinite(float(value))
-  except (ValueError, TypeError, OverflowError): return False
+  try:
+    return value is not None and math.isfinite(float(value))
+  except (ValueError, TypeError, OverflowError):
+    return False
 
 
 def restore(params, row, request, owner=None):
   """Return the request in the owner's original units; never change IsMetric."""
-  if category(row) is None: return request
+  if category(row) is None:
+    return request
   shown = project(params, row, owner)
-  # Restore defaults may reset a greyed row (its master switch is off) to its exact native default.
+  # Restore defaults may reset a grayed row (its master switch is off) to its exact native default.
   inactive_reset = (not row.available and row.default_reset_available and not request.direction and
                     selection(params, category(row))[0] is not None and request.value == shown.default_value)
   if (not (shown.available or inactive_reset) or request.dependencies != shown.dependencies or request.expected != row.source or
@@ -169,7 +188,8 @@ def restore(params, row, request, owner=None):
     value = max(shown.minimum, min(shown.maximum, float(shown.value) + request.direction * shown.step))
   else:
     value = float(request.value)
-  if not math.isfinite(value): raise ValueError("Invalid slider value")
+  if not math.isfinite(value):
+    raise ValueError("Invalid slider value")
   if not request.direction and request.value == shown.default_value:
     restored = row.default_value  # Keep the exact native reset, including off-grid SI defaults.
   else:

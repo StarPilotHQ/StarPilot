@@ -632,10 +632,13 @@ class SettingsGateway:
     return replace(state, rows=tuple(slider_units.project(self.params, row, owner) for row in state.rows))
 
   def _native_request(self, page, ctx, request):
-    if not any(key in slider_units.SPECS for key, _ in request.dependencies): return request
+    """The request in the setting's own units (Galaxy's slider units only change what is shown)."""
+    if not any(key in slider_units.SPECS for key, _ in request.dependencies):
+      return request
     rows = self._base_state(page, ctx).rows
     row = next((row for row in rows if row.key == request.key), None)
-    if row is None: raise SettingsChanged("Setting no longer exists")
+    if row is None:
+      raise SettingsChanged("Setting no longer exists")
     try:
       return slider_units.restore(self.params, row, request, self._owner(ctx) if page.startswith("lane") else None)
     except (ValueError, TypeError, OverflowError) as error:
@@ -840,7 +843,7 @@ class SettingsGateway:
       if request is None:
         raise SettingsChanged("Unavailable choice")
       request = replace(request, confirmation=True)
-    native_request = self._native_request(view.page, ctx, request)
+    self._native_request(view.page, ctx, request)  # A value Galaxy cannot map back to the setting's units is refused here.
     with self.lock:
       self._clean()
       if len(self.intents) >= MAX_INTENTS:
@@ -870,8 +873,11 @@ class SettingsGateway:
         raise SettingsChanged("Default or saved settings changed")
     unit_dependencies = intent.request.dependencies
     valid_session = session_valid
-    session_valid = lambda: valid_session() and slider_units.unchanged(self.params, unit_dependencies)
-    if not slider_units.unchanged(self.params, unit_dependencies): raise SettingsChanged("Galaxy slider units changed")
+
+    def session_valid():
+      return valid_session() and slider_units.unchanged(self.params, unit_dependencies)
+    if not slider_units.unchanged(self.params, unit_dependencies):
+      raise SettingsChanged("Galaxy slider units changed")
     try:
       intent = replace(intent, request=self._native_request(intent.page, ctx, intent.request))
     except SettingsChanged:

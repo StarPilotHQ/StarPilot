@@ -31,8 +31,8 @@ class LocalizationSettingsOwner:
     valid = readable and raw in (None, b"0", b"1")
     rows = [FeatureRow("IsMetric", "Comma speed units", ("Metric" if raw == b"1" else "Imperial") if valid else "Invalid saved value",
                        raw, COMMA_UNITS if valid else (), available=valid and self.authorized(), default_value="Imperial",
-                       reason="The comma's own speed units: speed, set speed and limits on the driving screen, and the units of "
-                              "the comma's settings. Saved speed-limit offsets keep their real meaning." if valid else "Invalid saved value")]
+                       reason=("The comma's own speed units: speed, set speed and limits on the driving screen, and the units of " +
+                               "the comma's settings. Saved speed-limit offsets keep their real meaning.") if valid else "Invalid saved value")]
     rows += slider_units.rows(self.params, self.authorized())
     for key, label, reason in (
       ("IsRhdDetected", "Right-Hand Drive", "Sets the initial driver-monitoring side for the next drive. Automatic wheel-side detection continues."),

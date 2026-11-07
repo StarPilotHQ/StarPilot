@@ -54,7 +54,7 @@ export function presentedSetting(row) {
   return { ...row, value: laneStrengthDisplay(row.value, row),
     defaultValue: row.defaultValue == null ? row.defaultValue : laneStrengthDisplay(row.defaultValue, row),
     minimum: 1, maximum: 10, step: row.step > 0 ? 1 : 0, unit: "",
-    reason: row.available ? "Set how much correction lane centering requests. Higher values request more correction; lower values request less. Strength controls the amount requested, while Correction response time controls how quickly it changes. Increasing strength does not raise the maximum correction limit." : row.reason }
+    reason: row.available ? "1–10; 5 is normal. Lower values reduce centering and higher values strengthen it" : row.reason }
 }
 
 export const GalaxySettingRow = {
@@ -73,8 +73,6 @@ export const GalaxySettingRow = {
   data() { return { preview: undefined, interacting: false, fineScrub: null, isFineScrubbing: false, updating: false, testingSound: false, soundError: "" } },
   computed: {
     presentedRow() { return presentedSetting(this.row) },
-    saveIndex() { return this.index },
-    activeSlider() { return this.$refs.slider },
     control() { return settingControl(this.row) },
     showDefault() {
       const value = this.presentedRow.value, initial = this.presentedRow.defaultValue
@@ -119,7 +117,7 @@ export const GalaxySettingRow = {
       this.updating = true
       const token = this.feedback === "saved" && this.control === "switch" ? beginSave() : null
       try {
-        const result = await this.saveValue(this.saveIndex, savedValue)
+        const result = await this.saveValue(this.index, savedValue)
         if (token !== null) {
           await this.$nextTick()
           finishSave(token, result !== false && result !== null &&
@@ -198,14 +196,14 @@ export const GalaxySettingRow = {
       const next = snapNumeric(raw, this.bounds)
       if (next === null) return
       this.preview = next
-      if (this.activeSlider) this.activeSlider.value = next
+      if (this.$refs.slider) this.$refs.slider.value = next
     },
     releasePointer(event) {
       const pointerId = this.fineScrub?.pointerId
       this.clearHoldTimer()
       this.fineScrub = null
       this.isFineScrubbing = this.interacting = false
-      try { (event?.target || this.activeSlider)?.releasePointerCapture?.(pointerId) } catch {}
+      try { (event?.target || this.$refs.slider)?.releasePointerCapture?.(pointerId) } catch {}
     },
     onSliderPointerEnd(event) {
       if (!this.fineScrub || event.pointerId !== this.fineScrub.pointerId) return
@@ -217,7 +215,7 @@ export const GalaxySettingRow = {
       if (!this.fineScrub || event.pointerId !== this.fineScrub.pointerId) return
       this.releasePointer(event)
       this.preview = undefined
-      if (this.activeSlider) this.activeSlider.value = this.sliderValue
+      if (this.$refs.slider) this.$refs.slider.value = this.sliderValue
     },
   },
   watch: {
