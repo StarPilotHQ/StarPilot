@@ -56,7 +56,7 @@ def test_weather_is_nonblocking_single_flight_cached_and_expires():
       original(point)
     finally:
       finished.set()
-  client._refresh = refresh
+  client._refresh = Mock(side_effect=refresh)
   try:
     start = time.monotonic()
     assert client.observe((41., -87.)) is None

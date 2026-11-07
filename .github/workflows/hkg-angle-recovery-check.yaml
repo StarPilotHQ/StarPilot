@@ -47,8 +47,8 @@ jobs:
           shipping=path.read_bytes()
           transport=Path('openpilot/starpilot/aol/transport_pause.py')
           transport_shipping=transport.read_bytes()
-          transport_original=subprocess.check_output(['git','show','68434cf39c501604fe962e9488a03bde0fed0d73:openpilot/starpilot/aol/transport_pause.py'])
-          original=subprocess.check_output(['git','show','68434cf39c501604fe962e9488a03bde0fed0d73:openpilot/starpilot/aol/temporary_steering.py'])
+          transport_original=subprocess.check_output(['git','show','7056dcb1fa052401053b971bab96b02fb9006676:openpilot/starpilot/aol/transport_pause.py'])
+          original=subprocess.check_output(['git','show','7056dcb1fa052401053b971bab96b02fb9006676:openpilot/starpilot/aol/temporary_steering.py'])
           try:
             path.write_bytes(original)
             transport.write_bytes(transport_original)
@@ -65,11 +65,11 @@ jobs:
           PYCODE
       - name: Run steering retention and independent safety veto regressions
         run: |
-          .venv/bin/python -m pytest -q --junitxml=qualification.xml             openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py             openpilot/starpilot/aol/tests/test_pe_combined_profile_contract.py             openpilot/starpilot/aol/tests/test_stock_eps_recovery.py             openpilot/starpilot/aol/tests/test_runtime.py             openpilot/starpilot/aol/tests/test_source_pause_driver_monitoring.py             openpilot/system/hardware/tests             openpilot/starpilot/drive_state/tests/test_hardware_lifecycle.py
+          .venv/bin/python -m pytest -q --junitxml=qualification.xml             openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py             openpilot/starpilot/aol/tests/test_pe_combined_profile_contract.py             openpilot/starpilot/aol/tests/test_stock_eps_recovery.py             openpilot/starpilot/aol/tests/test_runtime.py             openpilot/starpilot/aol/tests/test_source_pause_driver_monitoring.py             openpilot/system/hardware/tests             openpilot/starpilot/drive_state/tests/test_hardware_lifecycle.py             openpilot/starpilot/ui/tests/test_weather.py
       - name: Check owned Python files
         run: |
-          .venv/bin/ruff check openpilot/starpilot/aol/temporary_steering.py openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py openpilot/starpilot/aol/transport_pause.py openpilot/system/hardware/hardwared.py openpilot/system/hardware/hardware_timing.py openpilot/system/hardware/tests/test_hardware_timing.py
-          .venv/bin/ty check openpilot/starpilot/aol/temporary_steering.py openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py openpilot/starpilot/aol/transport_pause.py openpilot/system/hardware/hardwared.py openpilot/system/hardware/hardware_timing.py openpilot/system/hardware/tests/test_hardware_timing.py
+          .venv/bin/ruff check openpilot/starpilot/aol/temporary_steering.py openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py openpilot/starpilot/aol/transport_pause.py openpilot/system/hardware/hardwared.py openpilot/system/hardware/hardware_timing.py openpilot/system/hardware/tests/test_hardware_timing.py openpilot/starpilot/ui/tests/test_weather.py
+          .venv/bin/ty check openpilot/starpilot/aol/temporary_steering.py openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py openpilot/starpilot/aol/transport_pause.py openpilot/system/hardware/hardwared.py openpilot/system/hardware/hardware_timing.py openpilot/system/hardware/tests/test_hardware_timing.py openpilot/starpilot/ui/tests/test_weather.py
       - name: Save exact results
         if: always()
         uses: actions/upload-artifact@v4
