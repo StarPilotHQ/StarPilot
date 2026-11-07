@@ -2286,11 +2286,14 @@ class SelfdriveD:
       # Lateral-only operation keeps ordinary longitudinal faults visible.
       self.aol_soft_takeover_alert = True
     if (self.aol_replay and intent is not None and intent.lateralArmed and
-        CS.steerFaultTemporary and not CS.steerFaultPermanent and (not CS.steeringPressed or self.CP.brand == 'hyundai')):
+        CS.steerFaultTemporary and not CS.steerFaultPermanent and
+        (not CS.steeringPressed or self.CP.brand in ('hyundai', 'mazda'))):
       # An armed AOL session still needs the ordinary temporary-steering warning
       # while actual steering is suspended and the stock state machine is off.
       # HKG needs the event to retain intent through temporary EPS withdrawal.
-      # Other owners keep CarSpecificEvents' driver-override warning policy.
+      # Mazda keeps it while the driver steers through a TI2 pause: otherwise each
+      # steeringPressed edge hides and re-shows the banner, which blinked for ~10 s
+      # (route 0000003a, 58-68 s). Other owners keep CarSpecificEvents' policy.
       if EventName.steerTempUnavailableSilent not in self.events.names:
         self.events.add(EventName.steerTempUnavailableSilent)
       if ET.WARNING not in self.state_machine.current_alert_types:
