@@ -124,6 +124,8 @@ class FeatureSettingsState:
   parent_title: str = "StarPilot"
   editor: bool = False
   save_hint: str = "Changes save automatically"
+  subtitle_accent: str = ""
+  subtitle_tone: str = ""
 
 
 def feature_row_top(state: FeatureSettingsState) -> int:

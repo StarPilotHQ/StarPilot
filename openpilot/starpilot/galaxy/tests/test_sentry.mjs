@@ -17,7 +17,7 @@ assert.equal(validSentryEvents({ ...inventory, events: [{ ...inventory.events[0]
 assert.equal(validSentryEvents({ ...inventory, events: [inventory.events[0], inventory.events[0]] }), false)
 assert.equal(validSentryEvents({ ...inventory, source: 'remote' }), false)
 assert.match(SentryEventsPage.template, /device clock and may be inaccurate/)
-assert.match(SentryEventsPage.template, /<img[^>]*event.images[^>]*api\/sentry\/image\//)
+assert.match(SentryEventsPage.template, /<(?:img|BalancedImage)[^>]*event.images[^>]*api\/sentry\/image\//)
 assert.doesNotMatch(SentryEventsPage.template, /v-html|deleteEvent|Download/)
 assert.match(CamerasPage.template, /MenuTile v-for="tool in tools"/)
 assert.match(cameraTools.find(tool => tool.path === "/cameras/events").description, /View motion events/)
