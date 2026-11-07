@@ -185,7 +185,6 @@ class TestIoniq6BlindspotStatus(unittest.TestCase):
               self.assertFalse(any(addr in (0x1BA, 0x1E5) for addr, _, _ in skipped))
             ci.CS.out = out
 
-
   def test_controller_requires_a_matching_queued_lane_change_for_escalation(self):
     cp = long_params()
     ci = CarInterface(cp)
@@ -231,9 +230,8 @@ class TestIoniq6BlindspotStatus(unittest.TestCase):
       packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
       state = structs.CarState(vEgo=20.0, leftBlinker=left, rightBlinker=not left)
       helper = DesireHelper(LaneChangePolicy(auto_lane_change=True))
-      control = structs.CarControl()
-
-      def check(expected):
+      def check(expected, helper, *, controller=controller, ci=ci, packer=packer, left=left):
+        control = structs.CarControl()
         t = 10_000_000_000 + controller.frame * 10_000_000
         ci.update([(t, [packer.make_can_msg('BLINDSPOTS_FRONT_CORNER_2', 1,
                                             {'SIDE_DETECT_STATE': 0x10 if left else 0x08}),
@@ -258,20 +256,20 @@ class TestIoniq6BlindspotStatus(unittest.TestCase):
       helper.update(state, True, 1.0, auto_evidence=False, engaged=True)
       self.assertEqual(helper.auto_status, 'laneUnavailable')
       self.assertEqual(helper.lane_change_state, log.LaneChangeState.preLaneChange)
-      check(BlindspotStatus(2, 0) if left else BlindspotStatus(0, 2))
+      check(BlindspotStatus(2, 0) if left else BlindspotStatus(0, 2), helper)
       state.steeringPressed = True
       state.steeringTorque = 1.0 if left else -1.0
       helper.update(state, True, 1.0, engaged=True)
       self.assertEqual(helper.lane_change_state, log.LaneChangeState.laneChangeStarting)
-      check(BlindspotStatus(2, 0) if left else BlindspotStatus(0, 2))
+      check(BlindspotStatus(2, 0) if left else BlindspotStatus(0, 2), helper)
       state.steeringPressed = False
       for _ in range(12):
         helper.update(state, True, 0.0, engaged=True)
       self.assertEqual(helper.lane_change_state, log.LaneChangeState.off)
-      check(BlindspotStatus(0, 0))
+      check(BlindspotStatus(0, 0), helper)
       helper.update(state, True, 0.0, engaged=True)
-      check(BlindspotStatus(0, 0))
+      check(BlindspotStatus(0, 0), helper)
       helper = DesireHelper()
       helper.update(state, True, 1.0, navigation_turn=True)
       self.assertEqual(helper.lane_change_state, log.LaneChangeState.off)
-      check(BlindspotStatus(0, 0))
+      check(BlindspotStatus(0, 0), helper)
