@@ -1201,6 +1201,14 @@ class TransportPauseFeedback:
       return False
     native = _configured_transport_native(sm, cp, self.session, now_ns,
       require_longitudinal=not pending_stop, allow_restricted_lateral=True)
+    if native is None and combined_stop:
+      newer = _configured_transport_native(sm, cp, self.session, now_ns,
+        require_longitudinal=False, allow_restricted_lateral=True)
+      if (newer is not None and newer.pandaInventory and
+          0 < int(sm.logMonoTime['pandaStates']) < newer.sourcePandaStatesMonoTime and
+          all(slot.controlsAllowed for slot, config in zip(newer.pandaInventory, cp.safetyConfigs, strict=True)
+              if str(config.safetyModel) not in ('silent', 'noOutput'))):
+        native = newer
     return bool(native is not None and native.pandaInventory and native.requestedLateral and
       (not native.lateralAllowed or subaru_stop and not axis.desiredLateral and not axis.lateralActive) and
       (pending_stop or not native.requestedLongitudinal and not combined_stop or

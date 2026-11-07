@@ -209,10 +209,15 @@ def test_stopped_full_request_keeps_existing_lateral_intent_without_granting_com
       if tick == 4:
         assert axis.desiredLongitudinal and not axis.longitudinalActive
         assert not axis.lateralActive and not command.latActive and not command.longActive
-      stopped_role = feedback._angle_stop_intent_current(sm, sd.CP, state, axis, int(sm.logMonoTime['aolAxisState']), now,
-        latched=True, producer='authority-card')
-      before = {'feedback': repr(vars(feedback)), 'state': state.to_dict(), 'native': repr(sd.sm['aolSafetyWire']), 'pandas': repr(sd.sm['pandaStates']), 'tick': tick, 'stopped_role': stopped_role, 'pending_event': feedback.pending_event,
-        'axis': axis.to_dict(), 'events': [str(e.name) for e in sm['onroadEvents']]}
+      if tick == 5:
+        assert axis.longitudinalActive and not axis.lateralActive and not command.latActive
+        assert all(not p.controlsAllowed for p in sm['pandaStates'])
+        veto = messaging.SubMaster(['aolAxisState', 'onroadEvents', 'aolSafetyWire', 'pandaStates'])
+        latest = messaging.new_message('pandaStates', len(sm['pandaStates']), valid=True, logMonoTime=now)
+        latest.pandaStates = sm['pandaStates']
+        veto.update_msgs(now / 1e9, [*frames[:3], latest.as_reader()])
+        assert not feedback._angle_stop_intent_current(veto, sd.CP, state, axis, now, now,
+          latched=True, producer='authority-card')
       assert not feedback.observe(sm, sd.CP, state, now, latched=True,
-        intent_producer_session='authority-card'), 'STOPPED_FULL_REQUEST_DISARMED ' + repr(before)
+        intent_producer_session='authority-card'), f'STOPPED_FULL_REQUEST_DISARMED tick={tick}'
       assert not feedback.failed
