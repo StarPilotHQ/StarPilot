@@ -164,3 +164,44 @@ def test_angle_eps_split_publications_preserve_only_armed_intent(identity, full,
       assert not feedback.failed
       if fault:
         assert not axis.lateralActive and not command.latActive
+
+
+@pytest.mark.parametrize('identity', ('pe_long', 'ev9_long'))
+@pytest.mark.parametrize('native_long_pending', (False, True))
+def test_stopped_full_request_keeps_existing_lateral_intent_without_granting_commands(identity, native_long_pending):
+  from opendbc.car import structs
+  case = fixture.IoniqAvailabilityTests(methodName='runTest')
+  with ExitStack() as cleanup:
+    cleanup.callback(case.doCleanups)
+    cleanup.enter_context(OpenpilotPrefix())
+    cp = profile(identity)
+    assert cp is not None
+    sd, _, drive = case._authority_callers(False, cp=cp, genuine_events=True)
+    feedback = TransportPauseFeedback(sd.CP)
+    sm = messaging.SubMaster(['aolAxisState', 'onroadEvents', 'aolSafetyWire', 'pandaStates'])
+    state = fixture.car_state()
+    state.vEgoRaw = state.vEgo
+    for tick in range(7):
+      state.standstill = tick in (3, 4, 5)
+      state.vEgo = state.vEgoRaw = 0. if state.standstill else 5.
+      state.buttonEnable = tick == 4
+      state.buttonEvents = ([structs.CarState.ButtonEvent(type='accelCruise', pressed=False)] if tick == 4 else [])
+      requested_long = tick >= 5 or tick == 4 and native_long_pending
+      allowed_long = tick >= 5
+      axis, _, command = drive(tick, observed_state=state, native_request_lat=True,
+        allowed=not state.standstill, native_request_long=requested_long, long_allowed=allowed_long,
+        panda_controls_allowed=allowed_long)
+      now = 10_000_000_000 + tick * 10_000_000
+      frames = [sd.pm.messages['aolAxisState'], sd.pm.messages['onroadEvents']]
+      for name in ('aolSafetyWire', 'pandaStates'):
+        message = messaging.new_message(name, len(sd.sm[name]), valid=sd.sm.valid[name],
+          logMonoTime=sd.sm.logMonoTime[name])
+        setattr(message, name, sd.sm[name])
+        frames.append(message.as_reader())
+      sm.update_msgs(now / 1e9, frames)
+      if tick == 4:
+        assert axis.desiredLongitudinal and not axis.longitudinalActive
+        assert not axis.lateralActive and not command.latActive and not command.longActive
+      assert not feedback.observe(sm, sd.CP, state, now, latched=True,
+        intent_producer_session='authority-card'), 'STOPPED_FULL_REQUEST_DISARMED'
+      assert not feedback.failed
