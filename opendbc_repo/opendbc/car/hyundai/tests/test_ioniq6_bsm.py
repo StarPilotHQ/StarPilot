@@ -236,12 +236,8 @@ class TestIoniq6BlindspotStatus(unittest.TestCase):
         t = 10_000_000_000 + controller.frame * 10_000_000
         ci.update([(t, [packer.make_can_msg('BLINDSPOTS_FRONT_CORNER_2', 1,
                                             {'SIDE_DETECT_STATE': 0x10 if left else 0x08}),
-                         packer.make_can_msg('BLINKERS', 1, {})])])
+                         packer.make_can_msg('BLINKERS', 1, {'LEFT_LAMP': int(left), 'RIGHT_LAMP': int(not left)})])])
         ci.CS.out.vEgoRaw = 20.0
-        sources = Ioniq6BlindspotSources()
-        sources.observe(corner_source_ns=t, corner_state=0x10 if left else 0x08,
-                        lamp_source_ns=t, left_lamp=left, right_lamp=not left)
-        ci.CS.ioniq6_bsm_sources = sources
         queued = helper.lane_change_state != log.LaneChangeState.off
         control.leftBlinker = queued and helper.lane_change_direction == log.LaneChangeDirection.left
         control.rightBlinker = queued and helper.lane_change_direction == log.LaneChangeDirection.right

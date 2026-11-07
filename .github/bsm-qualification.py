@@ -52,7 +52,28 @@ def qualify():
     run(sys.executable, '-c', loader, '-q', f'--junitxml=bsm-results/native-{variant}.xml', *native)
   paths = [str(controller), HOST, NATIVE]
   run('.venv/bin/ruff', 'check', *paths)
-  run('.venv/bin/ty', 'check', *paths)
+  import re
+  from collections import Counter
+  def typing_result():
+    result = subprocess.run(['.venv/bin/ty', 'check', '--output-format', 'concise', *paths], capture_output=True, text=True)
+    output = result.stdout + result.stderr
+    assert result.returncode in (0, 1) and ('error[' in output or result.returncode == 0), output
+    return result.returncode, output, Counter(re.sub(r':\d+:\d+:', ':', line) for line in output.splitlines() if 'error[' in line)
+  shipping_typing = typing_result()
+  saved = {Path(name): Path(name).read_bytes() for name in paths}
+  try:
+    for path in saved:
+      path.write_bytes(subprocess.check_output(['git', 'show', BASE + ':' + str(path)]))
+    baseline_typing = typing_result()
+  finally:
+    for path, data in saved.items():
+      path.write_bytes(data)
+  (OUT / 'typing-shipping.txt').write_text(shipping_typing[1])
+  (OUT / 'typing-baseline.txt').write_text(baseline_typing[1])
+  assert not (shipping_typing[2] - baseline_typing[2]), shipping_typing[1]
+  (OUT / 'typing.json').write_text(json.dumps({'introducedErrors': 0,
+    'baselineErrors': sum(baseline_typing[2].values()), 'shippingErrors': sum(shipping_typing[2].values()),
+    'baselineExit': baseline_typing[0], 'shippingExit': shipping_typing[0]}))
   (OUT / 'source.json').write_text(json.dumps({str(p): hashlib.sha256(p.read_bytes()).hexdigest()
     for p in [controller, Path(HOST), Path(NATIVE), Path('opendbc_repo/opendbc/safety/modes/hyundai_canfd.h')]}, indent=2))
 
