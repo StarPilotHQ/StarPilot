@@ -37,6 +37,7 @@ def prepare(cp, enabled):
 class StartupSources:
   def __init__(self, cp=None):
     self.buses = dict(BUSES)
+    self.state_zero_supported = cp is not None and selected(cp) and cp.carFingerprint == CAR.SUBARU_OUTBACK_2023
     if cp is not None and cp.carFingerprint == CAR.SUBARU_OUTBACK_2023:
       self.buses[0x48] = 1
     self.blocked = False
@@ -132,7 +133,9 @@ class StopStartRequest:
       return None
     # State3 is the Dom OFF acknowledgement; never toggle an already OFF system.
     engine_state = source.frames[0x174][1][4] >> 6
-    if engine_state == 0:
+    # This Outback reports state0 before an OEM OFF press, then acknowledges with state3.
+    # Other qualified platforms retain their existing state1/2-only contract.
+    if engine_state == 0 and not source.state_zero_supported:
       return None
     if engine_state == 3:
       self.done = True

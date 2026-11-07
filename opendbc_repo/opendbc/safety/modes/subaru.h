@@ -393,7 +393,7 @@ static safety_config subaru_init(uint16_t raw_param) {
   // revert this in the PR that re-enables Subaru longitudinal: https://github.com/commaai/opendbc/pull/3689
 
   subaru_avh_init(avh);
-  subaru_stop_start_init(stop_start, (uint8_t)(subaru_d_platform ? SUBARU_ALT_BUS : SUBARU_MAIN_BUS));
+  subaru_stop_start_init(stop_start, (uint8_t)(subaru_d_platform ? SUBARU_ALT_BUS : SUBARU_MAIN_BUS), param == 465U);
   subaru_sng_reset(((param == 8U) || (param == 520U)) &&
     (((unsigned int)alternative_experience == 0U) || ((unsigned int)alternative_experience == 32U)));
   subaru_software_reset(((param == 512U) || (param == 520U)) && (((unsigned int)alternative_experience == 0U) ||

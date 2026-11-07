@@ -1,6 +1,7 @@
 #pragma once
 
 static bool subaru_stop_start_enabled = false;
+static bool subaru_stop_start_state_zero = false;
 static uint8_t subaru_stop_start_gear_bus;
 static uint8_t subaru_stop_start_data[4][8];
 static bool subaru_stop_start_seen[4];
@@ -13,8 +14,9 @@ static uint8_t subaru_stop_start_count = 0U;
 static uint8_t subaru_stop_start_template_counter = 0U;
 static bool subaru_stop_start_done;
 
-static void subaru_stop_start_init(bool enabled, uint8_t gear_bus) {
+static void subaru_stop_start_init(bool enabled, uint8_t gear_bus, bool state_zero) {
   subaru_stop_start_enabled = enabled;
+  subaru_stop_start_state_zero = enabled && state_zero;
   subaru_stop_start_gear_bus = gear_bus;
   subaru_stop_start_start = microsecond_timer_get();
   subaru_stop_start_first = 0U;
@@ -81,7 +83,8 @@ static bool subaru_stop_start_tx(const CANPacket_t *msg) {
   }
   allowed &= (subaru_stop_start_data[3][1] & 0x80U) == 0U;
   allowed &= (subaru_stop_start_data[1][3] == 4U) || (subaru_stop_start_data[1][3] == 2U);
-  allowed &= ((subaru_stop_start_data[2][4] >> 6U) == 1U) || ((subaru_stop_start_data[2][4] >> 6U) == 2U);
+  const uint8_t state = subaru_stop_start_data[2][4] >> 6U;
+  allowed &= (state == 1U) || (state == 2U) || ((state == 0U) && subaru_stop_start_state_zero);
   if (subaru_stop_start_count > 0U) {
     allowed &= (subaru_stop_start_data[0][1] & 15U) != subaru_stop_start_template_counter;
     allowed &= safety_get_ts_elapsed(now, subaru_stop_start_first) < 300000U;

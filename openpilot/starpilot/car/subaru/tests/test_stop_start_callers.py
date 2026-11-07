@@ -25,7 +25,7 @@ from openpilot.starpilot.car.subaru.tests.native_fixture import subaru_native_pa
 @pytest.mark.parametrize('manual', [False, True])
 @pytest.mark.parametrize('aol', [False, True])
 def test_actual_startup_factory_card_controls_native(enabled, manual, aol, subaru_native_pair, tmp_path, configure_delay=0,
-                                                   candidate=CAR.SUBARU_LEGACY_2025, base_ns=None):
+                                                   candidate=CAR.SUBARU_LEGACY_2025, base_ns=None, engine_state=1, panda_fault=False):
   fw = firmware_records(candidate, FW_VERSIONS, 'subaru')
   rows = []
   with actual_factory(candidate, gen_empty_fingerprint(), fw, '0' * 17, manual=manual, aol=aol,
@@ -80,7 +80,7 @@ def test_actual_startup_factory_card_controls_native(enabled, manual, aol, subar
         incoming = stream.frames(values, tick=tick, omit=((Bus.pt, 'Dashlights'),) if candidate == CAR.SUBARU_OUTBACK_2023 else ())
         if tick % 10 == 0:
           for name, fields in (("Dashlights", {"COUNTER": (tick // 10) % 16}),
-                               ("Engine_Stop_Start", {"Counter": (tick // 10) % 16, "STOP_START_STATE": 1})):
+                               ("Engine_Stop_Start", {"Counter": (tick // 10) % 16, "STOP_START_STATE": engine_state})):
             incoming.append(ci.CC.packer.make_can_msg(name, 1, fields))
         receiver.update([(now, incoming)])
         safety.set_timer((now // 1000) & 0xFFFFFFFF)
@@ -97,6 +97,7 @@ def test_actual_startup_factory_card_controls_native(enabled, manual, aol, subar
         panda.pandaStates[0].ignitionLine = True
         panda.pandaStates[0].controlsAllowed = bool(safety.get_controls_allowed())
         panda.pandaStates[0].safetyRxChecksInvalid = not bool(safety.safety_config_valid())
+        panda.pandaStates[0].faults = ['interruptRateCan2'] if panda_fault else []
         device = messaging.new_message('deviceState', valid=True, logMonoTime=now)
         device.deviceState.started = True
         device.deviceState.startedMonoTime = 500_000_000
@@ -214,7 +215,8 @@ def test_actual_startup_factory_card_controls_native(enabled, manual, aol, subar
         assert not command.enabled and not command.latActive and not command.longActive, row
         assert not safety.get_controls_allowed() and safety.aol_get_permission_mask() == 0, row
       assert dash_emissions >= 20
-      assert bool(startup_emissions) == enabled
+      state_supported = engine_state in (1, 2) or (engine_state == 0 and candidate == CAR.SUBARU_OUTBACK_2023)
+      assert bool(startup_emissions) == (enabled and state_supported and not panda_fault)
       assert len(startup_emissions) <= 6
       if startup_emissions:
         assert startup_emissions[-1][0] - startup_emissions[0][0] < 300_000_000
@@ -240,3 +242,11 @@ def test_startup_option_preserves_actual_stock_engage_aol_brake_reverse_recovery
 @pytest.mark.parametrize('aol', [False, True])
 def test_late_native_configuration_still_gets_one_qualified_request(aol, subaru_native_pair, tmp_path):
   test_actual_startup_factory_card_controls_native(True, False, aol, subaru_native_pair, tmp_path, configure_delay=80, base_ns=200_000_000_000_000)
+
+
+@pytest.mark.parametrize('aol', [False, True])
+@pytest.mark.parametrize('enabled,engine_state,panda_fault', [(True, 0, False), (False, 0, False), (True, 0, True), (True, 3, False)])
+def test_outback_state_zero_actual_callers(aol, enabled, engine_state, panda_fault, subaru_native_pair, tmp_path):
+  test_actual_startup_factory_card_controls_native(enabled, False, aol, subaru_native_pair, tmp_path,
+                                                 candidate=CAR.SUBARU_OUTBACK_2023, base_ns=200_000_000_000_000,
+                                                 engine_state=engine_state, panda_fault=panda_fault)
