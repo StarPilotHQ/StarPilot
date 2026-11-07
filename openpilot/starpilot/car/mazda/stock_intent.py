@@ -4,6 +4,24 @@ from openpilot.selfdrive.car.cruise import CRUISE_LONG_PRESS
 from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE, ButtonType
 
 
+class _ButtonEventsView:
+  """CS with buttonEvents replaced; every other attribute reads through to CS.
+
+  The intent rewrites only the button events it hands to the base update. Copying
+  the whole CarState for that (structs.CarState(**CS.to_dict()) and as_reader())
+  cost about 1 ms of card's 10 ms frame on the device. The base update and
+  temporary_restriction only read attributes, so a read-through view is equivalent.
+  """
+  __slots__ = ('_cs', 'buttonEvents')
+
+  def __init__(self, cs, button_events):
+    self._cs = cs
+    self.buttonEvents = button_events
+
+  def __getattr__(self, name):
+    return getattr(self._cs, name)
+
+
 class MazdaStockCardIntent(AolCardIntent):
   observe_stock_engagement = True
 
@@ -81,7 +99,7 @@ class MazdaStockCardIntent(AolCardIntent):
       self._perform(action)
 
   def update(self, CS, **kwargs):
-    state = structs.CarState(**CS.to_dict())
+    state = CS
     events = []
     for event in CS.buttonEvents:
       if event.type == ButtonType.cancel:
@@ -149,13 +167,13 @@ class MazdaStockCardIntent(AolCardIntent):
         startup_main = True
       elif self.startup_native_ready and source_ns > 0:
         self.startup_main_source_ns = source_ns
-    state.buttonEvents = events
+    view = _ButtonEventsView(CS, events)
     now_ns = kwargs.get('now_ns', 0)
-    if getattr(self.cp, 'brand', None) == 'mazda' and temporary_restriction(self.cp, state):
+    if getattr(self.cp, 'brand', None) == 'mazda' and temporary_restriction(self.cp, view):
       self.restricted_ns = now_ns
     elif kwargs.get('native_rejection_ns', 0) and within_restriction_grace(self.restricted_ns, now_ns):
       kwargs['native_rejection_ns'] = 0
-    super().update(state.as_reader(), **kwargs)
+    super().update(view, **kwargs)
     if startup_main and not self._fault_inhibit:
       self.allowed_latch = True
       self._last_latch_edge_ns = kwargs.get('now_ns', 0)
