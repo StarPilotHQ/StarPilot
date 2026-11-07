@@ -89,7 +89,7 @@ class TestC4Toggles(unittest.TestCase):
     from openpilot.starpilot.galaxy.localization_settings import LocalizationSettingsOwner
     self.panel._localization = LocalizationSettingsOwner(self.params, lambda: True, lambda: True)
     for desired in (True, False):
-      self.panel._rhd_source = self.panel._localization.snapshot().rows[1].source
+      self.panel._rhd_source = next(row for row in self.panel._localization.snapshot().rows if row.key == "IsRhdDetected").source
       self.panel._on_rhd(desired)
       self.assertEqual(self.params.get_bool('IsRhdDetected'), desired)
       self.assertTrue(self.params.get_bool('OnroadCycleRequested'))

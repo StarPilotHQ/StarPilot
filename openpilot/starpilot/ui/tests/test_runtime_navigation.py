@@ -80,7 +80,7 @@ class TestExistingToggleOwner(unittest.TestCase):
       owner._localization = LocalizationSettingsOwner(params, lambda: True, lambda: True)
       with patch.object(owner, '_update_toggles'):
         for enabled in (True, False):
-          owner._rhd_source = owner._localization.snapshot().rows[1].source
+          owner._rhd_source = next(row for row in owner._localization.snapshot().rows if row.key == "IsRhdDetected").source
           self.assertTrue(owner._toggle_callback(enabled, 'IsRhdDetected'))
           self.assertEqual(params.get_bool('IsRhdDetected'), enabled)
           self.assertTrue(params.get_bool('OnroadCycleRequested'))

@@ -182,7 +182,7 @@ def test_galaxy_editor_converts_units_and_rejects_old_unit_press():
     fixture.params.put_bool('IsMetric', True, block=True)
     page = fixture.page('profiles')
     row = page['rows'][index]
-    assert row['unit'] == 'm' and float(row['value']) == 1.524
+    assert row['unit'] == 'm' and float(row['value']) == 1.5  # Galaxy shows a clean metric step; the saved 1.524 m is unchanged
     assert fixture.params.get('LongitudinalPersonalityProfiles') == saved
     intent = fixture.gateway.preview(page['view'], index, 0, fixture.session, fixture.generation, value=2.)
     fixture.params.put_bool('IsMetric', False, block=True)

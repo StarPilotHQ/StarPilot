@@ -221,7 +221,7 @@ class TogglesLayout(Widget):
     for toggle_def in self._toggle_defs:
       if self._toggle_defs[toggle_def][3] and toggle_def not in self._locked_toggles:
         self._toggles[toggle_def].action_item.set_enabled(not ui_state.engaged)
-    row = self._localization.snapshot().rows[1]
+    row = next(row for row in self._localization.snapshot().rows if row.key == "IsRhdDetected")
     self._rhd_source = row.source
     self._toggles["IsRhdDetected"].action_item.set_enabled(row.available and "IsRhdDetected" not in self._locked_toggles)
 
