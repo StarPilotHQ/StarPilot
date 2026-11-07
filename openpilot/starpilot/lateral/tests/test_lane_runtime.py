@@ -566,17 +566,21 @@ class LaneRuntimeTests(unittest.TestCase):
             if tick == 22:
               controls.sm.valid['carState'] = False
             command, _ = controls.state_control()
-            expected = tick == 0 or tick >= 16 and tick not in (20, 22) and (not marked or tick != 21)
+            # The steering pause applies to AOL steering only (marked); normally engaged steering never pauses.
+            # (Tick 22's stale carState was only caught by the pause's freshness check, which now guards AOL alone.)
+            expected = (tick != 20 if not marked else
+                        (tick == 0 or tick >= 16) and tick not in (20, 21, 22))
             self.assertEqual(command.latActive, expected, (marked, tick))
             self.assertEqual(command.enabled, not marked)
+          mode = dict(active=not marked, enabled=not marked, independent=marked)
           # A new drive discards the prior low-speed turn's delay.
-          feed(controls, 2_250_000_000, 25, signal=True, speed=0.)
-          self.assertFalse(controls.state_control()[0].latActive)
-          feed(controls, 2_260_000_000, 26, speed=2., drive_id=2_255_000_000)
+          feed(controls, 2_250_000_000, 25, signal=True, speed=0., **mode)
+          self.assertEqual(controls.state_control()[0].latActive, not marked)
+          feed(controls, 2_260_000_000, 26, speed=2., drive_id=2_255_000_000, **mode)
           self.assertTrue(controls.state_control()[0].latActive)
           # Live explicit opt-out refreshes without changing intent or the saved choice.
           params.put('PauseLateralSpeed', 0., block=True)
-          feed(controls, 3_300_000_000, 30, signal=True, speed=2.)
+          feed(controls, 3_300_000_000, 30, signal=True, speed=2., **mode)
           self.assertTrue(controls.state_control()[0].latActive)
           self.assertEqual(params.get('PauseLateralSpeed'), 0.)
           params.put('PauseLateralSpeed', 10., block=True)

@@ -735,12 +735,18 @@ class FeatureSettingsOwner:
     rows.insert(1, replace(toggle, capability=common.capability, vehicle_fingerprint=common.vehicle_fingerprint,
                            dependencies=common.dependencies,
                            reason="Otherwise pauses below the threshold with or without a signal. Applies within one second."))
+    # The steering pause only pauses AOL steering (controlsd), so these grey while AOL is off. An invalid saved value
+    # stays repairable, and Restore defaults can still reset them.
+    if self._value("AlwaysOnLateral")[0] != "1":
+      rows = [replace(row, available=False, reason="Turn on Always On Lateral first", default_reset_available=True)
+              if row.available and not row.repair_value else row for row in rows]
     return rows
 
-  def _apply_lateral_pause(self, request: FeatureSettingsRequest) -> bool:
+  def _apply_lateral_pause(self, request: FeatureSettingsRequest, *, reset_default: bool = False) -> bool:
     def authorized():
       row = next(row for row in self._lateral_pause_rows(self.authority("preferences")) if row.key == request.key)
-      return (row.available and (not row.repair_value or request.value == row.repair_value) and
+      greyed_reset = reset_default and row.default_reset_available and request.value == row.default_value
+      return ((row.available or greyed_reset) and (not row.repair_value or request.value == row.repair_value) and
               row.capability == request.capability and row.vehicle_fingerprint == request.vehicle_fingerprint and
               row.dependencies == request.dependencies and row.source == request.expected and
               row.display_unit == request.display_unit and request.related_source is None and not request.direction)
@@ -1368,7 +1374,7 @@ class FeatureSettingsOwner:
     if key == "ReverseCruise":
       return self._apply_reverse_cruise(request)
     if key in LATERAL_PAUSE_KEYS:
-      return self._apply_lateral_pause(request)
+      return self._apply_lateral_pause(request, reset_default=reset_default)
     if key == "FordHandsFreeCluster":
       return FordClusterFeature(self).apply(request)
     if key in FORD_BLUEPILOT_KEYS:

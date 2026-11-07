@@ -416,6 +416,9 @@ class Controls:
       )
       pause_source = int(self.sm.logMonoTime['carState']) if (self.sm.seen['carState'] and self.sm.alive['carState'] and self.sm.valid['carState']) else 0
       pause_allowed = self.lateral_pause.allowed(CS, now_ns=pause_now_ns, source_ns=pause_source, drive_id=pause_drive)
+    # The steering pause is an Always On Lateral setting: it pauses AOL steering only (openpilot not engaged),
+    # never steering while openpilot is engaged. The pause state above keeps updating either way.
+    pause_allowed = bool(pause_allowed or CC.enabled)
 
     CC.latActive = bool(CC.latActive and pause_allowed)
 
