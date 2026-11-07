@@ -121,3 +121,46 @@ def test_angle_eps_retention_preserves_independent_vetoes(fault):
       sm.update_msgs(now / 1e9, frames)
       rejected = feedback.observe(sm, sd.CP, state, now, latched=True, intent_producer_session='authority-card')
       assert rejected == (tick == 3)
+
+
+@pytest.mark.parametrize('identity', ('pe_long', 'ev9_long'))
+@pytest.mark.parametrize('full', (False, True))
+@pytest.mark.parametrize('steering', (False, True))
+@pytest.mark.parametrize('delivery', ('native_first', 'event_first', 'together'))
+def test_angle_eps_split_publications_preserve_only_armed_intent(identity, full, steering, delivery):
+  case = fixture.IoniqAvailabilityTests(methodName='runTest')
+  with ExitStack() as cleanup:
+    cleanup.callback(case.doCleanups)
+    cleanup.enter_context(OpenpilotPrefix())
+    cp = profile(identity)
+    assert cp is not None
+    sd, _, drive = case._authority_callers(full, cp=cp, genuine_events=True)
+    feedback = TransportPauseFeedback(sd.CP)
+    sm = messaging.SubMaster(['aolAxisState', 'onroadEvents', 'aolSafetyWire', 'pandaStates'])
+    state = fixture.car_state()
+    state.vEgoRaw = state.vEgo
+    state.cruiseState.enabled = full and cp.pcmCruise
+    for tick in range(9):
+      fault = 3 <= tick < 8
+      state.steerFaultTemporary = fault
+      axis, _, command = drive(tick, observed_state=state, steering=steering if fault else False,
+        allowed=not fault, native_request_lat=True, native_request_long=full)
+      now = 10_000_000_000 + tick * 10_000_000
+      frames = [sd.pm.messages['aolAxisState'], sd.pm.messages['onroadEvents']]
+      for name in ('aolSafetyWire', 'pandaStates'):
+        message = messaging.new_message(name, len(sd.sm[name]), valid=sd.sm.valid[name],
+          logMonoTime=sd.sm.logMonoTime[name])
+        setattr(message, name, sd.sm[name])
+        frames.append(message.as_reader())
+      assert bool(axis.lateralActive and command.latActive) == (not fault)
+      if tick == 3 and delivery != 'together':
+        sm.update_msgs(now / 1e9, frames[2:] if delivery == 'native_first' else frames[:2])
+        assert not feedback.observe(sm, sd.CP, state, now, latched=True,
+          intent_producer_session='authority-card'), 'NATIVE_FIRST_EPS_DISARMED'
+        assert not feedback.failed
+      sm.update_msgs(now / 1e9, frames)
+      assert not feedback.observe(sm, sd.CP, state, now, latched=True,
+        intent_producer_session='authority-card'), 'EPS_JOIN_DISARMED'
+      assert not feedback.failed
+      if fault:
+        assert not axis.lateralActive and not command.latActive

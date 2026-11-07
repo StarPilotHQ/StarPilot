@@ -1,0 +1,64 @@
+name: HKG angle recovery qualification
+on:
+  push:
+    branches: [codex/hkg-angle-retention-20261106]
+permissions:
+  contents: read
+jobs:
+  recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+      SCALE: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.1'
+          cache-dependency-path: mapd_repo/go.sum
+      - name: Fetch pinned map provider dependencies
+        working-directory: mapd_repo
+        env:
+          GOTOOLCHAIN: local
+        run: go mod download
+      - run: ./tools/op.sh setup
+      - name: Build matching Linux dependencies
+        run: .venv/bin/scons -j2
+      - name: Require the original split-delivery failure
+        shell: bash
+        run: |
+          .venv/bin/python - <<'PYCODE'
+          from pathlib import Path
+          import subprocess, xml.etree.ElementTree as ET, json
+          path=Path('openpilot/starpilot/aol/temporary_steering.py')
+          shipping=path.read_bytes()
+          original=subprocess.check_output(['git','show','68434cf39c501604fe962e9488a03bde0fed0d73:openpilot/starpilot/aol/temporary_steering.py'])
+          try:
+            path.write_bytes(original)
+            result=subprocess.run(['.venv/bin/python','-m','pytest','-q','openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py','-k','split_publications','--junitxml=baseline.xml'])
+            root=ET.parse('baseline.xml').getroot()
+            cases=list(root.iter('testcase')); failed=[c for c in cases if c.find('failure') is not None]
+            assert result.returncode==1 and len(failed)==4 and not list(root.iter('error'))
+            assert all('NATIVE_FIRST_EPS_DISARMED' in ''.join(c.find('failure').itertext()) for c in failed)
+            Path('baseline-result.json').write_text(json.dumps({'cases':len(cases),'expectedFailures':len(failed),'confirmed':True}))
+          finally:
+            path.write_bytes(shipping)
+          assert path.read_bytes()==shipping
+          PYCODE
+      - name: Run steering retention and independent safety veto regressions
+        run: |
+          .venv/bin/python -m pytest -q --junitxml=qualification.xml             openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py             openpilot/starpilot/aol/tests/test_pe_combined_profile_contract.py             openpilot/starpilot/aol/tests/test_stock_eps_recovery.py             openpilot/starpilot/aol/tests/test_runtime.py             openpilot/starpilot/aol/tests/test_source_pause_driver_monitoring.py
+      - name: Check owned Python files
+        run: |
+          .venv/bin/ruff check openpilot/starpilot/aol/temporary_steering.py openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py
+          .venv/bin/ty check openpilot/starpilot/aol/temporary_steering.py openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py
+      - name: Save exact results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hkg-angle-recovery-results
+          path: |
+            baseline.xml
+            baseline-result.json
+            qualification.xml

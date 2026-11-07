@@ -150,7 +150,7 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
   if (native is None or not native.pandaInventory or
       stock_eps_user and (native.requestedLongitudinal or native.longitudinalAllowed) or
       held_original and not (native.requestedLateral and (native.lateralAllowed or
-        restricted_eps and (ford_alpha_eps or not native.requestedLongitudinal and not native.longitudinalAllowed))) or
+        restricted_eps and (ford_alpha_eps or hkg_angle_eps or not native.requestedLongitudinal and not native.longitudinalAllowed))) or
       axis.longitudinalActive and not native.longitudinalAllowed or
       native.observedMonoTime < self.lateral_native_ns or
       (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) != self.lateral_inventory):
