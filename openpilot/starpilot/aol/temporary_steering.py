@@ -49,7 +49,8 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     now_ns - previous[8] <= AXIS_MAX_AGE_NS and
     0 < self.lateral_source_ns <= now_ns and
     now_ns - self.lateral_source_ns <= AXIS_MAX_AGE_NS)
-  held_original = bool(axis.desiredLateral and axis.lateralActive and axis.nativeAcknowledged and
+  held_original = bool(axis.desiredLateral and (axis.lateralActive or
+    cp.brand == 'hyundai' and str(cp.steerControlType) == 'angle' and fresh_active_successor) and axis.nativeAcknowledged and
     (signature == previous or fresh_active_successor))
   if not withdrawn and not held_original:
     return False

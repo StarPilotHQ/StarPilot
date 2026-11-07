@@ -53,8 +53,8 @@ jobs:
             result=subprocess.run(['.venv/bin/python','-m','pytest','-q','openpilot/starpilot/aol/tests/test_hkg_angle_eps_retention.py','-k','split_publications or stopped_full_request','--junitxml=baseline.xml'])
             root=ET.parse('baseline.xml').getroot()
             cases=list(root.iter('testcase')); failed=[c for c in cases if c.find('failure') is not None]
-            assert result.returncode==1 and len(failed)==8 and not list(root.iter('error'))
-            assert all(any(marker in ''.join(c.find('failure').itertext()) for marker in ('NATIVE_FIRST_EPS_DISARMED','STOPPED_FULL_REQUEST_DISARMED')) for c in failed)
+            assert result.returncode==1 and len(failed)==16 and not list(root.iter('error'))
+            assert all(any(marker in ''.join(c.find('failure').itertext()) for marker in ('NATIVE_FIRST_EPS_DISARMED','STOPPED_FULL_REQUEST_DISARMED','NATIVE_PAUSE_EPS_DISARMED')) for c in failed)
             Path('baseline-result.json').write_text(json.dumps({'cases':len(cases),'expectedFailures':len(failed),'confirmed':True}))
           finally:
             path.write_bytes(shipping)
