@@ -54,7 +54,7 @@ class LongProfileFeatureTests(unittest.TestCase):
     self.assertIsNotNone(read_settings(self.params))
 
   def test_onroad_profile_values_edit_but_repair_remains_parked(self):
-    self.params.put_bool("CustomPersonalities", True, block=True)  # following settings are greyed while it is off
+    self.params.put_bool("CustomPersonalities", True, block=True)  # following settings are grayed while it is off
     owner = FeatureSettingsOwner(self.params, lambda group: group != "parked_preferences",
                                  vehicle_fingerprint=lambda: self.cp.carFingerprint,
                                  vehicle_params=lambda: self.cp)

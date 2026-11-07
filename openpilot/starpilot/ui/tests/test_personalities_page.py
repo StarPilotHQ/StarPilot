@@ -71,9 +71,9 @@ class PersonalitiesPageTests(unittest.TestCase):
     self.assertEqual(self.document()["profiles"]["standard"]["following"]["preset"], "custom_simple")
     self.assertEqual(self.row("standard", "Edit custom following").page, "standard/custom_following")
     page = "standard/custom_following"
-    self.assertEqual(self.labels(page), ["Customisation", "Low-speed follow", "High-speed follow", "Acceleration jerk", "Deceleration jerk",
+    self.assertEqual(self.labels(page), ["Customization", "Low-speed follow", "High-speed follow", "Acceleration jerk", "Deceleration jerk",
                                          "Speed jerk", "Speed decrease jerk", "Danger jerk", "Reset Profile to Default"])
-    self.set(page, "Customisation", "Advanced")
+    self.set(page, "Customization", "Advanced")
     following = self.document()["profiles"]["standard"]["following"]
     self.assertEqual(following["preset"], "custom")
     self.assertEqual(len(following["curve"]), 10)
@@ -81,7 +81,7 @@ class PersonalitiesPageTests(unittest.TestCase):
     self.assertEqual(advanced[1:11], [f"Following at {speed} mph" for speed in range(0, 91, 10)])
     self.assertNotIn("Low-speed follow", advanced)
     curve = following["curve"]
-    self.set(page, "Customisation", "Simple")  # back to Simple keeps the Advanced curve for later
+    self.set(page, "Customization", "Simple")  # back to Simple keeps the Advanced curve for later
     self.assertEqual(self.document()["profiles"]["standard"]["following"], {"preset": "custom_simple", "curve": curve})
     self.set("standard", "Following", "Close")
     self.assertEqual(self.document()["profiles"]["standard"]["following"]["preset"], "close")

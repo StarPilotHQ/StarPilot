@@ -572,7 +572,7 @@ class LaneRuntimeTests(unittest.TestCase):
                         (tick == 0 or tick >= 16) and tick not in (20, 21, 22))
             self.assertEqual(command.latActive, expected, (marked, tick))
             self.assertEqual(command.enabled, not marked)
-          mode = dict(active=not marked, enabled=not marked, independent=marked)
+          mode = {"active": not marked, "enabled": not marked, "independent": marked}
           # A new drive discards the prior low-speed turn's delay.
           feed(controls, 2_250_000_000, 25, signal=True, speed=0., **mode)
           self.assertEqual(controls.state_control()[0].latActive, not marked)

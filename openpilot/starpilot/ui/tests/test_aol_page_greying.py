@@ -1,4 +1,4 @@
-"""Always On Lateral page: the switch leads, Brake pause below greys while AOL is off, and the steering-pause rows
+"""Always On Lateral page: the switch leads, Brake pause below grays while AOL is off, and the steering-pause rows
 (which pause all steering, not only AOL) stay editable."""
 
 from pathlib import Path
@@ -73,13 +73,17 @@ class AolPageGreyingTests(unittest.TestCase):
     repair = self.row(THRESHOLD)
     self.assertTrue(repair.available)
     self.assertEqual(repair.repair_value, "0")
-    self.assertTrue(self.owner.apply(row_change(repair, 1)))
+    repair_request = row_change(repair, 1)
+    assert repair_request is not None
+    self.assertTrue(self.owner.apply(repair_request))
     self.assertEqual(self.params.get(THRESHOLD), 0.0)
-    self.assertFalse(self.row(THRESHOLD).available)  # repaired and valid, so greyed again while AOL is off
+    self.assertFalse(self.row(THRESHOLD).available)  # repaired and valid, so grayed again while AOL is off
 
   def test_steering_pause_edits_only_while_aol_is_on(self):
     self.params.put_bool("AlwaysOnLateral", True, block=True)
-    self.assertTrue(self.owner.apply(row_change(self.row("PauseLateralSpeed"), 1)))
+    change = row_change(self.row("PauseLateralSpeed"), 1)
+    assert change is not None
+    self.assertTrue(self.owner.apply(change))
     self.assertEqual(self.params.get("PauseLateralSpeed"), 1.0)
     self.params.put_bool("AlwaysOnLateral", False, block=True)
     for key, value in (("PauseLateralSpeed", "5"), ("PauseLateralOnSignal", "On"), ("LateralResumeDelay", "2")):
@@ -90,7 +94,7 @@ class AolPageGreyingTests(unittest.TestCase):
         self.assertFalse(self.owner.apply(request))
         self.assertFalse(self.owner.apply(request, reset_default=True))  # a "reset" must carry the real default
     self.assertEqual(self.params.get("PauseLateralSpeed"), 1.0)
-    row = self.row("PauseLateralSpeed")  # Restore defaults still resets a greyed row
+    row = self.row("PauseLateralSpeed")  # Restore defaults still resets a grayed row
     self.assertTrue(self.owner.apply(FeatureSettingsRequest("PauseLateralSpeed", row.source, row.default_value,
                                                             vehicle_fingerprint=row.vehicle_fingerprint, capability=row.capability,
                                                             dependencies=row.dependencies, display_unit=row.display_unit),

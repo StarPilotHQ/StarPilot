@@ -16,7 +16,8 @@ LABELS = {
 }
 PRESET_LABELS = {"selected_profile": "Selected Profile","dom_default": "StarPilot Default", "standard": "Normal", "eco": "Comfort", "sport": "Sport",
                  "sport_plus": "Sport+", "custom": "Custom", "close": "Close", "medium": "Medium", "far": "Far",
-                 "traffic": "Traffic", "legacy_close": "Legacy Close", "legacy_medium": "Legacy Medium", "legacy_far": "Legacy Far", "custom_simple": "Custom (Simple)"}
+                 "traffic": "Traffic", "legacy_close": "Legacy Close", "legacy_medium": "Legacy Medium", "legacy_far": "Legacy Far",
+                 "custom_simple": "Custom (Simple)"}
 VALUE_HELP = {
   "Follow": "Following time below 45 mph; higher values leave more space. Blends toward the high-speed value by 70 mph.",
   "FollowHigh": "Following time above 70 mph; higher values leave more space. A selected following curve takes priority.",

@@ -60,7 +60,7 @@ class LateralFeatureSettingsTests(unittest.TestCase):
 
   def test_global_steering_pause_rows_units_defaults_and_angle_vehicle(self):
     from opendbc.car.ford.values import CAR as FORD
-    self.params.put_bool("AlwaysOnLateral", True, block=True)  # the steering-pause rows are greyed while AOL is off
+    self.params.put_bool("AlwaysOnLateral", True, block=True)  # the steering-pause rows are grayed while AOL is off
     for angle in (False, True):
       if angle:
         self.cp = interfaces[FORD.FORD_ESCAPE_MK4].get_non_essential_params(FORD.FORD_ESCAPE_MK4)
@@ -256,7 +256,7 @@ class LateralFeatureSettingsTests(unittest.TestCase):
 
   def test_aol_explicit_metric_to_si_write_preserves_legacy(self):
     self.honda()
-    self.params.put_bool("AlwaysOnLateral", True, block=True)  # the threshold is greyed while AOL is off
+    self.params.put_bool("AlwaysOnLateral", True, block=True)  # the threshold is grayed while AOL is off
     self.params.put_bool("IsMetric", True, block=True)
     self.params.put("PauseAOLOnBrake", 10.0, block=True)
     legacy = Path(self.params.get_param_path("PauseAOLOnBrake")).read_bytes()
@@ -268,7 +268,7 @@ class LateralFeatureSettingsTests(unittest.TestCase):
 
   def test_aol_threshold_source_and_units_stale_release(self):
     self.honda()
-    self.params.put_bool("AlwaysOnLateral", True, block=True)  # the threshold is greyed while AOL is off
+    self.params.put_bool("AlwaysOnLateral", True, block=True)  # the threshold is grayed while AOL is off
     self.params.put("PauseAOLOnBrake", 10.0, block=True)
     request = required_change(self.row("aol", "AolBrakePauseSpeedMps"))
     self.params.put_bool("IsMetric", True, block=True)

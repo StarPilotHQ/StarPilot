@@ -2,7 +2,6 @@
 
 from pathlib import Path
 from dataclasses import replace
-from types import SimpleNamespace
 import os
 import tempfile
 import unittest
@@ -13,7 +12,6 @@ from openpilot.starpilot.longitudinal.profile_document import migrate_profile_do
 from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, row_change, row_default
 from openpilot.starpilot import saved_document
-from openpilot.starpilot.ui import feature_settings_owner
 
 
 def required_change(row: FeatureRow, direction: int = 1) -> FeatureSettingsRequest:
@@ -593,7 +591,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     self.assertEqual(document.read_bytes(), b"{invalid")
     self.assertFalse(self._row("curve", "CurveSpeedControllerNoLead").available)
     self.assertFalse(self._row("curve", "CurveSpeedController").available)
-    status = self._row("curve", "ShowCSCStatus")  # Galaxy: greyed while Curve Speed Controller is off
+    status = self._row("curve", "ShowCSCStatus")  # Galaxy: grayed while Curve Speed Controller is off
     self.assertFalse(status.available)
     self.assertEqual(status.reason, "Turn on Curve Speed Controller first")
     Path(self.params.get_param_path("CurveSpeedController")).write_bytes(b"maybe")
