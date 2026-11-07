@@ -3,7 +3,7 @@
 Rows and their availability still come from the canonical feature owners.
 This presentation catalog supplies the purpose before any genuine prerequisite.
 """
-from openpilot.starpilot.ui.long_profile_feature import CATEGORY_HELP, VALUE_HELP
+from openpilot.starpilot.ui.long_profile_feature import CATEGORY_CHOICE_HELP, CATEGORY_HELP, VALUE_HELP
 from openpilot.starpilot.ui.feature_settings_state import SLC_OFFSET_KEYS
 
 DESCRIPTIONS = {
@@ -57,8 +57,10 @@ DESCRIPTIONS = {
                         'Selected acceleration profiles, stop detection and vehicle limits still apply.'),
   'CustomPersonalities': 'Uses your following-time and jerk settings for the selected driving personality.',
   'profile:stopped_gap': 'Adds this distance to the following gap behind a stopped lead vehicle.',
-  'profile:global_acceleration': 'Chooses the acceleration curve used by personalities set to Selected Profile.',
-  'profile:global_braking': 'Chooses the braking response used by personalities set to Selected Profile.',
+  'profile:global_acceleration': ("Sets the acceleration curve for every driving personality. A personality with Custom acceleration " +
+    "on in Driving Personalities uses its own choice instead."),
+  'profile:global_braking': ("Sets the braking response for every driving personality. A personality with Custom braking " +
+    "on in Driving Personalities uses its own choice instead."),
   'reset_profiles': 'Restores the default acceleration, braking and following curves and presets.',
   'CurveSpeedController': 'Adjusts cruise speed for curves ahead using available learned cornering preferences.',
   'CurveSpeedControllerNoLead': 'Pauses curve-speed adjustments while following a lead vehicle.',
@@ -339,8 +341,11 @@ def purpose(row):
     parts = key.split(':')
     category = parts[2] if len(parts) >= 3 else None
     if category in CATEGORY_HELP:
+      # Personality-page controls carry their own text; only speed points share one.
+      if len(parts) == 4 and parts[3] in ('custom', 'choice', 'mode'):
+        return row.reason
       if len(parts) == 3:
-        return CATEGORY_HELP[category]
+        return CATEGORY_CHOICE_HELP.get(category, CATEGORY_HELP[category])
       return {'following': 'Sets following time at this speed. Higher values leave more space.',
               'acceleration': 'Sets the acceleration limit at this speed. Higher values allow stronger acceleration.',
               'braking': 'Sets braking response at this speed. Higher values allow stronger braking.'}[category]

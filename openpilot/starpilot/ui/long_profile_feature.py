@@ -16,7 +16,7 @@ LABELS = {
 }
 PRESET_LABELS = {"selected_profile": "Selected Profile","dom_default": "StarPilot Default", "standard": "Normal", "eco": "Comfort", "sport": "Sport",
                  "sport_plus": "Sport+", "custom": "Custom", "close": "Close", "medium": "Medium", "far": "Far",
-                 "traffic": "Traffic", "legacy_close": "Legacy Close", "legacy_medium": "Legacy Medium", "legacy_far": "Legacy Far"}
+                 "traffic": "Traffic", "legacy_close": "Legacy Close", "legacy_medium": "Legacy Medium", "legacy_far": "Legacy Far", "custom_simple": "Custom (Simple)"}
 VALUE_HELP = {
   "Follow": "Following time below 45 mph; higher values leave more space. Blends toward the high-speed value by 70 mph.",
   "FollowHigh": "Following time above 70 mph; higher values leave more space. A selected following curve takes priority.",
@@ -34,6 +34,11 @@ CATEGORY_HELP = {
              "Selected Profile inherits global values. These separate scales preserve existing tuning. " +
              "StarPilot Default keeps native cruise braking. Lead and stop braking retain priority.",
   "following": "Sets following time by speed and overrides the low/high-speed values. Default uses those values; higher times leave more space.",
+}
+# A personality page's own Acceleration / Braking choice (Driving Personalities).
+CATEGORY_CHOICE_HELP = {
+  "acceleration": "Comfort is gentler; Sport and Sport+ accelerate harder. Custom lets you set the limit at each speed.",
+  "braking": "Comfort brakes more gently, Sport more firmly. Custom lets you set the braking at each speed.",
 }
 
 
@@ -99,11 +104,10 @@ class LongProfileFeature:
                                capability=cap, dependencies=dependencies))
     rows.append(FeatureRow(RESET_PREFIX + name, "Reset Profile to Default", "",
                            health.values[SCALARS[name][0]].raw,
-                           available=repair_allowed and cap is not None and health.values["CustomPersonalities"].valid and
+                           available=repair_allowed and cap is not None and
                                      health.values["LongitudinalPersonalityProfiles"].valid and
                                      all(value.readable for value in health.values.values()),
-                           reason="Restore saved switch first" if not health.values["CustomPersonalities"].valid else
-                                  "Repair invalid document or unreadable source first" if
+                           reason="Repair invalid document or unreadable source first" if
                                   not health.values["LongitudinalPersonalityProfiles"].valid or
                                   not all(value.readable for value in health.values.values()) else "",
                            capability=cap, dependencies=dependencies))
@@ -149,9 +153,10 @@ class LongProfileFeature:
       if name not in NAMES or request.expected != expected[SCALARS[name][0]]:
         return False
       master = health.values["CustomPersonalities"]
-      if not master.valid or not health.values["LongitudinalPersonalityProfiles"].valid:
+      if not health.values["LongitudinalPersonalityProfiles"].valid:
         return False
-      was_on = master.value is True
+      # The old global switch no longer gates tuning (Following = Custom does); it is only paused if it was On.
+      was_on = master.valid and master.value is True
       if was_on:
         if not self._fresh(request, expected):
           return False

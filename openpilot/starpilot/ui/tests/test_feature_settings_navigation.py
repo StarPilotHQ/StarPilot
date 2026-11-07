@@ -662,7 +662,7 @@ class FeatureNavigationTests(unittest.TestCase):
         params.put_bool("CustomPersonalities", True, block=True)
         path = Path(params.get_param_path("LongitudinalPersonalityProfiles"))
         path.write_bytes(b"{invalid")
-        adapter.open("profiles")
+        adapter.open("personalities")  # the invalid-document reset moved with Custom Following and Jerk
         profiles = pushed[-1]
         card(profiles, "reset invalid profiles").click()
         pushed[-1].confirm()

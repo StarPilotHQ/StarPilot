@@ -13,7 +13,6 @@ from openpilot.starpilot.longitudinal.profile_runtime import read_settings
 from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
 from openpilot.starpilot.ui.feature_settings_state import feature_row_top, FeatureInput, FeatureSettingsRequest, row_change
 from openpilot.starpilot.ui import feature_settings_compact as compact
-from openpilot.starpilot.ui.long_profile_feature import long_confirm_question
 from openpilot.starpilot.ui.runtime_app import StarShellSession
 
 
@@ -47,9 +46,7 @@ class LongProfileFeatureTests(unittest.TestCase):
     self.path("RelaxedFollow").write_bytes(b"nan")
     self.assertFalse(read_profile_health(self.params).dependencies_valid)
     self.assertIsNone(read_settings(self.params))
-    master = self.row("profiles", "CustomPersonalities")
-    self.assertTrue(master.available)  # Off remains possible with a corrupt dependent.
-    repair = self.row("relaxed", "long_repair:RelaxedFollow")
+    repair = self.row("relaxed/custom_following", "long_repair:RelaxedFollow")
     self.assertTrue(repair.available)
     self.assertIsNone(row_change(repair))
     self.assertTrue(self.owner.apply(self.confirm(repair)))
@@ -57,10 +54,11 @@ class LongProfileFeatureTests(unittest.TestCase):
     self.assertIsNotNone(read_settings(self.params))
 
   def test_onroad_profile_values_edit_but_repair_remains_parked(self):
+    self.params.put_bool("CustomPersonalities", True, block=True)  # following settings are greyed while it is off
     owner = FeatureSettingsOwner(self.params, lambda group: group != "parked_preferences",
                                  vehicle_fingerprint=lambda: self.cp.carFingerprint,
                                  vehicle_params=lambda: self.cp)
-    state = owner.snapshot("relaxed", parked=False, system_long=True, lateral_context=True, metric=False,
+    state = owner.snapshot("relaxed/custom_following", parked=False, system_long=True, lateral_context=True, metric=False,
                            configure_while_driving=True)
     follow = next(row for row in state.rows if row.key == "RelaxedFollow")
     self.assertTrue(follow.available)
@@ -69,27 +67,20 @@ class LongProfileFeatureTests(unittest.TestCase):
     self.assertTrue(owner.apply(request))
     self.assertFalse(owner.apply(request))  # The displayed source is now stale.
     self.path("RelaxedJerkDanger").write_bytes(b"bad")
-    state = owner.snapshot("relaxed", parked=False, system_long=True, lateral_context=True, metric=False,
+    state = owner.snapshot("relaxed/custom_following", parked=False, system_long=True, lateral_context=True, metric=False,
                            configure_while_driving=True)
     repair = next(row for row in state.rows if row.key == "long_repair:RelaxedJerkDanger")
     self.assertFalse(repair.available)
     self.assertFalse(owner.apply(self.confirm(repair)))
 
-  def test_master_on_requires_all_saved_dependencies_valid(self):
+  def test_tuning_requires_all_saved_dependencies_valid(self):
     self.assertTrue(read_profile_health(self.params).dependencies_valid)
+    self.assertNotIn("CustomPersonalities", [row.key for row in self.owner.snapshot(
+      "personalities", parked=True, system_long=True, lateral_context=True, metric=False).rows])
     self.path("RelaxedJerkDanger").write_bytes(b"201")
-    master = self.row("profiles", "CustomPersonalities")
-    self.assertFalse(master.available)
-    self.assertIsNone(row_change(master))
-    self.assertFalse(self.params.get_bool("CustomPersonalities"))
-    repair = self.row("relaxed", "long_repair:RelaxedJerkDanger")
+    self.assertIsNone(read_settings(self.params))
+    repair = self.row("relaxed/custom_following", "long_repair:RelaxedJerkDanger")
     self.assertTrue(self.owner.apply(self.confirm(repair)))
-    master = self.row("profiles", "CustomPersonalities")
-    self.assertTrue(master.available)
-    request = row_change(master)
-    self.assertIsNotNone(request)
-    assert request is not None
-    self.assertTrue(self.owner.apply(request))
     self.assertIsNotNone(read_settings(self.params))
 
   def test_nonfinite_and_deep_document_fail_closed(self):
@@ -101,30 +92,17 @@ class LongProfileFeatureTests(unittest.TestCase):
     self.assertFalse(read_profile_health(self.params).dependencies_valid)
     self.assertIsNone(read_settings(self.params))
 
-  def test_invalid_flag_and_master_repair_never_enables(self):
+  def test_invalid_retired_flags_and_switch_are_ignored(self):
     self.path("StandardPersonalityProfile").write_bytes(b"bad")
     self.path("CustomPersonalities").write_bytes(b"bad")
-    self.assertIsNone(read_settings(self.params))
-    master_repair = self.row("profiles", "long_repair:CustomPersonalities")
-    self.assertIn("to Off", master_repair.label)
-    self.assertIn("to Off", long_confirm_question(master_repair))
-    self.assertTrue(self.owner.apply(self.confirm(master_repair)))
-    self.assertFalse(self.params.get_bool("CustomPersonalities"))
-    self.assertFalse(any(row.key == "long_repair:StandardPersonalityProfile" for row in self.owner.snapshot(
-      "standard", parked=True, system_long=True, lateral_context=False, metric=False).rows))
+    self.assertIsNotNone(read_settings(self.params))  # Neither gates tuning any more.
+    self.assertFalse(any(row.key.startswith("long_repair:") for page in ("personalities", "standard", "standard/custom_following")
+                         for row in self.owner.snapshot(page, parked=True, system_long=True, lateral_context=False, metric=False).rows))
     self.assertEqual(self.path("StandardPersonalityProfile").read_bytes(), b"bad")
-    self.assertFalse(self.params.get_bool("CustomPersonalities"))
     self.assertTrue(read_profile_health(self.params).dependencies_valid)
+    self.assertTrue(self.row("standard/custom_following", "long_reset:standard").available)
 
-  def test_disabled_runtime_reads_only_master_and_invalid_defaults_fail(self):
-    original_path = self.params.get_param_path
-    seen = []
-    def path(key):
-      seen.append(key)
-      return original_path(key)
-    with patch.object(self.params, "get_param_path", side_effect=path):
-      self.assertIsNone(read_settings(self.params))
-    self.assertEqual(seen, ["CustomPersonalities"])
+  def test_invalid_defaults_fail(self):
     original_default = self.params.get_default_value
     with patch.object(self.params, "get_default_value", side_effect=lambda key: 999.0 if key == "RelaxedFollow" else original_default(key)):
       self.assertFalse(read_profile_health(self.params).dependencies_valid)
@@ -137,33 +115,19 @@ class LongProfileFeatureTests(unittest.TestCase):
     health = read_profile_health(self.params)
     self.assertFalse(health.values["RelaxedFollow"].readable)
     self.assertIsNone(read_settings(self.params))
-    repair = self.row("relaxed", "long_repair:RelaxedFollow")
+    repair = self.row("relaxed/custom_following", "long_repair:RelaxedFollow")
     self.assertFalse(repair.available)
     self.assertFalse(self.owner.apply(self.confirm(repair)))
-    self.assertFalse(self.row("relaxed", "long_reset:relaxed").available)
-    master = self.row("profiles", "CustomPersonalities")
-    self.assertTrue(master.available)
-    request = row_change(master)
-    self.assertIsNotNone(request)
-    assert request is not None
-    self.assertTrue(self.owner.apply(request))
-    self.assertFalse(self.params.get_bool("CustomPersonalities"))
+    self.assertFalse(self.row("relaxed/custom_following", "long_reset:relaxed").available)
 
-  def test_oversized_document_blocks_reset_but_allows_master_off(self):
+  def test_oversized_document_blocks_reset(self):
     self.params.put_bool("CustomPersonalities", True, block=True)
     self.path("LongitudinalPersonalityProfiles").write_bytes(b"{" + b"x" * 65536)
     self.assertFalse(read_profile_health(self.params).values["LongitudinalPersonalityProfiles"].readable)
-    reset = self.row("profiles", "reset_profiles")
+    reset = self.row("personalities", "reset_profiles")
     self.assertFalse(reset.available)
     self.assertFalse(self.owner.apply(self.confirm(reset)))
-    self.assertFalse(self.row("aggressive", "long_reset:aggressive").available)
-    master = self.row("profiles", "CustomPersonalities")
-    self.assertTrue(master.available)
-    request = row_change(master)
-    self.assertIsNotNone(request)
-    assert request is not None
-    self.assertTrue(self.owner.apply(request))
-    self.assertFalse(self.params.get_bool("CustomPersonalities"))
+    self.assertFalse(self.row("aggressive/custom_following", "long_reset:aggressive").available)
 
   def test_reset_exact_seven_preserves_other_sources_and_curves(self):
     self.params.put_bool("CustomPersonalities", True, block=True)
@@ -173,7 +137,7 @@ class LongProfileFeatureTests(unittest.TestCase):
     self.params.put("LongitudinalPersonalityProfiles", {}, block=True)
     before = {key: self.path(key).read_bytes() for key in
               ("StandardFollow", "AggressivePersonalityProfile", "LongitudinalPersonalityProfiles")}
-    row = self.row("aggressive", "long_reset:aggressive")
+    row = self.row("aggressive/custom_following", "long_reset:aggressive")
     self.assertTrue(self.owner.apply(self.confirm(row)))
     self.assertTrue(all(not self.path(key).exists() for key in SCALARS["aggressive"]))
     self.assertEqual(before, {key: self.path(key).read_bytes() for key in before})
@@ -182,23 +146,23 @@ class LongProfileFeatureTests(unittest.TestCase):
 
   def test_stale_and_changed_capability_cancel_before_write(self):
     self.path("RelaxedFollow").write_bytes(b"bad")
-    row = self.row("relaxed", "long_repair:RelaxedFollow")
+    row = self.row("relaxed/custom_following", "long_repair:RelaxedFollow")
     request = self.confirm(row)
     self.path("StandardJerkSpeed").write_bytes(b"151")
     self.assertFalse(self.owner.apply(request))
     self.assertEqual(self.path("RelaxedFollow").read_bytes(), b"bad")
-    request = self.confirm(self.row("relaxed", "long_repair:RelaxedFollow"))
+    request = self.confirm(self.row("relaxed/custom_following", "long_repair:RelaxedFollow"))
     self.cp.carVin = "VIN2"
     self.assertFalse(self.owner.apply(request))
     self.cp.carVin = "VIN1"
-    request = self.confirm(self.row("relaxed", "long_repair:RelaxedFollow"))
+    request = self.confirm(self.row("relaxed/custom_following", "long_repair:RelaxedFollow"))
     self.allowed = False
     self.assertFalse(self.owner.apply(request))
 
   def test_partial_reset_leaves_master_off(self):
     self.params.put_bool("CustomPersonalities", True, block=True)
     self.params.put("AggressiveFollow", 2.0, block=True)
-    row = self.row("aggressive", "long_reset:aggressive")
+    row = self.row("aggressive/custom_following", "long_reset:aggressive")
     original_remove = self.params.remove
     def remove_then_lose(key):
       original_remove(key)
@@ -209,7 +173,7 @@ class LongProfileFeatureTests(unittest.TestCase):
 
   def test_large_native_target_routes_confirm(self):
     self.path("AggressiveFollow").write_bytes(b"broken")
-    state = self.owner.snapshot("aggressive", parked=True, system_long=True, lateral_context=True, metric=False)
+    state = self.owner.snapshot("aggressive/custom_following", parked=True, system_long=True, lateral_context=True, metric=False)
     index = next(i for i, row in enumerate(state.rows) if row.key == "long_repair:AggressiveFollow")
     state = replace(state, scroll=index)
     self.assertEqual(FeatureInput.target(1900, feature_row_top(state) + 77, state).kind, "reset")
@@ -243,7 +207,7 @@ class LongProfileFeatureTests(unittest.TestCase):
     with patch.object(compact, "BigButton", Button), patch.object(compact, "GreyBigButton", Button), \
          patch.object(compact, "NavScroller", Scroller), patch.object(compact, "BigConfirmationDialog", Dialog), \
          patch.object(compact.gui_app, "push_widget", pushed.append), patch.object(compact.gui_app, "texture", lambda *args: None):
-      compact.FeatureSettingsCompact(Session(self.owner)).open("aggressive")
+      compact.FeatureSettingsCompact(Session(self.owner)).open("aggressive/custom_following")
       page = pushed[-1]
       next(item for item in page.items if item.text == "restore low-speed follow default").click()
       self.assertIn("may resume", pushed[-1].question)

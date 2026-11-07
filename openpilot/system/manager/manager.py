@@ -39,6 +39,10 @@ def manager_init() -> None:
       cloudlog.warning("Settings migration: %s", issue)
   except (OSError, ValueError, KeyError, UnknownKeyName):
     cloudlog.exception("Settings migration interrupted; retrying at next startup")
+  # Driving Personalities: carry the retired Custom Following and Jerk switch over to each personality's Following.
+  from openpilot.starpilot.longitudinal.profile_preferences import migrate_retired_switch
+  if not migrate_retired_switch(params):
+    cloudlog.warning("Driving Personalities: Custom Following and Jerk not carried over yet; retrying at next startup")
   from openpilot.starpilot.audio.default_enrollment import enroll_default_sounds
   try:
     enroll_default_sounds(params, starpilot_storage_root())

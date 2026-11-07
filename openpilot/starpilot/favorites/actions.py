@@ -25,7 +25,6 @@ FEATURE_KEYS = {
   "lane": ("LaneCentering", "LaneCenteringPauseOnSignal"),
   "curve": ("CurveSpeedController", "CurveSpeedControllerNoLead", "ShowCSCStatus"),
   "aol": ("AlwaysOnLateral", "NostalgiaMode"),
-  "profiles": ("CustomPersonalities",),
 }
 # Slots saved with a retired visibility key stay assigned and read as unavailable.
 APPEARANCE_KEYS = ("DriverCamera", "StockConfidenceBallWidget", "HideLeadMarker", "LeadInfo", "SignalMetrics", "BlindSpotMetrics",

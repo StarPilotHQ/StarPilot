@@ -39,7 +39,10 @@ def is_truck_fingerprint(fingerprint: object) -> bool:
 ACCELERATION_PRESETS = ("selected_profile", "dom_default", "standard", "eco", "sport", "sport_plus", "custom")
 BRAKING_PRESETS = ("selected_profile", "dom_default", "standard", "eco", "sport", "custom")
 _LEGACY_FOLLOWING_PRESETS = ("close", "medium", "far")
-FOLLOWING_PRESETS = ("dom_default", "close", "medium", "far", "traffic", "custom", "legacy_close", "legacy_medium", "legacy_far")
+# custom_simple: Custom following in Simple mode (the personality's Low/High-speed follow); it keeps any saved Advanced curve.
+FOLLOWING_PRESETS = ("dom_default", "close", "medium", "far", "traffic", "custom", "legacy_close", "legacy_medium", "legacy_far",
+                     "custom_simple")
+CUSTOM_FOLLOWING_PRESETS = ("custom", "custom_simple")
 CURVE_BOUNDS = {
   "acceleration": (0.0, 3.5),
   "braking": (0.5, 2.0),
@@ -589,8 +592,8 @@ def category_curve(category: str, config: dict, ev_tuning: bool, truck_tuning: b
   if validated is None:
     raise ValueError(f"Invalid {category} profile configuration.")
   preset = validated["preset"]
-  if preset in ("dom_default", "selected_profile"):
-    raise ValueError("Dom default resolves through the legacy controller path")
+  if preset in ("dom_default", "selected_profile", "custom_simple"):
+    raise ValueError("Dom default and Simple custom following resolve through the scalar follow values")
   if preset == "custom":
     return list(validated["curve"])
   if category == "acceleration":

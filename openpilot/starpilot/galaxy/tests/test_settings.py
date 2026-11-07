@@ -256,7 +256,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertEqual([row["page"] for row in hub["rows"]],
                      ["curve", "slc", "lane", "lane_change", "profiles", "conditional", "torque", "aol", "wheel",
                      "vehicle", "personalities"])
-    self.assertEqual([row["page"] for row in self.page("personalities")["rows"]],
+    self.assertEqual([row["page"] for row in self.page("personalities")["rows"] if row["page"]],
                      ["aggressive", "standard", "relaxed", "traffic"])
     for page in ("slc", "lane", "lane_change", "profiles", "conditional", "conditional/cem", "conditional/ccm",
                  "curve", "torque", "aol", "appearance", "display", "sounds", "pip", "sentry", "personalities",
@@ -868,7 +868,7 @@ class SettingsGatewayTest(unittest.TestCase):
 
   def test_global_profiles_use_existing_owner_and_remain_editable_onroad(self):
     page = self.page("profiles")
-    index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Selected Deceleration Profile")
+    index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Deceleration Profile")
     self.assertEqual(page["rows"][index]["value"], "Comfort")
     self.assertEqual(page["rows"][index]["choices"], ["StarPilot Default", "Normal", "Comfort", "Sport"])
     intent = self.gateway.preview(page["view"], index, 0, self.session, self.generation, value="Sport")
@@ -896,7 +896,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertEqual(document["selectedDecelerationProfile"], "sport")
     self.assertNotIn("globalBrakingResponse", document)
     self.assertEqual(document["profiles"]["aggressive"]["braking"], previous)
-    acceleration = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Selected Acceleration Profile")
+    acceleration = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Acceleration Profile")
     page = self.page("profiles")
     intent = self.gateway.preview(page["view"], acceleration, 1, self.session, self.generation)
     self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
@@ -905,19 +905,19 @@ class SettingsGatewayTest(unittest.TestCase):
   def test_traffic_saved_controls_and_explicit_follow_repair_use_shared_gateway(self):
     from openpilot.starpilot.longitudinal.profile_runtime import read_traffic_settings
 
-    page = self.page("traffic")
+    page = self.page("traffic/custom_following")
     follow = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Low-speed follow")
     self.assertEqual((page["rows"][follow]["value"], page["rows"][follow]["unit"]), ("0.75", "s"))
-    self.assertIn("inactive while Custom Driving Profiles is Off", page["rows"][follow]["reason"])
+    self.assertIn("Sets following time at low speeds", page["rows"][follow]["reason"])
     self.assertEqual([row["page"] for row in page["rows"] if row["page"]],
                      [])
     intent = self.gateway.preview(page["view"], follow, 1, self.session, self.generation)
     self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
     self.assertEqual(self.params.get("TrafficFollow"), 0.8)
-    self.assertEqual(read_traffic_settings(self.params).follow[0], 0.75)
+    self.assertEqual(read_traffic_settings(self.params).follow[0], 0.8)  # Read always; Following decides use.
     path = Path(self.params.get_param_path("TrafficFollow"))
     path.write_bytes(b"0.5")
-    page = self.page("traffic")
+    page = self.page("traffic/custom_following")
     follow = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Low-speed follow")
     self.assertTrue(page["rows"][follow]["action"])
     self.assertEqual(page["rows"][follow]["minimum"], 0.5)
@@ -1569,7 +1569,7 @@ class SettingsHttpTest(SettingsHttpFixture):
     def preview():
       status, page, _ = self.request("/api/settings/pages/profiles", cookie=cookie)
       self.assertEqual(status, 200)
-      index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Selected Deceleration Profile")
+      index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Deceleration Profile")
       status, result, _ = self.request("/api/settings/preview", cookie=cookie,
         payload={"view": page["view"], "row": index, "value": "Comfort"})
       self.assertEqual(status, 200)

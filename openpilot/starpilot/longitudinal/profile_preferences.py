@@ -126,6 +126,50 @@ def read_document_value(params) -> SavedValue:
   return SavedValue(raw, document, valid, True)
 
 
+def migrate_retired_switch(params) -> bool:
+  """One-time move from the retired Custom Following and Jerk switch (CustomPersonalities) to each personality's own
+  Following = Custom, keeping every personality driving as before:
+  switch On: a personality on StarPilot Default becomes Custom (Simple), so its saved follow and jerk still apply;
+  switch Off: a following choice that never applied goes back to StarPilot Default.
+  The switch is removed once done, so this runs once. Returns True when nothing is left to do."""
+  import json
+  from openpilot.starpilot.longitudinal.profile_document import strict_profile_document
+  from openpilot.starpilot.saved_document import commit_exact
+  try:
+    raw, readable = _read(params, "CustomPersonalities")
+    if not readable:
+      return False
+    if raw is None:
+      return True
+    saved = read_document_value(params)
+    if not saved.valid:
+      return False  # repair the document first; the switch stays until then
+    document = saved.value if isinstance(saved.value, dict) else profile_document(default_personality_profiles(False), enabled=False)
+    document = json.loads(json.dumps(document))
+    master_on = raw == b"1"
+    changed = False
+    for profile in document["profiles"].values():
+      preset = profile["following"]["preset"]
+      target = ("custom_simple" if preset == "dom_default" else preset) if master_on else "dom_default"
+      if target != preset:
+        profile["following"]["preset"] = target
+        changed = True
+    if changed:
+      canonical = strict_profile_document(document)
+      if canonical is None:
+        return False
+      encoded = json.dumps(canonical, separators=(",", ":"), sort_keys=True, allow_nan=False).encode()
+      result = commit_exact(params, key=PERSONALITY_PROFILES_PARAM, max_bytes=65536, raw=encoded, expected=saved.raw,
+                            authorized=lambda: _read(params, "CustomPersonalities") == (raw, True), temp_prefix=".following-switch-")
+      if not (result.committed and result.verified):
+        return False
+    if _read(params, "CustomPersonalities") == (raw, True):
+      params.remove("CustomPersonalities")
+    return True
+  except (OSError, RuntimeError, TypeError, ValueError, KeyError, RecursionError):
+    return False
+
+
 def _scalar_value(key: str, raw: bytes | None, default: object) -> SavedValue:
   try:
     number = float(raw) if raw is not None else default if isinstance(default, (int, float)) and not isinstance(default, bool) else None
@@ -171,12 +215,10 @@ def read_traffic_health(params) -> TrafficHealth:
   values = {"CustomPersonalities": master}
   if not master.valid:
     return TrafficHealth(values, "invalid_master")
-  custom = master.value is True
-  if custom:
-    document = read_document_value(params)
-    values[PERSONALITY_PROFILES_PARAM] = document
+  # Traffic's Following choice (in the document) now decides whether its saved values apply; always read both.
+  values[PERSONALITY_PROFILES_PARAM] = read_document_value(params)
   for key in TRAFFIC_NUMBER_KEYS:
-    raw, readable = _read(params, key) if custom else (None, True)
+    raw, readable = _read(params, key)
     values[key] = (_scalar_value(key, raw, params.get_default_value(key))
                    if readable else SavedValue(raw, None, False, False))
   bad = next((key for key, value in values.items() if not value.valid), None)

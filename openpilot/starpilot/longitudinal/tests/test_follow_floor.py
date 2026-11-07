@@ -19,6 +19,9 @@ def test_registered_half_second_follow_reaches_mpc_and_resets_to_stock_owner(tmp
   params.put_bool('CustomPersonalities', True, block=True)
   params.put('TrafficFollow', .5, block=True)
   params.put('RelaxedFollow', .5, block=True)
+  # The planner host carries the retired switch over to Traffic's Following = Custom (Simple) before it reads.
+  from openpilot.starpilot.longitudinal.profile_preferences import migrate_retired_switch
+  assert migrate_retired_switch(params)
   settings = read_traffic_settings(params)
   assert settings.valid
   cp = CarInterface.get_non_essential_params(CAR.HONDA_CIVIC)

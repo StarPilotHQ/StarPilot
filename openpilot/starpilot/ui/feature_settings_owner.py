@@ -26,7 +26,7 @@ from openpilot.starpilot.longitudinal.encouragement import KEY as NUDGE_KEY
 from openpilot.starpilot.longitudinal.planner_selection import KEY as PLANNER_SELECTION_KEY, save_selection
 
 from openpilot.starpilot.longitudinal.profile_document import (
-  ACCELERATION_PRESETS, ACCELERATION_SPEEDS_MPH, BRAKING_PRESETS, FOLLOWING_PRESETS, CURVE_BOUNDS,
+  ACCELERATION_PRESETS, ACCELERATION_SPEEDS_MPH, BRAKING_PRESETS, CUSTOM_FOLLOWING_PRESETS, FOLLOWING_PRESETS, CURVE_BOUNDS,
   DEFAULT_DECELERATION_PROFILE, MAX_EXTRA_STOPPED_GAP_M, PERSONALITY_PROFILES_PARAM, default_personality_profiles, initial_custom_curve,
   FOLLOWING_SPEEDS_MPH, is_truck_fingerprint,
   personality_reference_curves, serialize_personality_profiles,
@@ -44,7 +44,7 @@ from openpilot.starpilot.ui.torque_feature import TorqueFeature
 from openpilot.starpilot.ui.controller_feature import ControllerFeature, SETUP_ACTION
 from openpilot.starpilot.ui.slc_offset_feature import SlcOffsetOwner
 from openpilot.starpilot.longitudinal.profile_preferences import read_document_value, read_profile_health
-from openpilot.starpilot.ui.long_profile_feature import (LongProfileFeature, is_long_confirm_action, VALUE_HELP, CATEGORY_HELP,
+from openpilot.starpilot.ui.long_profile_feature import (LongProfileFeature, is_long_confirm_action, VALUE_HELP, CATEGORY_HELP, CATEGORY_CHOICE_HELP,
                                                        preset_label, preset_value)
 from openpilot.starpilot.ui.traffic_feature import TrafficFeature, EDIT_KEYS as TRAFFIC_EDIT_KEYS
 from openpilot.starpilot.ui.lane_change_feature import LaneChangeFeature, KEYS as LANE_CHANGE_KEYS
@@ -113,6 +113,15 @@ SLC_PRIORITY = "SLCPriority1"
 SLC_SECONDARY = "SLCPriority2"
 SLC_ADVANCE_CHOICES = ('Off', *(f'{seconds} s' for seconds in range(1, 11)))
 LONG_PREFIX = "profile:"
+# The personality page's Following list: "Custom" covers Simple (custom_simple) and Advanced (custom).
+FOLLOWING_CHOICES = ("StarPilot Default", "Close", "Medium", "Far", "Traffic", "Custom", "Legacy Close", "Legacy Medium", "Legacy Far")
+
+
+def personality_summary(profile: dict) -> str:
+  def shown(category):
+    preset = profile[category]["preset"]
+    return ("Long Planner" if preset == "selected_profile" else "Custom" if preset in CUSTOM_FOLLOWING_PRESETS else preset_label(preset))
+  return f"Following: {shown('following')} · Acceleration: {shown('acceleration')} · Braking: {shown('braking')}"
 PRESETS = {"acceleration": ACCELERATION_PRESETS, "braking": BRAKING_PRESETS, "following": FOLLOWING_PRESETS}
 PROFILE_NAMES = ("aggressive", "standard", "relaxed")
 DOCUMENT_PROFILE_NAMES = ("traffic", *PROFILE_NAMES)
@@ -742,6 +751,84 @@ class FeatureSettingsOwner:
               if row.available and not row.repair_value else row for row in rows]
     return rows
 
+  def _profile_sub_rows(self, name: str, category: str, **context) -> dict[str, FeatureRow]:
+    rows = self.snapshot(f"{name}/{category}", metric=False, **context).rows
+    return {row.key: row for row in rows if row.key}
+
+  def _personality_page_rows(self, name: str, **context) -> list[FeatureRow]:
+    """Acceleration, braking (each with a Custom toggle) and following; custom values open on their own pages."""
+    document, raw, valid = self._document()
+    profile = (document["profiles"][name] if document is not None else default_personality_profiles(False, False)[name]) if valid else None
+    rows = []
+    for category, general in (("acceleration", "Acceleration Profile"), ("braking", "Deceleration Profile")):
+      sub = self._profile_sub_rows(name, category, **context)
+      preset_row = sub[f"{LONG_PREFIX}{name}:{category}"]
+      preset = profile[category]["preset"] if profile else None
+      custom_on = preset not in (None, "selected_profile")
+      shared = (document["selectedAccelerationProfile" if category == "acceleration" else "selectedDecelerationProfile"]
+                if document is not None else ("dom_default" if category == "acceleration" else DEFAULT_DECELERATION_PROFILE))
+      rows.append(FeatureRow(f"{LONG_PREFIX}{name}:{category}:custom", f"Custom {category}", "On" if custom_on else "Off", raw,
+                             ("Off", "On") if profile else (), available=preset_row.available and profile is not None,
+                             capability=preset_row.capability, dependencies=preset_row.dependencies, default_value="Off",
+                             reason=f"Off uses Long Planner's {general} ({preset_label(shared)}). On lets {name.title()} use its own."))
+      if custom_on:
+        rows.append(replace(preset_row, label=category.title(), choices=tuple(c for c in preset_row.choices if c != "Selected Profile"),
+                            default_value=None, reason=CATEGORY_CHOICE_HELP[category]))
+        if preset == "custom":
+          rows.append(FeatureRow("", f"Edit custom {category}", "Set the limit at each speed", page=f"{name}/{category}", available=True))
+    sub = self._profile_sub_rows(name, "following", **context)
+    preset_row = sub[f"{LONG_PREFIX}{name}:following"]
+    preset = profile["following"]["preset"] if profile else None
+    custom = preset in CUSTOM_FOLLOWING_PRESETS
+    rows.append(FeatureRow(f"{LONG_PREFIX}{name}:following:choice", "Following", "Custom" if custom else preset_label(preset) if preset else
+                           "Invalid document", raw, FOLLOWING_CHOICES if profile else (), available=preset_row.available and profile is not None,
+                           capability=preset_row.capability, dependencies=preset_row.dependencies, default_value="StarPilot Default",
+                           reason="StarPilot Default uses openpilot's standard gap and smoothness. Close, Medium, Far and Traffic are set gaps "
+                                  "by speed. Custom uses your own gap and smoothness."))
+    if custom:
+      rows.append(FeatureRow("", "Edit custom following", ("Advanced" if preset == "custom" else "Simple") + ": gap and smoothness",
+                             page=f"{name}/custom_following", available=True))
+    return rows
+
+  def _custom_following_rows(self, name: str, *, parked: bool, configurable: bool, system_long: bool, **context) -> list[FeatureRow]:
+    """Simple (low and high-speed gap) or Advanced (gap at each 10 mph), then the smoothness (jerk) values."""
+    context = {"parked": parked, "system_long": system_long, **context}
+    document, raw, valid = self._document()
+    profile = (document["profiles"][name] if document is not None else default_personality_profiles(False, False)[name]) if valid else None
+    preset = profile["following"]["preset"] if profile else None
+    advanced = preset == "custom"
+    sub = self._profile_sub_rows(name, "following", **context)
+    preset_row = sub[f"{LONG_PREFIX}{name}:following"]
+    rows = [FeatureRow(f"{LONG_PREFIX}{name}:following:mode", "Customisation", "Advanced" if advanced else "Simple", raw,
+                       ("Simple", "Advanced") if preset in CUSTOM_FOLLOWING_PRESETS else (),
+                       available=preset_row.available and preset in CUSTOM_FOLLOWING_PRESETS,
+                       capability=preset_row.capability, dependencies=preset_row.dependencies, default_value="Simple",
+                       reason=("Simple: one gap at low speed and one at high speed. Advanced: a gap for every 10 mph." if preset in
+                               CUSTOM_FOLLOWING_PRESETS else "Set Following to Custom first"))]
+    if advanced:
+      rows.extend(replace(row, label=f"Following at {row.label.removesuffix(' point')}") for row in sub.values()
+                  if row.label.endswith(" mph point"))
+    if name == "traffic":
+      traffic = self.traffic_profiles.rows(parked, system_long, repair_allowed=parked)
+      rows.extend(row for row in traffic if not (advanced and row.key in ("TrafficFollow", "")))
+      return rows
+    allowed = configurable and system_long
+    health = read_profile_health(self.params)
+    title = name.title()
+    for suffix, label in (
+      ("Follow", "Low-speed follow"), ("FollowHigh", "High-speed follow"),
+      ("JerkAcceleration", "Acceleration jerk"), ("JerkDeceleration", "Deceleration jerk"),
+      ("JerkSpeed", "Speed jerk"), ("JerkSpeedDecrease", "Speed decrease jerk"), ("JerkDanger", "Danger jerk")):
+      if advanced and suffix in ("Follow", "FollowHigh"):
+        continue
+      key = title + suffix
+      number_row = self._number_row(key, label, allowed)
+      rows.append(replace(number_row, reason=VALUE_HELP[suffix] if number_row.available else number_row.reason)
+                  if health.values[key].readable else
+                  FeatureRow(key, label, "Invalid saved value", health.values[key].raw, reason="Saved source unreadable or too large"))
+    rows.extend(self.long_profiles.rows(name, health, allowed, repair_allowed=parked and allowed))
+    return rows
+
   def _apply_lateral_pause(self, request: FeatureSettingsRequest, *, reset_default: bool = False) -> bool:
     def authorized():
       row = next(row for row in self._lateral_pause_rows(self.authority("preferences")) if row.key == request.key)
@@ -846,8 +933,16 @@ class FeatureSettingsOwner:
                              page=FeaturePage.PERSONALITIES, available=True))
     elif page == FeaturePage.PERSONALITIES:
       title = "Driving Personalities"
-      rows = [FeatureRow("", name.title() + " Personality", "", page=name, available=True)
-              for name in (*PROFILE_NAMES, "traffic")]
+      document, raw, valid = self._document()
+      if not valid:
+        health = read_profile_health(self.params)
+        rows.append(FeatureRow("reset_profiles", "Invalid profile document", "", raw,
+                               available=parked and configurable and system_long and health.values[PERSONALITY_PROFILES_PARAM].readable,
+                               reason="Resets saved curves and presets" if health.values[PERSONALITY_PROFILES_PARAM].readable else
+                                      "Saved document unreadable or too large"))
+      for name in (*PROFILE_NAMES, "traffic"):
+        profile = (document["profiles"][name] if document is not None else default_personality_profiles(False, False)[name]) if valid else None
+        rows.append(FeatureRow("", name.title() + " Personality", personality_summary(profile) if profile else "", page=name, available=True))
     elif page == FeaturePage.VEHICLE:
       title = "Vehicle Settings"
       rows = list(self._alpha_long_rows(parked))
@@ -1226,51 +1321,17 @@ class FeatureSettingsOwner:
                              unit="m" if unit_value == "1" else "ft", available=allowed and valid and unit_valid,
                              dependencies=(("IsMetric", unit_raw),), display_unit="m" if unit_value == "1" else "ft",
                              default_value="0", reason="Adds space behind slow or stopped leads with the StarPilot planner; zero keeps the normal gap."))
-      health = read_profile_health(self.params)
-      master = health.values["CustomPersonalities"]
-      master_row = self._bool_row("CustomPersonalities", "Custom Following and Jerk",
-                                  allowed and (health.dependencies_valid or master.value is True))
-      reason = ("Invalid saved profile settings; restore defaults below" if not health.dependencies_valid else
-                "Enables saved following and jerk settings, plus preserved legacy curves. New acceleration/deceleration selections apply independently.")
-      rows.append(replace(master_row, related_source=raw, dependencies=self.long_profiles.dependencies(health),
-                          capability=self.long_profiles.capability(),
-                          reason=reason if master.valid else "Invalid saved master preference"))
-      if not master.valid:
-        rows.append(FeatureRow("long_repair:CustomPersonalities", "Restore saved profiles switch to Off",
-                               "Invalid saved switch", master.raw,
-                               available=parked and allowed and master.readable and self.long_profiles.capability() is not None,
-                               capability=self.long_profiles.capability(), dependencies=self.long_profiles.dependencies(health)))
-      if not valid:
-        rows.append(FeatureRow("reset_profiles", "Invalid profile document", "", raw,
-                               available=parked and allowed and health.values[PERSONALITY_PROFILES_PARAM].readable,
-                               reason="Resets saved curves and presets" if health.values[PERSONALITY_PROFILES_PARAM].readable else
-                                      "Saved document unreadable or too large"))
-    elif page == FeaturePage.TRAFFIC:
-      title = "Traffic Profile"
-      rows.extend(self.traffic_profiles.rows(configurable, system_long, repair_allowed=parked))
-      for category in PRESETS:
-        rows.append(FeatureRow("", category.title(), ""))
-        rows.extend(self.snapshot(f"traffic/{category}", parked=parked, system_long=system_long, lateral_context=lateral_context, metric=False,
-                                  configure_while_driving=configure_while_driving).rows)
-    elif page in PROFILE_NAMES:
-      allowed = configurable and system_long
-      name = page.title()
-      health = read_profile_health(self.params)
-      for suffix, label in (
-        ("Follow", "Low-speed follow"), ("FollowHigh", "High-speed follow"),
-        ("JerkAcceleration", "Acceleration jerk"), ("JerkDeceleration", "Deceleration jerk"),
-        ("JerkSpeed", "Speed jerk"), ("JerkSpeedDecrease", "Speed decrease jerk"), ("JerkDanger", "Danger jerk")):
-        key = name + suffix
-        number_row = self._number_row(key, label, allowed)
-        rows.append(replace(number_row, reason=VALUE_HELP[suffix] if number_row.available else number_row.reason)
-                    if health.values[key].readable else
-                    FeatureRow(key, label, "Invalid saved value", health.values[key].raw,
-                               reason="Saved source unreadable or too large"))
-      rows.extend(self.long_profiles.rows(page, health, allowed, repair_allowed=parked and allowed))
-      for category in PRESETS:
-        rows.append(FeatureRow("", category.title(), ""))
-        rows.extend(self.snapshot(f"{page}/{category}", parked=parked, system_long=system_long, lateral_context=lateral_context, metric=False,
-                                  configure_while_driving=configure_while_driving).rows)
+      # Custom Following and Jerk (and its repairs) moved to Driving Personalities, the page it switches.
+    elif page == FeaturePage.TRAFFIC or page in PROFILE_NAMES:
+      if page == FeaturePage.TRAFFIC:
+        title = "Traffic Profile"
+      rows.extend(self._personality_page_rows(page, parked=parked, system_long=system_long, lateral_context=lateral_context,
+                                              configure_while_driving=configure_while_driving))
+    elif page.endswith("/custom_following") and page.split("/", 1)[0] in DOCUMENT_PROFILE_NAMES:
+      name = page.split("/", 1)[0]
+      title = f"{name.title()} Custom Following"
+      rows.extend(self._custom_following_rows(name, parked=parked, configurable=configurable, system_long=system_long,
+                                              lateral_context=lateral_context, configure_while_driving=configure_while_driving))
     elif "/" in page:
       name, category = page.split("/", 1)
       if name in DOCUMENT_PROFILE_NAMES and category in PRESETS:
@@ -1799,6 +1860,40 @@ class FeatureSettingsOwner:
                           authorized=authorized, temp_prefix=".long-profile-")
     return result.committed and result.verified
 
+  def _personality_control(self, name: str, category: str, control: str, value, config: dict, document) -> str | None:
+    """The preset a personality-page control stands for, or None when the request does not fit the control."""
+    if control == "custom" and category in ("acceleration", "braking") and value in ("On", "Off"):
+      if value == "Off":
+        return "selected_profile"
+      if config["preset"] != "selected_profile":
+        return config["preset"]
+      field = "selectedAccelerationProfile" if category == "acceleration" else "selectedDecelerationProfile"
+      return document[field] if document is not None else ("dom_default" if category == "acceleration" else DEFAULT_DECELERATION_PROFILE)
+    if control == "choice" and category == "following" and value in FOLLOWING_CHOICES:
+      chosen = preset_value(value)
+      if chosen == "custom":
+        return config["preset"] if config["preset"] in CUSTOM_FOLLOWING_PRESETS else "custom_simple"
+      return chosen
+    if control == "mode" and category == "following" and value in ("Simple", "Advanced") and config["preset"] in CUSTOM_FOLLOWING_PRESETS:
+      return "custom_simple" if value == "Simple" else "custom"
+    return None
+
+  def _simple_following_curve(self, name: str) -> list[float] | None:
+    if name == "traffic":
+      source = dict(self.traffic_profiles._sources()[0])
+      low, low_valid = self.traffic_profiles._value("TrafficFollow", source["TrafficFollow"])
+      high, high_valid = self.traffic_profiles._value("RelaxedFollow", source["RelaxedFollow"])
+      if not low_valid or not high_valid or low is None or high is None:
+        return None
+      return [round(low + (high - low) * min(speed * MPH_TO_MPS / 25.0, 1.0), 4) for speed in FOLLOWING_SPEEDS_MPH]
+    try:
+      low, high = float(self._value(name.title() + "Follow")[0]), float(self._value(name.title() + "FollowHigh")[0])
+    except ValueError:
+      return None
+    bounds = CURVE_BOUNDS["following"]
+    return [round(min(max(low + (high - low) * min(max((speed - 45.0) / 25.0, 0.0), 1.0), bounds[0]), bounds[1]), 4)
+            for speed in FOLLOWING_SPEEDS_MPH]
+
   def _edit_document(self, key: str, value: str, *, seed_capability: tuple | None = None) -> str | None:
     parts = key.split(":")
     if key == "profile:stopped_gap":
@@ -1848,6 +1943,11 @@ class FeatureSettingsOwner:
     truck = is_truck_fingerprint(fingerprint) and not ev if name == "traffic" or seed_capability is not None else is_truck_fingerprint(fingerprint)
     profiles = document["profiles"] if document is not None else default_personality_profiles(ev, truck)
     config = profiles[name][category]
+    if len(parts) == 4 and parts[3] in ("custom", "choice", "mode"):
+      value = self._personality_control(name, category, parts[3], value, config, document)
+      if value is None:
+        return None
+      parts = parts[:3]
     seed_config = config
     if config['preset'] == 'selected_profile':
       selected = (document['selectedAccelerationProfile' if category == 'acceleration' else 'selectedDecelerationProfile']
@@ -1877,6 +1977,12 @@ class FeatureSettingsOwner:
           low, high = CURVE_BOUNDS[category]
           reference = [round(max(low, min(high, point)), 4)
                        for point in personality_reference_curves(ev, truck)[name][category]]
+      if value == "custom" and seed_config["preset"] == "custom_simple" and not seed_config["curve"]:
+        # Simple to Advanced: start the curve from the personality's own low/high-speed gap.
+        seed_config = {"preset": "dom_default", "curve": []}
+        reference = self._simple_following_curve(name)
+        if reference is None:
+          return None
       if config['preset'] == 'selected_profile' and category == 'braking' and seed_config['preset'] != 'dom_default' and not config['curve']:
         magnitude = {'standard': 1.2, 'eco': 0.6, 'sport': 2.4}[seed_config['preset']]
         curve = [min(magnitude, CURVE_BOUNDS['braking'][1])] * len(ACCELERATION_SPEEDS_MPH) if value == 'custom' else []
