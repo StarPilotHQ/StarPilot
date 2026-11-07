@@ -49,7 +49,8 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     now_ns - previous[8] <= AXIS_MAX_AGE_NS and
     0 < self.lateral_source_ns <= now_ns and
     now_ns - self.lateral_source_ns <= AXIS_MAX_AGE_NS)
-  held_original = bool(axis.desiredLateral and axis.lateralActive and axis.nativeAcknowledged and
+  held_original = bool(axis.desiredLateral and (axis.lateralActive or
+    cp.brand == 'hyundai' and str(cp.steerControlType) == 'angle' and fresh_active_successor) and axis.nativeAcknowledged and
     (signature == previous or fresh_active_successor))
   if not withdrawn and not held_original:
     return False
@@ -150,7 +151,7 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
   if (native is None or not native.pandaInventory or
       stock_eps_user and (native.requestedLongitudinal or native.longitudinalAllowed) or
       held_original and not (native.requestedLateral and (native.lateralAllowed or
-        restricted_eps and (ford_alpha_eps or not native.requestedLongitudinal and not native.longitudinalAllowed))) or
+        restricted_eps and (ford_alpha_eps or hkg_angle_eps or not native.requestedLongitudinal and not native.longitudinalAllowed))) or
       axis.longitudinalActive and not native.longitudinalAllowed or
       native.observedMonoTime < self.lateral_native_ns or
       (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) != self.lateral_inventory):

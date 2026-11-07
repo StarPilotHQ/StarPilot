@@ -1177,6 +1177,7 @@ class TransportPauseFeedback:
     ccnc_stop = bool((cs.standstill or 0 <= cs.vEgoRaw <= .3) and cp.openpilotLongitudinalControl and
       cp.carFingerprint in (CAR.KIA_EV9, CAR.HYUNDAI_IONIQ_5_PE) and not cs.accFaulted and not cs.steeringDisengage)
     combined_stop = bool(ccnc_stop and axis.desiredLongitudinal and axis.longitudinalActive)
+    pending_stop = bool(ccnc_stop and axis.desiredLongitudinal and not axis.longitudinalActive and not axis.lateralActive)
     subaru_stop = cs.standstill and subaru_restriction(cp, cs)
     if (not (qualified(cp, marked_only=True) or mazda_qualified(cp, marked_only=True) or subaru_stop or ccnc_stop) or
       cs.gearShifter != car.CarState.GearShifter.drive or
@@ -1187,7 +1188,7 @@ class TransportPauseFeedback:
       not producer or producer != self.availability_producer or
       axis.intentProducerSessionId != producer or axis.intentIntegrityEpoch != self.availability_epoch or
       not (axis.desiredLateral or subaru_stop and not axis.lateralActive) or not axis.nativeAcknowledged or
-      (axis.desiredLongitudinal or axis.longitudinalActive) and not combined_stop or
+      (axis.desiredLongitudinal or axis.longitudinalActive) and not (combined_stop or pending_stop) or
       not 0 < axis.sourceCarStateMonoTime <= stamp <= now_ns or
       now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS):
       return False
@@ -1198,10 +1199,19 @@ class TransportPauseFeedback:
             event.name not in (log.OnroadEvent.EventName.pcmDisable, log.OnroadEvent.EventName.pedalPressed)
             for event in sm['onroadEvents'])):
       return False
-    native = _configured_transport_native(sm, cp, self.session, now_ns, allow_restricted_lateral=True)
+    native = _configured_transport_native(sm, cp, self.session, now_ns,
+      require_longitudinal=not pending_stop, allow_restricted_lateral=True)
+    if native is None and combined_stop:
+      newer = _configured_transport_native(sm, cp, self.session, now_ns,
+        require_longitudinal=False, allow_restricted_lateral=True)
+      if (newer is not None and newer.pandaInventory and
+          0 < int(sm.logMonoTime['pandaStates']) < newer.sourcePandaStatesMonoTime and
+          all(slot.controlsAllowed for slot, config in zip(newer.pandaInventory, cp.safetyConfigs, strict=True)
+              if str(config.safetyModel) not in ('silent', 'noOutput'))):
+        native = newer
     return bool(native is not None and native.pandaInventory and native.requestedLateral and
       (not native.lateralAllowed or subaru_stop and not axis.desiredLateral and not axis.lateralActive) and
-      (not native.requestedLongitudinal and not combined_stop or
+      (pending_stop or not native.requestedLongitudinal and not combined_stop or
        combined_stop and native.requestedLongitudinal and native.longitudinalAllowed) and
       native.observedMonoTime >= self.lateral_native_ns and
       (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) == self.lateral_inventory)
