@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.honda.values import CAR as HONDA_CAR
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR, HyundaiFlags
+from openpilot.starpilot.longitudinal.profile_document import default_personality_profiles, profile_document
 from openpilot.cereal import log, messaging
 from openpilot.common.params import Params
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
@@ -294,7 +295,9 @@ class TrafficOwnerTests(unittest.TestCase):
 
   def test_assigned_never_pressed_missing_media_keeps_ordinary_custom_profile(self):
     self.params.put('ModeButtonControl', 6, block=True)
-    self.params.put_bool('CustomPersonalities', True, block=True)
+    profiles = default_personality_profiles(False)
+    profiles['standard']['following'] = {'preset': 'custom_simple', 'curve': []}  # Following = Custom (Simple) uses the saved follow values
+    self.params.put('LongitudinalPersonalityProfiles', profile_document(profiles, enabled=True), block=True)
     self.params.put('StandardFollow', 2.1, block=True)
     self.params.put('StandardFollowHigh', 2.1, block=True)
     host = ProfileHost(self.params)

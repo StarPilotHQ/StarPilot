@@ -5,7 +5,7 @@ from opendbc.car.honda.values import CAR
 from openpilot.cereal import log
 from openpilot.common.params import Params
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
-from openpilot.starpilot.longitudinal.profile_document import default_personality_profiles, serialize_personality_profiles
+from openpilot.starpilot.longitudinal.profile_document import default_personality_profiles, profile_document, serialize_personality_profiles
 from openpilot.starpilot.longitudinal.profile_runtime import read_settings, read_traffic_settings, resolve
 from openpilot.starpilot.longitudinal.upstream.planner import LongitudinalPlanner as StockPlanner
 from openpilot.starpilot.longitudinal.tests.test_profile_runtime import FrameSM
@@ -16,12 +16,12 @@ from openpilot.starpilot.longitudinal.lead_approach import LeadApproach, LeadApp
 
 def test_registered_half_second_follow_reaches_mpc_and_resets_to_stock_owner(tmp_path):
   params = Params(str(tmp_path))
-  params.put_bool('CustomPersonalities', True, block=True)
+  # Traffic's Following = Custom (Simple) is what puts the saved follow and smoothness values in use.
+  profiles = default_personality_profiles(False)
+  profiles['traffic']['following'] = {'preset': 'custom_simple', 'curve': []}
+  params.put('LongitudinalPersonalityProfiles', profile_document(profiles, enabled=True), block=True)
   params.put('TrafficFollow', .5, block=True)
   params.put('RelaxedFollow', .5, block=True)
-  # The planner host carries the retired switch over to Traffic's Following = Custom (Simple) before it reads.
-  from openpilot.starpilot.longitudinal.profile_preferences import migrate_retired_switch
-  assert migrate_retired_switch(params)
   settings = read_traffic_settings(params)
   assert settings.valid
   cp = CarInterface.get_non_essential_params(CAR.HONDA_CIVIC)
@@ -57,8 +57,12 @@ def test_registered_half_second_follow_reaches_mpc_and_resets_to_stock_owner(tmp
 
 def test_sub_half_second_saved_value_remains_invalid_and_unmodified(tmp_path):
   params = Params(str(tmp_path))
-  params.put_bool('CustomPersonalities', True, block=True)
   params.put('TrafficFollow', .499, block=True)
+  # Not in use while Traffic's Following is StarPilot Default: ignored and left as saved.
+  assert read_traffic_settings(params).valid
+  profiles = default_personality_profiles(False)
+  profiles['traffic']['following'] = {'preset': 'custom_simple', 'curve': []}
+  params.put('LongitudinalPersonalityProfiles', profile_document(profiles, enabled=True), block=True)
   assert not read_traffic_settings(params).valid
   assert params.get('TrafficFollow') == .499
 

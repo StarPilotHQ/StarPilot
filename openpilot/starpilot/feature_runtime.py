@@ -13,8 +13,7 @@ from openpilot.starpilot.conditional_mode.preferences import PreferenceError, de
 from openpilot.starpilot.aol.intent import independent_axis_requested, read_settings as read_aol_settings
 from openpilot.starpilot.aol.vehicle import policy_for as aol_policy_for
 from openpilot.starpilot.feature_capabilities import display_supported, longitudinal_supported
-from openpilot.starpilot.longitudinal.profile_runtime import (read_settings as read_profile_settings, personality_tuning_requested,
-                                                             selected_profiles_requested, read_global_powertrain_preset)
+from openpilot.starpilot.longitudinal.profile_runtime import personality_tuning_requested, selected_profiles_requested, read_global_powertrain_preset
 from openpilot.starpilot.longitudinal.profile_preferences import read_document_value
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.speed_limits.runtime_settings import Settings as SlcSettings, read_params as read_slc_settings
@@ -53,11 +52,10 @@ def requested(params, feature: str, *, include_auxiliary: bool = False, saved_sl
       return False
     return independent_axis_requested(read_aol_settings(params), include_auxiliary=include_auxiliary)
   if feature == 'profile':
+    # Decided from the document alone: a personality's Following or acceleration/braking choice asks for tuning.
     document = read_document_value(params)
     saved = document.value if document.valid and isinstance(document.value, dict) else None
-    settings = read_profile_settings(params)
-    return ((settings is not None and personality_tuning_requested(settings.document)) or
-            selected_profiles_requested(saved))
+    return personality_tuning_requested(saved) or selected_profiles_requested(saved)
   if feature in ('slc', 'vision'):
     settings = read_slc_settings(params) if saved_slc is None else saved_slc
     return (settings.enabled or settings.display) if feature == 'slc' else (

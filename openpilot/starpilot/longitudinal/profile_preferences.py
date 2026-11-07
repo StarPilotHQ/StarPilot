@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import math
 
 from openpilot.starpilot.longitudinal.profile_document import (
-  PERSONALITY_PROFILES_PARAM, default_personality_profiles, profile_document,
+  CUSTOM_FOLLOWING_PRESETS, PERSONALITY_PROFILES_PARAM, default_personality_profiles, profile_document,
   is_unconfigured_profile_document, migrate_profile_document,
 )
 from openpilot.starpilot.saved_source import read_saved
@@ -71,10 +71,6 @@ class TrafficHealth:
   def valid(self) -> bool:
     return self.reason == "valid"
 
-  @property
-  def master_on(self) -> bool:
-    return self.values["CustomPersonalities"].value is True
-
   def number(self, key: str) -> float:
     saved = self.values[key]
     if saved.valid and isinstance(saved.value, float):
@@ -104,9 +100,9 @@ def _bool_value(raw: bytes | None, default: object) -> SavedValue:
 
 
 def read_master_value(params) -> SavedValue:
+  """The retired Custom Following and Jerk switch (settings_retirement removes it); absent reads as Off."""
   raw, readable = _read(params, "CustomPersonalities")
-  return (_bool_value(raw, params.get_default_value("CustomPersonalities")) if readable else
-          SavedValue(raw, None, False, False))
+  return _bool_value(raw, False) if readable else SavedValue(raw, None, False, False)
 
 
 def read_document_value(params) -> SavedValue:
@@ -124,50 +120,6 @@ def read_document_value(params) -> SavedValue:
   except (RecursionError, ValueError, OverflowError):
     document, valid = None, False
   return SavedValue(raw, document, valid, True)
-
-
-def migrate_retired_switch(params) -> bool:
-  """One-time move from the retired Custom Following and Jerk switch (CustomPersonalities) to each personality's own
-  Following = Custom, keeping every personality driving as before:
-  switch On: a personality on StarPilot Default becomes Custom (Simple), so its saved follow and jerk still apply;
-  switch Off: a following choice that never applied goes back to StarPilot Default.
-  The switch is removed once done, so this runs once. Returns True when nothing is left to do."""
-  import json
-  from openpilot.starpilot.longitudinal.profile_document import strict_profile_document
-  from openpilot.starpilot.saved_document import commit_exact
-  try:
-    raw, readable = _read(params, "CustomPersonalities")
-    if not readable:
-      return False
-    if raw is None:
-      return True
-    saved = read_document_value(params)
-    if not saved.valid:
-      return False  # repair the document first; the switch stays until then
-    document = saved.value if isinstance(saved.value, dict) else profile_document(default_personality_profiles(False), enabled=False)
-    document = json.loads(json.dumps(document))
-    master_on = raw == b"1"
-    changed = False
-    for profile in document["profiles"].values():
-      preset = profile["following"]["preset"]
-      target = ("custom_simple" if preset == "dom_default" else preset) if master_on else "dom_default"
-      if target != preset:
-        profile["following"]["preset"] = target
-        changed = True
-    if changed:
-      canonical = strict_profile_document(document)
-      if canonical is None:
-        return False
-      encoded = json.dumps(canonical, separators=(",", ":"), sort_keys=True, allow_nan=False).encode()
-      result = commit_exact(params, key=PERSONALITY_PROFILES_PARAM, max_bytes=65536, raw=encoded, expected=saved.raw,
-                            authorized=lambda: _read(params, "CustomPersonalities") == (raw, True), temp_prefix=".following-switch-")
-      if not (result.committed and result.verified):
-        return False
-    if _read(params, "CustomPersonalities") == (raw, True):
-      params.remove("CustomPersonalities")
-    return True
-  except (OSError, RuntimeError, TypeError, ValueError, KeyError, RecursionError):
-    return False
 
 
 def _scalar_value(key: str, raw: bytes | None, default: object) -> SavedValue:
@@ -210,17 +162,23 @@ def read_profile_health(params, *, master: SavedValue | None = None) -> ProfileH
 
 
 def read_traffic_health(params) -> TrafficHealth:
-  """Read only Traffic dependencies; unrelated profile corruption stays local."""
-  master = read_master_value(params)
-  values = {"CustomPersonalities": master}
-  if not master.valid:
-    return TrafficHealth(values, "invalid_master")
-  # Traffic's Following choice (in the document) now decides whether its saved values apply; always read both.
-  values[PERSONALITY_PROFILES_PARAM] = read_document_value(params)
+  """Read only Traffic dependencies; unrelated profile corruption stays local.
+
+  Traffic's Following choice (in the document) decides which saved values apply: Custom (Simple) uses the saved follow
+  and smoothness, Custom (Advanced) the smoothness only. A saved value that is not in use cannot make Traffic
+  unavailable; its bytes stay as they are for repair and the registered default stands in.
+  """
+  document = read_document_value(params)
+  values = {PERSONALITY_PROFILES_PARAM: document}
+  preset = (document.value["profiles"]["traffic"]["following"]["preset"]
+            if document.valid and isinstance(document.value, dict) else "dom_default")
+  uses_follow, uses_jerk = preset == "custom_simple", preset in CUSTOM_FOLLOWING_PRESETS
   for key in TRAFFIC_NUMBER_KEYS:
     raw, readable = _read(params, key)
-    values[key] = (_scalar_value(key, raw, params.get_default_value(key))
-                   if readable else SavedValue(raw, None, False, False))
+    default = params.get_default_value(key)
+    saved = _scalar_value(key, raw, default) if readable else SavedValue(raw, None, False, False)
+    in_use = uses_follow if key in ("TrafficFollow", "RelaxedFollow") else uses_jerk
+    values[key] = saved if saved.valid or in_use else _scalar_value(key, None, default)
   bad = next((key for key, value in values.items() if not value.valid), None)
   if bad is not None:
     return TrafficHealth(values, f"invalid_{bad}")

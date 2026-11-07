@@ -3,11 +3,14 @@
 import base64
 import json
 import hashlib
+import math
 
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.longitudinal.profile_document import (
-  PERSONALITY_PROFILES_PARAM, migrate_profile_document, is_unconfigured_profile_document,
+  PERSONALITY_PROFILES_PARAM, STOCK_JERK, category_curve, default_personality_profiles, migrate_profile_document,
+  is_unconfigured_profile_document, profile_document, strict_profile_document,
 )
+from openpilot.starpilot.longitudinal.profile_preferences import SCALARS, TRAFFIC_JERK_SUFFIXES
 from openpilot.starpilot.ui.appearance_preferences import RETIRED_DISPLAY_KEYS, read_visibility
 from openpilot.starpilot.ui.onroad_customization import (
   MAX_BYTES as LAYOUT_MAX_BYTES, PARAM_KEY as LAYOUT_KEY, STOPPED_TIMER_WIDGET, decode_document, default_document, validate_document,
@@ -16,6 +19,13 @@ from openpilot.starpilot.ui.onroad_customization import (
 STATE_KEY = "SettingsRetirementState"
 EVIDENCE_KEY = "RetiredSettingsEvidence"
 PROFILE_FLAGS = tuple(name.title() + "PersonalityProfile" for name in ("aggressive", "standard", "relaxed", "traffic"))
+GROUPS = ("cruise", "profiles", "display", "following")
+# The Custom Following and Jerk switch, folded into each personality's Following choice.
+FOLLOWING_SWITCH = "CustomPersonalities"
+FOLLOWING_JERK_KEYS = {
+  **{name: SCALARS[name][2:] for name in SCALARS},
+  "traffic": tuple(prefix + suffix for prefix in ("Traffic", "Relaxed") for suffix in TRAFFIC_JERK_SUFFIXES),
+}
 
 
 def retire_settings(params):
@@ -67,8 +77,8 @@ def retire_settings(params):
   try:
     state = json.loads(state_raw) if state_readable and state_raw is not None else {"version": 1, "completed": []}
     state_valid = (isinstance(state, dict) and set(state) == {"version", "completed"} and state["version"] == 1 and
-                   isinstance(state["completed"], list) and len(state["completed"]) <= 3 and
-                   all(group in ("cruise", "profiles", "display") for group in state["completed"]))
+                   isinstance(state["completed"], list) and len(state["completed"]) <= len(GROUPS) and
+                   all(group in GROUPS for group in state["completed"]))
   except (ValueError, UnicodeError):
     state, state_valid = {"version": 1, "completed": []}, False
   if not state_readable or not state_valid:
@@ -126,6 +136,10 @@ def retire_settings(params):
       params.remove(key)
     finish("profiles")
 
+  if "following" not in completed:
+    if _retire_following_switch(params, issues, archive):
+      finish("following")
+
   if "display" not in completed:
     if _retire_display_switches(params, issues):
       finish("display")
@@ -180,4 +194,75 @@ def _retire_display_switches(params, issues):
     params.put(LAYOUT_KEY, validate_document(document), block=True)
   for key in RETIRED_DISPLAY_KEYS:
     params.remove(key)
+  return True
+
+
+def _saved_jerk_is_stock(params, name):
+  """Whether the personality's saved smoothness equals openpilot's own, so a named curve drives the same without it."""
+  for key in FOLLOWING_JERK_KEYS[name]:
+    raw, readable = read_saved(params, key, 128)
+    if not readable:
+      return False
+    try:
+      percent = float(raw) if raw is not None else 100.0
+    except (TypeError, ValueError):
+      return False
+    if not math.isfinite(percent) or not math.isclose(percent / 100.0, STOCK_JERK[name]):
+      return False
+  return True
+
+
+def _retire_following_switch(params, issues, archive):
+  """Fold the Custom Following and Jerk switch into each personality's Following choice, keeping what applied.
+
+  Switch On: a personality drove on its saved follow and smoothness values, so StarPilot Default becomes Custom
+  (Simple). A named curve that applied (curves enabled) keeps its name when the saved smoothness is stock and
+  otherwise becomes Custom (Advanced) with the same points, so the smoothness still applies; a curve that did not
+  apply (curves disabled) becomes Custom (Simple). Switch Off or absent: no saved following choice applied, so every
+  Following returns to StarPilot Default. Returns False, leaving the switch in place, when the document cannot be read.
+  """
+  raw, readable = read_saved(params, FOLLOWING_SWITCH, 8)
+  if not readable:
+    issues.append("Unreadable following switch; retained until the next startup")
+    return False
+  if raw not in (None, b"0", b"1"):
+    archive(FOLLOWING_SWITCH, raw, "Invalid following switch; treated as Off", readable)
+  master_on = raw == b"1"
+  raw_document, readable = read_saved(params, PERSONALITY_PROFILES_PARAM, 65536)
+  if not readable:
+    issues.append("Unreadable personality curves; following switch retained until the next startup")
+    return False
+  try:
+    document = migrate_profile_document(raw_document) if raw_document is not None else None
+  except (ValueError, TypeError, UnicodeError, RecursionError):
+    document = None
+  if raw_document is not None and document is None and not is_unconfigured_profile_document(raw_document):
+    issues.append("Invalid personality curves retained; following switch retained until they are repaired")
+    return False
+  if document is None:
+    document = profile_document(default_personality_profiles(False), enabled=False)
+  changed = False
+  for name, profile in document["profiles"].items():
+    following = profile["following"]
+    preset = following["preset"]
+    if not master_on:
+      target = {"preset": "dom_default", "curve": following["curve"]}
+    elif preset == "custom":
+      target = following if document["enabled"] else {"preset": "custom_simple", "curve": following["curve"]}
+    elif preset in ("custom_simple", "dom_default") or not document["enabled"]:
+      target = {"preset": "custom_simple", "curve": following["curve"]}
+    elif _saved_jerk_is_stock(params, name):
+      target = following
+    else:
+      target = {"preset": "custom", "curve": category_curve("following", following, False)}
+    if target != following:
+      profile["following"] = target
+      changed = True
+  if changed:
+    canonical = strict_profile_document(document)
+    if canonical is None:
+      issues.append("Personality curves could not be carried over; following switch retained")
+      return False
+    params.put(PERSONALITY_PROFILES_PARAM, canonical, block=True)
+  params.remove(FOLLOWING_SWITCH)
   return True

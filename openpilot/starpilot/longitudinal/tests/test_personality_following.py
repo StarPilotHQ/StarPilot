@@ -1,18 +1,14 @@
 """Each personality's Following choice decides its follow time and smoothness (7 Nov 2026):
 StarPilot Default = openpilot's own; a named curve = that curve with standard jerk; Custom = the saved values."""
 
-import json
 import unittest
 from copy import deepcopy
-from pathlib import Path
 
 from openpilot.cereal import log
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.toyota.values import CAR
 from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import get_T_FOLLOW, get_jerk_factor
-from openpilot.common.params import Params
-from openpilot.starpilot.longitudinal.profile_document import (PERSONALITY_PROFILES_PARAM, default_personality_profiles, profile_document,
-                                                               serialize_personality_profiles)
+from openpilot.starpilot.longitudinal.profile_document import default_personality_profiles, profile_document
 from openpilot.starpilot.longitudinal.profile_runtime import (
   STOCK_FOLLOW_SECONDS, STOCK_JERK, TRAFFIC_DEFAULT_FOLLOW, ProfileSettings, TrafficSettings, resolve,
 )
@@ -24,8 +20,8 @@ LOW_SPEED, HIGH_SPEED = 10.0, 35.0  # m/s: below 45 mph and above 70 mph
 class PersonalityFollowingTests(unittest.TestCase):
   def setUp(self):
     self.cp = interfaces[CAR.TOYOTA_COROLLA_TSS2].get_non_essential_params(CAR.TOYOTA_COROLLA_TSS2)
-    self.follow = {name: (1.1, 2.2) for name in ("aggressive", "standard", "relaxed")}
-    self.jerk = {name: (1.5, 1.6, 1.7, 1.8, 1.9) for name in ("aggressive", "standard", "relaxed")}
+    self.follow = dict.fromkeys(("aggressive", "standard", "relaxed"), (1.1, 2.2))
+    self.jerk = dict.fromkeys(("aggressive", "standard", "relaxed"), (1.5, 1.6, 1.7, 1.8, 1.9))
 
   def settings(self, preset, curve=None):
     profiles = deepcopy(default_personality_profiles(False, False))
@@ -76,37 +72,3 @@ class PersonalityFollowingTests(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
-
-
-def _migrate_case(tmp_path, switch, presets=None):
-  from openpilot.starpilot.longitudinal.profile_preferences import migrate_retired_switch
-  params = Params(str(tmp_path))
-  if switch is not None:
-    params.put_bool("CustomPersonalities", switch, block=True)
-  if presets is not None:
-    profiles = default_personality_profiles(False, False)
-    for name, preset in presets.items():
-      profiles[name]["following"] = {"preset": preset, "curve": profiles[name]["following"]["curve"] if preset == "custom" else []}
-    params.put(PERSONALITY_PROFILES_PARAM, json.loads(serialize_personality_profiles(profiles, False, enabled=True)), block=True)
-  assert migrate_retired_switch(params)
-  saved = params.get(PERSONALITY_PROFILES_PARAM)
-  document = saved if isinstance(saved, dict) or saved is None else json.loads(saved)
-  return params, document
-
-
-def test_retired_switch_on_keeps_saved_follow_and_jerk_in_use(tmp_path):
-  params, document = _migrate_case(tmp_path, True)
-  assert {name: p["following"]["preset"] for name, p in document["profiles"].items()} == dict.fromkeys(
-    ("traffic", "aggressive", "standard", "relaxed"), "custom_simple")
-  assert not Path(params.get_param_path("CustomPersonalities")).exists(), "the retired switch is removed once carried over"
-
-
-def test_retired_switch_off_drops_following_choices_that_never_applied(tmp_path):
-  params, document = _migrate_case(tmp_path, False, {"standard": "close"})
-  assert document["profiles"]["standard"]["following"]["preset"] == "dom_default"
-  assert not Path(params.get_param_path("CustomPersonalities")).exists()
-
-
-def test_no_retired_switch_changes_nothing(tmp_path):
-  params, document = _migrate_case(tmp_path, None, {"standard": "close"})
-  assert document["profiles"]["standard"]["following"]["preset"] == "close"

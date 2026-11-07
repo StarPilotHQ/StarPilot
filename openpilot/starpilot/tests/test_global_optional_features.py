@@ -112,8 +112,10 @@ def test_toyota_curve_host_cap_reaches_actual_native_mpc_and_inactive_axis_denie
 
 def test_toyota_profile_host_and_slc_ceiling_reach_actual_native_planner(tmp_path):
   params, cp = Params(str(tmp_path)), toyota()
-  params.put_bool('CustomPersonalities', True, block=True)
-  params.put('LongitudinalPersonalityProfiles', profile_document(default_personality_profiles(True), enabled=True), block=True)
+  profiles = default_personality_profiles(True)
+  for profile in profiles.values():
+    profile['following'] = {'preset': 'custom_simple', 'curve': []}  # Following = Custom (Simple): saved follow and smoothness apply
+  params.put('LongitudinalPersonalityProfiles', profile_document(profiles, enabled=True), block=True)
   host = ProfileHost(params)
   planner = LongitudinalPlanner(cp, init_v=25.0)
   ceiling = CruiseCeiling(10.0, Authority(Mode.LONGITUDINAL_ONLY, LongitudinalOwner.SYSTEM, False, True, False, False))

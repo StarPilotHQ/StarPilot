@@ -69,7 +69,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"StarPilotControllerBindings", {PERSISTENT | DONT_LOG, JSON}},
     {"UseStarPilotLongitudinalPlanner", {PERSISTENT, BOOL, "1"}},
     {"UseVOACC", {PERSISTENT, BOOL, "0"}},
-    {"CustomPersonalities", {PERSISTENT, BOOL, "0"}},
+    {"CustomPersonalities", {PERSISTENT, BOOL}},  // Retired: settings_retirement folds it into each personality's Following.
     {"SettingsRetirementState", {PERSISTENT | DONT_LOG, JSON}},
     {"RetiredSettingsEvidence", {PERSISTENT | DONT_LOG, JSON}},
     {"QOLLongitudinal", {PERSISTENT, BOOL}},

@@ -10,7 +10,8 @@ from opendbc.car.structs import car
 from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX
 from openpilot.starpilot.longitudinal.accel_profile import A_CRUISE_MAX_VALS_TRAFFIC_ALL, interpolate_accel_profile
 from openpilot.starpilot.longitudinal.profile_document import (
-  CUSTOM_FOLLOWING_PRESETS, DEFAULT_DECELERATION_PROFILE, active_personality_id, interpolate_category_curve, is_truck_fingerprint,
+  CUSTOM_FOLLOWING_PRESETS, DEFAULT_DECELERATION_PROFILE, STOCK_FOLLOW_SECONDS, STOCK_JERK, TRAFFIC_DEFAULT_FOLLOW,
+  active_personality_id, interpolate_category_curve, is_truck_fingerprint,
 )
 from openpilot.starpilot.longitudinal.profile_preferences import (
   FOLLOW_MIN_SECONDS, FOLLOW_MAX_SECONDS, NAMES, SCALARS, TRAFFIC_JERK_SUFFIXES,
@@ -22,11 +23,6 @@ JERK_MAX = 2.0
 LEGACY_FOLLOW_BP = (45.0 * CV.MPH_TO_MS, 70.0 * CV.MPH_TO_MS)
 TRAFFIC_BP = (0.0, 25.0)  # m/s, not mph.
 TRAFFIC_CRUISE_BRAKE_MAGNITUDE = 1.2 * 0.35  # Magnitude of A_CRUISE_MIN * 0.35.
-# A personality whose Following is StarPilot Default drives with openpilot's own values (long_mpc get_T_FOLLOW and
-# get_jerk_factor); a named curve keeps that standard jerk. Only Following = Custom uses the saved follow and jerk values.
-STOCK_FOLLOW_SECONDS = {"aggressive": 1.25, "standard": 1.45, "relaxed": 1.75}
-STOCK_JERK = {"aggressive": 0.5, "standard": 1.0, "relaxed": 1.0}
-TRAFFIC_DEFAULT_FOLLOW = (0.75, 1.6)  # Registered TrafficFollow / RelaxedFollow defaults.
 
 
 @dataclass(frozen=True)
@@ -181,8 +177,7 @@ def read_traffic_settings(params) -> TrafficSettings:
   follow = (health.number('TrafficFollow'), health.number('RelaxedFollow'))
   jerk = tuple((health.number('Traffic' + suffix) / 100.0,
                 health.number('Relaxed' + suffix) / 100.0) for suffix in TRAFFIC_JERK_SUFFIXES)
-  return TrafficSettings(True, 'valid', health.document,
-                         health.profile_enabled if health.master_on else False, follow, jerk)
+  return TrafficSettings(True, 'valid', health.document, health.profile_enabled, follow, jerk)
 
 
 def _traffic_value(points: tuple[float, float], speed: float) -> float:

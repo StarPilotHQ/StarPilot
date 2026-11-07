@@ -71,7 +71,7 @@ class ProfileRuntimeTests(unittest.TestCase):
   def test_traffic_defaults_apply_without_custom_master(self):
     settings = read_traffic_settings(self.params)
     self.assertTrue(settings.valid)
-    self.assertFalse(settings.profile_enabled)
+    self.assertTrue(settings.profile_enabled)  # the document's enabled flag, not the retired switch, gates Traffic's curves
     for speed, expected in ((0.0, 0.75), (12.5, 1.175), (25.0, 1.6), (30.0, 1.6)):
       with self.subTest(speed=speed):
         tuning = resolve(settings, log.LongitudinalPersonality.aggressive, speed, self.cp, traffic_mode=True)
@@ -187,12 +187,12 @@ class ProfileRuntimeTests(unittest.TestCase):
     self.assertAlmostEqual(required_float(retained_profile.cruise_brake_magnitude), 0.35)
     self.assertTrue(retained_profile.traffic_braking_custom)
     self.assertAlmostEqual(required_float(retained_profile.acceleration_max), 1.4)
-    self.params.put_bool('CustomPersonalities', False, block=True)
-    disabled_master = resolve(read_traffic_settings(self.params), log.LongitudinalPersonality.standard,
-                              12.5, self.cp, traffic_mode=True)
-    self.assertAlmostEqual(required_float(disabled_master.cruise_brake_magnitude), 0.42)
-    self.assertFalse(disabled_master.traffic_braking_custom)
-    self.assertNotAlmostEqual(required_float(disabled_master.acceleration_max), 1.4)
+    self.params.put_bool('CustomPersonalities', False, block=True)  # the retired switch changes nothing either way
+    retired_switch = resolve(read_traffic_settings(self.params), log.LongitudinalPersonality.standard,
+                             12.5, self.cp, traffic_mode=True)
+    self.assertAlmostEqual(required_float(retired_switch.cruise_brake_magnitude), 0.35)
+    self.assertTrue(retired_switch.traffic_braking_custom)
+    self.assertAlmostEqual(required_float(retired_switch.acceleration_max), 1.4)
     self.assertIsNotNone(read_settings(self.params))  # Following choices, not the old switch, decide follow and jerk.
 
   def test_traffic_valid_historical_six_acceleration_intersects_native_without_losing_other_categories(self):
@@ -232,6 +232,26 @@ class ProfileRuntimeTests(unittest.TestCase):
     # Saved values are always read now (Following decides whether they apply), so a corrupt one makes Traffic
     # unavailable and the personality falls back to openpilot's own values.
     self.assertFalse(read_traffic_settings(self.params).valid)
+
+  def test_traffic_legacy_braking_applies_without_the_retired_switch(self):
+    profiles = default_personality_profiles(False)
+    profiles['traffic']['braking'] = {'preset': 'custom', 'curve': [0.9] * 10, 'legacyActivation': True}
+    self.params.put('LongitudinalPersonalityProfiles', current_profile_document(profiles, enabled=True), block=True)
+    tuning = resolve(read_traffic_settings(self.params), log.LongitudinalPersonality.standard, 0.0, self.cp, traffic_mode=True)
+    assert tuning is not None
+    self.assertAlmostEqual(required_float(tuning.cruise_brake_magnitude), 0.9)
+
+  def test_dormant_invalid_traffic_value_leaves_default_traffic_available(self):
+    Path(self.params.get_param_path('TrafficJerkSpeed')).write_text('bad')
+    settings = read_traffic_settings(self.params)
+    self.assertTrue(settings.valid)
+    tuning = resolve(settings, log.LongitudinalPersonality.standard, 0.0, self.cp, traffic_mode=True)
+    assert tuning is not None
+    self.assertAlmostEqual(tuning.follow_seconds, 0.75)
+    self.assertEqual(tuning.speed_jerk, 1.0)
+    self.follow_custom('traffic')  # now in use: fail closed, bytes untouched for repair
+    self.assertFalse(read_traffic_settings(self.params).valid)
+    self.assertEqual(Path(self.params.get_param_path('TrafficJerkSpeed')).read_text(), 'bad')
 
   def test_traffic_unknown_mode_drops_prior_target_and_nontraffic_stays_legacy(self):
     self.follow_custom()

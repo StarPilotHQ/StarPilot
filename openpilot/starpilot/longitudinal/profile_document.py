@@ -133,6 +133,11 @@ FOLLOWING_PRESET_CURVES = {
   "legacy_medium": (1.45, 1.45),
   "legacy_far": (1.75, 1.75),
 }
+# openpilot's own follow time and smoothness (long_mpc get_T_FOLLOW and get_jerk_factor): what a personality drives on
+# while its Following is StarPilot Default; a named curve keeps this smoothness. Only Following = Custom uses saved values.
+STOCK_FOLLOW_SECONDS = {"aggressive": 1.25, "standard": 1.45, "relaxed": 1.75}
+STOCK_JERK = {"aggressive": 0.5, "standard": 1.0, "relaxed": 1.0, "traffic": 1.0}
+TRAFFIC_DEFAULT_FOLLOW = (0.75, 1.6)  # Registered TrafficFollow / RelaxedFollow defaults.
 _FOLLOWING_PRESET_SPEEDS_MPH = {
   preset: (0.0, 25.0 / 0.44704) if preset == "traffic" else (45.0, 70.0)
   for preset in FOLLOWING_PRESET_CURVES
