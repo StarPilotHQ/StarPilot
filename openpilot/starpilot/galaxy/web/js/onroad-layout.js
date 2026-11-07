@@ -165,7 +165,7 @@ export const LayoutWidgetPreview = {
   },
   template: `
     <g aria-hidden="true" class="gx-layout-widget-art" :fill="palette.text || '#ffffff'">
-      <template v-if="native">
+      <template v-if="native || art?.url && art.sprites?.sprites?.[widget.id]">
         <svg v-if="art?.url && art.sprites?.sprites?.[widget.id]"
           :x="art.sprites.sprites[widget.id].offsetX || 0" :y="art.sprites.sprites[widget.id].offsetY || 0"
           :width="art.sprites.sprites[widget.id].width" :height="art.sprites.sprites[widget.id].height"

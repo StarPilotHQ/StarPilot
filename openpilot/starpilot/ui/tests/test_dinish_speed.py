@@ -230,6 +230,7 @@ def test_galaxy_card_pixels_align_without_reading_font_textures():
                           SimpleNamespace(_ordered_widgets=lambda content, state, widget=widget, **kw: widget.render(content, state)), create=True), \
              patch.object(canvas, '_settle', lambda state: None), \
              patch.dict('openpilot.starpilot.ui.layout_preview_renderer.RUNTIME_PREVIEW_WIDGETS', large=('cruise_limits',)), \
+             patch('openpilot.starpilot.system.starport.projection_layout.SPRITE_WIDGETS', ()), \
              patch.object(rl, 'load_image_from_texture', side_effect=mobile_readback) as readback:
           png = canvas.render_widget_art(state, document['layouts']['large'])
           # A saved 50% background must show on the first frame, without a slider

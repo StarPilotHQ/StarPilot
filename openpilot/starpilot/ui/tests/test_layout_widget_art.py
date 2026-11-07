@@ -147,6 +147,7 @@ def test_large_wheel_art_is_drawn_inside_its_crop_with_or_without_sidebar(monkey
   canvas.view = view
   monkeypatch.setattr(canvas, '_settle', lambda state: None)
   monkeypatch.setitem(renderer.RUNTIME_PREVIEW_WIDGETS, 'large', ('steering_wheel',))
+  monkeypatch.setattr('openpilot.starpilot.system.starport.projection_layout.SPRITE_WIDGETS', ())
   monkeypatch.setattr(rl, 'rl_set_blend_factors_separate', Mock())
   for method in ('begin_texture_mode', 'clear_background', 'begin_blend_mode', 'end_blend_mode', 'end_texture_mode',
                  'image_format', 'image_flip_vertical', 'image_crop', 'unload_image', 'draw_circle', 'draw_ring', 'draw_texture_pro'):
@@ -162,3 +163,36 @@ def test_large_wheel_art_is_drawn_inside_its_crop_with_or_without_sidebar(monkey
   assert crop.y <= drawn.y < drawn.y + drawn.height <= crop.y + crop.height
   color = rl.draw_texture_pro.call_args.args[-1]
   assert (color.r, color.g, color.b) == (255, 0, 0), 'The braking wheel must remain visible and red'
+
+
+def test_starport_widgets_get_sprites_and_empty_ones_keep_the_sketch(monkeypatch):
+  from types import SimpleNamespace as NS
+  from unittest.mock import Mock
+  from openpilot.starpilot.ui.raylib import rl
+  from openpilot.starpilot.ui import layout_preview_renderer as renderer
+  from openpilot.starpilot.ui.presentation import Profile
+  from openpilot.starpilot.system.starport.projection_layout import default_layout_for_viewport, projection_customization
+
+  viewport = (1920, 1080)
+  layout = default_layout_for_viewport(viewport)
+  layout['widgets']['nav_home']['enabled'] = True
+  document = projection_customization(layout, default_document())
+  canvas = renderer._Canvas.__new__(renderer._Canvas)
+  canvas.profile, canvas.viewport = Profile.LARGE, viewport
+  monkeypatch.setattr(canvas, 'fonts', NS(profile=Profile.LARGE), raising=False)
+  canvas.target = NS(texture=object())
+  drawn = []
+  canvas.view = NS(_ordered_widgets=lambda content, state, only_widget=None: drawn.append(only_widget))
+  monkeypatch.setattr(canvas, '_settle', lambda state: None)
+  monkeypatch.setitem(renderer.RUNTIME_PREVIEW_WIDGETS, 'large', ())
+  monkeypatch.setattr(rl, 'rl_set_blend_factors_separate', Mock())
+  for method in ('begin_texture_mode', 'clear_background', 'begin_blend_mode', 'end_blend_mode', 'end_texture_mode',
+                 'image_format', 'image_flip_vertical', 'image_crop', 'unload_image'):
+    monkeypatch.setattr(rl, method, Mock())
+  # Only the nav card draws anything; every other StarPort widget comes back transparent.
+  monkeypatch.setattr(rl, 'load_image_from_texture', lambda texture: NS(data=np.full(1920 * 1080 * 4, 255 if drawn[-1] == 'nav_card' else 0, np.uint8)))
+  png = Mock(return_value=b'png')
+  monkeypatch.setattr(renderer, '_png_rgba', png)
+  canvas.render_widget_art(renderer.sample_state('general', document), layout['widgets'], general=True)
+  assert 'nav_home' in drawn and 'nav_map' not in drawn
+  assert set(png.call_args.kwargs['widget_art']['sprites']) == {'nav_card'}
