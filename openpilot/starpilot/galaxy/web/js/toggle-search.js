@@ -1,5 +1,6 @@
 import { reactive } from "../vendor/vue/vue.esm-browser.js"
 import { SETTINGS_SECTIONS, isPipCropRow } from "./settings.js"
+import { menuPlace, settingsSearchPath } from "./menu.js"
 
 const SPECIAL_PAGES = new Set(["ui_layout", "favorites"])
 const PAGE_SECTIONS = new Map(SETTINGS_SECTIONS.flatMap((section) =>
@@ -102,7 +103,9 @@ export class SettingsSearchIndex {
                 queue.push(row.page)
               }
               if (row.page || isPipCropRow(row)) continue
-              this.entries.push({ page, label: row.label, title: data.title, section, kind: "Toggle", context: `${section} · ${data.title}`,
+              // Galaxy menu: show where the setting now lives (menu.js), e.g. "Driving › Steering › Lane Changes".
+              const place = menuPlace(settingsSearchPath({ page, label: row.label }))
+              this.entries.push({ page, label: row.label, title: data.title, section, kind: "Toggle", context: place || `${section} · ${data.title}`,
                 search: searchable(row, data.title, section) })
             }
           } catch {

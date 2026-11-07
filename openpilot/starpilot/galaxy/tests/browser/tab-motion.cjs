@@ -48,22 +48,27 @@ const assert = require('node:assert/strict')
   assert.equal(await page.locator('.gx-route:not([inert])').count(), 1)
   assert.equal(await nav.getByRole('button', { name: 'Home', exact: true }).getAttribute('aria-current'), 'page')
 
+  // The old Model Laboratory link opens the merged Model Manager page at its Laboratory card.
   await page.goto(base + '#/model_laboratory')
-  const heading = page.getByText('Available models', { exact: true })
-  await heading.waitFor()
+  const laboratory = page.locator('#gx-model-laboratory')
+  await laboratory.waitFor()
+  await page.waitForFunction(() => {
+    const box = document.querySelector('#gx-model-laboratory').getBoundingClientRect()
+    return box.top >= 0 && box.top < innerHeight
+  })
+  assert.equal(await page.locator('.gx-route:not([inert]) h2').first().textContent(), 'Model Manager')
   for (const width of [320, 360, 390, 600, 1280]) {
     await page.setViewportSize({ width, height: 900 })
     const layout = await page.evaluate(() => {
-      const title = [...document.querySelectorAll('.gx-section__title')].find(element => element.textContent === 'Available models')
+      const title = [...document.querySelectorAll('.gx-section__title')].find(element => element.textContent === 'Models')
       const summary = title.closest('.gx-card').querySelector('.gx-summary')
-      const cells = [...summary.children].map(element => element.getBoundingClientRect())
+      const lab = document.querySelector('#gx-model-laboratory .gx-model-choose__heading')
       return { headerHeight: title.parentElement.getBoundingClientRect().height,
+        labHeaderHeight: lab.getBoundingClientRect().height,
         summaryHeight: summary.getBoundingClientRect().height,
-        equalRows: cells.every(cell => Math.abs(cell.top - cells[0].top) < 1),
         overflow: document.documentElement.scrollWidth > innerWidth }
     })
-    assert.ok(layout.headerHeight < 80 && layout.summaryHeight < 100, 'model summary stays compact')
-    assert.equal(layout.equalRows, true, 'all three counts share one row')
+    assert.ok(layout.headerHeight < 100 && layout.labHeaderHeight < 260 && layout.summaryHeight < 160, 'model headers and summary stay compact')
     assert.equal(layout.overflow, false)
   }
   await page.setViewportSize({ width: 390, height: 900 })
@@ -73,6 +78,6 @@ const assert = require('node:assert/strict')
   assert.equal(await page.locator('.gx-route-enter-active, .gx-route-leave-active').count(), 0)
   assert.equal(await page.locator('.gx-nav-indicator').evaluate(element => getComputedStyle(element).transitionDuration), '0s')
   assert.deepEqual(errors, [])
-  console.log('Directional tab slides, moving glass selection, rapid navigation, compact model summary and reduced motion passed.')
+  console.log('Directional tab slides, moving glass selection, rapid navigation, merged Model Manager / Laboratory page and reduced motion passed.')
   await browser.close()
 })().catch(error => { console.error(error); process.exit(1) })

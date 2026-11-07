@@ -840,8 +840,8 @@ border-radius: var(--radius-full); color: var(--text-muted);
 .gx-auth form .gx-btn { justify-self: start; }
 /* Focused System Monitor adaptation from frozen Galaxy material.css:2424-2443. */
 .gx-view, .gx-monitor { min-width: 0; max-width: 100%; }
-.gx-view, .gx-driving, .gx-long-curves, .gx-vehicle { display: grid; gap: var(--sp-4); align-content: start; }
-.gx-view > *, .gx-driving > *, .gx-long-curves > *, .gx-vehicle > * { margin-block: 0; }
+.gx-view, .gx-driving, .gx-vehicle { display: grid; gap: var(--sp-4); align-content: start; }
+.gx-view > *, .gx-driving > *, .gx-vehicle > * { margin-block: 0; }
 .gx-view h2, .gx-monitor h2 { margin-top: 0; }
 .gx-note { color: var(--text-muted); font-size: var(--fs-sm); }
 .gx-alert { --notice-accent: var(--primary); align-items: center; backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-border); border-left: 4px solid var(--notice-accent); border-radius: var(--radius-md); display: flex; gap: var(--sp-3); width: 100%; margin: 0 0 var(--sp-4); padding: var(--sp-4); background: color-mix(in srgb, var(--notice-accent) 12%, transparent); }
@@ -1062,16 +1062,6 @@ mask: radial-gradient(farthest-side, transparent calc(100% - 22px), #000 calc(10
 .gx-bluetooth__device-icon { color: var(--primary); }
 .gx-driving__group h3 { margin: 0 0 var(--sp-3); }
 .gx-driving__extras { margin-top: var(--sp-5); }
-.gx-card.gx-long-curves__body { padding: var(--panel-padding); }
-.gx-long-curves__body > .gx-section__header { margin: calc(-1 * var(--panel-padding)) calc(-1 * var(--panel-padding)) var(--sp-4); }
-.gx-long-curves__tabs { margin: var(--sp-3) 0; text-transform: capitalize; }
-.gx-long-curves__body { display: grid; gap: var(--sp-4); }
-.gx-long-curves__graph { width: 100%; max-width: 680px; height: auto; border: 1px solid var(--glass-border); border-radius: var(--radius-sm); background: rgba(0, 0, 0, .15); }
-.gx-long-curves__graph text { fill: var(--on-surface-variant); font-size: 11px; }
-.gx-long-curves__axis { stroke: var(--on-surface-variant); stroke-width: 1; }
-.gx-long-curves__line { fill: none; stroke: var(--primary); stroke-width: 2.5; }
-.gx-long-curves__point { fill: var(--primary); }
-.gx-long-curves__points { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2) var(--sp-4); }
 .gx-vehicle__summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
 .gx-vehicle__summary > div { display: grid; align-content: start; gap: var(--sp-1); min-width: 0; }
 .gx-vehicle__summary small, .gx-vehicle__summary p { color: var(--on-surface-variant); }
@@ -1081,7 +1071,6 @@ mask: radial-gradient(farthest-side, transparent calc(100% - 22px), #000 calc(10
 .gx-vehicle__models { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: var(--sp-2); max-height: 440px; overflow-y: auto; }
 .gx-vehicle__models button { justify-content: flex-start; border-radius: var(--radius-sm); text-align: left; overflow-wrap: anywhere; }
 .gx-vehicle__models button[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); }
-@media (max-width: 700px) { .gx-long-curves__points { grid-template-columns: 1fr; } }
 @media (max-width: 520px) { .gx-vehicle__summary { grid-template-columns: 1fr; } }
 /* Navigation shares the same route and preferences as the onroad display. */
 .gx-navigation__search{display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap}

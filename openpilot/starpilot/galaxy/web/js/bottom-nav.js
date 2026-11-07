@@ -1,15 +1,14 @@
+// Phone bar: Home · Settings · Routes. Settings opens the menu (menu.js); every other page sits under it.
 export const NAV = Object.freeze([
   { name: "Home", path: "/", icon: "bi-house-fill" },
-  { name: "Toggles", path: "/settings", icon: "bi-toggle-on" },
-  { name: "Tools", path: "/tools", icon: "bi-tools" },
+  { name: "Settings", path: "/settings", icon: "bi-gear-fill" },
   { name: "Routes", path: "/recordings", icon: "bi-camera-reels" },
 ])
 
 export function primaryTab(path) {
   if (path === "/") return 0
-  if (path === "/settings" || path.startsWith("/settings/")) return 1
-  if (path === "/recordings" || path.startsWith("/recordings/")) return 3
-  return 2
+  if (path === "/recordings" || path.startsWith("/recordings/")) return 2
+  return 1
 }
 
 export const BottomNav = {

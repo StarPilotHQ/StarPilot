@@ -45,7 +45,7 @@ const { resolve } = require('node:path')
   const paths = [...new Set(['/', '/tools', '/settings', '/developer/connect', '/cameras/events',
     '/cameras/sentry-settings', '/cameras/pip', '/cameras/vasm', '/theme_maker/starport',
     '/logs/crashes', '/logs/starport', '/logs/monitor', '/logs/troubleshoot', '/logs/tmux', '/tuning/plots', '/tuning/flm',
-    '/driving/longitudinal-curves', '/appearance', '/driving/conditional', '/driving/curve', '/driving/slc', '/driving/profiles', '/driving/traffic',
+    '/appearance', '/driving/conditional', '/driving/curve', '/driving/slc', '/driving/profiles', '/driving/traffic',
     ...groups.filter(([page]) => page !== "standard").map(([page]) => '/driving/' + page), ...catalog.tools.map(tool => tool.path)])]
   for (const theme of ['dark', 'light']) {
     for (const width of (process.env.GALAXY_NAV_ONLY ? [] : [320, 1280, 3440])) {
