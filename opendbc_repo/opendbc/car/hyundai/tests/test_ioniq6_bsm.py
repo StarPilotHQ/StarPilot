@@ -230,6 +230,7 @@ class TestIoniq6BlindspotStatus(unittest.TestCase):
       packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
       state = structs.CarState(vEgo=20.0, leftBlinker=left, rightBlinker=not left)
       helper = DesireHelper(LaneChangePolicy(auto_lane_change=True))
+
       def check(expected, helper, *, controller=controller, ci=ci, packer=packer, left=left):
         control = structs.CarControl()
         t = 10_000_000_000 + controller.frame * 10_000_000
