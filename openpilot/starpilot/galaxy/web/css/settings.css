@@ -649,6 +649,8 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 /* Tap-area overlay label sits on the preview while the grid toggle is on. */
 .gx-layout__preview-card > .gx-layout__stage { position: relative; margin-inline: 0; min-width: 0; }
 .gx-layout__stage-chip { position: absolute; top: 6px; right: 6px; z-index: 1; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid #b799ff88; border-radius: var(--radius-full); background: rgba(22, 18, 31, .82); color: #d8c8ff; font-size: var(--fs-xs); font-weight: var(--fw-bold); white-space: nowrap; pointer-events: none; }
+.gx-layout__stage-chip--bottom { top: auto; right: auto; bottom: 6px; left: 6px; max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; display: block; }
+.gx-layout__stage-chip--second { bottom: 34px; }
 .gx-layout__stage-chip--below { position: static; justify-self: end; }
 .gx-layout__stage-chip--start { right: auto; left: 6px; max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; display: block; }
 /* Covers the whole bar, buttons included, so its size never changes mid-drag. */
