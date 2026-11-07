@@ -840,12 +840,10 @@ border-radius: var(--radius-full); color: var(--text-muted);
 .gx-auth form .gx-btn { justify-self: start; }
 /* Focused System Monitor adaptation from frozen Galaxy material.css:2424-2443. */
 .gx-view, .gx-monitor { min-width: 0; max-width: 100%; }
-/* Every tool page shares the Colors & Layout rhythm: one grid, one gap. */
 .gx-view, .gx-driving, .gx-long-curves, .gx-vehicle { display: grid; gap: var(--sp-4); align-content: start; }
 .gx-view > *, .gx-driving > *, .gx-long-curves > *, .gx-vehicle > * { margin-block: 0; }
 .gx-view h2, .gx-monitor h2 { margin-top: 0; }
 .gx-note { color: var(--text-muted); font-size: var(--fs-sm); }
-/* Shared banners: message first, optional actions on their own row. */
 .gx-alert { --notice-accent: var(--primary); align-items: center; backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-border); border-left: 4px solid var(--notice-accent); border-radius: var(--radius-md); display: flex; gap: var(--sp-3); width: 100%; margin: 0 0 var(--sp-4); padding: var(--sp-4); background: color-mix(in srgb, var(--notice-accent) 12%, transparent); }
 .gx-alert--warn { --notice-accent: var(--warning); }
 .gx-alert--danger { --notice-accent: var(--error); }
@@ -863,7 +861,6 @@ border-radius: var(--radius-full); color: var(--text-muted);
 .gx-alert__actions .gx-btn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; padding-block: var(--sp-2); box-shadow: none; }
 .gx-alert .gx-spinner { border-top-color: var(--notice-accent); }
 .gx-settings > .gx-card, .gx-settings > .gx-alert, .gx-stack > .gx-card, .gx-stack > .gx-alert { margin-bottom: 0; }
-/* Shared submenu cube so Tools, Logs and Plots render identically. */
 .gx-menu-tile {
 align-items: center;
 background: var(--surface-container);
@@ -1272,7 +1269,6 @@ input[type="checkbox"]:not(.gx-switch input):checked { background: var(--primary
 input[type="checkbox"]:not(.gx-switch input):checked::after { content: ""; display: block; width: .3rem; height: .6rem; border: solid var(--on-primary); border-width: 0 2px 2px 0; transform: translate(.3rem, .08rem) rotate(45deg); }
 input[type="checkbox"]:not(.gx-switch input):focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 input[type="checkbox"]:disabled { opacity: .4; cursor: not-allowed; }
-/* Shared action groups wrap while keeping their controls within the page. */
 .gx-btn { white-space: normal; max-width: 100%; overflow-wrap: anywhere; }
 .gx-actions, .gx-tabs { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; max-width: 100%; }
 .gx-actions > * { max-width: 100%; }
@@ -1547,7 +1543,6 @@ border-top: 1px solid var(--outline-variant);
 .gx-update-progress__fill--indeterminate { width: 35%; animation: gx-update-progress 1.6s ease-in-out infinite; }
 @keyframes gx-update-progress { from { transform: translateX(-100%); } to { transform: translateX(385%); } }
 @media (prefers-reduced-motion: reduce) { .gx-update-progress__fill--indeterminate { width: 100%; animation: none; opacity: .6; } }
-/* Composition utilities: shared page chrome and controls need no inline styles. */
 .gx-panel { padding: var(--panel-padding); min-width: 0; }
 .gx-card.gx-panel > .gx-section__header { margin: calc(-1 * var(--panel-padding)) calc(-1 * var(--panel-padding)) var(--sp-4); }
 .gx-panel > :first-child { margin-top: 0; }
@@ -1658,7 +1653,6 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-spotify-now__progress { display: grid; gap: 2px; }
 .gx-spotify-now__controls { align-items: center; justify-content: center; flex-wrap: wrap; }
 .gx-spotify-now__play { min-width: 64px; font-size: 1.4rem; }
-/* Auto Learn results use existing cards and plot colors. */
 .gx-flm__facts { display: flex; flex-wrap: wrap; gap: 1rem 2rem; }
 .gx-flm__facts dd { margin: .3rem 0 0; }
 .gx-flm__table-wrap { overflow-x: auto; max-width: 100%; }
