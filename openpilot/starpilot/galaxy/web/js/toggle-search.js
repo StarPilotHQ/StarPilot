@@ -1,6 +1,7 @@
 import { reactive } from "../vendor/vue/vue.esm-browser.js"
 import { SETTINGS_SECTIONS, isPipCropRow } from "./settings.js"
 import { menuPlace, settingsSearchPath } from "./menu.js"
+import { guidedRows } from "./page-guides.js"
 
 const SPECIAL_PAGES = new Set(["ui_layout", "favorites"])
 const PAGE_SECTIONS = new Map(SETTINGS_SECTIONS.flatMap((section) =>
@@ -96,8 +97,10 @@ export class SettingsSearchIndex {
             if (this.generation !== generation) return
             if (data?.page !== page || !Array.isArray(data.rows) || typeof data.title !== "string") throw new Error("Invalid settings page")
             const section = PAGE_SECTIONS.get(page.split("/")[0]) || "Toggles"
+            // A row the page's guide hides (its control is on another page) has nothing to open.
+            const hidden = new Set(guidedRows(page, data.rows).filter(row => row?.guideHidden).map(row => row.guideLabel ?? row.label))
             for (const row of data.rows) {
-              if (typeof row?.label !== "string" || !row.label) continue
+              if (typeof row?.label !== "string" || !row.label || hidden.has(row.label)) continue
               if (typeof row.page === "string" && row.page && !seen.has(row.page) && seen.size < 64) {
                 seen.add(row.page)
                 queue.push(row.page)

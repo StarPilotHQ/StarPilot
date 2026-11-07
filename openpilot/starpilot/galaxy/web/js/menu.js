@@ -123,6 +123,8 @@ const NODES = new Map(), PARENTS = new Map()
   }
 })(MENU, null)
 
+const words = segment => segment.replace(/[-_]+/g, " ").replace(/^./, letter => letter.toLocaleUpperCase())
+
 export const menuNode = id => NODES.get(id) || null
 export function menuAncestors(id) {
   const out = []
@@ -137,20 +139,27 @@ export function menuLocation(path) {
   let best = null
   for (const node of NODES.values()) {
     if (!node.path) continue
-    let score = 0, sub = null
+    let score = 0, sub = null, parent = null, tail = null
+    // A page under one of the node's sub-pages (e.g. Aggressive › Custom following) belongs to that sub-page.
+    const under = node.subs && Object.keys(node.subs).find(key => path.startsWith(key + "/"))
     if (node.path === path || node.also?.includes(path)) score = 10000
     else if (node.subs && Object.hasOwn(node.subs, path)) { score = 9000; sub = node.subs[path] }
-    else if (node.path !== "/" && path.startsWith(node.path + "/")) {
+    else if (under) {
+      score = 8000 + under.length
+      parent = { path: under, label: node.subs[under] }
+      tail = words(path.slice(under.length + 1).split("/").join(" "))
+      sub = `${parent.label} › ${tail}`
+    } else if (node.path !== "/" && path.startsWith(node.path + "/")) {
       score = node.path.length
       sub = path.slice(node.path.length + 1).split("/").map(part => part.replace(/[-_]+/g, " ")).join(" › ")
       sub = sub.replace(/^./, letter => letter.toLocaleUpperCase())
     }
-    if (score > (best?.score || 0)) best = { score, node, sub }
+    if (score > (best?.score || 0)) best = { score, node, sub, parent, tail }
   }
   if (!best) return null
-  const { node, sub } = best
+  const { node, sub, parent, tail } = best
   const top = menuNode(topOf(node.id))
-  return { node, sub, top: top.id === node.id ? null : top }
+  return { node, sub, top: top.id === node.id ? null : top, parent, tail }
 }
 
 // Phone navigation tree: Settings › group › page › sub-page, each step a route.
@@ -163,7 +172,8 @@ export function menuTrail(path) {
   const items = [{ id: "/settings", label: "Settings" }]
   if (location.top) items.push({ id: MENU_GROUP_ROUTE + location.top.id, label: location.top.label })
   if (location.sub) items.push({ id: location.node.path, label: location.node.label })
-  items.push({ id: path, label: location.sub || location.node.label })
+  if (location.parent) items.push({ id: location.parent.path, label: location.parent.label })
+  items.push({ id: path, label: location.tail || location.sub || location.node.label })
   return items
 }
 
@@ -176,9 +186,10 @@ export function menuPlace(path) {
   return parts.join(" › ")
 }
 
-// Desktop: a sub-page shows one link back up to its page.
+// Desktop: a sub-page shows one link back up to its page (a page below a sub-page, back to that sub-page).
 export function menuBack(path) {
   const location = menuLocation(path)
+  if (location?.parent) return location.parent
   return location?.sub ? { path: location.node.path, label: location.node.label } : null
 }
 

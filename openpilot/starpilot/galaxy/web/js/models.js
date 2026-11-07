@@ -1,6 +1,5 @@
 import { GxDialog } from "./dialog.js"
 import { GxState } from "./state.js"
-import { GxSummary } from "./summary.js"
 import { GxNotice } from "./notice.js"
 import { connectionError } from "./polling.js"
 import { GalaxySelect } from "./galaxy-select.js"
@@ -121,13 +120,7 @@ function matchesHardware(model, filter) {
   return true;
 }
 
-function hardwareLabel(model) {
-  if (model?.requiresGpu === true) return "eGPU";
-  if (model?.requiresGpu === false) return "Comma · On-device";
-  return "Hardware unknown";
-}
-
-// The coloured hardware tag on each model row.
+// The colored hardware tag on each model row.
 export function hardwareTag(model) {
   if (model?.requiresGpu === true) return { label: "eGPU", tone: "egpu", title: "Big model: runs on an external GPU" }
   if (model?.requiresGpu === false) return { label: "Small", tone: "small", title: "Small model: runs on the comma itself" }
@@ -455,7 +448,7 @@ const LAB_REASON_STATES = new Set(["unsupported", "unpublished", "checking"])
 
 export const ModelsPage = {
   name: "ModelsPage",
-  components: { GxDialog, GxState, GxSummary, GalaxySelect, GxNotice },
+  components: { GxDialog, GxState, GalaxySelect, GxNotice },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     // "laboratory" scrolls to the Model Laboratory card (old #/model_laboratory links)
     focus: { type: String, default: "" } },
@@ -464,7 +457,7 @@ export const ModelsPage = {
       sortMode: "release_date", userFilter: "all", communityFilter: "all", hardwareFilter: readHardwareFilter(), pairableFilter: false, installedFilter: false, search: "",
       models: [], currentModel: "", activeSmallModel: "", activeBigModel: "", capabilities: {},
       summary: { installed: 0, missing: 0, total: 0 }, status: { isOnroad: true },
-      runtime: { status: "idle", data: null, error: "" }, dialog: null, pendingChoice: null,
+      dialog: null, pendingChoice: null,
       lab: null, labError: "", labDirty: false, labConfig: { enabled: false, lateralModel: "", longitudinalModel: "" }, focused: false,
       // Single model / Model pair selector: the mode being shown while a change is saving, or before a pair can switch on.
       pairView: null,
@@ -474,15 +467,6 @@ export const ModelsPage = {
   },
   computed: {
     currentLabel() { return this.models.find(m => m.value === this.currentModel)?.label || this.currentModel || "" },
-    runningModelLabel() {
-      if (!this.selectionUncertain && this.status.jetlink?.active) return "Jetlink remote model"
-      if (this.runtime.status === "unavailable" || this.runtime.status === "stale") return "Status unavailable"
-      if (this.runtime.status !== "ready" || !this.runtime.data) return "Checking…"
-      const model = this.runtime.data
-      if (model.health === "unavailable") return "No running model"
-      if (!model.loadedId) return model.health === "loading" ? "Loading…" : "Identity unverified"
-      return model.catalog.find(item => item.id === model.loadedId)?.name || model.loadedId
-    },
     installedSmallModels() { return this.models.filter(m => (m.value === this.activeSmallModel || m.selectable) && fitsModelProfile(m, "small")) },
     installedBigModels() { return this.models.filter(m => (m.value === this.activeBigModel || m.selectable) && fitsModelProfile(m, "big")) },
     // the manager words it: under Jetlink, the Jetlink app's choice
@@ -524,7 +508,6 @@ export const ModelsPage = {
     loading(value) { if (!value) this.focusLaboratory() },
   },
   created() {
-    this.feed = new ModelStatusFeed({ publish: update => { this.runtime = update }, unauthorized: this.unauthorized })
     this.manager = new ModelManagerFeed({ publish: update => {
       this.loading = update.loading
       this.error = update.error
@@ -557,11 +540,11 @@ export const ModelsPage = {
   },
   mounted() {
     this.visibility = () => {
-      if (document.hidden) { this.finishDialog(false); this.feed.stop(); this.manager.stop(); this.laboratory.stop() }
-      else if (this.mode === "local") { this.feed.start(); this.manager.start(); this.laboratory.start() }
+      if (document.hidden) { this.finishDialog(false); this.manager.stop(); this.laboratory.stop() }
+      else if (this.mode === "local") { this.manager.start(); this.laboratory.start() }
     }
     document.addEventListener("visibilitychange", this.visibility)
-    if (this.mode === "local" && !document.hidden) { this.feed.start(); this.manager.start(); this.laboratory.start() }
+    if (this.mode === "local" && !document.hidden) { this.manager.start(); this.laboratory.start() }
   },
   beforeUnmount() {
     this.disposed = true
@@ -569,7 +552,6 @@ export const ModelsPage = {
     if (this.filterAway) { document.removeEventListener("pointerdown", this.filterAway); document.removeEventListener("keydown", this.filterAway) }
     this.finishDialog(false)
     document.removeEventListener("visibilitychange", this.visibility)
-    this.feed.stop()
     this.manager.stop()
     this.laboratory.stop()
   },
@@ -673,11 +655,6 @@ export const ModelsPage = {
       Object.assign(this, { search: "", installedFilter: false, pairableFilter: false, userFilter: "all", communityFilter: "all" })
       this.setHardwareFilter("both")
     },
-    toggleLabPair(event) {
-      const enabled = this.lab?.configuration.enabled === true
-      event.target.checked = enabled
-      return reportSave(() => this.runLabAction(enabled ? "disable" : "enable"))
-    },
     async runLabAction(action, model = null) {
       if (this.disposed || this.busy || !this.labActionAvailable(action, model)) return
       this.busy = `lab-${action}:${model?.value || ""}`
@@ -709,7 +686,7 @@ export const ModelsPage = {
       const emoji = label.search(/\p{Extended_Pictographic}/u)
       return emoji < 0 ? [label, ""] : [label.slice(0, emoji), label.slice(emoji)]
     },
-    hardwareLabel, fileSizeText,
+    fileSizeText,
     setHardwareFilter(value) { this.hardwareFilter = saveHardwareFilter(value) },
     toggleHardware(kind, checked) {
       const gpu = kind === "gpu" ? checked : ["both", "gpu"].includes(this.hardwareFilter)

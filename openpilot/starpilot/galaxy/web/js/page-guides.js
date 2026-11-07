@@ -1,6 +1,6 @@
 // Page guides: group a settings page's rows into titled cards and explain each setting in plain words.
 // The rows and saving come from the settings API unchanged; this file only decides which card a row sits in,
-// its text, how a choice is worded, and which rows are greyed (their switch is off) or hidden (not in use).
+// its text, how a choice is worded, and which rows are grayed (their switch is off) or hidden (not in use).
 // Rows are matched by label. A row a guide does not list still shows, in a "More settings" card at the end.
 
 const LANE_TURN_SPEED = row => (row.unit === "km/h" ? "32 km/h" : "20 mph")
@@ -11,8 +11,8 @@ const CLOSE_GAP = { label: "Close lane-change gap", value: "On" }
 const SLC = { label: "Speed Limit Controller", value: "On" }
 
 // Row options: help (text or row => text; none keeps the device's text), display (label shown instead of the device's),
-// values (device value → shown value), needs (rows that must have a value, else greyed, with the need's note or
-// "Turn on <row>"), showWhen (same, else hidden), hide (never shown here), sub (indented under the row above), placeholder (greyed stand-in while
+// values (device value → shown value), needs (rows that must have a value, else grayed, with the need's note or
+// "Turn on <row>"), showWhen (same, else hidden), hide (never shown here), sub (indented under the row above), placeholder (grayed stand-in while
 // the device leaves the row out because its switch is off). A card with no title has no header. A guide's plain `rows`
 // may use `pattern` (a RegExp) instead of `label` for rows whose label depends on units.
 // Driving Personalities: the hub lists the personalities; each personality page holds all of its settings.
@@ -30,11 +30,11 @@ export const PAGE_GUIDES = Object.freeze({
         id: "lane-changes", title: "",
         rows: [
           { label: "Allow lane changes", display: "Auto lane changes",
-            help: "The main switch. On: when you signal, StarPilot can move the car into the next lane. Off: signalling never starts " +
+            help: "The main switch. On: when you signal, StarPilot can move the car into the next lane. Off: signaling never starts " +
               "a lane change, and the settings below do nothing. Called Allow lane changes on the comma's screen." },
           { label: "One change per signal", needs: [ALLOW],
             help: "On: one lane change each time you signal. To cross another lane, cancel the signal and signal again. " +
-              "Off: keep signalling and it carries on into the next lane (with Wheel nudge required on, nudge again for each lane)." },
+              "Off: keep signaling and it carries on into the next lane (with Wheel nudge required on, nudge again for each lane)." },
           { label: "Lane Change Speed", needs: [ALLOW],
             help: "How fast the car moves across once a lane change starts (not a road speed). 10 is the quickest: the driving model's " +
               "own pace, about 3 seconds. Lower numbers soften the steering so it takes longer: 5 is about 6 seconds, 1 about 8." },
@@ -66,7 +66,7 @@ export const PAGE_GUIDES = Object.freeze({
       },
     ],
     // Conditional Experimental's signal rows: served with this page but shown under Experimental conditions (menu.js
-    // PAGE_COMPANIONS); the device's own text, the width greyed while detection is off.
+    // PAGE_COMPANIONS); the device's own text, the width grayed while detection is off.
     rows: [
       { label: "Signal lane detection" },
       { label: "Signal lane width", needs: [{ label: "Signal lane detection", value: "On" }] },
@@ -74,21 +74,21 @@ export const PAGE_GUIDES = Object.freeze({
   },
   // Visuals: the comma screen options, grouped as the layout editor grouped them. Device text, saved straight away.
   appearance: {
-    intro: "Options for the comma's driving screen. Changes save straight away. Widget positions and colours are on Colors & Layout.",
+    intro: "Options for the comma's driving screen. Changes save straight away. Widget positions and colors are on Colors & Layout.",
     cards: [
-      // One card, no sub-headings (the user's choice, 7 Nov); rows keep the layout editor's order.
+      // One card, no sub-headings; rows keep the layout editor's order.
       { id: "appearance", title: "", rows: ["Developer Sidebar", "Use StarPilot Widgets", "Wheel brake and acceleration colors",
         "Lead Indicator", "Lead Info", "Camera View", "Driver Camera on Reverse", "Hide Personality Alerts", "C4 amber signal border",
         "C4 red blind-spot border"].map(label => ({ label })) },
     ],
   },
-  // Speed Limit Controller: what only works while the controller is on is greyed while it is off. Show speed limit signs
+  // Speed Limit Controller: what only works while the controller is on is grayed while it is off. Show speed limit signs
   // and the limit sources stay active (the signs use the sources). The page keeps its own layout and text.
   slc: {
     rows: [
       { label: "Automatic adoption", needs: [SLC] },
       { label: "Adopt limits early", needs: [SLC] },
-      // The offset bands, labelled in the comma's speed units ("25–<34 mph offset").
+      // The offset bands, labeled in the comma's speed units ("25–<34 mph offset").
       { pattern: / offset$/, needs: [SLC] },
     ],
   },
@@ -139,7 +139,7 @@ function customFollowingGuide(name) {
     intro: `${TITLE(name)}'s own following gap and smoothness.`,
     cards: [
       { id: "gap", title: "Gap", icon: "bi-arrows-collapse",
-        rows: [{ label: "Customisation" }, { label: "Low-speed follow", sub: true }, { label: "High-speed follow", sub: true },
+        rows: [{ label: "Customization" }, { label: "Low-speed follow", sub: true }, { label: "High-speed follow", sub: true },
           ...SPEEDS.map(speed => ({ label: `Following at ${speed} mph`, sub: true }))] },
       { id: "smoothness", title: "Smoothness", icon: "bi-activity",
         intro: "Higher values change speed more smoothly but react more slowly. 100% is the base.",

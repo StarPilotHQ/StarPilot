@@ -27,14 +27,14 @@ for (const page of ["aggressive", "traffic"]) {
 
 // Custom following: Simple or Advanced gap, then smoothness, then reset.
 const jerks = ["Acceleration jerk", "Deceleration jerk", "Speed jerk", "Speed decrease jerk", "Danger jerk"].map(label => row(label, "100"))
-assert.deepEqual(layout("standard/custom_following", [row("Customisation", "Simple"), row("Low-speed follow", "1.6"),
+assert.deepEqual(layout("standard/custom_following", [row("Customization", "Simple"), row("Low-speed follow", "1.6"),
   row("High-speed follow", "1.2"), ...jerks, row("Reset Profile to Default", "", { confirm: true })]), [
-  ["gap", ["Customisation", ">Low-speed follow", ">High-speed follow"]],
+  ["gap", ["Customization", ">Low-speed follow", ">High-speed follow"]],
   ["smoothness", jerks.map(r => r.label)],
   ["reset", ["Reset Profile to Default"]],
 ])
-assert.deepEqual(layout("standard/custom_following", [row("Customisation", "Advanced"), row("Following at 0 mph", "2.0"), ...jerks])[0],
-  ["gap", ["Customisation", ">Following at 0 mph"]])
+assert.deepEqual(layout("standard/custom_following", [row("Customization", "Advanced"), row("Following at 0 mph", "2.0"), ...jerks])[0],
+  ["gap", ["Customization", ">Following at 0 mph"]])
 
 // The Edit page of a custom acceleration or braking curve shows the speed points only.
 assert.deepEqual(layout("standard/acceleration", [row("Preset", "Custom"), row("0 mph point", "0.2"),

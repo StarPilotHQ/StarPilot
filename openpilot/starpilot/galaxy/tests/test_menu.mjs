@@ -28,6 +28,17 @@ assert.deepEqual(at("/settings/page/lane_change"), ["Driving", "Lane Changes", "
 assert.deepEqual(at("/settings/page/slc"), ["Driving", "Speed Limit Controller", ""])
 assert.deepEqual(at("/settings/page/conditional/cem"), ["Driving", "Long Planner", "Experimental Conditions"])
 assert.deepEqual(at("/settings/page/traffic"), ["Driving", "Driving Personalities", "Traffic"])
+// Each personality's own pages (custom following, acceleration, braking) sit under that personality.
+for (const name of ["aggressive", "standard", "relaxed", "traffic"]) {
+  for (const [page, label] of [["custom_following", "Custom following"], ["acceleration", "Acceleration"], ["braking", "Braking"]]) {
+    const title = name[0].toUpperCase() + name.slice(1)
+    assert.deepEqual(at(`/settings/page/${name}/${page}`), ["Driving", "Driving Personalities", `${title} › ${label}`])
+    assert.deepEqual(menuBack(`/settings/page/${name}/${page}`), { path: `/settings/page/${name}`, label: title })
+  }
+}
+assert.deepEqual(menuTrail("/settings/page/standard/braking").map(item => item.label), ["Settings", "Driving", "Driving Personalities", "Standard", "Braking"])
+assert.deepEqual(menuTrail("/settings/page/standard/braking").map(item => item.id),
+  ["/settings", "/settings/menu/driving", "/settings/page/personalities", "/settings/page/standard", "/settings/page/standard/braking"])
 assert.deepEqual(at("/theme_maker/starport"), ["Controls & Connections", "StarPort", "StarPort layout"])
 assert.deepEqual(at("/cameras/pip"), ["Device & Visuals", "Cameras & Monitoring", "Blind Spot Camera and Preview"])
 assert.deepEqual(at("/settings/page/data"), ["Device & Visuals", "Power & Data", ""])

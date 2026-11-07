@@ -80,18 +80,21 @@ const listeners = new Map()
 globalThis.document = { hidden: false,
   addEventListener: (name, fn) => listeners.set(name, fn),
   removeEventListener: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name) } }
-const page = { mode: "local", finishDialog() {}, manager: { start() {}, stop() {} }, laboratory: { starts: 0, stops: 0, start() { this.starts++ }, stop() { this.stops++ } }, feed: { starts: 0, stops: 0, start() { this.starts++ }, stop() { this.stops++ } } }
+// The page reads the manager and the laboratory only; the model status feed (Home's running-model line) is not polled here.
+const counter = () => ({ starts: 0, stops: 0, start() { this.starts++ }, stop() { this.stops++ } })
+const page = { mode: "local", finishDialog() {}, manager: counter(), laboratory: counter() }
 ModelsPage.mounted.call(page)
-assert.equal(page.feed.starts, 1)
+assert.equal(page.manager.starts, 1)
 document.hidden = true
 listeners.get("visibilitychange")()
-assert.equal(page.feed.stops, 1)
+assert.equal(page.manager.stops, 1)
 document.hidden = false
 listeners.get("visibilitychange")()
-assert.equal(page.feed.starts, 2)
+assert.equal(page.manager.starts, 2)
 ModelsPage.beforeUnmount.call(page)
-assert.equal(page.feed.stops, 2)
+assert.equal(page.manager.stops, 2)
 assert.deepEqual([page.laboratory.starts, page.laboratory.stops], [2, 2])
+assert.doesNotMatch(ModelsPage.created.toString(), /ModelStatusFeed/)
 assert.equal(listeners.size, 0)
 globalThis.document = priorDocument
 

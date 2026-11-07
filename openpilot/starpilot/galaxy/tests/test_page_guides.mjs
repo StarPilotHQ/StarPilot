@@ -41,11 +41,11 @@ const companion = { state: { query: "", data: { page: "lane_change", rows: laneR
 companion.visibleRows = SettingsPage.computed.visibleRows.call(companion)
 const companionCards = SettingsPage.computed.rowCards.call(companion)
 assert.deepEqual(companionCards.map(card => [card.title, card.entries.map(({ row: r }) => `${r.label}${r.available ? "" : " grey"}`), !!card.include]),
-  [["", ["Signal lane detection", "Signal lane width grey"], false]], "a plain list there, the width greyed while detection is off")
+  [["", ["Signal lane detection", "Signal lane width grey"], false]], "a plain list there, the width grayed while detection is off")
 assert.equal(companion.visibleRows.find(({ row: r }) => r.label === "Signal lane width").row.reason, "Turn on Signal lane detection to use this. device text")
 assert.equal(guidedRows("lane_change", laneRows()).find(r => r.label === "Signal lane detection").reason, "device text", "the device's own text")
 
-// Wheel nudge required on greys (not hides) the nudgeless settings; Auto lane changes off greys everything that needs it.
+// Wheel nudge required on grays (not hides) the nudgeless settings; Auto lane changes off grays everything that needs it.
 const nudge = guidedRows("lane_change", laneRows({ "Automatic Lane Changes": { value: "Off" } }))
 assert.match(nudge.find(r => r.label === "Nudgeless delay").reason, /^Turn off Wheel nudge required to use this\. How long after you signal/)
 assert.equal(nudge.find(r => r.label === "Nudgeless delay").available, false)
@@ -60,7 +60,7 @@ assert.match(guidedRows("lane_change", laneRows({ "Allow lane changes": { value:
 // Close gap on: its follow gap is usable.
 assert.deepEqual(layout(laneRows({ "Close lane-change gap": { value: "On" } }))[0][1].slice(7), ["7 Close lane-change gap=On", "8 Lane-change follow gap=0.75 sub"])
 
-// Greyed rows say which switch to turn on; a row the device made unavailable keeps the device's reason.
+// Grayed rows say which switch to turn on; a row the device made unavailable keeps the device's reason.
 const shown = guidedRows("lane_change", laneRows({ "Allow lane changes": { value: "Off" }, "Close lane-change gap": { available: false, reason: "Needs speed control" } }))
 assert.match(shown.find(r => r.label === "One change per signal").reason, /^Turn on Auto lane changes to use this\. On: one lane change/)
 assert.equal(shown.find(r => r.label === "Close lane-change gap").reason, "Needs speed control")
@@ -107,7 +107,7 @@ assert.equal(pageGuide("constructor"), null)
 
 // Every label a guide relies on still exists in the device code (a Dom rename would otherwise drop a row into "More settings").
 const source = ["../../ui/lane_change_feature.py", "../../ui/conditional_feature.py", "../../ui/feature_settings_owner.py",
-  "../../ui/slc_offset_feature.py", "../../ui/appearance_owner.py", "../../ui/long_profile_feature.py",
+  "../../ui/personalities_page.py", "../../ui/slc_offset_feature.py", "../../ui/appearance_owner.py", "../../ui/long_profile_feature.py",
   "../../ui/traffic_feature.py"]
   .map(path => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n")
 // Driving Personalities labels are built by the device code from a name or category; check those builders instead.
@@ -131,7 +131,7 @@ for (const guide of Object.values(PAGE_GUIDES)) {
 }
 console.log("page guides ok")
 
-// Speed Limit Controller: adoption, early adoption and the offsets are greyed while it is off; Show speed limit signs
+// Speed Limit Controller: adoption, early adoption and the offsets are grayed while it is off; Show speed limit signs
 // and the sources stay active (the signs use them). The page keeps its own layout and text.
 const slcRows = (value, unit = "mph") => [row("Speed Limit Controller", value, { reason: "device text" }), row("Show speed limit signs", "On"),
   row("Automatic adoption", "On"), row("Adopt limits early", "Off", { choices: ["Off", "1 s"] }), row("Primary source", "Map Data"),
@@ -142,7 +142,7 @@ for (const unit of ["mph", "km/h"]) {
   const slcOff = guidedRows("slc", slcRows("Off", unit))
   assert.deepEqual(slcOff.map(r => [r.label, r.available]), [["Speed Limit Controller", true], ["Show speed limit signs", true],
     ["Automatic adoption", false], ["Adopt limits early", false], ["Primary source", true], ["Secondary source", true], ["Offset policy", true],
-    [`0–<25 ${unit} offset`, false], [`74–<99 ${unit} offset`, false], [`99 ${unit} and above`, true]], `greyed while SLC is off (${unit})`)
+    [`0–<25 ${unit} offset`, false], [`74–<99 ${unit} offset`, false], [`99 ${unit} and above`, true]], `grayed while SLC is off (${unit})`)
   assert.equal(slcOff[2].reason, "Turn on Speed Limit Controller to use this. device text")
   assert.equal(slcOff[0].reason, "device text", "the page keeps its own text")
   assert.ok(guidedRows("slc", slcRows("On", unit)).every(r => r.available))

@@ -23,7 +23,7 @@
 .gx-menu-item .gx-menu-item__chev { margin-left: auto; width: auto; font-size: .8rem; color: var(--text-muted); transition: transform var(--motion-fast); }
 .gx-menu-item[aria-expanded="true"] .gx-menu-item__chev { transform: rotate(90deg); }
 .gx-menu-item--l2 { min-height: 40px; padding-left: 52px; font-size: .95rem; }
-.gx-menu-item--l3 { min-height: 36px; padding-left: 72px; font-size: .9rem; font-weight: 400; }  /* same text colour as the rest of the menu */
+.gx-menu-item--l3 { min-height: 36px; padding-left: 72px; font-size: .9rem; font-weight: 400; }  /* same text color as the rest of the menu */
 .gx-menu-item--ancestor, .gx-menu-item--ancestor > i:first-child { color: var(--primary); }
 .gx-menu-item--l3.active { color: var(--primary); font-weight: var(--fw-bold); }
 .gx-menu-item--l2::before, .gx-menu-item--l3::before, .gx-menu-item--l3::after {

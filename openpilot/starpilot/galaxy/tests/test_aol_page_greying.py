@@ -1,4 +1,4 @@
-"""Galaxy Always On Lateral page: switch first, Brake pause below greyed while AOL is off (Restore defaults still resets it),
+"""Galaxy Always On Lateral page: switch first, Brake pause below grayed while AOL is off (Restore defaults still resets it),
 steering-pause rows unaffected."""
 from typing import cast
 from unittest import TestCase

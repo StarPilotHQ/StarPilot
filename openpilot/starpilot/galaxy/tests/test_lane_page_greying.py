@@ -1,4 +1,4 @@
-"""Galaxy Lane Centering page: rows below the master switch are greyed while it is off; Restore defaults still resets them."""
+"""Galaxy Lane Centering page: rows below the master switch are grayed while it is off; Restore defaults still resets them."""
 from typing import cast
 from dataclasses import replace
 from unittest import TestCase
