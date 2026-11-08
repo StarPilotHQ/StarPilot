@@ -37,6 +37,7 @@ from openpilot.starpilot.longitudinal.lead_takeoff import LeadTakeoff, project a
 from openpilot.starpilot.longitudinal.lead_behavior import adjust as adjust_lead_behavior
 from openpilot.starpilot.longitudinal.hkg_vision_stop import owner_for as vision_stop_owner
 from openpilot.starpilot.car.ford.stopped_lead import owner_for as ford_stop_owner
+from openpilot.starpilot.car.volkswagen.stopped_lead import owner_for as vw_stop_owner
 from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import STOP_DISTANCE
 from openpilot.starpilot.longitudinal.lead_approach import LeadApproach, LeadApproachKey, project as project_approach
 from openpilot.starpilot.lateral.lane_change_preferences import LaneChangePolicy
@@ -132,7 +133,7 @@ class LongitudinalPlanner:
     self.lead_takeoff = LeadTakeoff()
     self.vehicle_far_follow = far_follow_owner(CP, dt)
     self.vision_stop_buffer = vision_stop_owner(CP)
-    self.ford_stop_approach = ford_stop_owner(CP, STOP_DISTANCE - .5)
+    self.ford_stop_approach = ford_stop_owner(CP, STOP_DISTANCE - .5) or vw_stop_owner(CP, STOP_DISTANCE - .5)
     self.preap_adaptive = preap_adaptive_owner(CP)
 
   def update(self, sm, *, cruise_ceiling: CruiseCeiling | None = None,
