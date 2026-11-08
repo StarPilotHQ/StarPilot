@@ -43,6 +43,15 @@ const activeSettings = new Set()
 
 export const settingsBusy = state => ["updating", "saving"].includes(state.status) || !!state.pending || !!state.reviewing
 
+export function sentryMonitorStatus(data, error = "") {
+  const subtitle = data?.subtitle || ""
+  const label = subtitle.split(":", 1)[0]
+  if (error || !subtitle || label.startsWith("Waiting for monitor") || label === "Unavailable" || subtitle.includes("status is unavailable"))
+    return { label: "Status unavailable", tone: "warning", detail: error ? "Reconnecting to the motion monitor…" : subtitle || "Checking motion monitor…" }
+  if (label === "Monitoring motion") return { label: "Armed", tone: "armed", detail: subtitle }
+  return { label: "Disarmed", tone: label.startsWith("Arming") ? "warning" : "disarmed", detail: subtitle }
+}
+
 export class SettingsFeed {
   constructor({ publish, unauthorized = () => { }, fetcher = (...args) => fetch(...args),
     later = (fn, ms) => setTimeout(fn, ms), cancelTimer = (id) => clearTimeout(id) }) {
@@ -276,6 +285,7 @@ export const SettingsPage = {
     return { state, feed, sections: SETTINGS_SECTIONS, navigation, navigationKey, restoredPage: saved?.page }
   },
   computed: {
+    sentryStatus() { return sentryMonitorStatus(this.state.data, this.state.error) },
     busy() { return settingsBusy(this.state) || !!this.state.testingSound },
     activeSection() {
       if (this.state.developerOpen) return this.sections.at(-1)
@@ -454,7 +464,7 @@ export const SettingsPage = {
       <p class="gx-page-description" v-else-if="state.data?.page === 'wheel'">Assign what the steering-wheel controls do.</p>
       <p class="gx-page-description" v-else-if="state.data?.page === 'data'">Choose what uploads when the vehicle uses mobile data.</p>
       <p class="gx-page-description" v-else-if="['aggressive','standard','relaxed'].includes(state.data?.page)">Adjust acceleration, braking and following for this driving style.</p>
-      <p class="gx-page-description" v-else-if="initialPage === 'sentry'">{{ state.data?.subtitle || "Checking motion monitor…" }}</p>
+
       <GxState v-if="mode !== 'local'">Local settings are unavailable in preview.</GxState>
       <template v-else>
         <GxNotice v-if="state.data && state.data.vehicleIdentified === false" tone="info">Vehicle not identified yet. Turn on the car and wait for fingerprinting; vehicle-specific settings will then appear here.</GxNotice>
@@ -473,6 +483,10 @@ export const SettingsPage = {
             <section v-for="(card, cardIndex) in rowCards" :key="card.title || 'main'" class="gx-card gx-settings__section">
               <div v-if="cardIndex" class="gx-section__header"><i class="bi bi-car-front" aria-hidden="true"></i><span class="gx-section__title">{{ card.title }}</span></div>
               <div v-else class="gx-section__header"><i class="bi" :class="activeSection.icon" aria-hidden="true"></i><span class="gx-section__title">{{ state.data.page === 'hub' ? activeSection.label : state.data.title }}</span>
+                <div v-if="state.data.page === 'sentry'" class="gx-sentry-status" :class="'gx-sentry-status--' + sentryStatus.tone" role="status">
+                  <strong class="gx-sentry-status__label">{{ sentryStatus.label }}</strong>
+                  <span class="gx-sentry-status__detail">{{ sentryStatus.detail }}</span>
+                </div>
                 <button v-if="state.data.page !== 'hub' && state.data.rows.length" type="button" class="gx-icon-btn" :aria-label="state.searchOpen ? 'Close page search' : 'Search within this page'" :aria-pressed="state.searchOpen" @click="togglePageSearch"><i class="bi" :class="state.searchOpen ? 'bi-x-lg' : 'bi-search'" aria-hidden="true"></i></button>
                 </div>
               <div v-if="state.searchOpen && !cardIndex" class="gx-settings__search"><input ref="pageSearch" v-model="state.query" class="gx-field" type="search" aria-label="Search within this page" placeholder="Search within…"></div>

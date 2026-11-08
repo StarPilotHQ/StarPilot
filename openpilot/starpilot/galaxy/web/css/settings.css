@@ -740,3 +740,10 @@ html.gx-maker-open, html.gx-maker-open body { touch-action: manipulation; }
 @media (forced-colors: active) {
   .gx-model-card--polaris .gx-model-card__title { background: none; -webkit-text-fill-color: currentColor; color: CanvasText; }
 }
+
+.gx-sentry-status { flex: 1 1 100%; order: 1; display: grid; gap: var(--sp-2); }
+.gx-sentry-status__label { width: fit-content; padding: 4px 12px; border: 1px solid currentColor; border-radius: 999px; }
+.gx-sentry-status--armed { color: var(--success); }
+.gx-sentry-status--disarmed { color: var(--error); }
+.gx-sentry-status--warning { color: var(--warning); }
+.gx-sentry-status__detail { color: var(--on-surface-variant); font-size: var(--fs-sm); }
