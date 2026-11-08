@@ -52,7 +52,7 @@ class PersonalitiesPageTests(unittest.TestCase):
   def test_default_page_is_toggles_then_following(self):
     self.assertEqual(self.labels("aggressive"), ["Custom acceleration", "Custom braking", "Following"])
     self.assertEqual(self.row("aggressive", "Custom acceleration").value, "Off")
-    self.assertIn("Long Planner", self.row("aggressive", "Custom acceleration").reason)
+    self.assertIn("Acceleration & Braking", self.row("aggressive", "Custom acceleration").reason)
     self.assertEqual(self.row("aggressive", "Following").value, "StarPilot Default")
 
   def test_custom_acceleration_shows_its_choice_without_selected_profile(self):

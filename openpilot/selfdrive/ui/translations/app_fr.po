@@ -1240,8 +1240,8 @@ msgid "Always On Lateral"
 msgstr "Contrôle latéral permanent"
 
 #: openpilot/starpilot/ui/translation_strings.py
-msgid "Long Planner"
-msgstr "Planificateur longitudinal"
+msgid "Acceleration & Braking"
+msgstr "Accélération et freinage"
 
 #: openpilot/starpilot/ui/translation_strings.py
 msgid "Conditional Driving Modes"
@@ -10284,8 +10284,8 @@ msgid "Reset both remembered manual choices to Automatic?"
 msgstr "Réinitialiser les deux choix manuels mémorisés sur Automatique ?"
 
 #: openpilot/starpilot/ui/runtime_app.py
-msgid "Reset invalid saved Long Planner profiles to defaults?"
-msgstr "Rétablir les valeurs par défaut des profils enregistrés invalides de Long Planner ?"
+msgid "Reset invalid saved Acceleration & Braking profiles to defaults?"
+msgstr "Rétablir les valeurs par défaut des profils enregistrés invalides d’Accélération et freinage ?"
 
 #: openpilot/starpilot/galaxy/settings.py
 msgid "Reset invalid saved profiles and turn their saved switch off?"

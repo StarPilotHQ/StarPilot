@@ -23,7 +23,7 @@ FOLLOWING_HELP = ("StarPilot Default uses openpilot's standard gap and smoothnes
 def personality_summary(profile: dict) -> str:
   def shown(category):
     preset = profile[category]["preset"]
-    return ("Long Planner" if preset == "selected_profile" else "Custom" if preset in CUSTOM_FOLLOWING_PRESETS else preset_label(preset))
+    return ("Acceleration & Braking" if preset == "selected_profile" else "Custom" if preset in CUSTOM_FOLLOWING_PRESETS else preset_label(preset))
   return f"Following: {shown('following')} · Acceleration: {shown('acceleration')} · Braking: {shown('braking')}"
 
 
@@ -42,7 +42,7 @@ def personality_page_rows(owner, name: str, **context) -> list[FeatureRow]:
     rows.append(FeatureRow(f"{LONG_PREFIX}{name}:{category}:custom", f"Custom {category}", "On" if custom_on else "Off", raw,
                            ("Off", "On") if profile else (), available=preset_row.available and profile is not None,
                            capability=preset_row.capability, dependencies=preset_row.dependencies, default_value="Off",
-                           reason=f"Off uses Long Planner's {general} ({preset_label(shared)}). On lets {name.title()} use its own."))
+                           reason=f"Off uses the {general} set in Acceleration & Braking ({preset_label(shared)}). On lets {name.title()} use its own."))
     if custom_on:
       rows.append(replace(preset_row, label=category.title(), choices=tuple(c for c in preset_row.choices if c != "Selected Profile"),
                           default_value=None, reason=CATEGORY_CHOICE_HELP[category]))

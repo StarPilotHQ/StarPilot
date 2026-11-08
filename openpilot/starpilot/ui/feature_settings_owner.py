@@ -830,7 +830,7 @@ class FeatureSettingsOwner:
               FeatureRow("", "Speed Limit Controller", "Choose speed-limit sources, offsets, and confirmation behavior", page=FeaturePage.SLC, available=True),
               FeatureRow("", "Lane Centering", "Adjust lane positioning, lane detection, and steering alerts", page=FeaturePage.LANE, available=True),
               FeatureRow("", "Lane Changes", "Configure lane-change speed, automatic timing, and driver nudges", page=FeaturePage.LANE_CHANGE, available=True),
-              FeatureRow("", "Long Planner", "Tune acceleration, braking, and following distances", page=FeaturePage.PROFILES, available=True),
+              FeatureRow("", "Acceleration & Braking", "Tune acceleration, braking, and following distances", page=FeaturePage.PROFILES, available=True),
               FeatureRow("", "Conditional Driving Modes", "Choose when to switch between Chill and Experimental", page=FeaturePage.CONDITIONAL, available=True),
               FeatureRow("", "Steering and Torque", "Select the steering controller and tune its response", page=FeaturePage.TORQUE, available=True),
               FeatureRow("", "Always On Lateral", "Keep steering assistance active independently of cruise control", page=FeaturePage.AOL, available=True),
@@ -1190,7 +1190,7 @@ class FeatureSettingsOwner:
       rows.extend(self.lane_changes.rows(parked))
       rows.extend(self.conditional.rows(page, parked))
     elif page == FeaturePage.PROFILES:
-      title = "Long Planner"
+      title = "Acceleration & Braking"
       rows.append(self._bool_row(PLANNER_SELECTION_KEY, "Use StarPilot Longitudinal Planner", self.authority("preferences"),
                                  reason=("On runs StarPilot's speed features (Speed Limit Controller, Curve Speed Controller, Force Stop, profile tuning). " +
                                          "Off uses comma's stock planner without them. Applies on the next drive.")))

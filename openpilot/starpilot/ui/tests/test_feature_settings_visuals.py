@@ -662,7 +662,7 @@ class FeatureVisualTests(unittest.TestCase):
         ("Driving Model", "StarPilot", True, ["< Back", "Driving Model"]),
         ("Device", "Settings", True, ["< Back", "Device"]),
         ("Lane Centering", "Driving Controls", True, ["< Back", "Driving Controls > ", "Lane Centering"]),
-        ("Aggressive", "Long Planner", True, ["< Back", "Long Planner > ", "Aggressive"]),
+        ("Aggressive", "Acceleration & Braking", True, ["< Back", "Acceleration & Braking > ", "Aggressive"]),
         ("StarPilot", "", False, ["StarPilot"]),
       ):
         with self.subTest(expanded=expanded, title=title):

@@ -1219,7 +1219,7 @@ class StarShellSession:
                 "slc_reset": f"Reset speed-limit offsets to zero? {row.value}. " +
                              "Saved SLC control may resume if its switch is On; the switch will not change.",
                 "curve_reset": "Reset saved Curve learning? Your Curve Speed Controller On/Off choice will stay the same.",
-                "reset_profiles": "Reset invalid saved Long Planner profiles to defaults?"}.get(action_key, long_confirm_question(row))
+                "reset_profiles": "Reset invalid saved Acceleration & Braking profiles to defaults?"}.get(action_key, long_confirm_question(row))
     def confirmed(result: DialogResult) -> None:
       if result == DialogResult.CONFIRM:
         self.feature_request(FeatureSettingsRequest(action_key, row.source, "confirm", confirmation=True,

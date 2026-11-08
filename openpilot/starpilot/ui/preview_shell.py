@@ -55,7 +55,7 @@ def reference_feature_scene(scene: str) -> tuple[Destination, str, FeatureSettin
   if scene == "settings_driving_controls":
     rows = tuple(FeatureRow("", label, "Saved settings", page=page, available=True) for page, label in (
       ("slc", "Speed Limit Controller"), ("lane", "Lane Centering"), ("lane_change", "Lane Changes"),
-      ("profiles", "Long Planner"), ("conditional", "Conditional Driving Modes"), ("curve", "Curve Speed Controller"),
+      ("profiles", "Acceleration & Braking"), ("conditional", "Conditional Driving Modes"), ("curve", "Curve Speed Controller"),
       ("torque", "Steering and Torque"), ("aol", "Always On Lateral"), ("wheel", "Wheel Controls")))
     destination, field, page, title = Destination.DRIVING_CONTROLS, "features", "hub", "Driving Controls"
   elif scene == "settings_sounds":

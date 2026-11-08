@@ -1236,8 +1236,8 @@ msgid "Always On Lateral"
 msgstr "Luôn điều khiển ngang"
 
 #: openpilot/starpilot/ui/translation_strings.py
-msgid "Long Planner"
-msgstr "Bộ lập kế hoạch dọc"
+msgid "Acceleration & Braking"
+msgstr "Tăng tốc và phanh"
 
 #: openpilot/starpilot/ui/translation_strings.py
 msgid "Conditional Driving Modes"
@@ -10280,8 +10280,8 @@ msgid "Reset both remembered manual choices to Automatic?"
 msgstr "Đặt lại cả hai lựa chọn thủ công đã nhớ thành Tự động?"
 
 #: openpilot/starpilot/ui/runtime_app.py
-msgid "Reset invalid saved Long Planner profiles to defaults?"
-msgstr "Đặt lại cấu hình Bộ lập kế hoạch dọc không hợp lệ đã lưu về mặc định?"
+msgid "Reset invalid saved Acceleration & Braking profiles to defaults?"
+msgstr "Đặt lại cấu hình Tăng tốc và phanh không hợp lệ đã lưu về mặc định?"
 
 #: openpilot/starpilot/galaxy/settings.py
 msgid "Reset invalid saved profiles and turn their saved switch off?"

@@ -1238,7 +1238,7 @@ msgid "Always On Lateral"
 msgstr ""
 
 #: openpilot/starpilot/ui/translation_strings.py
-msgid "Long Planner"
+msgid "Acceleration & Braking"
 msgstr ""
 
 #: openpilot/starpilot/ui/translation_strings.py
@@ -10282,7 +10282,7 @@ msgid "Reset both remembered manual choices to Automatic?"
 msgstr ""
 
 #: openpilot/starpilot/ui/runtime_app.py
-msgid "Reset invalid saved Long Planner profiles to defaults?"
+msgid "Reset invalid saved Acceleration & Braking profiles to defaults?"
 msgstr ""
 
 #: openpilot/starpilot/galaxy/settings.py

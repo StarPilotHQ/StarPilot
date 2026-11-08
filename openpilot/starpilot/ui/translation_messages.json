@@ -13104,7 +13104,7 @@
       ]
     },
     {
-      "source": "Reset invalid saved Long Planner profiles to defaults?",
+      "source": "Reset invalid saved Acceleration & Braking profiles to defaults?",
       "refs": [
         "openpilot/starpilot/ui/runtime_app.py"
       ]
