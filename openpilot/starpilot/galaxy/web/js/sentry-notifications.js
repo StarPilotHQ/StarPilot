@@ -61,7 +61,7 @@ export const SentryNotifications = {
   components: { GxNotice },
   name: "SentryNotifications",
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
-  data: () => ({ nativePush: !!window.StarPilotApp?.sentryPush, pushState: {}, testPoll: null, relayUrl: '', enrollmentCode: '', relayConfirmed: false, channels, labels, notifications: null, notificationBusy: false, notificationTesting: false, notificationError: "",
+  data: () => ({ nativePush: !!window.StarPilotApp?.sentryPush, pushState: {}, testingId: '', testPoll: null, relayUrl: '', enrollmentCode: '', relayConfirmed: false, channels, labels, notifications: null, notificationBusy: false, notificationTesting: false, notificationError: "",
     channelSetup: {},
     drafts: Object.fromEntries(channels.map(name => [name, { url: "", token: "" }])) }),
   created() { this.client = new NotificationClient({ publish: update => Object.assign(this.$data, update), unauthorized: this.unauthorized }) },
@@ -70,15 +70,18 @@ export const SentryNotifications = {
     document.addEventListener("visibilitychange", this.visibility)
     this.start()
   },
-  beforeUnmount() { clearInterval(this.testPoll); this.client.stop(); clearInterval(this.poll); document.removeEventListener("visibilitychange", this.visibility) },
+  beforeUnmount() { clearInterval(this.testPoll); clearTimeout(this.testingTimer); this.client.stop(); clearInterval(this.poll); document.removeEventListener("visibilitychange", this.visibility) },
   computed: { relay() { return this.notifications?.relayEnrollment?.supported ? this.notifications.relayEnrollment : null } },
   methods: {
     reportSave,
     otherPhones() { return (this.notifications?.appSubscriptions || []).filter(phone => !this.pushState.id || phone.id !== this.pushState.id) },
     refreshPush() { try { this.pushState = JSON.parse(window.StarPilotApp?.sentryPush?.() || '{}') } catch { this.pushState = {} } },
     togglePhone() { window.StarPilotApp?.setSentryPush?.(!this.pushState.enabled); this.refreshPush(); setTimeout(() => this.client.run(), 1000) },
+    phoneStatus() { return this.pushState.status || (this.pushState.enabled ? (this.pushState.registered ? 'Alerts on' : 'Registering this phone…') : 'Alerts off') },
     async testPhone(id) {
-      if (!await this.client.run({ action: 'test', target: 'app', id })) return
+      this.testingId = id; clearTimeout(this.testingTimer)
+      this.testingTimer = setTimeout(() => { this.testingId = '' }, 20000)
+      if (!await this.client.run({ action: 'test', target: 'app', id })) { clearTimeout(this.testingTimer); this.testingId = ''; return }
       clearInterval(this.testPoll)
       let attempts = 0
       this.testPoll = setInterval(() => { if (++attempts >= 15) { clearInterval(this.testPoll); this.testPoll = null } if (!this.client.pending) this.client.run() }, 1000)
@@ -181,9 +184,9 @@ export const SentryNotifications = {
               </div>
               <p v-if="notifications.appPushAvailable && (nativePush || notifications.appSubscriptions?.length)" class="gx-note">Test alerts may take up to 20 seconds to arrive.</p>
               <div v-if="nativePush" class="gx-row gx-row--borderless gx-row--wrap">
-                <div class="gx-row__info gx-row__info--wide"><span class="gx-row__label">This phone</span><span class="gx-row__desc">{{ pushState.status || (pushState.enabled ? 'Alerts on' : 'Alerts off') }}</span></div>
+                <div class="gx-row__info gx-row__info--wide"><span class="gx-row__label">This phone</span><span class="gx-row__desc">{{ phoneStatus() }}</span></div>
                 <div class="gx-actions">
-                  <button v-if="notifications.appPushAvailable && pushState.registered && pushState.id" type="button" class="gx-btn gx-btn--tonal" @click="testPhone(pushState.id)">Send test</button>
+                  <button v-if="notifications.appPushAvailable && pushState.registered && pushState.id" type="button" class="gx-btn gx-btn--tonal" :disabled="!!testingId" @click="testPhone(pushState.id)">{{ testingId === pushState.id ? 'Testing…' : 'Send test' }}</button>
                   <button type="button" class="gx-btn gx-btn--tonal" :disabled="!notifications.appPushAvailable" @click="togglePhone">{{ pushState.enabled ? 'Turn off' : 'Turn on' }}</button>
                 </div>
               </div>
@@ -191,7 +194,7 @@ export const SentryNotifications = {
                 <div class="gx-row__info gx-row__info--wide"><span class="gx-row__label">{{ phone.label || 'Phone' }}</span>
                   <span class="gx-row__desc">{{ phone.lastResult || 'Not tested yet' }}<template v-if="phone.lastAt">, {{ new Date(phone.lastAt * 1000).toLocaleString() }}</template></span></div>
                 <div class="gx-actions">
-                  <button type="button" class="gx-btn gx-btn--tonal" :disabled="!notifications.appPushAvailable" @click="testPhone(phone.id)">Test</button>
+                  <button type="button" class="gx-btn gx-btn--tonal" :disabled="!notifications.appPushAvailable || !!testingId" @click="testPhone(phone.id)">{{ testingId === phone.id ? 'Testing…' : 'Test' }}</button>
                   <button type="button" class="gx-btn gx-btn--tonal" @click="removePhone(phone.id)">Remove</button>
                 </div>
               </div>
