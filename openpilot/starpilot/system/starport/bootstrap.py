@@ -80,7 +80,8 @@ JOIN_PING_INTERVAL = 2.0
 EXPERIMENTS = {
   "start_response_first": ("Answer start request first", {"start_response_first"}),
   "version_endpoint": ("Use version endpoint", {"version_endpoint"}),
-  "all": ("All of these", {"start_response_first", "version_endpoint"}),
+  "phone_ping": ("Ping like a phone", {"phone_ping"}),
+  "all": ("All of these", {"start_response_first", "version_endpoint", "phone_ping"}),
 }
 # Frames that carry credentials or the vehicle identifier are never dumped as hex.
 HEX_LOG_SKIP = (WIFI_INFO_RESPONSE, WIFI_SETUP_INFO, WIFI_VERSION_REQUEST)
@@ -292,6 +293,7 @@ class WirelessBootstrap:
     self.initial_kick_delay = initial_kick_delay
     self.join_ping_interval = join_ping_interval
     self.peer_uses_pings = False
+    self.ping_at: float | None = None       # next phone-style ping while waiting on the car (phone_ping experiment)
     self.start_request_delay = start_request_delay
     self.log = log
     self.device_serial = device_serial
@@ -382,6 +384,12 @@ class WirelessBootstrap:
     self.log("bootstrap_version_reply", style="phone_identity", has_address=bool(self.phone_address))
     return reply
 
+  def _ping_like_a_phone(self) -> None:
+    """A phone pings the dongle once a second from the moment it answers the version request (Bluetooth capture)."""
+    if self.ping_at is not None and time.monotonic() >= self.ping_at:
+      self.ping_at += 1.0
+      self.send(WIFI_PING_REQUEST, field(1, time.monotonic_ns() // 1_000_000))
+
   def service(self, message_id: int, payload: bytes) -> bool:
     """Handle stage-independent frames; returns True when consumed."""
     if message_id == WIFI_PING_REQUEST:
@@ -430,7 +438,8 @@ class WirelessBootstrap:
       if start_request_at is not None and now >= start_request_at:
         start_request_at = None
         self.send(WIFI_START_REQUEST)
-      wake_at = min(t for t in (deadline, initial_kick_at, start_request_at, hint_ready_at) if t is not None)
+      self._ping_like_a_phone()
+      wake_at = min(t for t in (deadline, initial_kick_at, start_request_at, hint_ready_at, self.ping_at) if t is not None)
       try:
         message_id, payload = self.next_frame(max(0.001, wake_at - time.monotonic()))
       except BootstrapTimeout:
@@ -449,6 +458,9 @@ class WirelessBootstrap:
         self.send(WIFI_VERSION_RESPONSE, self._version_response(major, minor, payload))
         self.replied_at = time.monotonic()
         self._reply_accepted = False
+        if "phone_ping" in self.flags and self.ping_at is None:
+          self.ping_at = self.replied_at + 1.0
+          self.peer_uses_pings = True
         hinted = version_endpoint or hinted
         if hinted is not None and hint_ready_at is None:
           hint_ready_at = time.monotonic() + 3.0
@@ -511,7 +523,13 @@ class WirelessBootstrap:
         remaining = info_deadline - time.monotonic()
         if remaining <= 0:
           raise BootstrapTimeout(self.stage, "head unit did not answer in time")
-        message_id, payload = self.next_frame(remaining)
+        self._ping_like_a_phone()
+        try:
+          message_id, payload = self.next_frame(min(remaining, 0.5) if self.ping_at is not None else remaining)
+        except BootstrapTimeout:
+          if self.ping_at is None:
+            raise
+          continue
         if cancelled():
           raise BootstrapError(self.stage, "cancelled")
         if self.service(message_id, payload):

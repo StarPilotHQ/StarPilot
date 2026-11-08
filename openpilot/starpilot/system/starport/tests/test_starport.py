@@ -110,7 +110,7 @@ def unexpected_join(_):
   raise AssertionError("Unexpected join")
 
 
-def run_bootstrap(start_request_delay=5.0, initial_kick_delay=bs.INITIAL_KICK_SECONDS, **hu_options):
+def run_bootstrap(start_request_delay=5.0, initial_kick_delay=bs.INITIAL_KICK_SECONDS, experiment="", **hu_options):
   phone, car = socket.socketpair()
   joined = []
   result_holder = {}
@@ -125,7 +125,7 @@ def run_bootstrap(start_request_delay=5.0, initial_kick_delay=bs.INITIAL_KICK_SE
   thread.start()
   events = []
   boot = bs.WirelessBootstrap(phone, lambda name, **values: events.append((name, values)), stage_timeout=5.0,
-                              start_request_delay=start_request_delay, initial_kick_delay=initial_kick_delay)
+                              start_request_delay=start_request_delay, initial_kick_delay=initial_kick_delay, experiment=experiment)
 
   def join(credentials):
     time.sleep(0.3)  # the car pings while we join

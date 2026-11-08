@@ -354,7 +354,7 @@ class FakeHeadUnit:
 def rfcomm_head_unit(sock: socket.socket, endpoint: tuple[str, int], *, version_first: bool = False, oaa_layout: bool = False,
                      setup_info_only: bool = False, pings: bool = True, byte_by_byte: bool = False,
                      wait_for_phone_start: bool = False, answer_start: bool = False, busy_replies: int = 0,
-                     busy_follow_up: bool = False) -> dict:
+                     busy_follow_up: bool = False, require_phone_ping: bool = False) -> dict:
   """Car side of the RFCOMM bootstrap; returns what the phone sent.
 
   ``answer_start`` models a 2025 Honda: it answers the phone's WifiStartRequest with
@@ -402,6 +402,11 @@ def rfcomm_head_unit(sock: socket.socket, endpoint: tuple[str, int], *, version_
       message_id, payload = receive()
       assert message_id == bs.WIFI_START_REQUEST, message_id
       seen["phone_start_request"] = payload
+    if require_phone_ping:  # a dongle that starts only after the phone pings it
+      message_id, payload = receive()
+      while message_id != bs.WIFI_PING_REQUEST:
+        message_id, payload = receive()
+      seen["phone_ping_first"] = True
     if pings:
       send(bs.WIFI_PING_REQUEST, field(1, 123))
     if answer_start:

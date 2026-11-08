@@ -18,3 +18,15 @@ def test_tcp_failure_kinds():
   assert _tcp_failure_kind(ConnectionRefusedError()) == "refused"
   assert _tcp_failure_kind(OSError(errno.EHOSTUNREACH, "no route")) == "unreachable"
   assert _tcp_failure_kind(OSError(errno.EPERM, "denied")) == "other"
+
+
+def test_phone_ping_experiment_gets_a_dongle_that_waits_for_the_phone_to_ping():
+  from openpilot.starpilot.system.starport.tests.test_starport import run_bootstrap
+  result, joined, seen, _ = run_bootstrap(version_first=True, experiment="phone_ping", require_phone_ping=True)
+  assert seen["phone_ping_first"] and joined and result.endpoint.port == 5288
+
+
+def test_default_bootstrap_sends_no_pings_of_its_own():
+  from openpilot.starpilot.system.starport.tests.test_starport import run_bootstrap
+  _, _, seen, _ = run_bootstrap(version_first=True)
+  assert bs.WIFI_PING_REQUEST not in seen["messages"]
