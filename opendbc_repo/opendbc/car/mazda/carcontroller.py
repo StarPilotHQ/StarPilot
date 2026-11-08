@@ -3,6 +3,7 @@ from opendbc.car import Bus, structs
 from opendbc.car.lateral import apply_driver_steer_torque_limits
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.mazda import mazdacan
+from opendbc.car.mazda.stock_aol import gen2_qualified
 from opendbc.car.mazda.values import CarControllerParams, Buttons, MazdaSafetyFlags
 from openpilot.common.realtime import DT_CTRL
 from openpilot.common.filter_simple import FirstOrderFilter
@@ -41,7 +42,10 @@ class CarController(CarControllerBase):
     apply_torque = 0
     ti_apply_torque = 0
 
-    if CC.latActive:
+    # Under the GEN2 AOL policy panda refuses nonzero torque while stopped, and the host
+    # only hears of it about 60 ms later through latActive. The TI2 pauses for 10 s when
+    # 0x249 stops for about 50 ms, so release in this frame: panda always accepts zero.
+    if CC.latActive and not (CS.out.standstill and gen2_qualified(self.CP, marked_only=True)):
       # calculate steer and also set limits due to driver torque
       new_torque = int(round(CC.actuators.torque * self.ccp.STEER_MAX))
       if _projection is not None:
