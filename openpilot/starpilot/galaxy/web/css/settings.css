@@ -307,8 +307,6 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 }
 
 .gx-model-control { display: grid; gap: var(--sp-2); min-width: 0; }
-.gx-model-filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); min-width: 0; }
-.gx-model-filter-bar > .gx-row__label { margin-right: var(--sp-2); }
 .gx-model-control > .gx-field { width: 100%; min-width: 0; }
 
 .gx-model-manager .gx-card-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
@@ -321,8 +319,76 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 
 .gx-model-reason { margin: var(--sp-3) 0; color: var(--text-muted); font-size: var(--fs-sm); }
 .gx-model-card__reason { margin: 0 var(--panel-padding) var(--sp-3); }
-.gx-model-overview .gx-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-@media (max-width: 600px) { .gx-model-overview .gx-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Model Manager runs tighter than other pages: smaller card padding and gaps, same tokens */
+.gx-model-manager { --panel-padding: var(--sp-4); gap: var(--sp-3); }
+.gx-model-manager .gx-btn { min-height: 36px; padding: 6px var(--sp-4); }
+
+/* Driving now: two selects side by side, randomizer and running model on one line */
+.gx-model-driving__body { display: grid; gap: var(--sp-3); }
+.gx-model-driving__selects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+.gx-model-driving__foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); }
+.gx-model-driving__random { flex: 0 1 auto; min-height: 0; padding: 0; gap: var(--sp-3); }
+.gx-model-driving__random .gx-row__label { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.gx-model-driving .gx-model-reason { margin: 0; }
+
+/* Library toolbar: tabs, sort and favorites, and the two library actions share a line when there is room */
+.gx-model-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); }
+.gx-model-toolbar .gx-guided__segmented { flex: 0 1 auto; flex-wrap: nowrap; }
+.gx-model-toolbar .gx-guided__choice { flex: 0 1 auto; min-height: 36px; padding: 4px var(--sp-3); }
+.gx-model-toolbar__actions { margin-left: auto; flex-wrap: nowrap; }
+.gx-model-toolbar__label { display: none; }
+.gx-model-toolbar__actions > .gx-btn--tonal { flex: none; width: 36px; padding-inline: 0; justify-content: center; }
+.gx-model-tabs__short { display: none; }
+.gx-model-tabs__count { margin-left: var(--sp-1); opacity: .75; font-variant-numeric: tabular-nums; }
+.gx-model-sort { flex: 0 0 auto; width: 9.5rem; }
+.gx-model-sort .gx-select__button { min-height: 32px; padding-block: 2px; }
+.gx-model-filters .gx-chip { display: inline-flex; align-items: center; gap: var(--sp-1); min-height: 32px; padding-inline: var(--sp-3); }
+
+/* Cards: one shape. Name and star, a few chips, one action pinned to the bottom so buttons line up across a row. */
+.gx-model-card { display: flex; flex-direction: column; }
+.gx-model-card > .gx-panel { flex: 1 1 auto; align-content: start; padding: var(--sp-3) var(--sp-3) var(--sp-1); display: grid; gap: var(--sp-1); }
+.gx-model-card__heading { flex-wrap: nowrap; min-height: 32px; }
+.gx-model-card__heading > strong { flex: 1 1 auto; min-width: 0; }
+.gx-model-card .gx-icon-btn { height: 32px; min-height: 32px; min-width: 32px; }
+.gx-model-card > .gx-panel-footer { margin-top: auto; }
+.gx-model-card--selected { border-color: var(--primary); }
+.gx-model-card__meta { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); min-height: 32px; padding: 0 var(--sp-3) var(--sp-2); color: var(--text-muted); font-size: var(--fs-sm); }
+.gx-model-card__facts { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gx-model-card .gx-tags { gap: var(--sp-1); }
+.gx-model-card .gx-panel-footer { padding: var(--sp-1) var(--sp-3) var(--sp-3); }
+.gx-model-card__foot { display: grid; gap: var(--sp-2); }
+.gx-model-card__foot > .gx-btn { width: 100%; justify-content: center; }
+.gx-model-card__note { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); }
+.gx-model-card__progress { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 36px; padding: 6px var(--sp-4); border-radius: var(--radius-full); background: var(--primary-container); color: var(--on-surface); font-size: var(--fs-sm); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
+.gx-model-card__progress-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--secondary), var(--primary)); opacity: .6; transition: width .3s ease; }
+.gx-model-card__progress-label { position: relative; text-align: center; overflow-wrap: anywhere; }
+.gx-model-driving__random-hint { color: var(--text-muted); font-weight: normal; margin-left: var(--sp-1); }
+
+/* Jetlink disclosure */
+.gx-model-jetlink summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: var(--sp-2); min-height: 44px; }
+.gx-model-jetlink summary::-webkit-details-marker { display: none; }
+.gx-model-jetlink summary::after { content: ""; flex: none; margin-left: auto; width: .45rem; height: .45rem; border-inline-end: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform var(--motion-fast, .15s); }
+.gx-model-jetlink details[open] > summary::after { transform: rotate(-135deg); }
+.gx-model-jetlink summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--radius-sm); }
+
+@media (max-width: 720px) {
+  .gx-model-driving__selects { grid-template-columns: minmax(0, 1fr); }
+  .gx-model-toolbar__actions { margin-left: 0; width: 100%; flex-wrap: nowrap; }
+  .gx-model-toolbar__actions > .gx-btn:not(.gx-btn--tonal) { flex: 1 1 0; }
+}
+@media (max-width: 600px) {
+  .gx-model-manager .gx-btn, .gx-model-card__progress { min-height: var(--touch-target); }
+  .gx-model-toolbar__actions > .gx-btn--tonal { width: var(--touch-target); }
+  .gx-model-toolbar .gx-guided__segmented { width: 100%; }
+  .gx-model-toolbar .gx-guided__choice { flex: 1 1 0; }
+  .gx-model-tabs__long { display: none; }
+  .gx-model-tabs__short { display: inline; }
+  .gx-model-filters .gx-chip { min-height: 40px; }
+  .gx-model-sort { width: 100%; }
+  .gx-model-card .gx-icon-btn { height: 36px; min-height: 36px; min-width: 36px; }
+  .gx-model-card__heading { min-height: 36px; }
+}
 
 .gx-favorites__intro { display: grid; gap: 6px; }
 .gx-favorites__intro .gx-note { margin: 0; }

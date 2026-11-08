@@ -45,6 +45,9 @@ RUNTIME_ARTIFACT_KEYS = {"min_runner_revision", "artifact_format", "artifact_sha
                          "artifact_chunk_count", "conversion_provenance", "validation"}
 
 
+FAILURE_SHOWN_SECONDS = 600
+
+
 class ModelError(ValueError):
   pass
 
@@ -419,7 +422,7 @@ class ModelManager:
       return {**job, "downloading": busy,
               "refreshing": busy and job.get("state") == "running" and job.get("operation") == "refresh_manifest"}
 
-  def _publish_job(self, *, progress: str | None = None, model: str | None = None) -> None:
+  def _publish_job(self, *, progress: str | None = None, model: str | None = None, detail: dict | None = None) -> None:
     with state_lock(self.root):
       job = self._read_job()
       if job.get("jobId") != self.job_id or job.get("state") != "running":
@@ -430,6 +433,8 @@ class ModelManager:
       if model is not None:
         self.downloading = model
         job["model"] = model
+      if detail is not None:
+        job["detail"] = {**(job.get("detail") if isinstance(job.get("detail"), dict) else {}), **detail}
       atomic_json(self.root / ".download-job.json", job)
 
   def _check_cancelled(self) -> None:
@@ -448,7 +453,12 @@ class ModelManager:
         try:
           job = self._read_job()
           if job.get("jobId") == self.job_id:
-            job.update(state="failed" if failed else "completed", progress=self.progress[:1000], model="", downloadAll=False)
+            detail = job.get("detail") if isinstance(job.get("detail"), dict) else {}
+            if failed and self.progress != "Download cancelled" and job.get("operation") != "refresh_manifest":
+              detail = {**detail, "phase": "failed", "failed": True, "error": self.progress[:300], "rate": 0, "finishedAt": time.monotonic()}
+            else:
+              detail = {}
+            job.update(state="failed" if failed else "completed", progress=self.progress[:1000], model="", downloadAll=False, detail=detail)
             atomic_json(self.root / ".download-job.json", job)
         finally:
           lock.close()
@@ -574,6 +584,28 @@ class ModelManager:
       self.jetlink = JetlinkSettings()
     return self.jetlink
 
+  def _download_progress(self, job: dict) -> dict | None:
+    detail = job.get("detail")
+    if not isinstance(detail, dict):
+      return None
+
+    def whole(key: str) -> int:
+      value = detail.get(key)
+      return value if type(value) is int and value >= 0 else 0
+
+    rate = detail.get("rate")
+    rate = float(rate) if type(rate) in (int, float) and rate >= 0 else 0.0
+    if job["downloading"]:
+      phase = detail.get("phase") if detail.get("phase") in ("catalog", "downloading", "verifying", "installing") else "downloading"
+      model, error = job.get("model", ""), ""
+    elif (job.get("state") == "failed" and detail.get("failed") is True and
+          0 <= time.monotonic() - (detail.get("finishedAt") if type(detail.get("finishedAt")) in (int, float) else 0) < FAILURE_SHOWN_SECONDS):
+      phase, model, error = "failed", detail.get("model", ""), str(detail.get("error", ""))[:300]
+    else:
+      return None
+    return {"phase": phase, "model": model if model in catalog(self.root) else "", "received": whole("received"), "total": whole("total"),
+            "rate": rate, "index": whole("index"), "count": whole("count"), "error": error}
+
   def snapshot(self) -> dict:
     with self.lock:
       self._refresh_if_needed()
@@ -612,6 +644,7 @@ class ModelManager:
               "downloadVariant": job.get("variant", "standard"),
               "modelToDownload": job.get("model", ""), "downloadAll": job.get("downloadAll", False),
               "downloading": job["downloading"], "refreshing": job["refreshing"], "progress": job.get("progress", ""),
+              "downloadProgress": self._download_progress(job),
               "isOnroad": not parked, "gpuAvailable": gpu, "jetlink": jetlink,
               "capabilities": {"configureLaboratory": parked and not job["downloading"], "select": True, "download": parked,
                                "downloadAll": parked, "cancel": True,
@@ -787,6 +820,7 @@ class ModelManager:
     failed = True
     try:
       self._check_cancelled()
+      self._publish_job(detail={"phase": "catalog"})
       self._refresh()
       self._check_cancelled()
       entries = catalog(self.root)
@@ -794,13 +828,16 @@ class ModelManager:
       ids = [payload["model"]] if action == "download" else [mid for mid, row in entries.items()
             if "artifact_sha256" in row and (not row.get("uses_external_gpu") or self.gpu_present() or payload.get("allowGpuWithoutGpu"))]
       if action != "refresh_manifest":
-        for mid in ids:
+        pending = [mid for mid in ids if not self._installed(mid, entries, variant)]
+        for index, mid in enumerate(pending, 1):
           self._check_cancelled()
           variants = ('standard', 'amd') if variant == 'amd' and 'artifact_sha256' in entries[mid] else (variant,)
           for current in variants:
             if not self._installed(mid, entries, current):
-              self._publish_job(model=mid)
-              self._download(mid, artifact_entry(mid, entries, current), current)
+              entry = artifact_entry(mid, entries, current)
+              self._publish_job(model=mid, detail={"phase": "downloading", "model": mid, "index": index, "count": len(pending),
+                                                   "received": 0, "total": entry.get("artifact_size", 0), "rate": 0})
+              self._download(mid, entry, current)
       self._check_cancelled()
       self.progress = "Catalog updated" if action == "refresh_manifest" else "Downloaded!"
       failed = False
@@ -824,6 +861,7 @@ class ModelManager:
     fd, temp = tempfile.mkstemp(prefix=".download-", dir=destination.parent)
     try:
       digest, received = hashlib.sha256(), 0
+      rate, sampled_at, sampled_bytes, published_at = 0.0, time.monotonic(), 0, 0.0
       with os.fdopen(fd, "wb") as out:
         for piece in pieces:
           generation = 'v25' if entry.get('_source_contract') == 'dom_v25_protocol5' else GENERATION
@@ -835,13 +873,21 @@ class ModelManager:
                 raise ModelError("Model exceeds its declared size")
               out.write(data)
               digest.update(data)
+              now = time.monotonic()
+              if now - sampled_at >= 0.5:
+                instant = (received - sampled_bytes) / (now - sampled_at)
+                rate = instant if rate == 0 else rate * 0.7 + instant * 0.3
+                sampled_at, sampled_bytes = now, received
               progress = f"{display_name}: {received * 100 // size}%"
-              if progress != self.progress:
-                self._publish_job(progress=progress)
+              if progress != self.progress or now - published_at >= 0.5:
+                published_at = now
+                self._publish_job(progress=progress, detail={"phase": "downloading", "received": received, "total": size, "rate": int(rate)})
+        self._publish_job(detail={"phase": "verifying", "received": received, "total": size, "rate": 0})
         out.flush()
         os.fsync(out.fileno())
       if received != size or digest.hexdigest() != entry["artifact_sha256"]:
         raise ModelError("Model checksum did not match; download discarded")
+      self._publish_job(detail={"phase": "installing"})
       with state_lock(self.root):
         self._require_parked()
         self._check_cancelled()

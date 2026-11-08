@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { ModelStatusFeed, ModelManagerFeed, ModelsPage, modelActionAllowed, fitsModelProfile } from "../web/js/models.js"
+import { ModelStatusFeed, ModelManagerFeed, ModelsPage, modelActionAllowed, fitsModelProfile, formatRate, formatEta, describeProgress } from "../web/js/models.js"
 
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve() }
 function fixture() {
@@ -224,7 +224,7 @@ assert.equal(modelActionAllowed({ ...randomPayload, isOnroad: true }, 'favorite'
 assert.equal(modelActionAllowed(randomPayload, 'exclude', pending), true)
 assert.match(ModelsPage.template, /Model Randomizer/)
 assert.match(ModelsPage.template, /Include in Randomizer/)
-assert.match(ModelsPage.template, /An external GPU is not detected/)
+assert.match(ModelsPage.computed.gpuNote.call({ status: { gpuAvailable: false }, setup: '' }), /An external GPU is not detected/)
 const randomManagement = managerFixture()
 randomManagement.manager.start()
 await randomManagement.reply(0, randomPayload)
@@ -245,16 +245,59 @@ console.log('Randomizer and exclusion interactions passed')
 assert.match(ModelsPage.template, /Selections apply next onroad cycle/)
 assert.doesNotMatch(ModelsPage.template, /Onroad: switching/)
 assert.equal((ModelsPage.template.match(/class="gx-model-control"/g) || []).length, 2)
-assert.equal(ModelsPage.data().hardwareFilter, 'both')
-const hardware = { hardwareFilter: 'both', setHardwareFilter(value) { this.hardwareFilter = value } }
-ModelsPage.methods.toggleHardware.call(hardware, 'gpu', false)
-assert.equal(hardware.hardwareFilter, 'comma')
-ModelsPage.methods.toggleHardware.call(hardware, 'comma', false)
-assert.equal(hardware.hardwareFilter, 'none')
-ModelsPage.methods.toggleHardware.call(hardware, 'gpu', true)
-assert.equal(hardware.hardwareFilter, 'gpu')
-ModelsPage.methods.toggleHardware.call(hardware, 'comma', true)
-assert.equal(hardware.hardwareFilter, 'both')
+// the library tab is only a view: every model is one tap away, and a sleeping GPU never hides anything
+assert.equal(ModelsPage.data().tab, 'both')
+assert.equal(ModelsPage.computed.libraryTab.call({ tab: 'gpu' }), 'gpu')
+assert.equal(ModelsPage.computed.libraryTab.call({ tab: 'bogus' }), 'both')
+const tabsFor = models => ModelsPage.computed.tabs.call({ models }).map(tab => [tab.id, tab.count])
+assert.deepEqual(tabsFor([{ requiresGpu: false }, { requiresGpu: false }, { requiresGpu: true }]), [['comma', 2], ['gpu', 1], ['both', 3]])
+assert.deepEqual(tabsFor([]), [['comma', 0], ['gpu', 0], ['both', 0]])
+const view = { models: [{ value: 'a', label: 'A', requiresGpu: false }, { value: 'b', label: 'B', requiresGpu: true }], libraryTab: 'gpu', userFilter: 'all', communityFilter: 'all', sortMode: 'alphabetical' }
+assert.deepEqual(ModelsPage.computed.sorted.call(view).map(m => m.value), ['b'])
+assert.deepEqual(ModelsPage.computed.sorted.call({ ...view, libraryTab: 'comma' }).map(m => m.value), ['a'])
+assert.deepEqual(ModelsPage.computed.sorted.call({ ...view, libraryTab: 'both' }).map(m => m.value), ['a', 'b'])
+assert.equal(modelActionAllowed(managerPayload, 'setup'), false)
+
+// download progress: bytes when the backend sends them, the old text line otherwise
+assert.equal(formatRate(6.4e6), '6.4 MB/s')
+assert.equal(formatRate(12e6), '12 MB/s')
+assert.equal(formatRate(0), '')
+assert.equal(formatEta(20), 'less than a minute left')
+assert.equal(formatEta(125), 'about 2 min left')
+assert.equal(formatEta(3900), 'about 1 hr 5 min left')
+assert.equal(formatEta(NaN), '')
+assert.deepEqual([formatEta(20, true), formatEta(125, true), formatEta(3900, true)], ['under 1 min', '~2 min', '~1 hr 5 min'])
+const GB = 1e9
+const labels = [{ value: 'big', label: 'Big model' }, { value: 'small', label: 'Small model' }]
+const running = describeProgress({ downloading: true, modelToDownload: 'big', downloadProgress: { phase: 'downloading', model: 'big',
+  received: 0.5 * GB, total: 1.4 * GB, rate: 6.4e6, index: 1, count: 1 } }, labels)
+assert.deepEqual([running.name, running.percent, running.amount, running.rate, running.eta, running.queue, running.indeterminate],
+  ['Big model', 35, '500.0 MB of 1.40 GB', '6.4 MB/s', 'about 2 min left', '', false])
+const queued = describeProgress({ downloadProgress: { phase: 'downloading', model: 'small', received: 90e6, total: 210e6, rate: 8e6, index: 2, count: 4 } }, labels)
+assert.deepEqual([queued.queue, queued.percent], ['Model 2 of 4', 42])
+assert.equal(describeProgress({ downloadProgress: { phase: 'downloading', model: 'big', received: 1, total: 100, rate: 0 } }, labels).eta, '')
+const verifying = describeProgress({ downloadProgress: { phase: 'verifying', model: 'big', received: GB, total: GB } }, labels)
+assert.deepEqual([verifying.indeterminate, verifying.title, verifying.rate], [true, 'Verifying download', ''])
+const failed = describeProgress({ downloadProgress: { phase: 'failed', model: 'big', received: 5e8, total: 1.4e9, error: 'Not enough storage.' } }, labels)
+assert.deepEqual([failed.failed, failed.error, failed.percent], [true, 'Not enough storage.', 35])
+const legacy = describeProgress({ progress: 'Big model: 38%', modelToDownload: 'big' }, labels)
+assert.deepEqual([legacy.percent, legacy.indeterminate, legacy.name], [38, false, 'Big model'])
+assert.equal(describeProgress({ progress: 'Refreshing catalog' }, labels).indeterminate, true)
+const panel = (status, dismissed = false) => ModelsPage.computed.progressInfo.call({ status, models: labels, failureDismissed: dismissed })
+assert.equal(panel({ downloading: false }), null)
+assert.equal(panel({ downloading: false, downloadProgress: { phase: 'failed', model: 'big' } }).failed, true)
+assert.equal(panel({ downloading: false, downloadProgress: { phase: 'failed', model: 'big' } }, true), null)
+assert.equal(panel({ downloading: true, refreshing: true, progress: 'Refreshing catalog' }).indeterminate, true)
+const labelFor = info => ModelsPage.computed.cardProgressLabel.call({ progressInfo: info })
+assert.equal(labelFor(null), '')
+assert.equal(labelFor(running), 'Downloading 35% · 6.4 MB/s · ~2 min')
+assert.equal(labelFor(describeProgress({ downloadProgress: { phase: 'downloading', model: 'big', received: 1, total: 100, rate: 0 } }, labels)), 'Downloading 1%')
+assert.equal(labelFor(verifying), 'Verifying download')
+assert.equal(ModelsPage.computed.cancelLabel.call({ progressInfo: queued }), 'Cancel · 2 of 4')
+assert.equal(ModelsPage.computed.cancelLabel.call({ progressInfo: running }), 'Cancel download')
+assert.equal(ModelsPage.computed.cancelLabel.call({ progressInfo: null }), 'Cancel download')
+assert.equal(ModelsPage.computed.progressTitle.call({ progressInfo: failed }), 'Couldn’t download Big model')
+assert.doesNotMatch(ModelsPage.template, /gx-model-progress/)
 const randomSwitch = { target: { checked: true } }
 let randomAction = ''
 ModelsPage.methods.toggleRandomizer.call({ status: { randomizer: false }, runAction(action) { randomAction = action } }, randomSwitch)
