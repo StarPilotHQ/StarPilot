@@ -74,7 +74,7 @@ export const PAGE_GUIDES = Object.freeze({
   },
   // Visuals: the comma screen options, grouped as the layout editor grouped them. Device text, saved straight away.
   appearance: {
-    intro: "Options for the comma's driving screen. Changes save straight away. Widget positions and colors are on Colors & Layout.",
+    intro: "Options for the comma's driving screen. Changes save straight away. Widget positions and colors are on Display Layout.",
     cards: [
       // One card, no sub-headings; rows keep the layout editor's order.
       { id: "appearance", title: "", rows: ["Developer Sidebar", "Use StarPilot Widgets", "Wheel brake and acceleration colors",
@@ -82,8 +82,9 @@ export const PAGE_GUIDES = Object.freeze({
         "C4 red blind-spot border"].map(label => ({ label })) },
     ],
   },
-  // Speed Limit Controller: what only works while the controller is on is grayed while it is off. Show speed limit signs
-  // and the limit sources stay active (the signs use the sources). The page keeps its own layout and text.
+  // Speed Limit Controller: what only works while the controller is on is grayed while it is off. The limit sources stay
+  // active (speed limit signs use them; the layout's speed-limit widget decides whether signs show). The page keeps its own
+  // layout and text.
   slc: {
     rows: [
       { label: "Automatic adoption", needs: [SLC] },

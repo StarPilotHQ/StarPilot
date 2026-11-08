@@ -114,6 +114,10 @@ for _profile in PROFILES:
     'Accept / Reject appear inside a pending limit after tapping it. This placement controls Toyota guidance.')
   _owner = 'cruise_limits' if _profile == 'large' else 'speed_limit'
   PROFILES[_profile]['widgets'][_owner]['confirmation'] = confirmation_footprint(_profile)
+  # This widget decides whether speed limit signs show: saving the layout sets ShowSpeedLimits from it
+  # (galaxy/onroad_layout.py sync_speed_limit_signs).
+  PROFILES[_profile]['widgets'][_owner]['note'] = (
+    'Speed limit signs show only while this widget is on the layout. Remove it to hide them (with SLC off, limits are then not read).')
 
 SPEED_LAYOUT_V7 = {
   'large': {'cruise_limits': (320, 210, 88, 75), 'speed_limit_actions': (320, 108, 88, 307)},

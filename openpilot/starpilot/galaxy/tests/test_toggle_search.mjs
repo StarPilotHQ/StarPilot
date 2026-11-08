@@ -143,6 +143,7 @@ test("search uses the menu's page names, and finds menu pages that are not catal
   assert.deepEqual(at("changed settings"), ["Troubleshoot @ Help -> /logs/troubleshoot"])
   assert.deepEqual(at("reset"), ["Troubleshoot @ Help -> /logs/troubleshoot"])
   assert.deepEqual(at("quick select"), ["Quick Select @ Screen & Sound -> /quick-select"])
+  assert.deepEqual(at("display layout"), ["Display Layout @ Screen & Sound -> /theme_maker"])
   assert.deepEqual(at("developer options"), ["Developer Options @ Developer -> /developer/connect"])
   assert.equal(new Set(entries.map(hit => `${hit.label} ${hit.context}`)).size, entries.length, "one result per menu page")
 })

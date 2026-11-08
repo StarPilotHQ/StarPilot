@@ -28,6 +28,32 @@ class LayoutChanged(Exception):
   pass
 
 
+# Whether speed limit signs show is the layout's choice (8 Nov 2026): the "Show speed limit signs" switch is gone, and
+# saving the layout records whether this device's speed-limit widget is on it in ShowSpeedLimits, which the speed-limit
+# code and the driving screen already read (with Speed Limit Controller off, no widget also means limits are not read).
+# The comma 4 uses the Small layout and its Speed limit widget; comma 3/3X the Big layout's Cruise and speed limit.
+DEVICE_PROFILES = {"mici": "compact", "tici": "large", "tizi": "large"}
+SPEED_LIMIT_WIDGETS = {"compact": "speed_limit", "large": "cruise_limits"}
+
+
+def device_profile() -> str | None:
+  try:
+    from openpilot.common.hardware import HARDWARE
+    return DEVICE_PROFILES.get(HARDWARE.get_device_type())
+  except Exception:
+    return None
+
+
+def sync_speed_limit_signs(params, document: dict, profile: str | None = None) -> None:
+  profile = profile or device_profile()
+  try:
+    shown = document["layouts"][profile][SPEED_LIMIT_WIDGETS[profile]]["enabled"] is True
+  except (KeyError, TypeError):
+    return
+  if params.get_bool("ShowSpeedLimits") != shown:
+    params.put_bool("ShowSpeedLimits", shown, block=True)
+
+
 def _revision(raw: bytes | None, rows=()) -> str:
   digest = hashlib.sha256(b"\x00" if raw is None else b"\x01" + raw)
   for row in rows:
@@ -94,6 +120,7 @@ class OnroadLayoutOwner:
                           authorized=lambda: session_valid() and self.parked(), temp_prefix=".onroad-layout-")
     if not result.committed or not result.verified:
       raise LayoutChanged("Layout could not be saved; check that the device is parked and reload")
+    sync_speed_limit_signs(self.params, document)
     failed = self._save_display(display, rows, session_valid)
     return {**self.snapshot(), "failed": failed}
 

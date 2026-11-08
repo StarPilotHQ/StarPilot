@@ -30,48 +30,9 @@ class Scroller:
 
 
 class CompactVisualsSlcTests(unittest.TestCase):
-  def test_sign_choice_stays_editable_with_system_long_off(self):
-    with tempfile.TemporaryDirectory() as path:
-      params = Params(path)
-      params.put_bool("ShowSpeedLimits", False, block=True)
-      appearance = AppearanceOwner(params, lambda: True)
-      feature = FeatureSettingsOwner(params, lambda group: group == "preferences", vehicle_fingerprint=lambda: None)
-
-      class Session:
-        def appearance_snapshot(self):
-          return appearance.snapshot(Profile.COMPACT)
-
-        def feature_snapshot(self, page):
-          return feature.snapshot(page, parked=True, system_long=False, lateral_context=False, metric=False)
-
-        def feature_request(self, request):
-          return feature.apply(request)
-
-      shown = []
-      with (
-        patch.object(appearance_compact, "BigButton", Button),
-        patch.object(appearance_compact, "GreyBigButton", Button),
-        patch.object(appearance_compact, "NavScroller", Scroller),
-        patch.object(appearance_compact.gui_app, "push_widget", shown.append),
-      ):
-        appearance_compact.AppearanceCompact(
-          Mock(
-            spec=appearance_compact.AppearanceSession,
-            appearance_snapshot=Session().appearance_snapshot,
-            feature_snapshot=Session().feature_snapshot,
-            feature_request=Session().feature_request,
-          )
-        ).open()
-        sign = next(item for item in shown[0].items if item.label == "show speed limits")
-        self.assertIsNotNone(sign.click)
-        sign.click()
-        self.assertTrue(params.get_bool("ShowSpeedLimits"))
-        self.assertFalse(params.get_bool("SpeedLimitController"))
-
   def test_original_speed_limit_rows_refresh_with_parent_and_leave_control_off(self):
     with tempfile.TemporaryDirectory() as path:
       params = Params(path)
-      params.put_bool("ShowSpeedLimits", False, block=True)
       parked = True
       appearance = AppearanceOwner(params, lambda: parked)
       feature = FeatureSettingsOwner(params, lambda group: parked, vehicle_fingerprint=lambda: "TEST CAR")
@@ -112,16 +73,16 @@ class CompactVisualsSlcTests(unittest.TestCase):
         def controls():
           return [item.label for item in page.items if item.label in appearance_compact.SLC_VISUAL_LABELS.values()]
 
-        self.assertEqual(controls(), ["show speed limits", "automatic adoption"])
-        next(item for item in page.items if item.label == "show speed limits").click()
-        self.assertTrue(params.get_bool("ShowSpeedLimits"))
+        # No Show speed limit signs switch: the layout's speed-limit widget decides whether signs show.
+        self.assertEqual(controls(), ["automatic adoption"])
+        self.assertFalse(any(item.label == "show speed limits" for item in page.items))
         self.assertFalse(params.get_bool("SpeedLimitController"))
         next(item for item in page.items if item.label == "automatic adoption").click()
         self.assertEqual(controls(), list(appearance_compact.SLC_VISUAL_LABELS.values()))
         self.assertTrue(params.get_bool("SLCConfirmation"))
         self.assertFalse(any(item.label in ('confirm lower limits', 'confirm higher limits') for item in page.items))
         next(item for item in page.items if item.label == "automatic adoption").click()
-        self.assertEqual(controls(), ["show speed limits", "automatic adoption"])
+        self.assertEqual(controls(), ["automatic adoption"])
         self.assertFalse(params.get_bool("SLCConfirmation"))
 
 

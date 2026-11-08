@@ -545,29 +545,12 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
                                                                   vehicle_fingerprint=self.fingerprint)))
         self.assertEqual(path.read_bytes(), raw)
 
-  def test_limit_sign_preference_needs_parked_authority_not_long_control_or_vehicle(self):
-    self.fingerprint = None
-    self.owner = FeatureSettingsOwner(self.params, lambda group: self.allowed and group == "preferences",
-                                      vehicle_fingerprint=lambda: self.fingerprint)
+  def test_slc_page_has_no_speed_limit_sign_switch(self):
+    # The layout's speed-limit widget decides whether signs show (galaxy/onroad_layout.py sync_speed_limit_signs).
+    self.owner = FeatureSettingsOwner(self.params, lambda group: group == "preferences", vehicle_fingerprint=lambda: None)
     page = self.owner.snapshot("slc", parked=True, system_long=False, lateral_context=False, metric=False)
-    fresh_sign = next(row for row in page.rows if row.key == "ShowSpeedLimits")
-    self.assertEqual((fresh_sign.value, fresh_sign.default_value), ('On', 'On'))
-    self.params.put_bool('ShowSpeedLimits', False, block=True)
-    self.params.put('SLCPriority1', 'Dashboard', block=True)
-    page = self.owner.snapshot("slc", parked=True, system_long=False, lateral_context=False, metric=False)
-    sign = next(row for row in page.rows if row.key == "ShowSpeedLimits")
-    self.assertTrue(sign.available)
-    self.assertIsNone(sign.vehicle_fingerprint)
-    for key in ("SpeedLimitController", "SLCConfirmation", "SLCPriority1"):
-      self.assertFalse(next(row for row in page.rows if row.key == key).available)
-    request = required_change(sign)
-    self.allowed = False
-    self.assertFalse(self.owner.apply(request))
-    self.allowed = True
-    self.assertTrue(self.owner.apply(request))
-    self.assertTrue(self.params.get_bool("ShowSpeedLimits"))
-    self.assertFalse(self.params.get_bool("SpeedLimitController"))
-    self.assertFalse(self.owner.apply(request))
+    self.assertNotIn("ShowSpeedLimits", [row.key for row in page.rows])
+    self.assertIn("SpeedLimitController", [row.key for row in page.rows])
 
   def test_curve_saved_choices_and_invalid_learning(self):
     hub = self.owner.snapshot("hub", parked=True, system_long=True, lateral_context=True, metric=False)

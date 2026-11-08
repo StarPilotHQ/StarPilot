@@ -3534,8 +3534,8 @@ msgid "Collection counts describe retained data. The fitter separately checks ph
 msgstr "Die Sammlungszahlen beschreiben die aufbewahrten Daten. Die Anpassung prüft physikalische Kalibrierung, vollständige Ereignisabdeckung und Validierung separat."
 
 #: openpilot/starpilot/galaxy/web/js/onroad-layout-template.js
-msgid "Colors & Layout"
-msgstr "Farben und Layout"
+msgid "Display Layout"
+msgstr "Anzeigelayout"
 
 #: openpilot/starpilot/galaxy/web/js/onroad-layout.js
 msgid "Colors and both layouts saved."
@@ -4741,8 +4741,8 @@ msgid "Driving Personalities"
 msgstr "Fahrpersönlichkeiten"
 
 #: openpilot/starpilot/galaxy/web/js/settings.js
-msgid "Driving Screen Widgets, Colors & Layout"
-msgstr "Fahrbildschirm-Widgets, Farben und Layout"
+msgid "Driving Screen Widgets, Display Layout"
+msgstr "Fahrbildschirm-Widgets, Anzeigelayout"
 
 #: openpilot/starpilot/galaxy/web/js/driving.js
 msgid "Driving Settings"
@@ -9941,8 +9941,8 @@ msgid "Repair saved units first"
 msgstr "Zuerst gespeicherte Einheiten reparieren"
 
 #: openpilot/starpilot/ui/appearance_owner.py
-msgid "Repair the saved layout in Colors & Layout"
-msgstr "Gespeichertes Layout unter „Farben und Layout“ reparieren"
+msgid "Repair the saved layout in Display Layout"
+msgstr "Gespeichertes Layout unter „Anzeigelayout“ reparieren"
 
 #: openpilot/starpilot/galaxy/web/js/spotify.js
 msgid "Replace Key"

@@ -3036,7 +3036,7 @@
       ]
     },
     {
-      "source": "Colors & Layout",
+      "source": "Display Layout",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/onroad-layout-template.js"
       ]
@@ -4837,7 +4837,7 @@
       ]
     },
     {
-      "source": "Driving Screen Widgets, Colors & Layout",
+      "source": "Driving Screen Widgets, Display Layout",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/settings.js"
       ]
@@ -12591,7 +12591,7 @@
       ]
     },
     {
-      "source": "Repair the saved layout in Colors & Layout",
+      "source": "Repair the saved layout in Display Layout",
       "refs": [
         "openpilot/starpilot/ui/appearance_owner.py"
       ]

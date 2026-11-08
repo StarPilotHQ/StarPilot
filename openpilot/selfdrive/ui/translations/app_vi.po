@@ -3530,8 +3530,8 @@ msgid "Collection counts describe retained data. The fitter separately checks ph
 msgstr "Số lượng thu thập mô tả dữ liệu được giữ lại. Bộ khớp kiểm tra riêng hiệu chuẩn vật lý, hỗ trợ sự kiện đầy đủ và xác thực."
 
 #: openpilot/starpilot/galaxy/web/js/onroad-layout-template.js
-msgid "Colors & Layout"
-msgstr "Màu sắc và bố cục"
+msgid "Display Layout"
+msgstr "Bố cục hiển thị"
 
 #: openpilot/starpilot/galaxy/web/js/onroad-layout.js
 msgid "Colors and both layouts saved."
@@ -4737,8 +4737,8 @@ msgid "Driving Personalities"
 msgstr "Phong cách lái"
 
 #: openpilot/starpilot/galaxy/web/js/settings.js
-msgid "Driving Screen Widgets, Colors & Layout"
-msgstr "Tiện ích, màu sắc và bố cục màn hình lái"
+msgid "Driving Screen Widgets, Display Layout"
+msgstr "Tiện ích màn hình lái, bố cục hiển thị"
 
 #: openpilot/starpilot/galaxy/web/js/driving.js
 msgid "Driving Settings"
@@ -9937,8 +9937,8 @@ msgid "Repair saved units first"
 msgstr "Sửa đơn vị đã lưu trước"
 
 #: openpilot/starpilot/ui/appearance_owner.py
-msgid "Repair the saved layout in Colors & Layout"
-msgstr "Sửa bố cục đã lưu trong Màu sắc và bố cục"
+msgid "Repair the saved layout in Display Layout"
+msgstr "Sửa bố cục đã lưu trong Bố cục hiển thị"
 
 #: openpilot/starpilot/galaxy/web/js/spotify.js
 msgid "Replace Key"

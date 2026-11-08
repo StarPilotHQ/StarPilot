@@ -38,7 +38,7 @@ export const isPipCropRow = (row) => ["Visual camera crop editor", "Camera crop 
 
 const SECTION_LINKS = {
   device: [{ label: "Parked Power", page: "power", value: "Adjust shutdown hours and battery-voltage cutoff" }, { label: "Display", page: "display", value: "Adjust screen brightness and display timing" }, { label: "Data Uploads", page: "data", value: "Choose mobile-data uploads and usage-statistics sharing" }],
-  visual: [{ label: "Driving Screen Widgets, Colors & Layout", page: "ui_layout" }, { label: "Quick Select", page: "favorites" }, { label: "Blind Spot Camera", page: "pip" }],
+  visual: [{ label: "Driving Screen Widgets, Display Layout", page: "ui_layout" }, { label: "Quick Select", page: "favorites" }, { label: "Blind Spot Camera", page: "pip" }],
 }
 
 const activeSettings = new Set()

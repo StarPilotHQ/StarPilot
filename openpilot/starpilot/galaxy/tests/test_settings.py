@@ -217,32 +217,11 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
     self.assertAlmostEqual(self.params.get("SLCOffsetSchedule")["offsets_mps"][0], 5 * od.MPH_TO_MPS)
 
-  def test_limit_sign_visual_preference_without_longitudinal_authority(self):
-    cp = self.context.value.cp
-    contexts = ((None, None, False),
-                (SimpleNamespace(**{**vars(cp), "openpilotLongitudinalControl": False, "pcmCruise": True}), b"stock-pcm", False),
-                (SimpleNamespace(**{**vars(cp), "openpilotLongitudinalControl": True, "pcmCruise": True}), b"op-long-pcm", True),
-                (cp, b"op-long", True))
-    for vehicle, raw, can_control in contexts:
-      with self.subTest(vehicle=raw):
-        self.context.value = AuthorityContext(True, vehicle, raw)
-        self.params.put_bool("ShowSpeedLimits", False, block=True)
-        page = self.page("slc")
-        signs = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Show speed limit signs")
-        control = next(row for row in page["rows"] if row["label"] == "Speed Limit Controller")
-        self.assertTrue(page["rows"][signs]["available"])
-        self.assertEqual(control["available"], can_control)
-        intent = self.gateway.preview(page["view"], signs, 1, self.session, self.generation)
-        self.context.value = AuthorityContext(False, vehicle, raw)
-        self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
-        self.context.value = AuthorityContext(True, vehicle, raw)
-        self.params.put_bool("ShowSpeedLimits", False, block=True)
-        page = self.page("slc")
-        signs = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Show speed limit signs")
-        intent = self.gateway.preview(page["view"], signs, 1, self.session, self.generation)
-        self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
-        self.assertTrue(self.params.get_bool("ShowSpeedLimits"))
-        self.assertFalse(self.params.get_bool("SpeedLimitController"))
+  def test_slc_page_has_no_speed_limit_sign_switch(self):
+    # Galaxy's Display Layout decides: saving the layout sets ShowSpeedLimits from the speed-limit widget.
+    labels = [row["label"] for row in self.page("slc")["rows"]]
+    self.assertNotIn("Show speed limit signs", labels)
+    self.assertIn("Speed Limit Controller", labels)
 
   def test_all_saved_groups_are_display_only_projection(self):
     self.context.value = replace(self.context.value,

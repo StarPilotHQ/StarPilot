@@ -156,7 +156,7 @@
       "availability": "local-only"
     },
     {
-      "name": "Colors & Layout",
+      "name": "Display Layout",
       "path": "/theme_maker",
       "icon": "bi-palette-fill",
       "description": "Widgets, colors, road and display options for Big and Small layouts",

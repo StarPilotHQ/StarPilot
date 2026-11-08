@@ -131,19 +131,19 @@ for (const guide of Object.values(PAGE_GUIDES)) {
 }
 console.log("page guides ok")
 
-// Speed Limit Controller: adoption, early adoption and the offsets are grayed while it is off; Show speed limit signs
-// and the sources stay active (the signs use them). The page keeps its own layout and text.
-const slcRows = (value, unit = "mph") => [row("Speed Limit Controller", value, { reason: "device text" }), row("Show speed limit signs", "On"),
+// Speed Limit Controller: adoption, early adoption and the offsets are grayed while it is off; the sources stay active
+// (speed limit signs use them). The page keeps its own layout and text.
+const slcRows = (value, unit = "mph") => [row("Speed Limit Controller", value, { reason: "device text" }),
   row("Automatic adoption", "On"), row("Adopt limits early", "Off", { choices: ["Off", "1 s"] }), row("Primary source", "Map Data"),
   row("Secondary source", "Dashboard"), { label: "Offset policy", value: "", heading: true, available: true, reason: "" },
   number(`0–<25 ${unit} offset`, "0", { unit }), number(`74–<99 ${unit} offset`, "0", { unit }),
   { label: `99 ${unit} and above`, value: "Zero offset", available: true, action: false, reason: "" }]
 for (const unit of ["mph", "km/h"]) {
   const slcOff = guidedRows("slc", slcRows("Off", unit))
-  assert.deepEqual(slcOff.map(r => [r.label, r.available]), [["Speed Limit Controller", true], ["Show speed limit signs", true],
+  assert.deepEqual(slcOff.map(r => [r.label, r.available]), [["Speed Limit Controller", true],
     ["Automatic adoption", false], ["Adopt limits early", false], ["Primary source", true], ["Secondary source", true], ["Offset policy", true],
     [`0–<25 ${unit} offset`, false], [`74–<99 ${unit} offset`, false], [`99 ${unit} and above`, true]], `grayed while SLC is off (${unit})`)
-  assert.equal(slcOff[2].reason, "Turn on Speed Limit Controller to use this. device text")
+  assert.equal(slcOff[1].reason, "Turn on Speed Limit Controller to use this. device text")
   assert.equal(slcOff[0].reason, "device text", "the page keeps its own text")
   assert.ok(guidedRows("slc", slcRows("On", unit)).every(r => r.available))
 }

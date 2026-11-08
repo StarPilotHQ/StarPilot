@@ -1123,8 +1123,6 @@ class FeatureSettingsOwner:
       control_row = self._bool_row("SpeedLimitController", "Speed Limit Controller",
                                    allowed and (offsets_ready or control == "1"), reason=control_reason)
       rows.append(replace(control_row, reason=control_reason) if control_row.choices else control_row)
-      rows.append(self._bool_row("ShowSpeedLimits", "Show speed limit signs", self.authority("preferences"),
-                                 reason="Display signs independently of Speed Limit Controller; does not change cruise speed"))
       confirmation = self._bool_row("SLCConfirmation", "Automatic adoption", allowed,
         reason="On adopts new limits immediately; Off asks for confirmation within 10 seconds")
       rows.append(replace(confirmation, value={"On": "Off", "Off": "On"}.get(confirmation.value, confirmation.value), default_value="On"))

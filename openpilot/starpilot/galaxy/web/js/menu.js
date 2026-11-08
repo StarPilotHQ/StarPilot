@@ -76,7 +76,7 @@ export const MENU = Object.freeze([
   ] },
   { id: "screen-sound", label: "Screen & Sound", icon: "bi-display", children: [
     { id: "visuals", label: "Visuals", path: "/appearance" },
-    { id: "colors-layout", label: "Colors & Layout", path: "/theme_maker" },
+    { id: "colors-layout", label: "Display Layout", path: "/theme_maker" },
     { id: "quick-select", label: "Quick Select", path: "/quick-select" },
     { id: "display", label: "Brightness & Timeout", path: page("display") },
     { id: "sounds", label: "Sounds & Alerts", path: page("sounds") },

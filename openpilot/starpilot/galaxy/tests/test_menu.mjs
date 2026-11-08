@@ -72,6 +72,10 @@ assert.deepEqual(at("/manage_tmux"), ["Developer", "Logs & Diagnostics", "tmux L
 assert.deepEqual(menuBack("/manage_tmux"), { path: "/logs", label: "Logs & Diagnostics" })
 assert.deepEqual(at("/logs/help"), ["Help", "Help & Community", ""])
 assert.deepEqual(at("/logs/monitor"), ["Developer", "System Monitor", ""])
+// No Show speed limit signs switch: the layout's Speed limit widget decides (onroad_customization.py note).
+assert.equal(PAGE_HIDDEN_ROWS.slc, undefined)
+assert.equal(settingsSearchPath({ page: "slc", label: "Speed Limit Controller" }), "/settings/page/slc")
+assert.deepEqual(at("/theme_maker"), ["Screen & Sound", "Display Layout", ""])
 // Changed Settings is part of Troubleshoot now; its old address opens Troubleshoot.
 assert.deepEqual(at("/settings/recovery"), ["Help", "Troubleshoot", ""])
 assert.deepEqual(at("/logs/crashes"), ["Developer", "Logs & Diagnostics", "Crash Reports"])
@@ -86,7 +90,7 @@ assert.deepEqual(group("steering").children.map(node => node.label), ["Lane Chan
 assert.deepEqual(group("speed").children.map(node => node.label), ["Driving Personalities", "Experimental & Chill", "Acceleration & Braking",
   "Curve Speed Controller", "Speed Limit Controller"])
 assert.deepEqual(group("car").children.map(node => node.label), ["Vehicle", "Wheel Controls"])
-assert.deepEqual(group("screen-sound").children.map(node => node.label), ["Visuals", "Colors & Layout", "Quick Select", "Brightness & Timeout", "Sounds & Alerts"])
+assert.deepEqual(group("screen-sound").children.map(node => node.label), ["Visuals", "Display Layout", "Quick Select", "Brightness & Timeout", "Sounds & Alerts"])
 assert.deepEqual(group("connections").children.map(node => node.label), ["Bluetooth", "StarPort", "Galaxy Access & Install"])
 assert.deepEqual(group("system").children.map(node => node.label), ["Updates & Backup", "Power & Data", "Language & Units"])
 assert.deepEqual(group("developer").children.map(node => node.label), ["Developer Options", "System Monitor", "Logs & Diagnostics"])
@@ -231,3 +235,12 @@ assert.match(app, /v-else-if="route\.path === '\/developer\/connect'"[^>]*initia
 const html = readFileSync(new URL("../web/index.html", import.meta.url), "utf8")
 assert.match(html, /css\/menu\.css/)
 console.log("Galaxy menu: every settings page and tool has a place")
+
+// Display Layout: the page heading, and no separate speed limit sign switch (the Speed limit widget decides).
+{
+  const { OnroadLayoutPage } = await import("../web/js/onroad-layout.js")
+  assert.match(OnroadLayoutPage.template, /<h2>\{\{ projection \? 'StarPort Layout' : 'Display Layout' \}\}<\/h2>/)
+  assert.doesNotMatch(OnroadLayoutPage.template, /gx-layout__speed-sign|initial-page="slc"/)
+  assert.match(OnroadLayoutPage.template, /<p v-if="selectedWidget\.note" class="gx-note">/, "the widget's note says it controls the signs")
+  console.log("Galaxy menu: Display Layout heading; the Speed limit widget decides")
+}
