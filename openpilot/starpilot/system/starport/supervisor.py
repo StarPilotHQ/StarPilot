@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from openpilot.common.hardware import COMMA_HARDWARE
-from openpilot.starpilot.system.starport import car_profiles, device_health, identity as identity_store, new_setup, reachability, setup_ladder, system_slice
+from openpilot.starpilot.system.starport import car_profiles, device_health, head_unit_fixes, identity as identity_store, new_setup, quirk_state, reachability, setup_ladder, system_slice
 from openpilot.starpilot.system.starport import reconnect_notice
 from openpilot.starpilot.system.starport.auto_connect import AutoConnectPolicy
 from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, BootstrapError, BootstrapTimeout, WirelessBootstrap
@@ -77,7 +77,8 @@ RADIO_CHECK_INTERVAL = 0.5   # how often the comma's own Wi-Fi is checked for a 
 RADIO_CHANGE_WINDOW = 15.0   # a join or roam this recent can still stall the car (11-02: stall came 7.5 s after a roam)
 REPORTED_SETTINGS = ("connection", "usb_mode", "view", "encoder", "fps", "bitrate_kbps", "rate_control", "gpu_nv12",
                      "async_readback", "wifi_interface", "dedicated_wifi_interface", "verify_head_unit", "version_status",
-                     "rfcomm_channel", "phone_class", "auto_connect", "allow_hevc")
+                     "rfcomm_channel", "phone_class", "auto_connect", "allow_hevc", "head_unit_fixes", "head_unit_experiments",
+                     "head_unit_experiment_rules")
 
 
 def encoder_preference(configured: str) -> str:
@@ -452,6 +453,8 @@ class Supervisor:
     self._modern_reply: dict[str, bool] = {}  # car address -> answer its v4+ version request like a current phone
     self._ladder = setup_ladder.SetupLadder(identity_store.CONFIG_PATH.with_name("setup_state.json"))  # handshake to try per car
     self._strategy: setup_ladder.Strategy | None = None   # the one this attempt runs
+    self._quirks = quirk_state.QuirkState(identity_store.CONFIG_PATH.with_name("quirk_state.json"))  # how each car reacts to car-specific fixes
+    self._fix_context: dict | None = None       # this session's chosen fix: selection, quirk key and head-unit labels
     self._video_seen = False                    # video was acknowledged in this session: later failures say nothing about the handshake
     self._run_started = 0.0
     self.auto = AutoConnectPolicy()
@@ -501,6 +504,12 @@ class Supervisor:
     status["auto_connect"] = bool(self.config["auto_connect"])
     status["dedicated_wifi_interface"] = bool(self.config["dedicated_wifi_interface"])
     status["allow_hevc"] = bool(self.config["allow_hevc"])
+    status["head_unit_fixes"] = bool(self.config["head_unit_fixes"])
+    status["head_unit_experiments"] = bool(self.config["head_unit_experiments"])
+    status["head_unit_experiment_rules"] = list(self.config["head_unit_experiment_rules"])
+    status["experimental_fixes"] = [{"id": rule.id, "label": rule.label, "evidence": rule.evidence.failure}
+                                    for rule in head_unit_fixes.RULES if rule.status == head_unit_fixes.EXPERIMENTAL]
+    status["fix_suggestion"] = self._fix_suggestion()
     status["car_candidates"] = list(getattr(self, "_candidates", []))[:8]  # paired Android Auto devices to choose between
     status["new_setup"] = new_setup.enabled()
     status["setup_ladder"] = self._ladder.snapshot(self.config["receiver_address"], self.car_type() == "adapter", self._unofficial_dongle())
@@ -538,6 +547,51 @@ class Supervisor:
       self.config["allow_hevc"] = bool(enabled)
       identity_store.save_config(self.config)
     self.log("allow_hevc_selected", enabled=bool(enabled))
+
+  def set_head_unit_fixes(self, enabled: bool) -> None:
+    """The master switch for car-specific fixes; off gives the standard connection to every car from the next session."""
+    with self._lock:
+      self.config["head_unit_fixes"] = bool(enabled)
+      identity_store.save_config(self.config)
+    self.log("head_unit_fixes_selected", enabled=bool(enabled))
+
+  def set_head_unit_experiments(self, enabled: bool) -> None:
+    with self._lock:
+      self.config["head_unit_experiments"] = bool(enabled)
+      identity_store.save_config(self.config)
+    self.log("head_unit_experiments_selected", enabled=bool(enabled))
+
+  def set_head_unit_experiment_rule(self, rule_id: str, enabled: bool) -> bool:
+    if rule_id not in head_unit_fixes.rule_ids():
+      return False
+    with self._lock:
+      rules = set(self.config["head_unit_experiment_rules"])
+      rules.add(rule_id) if enabled else rules.discard(rule_id)
+      self.config["head_unit_experiment_rules"] = sorted(rules)
+      identity_store.save_config(self.config)
+    self.log("head_unit_experiment_selected", rule=rule_id, enabled=bool(enabled))
+    return True
+
+  def dismiss_fix_suggestion(self, rule_id: str) -> bool:
+    key = quirk_state.QuirkState.key_for(self.config["receiver_address"])
+    if not key or rule_id not in head_unit_fixes.rule_ids():
+      return False
+    with self._lock:
+      self._quirks.dismiss(key, rule_id)
+      self._quirks.save()
+    return True
+
+  def _fix_suggestion(self) -> dict | None:
+    """Setup-screen advice about a car-specific fix; shown only for a wireless car with a recorded failure. Never switches anything on."""
+    address = self.config["receiver_address"]
+    key = quirk_state.QuirkState.key_for(address)
+    if not key or self.config["connection"] != "wireless":
+      return None
+    entry = self._quirks.cars.get(key)
+    if not entry:
+      return None
+    profile, _ = car_profiles.resolve(self.config)
+    return head_unit_fixes.suggestion(self.config, entry["fingerprint"], "wireless", self._quirks, key, car_type=self.car_type(), profile=profile)
 
   def _adapter_choice_needed(self) -> bool:
     return self.car_type() == "adapter" and not self.config.get("car_profile_override")
@@ -617,6 +671,9 @@ class Supervisor:
       cached = cache.pop(address, None) is not None
       cached = replies.pop(address, None) is not None or cached
       learned = self._ladder.forget(address)
+      if self._quirks.forget(quirk_state.QuirkState.key_for(address)):
+        self._quirks.save()
+        learned = True
       if not (chosen or companion or cached or learned):
         return False  # nothing of this device was kept
       self.config.update(rfcomm_cache=cache, modern_reply_cache=replies)
@@ -638,6 +695,12 @@ class Supervisor:
       entry = dict(self._ladder.cars.get(address.upper(), {})) if address else {}
       replies = dict(self.config.get("modern_reply_cache", {}))
       reset = bool(address) and (self._ladder.reset(address) | (replies.pop(address.upper(), None) is not None))
+      if address:
+        key = quirk_state.QuirkState.key_for(address)
+        had_fix_state = key in self._quirks.cars
+        self._quirks.reset(key)
+        self._quirks.save()
+        reset = reset or had_fix_state
       if reset:
         self._strategy = None
         self.config["modern_reply_cache"] = replies
@@ -1934,6 +1997,8 @@ class Supervisor:
     self._stage("authenticating")
     session.authenticate()
     self._stage("negotiating")
+    self._fix_context = None
+    session.on_discovered = self._choose_fixes
     mode = session.start(config["device_name"], "comma.ai")
     self._set(mode=mode.as_dict(), error="")
     self.log("projection_ready", mode=mode.as_dict(), head_unit_subject=session.head_unit_subject)
@@ -1992,10 +2057,15 @@ class Supervisor:
       session.nav = NavStatus.create(session, self.log)
     except Exception as error:  # turn-by-turn is optional; projection must never depend on it
       self.log("nav_status_unavailable", error=str(error))
+    car_ended = False
     try:
       self._stream(session, encoder, source, watch, interval)
+    except PeerRequestedStop:
+      car_ended = True
+      raise
     finally:
       self._note_streamed(session)
+      self._record_fix_outcome(session, car_ended)
       if session.audio is not None:
         session.audio.close()
       if getattr(session, "nav", None) is not None:
@@ -2010,6 +2080,52 @@ class Supervisor:
           session.shutdown()
         except Exception:
           pass
+
+  def _choose_fixes(self, head_unit: dict) -> tuple[str, ...]:
+    """Called once the car has described itself: the extra channels this car gets this session, or none."""
+    config = self.config
+    labels = head_unit_fixes.head_unit_labels(head_unit)
+    transport = {"wired": head_unit_fixes.WIRED, "wireless": head_unit_fixes.WIRELESS}.get(config["connection"], "app")
+    key = (quirk_state.QuirkState.key_for(config["receiver_address"]) if transport == head_unit_fixes.WIRELESS
+           else quirk_state.QuirkState.wired_key(labels))
+    profile = car_profiles.resolve(config)[0]
+    car_type = self.car_type()
+    if head_unit_fixes.eligible(config, car_type, profile):
+      for rule in head_unit_fixes.RULES:
+        if head_unit_fixes.near_miss(rule, labels):
+          self.log("head_unit_rule_near_miss", rule=rule.id, build=labels.get("head_unit_software_version", ""))
+    with self._lock:
+      selection = head_unit_fixes.select(config, labels, transport, self._quirks, key, car_type=car_type, profile=profile)
+    self._fix_context = {"labels": labels, "key": key, "selection": selection}
+    if selection is None:
+      return ()
+    self.log("fix_applied", rule=selection.rule.id, level=selection.level, actions=list(selection.actions))
+    return selection.actions
+
+  def _record_fix_outcome(self, session: ProjectionSession, car_ended: bool) -> None:
+    """Fold this session into the car's record so a fix that doesn't help steps up or turns itself off."""
+    context, self._fix_context = self._fix_context, None
+    if not context or not context["key"]:
+      return
+    selection = context["selection"]
+    confirmed = session.video_confirmed
+    outcome = quirk_state.SessionOutcome(
+      video_seen=confirmed, streamed_s=time.monotonic() - session.video_confirmed_at if confirmed else 0.0,
+      first_frame_s=session.video_confirmed_at - self._run_started if confirmed else None, ended_by_car=car_ended,
+      user_stopped=self._stop.is_set(), hangup=not confirmed and not car_ended,
+      waiting_for_driver=session.focus_requested_at is not None and session.focus_granted_at is None)
+    try:
+      with self._lock:
+        verdict = self._quirks.record(context["key"], context["labels"], outcome, rule_id=selection.rule.id if selection else "",
+                                      ladder_len=len(selection.rule.ladder) if selection else 0,
+                                      trial_generation=selection.generation if selection else None, now=time.time())
+        after = self._quirks.trial(context["key"], selection.rule.id) if selection else None
+        self._quirks.save()
+      if selection:
+        self.log("fix_outcome", rule=selection.rule.id, level=selection.level, verdict=verdict, streamed_s=round(outcome.streamed_s, 1),
+                 state=after["state"] if after else "", reason=after.get("reason", "") if after else "")
+    except (OSError, ValueError, KeyError, TypeError) as error:
+      self.log("fix_outcome_error", error=str(error)[:120])
 
   def _note_streamed(self, session: ProjectionSession) -> None:
     """Video was acknowledged: later failures in this session say nothing about the handshake. A session that streamed for

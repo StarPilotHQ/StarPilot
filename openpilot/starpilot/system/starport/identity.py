@@ -159,6 +159,9 @@ DEFAULT_CONFIG = {
   "car_type": "",              # wireless setup shown in Galaxy: "builtin" or "adapter"; "" = work it out from the saved companion car
   "car_profile_override": "",  # "" = pick by fingerprint (a wireless adapter must choose); "default" = standard; otherwise a car_profiles id
   "car_fingerprint": {},       # what the chosen car's head unit reported last time, used to pick a profile before it connects
+  "head_unit_fixes": True,     # master switch for car-specific fixes (Galaxy Developer > StarPort); off = the standard connection for every car
+  "head_unit_experiments": False,  # allow experimental fixes at all (Galaxy Developer > StarPort > Specific car experiments)
+  "head_unit_experiment_rules": [],  # ids of the experimental fixes switched on for this comma's car
 }
 
 
@@ -199,6 +202,10 @@ def load_config(path: Path | None = None) -> dict:
     config["usb_mode"] = "auto"
   config["bitrate_kbps"] = max(1000, min(12000, int(config["bitrate_kbps"])))
   config["allow_hevc"] = config["allow_hevc"] is True
+  config["head_unit_fixes"] = config["head_unit_fixes"] is not False
+  config["head_unit_experiments"] = config["head_unit_experiments"] is True
+  config["head_unit_experiment_rules"] = sorted({str(rule)[:64] for rule in config["head_unit_experiment_rules"]
+                                                 if isinstance(rule, str)})[:16]
   if config["rate_control"] not in ("cbr", "vbr"):
     config["rate_control"] = "cbr"
   config["render_profile_kb"] = max(16, min(4096, int(config["render_profile_kb"])))

@@ -106,6 +106,8 @@ RESOLUTION_PREFERENCE = (2, 1, 3)
 # A real phone pings periodically; answering pings is mandatory, sending them
 # is harmless and keeps impatient receivers from declaring the link idle.
 PING_INTERVAL = 2.0
+PHONE_STATUS_SERVICE, VENDOR_SERVICE = 10, 12  # ServiceDiscoveryResponse channel descriptor field numbers
+SHUTDOWN_REASONS = {1: "user_selection", 2: "device_switch", 3: "not_supported", 4: "not_currently_supported", 5: "probe_supported"}
 
 
 class AuthenticationRejected(ValueError):
@@ -571,6 +573,7 @@ class Session:
       channels.append(item)
     # Everything but the channel list: make, model, year, software and, on newer units, headunit_info.
     head_unit = redact_head_unit(describe_fields({number: values for number, values in response.items() if number != 1}))
+    self.head_unit_info = head_unit
     self.event("discovered", channels=[{k: (json_fields_list(v) if k in ("video_configs", "audio_configs") else str(v) if k == "input_config" else v)
                                         for k, v in ch.items()} for ch in channels],
                head_unit=head_unit)
@@ -693,6 +696,13 @@ class ProjectionSession(Session):
     self.sensor_channel: int | None = None
     self.sensor_events: dict[int, int] = {}
     self.bluetooth_channel: int | None = None
+    self.phone_status_channel: int | None = None
+    self.vendor_channel: int | None = None
+    self.head_unit_info: dict = {}
+    self.on_discovered: Callable[[dict], tuple[str, ...]] | None = None  # set by the supervisor: the car-specific actions to run
+    self.fix_actions: tuple[str, ...] = ()
+    self.focus_requested_at: float | None = None
+    self.focus_granted_at: float | None = None
     self.nav = None  # NavStatus, attached by the supervisor when the head unit offers turn-by-turn
     self.audio = None  # MediaAudio, attached by the supervisor when Spotify plays through Android Auto
     self.input_events = 0
@@ -709,10 +719,18 @@ class ProjectionSession(Session):
   def start(self, device_name: str, device_brand: str) -> VideoMode:
     self.channels = self.discover(device_name, device_brand)
     self.mode = choose_video_mode(self.channels, self.allow_hevc)
+    if self.on_discovered is not None:
+      try:
+        self.fix_actions = tuple(self.on_discovered(self.head_unit_info) or ())
+      except Exception as error:  # a fix is never allowed to stop a session that would otherwise run
+        self.fix_actions = ()
+        self.event("fix_selection_failed", error=str(error)[:120])
     self.open_video()
     self.open_input()
     if self.phone_services:
       self.open_phone_services()
+    if self.fix_actions:
+      self.run_fix_actions()
     self.request_projection()
     return self.mode
 
@@ -769,27 +787,71 @@ class ProjectionSession(Session):
 
   def open_phone_services(self) -> None:
     """Open the car-data and Bluetooth channels before asking for the screen, as a phone does. Failures are not fatal."""
+    self._open_sensors()
+    self._open_bluetooth(pair=True)
+
+  def _open_sensors(self) -> bool:
     sensors = next((ch for ch in self.channels if "sensors" in ch), None)
-    if sensors is not None and self._open_optional(sensors, "sensors"):
-      self.sensor_channel = sensors["id"]
-      # Only what decides whether the screen may project; location would put the car's position in the session log.
-      wanted = [kind for kind in (SENSOR_DRIVING_STATUS, SENSOR_NIGHT) if kind in sensors["sensors"]]
-      for kind in wanted:
-        self.send(sensors["id"], SENSOR_START_REQUEST, field(1, kind) + field(2, 0))
-      self.event("sensors_opened", channel=sensors["id"], requested=wanted)
+    if sensors is None or self.sensor_channel is not None or not self._open_optional(sensors, "sensors"):
+      return False
+    self.sensor_channel = sensors["id"]
+    # Only what decides whether the screen may project; location would put the car's position in the session log.
+    wanted = [kind for kind in (SENSOR_DRIVING_STATUS, SENSOR_NIGHT) if kind in sensors["sensors"]]
+    for kind in wanted:
+      self.send(sensors["id"], SENSOR_START_REQUEST, field(1, kind) + field(2, 0))
+    self.event("sensors_opened", channel=sensors["id"], requested=wanted)
+    return True
+
+  def _open_bluetooth(self, pair: bool) -> bool:
     bluetooth = next((ch for ch in self.channels if "bluetooth" in ch), None)
-    if bluetooth is not None and self._open_optional(bluetooth, "bluetooth"):
-      self.bluetooth_channel = bluetooth["id"]
-      methods = bluetooth["bluetooth"].get("pairing_methods") or []
-      if self.phone_address:
-        self.send(bluetooth["id"], BLUETOOTH_PAIRING_REQUEST, field(1, self.phone_address) + field(2, methods[0] if methods else 2))
-      self.event("bluetooth_opened", channel=bluetooth["id"], phone_address=self.phone_address,
-                 car_address=bluetooth["bluetooth"].get("car_address", ""), pairing_methods=methods)
+    if bluetooth is None or self.bluetooth_channel is not None or not self._open_optional(bluetooth, "bluetooth"):
+      return False
+    self.bluetooth_channel = bluetooth["id"]
+    methods = bluetooth["bluetooth"].get("pairing_methods") or []
+    if pair:
+      self._send_pairing_request(methods)
+    self.event("bluetooth_opened", channel=bluetooth["id"], phone_address=self.phone_address if pair else "",
+               car_address=bluetooth["bluetooth"].get("car_address", ""), pairing_methods=methods)
+    return True
+
+  def _send_pairing_request(self, methods: list[int]) -> None:
+    if self.phone_address and self.bluetooth_channel is not None:
+      self.send(self.bluetooth_channel, BLUETOOTH_PAIRING_REQUEST, field(1, self.phone_address) + field(2, methods[0] if methods else 2))
+
+  def _open_service(self, service: int, name: str) -> int | None:
+    channel = next((ch for ch in self.channels if service in ch.get("services", ())), None)
+    if channel is None or not self._open_optional(channel, name):
+      return None
+    return channel["id"]
+
+  def run_fix_actions(self) -> None:
+    """Run the car-specific actions chosen for this head unit, each on its own so one the car dislikes stops nothing else."""
+    for action in self.fix_actions:
+      done = False
+      if action == "open_bluetooth":
+        done = self.bluetooth_channel is not None or self._open_bluetooth(pair=False)
+      elif action == "open_phone_status":
+        if self.phone_status_channel is None:
+          self.phone_status_channel = self._open_service(PHONE_STATUS_SERVICE, "phone_status")
+        done = self.phone_status_channel is not None
+      elif action == "open_sensors":
+        done = self.sensor_channel is not None or self._open_sensors()
+      elif action == "open_vendor":
+        if self.vendor_channel is None:
+          self.vendor_channel = self._open_service(VENDOR_SERVICE, "vendor")
+        done = self.vendor_channel is not None
+      elif action == "request_bt_pairing":
+        if self.bluetooth_channel is not None and self.phone_address:
+          bluetooth = next((ch for ch in self.channels if ch.get("id") == self.bluetooth_channel), {})
+          self._send_pairing_request((bluetooth.get("bluetooth") or {}).get("pairing_methods") or [])
+          done = True
+      self.event("fix_action", action=action, done=done)
 
   def request_projection(self) -> None:
     """Ask for display focus; the Mazda donor needed this, DHU grants it unsolicited."""
     assert self.mode is not None
     self.allow_projection = True
+    self.focus_requested_at = time.monotonic()
     self.send(self.mode.channel, VIDEO_FOCUS_REQUEST, field(2, FOCUS_PROJECTED) + field(3, FOCUS_REASON_USER_SELECTION))
 
   def request_native(self) -> bool:
@@ -839,7 +901,9 @@ class ProjectionSession(Session):
         self.ping_responses += 1
       elif kind == MSG_SHUTDOWN_REQUEST:
         self.send(0, MSG_SHUTDOWN_RESPONSE)
-        self.event("peer_requested_shutdown", reason=one(fields, 1))
+        reason = one(fields, 1)
+        after = {"after_focus_s": round(time.monotonic() - self.focus_granted_at, 1)} if self.focus_granted_at is not None else {}
+        self.event("peer_requested_shutdown", reason=reason, reason_label=SHUTDOWN_REASONS.get(reason, "unknown"), **after)
         raise PeerRequestedStop(f"Head unit ended projection (reason {one(fields, 1)})")
       else:
         self.ignored("control_ignored", channel, kind, data)
@@ -895,7 +959,11 @@ class ProjectionSession(Session):
     was_focused = self.focused
     granted = focus in (FOCUS_PROJECTED, FOCUS_PROJECTED_NO_INPUT)
     self.focused = granted and self.allow_projection
-    self.event("video_focus", focus=focus, unsolicited=unsolicited, focused=self.focused)
+    first_grant = self.focused and self.focus_granted_at is None
+    if self.focused and self.focus_granted_at is None:
+      self.focus_granted_at = time.monotonic()
+    wait = {"wait_s": round(self.focus_granted_at - self.focus_requested_at, 2)} if first_grant and self.focus_requested_at is not None else {}
+    self.event("video_focus", focus=focus, unsolicited=unsolicited, focused=self.focused, **wait)
     if was_focused and not self.focused and self.grace_frame is not None:
       self.grace_focus_lost = True  # the car gave up on the stalled video: reconnect rather than wait unfocused
     if was_focused and not self.focused and self.touch is not None:
