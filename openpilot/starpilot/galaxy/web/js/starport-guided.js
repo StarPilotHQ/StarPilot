@@ -98,6 +98,12 @@ function options(models, chosen) {
   return Object.entries(models || {}).map(([key, label]) => ({ key, label: String(label), selected: key === chosen }))
 }
 
+// Advice only: the daemon names a setting made for this exact car, and nothing is switched on from here.
+export function fixSuggestion(runtime) {
+  const item = runtime?.fix_suggestion
+  return item && typeof item.rule === "string" && typeof item.detail === "string" ? { rule: item.rule, text: item.detail } : null
+}
+
 export function guidedState({ setup = null, runtime = null, selected = null, receivers = [], wired = false, app = "", carType = "builtin",
   setupDone = false, pairingActive = false, editing = false, adapterModels = {}, adapterKey = "", appModels = {} } = {}) {
   const ladder = runtime?.setup_ladder || null
@@ -106,7 +112,7 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
   const installed = !!setup?.identity?.installed
   const steps = setupSteps({ installed, carDone: setupDone, live: state === "streaming", carType })
   const base = { show: false, phase: "live", title: "", detail: "", choices: [], carType, candidates: [], progress: [], handshake: [], canResetHandshake: false,
-    notice: "", exhausted: false, hint: null, steps, adapter: null, apps: null, editing: false, liveStep: "", round: "", restart: null }
+    notice: "", suggestion: null, exhausted: false, hint: null, steps, adapter: null, apps: null, editing: false, liveStep: "", round: "", restart: null }
   if (setup === null) return base
   const hint = BLUETOOTH_FIRST.test(String(runtime?.error || "")) ? BLUETOOTH_HINT : null
   if (connecting) {
@@ -122,7 +128,7 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
       progress: connectionStages(runtime), handshake: wireless ? handshakeSteps(ladder) : [], exhausted: !!ladder?.exhausted,
       canResetHandshake: wireless && handshakeResettable(ladder), liveStep: wireless ? String(runtime?.handshake_step || "") : "",
       round: wireless ? ladderRound(ladder) : "", restart: restarting ? { hangups: Number(runtime?.dongle_restart?.hangups) || hangups } : null,
-      notice: ladder?.exhausted ? EXHAUSTED_NOTICE : hangupNotice || (firstRun ? FIRST_RUN_NOTICE : ""), hint }
+      notice: ladder?.exhausted ? EXHAUSTED_NOTICE : hangupNotice || (firstRun ? FIRST_RUN_NOTICE : ""), hint, suggestion: fixSuggestion(runtime) }
   }
   if (setupDone && !editing) {
     // A finished setup shows nothing, except a refusal that is the one thing to act on.
@@ -144,7 +150,7 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
   }
   const pairs = carType === "builtin" || carType === "adapter"
   return { ...base, show: true, phase: "setup", title: editing ? "Change how your car connects" : "Set up your car",
-    detail: INSTRUCTIONS[carType] || INSTRUCTIONS.builtin, choices, candidates: pairs && !pairingActive ? candidates : [], hint, editing,
+    detail: INSTRUCTIONS[carType] || INSTRUCTIONS.builtin, choices, candidates: pairs && !pairingActive ? candidates : [], hint, editing, suggestion: fixSuggestion(runtime),
     adapter: carType === "adapter" ? { options: options(adapterModels, adapterKey), needsChoice: !adapterKey } : null,
     apps: carType === "app" ? { options: options(appModels, Object.keys(appModels).find((key) => appModels[key] === app) || ""), needsChoice: !app } : null }
 }
@@ -152,7 +158,7 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
 export const StarPortGuidedSetup = {
   props: { state: { type: Object, required: true }, busy: { type: Boolean, default: false },
     choicesDisabled: { type: Boolean, default: false } },
-  emits: ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "reset-handshake", "continue-ladder", "done"],
+  emits: ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "reset-handshake", "continue-ladder", "dismiss-suggestion", "done"],
   template: `
     <section class="gx-card gx-guided" :data-phase="state.phase" aria-label="Guided StarPort setup">
       <ol class="gx-guided__steps" aria-label="Setup progress">
@@ -258,6 +264,10 @@ export const StarPortGuidedSetup = {
       </details>
 
       <p v-if="state.notice" class="gx-guided__callout gx-guided__callout--quiet" role="status">{{ state.notice }}</p>
+      <div v-if="state.suggestion" class="gx-guided__callout" role="status">
+        <span>{{ state.suggestion.text }}</span>
+        <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="$emit('dismiss-suggestion', state.suggestion.rule)">Not now</button>
+      </div>
 
       <div v-if="state.phase === 'setup'" class="gx-guided__body"><slot name="car" /></div>
 

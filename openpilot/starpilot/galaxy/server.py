@@ -2445,6 +2445,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           command, arguments = 'reset_handshake', {}
         elif action == 'continue_ladder' and set(payload) == {'action'}:
           command, arguments = 'continue_ladder', {}
+        elif action == 'dismiss_fix_suggestion' and set(payload) == {'action', 'rule'} and isinstance(payload['rule'], str):
+          command, arguments = 'dismiss_fix_suggestion', {'rule': payload['rule'][:64]}
         elif action == 'auto_connect' and set(payload) == {'action', 'enabled'} and type(payload['enabled']) is bool:
           if not configuration_allowed():
             self.json(403, {'error': 'Park before changing automatic connection'})
