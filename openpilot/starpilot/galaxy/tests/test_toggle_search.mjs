@@ -96,8 +96,7 @@ test("nested camera tools appear as direct results with a useful location", () =
   const hits = searchSettings(entries, "V-ASM")
   assert.equal(hits[0].path, "/cameras/vasm")
   assert.equal(hits[0].kind, "Tool")
-  assert.equal(hits[0].context, "Cameras & Monitoring")
-  assert.equal(hits[1].path, "/cameras")
+  assert.equal(hits[0].context, "Cameras")
 })
 
 test("tool search walks every depth and indexes other tool sections", () => {

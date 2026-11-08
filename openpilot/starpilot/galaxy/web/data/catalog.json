@@ -9,31 +9,31 @@
       "availability": "local-only"
     },
     {
-      "name": "Cameras & Monitoring",
+      "name": "Cameras",
       "path": "/cameras",
       "icon": "bi-camera-video",
-      "description": "Live cabin previews, Side Camera, Sentry motion, and V-ASM settings",
+      "description": "Blind spot warnings, blind spot camera and Sentry Mode",
       "availability": "local-only",
       "children": [
         {
-          "name": "Blind Spot Camera and Preview",
+          "name": "Blind Spot Camera",
           "path": "/cameras/pip",
           "icon": "bi-camera-video",
-          "description": "Adjust the camera crop with a live cabin preview.",
+          "description": "Choose when the blind spot camera shows and set its crop.",
           "availability": "local-only"
         },
         {
-          "name": "Sentry",
+          "name": "Sentry Mode",
           "path": "/cameras/events",
           "icon": "bi-shield",
-          "description": "View motion events, configure saved motion settings, and manage notifications.",
+          "description": "View motion events and change motion and notification settings.",
           "availability": "local-only"
         },
         {
-          "name": "V-ASM",
+          "name": "Blind Spot Warnings",
           "path": "/cameras/vasm",
           "icon": "bi-eye",
-          "description": "Preview the cabin camera, draw window regions, and adjust visual spot-monitoring choices.",
+          "description": "Trace the side windows on the cabin camera and set up blind spot warnings (V-ASM).",
           "availability": "local-only"
         }
       ]
@@ -138,6 +138,13 @@
           "tab": "setup",
           "description": "Configure navigation and Mapbox",
           "icon": "bi-gear"
+        },
+        {
+          "name": "GPS Source",
+          "path": "/navigation/gps",
+          "tab": "gps",
+          "description": "Choose where the comma gets its position and share phone GPS",
+          "icon": "bi-crosshair"
         }
       ]
     },

@@ -21,13 +21,14 @@ export function settingsPagePath(id) {
   if (id === "favorites") return "/quick-select"
   if (id === "developer") return "/developer/connect"
   if (id === "vehicle") return "/vehicle"
+  if (id === "pip") return "/cameras/pip"
   return page(id)
 }
 
 // A search hit opens the page that now holds that row.
 export function settingsSearchPath(hit) {
   if (hit.page === "data") return page("power")
-  if (hit.page === "conditional") return page("profiles")
+  if (hit.page === "localization" && RIGHT_HAND_DRIVE_ROWS.includes(hit.label)) return "/vehicle"
   if (hit.page === "torque" && hit.label === "Turn Signal Guidance") return page("lane_change")
   if (hit.page === "lane_change" && SIGNAL_LANE_ROWS.includes(hit.label)) return page("conditional/cem")
   return settingsPagePath(hit.page)
@@ -38,80 +39,148 @@ export function settingsSearchPath(hit) {
 export const MENU = Object.freeze([
   { id: "home", label: "Home", icon: "bi-house-fill", path: "/", main: true },
   { id: "routes", label: "Routes", icon: "bi-camera-reels", path: "/recordings", main: true },
-  { id: "driving", label: "Driving", icon: "bi-speedometer2", children: [
-    { id: "model-manager", label: "Model Manager", path: "/manage_models", also: ["/model_laboratory"] },
-    { id: "steering", label: "Steering", children: [
-      { id: "lane-changes", label: "Lane Changes", path: page("lane_change"), also: ["/driving/lane_change"] },
-      { id: "lane-centering", label: "Lane Centering", path: page("lane"), also: ["/driving/lane"] },
-      { id: "aol", label: "Always On Lateral", path: page("aol"), also: ["/driving/aol"] },
-      // Torque-steered cars only: on angle-steered cars the page has nothing left to set once
-      // Turn Signal Guidance moves to Lane Changes, so the item hides.
-      { id: "torque", label: "Steering and Torque", path: page("torque"), also: ["/driving/torque"], torqueOnly: true },
-      { id: "tuning", label: "Tuning and Analysis", path: "/tuning", subs: { "/tuning/flm": "Auto Learn", "/tuning/plots": "Live plots" } },
-    ] },
-    { id: "cruise", label: "Cruise", children: [
-      { id: "long-planner", label: "Long Planner", path: page("profiles"), also: ["/driving/profiles", page("conditional"), "/driving/conditional"],
-        subs: { [page("conditional/cem")]: "Experimental Conditions", [page("conditional/ccm")]: "Chill Conditions" } },
-      { id: "personalities", label: "Driving Personalities", path: page("personalities"),
-        subs: { [page("aggressive")]: "Aggressive", [page("standard")]: "Standard", [page("relaxed")]: "Relaxed",
-          [page("traffic")]: "Traffic", "/driving/traffic": "Traffic" } },
-      { id: "csc", label: "Curve Speed Controller", path: page("curve"), also: ["/driving/curve"] },
-      { id: "slc", label: "Speed Limit Controller", path: page("slc"), also: ["/driving/slc"] },
-    ] },
+  // 8 Nov 2026: every page is at most two clicks deep. Steering and Speed are top-level groups (no "Driving" wrapper).
+  { id: "model-manager", label: "Driving Model", icon: "bi-cpu", path: "/manage_models", also: ["/model_laboratory"],
+    summary: "Choose, download and pair driving models" },
+  // Bootstrap Icons has no steering wheel: gx-icon-steering-wheel is drawn in menu.css.
+  { id: "steering", label: "Steering", icon: "gx-icon-steering-wheel", children: [
+    { id: "lane-changes", label: "Lane Changes", path: page("lane_change"), also: ["/driving/lane_change"] },
+    { id: "lane-centering", label: "Lane Centering", path: page("lane"), also: ["/driving/lane"] },
+    { id: "aol", label: "Always On Lateral", path: page("aol"), also: ["/driving/aol"] },
+    // Torque-steered cars only: on angle-steered cars the page has nothing left to set once
+    // Turn Signal Guidance moves to Lane Changes, so the item hides.
+    { id: "torque", label: "Steering and Torque", path: page("torque"), also: ["/driving/torque"], torqueOnly: true },
+    { id: "tuning", label: "Tuning and Analysis", path: "/tuning", subs: { "/tuning/flm": "Auto Learn", "/tuning/plots": "Live plots" } },
   ] },
-  { id: "vehicle", label: "Vehicle", icon: "bi-car-front", path: "/vehicle", summary: "Vehicle selection and settings" },
-  { id: "controls", label: "Controls & Connections", icon: "bi-controller", children: [
+  { id: "speed", label: "Speed", icon: "bi-speedometer2", children: [
+    { id: "personalities", label: "Driving Personalities", path: page("personalities"),
+      subs: { [page("aggressive")]: "Aggressive", [page("standard")]: "Standard", [page("relaxed")]: "Relaxed",
+        [page("traffic")]: "Traffic", "/driving/traffic": "Traffic" } },
+    // Conditional Driving Modes: its own item, no longer a second card on the planner page.
+    { id: "experimental-chill", label: "Experimental & Chill", path: page("conditional"), also: ["/driving/conditional"],
+      subs: { [page("conditional/cem")]: "Experimental Conditions", [page("conditional/ccm")]: "Chill Conditions" } },
+    { id: "long-planner", label: "Acceleration & Braking", path: page("profiles"), also: ["/driving/profiles"] },
+    { id: "csc", label: "Curve Speed Controller", path: page("curve"), also: ["/driving/curve"] },
+    { id: "slc", label: "Speed Limit Controller", path: page("slc"), also: ["/driving/slc"] },
+  ] },
+  { id: "car", label: "Car", icon: "bi-car-front", children: [
+    { id: "vehicle", label: "Vehicle", path: "/vehicle" },
     { id: "wheel", label: "Wheel Controls", path: page("wheel") },
+  ] },
+  { id: "cameras", label: "Cameras", icon: "bi-camera-video", children: [
+    { id: "blind-spot-warnings", label: "Blind Spot Warnings", path: "/cameras/vasm" },
+    { id: "blind-spot", label: "Blind Spot Camera", path: "/cameras/pip", also: [page("pip")] },
+    // The old Cameras & Monitoring page (/cameras) opens Sentry Mode.
+    { id: "sentry", label: "Sentry Mode", path: "/cameras/events", also: ["/cameras", "/cameras/sentry-settings"] },
+  ] },
+  { id: "screen-sound", label: "Screen & Sound", icon: "bi-display", children: [
+    { id: "visuals", label: "Visuals", path: "/appearance" },
+    { id: "colors-layout", label: "Colors & Layout", path: "/theme_maker" },
+    { id: "quick-select", label: "Quick Select", path: "/quick-select" },
+    { id: "display", label: "Brightness & Timeout", path: page("display") },
+    { id: "sounds", label: "Sounds & Alerts", path: page("sounds") },
+  ] },
+  { id: "connections", label: "Connections", icon: "bi-broadcast", children: [
     { id: "bluetooth", label: "Bluetooth", path: "/bluetooth" },
     { id: "starport", label: "StarPort", path: "/starport", also: ["/spotify"],
       subs: { "/starport/audio": "Spotify and Phone Audio", "/spotify": "Spotify and Phone Audio", "/theme_maker/starport": "StarPort layout" } },
     { id: "galaxy-access", label: "Galaxy Access & Install", path: "/galaxy" },
   ] },
-  { id: "device", label: "Device & Visuals", icon: "bi-display", children: [
-    { id: "driving-screen", label: "Driving Screen", children: [
-      { id: "visuals", label: "Visuals", path: "/appearance" },
-      { id: "colors-layout", label: "Colors & Layout", path: "/theme_maker" },
-      { id: "quick-select", label: "Quick Select", path: "/quick-select" },
-    ] },
-    { id: "display", label: "Display", path: page("display") },
-    { id: "cameras", label: "Cameras", children: [
-      { id: "cameras-monitoring", label: "Cameras & Monitoring", path: "/cameras",
-        subs: { "/cameras/pip": "Blind Spot Camera and Preview", "/cameras/events": "Sentry", "/cameras/sentry-settings": "Sentry settings", "/cameras/vasm": "V-ASM" } },
-      { id: "blind-spot", label: "Blind Spot Camera and Preview", path: page("pip") },
-    ] },
-    { id: "sounds", label: "Sounds & Alerts", path: page("sounds") },
+  // The Maps page's own tab bar is gone: its four pages are here.
+  { id: "maps", label: "Maps", icon: "bi-map", children: [
+    // Navigation = destination and route, with navigation setup below (/navigation/setup opens it at the setup).
+    { id: "navigation", label: "Navigation", path: "/navigation", also: ["/navigation/setup"] },
+    { id: "offline-maps", label: "Offline Maps", path: "/navigation/maps" },
+    { id: "gps-source", label: "GPS Source", path: "/navigation/gps" },
+  ] },
+  { id: "system", label: "System", icon: "bi-gear", children: [
+    { id: "updates", label: "Updates & Backup", path: "/system" },
     { id: "power-data", label: "Power & Data", path: page("power"), also: [page("data")] },
     { id: "language", label: "Language & Units", path: page("localization") },
   ] },
-  { id: "software", label: "Software", icon: "bi-arrow-repeat", children: [
-    { id: "updates", label: "Updates & Backup", path: "/system" },
-    { id: "changed-settings", label: "Changed Settings", path: "/settings/recovery" },
-  ] },
-  { id: "maps", label: "Maps", icon: "bi-map", path: "/navigation", summary: "Destinations, offline maps and setup",
-    subs: { "/navigation/maps": "Offline Maps", "/navigation/setup": "Setup" } },
   { id: "developer", label: "Developer", icon: "bi-code-slash", children: [
     { id: "developer-options", label: "Developer Options", path: "/developer/connect" },
+    { id: "system-monitor", label: "System Monitor", path: "/logs/monitor" },
     { id: "logs", label: "Logs & Diagnostics", path: "/logs", also: ["/manage_tmux"],
-      subs: { "/logs/monitor": "System Monitor", "/logs/crashes": "Crash Reports", "/logs/starport": "StarPort Logs",
-        "/logs/tmux": "tmux Live View", "/manage_tmux": "tmux Live View", "/logs/troubleshoot": "Troubleshoot", "/troubleshoot": "Troubleshoot",
-        "/device-preferences": "Force Drive State", "/logs/help": "Help & Community" } },
+      subs: { "/logs/crashes": "Crash Reports", "/logs/starport": "StarPort Logs",
+        "/logs/tmux": "tmux Live View", "/manage_tmux": "tmux Live View", "/device-preferences": "Force Drive State" } },
+  ] },
+  { id: "help", label: "Help", icon: "bi-question-circle", children: [
+    { id: "troubleshoot", label: "Troubleshoot", path: "/logs/troubleshoot", also: ["/troubleshoot"] },
+    // Settings changed from their defaults, with a way back: a place to look when something behaves oddly.
+    { id: "changed-settings", label: "Changed Settings", path: "/settings/recovery" },
+    { id: "help-community", label: "Help & Community", path: "/logs/help" },
   ] },
 ])
+
+// Phone group pages draw each page as a card like the Settings tab: an icon and one line saying what is on it.
+export const MENU_CARDS = Object.freeze({
+  "lane-changes": ["bi-sign-merge-right", "Auto lane changes, speed, nudge and gaps"],
+  "lane-centering": ["bi-arrows-collapse-vertical", "Strength, offset and model path preference"],
+  aol: ["gx-icon-steering-wheel", "Steering without cruise, pauses and resume"],
+  torque: ["bi-sliders", "Steering torque settings for this car"],
+  tuning: ["bi-graph-up", "Auto tuning, corrections and live plots"],
+  personalities: ["bi-people", "Aggressive, Standard, Relaxed and Traffic"],
+  "experimental-chill": ["bi-shuffle", "When to switch to Chill or Experimental"],
+  "long-planner": ["bi-speedometer", "Profiles, stopping and takeoffs"],
+  csc: ["bi-bezier2", "Slowing for curves, with learning"],
+  slc: ["bi-signpost", "Speed-limit offsets, sources and timing"],
+  vehicle: ["bi-car-front-fill", "Vehicle selection and settings for this car"],
+  wheel: ["bi-joystick", "Steering wheel buttons and scroll wheels"],
+  "blind-spot-warnings": ["bi-exclamation-triangle", "Side window warnings from the cabin camera"],
+  "blind-spot": ["bi-pip", "When the camera shows, and its crop"],
+  sentry: ["bi-shield-check", "Motion events and notifications"],
+  visuals: ["bi-eye", "Camera view, widgets and lead info"],
+  "colors-layout": ["bi-palette", "Driving screen widgets, colors and road"],
+  "quick-select": ["bi-grid-3x3-gap", "Your three driving-screen shortcuts"],
+  display: ["bi-brightness-high", "Brightness and screen timeouts"],
+  sounds: ["bi-volume-up", "Alert sounds and sound packs"],
+  bluetooth: ["bi-bluetooth", "Saved devices and connections"],
+  starport: ["bi-cast", "Your car screen, Spotify and phone audio"],
+  "galaxy-access": ["bi-globe", "Remote access, app install and hotspot"],
+  navigation: ["bi-signpost-split", "Destination, route and navigation setup"],
+  "offline-maps": ["bi-map", "Download and manage offline maps"],
+  "gps-source": ["bi-crosshair", "Comma, car or phone GPS"],
+  updates: ["bi-arrow-repeat", "Branch updates, version history and backups"],
+  "power-data": ["bi-battery-charging", "Parked power and data uploads"],
+  language: ["bi-translate", "Language and Galaxy slider units"],
+  "developer-options": ["bi-code-slash", "Developer driving options and resets"],
+  "system-monitor": ["bi-activity", "Temperatures, CPU, memory and processes"],
+  logs: ["bi-file-earmark-text", "Crash reports, StarPort logs and tmux"],
+  troubleshoot: ["bi-tools", "Device and vehicle diagnostics"],
+  "changed-settings": ["bi-clock-history", "Settings changed from their defaults"],
+  "help-community": ["bi-life-preserver", "Guides and community help"],
+})
+export const menuCard = node => { const [icon, summary] = MENU_CARDS[node.id] || []; return { icon: icon || node.icon || "bi-chevron-right", summary: summary || node.summary || "" } }
 
 // Conditional Experimental's signal-lane rows: the device serves them with Lane Changes, but they belong with
 // Experimental conditions (they only change its Signal speed rule).
 const SIGNAL_LANE_ROWS = Object.freeze(["Signal lane detection", "Signal lane width"])
+// Right-Hand Drive is about the car, so it shows on Vehicle (Car) rather than Language & Units.
+const RIGHT_HAND_DRIVE_ROWS = Object.freeze(["Right-Hand Drive"])
+// Vehicle settings rows that change how Always On Lateral behaves on this car.
+const AOL_VEHICLE_ROWS = Object.freeze(["Three-Finger AOL Tap", "Disengage AOL on Brake"])
+// Sounds & Alerts rows for blind spot alerts, also shown with Blind Spot Warnings.
+const BLIND_SPOT_SOUND_ROWS = Object.freeze(["Loud Blindspot Alert", "Blindspot Alert While Lateral Is Off"])
 // Extra settings pages shown on another page, below its own settings.
 export const PAGE_COMPANIONS = Object.freeze({
-  profiles: { page: "conditional", heading: "Conditional Driving Modes" },
   power: { page: "data", heading: "Data Uploads" },
   "conditional/cem": { page: "lane_change", heading: "Signal speed: turn or lane change", onlyRows: SIGNAL_LANE_ROWS },
+  // The car's own AOL options (Vehicle settings) also show with Always On Lateral; the card hides on cars without them.
+  aol: { page: "vehicle", heading: "AOL options for this car", onlyRows: AOL_VEHICLE_ROWS },
   // Lane Changes shows Turn Signal Guidance in its own list instead (page-guides.js `include`).
 })
+// The same for pages that are not settings lists: shown below the page by app.js.
+export const ROUTE_COMPANIONS = Object.freeze({
+  "/vehicle": { page: "localization", heading: "Driving side", onlyRows: RIGHT_HAND_DRIVE_ROWS },
+  "/cameras/vasm": { page: "sounds", heading: "Blind spot alert sounds", onlyRows: BLIND_SPOT_SOUND_ROWS },
+})
 // Rows that now live on another page.
-export const PAGE_HIDDEN_ROWS = Object.freeze({ torque: ["Turn Signal Guidance"], lane_change: SIGNAL_LANE_ROWS })
+export const PAGE_HIDDEN_ROWS = Object.freeze({ torque: ["Turn Signal Guidance"], lane_change: SIGNAL_LANE_ROWS,
+  localization: RIGHT_HAND_DRIVE_ROWS })
 // Page titles that changed with the menu.
-export const PAGE_HEADINGS = Object.freeze({ power: "Power & Data" })
+export const PAGE_HEADINGS = Object.freeze({ power: "Power & Data", profiles: "Acceleration & Braking",
+  conditional: "Experimental & Chill", display: "Brightness & Timeout", localization: "Language & Units" })
 
 // ---- Lookup --------------------------------------------------------------------------------
 const NODES = new Map(), PARENTS = new Map()
@@ -315,15 +384,21 @@ export const MenuGroupPage = {
   props: { group: { type: Object, required: true }, go: { type: Function, required: true }, hiddenPaths: { type: Array, default: () => [] } },
   data: () => ({ menuState }),
   computed: { sections() { return groupSections(this.group, this.hiddenPaths) } },
+  methods: { card: menuCard },
+  // Each page is a card in the same style as the Settings tab (icon, title, one line, chevron).
   template: `<section class="gx-view gx-menu-group" :aria-label="group.label">
     <div class="gx-page-header"><div><h2>{{ group.label }}</h2></div></div>
-    <div class="gx-menu-cards">
-      <section v-for="section in sections" :key="section.id" class="gx-card gx-menu-section" :aria-label="section.label || group.label">
-        <div v-if="section.label" class="gx-section__header"><span class="gx-section__title">{{ section.label }}</span></div>
-        <button v-for="item in section.items" :key="item.id" type="button" class="gx-menu-link" @click="go(item.path)">
-          <span>{{ item.label }}</span><i class="bi bi-chevron-right" aria-hidden="true"></i>
-        </button>
-      </section>
-    </div>
+    <template v-for="section in sections" :key="section.id">
+      <h3 v-if="section.label" class="gx-menu-group__label">{{ section.label }}</h3>
+      <div class="gx-menu-cards">
+        <section v-for="item in section.items" :key="item.id" class="gx-card gx-menu-card">
+          <button type="button" class="gx-menu-card__head" @click="go(item.path)">
+            <span class="gx-menu-card__icon"><i class="bi" :class="card(item).icon" aria-hidden="true"></i></span>
+            <span class="gx-menu-card__text"><span class="gx-menu-card__title">{{ item.label }}</span><span class="gx-menu-card__summary">{{ card(item).summary }}</span></span>
+            <i class="bi bi-chevron-right gx-menu-card__chev" aria-hidden="true"></i>
+          </button>
+        </section>
+      </div>
+    </template>
   </section>`,
 }

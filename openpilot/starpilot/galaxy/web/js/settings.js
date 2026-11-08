@@ -38,7 +38,7 @@ export const isPipCropRow = (row) => ["Visual camera crop editor", "Camera crop 
 
 const SECTION_LINKS = {
   device: [{ label: "Parked Power", page: "power", value: "Adjust shutdown hours and battery-voltage cutoff" }, { label: "Display", page: "display", value: "Adjust screen brightness and display timing" }, { label: "Data Uploads", page: "data", value: "Choose mobile-data uploads and usage-statistics sharing" }],
-  visual: [{ label: "Driving Screen Widgets, Colors & Layout", page: "ui_layout" }, { label: "Quick Select", page: "favorites" }, { label: "Blind Spot Camera and Preview", page: "pip" }],
+  visual: [{ label: "Driving Screen Widgets, Colors & Layout", page: "ui_layout" }, { label: "Quick Select", page: "favorites" }, { label: "Blind Spot Camera", page: "pip" }],
 }
 
 const activeSettings = new Set()
@@ -288,7 +288,7 @@ export const SettingsPage = {
     // Opened from the Galaxy menu (menu.js): the page title sits on top, the menu shows where the page lives,
     // and Manage opens each sub-page as its own route (emits "open-page").
     menuMode: { type: Boolean, default: false },
-    // A second settings page shown below another page's settings (e.g. Conditional Driving Modes on Long Planner).
+    // A second settings page shown below another page's settings (e.g. Data Uploads on Power & Data).
     embedded: { type: Boolean, default: false },
     heading: { type: String, default: "" },
     // Show only, or leave out, rows with these labels (a row that now lives on another page).
@@ -384,6 +384,9 @@ export const SettingsPage = {
       }).filter(({ row }) =>
         !needle || `${row.label} ${row.value} ${row.reason}`.toLocaleLowerCase().includes(needle))
     },
+    // A few rows borrowed from another page (onlyRows) that this car does not have: show nothing, not an empty card.
+    emptyBorrow() { return !!this.onlyRows && this.state.status !== "loading" && !!this.state.data && !this.state.error &&
+      !this.visibleRows.some(({ row }) => !row.heading) },
     // A heading row starts its own card; the rows after it belong to that card even when search hides the heading.
     rowCards() {
       // A page shown for a few of its rows under another page (onlyRows) stays a plain list.
@@ -593,7 +596,7 @@ export const SettingsPage = {
       </template>
     <OnroadLayoutPage ref="layoutEditor" v-if="state.layoutOpen" :mode="mode" :unauthorized="unauthorized" :initial-panel="state.layoutPanel" @target="openLayoutTarget" @close="closeLayout" />
     <FavoritesPage ref="favoritesEditor" v-else-if="state.favoritesOpen" :mode="mode" :unauthorized="unauthorized" @close="closeFavorites" />
-    <section v-else class="gx-settings" :class="{ 'gx-settings--path': trailEnabled, 'gx-settings--menu': menuMode, 'gx-settings--embedded': embedded, 'gx-settings--bare': bare }" :aria-label="heading || title" :inert="busy" :aria-busy="busy || undefined">
+    <section v-else-if="!emptyBorrow" class="gx-settings" :class="{ 'gx-settings--path': trailEnabled, 'gx-settings--menu': menuMode, 'gx-settings--embedded': embedded, 'gx-settings--bare': bare }" :aria-label="heading || title" :inert="busy" :aria-busy="busy || undefined">
       <div v-if="menuMode && !embedded" class="gx-settings__header gx-page-header"><h2>{{ heading || state.data?.title || title }}</h2>
         <button v-if="state.data && state.data.page !== 'hub' && state.data.rows.length" type="button" class="gx-icon-btn" :aria-label="state.searchOpen ? 'Close page search' : 'Search within this page'" :aria-pressed="state.searchOpen" @click="togglePageSearch"><i class="bi" :class="state.searchOpen ? 'bi-x-lg' : 'bi-search'" aria-hidden="true"></i></button></div>
       <h3 v-if="embedded && heading" class="gx-menu-embed-title">{{ heading }}</h3>
@@ -630,7 +633,8 @@ export const SettingsPage = {
                 :initial-page="card.include.page" :title="card.title" :only-rows="card.include.rows" />
               <div v-if="!cardIndex && !visibleRows.length && !card.include" class="gx-empty">No matching settings.</div>
             </section>
-            <SoundPacks v-if="state.data.page === 'sounds'" :unauthorized="unauthorized" :busy="busy" @installed="refreshSoundChoices" />
+            <!-- Sounds rows borrowed by another page (onlyRows) come without the sound pack catalog. -->
+            <template v-if="!onlyRows"><SoundPacks v-if="state.data.page === 'sounds'" :unauthorized="unauthorized" :busy="busy" @installed="refreshSoundChoices" /></template>
           </div>
           </Transition>
         </div>

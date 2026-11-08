@@ -9,10 +9,10 @@ const labels = path => toolTrail(path, tools).map(item => item.label)
 
 // Pages opened from Tools: Tools › tool › sub-page.
 assert.deepEqual(labels("/logs/monitor"), ["Tools", "Logs & Diagnostics", "System Monitor"])
-assert.deepEqual(labels("/cameras/events"), ["Tools", "Cameras & Monitoring", "Sentry"])
+assert.deepEqual(labels("/cameras/events"), ["Tools", "Cameras", "Sentry Mode"])
 assert.deepEqual(labels("/manage_models"), ["Tools", "Model Manager"])
 assert.deepEqual(labels("/navigation/maps"), ["Tools", "Navigation & Maps", "Offline Maps"])
-assert.deepEqual(labels("/cameras/sentry-settings"), ["Tools", "Cameras & Monitoring", "Sentry settings"])
+assert.deepEqual(labels("/cameras/sentry-settings"), ["Tools", "Cameras", "Sentry settings"])
 // A child listed under a tool whose path lies elsewhere still finds its tool.
 assert.deepEqual(labels("/device-preferences"), ["Tools", "Logs & Diagnostics", "Force Drive State"])
 // Each level links to its own page.

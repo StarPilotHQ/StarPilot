@@ -125,3 +125,7 @@
 .gx-navigation__gps { scroll-margin-top: 100px; }
 .gx-navigation__gps li { margin-block: var(--sp-2); line-height: 1.5; }
 .gx-navigation__gps summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; }
+/* Navigation setup below the destination and route (the Maps menu merged the Setup page into Navigation). */
+.gx-navigation__setup {display:grid;gap:12px;margin-top:24px;scroll-margin-top:calc(72px + env(safe-area-inset-top, 0px))}
+.gx-navigation__setup:focus {outline:none}
+.gx-navigation__setup > .gx-card {margin:0}

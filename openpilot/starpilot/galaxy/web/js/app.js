@@ -13,7 +13,7 @@ import { loadCatalog } from "./startup.js"
 import { Tools } from "./tools.js"
 import { GxTrail, toolTrail } from "./trail.js"
 import { MenuTree, SettingsIndex, MenuGroupPage, menuTrail, menuBack as menuBackLink, menuLocation, menuGroupFromPath, settingsPageFromPath,
-  settingsPagePath, settingsSearchPath, PAGE_COMPANIONS, PAGE_HIDDEN_ROWS, PAGE_HEADINGS, checkTorqueTuning } from "./menu.js"
+  settingsPagePath, settingsSearchPath, PAGE_COMPANIONS, ROUTE_COMPANIONS, PAGE_HIDDEN_ROWS, PAGE_HEADINGS, checkTorqueTuning } from "./menu.js"
 import { FavoritesPage } from "./favorites.js"
 window.addEventListener("beforeinstallprompt", rememberInstallPrompt)
 const Logs = page(() => import("./logs.js").then((module) => module.Logs))
@@ -30,7 +30,6 @@ import { Home } from "./home.js"
 import { LocalAccess } from "./local-access.js"
 import { MenuTile } from "./menu-tile.js"
 const LocalRecordingsPage = page(() => import("./record-history.js").then((module) => module.LocalRecordingsPage))
-const CamerasPage = page(() => import("./cameras.js").then((module) => module.CamerasPage))
 const SentryEventsPage = page(() => import("./sentry.js").then((module) => module.SentryEventsPage))
 const VasmPage = page(() => import("./vasm.js").then((module) => module.VasmPage))
 const PipPage = page(() => import("./pip.js").then((module) => module.PipPage))
@@ -88,7 +87,7 @@ const auth = new LocalAuth({ publish: (update) => {
 
 
 createApp({
-  components: { GxTrail, BottomNav, Home, LocalAccess, Tools, Logs, SoftwarePage, NavigationPage, ModelsPage, SettingsPage, SettingsRecoveryPage, ToggleSearch, SaveFeedback, FlmPage, LocalRecordingsPage, CamerasPage, SentryEventsPage, VasmPage, PipPage, DrivingPage, DevicePreferencesPage, BluetoothPage, StarPortPage, SpotifyPage, VehicleControlsPage, OnroadLayoutPage, GalaxyPage, DevicePicker, DeviceState, MenuTile, MenuTree, SettingsIndex, MenuGroupPage, FavoritesPage },
+  components: { GxTrail, BottomNav, Home, LocalAccess, Tools, Logs, SoftwarePage, NavigationPage, ModelsPage, SettingsPage, SettingsRecoveryPage, ToggleSearch, SaveFeedback, FlmPage, LocalRecordingsPage, SentryEventsPage, VasmPage, PipPage, DrivingPage, DevicePreferencesPage, BluetoothPage, StarPortPage, SpotifyPage, VehicleControlsPage, OnroadLayoutPage, GalaxyPage, DevicePicker, DeviceState, MenuTile, MenuTree, SettingsIndex, MenuGroupPage, FavoritesPage },
   data: () => ({ state, authState, authForm, route, NAV, routeDirection: 1, updateRestart, deviceRestart, nextLayoutLeavePresentation: "inline" }),
   computed: {
     visibleTools() { return state.tools.filter(tool => tool.visibility !== "authenticated" ||
@@ -98,10 +97,12 @@ createApp({
     drivingSettingsPage() { return drivingPage(route.path) },
     deviceSettingsPage() { return devicePage(route.path) },
     // Galaxy menu (menu.js): tools this connection cannot open stay out of the menu.
-    hiddenToolPaths() { const shown = new Set(this.visibleTools.map(tool => tool.path)); return state.tools.map(tool => tool.path).filter(path => !shown.has(path)) },
+    // A hidden tool takes its own pages with it (e.g. all four Maps pages when Navigation & Maps is unavailable).
+    hiddenToolPaths() { const shown = new Set(this.visibleTools.map(tool => tool.path)); return state.tools.filter(tool => !shown.has(tool.path)).flatMap(tool => [tool.path, ...(tool.children || []).map(child => child.path)]) },
     menuGroup() { return menuGroupFromPath(route.path) },
     menuSettingsPage() { return settingsPageFromPath(route.path) },
     menuCompanion() { return PAGE_COMPANIONS[this.menuSettingsPage] || null },
+    routeCompanion() { return ROUTE_COMPANIONS[route.path] || null },
     menuHeading() { return PAGE_HEADINGS[this.menuSettingsPage] || "" },
     menuHiddenRows() { return PAGE_HIDDEN_ROWS[this.menuSettingsPage] || null },
     menuTitle() { const location = menuLocation(route.path); return location ? location.sub || location.node.label : "Settings" },
@@ -253,10 +254,14 @@ createApp({
           <GxState title="Local connection required">Routes are unavailable through the Galaxy tunnel. Open Galaxy locally to access Routes.</GxState>
           <LocalAccess :mode="state.monitorMode" :on-unauthorized="sessionExpired" />
         </div>
-        <CamerasPage v-else-if="route.path === '/cameras'" :mode="state.monitorMode" :go="go" :unauthorized="sessionExpired" :tools="currentTool?.children || []" />
-        <SentryEventsPage v-else-if="['/cameras/events', '/cameras/sentry-settings'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
+        <SentryEventsPage v-else-if="['/cameras', '/cameras/events', '/cameras/sentry-settings'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
         <PipPage v-else-if="route.path === '/cameras/pip'" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
-        <VasmPage v-else-if="route.path === '/cameras/vasm'" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
+        <!-- Pages that also show a few rows from a settings page below them (menu.js ROUTE_COMPANIONS). -->
+        <template v-else-if="route.path === '/cameras/vasm'">
+          <VasmPage :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
+          <SettingsPage v-if="routeCompanion && state.monitorMode === 'local'" :key="route.path + ':' + routeCompanion.page" menu-mode embedded :mode="state.monitorMode" :unauthorized="sessionExpired"
+            :initial-page="routeCompanion.page" :title="routeCompanion.heading" :heading="routeCompanion.heading" :only-rows="routeCompanion.onlyRows" @open-page="openSettingsPage" />
+        </template>
         <Tools v-else-if="route.path === '/tools'" :tools="visibleTools" :mode="state.monitorMode" />
         <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="route.path === '/developer/connect'" :mode="state.monitorMode" :unauthorized="sessionExpired" initial-section="developer"
           menu-mode title="Developer Options" heading="Developer Options" @open-page="openSettingsPage" />
@@ -269,13 +274,17 @@ createApp({
         <Logs v-else-if="route.path === '/logs' || route.path.startsWith('/logs/') || ['/troubleshoot', '/manage_tmux'].includes(route.path)" :path="route.path === '/troubleshoot' ? '/logs/troubleshoot' : route.path === '/manage_tmux' ? '/logs/tmux' : route.path" :mode="state.monitorMode" :unauthorized="sessionExpired" :tools="currentTool?.children || []" />
         <SoftwarePage v-else-if="route.path === '/system'" :mode="state.monitorMode" :unauthorized="sessionExpired" :restarting="baseline => updateRestart.start({ ...baseline, instance: deviceRestart.instance })"
           :preparing="baseline => updateRestart.prepare({ ...baseline, instance: deviceRestart.instance })" :cancel-preparation="() => updateRestart.cancelPreparation()" />
-        <NavigationPage v-else-if="['/navigation', '/navigation/maps', '/navigation/setup'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" :tabs="currentTool?.children || []"
-          :initial-tab="route.path === '/navigation/maps' ? 'maps' : route.path === '/navigation/setup' ? 'setup' : 'route'" />
+        <NavigationPage v-else-if="['/navigation', '/navigation/maps', '/navigation/setup', '/navigation/gps'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" :tabs="currentTool?.children || []"
+          :initial-tab="route.path === '/navigation/maps' ? 'maps' : route.path === '/navigation/setup' ? 'setup' : route.path === '/navigation/gps' ? 'gps' : 'route'" />
         <ModelsPage v-else-if="['/manage_models', '/model_laboratory'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" :focus="route.path === '/model_laboratory' ? 'laboratory' : ''" />
         <BluetoothPage v-else-if="route.path === '/bluetooth'" :mode="state.monitorMode" :unauthorized="sessionExpired" />
         <StarPortPage v-else-if="route.path === '/starport'" :mode="state.monitorMode" :local-access="authState.localAccess" :unauthorized="sessionExpired" />
         <SpotifyPage v-else-if="['/starport/audio', '/spotify'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" />
-        <VehicleControlsPage v-else-if="route.path === '/vehicle'" :mode="state.monitorMode" :unauthorized="sessionExpired" />
+        <template v-else-if="route.path === '/vehicle'">
+          <VehicleControlsPage :mode="state.monitorMode" :unauthorized="sessionExpired" />
+          <SettingsPage v-if="routeCompanion && state.monitorMode === 'local'" :key="route.path + ':' + routeCompanion.page" menu-mode embedded :mode="state.monitorMode" :unauthorized="sessionExpired"
+            :initial-page="routeCompanion.page" :title="routeCompanion.heading" :heading="routeCompanion.heading" :only-rows="routeCompanion.onlyRows" @open-page="openSettingsPage" />
+        </template>
         <DevicePreferencesPage v-else-if="route.path === '/device-preferences'" :mode="state.monitorMode" :go="go" />
         <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="deviceSettingsPage" :key="deviceSettingsPage" :mode="state.monitorMode" :unauthorized="sessionExpired" :initial-page="deviceSettingsPage" :title="deviceSettingsPage === 'sounds' ? 'Sounds & Alerts' : 'Display'" :return-to="returnToDevice" />
         <DrivingPage v-else-if="route.path === '/driving'" :mode="state.monitorMode" :go="go" />

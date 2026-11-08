@@ -55,7 +55,7 @@
 /* Settings pages opened from the menu: title on top, no hierarchy bar in the card. */
 .gx-settings--menu > .gx-settings__header .gx-icon-btn { flex: none; }
 .gx-settings--menu .gx-settings__section > .gx-row:first-child { border-top: 0; }
-/* A second page shown below (e.g. Conditional Driving Modes on Long Planner). */
+/* A second page shown below (e.g. Data Uploads on Power & Data). */
 .gx-settings--embedded { margin-top: var(--sp-5); }
 .gx-menu-embed-title { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); }
 .gx-menu-extra { margin-top: var(--sp-4); }
@@ -73,3 +73,23 @@
 /* A row that belongs to the row above it (e.g. Nudgeless delay under Nudge or nudgeless). */
 .gx-row.gx-guide__sub { padding-left: calc(var(--sp-4) + 24px); }
 @media (max-width: 520px) { .gx-row.gx-guide__sub { padding-left: calc(var(--sp-4) + 14px); } }
+/* Camera editors: Vehicle left / Vehicle right buttons carry the color of their outline on the camera image (--side).
+   The selected side is filled with its color and outlined, and stays clear even before a snapshot enables the buttons. */
+.gx-side-btn { border: 2px solid transparent; }
+.gx-side-dot { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%; margin-right: 0.45em; vertical-align: -0.05em;
+  background: var(--side); box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.35); }
+.gx-actions .gx-side-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--side) 30%, transparent); border-color: var(--side);
+  color: var(--on-surface); font-weight: 700; }
+.gx-actions .gx-side-btn[aria-pressed="true"]:disabled { opacity: 0.8; }
+.gx-actions .gx-side-btn[aria-pressed="false"] { opacity: 0.7; }
+.gx-actions .gx-side-btn[aria-pressed="false"]:disabled { opacity: 0.35; }
+
+/* Steering in the menu: a steering wheel (Bootstrap Icons has none). Drawn as a mask so it takes the text color like the icon font. */
+.bi.gx-icon-steering-wheel::before {
+  content: ""; width: 1em; height: 1em; background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6.75'/%3E%3Ccircle cx='8' cy='8.4' r='1.7' fill='%23000' stroke='none'/%3E%3Cpath d='M1.5 7.4c1.9.4 3.3.7 4.9.9M14.5 7.4c-1.9.4-3.3.7-4.9.9M8 10.1v4.4'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6.75'/%3E%3Ccircle cx='8' cy='8.4' r='1.7' fill='%23000' stroke='none'/%3E%3Cpath d='M1.5 7.4c1.9.4 3.3.7 4.9.9M14.5 7.4c-1.9.4-3.3.7-4.9.9M8 10.1v4.4'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* Phone group pages: a heading above a run of cards when a group has sections. */
+.gx-menu-group__label { margin: var(--sp-4) 0 var(--sp-2); color: var(--text-muted); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+.gx-menu-group .gx-menu-cards + .gx-menu-group__label { margin-top: var(--sp-5); }
