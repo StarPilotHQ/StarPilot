@@ -153,6 +153,10 @@ assert.match(SettingsPage.template, /:initial-panel="state\.layoutPanel" @target
 assert.doesNotMatch(SettingsPage.template, /Use Colors &amp; Layout to arrange widgets and change colors/)
 // Lane Changes takes its intro from page-guides.js.
 assert.match(SettingsPage.computed.pageDescription.call({state:{data:{page:"lane_change"}}}), /Signal, and StarPilot steers you into the lane on that side\./)
+// Experimental & Chill and both conditions pages share Angus's intro (8 Nov).
+for (const page of ["conditional", "conditional/cem", "conditional/ccm"])
+  assert.equal(SettingsPage.computed.pageDescription.call({state:{data:{page}}}),
+    "Choose when to switch between Chill and Experimental or select one mode and disable automatic switching.")
 assert.match(SettingsPage.computed.pageDescription.call({state:{data:{page:"profiles"}}}), /Adjust acceleration, braking and following for each driving personality\./)
 assert.match(SettingsPage.computed.pageDescription.call({state:{data:{page:"traffic"}}}), /^How Traffic speeds up, brakes and follows\.$/)
 const app = (await import('node:fs')).readFileSync(new URL('../web/js/app.js', import.meta.url), 'utf8')

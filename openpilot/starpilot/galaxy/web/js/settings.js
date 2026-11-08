@@ -313,7 +313,7 @@ export const SettingsPage = {
       const page = this.state.data?.page || this.initialPage
       if (pageGuide(page)?.intro) return pageGuide(page).intro
       if (this.state.developerOpen || page === "developer") return "Choose developer driving options and cloud services."
-      if (page === "conditional" || page.startsWith("conditional/")) return "Choose when to switch between Chill and Experimental. Applies on supported vehicles when StarPilot controls acceleration and braking."
+      if (page === "conditional" || page.startsWith("conditional/")) return "Choose when to switch between Chill and Experimental or select one mode and disable automatic switching."
       if (["aggressive", "standard", "relaxed"].includes(page)) return "Adjust acceleration, braking and following for this driving style."
       if (page === "sentry") return this.state.data?.subtitle || "Checking motion monitor…"
       return {

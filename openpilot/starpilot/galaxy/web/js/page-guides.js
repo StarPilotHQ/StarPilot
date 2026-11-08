@@ -23,27 +23,25 @@ const JERKS = ["Acceleration jerk", "Deceleration jerk", "Speed jerk", "Speed de
 
 export const PAGE_GUIDES = Object.freeze({
   lane_change: {
-    intro: "Signal, and StarPilot steers you into the lane on that side. Changes save straight away; a lane change that has " +
-      "already started finishes on the settings it started with.",
+    intro: "Signal, and StarPilot steers you into the lane on that side.",
     cards: [
       {
         id: "lane-changes", title: "",
         rows: [
           { label: "Allow lane changes", display: "Auto lane changes",
-            help: "The main switch. On: when you signal, StarPilot can move the car into the next lane. Off: signaling never starts " +
-              "a lane change, and the settings below do nothing. Called Allow lane changes on the comma's screen." },
+            help: "Toggle automatic lane changes. On: when you signal, StarPilot can move the car into the next lane. " +
+              "Off: driver changes lanes manually." },
           { label: "One change per signal", needs: [ALLOW],
             help: "On: one lane change each time you signal. To cross another lane, cancel the signal and signal again. " +
               "Off: keep signaling and it carries on into the next lane (with Wheel nudge required on, nudge again for each lane)." },
           { label: "Lane Change Speed", needs: [ALLOW],
-            help: "How fast the car moves across once a lane change starts (not a road speed). 10 is the quickest: the driving model's " +
-              "own pace, about 3 seconds. Lower numbers soften the steering so it takes longer: 5 is about 6 seconds, 1 about 8." },
+            help: "How fast the car changes lanes. 10 is fastest and 1 is slowest." },
           { label: "Automatic Lane Changes", display: "Wheel nudge required", values: { Off: "On", On: "Off" }, needs: [ALLOW],
             help: "On: after you signal, nudge the wheel towards the new lane to start. Off (nudgeless): it starts by itself after the " +
-              "Nudgeless delay, if the camera sees a lane there. Neither starts with a car in the blind spot. On the comma's screen " +
-              "this is Automatic Lane Changes, the other way round (Automatic on = no nudge needed)." },
+              "Nudgeless delay, if the camera sees a lane there. Neither starts with a car in the blind spot " +
+              "(don't rely on this as it can make mistakes)." },
           { label: "Automatic lane-change delay", display: "Nudgeless delay", needs: [ALLOW, NUDGELESS], sub: true,
-            help: "How long after you signal before the lane change starts, giving you time to cancel. The wait starts again if the " +
+            help: "How long after you signal before the lane change starts. The wait starts again if the " +
               "lane or blind spot stops being clear. 0 starts straight away." },
           { label: "Minimum adjacent lane width", needs: [ALLOW, NUDGELESS], sub: true,
             help: "A nudgeless lane change only starts when the camera measures the next lane at least this wide; otherwise nudge " +

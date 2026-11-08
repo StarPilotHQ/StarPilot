@@ -174,7 +174,7 @@ assert.deepEqual(["lane-changes", "lane-centering", "aol"].map(id => MENU_CARDS[
 const cards = SettingsIndex.computed.cards.call({ hiddenPaths: [] })
 assert.deepEqual(cards.map(card => card.label), MENU.filter(node => !node.main).map(node => node.label))
 assert.equal(cards[0].path, "/manage_models")
-assert.match(cards[0].summary, /driving models/)
+assert.equal(cards[0].summary, "Choose which driving model to use")
 
 // Desktop tree: groups only open (one branch at a time); the open page keeps its branch open.
 const tree = { path: "/settings/page/slc", go: () => {}, hiddenPaths: [], expanded: [] }
