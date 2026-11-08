@@ -18,9 +18,13 @@ EVIDENCE_EVENTS = {"bootstrap_start_response", "wifi_joined", "tls_established",
                    "usb_recover_failed", "encoder_failed", "encoder_recovered", "encoder_reopen_failed", "headunitpad_rejected"}
 
 
+VERSION_KEYS = {"head_unit_software_version", "head_unit_software_build"}
+
+
 def sanitize(value, names=()):
   if isinstance(value, dict):
-    return {key: sanitize(item, names) for key, item in value.items() if str(key).lower() not in PRIVATE_KEYS}
+    return {key: _sanitize_version(item) if key in VERSION_KEYS and isinstance(item, str) else sanitize(item, names)
+            for key, item in value.items() if str(key).lower() not in PRIVATE_KEYS}
   if isinstance(value, (tuple, list)):
     return [sanitize(item, names) for item in value]
   if isinstance(value, float) and not math.isfinite(value):
@@ -40,6 +44,11 @@ def sanitize(value, names=()):
       continue
     value = value.replace(candidate, "<ip>")
   return IPV4.sub("<ip>", value)[:8000]
+
+
+def _sanitize_version(value: str) -> str:
+  """A head unit's software version is public build text; a dotted version is not an address."""
+  return SECRET.sub(lambda m: m[1] + "=<redacted>", ADDRESS.sub("<address>", value))[:80]
 
 
 def elapsed(start, end):

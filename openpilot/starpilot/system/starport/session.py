@@ -526,6 +526,7 @@ class Session:
     self.event("authenticated", version=self.tls.version(), cipher=cipher[0])
 
   def discover(self, device_name: str, device_brand: str) -> list[dict]:
+    self.event("discovery_requested")
     self.send(0, MSG_SERVICE_DISCOVERY_REQUEST, field(4, device_name) + field(5, device_brand))
     raw = self.wait_for(0, MSG_SERVICE_DISCOVERY_RESPONSE, timeout=self.DISCOVERY_TIMEOUT, patient=True)
     response = parse_fields(raw)
@@ -852,6 +853,7 @@ class ProjectionSession(Session):
     assert self.mode is not None
     self.allow_projection = True
     self.focus_requested_at = time.monotonic()
+    self.event("focus_requested")
     self.send(self.mode.channel, VIDEO_FOCUS_REQUEST, field(2, FOCUS_PROJECTED) + field(3, FOCUS_REASON_USER_SELECTION))
 
   def request_native(self) -> bool:

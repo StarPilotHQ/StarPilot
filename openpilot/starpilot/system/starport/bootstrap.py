@@ -489,8 +489,12 @@ class WirelessBootstrap:
         # Some receivers send the network before the endpoint; keep it so it is not asked for again.
         # One that cannot be read is ignored as before, and the network is asked for after the endpoint.
         try:
+          earlier = credentials
           credentials = parse_info_response(payload)
           self._reply_accepted = True
+          if earlier is not None:
+            self.log("bootstrap_info_repeat", same_network=(earlier.ssid, earlier.bssid, earlier.security) ==
+                     (credentials.ssid, credentials.bssid, credentials.security), phase="before_join")
         except ValueError as error:
           self.log("bootstrap_early_info_unreadable", error=str(error))
       else:
@@ -608,5 +612,12 @@ class WirelessBootstrap:
         return
 
 
+STATUS_LABELS = {0: "success", -1: "no compatible version", -3: "incorrect credentials", -6: "not yet started", -11: "network unavailable"}
+
+
 def describe_status(status: int | None) -> str:
-  return "success" if signed(status) == 0 else f"status {signed(status)}"
+  value = signed(status)
+  label = STATUS_LABELS.get(value)
+  if label is None:
+    return f"status {value}"
+  return label if value == 0 else f"status {value} ({label})"

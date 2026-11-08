@@ -81,6 +81,16 @@ REPORTED_SETTINGS = ("connection", "usb_mode", "view", "encoder", "fps", "bitrat
                      "head_unit_experiment_rules")
 
 
+def _tcp_failure_kind(error: OSError) -> str:
+  if isinstance(error, (TimeoutError, socket.timeout)):
+    return "timeout"
+  if isinstance(error, ConnectionRefusedError):
+    return "refused"
+  if getattr(error, "errno", None) in (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN, errno.EHOSTDOWN):
+    return "unreachable"
+  return "other"
+
+
 def encoder_preference(configured: str) -> str:
   return 'hardware' if COMMA_HARDWARE else configured
 
@@ -1965,7 +1975,7 @@ class Supervisor:
         return self._track(sock)
       except OSError as error:
         last_error = error
-        self.log("tcp_retry", attempt=attempt + 1, error=str(error))
+        self.log("tcp_retry", attempt=attempt + 1, error=str(error), kind=_tcp_failure_kind(error))
         self._wait(1.0 + attempt * 0.5)
     raise RuntimeError(f"Car did not accept the projection connection: {last_error}")
 
