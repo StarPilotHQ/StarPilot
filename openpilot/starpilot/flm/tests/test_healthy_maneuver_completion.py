@@ -26,7 +26,7 @@ CONTEXT = ('a' * 64, 'b' * 64, 'c' * 64, 0)
 
 
 def actual_completion_trace(cp, runtime, params_store, failure):
-  factory = SelectedControllerFactory(cp, 'standard')
+  factory = SelectedControllerFactory(cp, 'standard', turn_assist=runtime.descriptor.turn_assist)
   ci = interfaces[cp.carFingerprint](cp)
   ci.update([])
   assert install_observer(ci)
@@ -139,7 +139,7 @@ def actual_completion_trace(cp, runtime, params_store, failure):
         stage_schema_revision=REVISION, stage_values=values, applied_coordinates=(0.0, 0.0),
         source_epoch=source.source_epoch, source_receipt_ns=source.observed_ns, controller_mode='standard',
         policy=runtime.descriptor.policy, baseline_revision=runtime.baseline_revision,
-        baseline_values=runtime.initial_values, controller_revision=runtime.descriptor.controller_revision,
+        baseline_values=runtime.initial_values, controller_revision=runtime.descriptor.controller_revision, turn_assist=runtime.descriptor.turn_assist,
         replay_snapshot=checkpoint, replay_inputs=inputs, snapshot_sequence=sequence)
       applied = AppliedEvidence(stamp, stamp, stamp + 1_000_000, 'normalized_torque', float(output.torque),
                                 True, True, False, False, False, allowed, witness, ci.CC.frame, stamp + 1_000_000)

@@ -53,7 +53,7 @@ def test_actual_automatic_ap1_vin_fw_can_and_factory_use_normal_wiring(alpha, re
   assert ci.CP.carFw and all(fw.brand == 'tesla' and fw.bus == 0 for fw in ci.CP.carFw)
   assert any(fw.fwVersion == HW1_FIRMWARE for fw in ci.CP.carFw)
   assert ci.CP.safetyConfigs[0].safetyParam == 16 + int(alpha)
-  assert ci.CP.openpilotLongitudinalControl == alpha and ci.CP.pcmCruise != alpha
+  assert ci.CP.openpilotLongitudinalControl == alpha and ci.CP.pcmCruise
 
 
 @pytest.mark.parametrize('source', list(HW1_NORMAL_BUS0_LAYOUT))

@@ -33,7 +33,11 @@ def test_manager_keeps_missing_or_false_feature_off():
   scope['COMMA_HARDWARE'] = True
   scope['platform'] = SimpleNamespace(system=lambda: 'Darwin')
   assert not admit(False, Params(True), None)
-  assert 'PythonProcess("starportd", "openpilot.starpilot.system.starport.daemon", starport_enabled' in source
+  process = next(node for node in ast.walk(tree) if isinstance(node, ast.Call) and
+                 isinstance(node.func, ast.Name) and node.func.id == 'PythonProcess' and len(node.args) >= 3 and
+                 isinstance(node.args[0], ast.Constant) and node.args[0].value == 'starportd')
+  assert isinstance(process.args[1], ast.Constant) and process.args[1].value == 'openpilot.starpilot.system.starport.daemon'
+  assert isinstance(process.args[2], ast.Name) and process.args[2].id == 'starport_enabled'
 
 
 def test_typed_preference_controls_actual_manager_admission(tmp_path, monkeypatch):

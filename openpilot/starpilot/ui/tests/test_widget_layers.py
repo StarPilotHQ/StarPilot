@@ -123,6 +123,7 @@ def test_renderer_dispatches_each_widget_in_saved_order(profile, viewport):
   view.driver_monitor_layer = lambda *args: seen.append('driver_monitor')
   view._driving_mode = lambda *args: seen.append(MODE_WIDGET)
   view._clock = lambda *args: seen.append(CLOCK_WIDGET)
+  view._weather = lambda *args: seen.append('weather')
   view._stopped_timer = lambda *args: seen.append(STOPPED_TIMER_WIDGET)
   view._slc_actions = lambda *args: seen.append('speed_limit_actions')
   for attr, key in [('unified_speed', 'cruise_limits'), ('current_speed', 'current_speed'), ('cem_gauge', 'cem_gauge'),

@@ -42,6 +42,7 @@ def fixed_controls(*, factor=True, friction=True, legacy=False, learning=True):
                                      'AOL_REPLAY_RUNTIME': '0', 'LANE_CENTERING_REPLAY_RUNTIME': '0'}),
         mock.patch('openpilot.selfdrive.controls.controlsd.messaging.PubMaster')):
     params = Params()
+    params.put_bool('OpenpilotEnabledToggle', True, block=True)
     selected = published_cp(cp, params)
     params.put('CarParams', selected.to_bytes(), block=True)
     params.put(KEY, replace_preference(None, cp, learning), block=True)
