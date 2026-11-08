@@ -118,6 +118,7 @@ class CarController(CarControllerBase):
     self.angle_vm = VehicleModel(CP) if CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING else None
     self.apply_angle_last = 0.0
     self.angle_gain_last = 0.0
+    self.angle_fault_driver_override = False
     self.angle_tx_recovery = (AngleTxRecovery(0xCB, self.CAN.ECAN)
       if pe_long_qualified(CP) or ev9_long_qualified(CP) else AngleTxRecovery(0x110, self.CAN.ACAN)
       if CP.carFingerprint in (CAR.HYUNDAI_IONIQ_5_PE, CAR.KIA_EV9) and
@@ -436,6 +437,8 @@ class CarController(CarControllerBase):
 
     # steering control
     if ev9_long:
+      self.angle_fault_driver_override = bool(CS.out.steeringPressed and (
+        self.angle_fault_driver_override or CS.out.steerFaultTemporary or CS.out.steerFaultPermanent))
       drive = CS.out.gearShifter == structs.CarState.GearShifter.drive
       measured = CS.angle_steering_angle
       if self.angle_tx_recovery is not None and self.angle_tx_recovery.take_rejection(self.frame):
@@ -450,7 +453,8 @@ class CarController(CarControllerBase):
       ev9_lateral_allowed = lateral_request_allowed(CC, CS.out, CS.angle_steering_fault,
                                                    independent=(ev9_long_aol_qualified(self.CP, marked_only=True) or
                                                                 pe_long_aol_qualified(self.CP, marked_only=True)))
-      active = bool(ev9_lateral_allowed and CC.latActive and abs(measured) <= bound and abs(self.apply_angle_last) <= bound)
+      active = bool(ev9_lateral_allowed and CC.latActive and not self.angle_fault_driver_override and
+                    abs(measured) <= bound and abs(self.apply_angle_last) <= bound)
       self.ev9_angle_filter.update_alpha(float(np.interp(CS.out.vEgo, [5.0, 10.0, 20.0], [0.2, 0.1, 0.0])))
       desired = self.ev9_angle_filter.update(float(np.clip(CC.actuators.steeringAngleDeg,
                                                          -(self.params.ANGLE_LIMITS.STEER_ANGLE_MAX if pe_long else EV9_OP_LONG_ANGLE_TARGET_MAX),

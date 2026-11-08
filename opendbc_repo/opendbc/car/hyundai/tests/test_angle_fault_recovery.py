@@ -58,6 +58,8 @@ def test_actual_controller_fault_and_full_lateral_withdrawal_restart_gain_from_z
   cs = ci.CS
   cs.out.vEgoRaw = cs.out.vEgo = 5.
   cs.out.steeringAngleDeg = cs.angle_steering_angle = 20.
+  cs.out.steeringPressed = False
+  cs.out.steeringTorque = 0.
   command = structs.CarControl(enabled=True, latActive=True)
   command.actuators.steeringAngleDeg = 50.
   ci.CC.apply_angle_last = 20.
@@ -124,3 +126,59 @@ def test_long_controller_consumes_current_rejection_without_retaining_filtered_h
     _, frames = ci.apply(command.as_reader(), now[0])
     assert abs(ci.CC.apply_angle_last + 20.) <= 5.
     assert ci.CC.angle_gain_last == .004
+
+
+@pytest.mark.parametrize('identity', (CAR.HYUNDAI_IONIQ_5_PE, CAR.KIA_EV9))
+@pytest.mark.parametrize('long', (True,))
+@pytest.mark.parametrize('aol', (False, True))
+def test_fault_recovery_yields_until_driver_releases_steering(identity, long, aol):
+  ci, _ = controller(identity, long, aol)
+  cs = ci.CS
+  cs.out.vEgoRaw = cs.out.vEgo = 3.
+  cs.out.steeringAngleDeg = cs.angle_steering_angle = 175.
+  cs.out.steeringPressed = True
+  cs.out.steeringTorque = 500.
+  command = structs.CarControl(enabled=not aol, latActive=True)
+  command.actuators.steeringAngleDeg = 360.
+  ci.CC.apply_angle_last = 175.
+  ci.CC.angle_gain_last = .1
+  address, gain_index = (0xCB, 6) if long else (0x110, 12)
+  active_index, active_mask = (3, 15) if long else (9, 3)
+  for frame in range(80):
+    cs.out.steerFaultTemporary = cs.angle_steering_fault = frame % 40 < 16
+    cs.out.steeringAngleDeg = cs.angle_steering_angle = 175. - frame * 3.
+    ci.CC.frame = frame + 21
+    _, output = ci.apply(command.as_reader(), 200_000_000 + frame * 10_000_000)
+    payload = next((data for addr, data, _ in output if addr == address), None)
+    if payload is not None:
+      assert (payload[active_index] >> 4 & active_mask) == 1, 'FAULT_RECOVERY_FIGHTS_DRIVER'
+      assert payload[gain_index] == 0
+    assert ci.CC.apply_angle_last == pytest.approx(cs.out.steeringAngleDeg)
+  cs.out.steerFaultTemporary = cs.angle_steering_fault = False
+  cs.out.steeringPressed = False
+  cs.out.steeringTorque = 0.
+  ci.CC.frame += 1
+  _, output = ci.apply(command.as_reader(), 1_000_000_000)
+  payload = next(data for addr, data, _ in output if addr == address)
+  assert (payload[active_index] >> 4 & active_mask) == 2
+  assert payload[gain_index] == 1
+  assert abs(ci.CC.apply_angle_last - cs.out.steeringAngleDeg) <= 5.
+
+
+@pytest.mark.parametrize('identity', (CAR.HYUNDAI_IONIQ_5_PE, CAR.KIA_EV9))
+@pytest.mark.parametrize('long', (False, True))
+def test_driver_pressure_without_fault_keeps_existing_angle_blending(identity, long):
+  ci, _ = controller(identity, long, True)
+  cs = ci.CS
+  cs.out.vEgoRaw = cs.out.vEgo = 3.
+  cs.out.steeringAngleDeg = cs.angle_steering_angle = 20.
+  cs.out.steeringPressed = True
+  cs.out.steeringTorque = 500.
+  command = structs.CarControl(enabled=False, latActive=True)
+  command.actuators.steeringAngleDeg = 40.
+  ci.CC.apply_angle_last = 20.
+  ci.CC.frame = 21
+  _, output = ci.apply(command.as_reader(), 200_000_000)
+  address, active_index, active_mask = (0xCB, 3, 15) if long else (0x110, 9, 3)
+  payload = next(data for addr, data, _ in output if addr == address)
+  assert (payload[active_index] >> 4 & active_mask) == 2
