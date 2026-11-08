@@ -1,0 +1,122 @@
+/* Galaxy look (8 Nov 2026): solid panels, smaller consistent corners and lighter controls.
+   Galaxy's own colours (purple, cyan, text) are unchanged. The Deep field sky is in galaxy-sky.css.
+   Applies while <html data-look="refined">; remove that attribute to get the previous look back. */
+
+/* ---------- Solid panels (dark) ---------- */
+html[data-look="refined"] {
+  --primary-glow: transparent;
+  --surface: #1a1530;
+  --surface-container: #1b1631;
+  --surface-container-high: #251e40;
+  --glass-bg: #1b1631;
+  --glass-bg-hover: #251e40;
+  --glass-border: rgba(196, 176, 255, 0.11);
+  --glass-active-bg: rgba(157, 114, 255, 0.26);
+  --glass-shadow: none;
+  --glass-blur: none;
+  --outline: rgba(196, 176, 255, 0.08);
+  --outline-variant: rgba(196, 176, 255, 0.05);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --elev-1: none;
+  --elev-2: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --elev-3: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------- Solid panels (light) ---------- */
+html[data-look="refined"][data-theme="light"] {
+  --surface: #ffffff;
+  --surface-container: #ffffff;
+  --surface-container-high: #f4f3fa;
+  --glass-bg: #ffffff;
+  --glass-bg-hover: #f4f3fa;
+  --glass-border: rgba(40, 24, 90, 0.11);
+  --glass-active-bg: rgba(120, 73, 232, 0.15);
+  --outline: rgba(40, 24, 90, 0.07);
+  --outline-variant: rgba(40, 24, 90, 0.05);
+  --elev-1: 0 1px 2px rgba(40, 24, 90, 0.04);
+}
+
+html[data-look="refined"] .gx-card {
+  background: var(--surface-container);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-1);
+}
+html[data-look="refined"] .gx-section__header { background: transparent; border-bottom: 1px solid var(--outline); }
+html[data-look="refined"] .gx-section__count { border-radius: var(--radius-sm); }
+html[data-look="refined"] .gx-alert { border-radius: var(--radius-md); border-left-width: 3px; backdrop-filter: none; -webkit-backdrop-filter: none; background: color-mix(in srgb, var(--notice-accent) 9%, var(--surface-container)); }
+html[data-look="refined"] .gx-dialog::backdrop { background: rgba(4, 3, 10, 0.78); }
+html[data-look="refined"] .gx-underlay { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(4, 3, 10, 0.7); }
+html[data-look="refined"] .gx-drawer { background: #161229; backdrop-filter: none; -webkit-backdrop-filter: none; border-right: 1px solid var(--glass-border); }
+html[data-look="refined"][data-theme="light"] .gx-drawer { background: #fbfaff; border-right: 1px solid var(--glass-border); }
+html[data-look="refined"] .gx-search-results { backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+/* ---------- Smaller, consistent corners; no glows or press-shrink ---------- */
+html[data-look="refined"] .gx-btn { border-radius: var(--radius-md); box-shadow: none; }
+html[data-look="refined"] .gx-btn:active:not(:disabled) { transform: none; filter: brightness(0.92); }
+html[data-look="refined"] .gx-chip,
+html[data-look="refined"] .gx-status-pill,
+html[data-look="refined"] .gx-model-tag,
+html[data-look="refined"] .gx-settings__save-status { border-radius: var(--radius-sm); }
+html[data-look="refined"] .gx-icon-btn { border-radius: var(--radius-md); }
+html[data-look="refined"] .gx-icon-btn:active { transform: none; }
+html[data-look="refined"] .gx-field,
+html[data-look="refined"] .gx-select.gx-field,
+html[data-look="refined"] .gx-select-menu,
+html[data-look="refined"] .gx-search-results { border-radius: var(--radius-md); }
+html[data-look="refined"] .gx-select-menu [role="option"] { border-radius: var(--radius-sm); }
+html[data-look="refined"] .gx-tabs.gx-model-mode,
+html[data-look="refined"] .gx-layout__segment { border-radius: var(--radius-md); }
+html[data-look="refined"] .gx-model-mode > button,
+html[data-look="refined"] .gx-layout__segment > .gx-btn { border-radius: var(--radius-sm); box-shadow: none; }
+html[data-look="refined"] .gx-appbar__pill { border-radius: var(--radius-lg); box-shadow: none; }
+html[data-look="refined"] .gx-appbar__home { border-radius: var(--radius-md); }
+html[data-look="refined"] .gx-appbar__home:active { transform: none; }
+html[data-look="refined"] .gx-appbar .gx-appbar__back,
+html[data-look="refined"] .gx-appbar .gx-theme-toggle,
+html[data-look="refined"] .gx-appbar .gx-appbar__menu { border-radius: var(--radius-md); box-shadow: none; }
+html[data-look="refined"] .gx-menu-tile { border-radius: var(--radius-lg); }
+html[data-look="refined"] .gx-menu-tile:hover,
+html[data-look="refined"] button.gx-crash-row:hover { transform: none; }
+html[data-look="refined"] .gx-menu-card__icon { border-radius: var(--radius-md); }
+html[data-look="refined"] .blur-nav { border-radius: 16px; box-shadow: var(--elev-2); }
+html[data-look="refined"] .gx-nav-indicator { border-radius: 12px; background: var(--glass-active-bg); border: 0; box-shadow: none; }
+html[data-look="refined"] .blur-nav .nav-item { border-radius: 12px; }
+
+/* ---------- Lighter controls ---------- */
+/* Default / secondary buttons: outlined instead of filled purple. */
+html[data-look="refined"] .gx-btn--tonal { background: transparent; color: var(--on-surface); box-shadow: inset 0 0 0 1px rgba(157, 114, 255, 0.4); }
+html[data-look="refined"] .gx-btn--tonal:hover:not(:disabled) { background: var(--primary-container); box-shadow: inset 0 0 0 1px rgba(157, 114, 255, 0.6); }
+html[data-look="refined"][data-theme="light"] .gx-btn--tonal:hover:not(:disabled) { box-shadow: inset 0 0 0 1px rgba(40, 24, 90, 0.2); }
+html[data-look="refined"] .gx-setting-default { min-height: 30px; padding: 2px 10px; font-size: 0.8rem; }
+
+/* Slimmer switches. */
+html[data-look="refined"] .gx-switch__track { width: 44px; height: 24px; background: #382f55; border: 0; }
+html[data-look="refined"][data-theme="light"] .gx-switch__track { background: #d9d6e6; border: 0; }
+html[data-look="refined"] .gx-switch input:checked + .gx-switch__track { background: var(--primary); }
+html[data-look="refined"] .gx-switch__thumb { width: 18px; height: 18px; top: 3px; left: 3px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); }
+html[data-look="refined"][data-theme="light"] .gx-switch__thumb { border: 0; }
+html[data-look="refined"] .gx-switch input:checked ~ .gx-switch__thumb { transform: translateX(20px); }
+html[data-look="refined"] .gx-switch:not(:has(input:disabled)):active .gx-switch__thumb { width: 20px; }
+html[data-look="refined"] .gx-switch:not(:has(input:disabled)):active input:checked ~ .gx-switch__thumb { transform: translateX(18px); }
+
+/* Slimmer sliders (same cyan-to-purple fill). */
+html[data-look="refined"] input[type="range"].gx-slider { height: 4px; border: 0; }
+html[data-look="refined"] input[type="range"].gx-slider:not(.gx-slider--galaxy) { background: #382f55; }
+html[data-look="refined"][data-theme="light"] input[type="range"].gx-slider:not(.gx-slider--galaxy) { background: #d9d6e6; }
+html[data-look="refined"] input[type="range"].gx-slider::-webkit-slider-thumb { width: 18px; height: 18px; border: 0; background: #fff; box-shadow: 0 0 0 4px var(--primary-container), 0 1px 3px rgba(0, 0, 0, 0.4); }
+html[data-look="refined"] input[type="range"].gx-slider::-moz-range-thumb { width: 18px; height: 18px; border: 0; background: #fff; box-shadow: 0 0 0 4px var(--primary-container), 0 1px 3px rgba(0, 0, 0, 0.4); }
+
+/* Side menu: smaller rows, a thin purple bar on the current page instead of a big bubble. */
+html[data-look="refined"] .gx-nav-item { border-radius: var(--radius-md); min-height: 40px; }
+html[data-look="refined"] .gx-nav-item i { font-size: 1.1rem; }
+html[data-look="refined"] .gx-nav-item:hover { background: rgba(255, 255, 255, 0.045); }
+html[data-look="refined"][data-theme="light"] .gx-nav-item:hover { background: rgba(40, 24, 90, 0.05); }
+html[data-look="refined"] .gx-nav-item.active { background: var(--glass-active-bg); border: 0; }
+html[data-look="refined"] .gx-nav-item.active::before {
+  content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: var(--primary);
+}
