@@ -12,19 +12,17 @@ from opendbc.safety.tests.libsafety import libsafety_py
 from openpilot.starpilot.car.subaru.tests.caller_helpers import CompleteCan
 
 
-@pytest.mark.parametrize('speed,deadzone', ((1.0, 6.0), (2.0, 6.0), (6.0, 4.5), (9.0, 3.375)))
+@pytest.mark.parametrize('speed', (1.0, 2.0, 6.0, 9.0))
 @pytest.mark.parametrize('sign', (-1, 1))
-def test_real_controller_suppresses_small_low_speed_changes(speed, deadzone, sign):
+def test_real_controller_tracks_small_low_speed_changes(speed, sign):
   _, controller, command, state = setup_controller(CAR.SUBARU_CROSSTREK_2025)
   state.out.vEgoRaw = speed
-  command.actuators.steeringAngleDeg = sign * (deadzone - .01)
-  _, decoded = step(controller, command, state)
-  assert decoded['LKAS_Request'] == 1
-  assert decoded['LKAS_Output'] == 0
-  command.actuators.steeringAngleDeg = sign * (deadzone + .01)
-  _, decoded = step(controller, command, state)
-  assert decoded['LKAS_Request'] == 1
-  assert 0 < sign * decoded['LKAS_Output'] <= 1.0
+  command.actuators.steeringAngleDeg = sign * 2.0
+  for _ in range(20):
+    _, decoded = step(controller, command, state)
+    assert decoded['LKAS_Request'] == 1
+    assert sign * decoded['LKAS_Output'] > 0
+  assert decoded['LKAS_Output'] == pytest.approx(sign * 2.0, abs=.01)
 
 
 def test_target_first_limits_recover_to_moving_acceleration_bound():

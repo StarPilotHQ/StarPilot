@@ -25,7 +25,7 @@ from openpilot.starpilot.car.subaru.tests.native_fixture import subaru_native_pa
 def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, subaru_native_pair, tmp_path, aol=True, manual=False, stop_resume=False,
                                                                       hard_stop_native_first=False, main_only=False, preferences=None, firmware=None,
                                                                       deadline_gap=False, fixed_angle_handoff=False, host_first_stop=False,
-                                                                      source_outage=False, vm_angle_handoff=0):
+                                                                      source_outage=False, vm_angle_handoff=0, crawl=False):
   angle_handoff = fixed_angle_handoff or vm_angle_handoff
   fw = firmware_records(candidate, FW_VERSIONS, 'subaru') if firmware is None else firmware
   rows = []
@@ -86,7 +86,8 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
                                                      143 if 76 <= tick < 90 else 0) if angle_handoff else 0},
           'Steering_2': {'Steering_Angle': (vm_angle_handoff * (5.65 if tick < 78 else 5.60) if vm_angle_handoff else
                                           (5.65 if tick < 78 else 5.61) if fixed_angle_handoff else 0)},
-          'Wheel_Speeds': dict.fromkeys(('FL', 'FR', 'RL', 'RR'), 0 if stopped else 98.2 if vm_angle_handoff else 121.5 if fixed_angle_handoff else 54),
+          'Wheel_Speeds': dict.fromkeys(('FL', 'FR', 'RL', 'RR'),
+                                       0 if stopped else 98.2 if vm_angle_handoff else 121.5 if fixed_angle_handoff else 7.2 if crawl else 54),
           'Brake_Status': {'Brake': int(brake)},
           'CruiseControl': {'Cruise_On': int(main), 'Cruise_Activated': int(cruise)},
           'ES_Status': {'Cruise_Activated': int(cruise)},
@@ -219,6 +220,9 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
             request = bool(decoder.vl[steering_name]['LKAS_Request'])
             output = decoder.vl[steering_name]['LKAS_Output']
             decoded_steering.append({'request': request, 'output': output, 'nativeAccepted': accepted})
+            if crawl and 95 <= tick < 105:
+              assert aol and main_only and cs.brakePressed and not command.enabled
+              assert request and accepted, ('CRAWL_AOL_BRAKE_WITHDREW', tick, decoded_steering)
             if not stopped and (65 <= tick < 90 and not (source_outage and 75 <= tick < 84) or
                                 aol and (first_resume or 205 <= tick < 220 or 280 <= tick < 300)):
               if angle_handoff and 72 <= tick < 78:
@@ -429,3 +433,8 @@ def test_actual_held_gas_source_outage_withdraws_and_recovers_subaru(candidate, 
 def test_actual_vm_angle_driver_handoff_keeps_native_rate_limit(candidate, direction, subaru_native_pair, tmp_path):
   test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
     candidate, subaru_native_pair, tmp_path, vm_angle_handoff=direction)
+
+
+def test_actual_crawl_lateral_only_tracks_small_targets(subaru_native_pair, tmp_path):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_CROSSTREK_2025, subaru_native_pair, tmp_path, main_only=True, crawl=True)
