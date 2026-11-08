@@ -573,6 +573,11 @@ class TransportPauseFeedback:
       not axis.desiredLongitudinal and not axis.longitudinalActive and
       all(event.name in (stock_user, log.OnroadEvent.EventName.pedalPressed) and
           not event.softDisable and not event.immediateDisable for event in users))
+    from openpilot.starpilot.car.subaru.aol import temporary_eps_brake_recovery as subaru_eps_brake_recovery
+    stock_temporary_user |= bool(eps_recovery and self.lateral_only_baseline and subaru_eps_brake_recovery(cp, cs) and users and
+      not axis.desiredLongitudinal and not axis.longitudinalActive and
+      all(event.name in (stock_user, log.OnroadEvent.EventName.pedalPressed) and
+          not event.softDisable and not event.immediateDisable for event in users))
     from openpilot.starpilot.car.gm.aol import f1_conventional_lateral_owner, gm_physical_pedal_withdrawal
     # Receipt-bound GM owns F1 physical withdrawal.
     pedal = bool(not f1_conventional_lateral_owner(cp) and

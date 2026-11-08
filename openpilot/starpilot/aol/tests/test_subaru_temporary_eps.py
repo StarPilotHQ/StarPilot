@@ -63,11 +63,18 @@ def test_native_eps_denial_retains_intent_without_renewing_permission(gas, withd
   'door', 'sensors', 'disengage', 'reverse', 'acc_fault', 'native_invalid', 'native_fault', 'native_heartbeat',
   'wrong_session', 'wrong_producer', 'wrong_epoch', 'expired', 'warning_stale', 'native_stale',
   'native_missing', 'request_off', 'long_request', 'hard_event', 'other_user'))
-def test_eps_retention_does_not_mask_independent_vetoes(fault):
+@pytest.mark.parametrize('brake', (False, True))
+def test_eps_retention_does_not_mask_independent_vetoes(fault, brake):
   cp, state, feedback = baseline()
   state.steerFaultTemporary = True
+  state.brakePressed = brake
   now = NOW + 10_000_000
   sm, native = sample(cp, now, now, 2, allowed=False)
+  if brake:
+    event = sm.messages['onroadEvents'].as_builder()
+    event.onroadEvents = [{'name': 'pcmDisable', 'userDisable': True},
+                         {'name': 'pedalPressed', 'userDisable': True}]
+    sm.messages['onroadEvents'] = event.as_reader()
   physical = {'no_eps': ('steerFaultTemporary', False), 'permanent_eps': ('steerFaultPermanent', True),
     'invalid_can': ('canValid', False), 'timeout': ('canTimeout', True), 'door': ('doorOpen', True),
     'sensors': ('vehicleSensorsInvalid', True), 'disengage': ('steeringDisengage', True), 'acc_fault': ('accFaulted', True)}
@@ -202,3 +209,28 @@ def test_continuous_warning_keeps_intent_but_gap_or_stale_source_cannot_renew_it
     if stale_source:
       change(sm, 'aolAxisState', lambda axis: setattr(axis, 'sourceCarStateMonoTime', NOW))
     assert feedback.observe(sm, cp, state, now, latched=True, intent_producer_session=PRODUCER)
+
+
+@pytest.mark.parametrize('axis_first', (False, True))
+def test_brake_warning_event_change_preserves_existing_eps_intent(axis_first):
+  cp, state, feedback = baseline()
+  state.steerFaultTemporary = state.brakePressed = True
+  before = leases(feedback)
+  warning = NOW + 10_000_000
+  for sequence in range(2, 10):
+    now = NOW + (sequence - 1) * 10_000_000
+    event_stamp = warning if sequence < 6 else NOW + 50_000_000
+    axis_stamp = warning if sequence < 6 or sequence == 6 and not axis_first else NOW + 50_000_000
+    sm, native = sample(cp, now, now, sequence, active=False, requested=sequence == 2, allowed=False, event_stamp=event_stamp)
+    change(sm, 'aolAxisState', lambda axis, stamp=axis_stamp: setattr(axis, 'faultEventMonoTime', stamp))
+    event = sm.messages['onroadEvents'].as_builder()
+    event.onroadEvents = [{'name': 'pcmDisable', 'userDisable': True},
+                         {'name': 'pedalPressed', 'userDisable': True},
+                         {'name': 'steerTempUnavailableSilent', 'warning': True}]
+    if sequence == 6 and axis_first:
+      event.logMonoTime = warning
+      sm.logMonoTime['onroadEvents'] = warning
+    sm.messages['onroadEvents'] = event.as_reader()
+    assert not feedback.observe(sm, cp, state, now, latched=True, intent_producer_session=PRODUCER)
+    assert not feedback.failed and leases(feedback) == before
+    assert not native.lateralAllowed and not native.longitudinalAllowed

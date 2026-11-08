@@ -97,3 +97,12 @@ def sng_standstill_lateral_inhibit(cp, state):
   # All stock Subaru native profiles require movement. Withdraw the request before its expected denial,
   # preserving ordinary stock ACC without granting either active axis.
   return bool(qualified(cp, marked_only=True) and state.standstill)
+
+
+def temporary_eps_brake_recovery(cp, state):
+  return bool(qualified(cp, marked_only=True) and state.canValid and not state.canTimeout and
+              not state.steerFaultPermanent and not state.accFaulted and not state.doorOpen and
+              not state.vehicleSensorsInvalid and not state.steeringDisengage and not state.buttonEvents and
+              state.cruiseState.available and not state.cruiseState.enabled and
+              state.gearShifter == structs.CarState.GearShifter.drive and
+              state.brakePressed and not state.regenBraking and not state.gasPressed)

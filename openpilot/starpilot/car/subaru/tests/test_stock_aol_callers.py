@@ -25,7 +25,7 @@ from openpilot.starpilot.car.subaru.tests.native_fixture import subaru_native_pa
 def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, subaru_native_pair, tmp_path, aol=True, manual=False, stop_resume=False,
                                                                       hard_stop_native_first=False, main_only=False, preferences=None, firmware=None,
                                                                       deadline_gap=False, fixed_angle_handoff=False, host_first_stop=False,
-                                                                      source_outage=False, vm_angle_handoff=0, crawl=False):
+                                                                      source_outage=False, vm_angle_handoff=0, crawl=False, eps_brake_join=False):
   angle_handoff = fixed_angle_handoff or vm_angle_handoff
   fw = firmware_records(candidate, FW_VERSIONS, 'subaru') if firmware is None else firmware
   rows = []
@@ -68,10 +68,11 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
       gap_tick = 75 if main_only else 210
       last_card_published = {}
       pending_host_can = []
+      pending_eps_event = None
       for elapsed, tick in enumerate(ticks):
         now = base + elapsed * 10_000_000 + (22_504_479 if deadline_gap and elapsed >= gap_tick else 0)
         cruise = not main_only and (30 <= tick < 110 or tick >= 410)
-        brake = 90 <= tick < 110
+        brake = 90 <= tick < 110 or eps_brake_join and 225 <= tick < 270
         reverse = 150 <= tick < 185
         temporary = 225 <= tick < 260
         main = not 310 <= tick < 350 and (tick >= 30 or not main_only)
@@ -83,7 +84,7 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           'Steering_Torque': {'Steer_Warning': int(temporary),
                              'Steer_Torque_Sensor': (250 if 70 <= tick < 76 else
                                                      80 if vm_angle_handoff and 76 <= tick < 90 else
-                                                     143 if 76 <= tick < 90 else 0) if angle_handoff else 0},
+                                                     143 if 76 <= tick < 90 else 0) if angle_handoff else 94 if eps_brake_join and 235 <= tick < 237 else 0},
           'Steering_2': {'Steering_Angle': (vm_angle_handoff * (5.65 if tick < 78 else 5.60) if vm_angle_handoff else
                                           (5.65 if tick < 78 else 5.61) if fixed_angle_handoff else 0)},
           'Wheel_Speeds': dict.fromkeys(('FL', 'FR', 'RL', 'RR'),
@@ -121,7 +122,17 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           peers.append(panda.as_reader())
         if 'carControl' in latest_controls:
           peers.append(latest_controls['carControl'])
-        peers.extend(driven_new[s] for s in ('onroadEvents', 'selfdriveState', 'aolAxisState') if s in driven_new and s in card.sm.data)
+        if pending_eps_event is not None:
+          peers.append(pending_eps_event)
+          pending_eps_event = None
+        for service in ('onroadEvents', 'selfdriveState', 'aolAxisState'):
+          if service not in driven_new or service not in card.sm.data:
+            continue
+          if eps_brake_join and service == 'onroadEvents' and tick == 236:
+            # Deliver the existing event one Card cycle after its axis update.
+            pending_eps_event = driven_new[service]
+          else:
+            peers.append(driven_new[service])
         if receipt is not None and (tick % 10 == 1 or hard_stop_receipt and not host_first_stop or host_first_stop and elapsed == 127):
           peers.append(receipt.as_reader())
         card.sm.update_msgs((now + 1000) / 1e9, peers)
@@ -438,3 +449,8 @@ def test_actual_vm_angle_driver_handoff_keeps_native_rate_limit(candidate, direc
 def test_actual_crawl_lateral_only_tracks_small_targets(subaru_native_pair, tmp_path):
   test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
     CAR.SUBARU_CROSSTREK_2025, subaru_native_pair, tmp_path, main_only=True, crawl=True)
+
+
+def test_actual_eps_brake_event_join_preserves_armed_intent(subaru_native_pair, tmp_path):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, eps_brake_join=True)

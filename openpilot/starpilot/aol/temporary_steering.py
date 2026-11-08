@@ -59,9 +59,13 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     not axis.desiredLongitudinal and not axis.longitudinalActive and not cs.steeringDisengage and
     cs.cruiseState.available and not cs.cruiseState.enabled and stock_user is not None and
     any(event.name == stock_user and event.userDisable for event in sm['onroadEvents']))
+  from openpilot.starpilot.car.subaru.aol import temporary_eps_brake_recovery
+  subaru_brake = bool(stock_eps_user and temporary_eps_brake_recovery(cp, cs))
   # Seatbelt blocks normal LONG, not admitted LAT intent. Keep warnings/native/output checks.
   events = tuple(event for event in sm['onroadEvents'] if not (
     stock_eps_user and event.name == stock_user and event.userDisable and
+    not event.softDisable and not event.immediateDisable) and not (
+    subaru_brake and event.name == log.OnroadEvent.EventName.pedalPressed and event.userDisable and
     not event.softDisable and not event.immediateDisable) and not (
     self.lateral_only_baseline and cs.seatbeltUnlatched and not axis.desiredLongitudinal and
     not axis.longitudinalActive and event.name == log.OnroadEvent.EventName.seatbeltNotLatched and
