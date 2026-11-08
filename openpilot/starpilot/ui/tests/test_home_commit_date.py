@@ -31,7 +31,9 @@ class TestHomeCommitDate(unittest.TestCase):
     date = drawn["Sep 15"]
     self.assertEqual(date[1:3], (FontRole.ROMAN, 30))
     self.assertEqual(date[4], 98)
-    self.assertEqual(date[3] + self.view._measure(*date[:3]).width, 526)
+    version = drawn["6.7.7  Dom"]
+    self.assertEqual(date[3], version[3] + self.view._measure(*version[:3]).width + 16)
+    self.assertLessEqual(date[3] + self.view._measure(*date[:3]).width, 526)
     self.view._icon.assert_any_call("icons_mici/settings.png", 48, 48, 8, 192, 0.9)
     self.view._icon.assert_any_call("icons_mici/settings/network/wifi_strength_slash.png", 50, 44, 76, 190.5, 0.9)
     self.view._mode_atom.assert_called_once_with(self.state.mode, 146, 192)
@@ -47,7 +49,8 @@ class TestHomeCommitDate(unittest.TestCase):
     date = drawn["Sep 15"]
     version = next(args for args in drawn.values() if args[0].startswith(self.state.version))
     self.assertTrue(version[0].endswith("…"))
-    self.assertLessEqual(version[3] + self.view._measure(*version[:3]).width + 16, date[3])
+    self.assertEqual(version[3] + self.view._measure(*version[:3]).width + 16, date[3])
+    self.assertLessEqual(date[3] + self.view._measure(*date[:3]).width, 526)
     self.assertEqual(drawn[self.state.model_label][2:5], (30, 6, 140))
 
   def test_large_profile_still_uses_large_renderer(self):

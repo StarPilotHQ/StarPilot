@@ -235,8 +235,9 @@ class HomeView:
       while text and self._measure(text, FontRole.ROMAN, size).width > width:
         text = text[:-2].rstrip('…') + '…'
       self._text(text, FontRole.ROMAN, size, 6, y, color)
-    if state.commit_date:
-      self._text(state.commit_date, FontRole.ROMAN, 30, 526 - date_width, 98, rl.GRAY)
+      if y == 98 and state.commit_date:
+        date_x = 6 + self._measure(text, FontRole.ROMAN, size).width + 16
+        self._text(state.commit_date, FontRole.ROMAN, 30, date_x, y, rl.GRAY)
     self._icon("icons_mici/settings.png", 48, 48, 8, 192, 0.9)
     if state.network == "wifi":
       suffix = "none" if state.network_strength == 0 else "medium" if state.network_strength == 3 else "full" if state.network_strength >= 4 else "low"
