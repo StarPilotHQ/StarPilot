@@ -141,10 +141,11 @@ def disarming_fault(events, CS, *, temporary_ui_process_failure: bool = False,
 
 class AolCardIntent:
   def __init__(self, settings: AolSettings, *, explicit_latch: bool = False, lkas_button_supported: bool = True,
-               independent_cruise_buttons: bool = False):
+               independent_cruise_buttons: bool = False, preserve_unassigned_cancel: bool = False):
     self.settings = settings
     self.explicit_latch = explicit_latch
     self.independent_cruise_buttons = independent_cruise_buttons
+    self.preserve_unassigned_cancel = preserve_unassigned_cancel
     self.lkas_button_supported = lkas_button_supported
     self.allowed_latch = False
     # Observational only: records the exact branch that changed True to False.
@@ -341,12 +342,12 @@ class AolCardIntent:
                        (not independent_buttons or int(ButtonType.mainCruise) not in consumed_buttons)) or
                       (self._lkas_held and lkas_toggle and
                        (not independent_buttons or int(ButtonType.lkas) not in consumed_buttons)))
-      if not previously_held and gesture_held and (not independent_buttons or not cancel_pressed):
+      if not previously_held and gesture_held and (not (independent_buttons or self.preserve_unassigned_cancel) or not cancel_pressed):
         self._last_latch_edge_ns = now_ns
       if cancel_pressed:
         # An unassigned cruise CANCEL cannot toggle, arm or renew independent
         # lateral. Keep the existing withdrawal for configured CANCEL actions.
-        if not self.independent_cruise_buttons or any(self.settings.cancel_actions):
+        if not (self.independent_cruise_buttons or self.preserve_unassigned_cancel) or any(self.settings.cancel_actions):
           self._record_latch_clear('cancel_press')
           self.allowed_latch = False
       elif not self._gesture_neutral_seen:

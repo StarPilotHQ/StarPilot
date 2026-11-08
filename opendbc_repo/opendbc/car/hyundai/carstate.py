@@ -348,9 +348,10 @@ class CarState(CarStateBase):
       self.lkas11 = copy.copy(cp_cam.vl["LKAS11"])
     self.clu11 = copy.copy(cp.vl["CLU11"])
     from opendbc.car.hyundai.classic_long_aol import independent_buttons_qualified
+    from opendbc.car.hyundai.blended_stock_aol import qualified_alpha
     self.ev6_aol_samples = ()
     self.ev6_aol_source_healthy = False
-    if independent_buttons_qualified(self.CP):
+    if independent_buttons_qualified(self.CP) or qualified_alpha(self.CP, marked_only=True):
       from opendbc.can.parser import MAX_BAD_COUNTER
       source = cp.message_states.get(cp.dbc.name_to_msg['CLU11'].address)
       self.ev6_aol_sample_stamp_ns = int(source.timestamps[-1]) if source is not None and source.timestamps else 0

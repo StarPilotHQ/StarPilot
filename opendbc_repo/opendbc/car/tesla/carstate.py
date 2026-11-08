@@ -9,7 +9,8 @@ from opendbc.car.tesla.values import CAR, DBC, CANBUS, GEAR_MAP, STEER_THRESHOLD
 
 class TeslaScreenCANParser(CANParser):
   def __init__(self):
-    super().__init__('tesla_model3_vehicle', [('UI_status2', 0)], CANBUS.vehicle)
+    # Screen gestures are optional; their silence is not a control-bus fault.
+    super().__init__('tesla_model3_vehicle', [('UI_status2', float('nan'))], CANBUS.vehicle)
 
   def update(self, strings, sendcan=False):
     if strings and not isinstance(strings[0], list | tuple):

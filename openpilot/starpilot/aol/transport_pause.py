@@ -805,11 +805,12 @@ class TransportPauseFeedback:
   def _longitudinal_cancel_current(self, sm, cp, cs, axis, now_ns, *, latched, cancel_source_ns, withdrawal_required=True) -> SafetyState | None:
     from opendbc.car.hyundai.canfd_stock_aol import qualified_long as qualified
     from openpilot.starpilot.car.hyundai.aol import qualified_ccnc_long_aol as ev9_qualified
+    from opendbc.car.hyundai.blended_stock_aol import qualified_alpha as mixed_qualified
     from opendbc.car.structs import car
 
     if (not latched or self.failed or self.paused or self.pending_event or
         not self.session or str(axis.sessionId) != self.session or
-        not (qualified(cp, marked_only=True) or ev9_qualified(cp, marked_only=True)) or
+        not (qualified(cp, marked_only=True) or ev9_qualified(cp, marked_only=True) or mixed_qualified(cp, marked_only=True)) or
         not self.lateral_baseline_ns or not 0 <= now_ns - self.lateral_baseline_ns <= AXIS_MAX_AGE_NS or
         str(axis.faultReason) != 'none' or not axis.nativeAcknowledged or
         not axis.desiredLateral or not axis.lateralActive or cs.accFaulted or

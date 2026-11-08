@@ -80,3 +80,36 @@ def test_literal_optional_screen_frames_baseline_edge_and_exact_dlc():
                                                               (structs.CarState.ButtonEvent.Type.lkas, True)]
   parser.update([(1_030_000_000, [(frame[0], frame[1][:-1], 1), (frame[0], frame[1], 0)])])
   assert cs.update_screen_button(parser) == []
+
+
+@pytest.mark.parametrize('screen_seen', [False, True])
+def test_optional_screen_silence_does_not_report_vehicle_bus_loss(screen_seen):
+  parser = TeslaScreenCANParser()
+  if screen_seen:
+    parser.update([(1_000_000_000, [(0x3DF, bytes(8), CANBUS.vehicle)])])
+  for stamp in (1_500_000_001, 12_000_000_000):
+    parser.update([(stamp, [(0x111, bytes(8), CANBUS.vehicle)])])
+    assert not parser.bus_timeout
+    assert parser.can_valid
+    assert parser.vl_all['UI_status2']['UI_activeTouchPoints'] == []
+
+
+@pytest.mark.parametrize('missing_bus', [None, CANBUS.party, CANBUS.autopilot_party])
+def test_screen_silence_keeps_required_vehicle_bus_timeouts(missing_bus):
+  cp = screen_params()
+  apply_screen_button(cp, True, False)
+  ci = CarInterface(cp)
+  packer = CANPacker('tesla_model3_party')
+  messages = {
+    CANBUS.party: ['DI_speed', 'DI_systemStatus', 'ESP_B', 'EPAS3S_sysStatus', 'ESP_status', 'UI_warning', 'DI_state'],
+    CANBUS.autopilot_party: ['SCCM_steeringAngleSensor', 'DAS_status', 'DAS_control', 'DAS_steeringControl', 'DAS_settings'],
+  }
+  for index in range(150):
+    frames = [packer.make_can_msg(name, bus, {}) for bus, names in messages.items()
+              if index < 50 or bus != missing_bus for name in names]
+    if index == 0:
+      frames.append((0x3DF, bytes(8), CANBUS.vehicle))
+    result = ci.update([(1_000_000_000 + index * 10_000_000, frames)])
+  assert result.canTimeout is (missing_bus is not None)
+  if missing_bus is None:
+    assert result.canValid

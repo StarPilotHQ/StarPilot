@@ -60,6 +60,7 @@ from opendbc.car.ford.aol import (
   temporary_restriction as ford_temporary_restriction,
 )
 from opendbc.car.hyundai.canfd_angle_aol import native_observation, temporary_restriction, qualified as qualified_angle_aol
+from opendbc.car.hyundai.blended_stock_aol import qualified_alpha as qualified_blended_alpha_aol
 from opendbc.car.hyundai.canfd_owner import config_index as hyundai_canfd_config_index
 from opendbc.car.hyundai.captured_adrv_startup import CapturedADRVStartup
 from openpilot.starpilot.car.nissan.aol import (
@@ -615,9 +616,10 @@ class Car:
         self.aol_card_intent, cancel_source_ns=cancel_source_ns, now_ns=now_ns,
         producer=getattr(self, 'slc_producer_session', ''))
       cancel_feedback = self.aol_transport_feedback
-      if (hkg_cancel_retained and self.CP.carFingerprint in (HYUNDAI_CAR.KIA_EV9, HYUNDAI_CAR.HYUNDAI_IONIQ_5_PE) and
+      if (hkg_cancel_retained and (self.CP.carFingerprint in (HYUNDAI_CAR.KIA_EV9, HYUNDAI_CAR.HYUNDAI_IONIQ_5_PE) or
+          qualified_blended_alpha_aol(self.CP, marked_only=True)) and
           cancel_feedback is not None and not cancel_feedback.longitudinal_cancel_ns):
-        # The pure guard proved this exact CCNC raw CANCEL/FULL join. Bind
+        # The pure guard proved this exact raw CANCEL/FULL join. Bind
         # its first local receipt for the existing bounded withdrawal handshake;
         # held samples never renew it or any source/native/output deadline.
         if cancel_source_ns > cancel_feedback.last_cancel_source_ns:

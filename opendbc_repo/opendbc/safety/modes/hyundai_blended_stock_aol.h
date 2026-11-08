@@ -158,10 +158,29 @@ static void blended_aol_rx(const CANPacket_t *msg) {
     bool pressed = false;
     if ((msg->bus == pt) && (msg->addr == 0x4F1U) && (GET_LEN(msg) == 4U)) {
       if ((msg->data[0] & 7U) == 4U) {
-        blended_aol_clear();
+        // Mixed LONG Pause/Resume still clears ordinary/LONG authority in the
+        // cruise hook. Retain only an already claimed, current lateral token.
+        // CANCEL cannot arm, renew a request/gesture lease, or clear an inhibit.
+        const bool source_current = (blended_aol_token_source < 3U) &&
+          (safety_get_ts_elapsed(now, blended_aol_source_ts[blended_aol_token_source]) <= 300000U);
+        const bool retain_lateral = blended_aol_long && !GET_BIT(msg, 3U) &&
+          blended_aol_token && blended_aol_claimed && blended_aol_session && heartbeat_engaged &&
+          blended_aol_main_seen && blended_aol_main &&
+          (safety_get_ts_elapsed(now, blended_aol_main_ts) <= 100000U) && source_current &&
+          blended_aol_request_seen && ((aol_host_axis_mask & 1U) != 0U) &&
+          (safety_get_ts_elapsed(now, aol_host_request_ts) <= AOL_HOST_REQUEST_TIMEOUT_US) &&
+          aol_rx_healthy() && !relay_malfunction && !safety_rx_checks_invalid;
+        if (!retain_lateral) {
+          blended_aol_clear();
+        }
+        // A simultaneous MAIN is not an arming gesture. The advancing physical
+        // source remains observable without changing its token or host lease.
+        blended_aol_pressed[0] = GET_BIT(msg, 3U);
+        blended_aol_source_ts[0] = now;
+      } else {
+        source = 0U;
+        pressed = GET_BIT(msg, 3U);
       }
-      source = 0U;
-      pressed = GET_BIT(msg, 3U);
     } else if ((msg->bus == pt) && (msg->addr == 0x391U) && (GET_LEN(msg) == 8U)) {
       source = 1U;
       pressed = GET_BIT(msg, 4U);

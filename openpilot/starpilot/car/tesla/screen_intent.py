@@ -21,7 +21,9 @@ class TeslaScreenCardIntent(AolCardIntent):
     super().update(filtered.as_reader(), **kwargs)
     engaged = bool(CS.cruiseState.enabled)
     available = bool(CS.cruiseState.available)
-    if (engaged and not self.previous_enabled) or (self.previous_available and not available and not CS.brakePressed):
+    # Stock cruise availability does not revoke an explicit screen selection.
+    if (engaged and not self.previous_enabled) or (self.previous_available and not available and not CS.brakePressed and
+                                                  self.screen_override is not True):
       self.screen_override = None if engaged and not self.previous_enabled else False
       self.brake_blocked = False
       self.pause_lateral = False

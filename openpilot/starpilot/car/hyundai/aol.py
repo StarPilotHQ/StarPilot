@@ -388,7 +388,8 @@ def physical_cancel_lateral_allowed(CP, CS, intent, native, *, settings, previou
         not any(e.type == car.CarState.ButtonEvent.Type.cancel for e in CS.buttonEvents)):
       return False
     ev6_long = CP.carFingerprint == HyundaiCAR.KIA_EV6 and qualified_canfd_long(CP, marked_only=True)
-    return bool((ev6_long or independent_cruise_buttons_supported(CP, marked_only=True)) and
+    return bool((ev6_long or qualified_blended_alpha(CP, marked_only=True) or
+                 independent_cruise_buttons_supported(CP, marked_only=True)) and
       previous is not None and previous.lateral_active and previous.native_acknowledged and
       intent is not None and intent.settingsQualified and intent.allowedLatch and intent.lateralArmed and
       not intent.pauseLateral and intent.producerSessionId and intent.carStateLogMonoTime == source_ns and
@@ -427,9 +428,10 @@ def retained_shared_long_cancel_intent(CP, CS, sm, feedback, owner, *, cancel_so
       from openpilot.starpilot.car.hyundai.ev6_intent import Ev6CardIntent
       ev6_long = bool(isinstance(owner, Ev6CardIntent) and owner._buttons_current and
                       owner.physical.authorized and owner._last_latch_edge_ns > 0)
-    if (not (ev6_long or qualified_sonata_independent(CP) or qualified_ccnc_long_aol(CP, marked_only=True) or
+    mixed_long = qualified_blended_alpha(CP, marked_only=True)
+    if (not (ev6_long or mixed_long or qualified_sonata_independent(CP) or qualified_ccnc_long_aol(CP, marked_only=True) or
              CP.carFingerprint in INDEPENDENT_LONG_BUTTON_CARS and qualified_canfd_long(CP, marked_only=True)) or
-        owner is None or not owner.explicit_latch or not (owner.independent_cruise_buttons or ev6_long) or
+        owner is None or not owner.explicit_latch or not (owner.independent_cruise_buttons or ev6_long or mixed_long) or
         not owner.allowed_latch or owner.pause_lateral or owner.pause_longitudinal or owner._fault_inhibit):
       return False
     settings = owner.settings

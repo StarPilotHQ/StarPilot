@@ -13,6 +13,7 @@ static bool tesla_screen_belt_latched = false;
 static bool tesla_screen_eps_ready = false;
 static bool tesla_screen_session = false;
 static bool tesla_screen_autopark = false;
+static bool tesla_screen_acc_fault = false;
 static int tesla_screen_override = 0;
 
 static void tesla_screen_clear(void) {
@@ -32,6 +33,7 @@ static void tesla_screen_reset(void) {
   tesla_screen_eps_ready = false;
   tesla_screen_session = false;
   tesla_screen_autopark = false;
+  tesla_screen_acc_fault = false;
 }
 
 static uint8_t tesla_screen_request(void) {
@@ -54,7 +56,7 @@ static uint8_t tesla_screen_request(void) {
 
 static bool tesla_screen_physical_ready(void) {
   return tesla_screen_drive && tesla_screen_occupant_ready && tesla_screen_eps_ready &&
-    !steering_disengage && !tesla_screen_autopark;
+    !steering_disengage && !tesla_screen_autopark && !tesla_screen_acc_fault;
 }
 
 static uint8_t tesla_screen_permission(void) {
@@ -108,14 +110,17 @@ static void tesla_screen_rx(const CANPacket_t *msg, bool autopark) {
     }
     if (msg_matches(msg, 0x286U, 0U, 8U)) {
       const unsigned int state = (msg->data[1] >> 4U) & 7U;
+      tesla_screen_acc_fault = state == 5U;
       const bool cruise = ((state == 2U) || (state == 3U) || (state == 4U) || (state == 6U) || (state == 7U)) && !tesla_screen_autopark;
       const bool main_available = ((state == 1U) || cruise) && !tesla_screen_autopark;
       if (cruise && !tesla_screen_cruise) {
         tesla_screen_override = 0;
       }
-      if (tesla_screen_main && !main_available && !brake_pressed) {
+      // Stock availability cannot revoke an explicit screen selection.
+      if (tesla_screen_main && !main_available && !brake_pressed && (tesla_screen_override != 1)) {
         tesla_screen_override = -1;
       }
+      if (tesla_screen_acc_fault) { tesla_screen_clear(); }
       tesla_screen_main = main_available;
       tesla_screen_cruise = cruise;
     }

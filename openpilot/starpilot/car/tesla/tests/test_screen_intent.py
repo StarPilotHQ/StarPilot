@@ -181,3 +181,52 @@ def test_availability_off_still_allows_a_new_ordinary_cruise_engagement():
   assert not owner.allowed_latch
   owner.update(state(enabled=True).as_reader(), now_ns=50)
   assert owner.allowed_latch and owner.screen_override is None
+
+
+@pytest.mark.parametrize('brake_disengage', [False, True])
+def test_stock_cruise_availability_cannot_erase_existing_screen_arm(brake_disengage):
+  owner = intent(brake_disengage)
+  owner.update(state(available=False, press=False).as_reader(), now_ns=10)
+  owner.update(state(available=False, press=True).as_reader(), now_ns=20)
+  owner.update(state(available=True, press=False).as_reader(), now_ns=30)
+  assert owner.screen_override is True
+  for index, available in enumerate((False, True, False, True)):
+    cs = state(available=available)
+    cs.gasPressed = bool(index % 2)
+    owner.update(cs.as_reader(), now_ns=40 + index)
+    assert owner.allowed_latch and owner.screen_override is True
+  owner.update(state(press=True).as_reader(), now_ns=50)
+  assert not owner.allowed_latch and owner.pause_lateral
+  owner.update(state(available=False, press=False).as_reader(), now_ns=60)
+  owner.update(state(available=True).as_reader(), now_ns=70)
+  assert not owner.allowed_latch
+
+
+def test_cruise_baseline_availability_loss_does_not_create_screen_arm():
+  owner = intent()
+  owner.update(state().as_reader(), now_ns=10)
+  assert owner.allowed_latch and owner.screen_override is None
+  owner.update(state(available=False).as_reader(), now_ns=20)
+  assert not owner.allowed_latch and owner.screen_override is False
+  owner.update(state().as_reader(), now_ns=30)
+  assert not owner.allowed_latch
+
+
+@pytest.mark.parametrize('fault', ['canTimeout', 'doorOpen', 'steerFaultPermanent', 'steeringDisengage', 'accFaulted', 'cancel', 'brake'])
+def test_availability_loss_cannot_hide_fault_cancel_or_configured_brake(fault):
+  owner = intent(brake=fault == 'brake')
+  owner.update(state(available=False, press=False).as_reader(), now_ns=10)
+  owner.update(state(available=False, press=True).as_reader(), now_ns=20)
+  owner.update(state(press=False).as_reader(), now_ns=30)
+  cs = state(available=False)
+  if fault == 'cancel':
+    cs.buttonEvents = [structs.CarState.ButtonEvent(type=ButtonType.cancel, pressed=True)]
+  elif fault == 'brake':
+    cs.brakePressed = True
+  else:
+    setattr(cs, fault, True)
+  owner.update(cs.as_reader(), now_ns=40)
+  assert not owner.allowed_latch
+  for index, available in enumerate((False, True, False, True)):
+    owner.update(state(available=available).as_reader(), now_ns=50 + index)
+    assert not owner.allowed_latch

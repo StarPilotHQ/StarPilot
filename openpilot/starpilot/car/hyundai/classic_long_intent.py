@@ -1,4 +1,5 @@
 from opendbc.car.hyundai.classic_long_aol import independent_buttons_qualified
+from opendbc.car.hyundai.blended_stock_aol import qualified_alpha
 from openpilot.starpilot.aol.intent import AolCardIntent
 
 
@@ -7,7 +8,8 @@ class ClassicLongCardIntent(AolCardIntent):
 
   def __init__(self, cp, settings):
     super().__init__(settings, explicit_latch=True, independent_cruise_buttons=(
-      independent_buttons_qualified(cp, marked_only=False)))
+      independent_buttons_qualified(cp, marked_only=False)),
+      preserve_unassigned_cancel=qualified_alpha(cp))
     self.requires_fault_observation = True
     self.observe_stock_engagement = True
 
