@@ -4,6 +4,9 @@ static bool vw_aol_enabled = false;
 static bool vw_aol_longitudinal = false;
 static bool vw_aol_long_armed = false;
 static uint8_t vw_aol_buttons = 0U;
+static bool vw_aol_pending = false;
+static bool vw_aol_session = false;
+static uint32_t vw_aol_grant_ts = 0U;
 static bool vw_aol_manual = false;
 static bool vw_aol_direct = false;
 static bool vw_aol_direct_counter_seen = false;
@@ -27,6 +30,8 @@ static void vw_aol_clear(void) {
   vw_aol_token = false;
   vw_aol_long_armed = false;
   vw_aol_buttons = 0U;
+  vw_aol_pending = false;
+  vw_aol_session = false;
   vw_aol_main_neutral = false;
   vw_aol_owned = false;
   for (unsigned int i = 0U; i < 3U; i++) {
@@ -36,6 +41,7 @@ static void vw_aol_clear(void) {
 
 static void vw_aol_reset(void) {
   vw_aol_clear();
+  vw_aol_grant_ts = 0U;
   vw_aol_enabled = false;
   vw_aol_initial_main = true;
   vw_aol_longitudinal = false;
@@ -77,12 +83,23 @@ static void vw_aol_request(uint8_t mask) {
 static uint8_t vw_aol_request_mask(void) {
   const bool expired = vw_aol_requested &&
     (safety_get_ts_elapsed(microsecond_timer_get(), aol_host_request_ts) > AOL_HOST_REQUEST_TIMEOUT_US);
+  const uint32_t grant_age = safety_get_ts_elapsed(microsecond_timer_get(), vw_aol_grant_ts);
+  const bool pending_expired = vw_aol_pending && (grant_age > AOL_HOST_REQUEST_TIMEOUT_US);
+  const bool heartbeat_lost = !heartbeat_engaged && (!vw_aol_longitudinal || vw_aol_session);
   uint8_t request = 0U;
   if (!vw_aol_enabled || relay_malfunction || expired || safety_rx_checks_invalid ||
-      !heartbeat_engaged || !aol_rx_healthy() || !vw_aol_current()) {
+      heartbeat_lost || pending_expired || !aol_rx_healthy() || !vw_aol_current()) {
     vw_aol_clear();
+  } else if (heartbeat_engaged) {
+    // A physical release may precede the host join; it cannot authorize output.
+    const bool acknowledged = !vw_aol_pending || (((aol_host_axis_mask & 2U) != 0U) &&
+      (safety_get_ts_elapsed(microsecond_timer_get(), aol_host_request_ts) < grant_age));
+    if (acknowledged) {
+      vw_aol_pending = false;
+      vw_aol_session = true;
+      request = aol_host_axis_mask;
+    }
   } else {
-    request = aol_host_axis_mask;
   }
   return request;
 }
@@ -161,14 +178,15 @@ static void vw_aol_rx(const CANPacket_t *msg) {
       vw_aol_cruise_engaged = engaged;
       vw_aol_seen |= 1U;
       vw_aol_main_ts = microsecond_timer_get();
-      if (!heartbeat_engaged || !aol_rx_healthy() || !vw_aol_current() || safety_rx_checks_invalid) {
+      if ((!heartbeat_engaged && (!vw_aol_longitudinal || vw_aol_session)) ||
+          !aol_rx_healthy() || !vw_aol_current() || safety_rx_checks_invalid) {
         vw_aol_clear();
       } else if (!acc_main_on) {
         vw_aol_initial_main = false;
         vw_aol_clear();
         // Only a valid OFF observation may prepare a subsequent main-ON edge.
         vw_aol_main_neutral = ((msg->data[3] & 7U) < 2U);
-      } else if (vw_aol_initial_main && vw_aol_gear_drive && vw_aol_eps_ready && !brake_pressed) {
+      } else if (heartbeat_engaged && vw_aol_initial_main && vw_aol_gear_drive && vw_aol_eps_ready && !brake_pressed) {
         // Fresh complete physical MAIN-on startup grants LAT only. It never restores a cleared drive session.
         vw_aol_initial_main = false;
         vw_aol_token = true;
@@ -186,15 +204,19 @@ static void vw_aol_rx(const CANPacket_t *msg) {
         vw_aol_initial_main = false;
         vw_aol_clear();
       } else if (vw_aol_longitudinal) {
-        const bool healthy = heartbeat_engaged && aol_rx_healthy() && vw_aol_current() && !safety_rx_checks_invalid;
+        const bool healthy = (heartbeat_engaged || !vw_aol_session) && !relay_malfunction && aol_rx_healthy() && vw_aol_current() && !safety_rx_checks_invalid;
         const uint8_t buttons = (GET_BIT(msg, 16U) ? 1U : 0U) | (GET_BIT(msg, 19U) ? 2U : 0U);
         if (!healthy) {
           vw_aol_clear();
         } else if (buttons == 0U) {
           if (((vw_aol_buttons & 3U) != 0U) && controls_allowed && acc_main_on &&
               vw_aol_gear_drive && vw_aol_eps_ready && (!brake_pressed || (!vw_aol_manual && !vehicle_moving))) {
+            vw_aol_initial_main = false;
             vw_aol_token = true;
             vw_aol_long_armed = true;
+            vw_aol_pending = !heartbeat_engaged;
+            vw_aol_session = heartbeat_engaged;
+            vw_aol_grant_ts = microsecond_timer_get();
           }
           vw_aol_buttons = 4U;
         } else if ((vw_aol_buttons & 4U) != 0U) {
