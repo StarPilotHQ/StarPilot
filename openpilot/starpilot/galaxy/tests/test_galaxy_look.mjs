@@ -51,7 +51,7 @@ test("the refined look and Deep field sky load after Galaxy's own styles and can
   }
 })
 
-test("Galaxy's purple, cyan and text colours stay as they are", async () => {
+test("Galaxy's purple, cyan and text colors stay as they are", async () => {
   const css = await read("css/galaxy-look.css")
   for (const token of ["--primary:", "--primary-hover:", "--secondary:", "--on-surface:", "--text-muted:", "--background:"]) {
     assert.ok(!css.includes(token), token)

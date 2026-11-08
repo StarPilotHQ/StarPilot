@@ -12,7 +12,7 @@ assert.equal(modelDownloadProgress({ downloading: true, downloadAll: true, progr
 // Before the first percent: a moving bar on the chosen model ("Starting download").
 assert.deepEqual(modelDownloadProgress({ downloading: true, progress: "Starting download", modelToDownload: "other" }, models),
   { model: "other", percent: null, size: 50e6, label: "Starting download" })
-// eGPU variant: labelled, and no size (its speed is unknown).
+// eGPU variant: labeled, and no size (its speed is unknown).
 assert.deepEqual(modelDownloadProgress({ downloading: true, downloadVariant: "amd", progress: "Lightspeed: 10%", modelToDownload: "light" }, models),
   { model: "light", percent: 10, size: 0, label: "Downloading · eGPU variant" })
 // No bar when nothing downloads, while the catalog refreshes, or for an unknown name during Download all.

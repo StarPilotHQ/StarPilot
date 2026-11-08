@@ -31,7 +31,7 @@ html[data-look="refined"]:not([data-theme="light"]) #galaxy-bg::after {
 html[data-look="refined"] #galaxy-bg .galaxy-hero { animation: none; opacity: 0.8; }
 
 /* Text that sits straight on the sky (page titles and intros, breadcrumbs, Dashboard headings): the sky behind it
-   is blurred, which dissolves the stars but leaves the colour and purple glow exactly as they are, so there is no
+   is blurred, which dissolves the stars but leaves the color and purple glow exactly as they are, so there is no
    dark patch or box. Each zone reaches 8px past the text at the sides without moving it. Panels are left alone. */
 html[data-look="refined"]:not([data-theme="light"]) :is(.gx-settings__summary, .gx-page-header, .gx-home__hero, .gx-settings-path, .gx-home__section-title):not(.gx-card, .gx-card *) {
   -webkit-backdrop-filter: blur(9px);
