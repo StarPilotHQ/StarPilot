@@ -17,12 +17,14 @@ export function validSentryEvents(value) {
   if (value.storageIncomplete !== undefined && typeof value.storageIncomplete !== "boolean") return false
   const seen = new Set()
   return value.events.every((event) => {
-    if (event === null || typeof event !== "object" || Object.keys(event).some((key) => !["eventId", "kind", "systemTimeMs", "images", "simulated"].includes(key)) ||
+    if (event === null || typeof event !== "object" || Object.keys(event).some((key) => !["eventId", "kind", "systemTimeMs", "images", "simulated", "voltage", "cutoff"].includes(key)) ||
+        (event.kind === "battery" ? ![event.voltage, event.cutoff].every((tenths) => Number.isSafeInteger(tenths) && tenths > 0 && tenths < 1000) :
+          event.voltage !== undefined || event.cutoff !== undefined) ||
         (event.simulated !== undefined && event.simulated !== true) ||
         (event.images !== undefined && (!Array.isArray(event.images) || event.images.length > 2 ||
           new Set(event.images).size !== event.images.length || event.images.some((camera) => !["wide", "cabin"].includes(camera)))) ||
         typeof event.eventId !== "string" || !ID.test(event.eventId) || seen.has(event.eventId) ||
-        !["warning", "alarm", "selfie"].includes(event.kind) || !Number.isSafeInteger(event.systemTimeMs) ||
+        !["warning", "alarm", "selfie", "battery"].includes(event.kind) || !Number.isSafeInteger(event.systemTimeMs) ||
         event.systemTimeMs <= 0 || event.systemTimeMs > 8_640_000_000_000_000) return false
     seen.add(event.eventId)
     return true
@@ -63,7 +65,7 @@ export const SentryEventsPage = {
   },
   beforeUnmount() { document.removeEventListener("visibilitychange", this.visibility); this.feed.stop() },
   methods: { systemTime, storedSize },
-  computed: { kinds: () => ({ alarm: { label: 'Alarm', icon: 'bi-bell' }, warning: { label: 'Motion', icon: 'bi-exclamation-triangle' }, selfie: { label: 'Selfie', icon: 'bi-camera' } }) },
+  computed: { kinds: () => ({ alarm: { label: 'Alarm', icon: 'bi-bell' }, warning: { label: 'Motion', icon: 'bi-exclamation-triangle' }, selfie: { label: 'Selfie', icon: 'bi-camera' }, battery: { label: 'Low battery', icon: 'bi-battery-half' } }) },
   template: `
     <div class="gx-view gx-home" aria-label="Sentry motion events">
       <header class="gx-settings__header gx-page-header"><div><h2>Sentry</h2>
@@ -86,7 +88,7 @@ export const SentryEventsPage = {
             <article v-for="event in data.events" :key="event.eventId" class="gx-card gx-sentry-event">
               <div class="gx-section__header"><i class="bi" :class="kinds[event.kind].icon" aria-hidden="true"></i><span class="gx-section__title">{{ kinds[event.kind].label }}</span></div>
               <div v-if="!bluetooth && event.images?.length" class="gx-sentry-event__media"><BalancedImage v-for="camera in event.images" :key="camera" :balance="camera === 'cabin'" :src="'./api/sentry/image/' + event.eventId + '/' + camera" :alt="(camera === 'cabin' ? 'Cabin' : 'Road') + ' camera at motion event'" class="gx-media" /></div>
-              <div class="gx-panel gx-row gx-row--borderless"><div class="gx-row__info"><span class="gx-row__label">{{ systemTime(event.systemTimeMs) }}</span><small class="gx-note">Event {{ event.eventId }}</small></div>
+              <div class="gx-panel gx-row gx-row--borderless"><div class="gx-row__info"><span class="gx-row__label">{{ systemTime(event.systemTimeMs) }}</span><small v-if="event.kind === 'battery'" class="gx-note">Battery {{ (event.voltage / 10).toFixed(1) }} V, turns off at {{ (event.cutoff / 10).toFixed(1) }} V</small><small class="gx-note">Event {{ event.eventId }}</small></div>
                 <button type="button" class="gx-btn gx-btn--tonal" :aria-label="'Delete ' + kinds[event.kind].label.toLowerCase() + ' event'" :disabled="deleting" @click="feed.remove(event.eventId)">Delete</button></div>
             </article>
           </div>

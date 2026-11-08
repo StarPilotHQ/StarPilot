@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 from openpilot.cereal import log, messaging
 from openpilot.common.params import Params
+from openpilot.starpilot.power.offroad_preferences import read_saved as read_power, effective as effective_power
 from openpilot.starpilot.sentry_mode.preferences import KEY, Preferences, encode
 from openpilot.starpilot.sentry_mode.runtime import SentryRuntime
 from openpilot.starpilot.sentry_mode import runtime as runtime_module
@@ -35,6 +36,7 @@ class Messages:
     self.logMonoTime = dict.fromkeys(names, 0)
     self.recv_time = dict.fromkeys(names, 0.0)
     self.sock = {}
+    self.voltage = 12_500
 
   def __getitem__(self, name):
     return self.messages[name]
@@ -50,7 +52,7 @@ class Messages:
       self.updated[name] = True
     self.messages["deviceState"] = NS(started=False, carBatteryCapacityUwh=1_000_000)
     self.messages["pandaStates"] = [NS(ignitionLine=False, ignitionCan=False, pandaType="uno")]
-    self.messages["peripheralState"] = NS(pandaType="uno", voltage=12_500)
+    self.messages["peripheralState"] = NS(pandaType="uno", voltage=self.voltage)
     # A real Cap'n Proto event is serialized and decoded before projection.
     event = messaging.new_message("accelerometer", valid=True)
     event.accelerometer.timestamp = sample_stamp if sample_stamp is not None else now - 20_000_000
@@ -87,7 +89,7 @@ class TestRuntime(unittest.TestCase):
     status = Mock()
     self.runtime.status = status
     decision = self.tick()
-    status.publish.assert_called_once_with(decision, encode(Preferences(True)), "idle")
+    status.publish.assert_called_once_with(decision, encode(Preferences(True)), "idle", power=(125, effective_power(read_power(self.params)).cutoff_tenths))
     self.assertEqual(decision.state, "arming")
     self.messages.updated["accelerometer"] = False
     self.messages.valid["accelerometer"] = False
@@ -104,9 +106,45 @@ class TestRuntime(unittest.TestCase):
     self.clock.mono += 100_000_000
     self.assertEqual(self.runtime.tick().state, "arming")
     self.clock.mono += 400_000_000
+    self.messages.set_sources()
+    self.messages.updated["accelerometer"] = False
     self.assertEqual(self.runtime.tick().state, "sensor_unavailable")
     self.assertIsNone(self.runtime.policy.arm_started)
     self.assertEqual(self.events, [])
+
+  def test_low_battery_warns_once_after_holding_near_cutoff_and_rearms_after_recovery(self):
+    warnings = []
+    self.runtime.battery = lambda voltage, cutoff: warnings.append((voltage, cutoff))
+    cutoff = effective_power(read_power(self.params)).cutoff_tenths
+    self.messages.voltage = (cutoff + 2) * 100
+    for _ in range(599):
+      self.tick()
+    self.assertEqual(warnings, [])
+    for _ in range(10):
+      self.tick()
+    self.assertEqual(warnings, [(cutoff + 2, cutoff)])
+    for _ in range(700):
+      self.tick()
+    self.assertEqual(len(warnings), 1)
+    self.messages.voltage = (cutoff + 4) * 100
+    self.tick()
+    self.messages.voltage = (cutoff - 1) * 100
+    for _ in range(105):
+      self.tick()
+    self.assertEqual(warnings[-1], (cutoff - 1, cutoff))
+    self.assertEqual(len(warnings), 2)
+
+  def test_brief_voltage_dip_does_not_warn(self):
+    warnings = []
+    self.runtime.battery = lambda voltage, cutoff: warnings.append((voltage, cutoff))
+    cutoff = effective_power(read_power(self.params)).cutoff_tenths
+    for _ in range(20):
+      self.messages.voltage = (cutoff + 1) * 100
+      for _ in range(300):
+        self.tick()
+      self.messages.voltage = (cutoff + 3) * 100
+      self.tick()
+    self.assertEqual(warnings, [])
 
   def test_arming_completes_with_brief_gaps_between_sensor_messages(self):
     for _ in range(451):

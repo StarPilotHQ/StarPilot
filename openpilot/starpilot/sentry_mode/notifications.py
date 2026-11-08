@@ -21,7 +21,7 @@ import uuid
 import requests
 
 from openpilot.starpilot.storage import starpilot_storage_root
-from openpilot.starpilot.sentry_mode.storage import EventStore
+from openpilot.starpilot.sentry_mode.storage import BATTERY_FIELDS, EventStore
 from openpilot.starpilot.sentry_mode import web_push, relay_enrollment
 from openpilot.starpilot.sentry_mode.relay_config import DEFAULT_RELAY_URL
 
@@ -34,6 +34,15 @@ MAX_AGE = 86400
 MAX_ATTEMPTS = 4
 RETRY_SECONDS = (30, 120, 600, 600)
 ID = re.compile(r'[0-9a-f]{32}\Z')
+JOB_FIELDS = {'eventId', 'kind', 'channel', 'generation', 'subscriptionId', 'created', 'next', 'attempts', 'state', 'error'}
+
+
+def message_text(job: dict) -> str:
+  if job['kind'] == 'test':
+    return 'This is a test StarPilot Sentry notification.'
+  if job['kind'] == 'battery':
+    return f"Car battery is low ({job['voltage'] / 10:.1f} V). The device and Sentry turn off at {job['cutoff'] / 10:.1f} V."
+  return f"Parked motion detected ({job['kind']})."
 
 
 class NotificationUnavailable(Exception):
@@ -194,10 +203,10 @@ class NotificationOwner:
       if type(sub['since']) not in (int, float) or not 0 <= sub['since'] < 2**63:
         raise ValueError('Invalid subscription time')
     for key, job in state['jobs'].items():
-      if (type(job) is not dict or set(job) != {'eventId', 'kind', 'channel', 'generation', 'subscriptionId', 'created',
-                                               'next', 'attempts', 'state', 'error'} or
+      if (type(job) is not dict or set(job) != JOB_FIELDS | (BATTERY_FIELDS if job.get('kind') == 'battery' else set()) or
+          (job['kind'] == 'battery' and not all(type(job[k]) is int and 0 < job[k] < 1000 for k in BATTERY_FIELDS)) or
           type(key) is not str or len(key) != 64 or type(job['eventId']) is not str or ID.fullmatch(job['eventId']) is None or
-          job['kind'] not in ('warning', 'alarm', 'test') or job['channel'] not in CHANNELS or
+          job['kind'] not in ('warning', 'alarm', 'battery', 'test') or job['channel'] not in CHANNELS or
           type(job['generation']) is not str or ID.fullmatch(job['generation']) is None or
           (type(job['subscriptionId']) is not str or (re.fullmatch(r'[0-9a-f]{12}' if job['channel'] == 'appPush' else
                                                                   r'[0-9a-f]{32}' if job['channel'] == 'webPush' else r'', job['subscriptionId']) is None)) or
@@ -444,7 +453,8 @@ class NotificationOwner:
         self.state['jobs'][key] = {'eventId': event['eventId'], 'kind': event['kind'], 'channel': name,
                                   'generation': cfg['generation'], 'subscriptionId': target['id'],
                                   'created': event['wallTimeNs'] / 1e9, 'next': now, 'attempts': 0,
-                                  'state': 'queued', 'error': ''}
+                                  'state': 'queued', 'error': '',
+                                  **({k: event[k] for k in BATTERY_FIELDS} if event['kind'] == 'battery' else {})}
 
   def delete_events(self, remove, event_id=None):
     with self.lock:
@@ -583,8 +593,9 @@ class NotificationOwner:
     return files
 
   def _send(self, name: str, cfg: dict, subscription: dict | None, job: dict, key: str, pem: str) -> int:
-    message = 'This is a test StarPilot Sentry notification.' if job['kind'] == 'test' else f"Parked motion detected ({job['kind']})."
-    event = {'eventId': job['eventId'], 'kind': job['kind'], 'systemTimeMs': int(job['created'] * 1000)}
+    message = message_text(job)
+    event = {'eventId': job['eventId'], 'kind': job['kind'], 'systemTimeMs': int(job['created'] * 1000),
+             **{k: job[k] for k in BATTERY_FIELDS if k in job}}
     headers = {'Idempotency-Key': key}
     if name == 'appPush':
       if subscription is None:
@@ -602,7 +613,8 @@ class NotificationOwner:
         headers['Authorization'] = 'Bearer ' + enrollment['id'] + '.' + enrollment['secret']
       response = requests.post(relay.rstrip('/') + protocol, json={
         'token': subscription['token'], 'appId': subscription['appId'], 'kind': job['kind'], 'eventId': job['eventId'],
-        'wallTimeNs': int(job['created'] * 1e9), 'label': subscription['label']}, headers=headers,
+        'wallTimeNs': int(job['created'] * 1e9), 'label': subscription['label'],
+        **({'detail': message} if job['kind'] == 'battery' else {})}, headers=headers,
         timeout=(3, 10), allow_redirects=False, stream=True)
     elif name == 'webPush':
       if subscription is None:
@@ -629,7 +641,8 @@ class NotificationOwner:
                                   'event': json.dumps(event, separators=(',', ':'))}, files=files or None,
                                  headers=headers, timeout=(3, 10), allow_redirects=False, stream=True)
       else:
-        headers.update({'Title': 'StarPilot Sentry Mode', 'Priority': 'urgent', 'Tags': 'warning,car'})
+        headers.update({'Title': 'StarPilot Sentry Mode', 'Priority': 'high' if job['kind'] == 'battery' else 'urgent',
+                        'Tags': 'battery,car' if job['kind'] == 'battery' else 'warning,car'})
         response = requests.post(cfg['url'], data=message.encode(), headers=headers, timeout=(3, 10), allow_redirects=False, stream=True)
     try:
       return response.status_code

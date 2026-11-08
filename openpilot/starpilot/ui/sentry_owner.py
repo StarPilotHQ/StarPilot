@@ -5,7 +5,7 @@ from dataclasses import replace
 
 from openpilot.starpilot.sentry_mode.actions import WriteResult, commit
 from openpilot.starpilot.sentry_mode.policy import Settings
-from openpilot.starpilot.sentry_mode.status import RuntimeStatus
+from openpilot.starpilot.sentry_mode.status import STATES, RuntimeStatus
 from openpilot.starpilot.sentry_mode.preferences import Preferences, encode, read_preferences
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, FeatureSettingsState
 
@@ -29,6 +29,8 @@ class SentryOwner:
     label, reason = self.status.runtime_snapshot(saved)
     if not parked and (label == "Monitoring motion" or label.startswith("Arming")):
       label, reason = "Not armed", "Waiting for confirmation that the car is parked"
+    elif not parked and label == "Waiting for monitor":
+      label, reason = STATES["disabled_onroad"]
     status = f"{label}: {reason}."
     monitor = f"{status} Motion events can include camera snapshots. Notification settings are in Cameras & Monitoring."
     rows: list[FeatureRow] = []
