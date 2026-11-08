@@ -1,5 +1,4 @@
 import errno
-import socket
 
 from openpilot.starpilot.system.starport import bootstrap as bs
 from openpilot.starpilot.system.starport.supervisor import _tcp_failure_kind
@@ -15,7 +14,7 @@ def test_wifi_status_labels_name_the_known_codes():
 
 
 def test_tcp_failure_kinds():
-  assert _tcp_failure_kind(socket.timeout()) == "timeout"
+  assert _tcp_failure_kind(TimeoutError()) == "timeout"
   assert _tcp_failure_kind(ConnectionRefusedError()) == "refused"
   assert _tcp_failure_kind(OSError(errno.EHOSTUNREACH, "no route")) == "unreachable"
   assert _tcp_failure_kind(OSError(errno.EPERM, "denied")) == "other"

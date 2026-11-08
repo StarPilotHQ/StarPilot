@@ -77,26 +77,30 @@ def test_pairing_request_only_at_the_last_level(identity, tmp_path):
   assert hu.pairing_requests == [("39:90:21:64:07:00", 2)]
 
 
+def bolt_hangs_up(identity, tmp_path, config):
+  hu = FakeHeadUnit(identity, bolt=True, hang_up_after_s=0.2, hang_up_unless=frozenset({BLUETOOTH_CHANNEL}))
+  session = connect(hu, identity)
+  quirks = QuirkState(tmp_path / "q.json")
+  session.on_discovered = lambda info: getattr(
+    hf.select(config, hf.head_unit_labels(info), "wireless", quirks, "bt:AA", car_type="builtin", profile="default"), "actions", ())
+  session.authenticate()
+  session.start("StarPilot", "comma.ai")
+  pump_until(session, lambda: session.focused, timeout=8.0)
+  session.send_frame(keyframe_au(1), 1, keyframe=True)
+  pump_until(session, lambda: bool(hu.frames), timeout=5.0)
+  deadline = time.monotonic() + 1.0
+  while time.monotonic() < deadline and not hu.hung_up:
+    try:
+      session.pump(0.05)
+    except Exception:
+      break
+    session.send_frame(delta_au(2), 2, keyframe=False)
+  hung_up = hu.hung_up
+  session.peer.close()
+  hu.thread.join(5)
+  return hung_up
+
+
 def test_fix_stops_the_bolt_hang_up(identity, tmp_path):
-  for config, hung_up in (({"head_unit_fixes": True}, True), (ON, False)):
-    hu = FakeHeadUnit(identity, bolt=True, hang_up_after_s=0.2, hang_up_unless=frozenset({BLUETOOTH_CHANNEL}))
-    session = connect(hu, identity)
-    quirks = QuirkState(tmp_path / f"q{hung_up}.json")
-    session.on_discovered = lambda info, config=config, quirks=quirks: getattr(
-      hf.select(config, hf.head_unit_labels(info), "wireless", quirks, "bt:AA", car_type="builtin", profile="default"), "actions", ())
-    session.authenticate()
-    session.start("StarPilot", "comma.ai")
-    pump_until(session, lambda: session.focused, timeout=8.0)
-    session.send_frame(keyframe_au(1), 1, keyframe=True)
-    pump_until(session, lambda: bool(hu.frames), timeout=5.0)
-    deadline = time.monotonic() + 1.0
-    while time.monotonic() < deadline and not hu.hung_up:
-      try:
-        session.pump(0.05)
-      except Exception:
-        break
-      time.sleep(0.02)
-      session.send_frame(delta_au(2), 2, keyframe=False)
-    assert hu.hung_up is hung_up
-    session.peer.close()
-    hu.thread.join(5)
+  assert bolt_hangs_up(identity, tmp_path, {"head_unit_fixes": True}) is True
+  assert bolt_hangs_up(identity, tmp_path, ON) is False

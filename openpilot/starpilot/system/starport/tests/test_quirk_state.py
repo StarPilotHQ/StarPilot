@@ -95,7 +95,7 @@ def test_changed_fingerprint_starts_car_over(tmp_path):
 
 def test_wired_state_is_never_written(tmp_path):
   q = state(tmp_path)
-  full = {k: "x" for k in ("car_make", "car_model", "car_year", "head_unit_make", "head_unit_model", "head_unit_software_version")}
+  full = dict.fromkeys(("car_make", "car_model", "car_year", "head_unit_make", "head_unit_model", "head_unit_software_version"), "x")
   key = QuirkState.wired_key(full)
   assert key.startswith("usb:") and QuirkState.wired_key({"car_make": "x"}) == ""
   q.begin(key, full, "r")

@@ -83,7 +83,8 @@ def discovery_response(video_channel: int = 3, input_channel: int = 1, *, phone_
              field(1, field(1, BLUETOOTH_CHANNEL) + field(6, field(1, "F8:36:9B:0A:7D:C8") + field(2, bytes([2])))))
   if bolt:
     sensors = b"".join(field(1, field(1, kind)) for kind in (1, 3, 7, 8, 10, 13, 21))
-    extra += (field(1, field(1, SENSOR_CHANNEL) + field(2, sensors)) + field(1, field(1, BLUETOOTH_CHANNEL) + field(6, field(1, "F8:36:9B:0A:7D:C8") + field(2, bytes([2])))) +
+    bluetooth = field(1, BLUETOOTH_CHANNEL) + field(6, field(1, "F8:36:9B:0A:7D:C8") + field(2, bytes([2])))
+    extra += (field(1, field(1, SENSOR_CHANNEL) + field(2, sensors)) + field(1, bluetooth) +
               field(1, field(1, PHONE_STATUS_CHANNEL) + field(10, field(1, 1))) + field(1, field(1, VENDOR_CHANNEL) + field(12, field(1, 1))))
     return field(1, video) + field(1, audio) + field(1, touch) + extra + b"".join(field(n, v) for n, v in BOLT_IDENTITY.items())
   return field(1, video) + field(1, audio) + field(1, touch) + extra + field(2, "Honda") + field(3, "Civic")

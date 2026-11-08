@@ -33,7 +33,8 @@ from pathlib import Path
 from typing import Any
 
 from openpilot.common.hardware import COMMA_HARDWARE
-from openpilot.starpilot.system.starport import car_profiles, device_health, head_unit_fixes, identity as identity_store, new_setup, quirk_state, reachability, setup_ladder, system_slice
+from openpilot.starpilot.system.starport import (car_profiles, device_health, head_unit_fixes, identity as identity_store, new_setup, quirk_state,
+                                                 reachability, setup_ladder, system_slice)
 from openpilot.starpilot.system.starport import reconnect_notice
 from openpilot.starpilot.system.starport.auto_connect import AutoConnectPolicy
 from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, BootstrapError, BootstrapTimeout, WirelessBootstrap
@@ -2128,7 +2129,7 @@ class Supervisor:
       with self._lock:
         verdict = self._quirks.record(context["key"], context["labels"], outcome, rule_id=selection.rule.id if selection else "",
                                       ladder_len=len(selection.rule.ladder) if selection else 0,
-                                      trial_generation=selection.generation if selection else None, now=time.time())
+                                      trial_generation=selection.generation if selection else None, now=datetime.now(UTC).timestamp())
         after = self._quirks.trial(context["key"], selection.rule.id) if selection else None
         self._quirks.save()
       if selection:
