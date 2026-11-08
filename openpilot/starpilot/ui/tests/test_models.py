@@ -155,13 +155,16 @@ class TestModelManager(unittest.TestCase):
     self.assertFalse(model_action_allowed(self.data, "delete", self.big))
     self.assertTrue(model_action_allowed({**self.data, "activeBigModel": ""}, "delete", self.big))
     self.assertFalse(model_action_allowed({**self.data, "capabilities": {}}, "active", self.small, "small"))
-    moving = {**self.data, "isOnroad": True, "downloading": True}
+    moving = {**self.data, "isOnroad": True, "downloading": False}
     self.assertTrue(model_action_allowed(moving, "active", self.small, "small"))
     self.assertTrue(model_action_allowed(moving, "active", self.big, "big"))
     self.assertFalse(model_action_allowed(moving | {"jetlinkBig": True}, "active", self.big, "big"))
     self.assertFalse(model_action_allowed(moving, "download", self.missing))
     self.assertTrue(model_action_allowed(moving, "preferences", self.small))
-    self.assertTrue(model_action_allowed(moving, "cancel"))
+    downloading = {**moving, "downloading": True}
+    self.assertFalse(model_action_allowed(downloading, "active", self.small, "small"))
+    self.assertFalse(model_action_allowed(downloading, "active", self.big, "big"))
+    self.assertTrue(model_action_allowed(downloading, "cancel"))
 
   def test_large_profile_rows_are_open_actions_and_receipt_stays_inert(self):
     state = model_page(ModelStatus(BUNDLED_CURRENT, None, None, ModelHealth.UNAVAILABLE, False, None, None), self.data)

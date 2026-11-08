@@ -1,5 +1,6 @@
 """Independent screen arming through real parser, intent, native and axis callers."""
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -49,7 +50,7 @@ def test_explicit_screen_axis_survives_sparse_touch_and_stock_availability(coope
       now = 1_000_000_000 + tick * 10_000_000
       native.set_timer(now // 1000)
       stock_state = 1 if 40 <= tick < 80 or 140 <= tick < 180 else 0
-      messages = (
+      messages: tuple[tuple[str, int, dict[str, float]], ...] = (
         ('DAS_control', 2, {}), ('DAS_steeringControl', 2, {}),
         ('SCCM_steeringAngleSensor', 2, {}), ('DAS_status', 2, {}), ('DAS_settings', 2, {}),
         ('DI_speed', 0, {'DI_vehicleSpeed': 0}),
@@ -86,7 +87,7 @@ def test_explicit_screen_axis_survives_sparse_touch_and_stock_availability(coope
       sd.events.add(log.OnroadEvent.EventName.pcmDisable)
       if not cs.cruiseState.available:
         sd.events.add(log.OnroadEvent.EventName.wrongCarMode)
-      decision = SelfdriveD._decide_aol_axes(sd, cs, intention, safety, now_ns=now)
+      decision = SelfdriveD._decide_aol_axes(cast(SelfdriveD, sd), cs, intention, safety, now_ns=now)
       sd.aol_axis_decision = decision
       native.aol_set_host_request(int(decision.desired_lateral))
       assert not decision.longitudinal_active

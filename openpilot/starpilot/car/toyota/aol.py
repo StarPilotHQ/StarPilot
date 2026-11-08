@@ -180,6 +180,8 @@ def qualified(cp, *, marked_only=False):
     if hold:
       return False
   allowed_flags = required_flags | ToyotaFlags.HYBRID | ToyotaFlags.HAS_BSM
+  if cp.carFingerprint == CAR.TOYOTA_RAV4_TSS2_2022 and not cp.openpilotLongitudinalControl:
+    allowed_flags |= ToyotaFlags.ARS510_RADAR
   if cp.flags & required_flags != required_flags or int(cp.flags) & ~int(allowed_flags | ToyotaFlags.AUTO_BRAKE_HOLD):
     return False
   config = cp.safetyConfigs[0]

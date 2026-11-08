@@ -250,9 +250,9 @@ class TestDisabledLearnerProcess(unittest.TestCase):
     self.cp = car.CarParams.new_message(brand='hyundai', carFingerprint='HYUNDAI_IONIQ_6')
     self.process = managed_processes['steerlearnerd']
 
-  def test_default_still_runs_onroad(self):
+  def test_default_still_runs_onroad_and_parked_analysis(self):
     assert self.process.should_run(True, self.params, self.cp)
-    assert not self.process.should_run(False, self.params, self.cp)
+    assert self.process.should_run(False, self.params, self.cp)
     assert self.process.restart_on_exit
 
   def test_explicit_off_does_not_start_learner(self):
@@ -287,7 +287,7 @@ class TestDisabledLearnerProcess(unittest.TestCase):
     from unittest.mock import patch
     with patch('openpilot.starpilot.lateral.learning_preferences.read_preference',
                side_effect=AssertionError('Offroad learner should not read settings')):
-      assert not self.process.should_run(False, self.params, self.cp)
+      assert self.process.should_run(False, self.params, self.cp)
 
 
 class TestLearningProjectionPreference(unittest.TestCase):

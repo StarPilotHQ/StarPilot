@@ -54,6 +54,7 @@ def test_aged_known_sm_does_not_poison_valid_raw_successor_or_grant_output(bad):
     assert companion.current(sm, source_ns=0, now_ns=now, drain=False) is None
     assert companion.current(sm, source_ns=successor.logMonoTime, now_ns=now, drain=False) is None
     if bad == 'none':
+      assert companion.latest is not None
       assert companion.integrity_epoch == epoch and companion.latest[1]
       sm.update_msgs(now / 1e9, [successor.as_reader()])
       assert companion.current(sm, source_ns=successor.logMonoTime, now_ns=now, drain=False) is not None

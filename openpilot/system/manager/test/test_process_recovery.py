@@ -125,7 +125,7 @@ class TestProcessRecovery(unittest.TestCase):
     self.assertIsNot(p.proc, old)
     self.assertTrue(old.joined)
 
-  def test_learner_recovers_with_backoff_only_while_onroad(self):
+  def test_learner_recovers_with_backoff_onroad_and_parked(self):
     from openpilot.system.manager.process_config import managed_processes
     configured = managed_processes["steerlearnerd"]
     self.assertTrue(configured.restart_on_exit)
@@ -148,6 +148,12 @@ class TestProcessRecovery(unittest.TestCase):
     self.step(p, started=False)
     self.now += 60
     self.step(p, started=False)
+    self.assertIsNotNone(p.proc)
+    self.step(p, started=False, ignored=[configured.name])
+    self.assertTrue(p.shutting_down)
+    assert isinstance(p.proc, Child)
+    p.proc.exitcode = 0
+    self.step(p, started=False, ignored=[configured.name])
     self.assertIsNone(p.proc)
     self.assertEqual(p.restart_at, 0)
 
