@@ -90,6 +90,7 @@ class TestRuntime(unittest.TestCase):
     status.publish.assert_called_once_with(decision, encode(Preferences(True)), "idle")
     self.assertEqual(decision.state, "arming")
     self.messages.updated["accelerometer"] = False
+    self.messages.valid["accelerometer"] = False
     self.clock.mono += 100_000_000
     decision = self.runtime.tick()
     self.assertEqual(decision.state, "sensor_unavailable")
@@ -101,8 +102,20 @@ class TestRuntime(unittest.TestCase):
     self.assertIsNotNone(self.runtime.policy.last_sample_time)
     self.messages.updated["accelerometer"] = False
     self.clock.mono += 100_000_000
+    self.assertEqual(self.runtime.tick().state, "arming")
+    self.clock.mono += 400_000_000
     self.assertEqual(self.runtime.tick().state, "sensor_unavailable")
     self.assertIsNone(self.runtime.policy.arm_started)
+    self.assertEqual(self.events, [])
+
+  def test_arming_completes_with_brief_gaps_between_sensor_messages(self):
+    for _ in range(451):
+      self.tick()
+      self.messages.updated["accelerometer"] = False
+      self.clock.mono += 100_000_000
+      decision = self.runtime.tick()
+      self.assertIn(decision.state, ("arming", "armed"))
+    self.assertEqual(decision.state, "armed")
     self.assertEqual(self.events, [])
 
 

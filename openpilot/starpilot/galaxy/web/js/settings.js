@@ -49,7 +49,8 @@ export function sentryMonitorStatus(data, error = "") {
   if (error || !subtitle || label.startsWith("Waiting for monitor") || label === "Unavailable" || subtitle.includes("status is unavailable"))
     return { label: "Status unavailable", tone: "warning", detail: error ? "Reconnecting to the motion monitor…" : subtitle || "Checking motion monitor…" }
   if (label === "Monitoring motion") return { label: "Armed", tone: "armed", detail: subtitle }
-  return { label: "Disarmed", tone: label.startsWith("Arming") ? "warning" : "disarmed", detail: subtitle }
+  if (label.startsWith("Arming")) return { label: "Arming", tone: "warning", detail: subtitle }
+  return { label: "Disarmed", tone: "disarmed", detail: subtitle }
 }
 
 export class SettingsFeed {
