@@ -64,7 +64,7 @@ export const SentryEventsPage = {
   methods: { systemTime, storedSize },
   template: `
     <div class="gx-view gx-home" aria-label="Sentry motion events">
-      <header class="gx-settings__header gx-page-header"><div><h2>Sentry</h2>
+      <header class="gx-settings__header gx-page-header"><div><h2>Sentry Mode</h2>
         <p>Review motion events, configure motion monitoring, and manage notifications. Timestamps use the device clock and may be inaccurate.</p></div></header>
 
       <SettingsPage :mode="mode" :unauthorized="unauthorized" initial-page="sentry" title="" />

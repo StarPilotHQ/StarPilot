@@ -109,3 +109,8 @@ assert.equal(page.$data.data, null)
 SentryEventsPage.beforeUnmount.call(page)
 assert.equal(listeners.size, 0)
 globalThis.document = priorDocument
+
+// Sentry Mode has no camera snapshot section.
+assert.ok(!SentryEventsPage.components.CameraSnapshotCard)
+assert.doesNotMatch(SentryEventsPage.template, /CameraSnapshotCard|Camera Snapshot/)
+assert.match(SentryEventsPage.template, /<h2>Sentry Mode<\/h2>/)

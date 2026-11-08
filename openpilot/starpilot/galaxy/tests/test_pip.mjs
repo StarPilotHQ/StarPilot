@@ -93,3 +93,8 @@ PipPage.beforeUnmount.call(life)
 assert.equal(stopped, 2)
 
 assert.equal((PipPage.template.match(/type="range"/g) || []).length, 1)
+
+// The side buttons name the vehicle side, with the color of that side's outline.
+assert.match(PipPage.template, /gx-side-btn" :style="\{ '--side': side\.color \}"/)
+assert.match(PipPage.template, /gx-side-dot" aria-hidden="true"><\/span>\{\{ side\.label \}\}/)
+assert.match(PipPage.template, /<h2>Blind Spot Camera<\/h2>/)
