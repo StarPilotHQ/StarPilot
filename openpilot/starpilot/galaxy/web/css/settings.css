@@ -9,6 +9,7 @@
 @media (prefers-reduced-motion: reduce) { .gx-settings__body, .gx-settings-tabs { animation: none; } }
 .gx-settings__section { padding: 0; }
 .gx-settings__section .gx-section__header { cursor: default; }
+.gx-settings__section .gx-section__header--toggle { width: 100%; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .gx-settings__developer-body { display: grid; gap: var(--sp-3); }
 .gx-settings__developer-provider { display: grid; gap: var(--sp-2); font-weight: var(--fw-medium); }
 .gx-settings__save-status { position: fixed; bottom: calc(var(--bottomnav-clearance) + 8px); left: 50%; transform: translateX(-50%); z-index: var(--z-snackbar); padding: var(--sp-2) var(--sp-4); border-radius: var(--radius-full); background: var(--surface-container-high); box-shadow: var(--elev-2); }

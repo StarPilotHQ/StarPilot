@@ -6,7 +6,7 @@ from openpilot.starpilot.longitudinal.voacc import KEY, DESCRIPTION
 from openpilot.starpilot.ui.calibration_reset import calibration_reset
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
-from openpilot.starpilot.system.starport import new_setup
+from openpilot.starpilot.system.starport import head_unit_fixes, new_setup
 from openpilot.starpilot.ui.feature_settings_state import HEADING_PREFIX, FeatureRow, FeatureSettingsState
 
 
@@ -22,6 +22,14 @@ STARPORT_NEW_SETUP_DESCRIPTION = ("Guided StarPort setup with a live checklist o
 STARPORT_HEVC_KEY = "StarPortAllowHevc"
 STARPORT_HEVC_DESCRIPTION = ("Experimental. Only for a car that offers H.265 and no H.264 video. Cars that offer H.264 are not " +
                              "affected. Applies from the next StarPort connection.")
+STARPORT_FIXES_KEY = "StarPortHeadUnitFixes"
+STARPORT_FIXES_DESCRIPTION = ("Lets StarPort adjust how it talks to head units it has learned about. Turn off to use the standard " +
+                              "connection for every car. Applies from the next StarPort connection.")
+STARPORT_EXPERIMENTS_HEADING_KEY = HEADING_PREFIX + "starport_experiments"
+STARPORT_EXPERIMENTS_KEY = "StarPortHeadUnitExperiments"
+STARPORT_EXPERIMENTS_DESCRIPTION = ("Allows the experimental fixes below to run. Each one still needs its own switch, and the " +
+                                    "car-specific fixes setting must be on. Applies from the next StarPort connection.")
+STARPORT_EXPERIMENT_PREFIX = "StarPortExperiment:"
 DRIVER_MONITORING_RESET = "reset_driver_monitoring"
 DRIVER_MONITORING_RESET_DESCRIPTION = "Clear saved wheel-side detection. Automatic detection restarts on the next drive."
 
@@ -57,6 +65,20 @@ class DeveloperSettingsOwner:
                              ("Off", "On"), available=parked, reason=STARPORT_WIFI_DESCRIPTION if parked else held, default_value="On"))
       rows.append(FeatureRow(STARPORT_HEVC_KEY, "Allow H.265 video", "On" if hevc else "Off", b"1" if hevc else b"0",
                              ("Off", "On"), available=parked, reason=STARPORT_HEVC_DESCRIPTION if parked else held, default_value="Off"))
+      fixes, experiments = bool(status.get("head_unit_fixes", True)), bool(status.get("head_unit_experiments"))
+      chosen = set(status.get("head_unit_experiment_rules") or ())
+      rows.append(FeatureRow(STARPORT_FIXES_KEY, "Car-specific fixes", "On" if fixes else "Off", b"1" if fixes else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_FIXES_DESCRIPTION if parked else held, default_value="On"))
+      rows.append(FeatureRow(STARPORT_EXPERIMENTS_HEADING_KEY, "Specific car experiments", "", available=False, collapsed=True))
+      rows.append(FeatureRow(STARPORT_EXPERIMENTS_KEY, "Try experimental fixes", "On" if experiments else "Off",
+                             b"1" if experiments else b"0", ("Off", "On"), available=parked,
+                             reason=STARPORT_EXPERIMENTS_DESCRIPTION if parked else held, default_value="Off"))
+      for rule in head_unit_fixes.RULES:
+        if rule.status == head_unit_fixes.EXPERIMENTAL:
+          on = rule.id in chosen
+          rows.append(FeatureRow(STARPORT_EXPERIMENT_PREFIX + rule.id, rule.label, "On" if on else "Off", b"1" if on else b"0",
+                                 ("Off", "On"), available=parked, default_value="Off",
+                                 reason=f"Experimental. {rule.evidence.failure} Applies from the next StarPort connection." if parked else held))
     return tuple(rows)
 
   def _driver_monitoring_reset_allowed(self):
@@ -120,6 +142,12 @@ class DeveloperSettingsOwner:
       return self._apply_starport(request, "dedicated_wifi_interface", "set_dedicated_wifi")
     if request.key == STARPORT_HEVC_KEY:
       return self._apply_starport(request, "allow_hevc", "set_allow_hevc")
+    if request.key == STARPORT_FIXES_KEY:
+      return self._apply_starport(request, "head_unit_fixes", "set_head_unit_fixes")
+    if request.key == STARPORT_EXPERIMENTS_KEY:
+      return self._apply_starport(request, "head_unit_experiments", "set_head_unit_experiments")
+    if request.key.startswith(STARPORT_EXPERIMENT_PREFIX):
+      return self._apply_experiment_rule(request)
     if request.key == STARPORT_NEW_SETUP_KEY:
       return self._apply_new_setup(request)
     if request.key != KEY or request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
@@ -140,6 +168,21 @@ class DeveloperSettingsOwner:
       return False
     status = self._starport_status()
     return status is not None and bool(status.get(field)) == (request.value == "On")
+
+  def _apply_experiment_rule(self, request):
+    rule_id = request.key.removeprefix(STARPORT_EXPERIMENT_PREFIX)
+    status, client = self._starport_status(), self.starport
+    if status is None or client is None or rule_id not in head_unit_fixes.rule_ids() or not self.authorized():
+      return False
+    on = rule_id in (status.get("head_unit_experiment_rules") or ())
+    if request.value not in ("Off", "On") or request.expected != (b"1" if on else b"0"):
+      return False
+    try:
+      client().call("set_head_unit_experiment_rule", rule=rule_id, enabled=request.value == "On")
+    except (OSError, RuntimeError, ValueError):
+      return False
+    status = self._starport_status()
+    return status is not None and (rule_id in (status.get("head_unit_experiment_rules") or ())) == (request.value == "On")
 
   def _apply_new_setup(self, request):
     current = new_setup.enabled()

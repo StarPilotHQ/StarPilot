@@ -171,6 +171,22 @@ assert.deepEqual(cardsFor(""), [["", [0]], ["StarPort", [2, 3]]], "a heading row
 assert.deepEqual(cardsFor("h.265"), [["", []], ["StarPort", [3]]], "search keeps a row in its card when the heading is filtered out")
 assert.deepEqual(cardsFor("voacc"), [["", [0]]], "an emptied card is not shown")
 
+const experimentRows = [{ label: "Stay on Wi-Fi", value: "On", reason: "" }, { label: "Specific car experiments", value: "", reason: "", heading: true, collapsed: true },
+  { label: "Try experimental fixes", value: "Off", reason: "" }]
+const experimentCards = (state) => {
+  const view = { state: { query: "", data: { rows: experimentRows }, ...state }, initialPage: "developer", activeSection: {} }
+  view.visibleRows = SettingsPage.computed.visibleRows.call(view)
+  return SettingsPage.computed.rowCards.call(view).map(({ title, open }) => [title, open])
+}
+assert.deepEqual(experimentCards({ openCards: [] }), [["", true], ["Specific car experiments", false]], "a collapsible group starts closed")
+assert.deepEqual(experimentCards({ openCards: ["Specific car experiments"] }), [["", true], ["Specific car experiments", true]])
+assert.deepEqual(experimentCards({ openCards: [], query: "experimental" }).at(-1), ["Specific car experiments", true], "searching opens a matching group")
+const toggled = { state: { openCards: [] } }
+SettingsPage.methods.toggleCard.call(toggled, "Specific car experiments")
+assert.deepEqual(toggled.state.openCards, ["Specific car experiments"])
+SettingsPage.methods.toggleCard.call(toggled, "Specific car experiments")
+assert.deepEqual(toggled.state.openCards, [])
+
 const conditional = fixture()
 conditional.feed.start()
 await conditional.reply(0, { ...lane, page: "hub", rows: [{ label: "Conditional driving modes", page: "conditional",

@@ -93,6 +93,9 @@ DESCRIPTIONS = {
   'heading:starport': 'Settings for connecting Android Auto to the car through StarPort.',
   'StarPortNewSetup': 'Shows the guided StarPort setup with a live checklist instead of the classic setup screens.',
   'StarPortAllowHevc': 'Lets a car that offers only H.265 video receive H.265; a car with an H.264 mode keeps H.264.',
+  'StarPortHeadUnitFixes': 'Lets StarPort adjust how it talks to head units it has learned about. Turn off to use the standard connection for every car.',
+  'heading:starport_experiments': 'Fixes written for one exact car and software version. They stay off until you switch them on.',
+  'StarPortHeadUnitExperiments': 'Allows the experimental fixes below to run. Each one still needs its own switch.',
   'StarPortDedicatedWifi': "Joins the car's Wi-Fi on a second interface so the comma stays on its home Wi-Fi or phone hotspot.",
   'TeslaWakeOnCAN': 'Wakes comma when the Tesla wakes up, before you press the brake.',
   'RadarRecoveryAlert': 'Play a chime and show a brief message when a radar fault clears. You must re-engage manually.',
@@ -164,6 +167,8 @@ DESCRIPTIONS = {
 INITIALIZATION = {
   'StarPortNewSetup': 'Applies the next time the setup screen opens.',
   'StarPortAllowHevc': 'Applies from the next StarPort connection.',
+  'StarPortHeadUnitFixes': 'Applies from the next StarPort connection.',
+  'StarPortHeadUnitExperiments': 'Applies from the next StarPort connection.',
   'StarPortDedicatedWifi': 'Applies from the next StarPort connection.',
   'LateralControllerSelection': ('Applies when driving processes next start: the controller class, vehicle policy and ' +
     'PID/filter state are constructed together.'),
