@@ -21,6 +21,59 @@ IDENTITIES = (CAR.HYUNDAI_PALISADE, CAR.HYUNDAI_SONATA, CAR.HYUNDAI_SONATA_HYBRI
               CAR.HYUNDAI_ELANTRA_2021, CAR.HYUNDAI_KONA_EV, 'palisade_hdai', 'palisade_hdaii')
 
 
+def brake_health_before_permission_echo(card, cs, now):
+  native = withdrawal(card, cs, now, controls=True)
+  native = native_change(card.sm, native, longitudinalAllowed=True)
+  change(card.sm, 'pandaStates', lambda pandas: setattr(pandas[0], 'controlsAllowed', False))
+  card.sm.logMonoTime['pandaStates'] = now + 1_000_000
+  return native
+
+
+@pytest.mark.parametrize('identity', IDENTITIES)
+def test_current_brake_health_precedes_old_full_permission_echo(identity):
+  card, cs = armed_card(identity)
+  now = NOW + 10_000_000
+  cs.brakePressed = True
+  native = brake_health_before_permission_echo(card, cs, now)
+  fault = card.aol_disarming_fault(cs, now, now + 2_000_000)
+  card.aol_card_intent.update(cs, fault_active=fault, now_ns=now + 2_000_000)
+  assert not fault and card.aol_card_intent.allowed_latch, 'BRAKE_HEALTH_FIRST_ERASED_AOL'
+  result = axes(card, cs, native, now + 2_000_000)
+  assert result.lateral_active and not result.longitudinal_active
+
+
+@pytest.mark.parametrize('fault', ('equal_health', 'older_health', 'not_braking', 'gas', 'regen',
+                                  'rx', 'heartbeat', 'native_fault', 'latest_fault', 'lat_denied',
+                                  'expired', 'producer', 'epoch', 'source', 'unlatched'))
+def test_brake_health_first_never_admits_unproven_or_faulted_lateral(fault):
+  card, cs = armed_card(CAR.HYUNDAI_ELANTRA_2021)
+  now = NOW + 10_000_000
+  cs.brakePressed = True
+  native = brake_health_before_permission_echo(card, cs, now)
+  if fault in ('equal_health', 'older_health'):
+    card.sm.logMonoTime['pandaStates'] = now - int(fault == 'older_health')
+  elif fault in ('not_braking', 'gas', 'regen'):
+    setattr(cs, {'not_braking':'brakePressed', 'gas':'gasPressed', 'regen':'regenBraking'}[fault], fault != 'not_braking')
+  elif fault in ('rx', 'heartbeat', 'native_fault'):
+    field, value = {'rx': ('safetyRxChecksInvalid', True), 'heartbeat': ('heartbeatLost', True), 'native_fault': ('faults', 1)}[fault]
+    native_change(card.sm, native, pandaInventory=(replace(native.pandaInventory[0], **{field: value}),))
+  elif fault == 'latest_fault':
+    change(card.sm, 'pandaStates', lambda pandas: setattr(pandas[0], 'faults', ['relayMalfunction']))
+  elif fault == 'lat_denied':
+    native_change(card.sm, native, lateralAllowed=False)
+  elif fault == 'expired':
+    native_change(card.sm, native, observedMonoTime=now - 200_000_001, validUntilMonoTime=now - 1)
+  elif fault in ('producer', 'epoch', 'source'):
+    field, value = {'producer': ('intentProducerSessionId', 'foreign'), 'epoch': ('intentIntegrityEpoch', 99),
+                    'source': ('sourceCarStateMonoTime', now - 30_000_001)}[fault]
+    change(card.sm, 'aolAxisState', lambda axis: setattr(axis, field, value))
+  else:
+    card.aol_card_intent.allowed_latch = False
+  rejected = card.aol_disarming_fault(cs, now, now + 2_000_000)
+  card.aol_card_intent.update(cs, fault_active=rejected, now_ns=now + 2_000_000)
+  assert not card.aol_card_intent.allowed_latch
+
+
 def profile(identity):
   if identity in ('palisade_hdai', 'palisade_hdaii'):
     from opendbc.car.hyundai.tests.test_palisade_2023 import params as mixed_params

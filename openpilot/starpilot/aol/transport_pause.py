@@ -362,6 +362,7 @@ class TransportPauseFeedback:
     early_long = gm or cp.brand == 'hyundai' and early_native_long_withdrawal_supported(cp) or ev9 or ford_withdrawal or ford_long
     from openpilot.starpilot.car.gm.aol import f1_conventional_lateral_owner, gm_physical_pedal_withdrawal
     gm_pedal = gm_physical_pedal_withdrawal(cp, cs) and not f1_conventional_lateral_owner(cp)
+    classic_brake = classic_brake_withdrawal(cp, cs)
     event_ns = int(sm.logMonoTime['onroadEvents'])
     main_off_recovery = bool(0 < event_ns <= self.ccnc_main_off_source_ns <= now_ns and
       now_ns - self.ccnc_main_off_source_ns <= AXIS_MAX_AGE_NS)
@@ -386,7 +387,7 @@ class TransportPauseFeedback:
       now_ns - int(sm.logMonoTime['onroadEvents']) > 1_500_000_000 or
       any(event.immediateDisable or event.softDisable or
           event.userDisable and not (ev9_main_off and event.name == log.OnroadEvent.EventName.wrongCarMode or
-            (gm_pedal or classic_brake_withdrawal(cp, cs)) and event.name == log.OnroadEvent.EventName.pedalPressed or
+            (gm_pedal or classic_brake) and event.name == log.OnroadEvent.EventName.pedalPressed or
             ford_withdrawal and event.name in (log.OnroadEvent.EventName.pedalPressed, log.OnroadEvent.EventName.pcmDisable,
               log.OnroadEvent.EventName.buttonCancel))
           for event in sm['onroadEvents'])):
@@ -394,13 +395,13 @@ class TransportPauseFeedback:
     native = independent_lateral_health(sm, cp, cs, self.session, now_ns)
     # Separate health may report brake withdrawal before the matching axis status.
     # Retain only the existing LAT intent; LONG still follows its physical pedal.
-    ford_brake_health = bool(ford_withdrawal and cs.brakePressed and not cs.gasPressed and
+    brake_health = bool((ford_withdrawal or classic_brake) and cs.brakePressed and not cs.gasPressed and
       native is not None and native.sourcePandaStatesMonoTime > 0 and
       native.sourcePandaStatesMonoTime < int(sm.logMonoTime['pandaStates']) and
       all(not slot.controlsAllowed for slot, config in zip(sm['pandaStates'], cp.safetyConfigs, strict=True)
           if str(config.safetyModel) not in ('silent', 'noOutput')))
     if (native is None or not native.pandaInventory or not native.requestedLongitudinal or
-        native.longitudinalAllowed and not ford_brake_health or
+        native.longitudinalAllowed and not brake_health or
         native.observedMonoTime < self.lateral_native_ns or
         (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory)) != self.lateral_inventory):
       return None
