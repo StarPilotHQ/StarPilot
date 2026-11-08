@@ -210,11 +210,23 @@ class FordBluePilotController(BluePilotLateral):
     if self.starpilot_selected:
       angle = cast("StarPilotFordController", self.angle)
       angle.native_curvature_bounds = None
-      if self.native_pinion_model is not None and self.measured_seen and CS.out.vEgoRaw > 10.:
-        # Pinion native limits use 150 CAN curvature units, without learned geometry.
-        error = 150 * .00002
-        low = max(-max(self.measured_history) * .00002 - error, measured - CarControllerParams.CURVATURE_ERROR)
-        high = min(-min(self.measured_history) * .00002 + error, measured + CarControllerParams.CURVATURE_ERROR)
+      if self.measured_seen and CS.out.vEgoRaw > 10.:
+        if self.native_pinion_model is not None:
+          # Pinion native limits use 150 CAN curvature units, without learned geometry.
+          error = 150 * .00002
+          low = -max(self.measured_history) * .00002 - error
+          high = -min(self.measured_history) * .00002 + error
+        else:
+          # An old yaw extreme can expire before the next steering packet consumes its metadata.
+          history = list(self.measured_history)
+          sample_step = max((abs(b - a) for a, b in zip(history[:-1], history[1:], strict=True)), default=0)
+          # Native RX may advance one sample before the host receives the same batch.
+          error = max(0., CarControllerParams.CURVATURE_ERROR - (sample_step + 1) * .00002)
+          current_native = -self.measured_history[-1] * .00002
+          low = current_native - error
+          high = current_native + error
+        low = max(low, measured - CarControllerParams.CURVATURE_ERROR)
+        high = min(high, measured + CarControllerParams.CURVATURE_ERROR)
         # Tighten the host envelope only where both measurements agree on a command.
         if low <= high:
           angle.native_curvature_bounds = (low, high)

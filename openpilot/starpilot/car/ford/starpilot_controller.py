@@ -57,6 +57,7 @@ _STALL_HOLD_S = 0.5          # accumulated clip-binding time before a pulse fire
 _STALL_BLIP_FRAMES = 6       # mode-0 pulse length (6 frames @ 20 Hz = 300 ms)
 _STALL_COOLDOWN_S = 2.0      # re-arm delay after a pulse (release ramp + PSCM response time)
 _STALL_MAX_BLIPS = 3         # give up on a stuck episode; devLim telemetry keeps recording the stall
+_STALL_PROGRESS_EPS = 0.00002  # one native CAN curvature unit
 # The pulse releases steering for 300 ms; never fire it in a curve.
 _BLIP_MAX_PATH_ANGLE = 0.10  # rad
 
@@ -138,6 +139,7 @@ class StarPilotFordController:
     self.stall_blip_frames_left = 0   # remaining pulse frames; > 0 -> mode 0 on the wire
     self.stall_blip_cooldown_s = 0.0  # re-arm delay after a pulse
     self.stall_blip_count = 0         # pulses fired this stall episode
+    self.stall_measured_last: float | None = None
     self.angle_stall_blip_active = False
 
   def update_angle_params(self, params):
@@ -203,6 +205,7 @@ class StarPilotFordController:
       self.stall_blip_frames_left = 0
       self.stall_blip_cooldown_s = 0.0
       self.stall_blip_count = 0
+      self.stall_measured_last = None
       self.angle_stall_blip_active = False
       self.shared.precision_type = 1
       return LateralResult(
@@ -241,6 +244,7 @@ class StarPilotFordController:
       self.stall_blip_frames_left = 0
       self.stall_blip_cooldown_s = 0.0
       self.stall_blip_count = 0
+      self.stall_measured_last = None
       self.angle_stall_blip_active = False
       self.shared.precision_type = 1
       return LateralResult(
@@ -252,6 +256,17 @@ class StarPilotFordController:
         precision_type=1,
         lateralUncertainty=0.0,
       )
+
+    progress = 0.0 if self.stall_measured_last is None else measured - self.stall_measured_last
+    steering_responding = (abs(progress) > _STALL_PROGRESS_EPS and
+                          progress * (float(actuators.curvature) - measured) > 0.0)
+    self.stall_measured_last = measured
+    if steering_responding:
+      # A clipped tracking correction is not a stall while the car is responding.
+      self.stall_blip_hold_s = 0.0
+      if self.stall_blip_frames_left > 0 and not self.angle_stall_blip_active:
+        self.stall_blip_frames_left = 0
+        self.stall_blip_count = max(0, self.stall_blip_count - 1)
 
     # Stall-blip pulse in progress: hold lateral inactive (mode 0, all-zero signals -- the same
     # wire pattern as the human-turn override, no ford.h involvement) for _STALL_BLIP_FRAMES so the
@@ -439,7 +454,8 @@ class StarPilotFordController:
                 and abs(_stall_gap) > _STALL_GAP_MIN
                 and abs(desired_curvature) > abs(current_curvature))
     if _stalled:
-      if self.shared.bp_curvature_deviation_limited and self.stall_blip_cooldown_s <= 0.0:
+      if (self.shared.bp_curvature_deviation_limited and self.stall_blip_cooldown_s <= 0.0 and
+          not steering_responding):
         self.stall_blip_hold_s += _STEER_DT
       if (self.stall_blip_hold_s >= _STALL_HOLD_S and self.stall_blip_count < _STALL_MAX_BLIPS
           and abs(self.shared.path_angle_last) < _BLIP_MAX_PATH_ANGLE):

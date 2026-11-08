@@ -379,3 +379,35 @@ def test_natural_deviation_recovery_remains_bounded_and_native_admitted():
     assert host.angle.stall_blip_count == 1 and host.angle.stall_blip_cooldown_s > 0.
   finally:
     safety.set_safety_hooks(structs.CarParams.SafetyModel.noOutput, 0)
+
+
+@pytest.mark.parametrize('sign', [-1., 1.])
+@pytest.mark.parametrize('speed', [12., 15., 25.])
+def test_responding_steering_cannot_trigger_a_stall_release(sign, speed):
+  angle, cc, cs = controller(speed=speed)
+  set_curve(angle, cc, cs, sign * .0065)
+  for tick in range(40):
+    cs.out.yawRate = -sign * tick * .00005 * speed
+    result = angle.update_angle_strategy(cc, cs, cc.actuators)
+    assert not angle.angle_stall_blip_active
+    assert angle.stall_blip_frames_left == angle.stall_blip_count == 0
+    assert sign * result.path_angle > 0.
+
+
+@pytest.mark.parametrize('sign', [-1., 1.])
+def test_response_cancels_an_armed_release_before_steering_drops(sign):
+  angle, cc, cs = controller(speed=12.)
+  set_curve(angle, cc, cs, sign * .0065)
+  cs.out.yawRate = 0.
+  for _ in range(40):
+    angle.update_angle_strategy(cc, cs, cc.actuators)
+    assert not angle.angle_stall_blip_active
+    if angle.stall_blip_frames_left:
+      break
+  assert angle.stall_blip_frames_left > 0
+  cs.out.yawRate = -sign * .0001 * cs.out.vEgoRaw
+  result = angle.update_angle_strategy(cc, cs, cc.actuators)
+  assert not angle.angle_stall_blip_active
+  assert angle.stall_blip_frames_left == 0
+  assert angle.stall_blip_count == 0
+  assert sign * result.path_angle > 0.

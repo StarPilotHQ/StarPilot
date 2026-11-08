@@ -104,3 +104,84 @@ def test_pinion_guard_preserves_host_and_native_bounds(car, speed, sign, ratio, 
     assert math.isfinite(controller.bp.angle.bp_path_angle_final)
   finally:
     safety.set_safety_hooks(structs.CarParams.SafetyModel.noOutput, 0)
+
+
+@pytest.mark.parametrize('car', [CAR.FORD_MUSTANG_MACH_E_MK1, CAR.FORD_EXPLORER_MK6, CAR.FORD_F_150_MK14])
+@pytest.mark.parametrize('speed', [15., 30.])
+@pytest.mark.parametrize('sign', [-1., 1.])
+@pytest.mark.parametrize('drifting,native_ahead', [(False, False), (True, False), (True, True)])
+def test_yaw_guard_keeps_encoded_shadow_inside_native_measurements(car, speed, sign, drifting, native_ahead):
+  from types import SimpleNamespace
+  from openpilot.starpilot.controller_extensions import order_controller_can
+
+  class YawInputs(StraightRoadInputs):
+    controller_choice = FordController.STARPILOT
+    current_inputs_valid = True
+
+  cp = CarInterface.get_params(car, gen_empty_fingerprint(), [], False, False, False)
+  init_ford_safety_param_starpilot(cp, STARTUP['on'])
+  controller = CarController(DBC[cp.carFingerprint], cp)
+  inputs = YawInputs(settings(STARTUP['on'], True))
+  inputs.curvature = sign * .02
+  controller.bluepilot_inputs = inputs
+  controller.bp = FordBluePilotController(cp, controller.packer, controller.CAN, inputs)
+  state = CarState(cp)
+  state.update(state.get_can_parsers(cp))
+  safety, packer = libsafety_py.libsafety, CANPacker('ford_lincoln_base_pt')
+  safety.init_tests()
+  safety.set_alternative_experience(0)
+  assert safety.set_safety_hooks(structs.CarParams.SafetyModel.ford, cp.safetyConfigs[-1].safetyParam) == 0
+  safety.set_controls_allowed(True)
+  sent, yaw_counter = 0, 0
+  delayed = []
+  try:
+    for frame in range(70):
+      safety.set_timer(1_000_000 + frame * 10_000)
+      received, delayed = delayed, []
+
+      def rx(name, values, received=received):
+        address, data, bus = packer.make_can_msg(name, 0, values)
+        assert safety.safety_rx_hook(libsafety_py.make_CANPacket(address, bus, data))
+        received.append((address, data, bus))
+
+      if frame % 2 == 0:
+        rx('BrakeSysFeatures', {'Veh_V_ActlBrk': speed * 3.6, 'VehVActlBrk_D_Qf': 3,
+                                'VehVActlBrk_No_Cnt': frame // 2 % 16})
+        rx('EngVehicleSpThrottle2', {'Veh_V_ActlEng': speed * 3.6, 'VehVActlEng_D_Qf': 3})
+        rx('DesiredTorqBrk', {'VehStop_D_Stat': 0})
+      native_curvature = .004 - min(20, max(0, frame - 29)) * .0002 if drifting else .004
+      rx('Yaw_Data_FD1', {'VehYaw_W_Actl': -sign * native_curvature * speed, 'VehYawWActl_D_Qf': 3,
+                         'VehRollYaw_No_Cnt': yaw_counter % 256})
+      yaw_counter += 1
+      rx('EngVehicleSpThrottle', {'ApedPos_Pc_ActlArb': 0})
+      if frame % 10 == 0:
+        rx('EngBrakeData', {'BpedDrvAppl_D_Actl': 1, 'CcStat_D_Actl': 5})
+        rx('Steering_Data_FD1', {})
+      controller.bp.observe_can([(0, received)])
+      host_curvature = .004 - min(20, max(0, frame - 30)) * .0002 if drifting else .00408
+      cs = structs.CarState(vEgo=speed, vEgoRaw=speed, canValid=True, yawRate=-sign * host_curvature * speed)
+      cs.cruiseState.available = cs.cruiseState.enabled = True
+      state.out = cs.as_reader()
+      cc = structs.CarControl(enabled=True, latActive=frame >= 15)
+      cc.actuators.curvature = sign * .02
+      _, original = controller.update(cc.as_reader(), state, (1_000_000 + frame * 10_000) * 1000)
+      packets = order_controller_can(SimpleNamespace(CP=cp, CC=controller), original)
+      if native_ahead and frame == 35:
+        address, data, bus = packer.make_can_msg('Yaw_Data_FD1', 0, {
+          'VehYaw_W_Actl': -sign * (native_curvature - .0002) * speed,
+          'VehYawWActl_D_Qf': 3, 'VehRollYaw_No_Cnt': yaw_counter % 256,
+        })
+        yaw_counter += 1
+        safety.set_timer(1_000_000 + frame * 10_000 + 1000)
+        assert safety.safety_rx_hook(libsafety_py.make_CANPacket(address, bus, data))
+        delayed.append((address, data, bus))
+      for address, data, bus in packets:
+        if address in (0x3CA, 0x3D3, 0x3D6):
+          sent += 1
+          assert safety.safety_tx_hook(libsafety_py.make_CANPacket(address, bus, data)), (frame, hex(address))
+    assert sent > 30
+    bounds = controller.bp.angle.native_curvature_bounds
+    assert bounds is not None
+    assert bounds[0] <= controller.bp.angle.bp_kappa_cmd <= bounds[1]
+  finally:
+    safety.set_safety_hooks(structs.CarParams.SafetyModel.noOutput, 0)
