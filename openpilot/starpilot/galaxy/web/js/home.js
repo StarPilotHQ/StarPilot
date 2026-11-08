@@ -277,7 +277,7 @@ export const Home = {
             <template v-else><p>Installed: <strong>{{ summary.software.version }}</strong></p>
               <p>Branch: <strong>{{ summary.software.branch }}</strong></p>
               <p>Last updater report: <strong>{{ summary.software.update }}</strong></p></template>
-            <button type="button" class="gx-home__link" @click="go('/system')">Open Software &amp; Updates <i class="bi bi-arrow-right"></i></button>
+            <button type="button" class="gx-home__link" @click="go('/system')">Open Updates &amp; Backup <i class="bi bi-arrow-right"></i></button>
           </section>
         </div>
       </template>

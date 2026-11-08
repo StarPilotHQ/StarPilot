@@ -50,7 +50,8 @@ export const MENU = Object.freeze([
     // Torque-steered cars only: on angle-steered cars the page has nothing left to set once
     // Turn Signal Guidance moves to Lane Changes, so the item hides.
     { id: "torque", label: "Steering and Torque", path: page("torque"), also: ["/driving/torque"], torqueOnly: true },
-    { id: "tuning", label: "Tuning and Analysis", path: "/tuning", subs: { "/tuning/flm": "Auto Learn", "/tuning/plots": "Live plots" } },
+    // /tuning/flm and /tuning/plots open a tab of this same page (its tabs switch without changing the address).
+    { id: "tuning", label: "Tuning and Analysis", path: "/tuning", also: ["/tuning/flm", "/tuning/plots"] },
   ] },
   { id: "speed", label: "Speed", icon: "bi-speedometer2", children: [
     { id: "personalities", label: "Driving Personalities", path: page("personalities"),
@@ -82,8 +83,9 @@ export const MENU = Object.freeze([
   ] },
   { id: "connections", label: "Connections", icon: "bi-broadcast", children: [
     { id: "bluetooth", label: "Bluetooth", path: "/bluetooth" },
-    { id: "starport", label: "StarPort", path: "/starport", also: ["/spotify"],
-      subs: { "/starport/audio": "Spotify and Phone Audio", "/spotify": "Spotify and Phone Audio", "/theme_maker/starport": "StarPort layout" } },
+    // /spotify is the old address of Spotify and Phone Audio: a sub-page, not StarPort itself.
+    { id: "starport", label: "StarPort", path: "/starport",
+      subs: { "/starport/audio": "Spotify and Phone Audio", "/spotify": "Spotify and Phone Audio", "/theme_maker/starport": "StarPort Layout" } },
     { id: "galaxy-access", label: "Galaxy Access & Install", path: "/galaxy" },
   ] },
   // The Maps page's own tab bar is gone: its four pages are here.
@@ -101,7 +103,8 @@ export const MENU = Object.freeze([
   { id: "developer", label: "Developer", icon: "bi-code-slash", children: [
     { id: "developer-options", label: "Developer Options", path: "/developer/connect" },
     { id: "system-monitor", label: "System Monitor", path: "/logs/monitor" },
-    { id: "logs", label: "Logs & Diagnostics", path: "/logs", also: ["/manage_tmux"],
+    // /manage_tmux is the old address of tmux Live View (a sub-page).
+    { id: "logs", label: "Logs & Diagnostics", path: "/logs",
       subs: { "/logs/crashes": "Crash Reports", "/logs/starport": "StarPort Logs",
         "/logs/tmux": "tmux Live View", "/manage_tmux": "tmux Live View", "/device-preferences": "Force Drive State" } },
   ] },
@@ -180,7 +183,7 @@ export const PAGE_HIDDEN_ROWS = Object.freeze({ torque: ["Turn Signal Guidance"]
   localization: RIGHT_HAND_DRIVE_ROWS })
 // Page titles that changed with the menu.
 export const PAGE_HEADINGS = Object.freeze({ power: "Power & Data", profiles: "Acceleration & Braking",
-  conditional: "Experimental & Chill", display: "Brightness & Timeout", localization: "Language & Units" })
+  conditional: "Experimental & Chill", display: "Brightness & Timeout", localization: "Language & Units", traffic: "Traffic" })
 
 // ---- Lookup --------------------------------------------------------------------------------
 const NODES = new Map(), PARENTS = new Map()

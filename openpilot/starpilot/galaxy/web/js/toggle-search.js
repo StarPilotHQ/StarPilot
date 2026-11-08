@@ -1,6 +1,6 @@
 import { reactive } from "../vendor/vue/vue.esm-browser.js"
 import { SETTINGS_SECTIONS, isPipCropRow } from "./settings.js"
-import { menuPlace, settingsSearchPath } from "./menu.js"
+import { menuLocation, menuPlace, settingsSearchPath } from "./menu.js"
 import { guidedRows } from "./page-guides.js"
 
 const SPECIAL_PAGES = new Set(["ui_layout", "favorites"])
@@ -20,16 +20,34 @@ export function searchSettings(entries, query, limit = 30) {
       (a.section || "").localeCompare(b.section || "") || a.label.localeCompare(b.label)).slice(0, limit)
 }
 
+// Galaxy menu pages that are not in the tool catalog (menu.js), so search finds them by name too.
+const MENU_ONLY_PAGES = ["/appearance", "/quick-select", "/developer/connect", "/settings/recovery"]
+
+// A page is listed by its menu name and place (menu.js), e.g. "Troubleshoot · Help"; its catalog name and
+// description still find it. Catalog entries for the same menu page (Destination, Setup) become one result.
 export function toolSearchEntries(tools) {
-  const entries = []
+  const entries = [], byPlace = new Map()
+  const add = (path, label, context, text) => {
+    const location = menuLocation(path)
+    if (location) {
+      if (location.node.path === path || location.node.also?.includes(path)) path = location.node.path
+      label = location.tail || location.sub || location.node.label
+      context = menuPlace(path).split(" › ").slice(0, -1).join(" › ")
+    }
+    const known = byPlace.get(`${label}\n${context}`)
+    if (known) { known.search += " " + normalize(text); return }
+    const entry = { path, label, kind: "Page", context, search: normalize([label, context, text].join(" ")) }
+    byPlace.set(`${label}\n${context}`, entry)
+    entries.push(entry)
+  }
   const visit = (tool, parents = [], visited = new Set()) => {
-    entries.push({ path: tool.path, label: tool.name, kind: "Tool", context: parents.join(" · "),
-      search: normalize([tool.name, tool.description, ...parents, "Tools"].join(" ")) })
+    add(tool.path, tool.name, parents.join(" · "), [tool.name, tool.description, ...parents].join(" "))
     if (visited.has(tool.path)) return
     const next = new Set(visited).add(tool.path)
     for (const child of tool.children || []) visit(child, [...parents, tool.name], next)
   }
   for (const tool of tools) visit(tool)
+  for (const path of MENU_ONLY_PAGES) add(path, path, "", "")
   return entries
 }
 

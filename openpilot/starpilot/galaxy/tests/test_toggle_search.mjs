@@ -87,15 +87,16 @@ test("global search finds visible tool tiles by title and description", () => {
   assert.equal(searchSettings(entries, "navigation & maps")[0].path, "/navigation")
   assert.equal(searchSettings(entries, "download maps")[0].path, "/navigation")
   assert.deepEqual(searchSettings(entries, "model manager").map(hit => hit.path), ["/manage_models"])
-  assert.ok(entries.every(hit => hit.kind === "Tool"))
-  assert.equal(entries[0].context, "")
+  assert.ok(entries.every(hit => hit.kind === "Page"))
+  // Listed by its menu name and place (menu.js): Navigation & Maps is Navigation, under Maps.
+  assert.deepEqual(searchSettings(entries, "navigation and maps").map(hit => [hit.label, hit.context]), [["Navigation", "Maps"]])
 })
 
 test("nested camera tools appear as direct results with a useful location", () => {
   const entries = toolSearchEntries(catalogTools.filter(tool => tool.path === "/cameras"))
   const hits = searchSettings(entries, "V-ASM")
   assert.equal(hits[0].path, "/cameras/vasm")
-  assert.equal(hits[0].kind, "Tool")
+  assert.equal(hits[0].kind, "Page")
   assert.equal(hits[0].context, "Cameras")
 })
 
@@ -104,10 +105,42 @@ test("tool search walks every depth and indexes other tool sections", () => {
   const entries = toolSearchEntries(tools)
   assert.equal(searchSettings(entries, "crash reports")[0].path, "/logs/crashes")
   assert.equal(searchSettings(entries, "offline maps")[0].path, "/navigation/maps")
-  assert.equal(searchSettings(entries, "destination")[0].label, "Destination")
+  // Destination and Setup are now part of the one Navigation page: one result, still found by those names.
+  for (const query of ["destination", "setup"]) assert.deepEqual(searchSettings(entries, query).map(hit => [hit.label, hit.path]), [["Navigation", "/navigation"]])
+  assert.deepEqual(searchSettings(entries, "troubleshoot").map(hit => [hit.label, hit.context]), [["Troubleshoot", "Help"]])
   const nested = toolSearchEntries([{ name: "Parent", path: "/parent", children: [
     { name: "Child", path: "/parent/child", children: [{ name: "Grandchild", path: "/parent/child/grandchild" }] },
   ] }])
-  assert.deepEqual(nested.map(hit => hit.path), ["/parent", "/parent/child", "/parent/child/grandchild"])
+  // (the menu-only pages follow the catalog's)
+  assert.deepEqual(nested.slice(0, 3).map(hit => hit.path), ["/parent", "/parent/child", "/parent/child/grandchild"])
   assert.equal(nested[2].context, "Parent · Child")
+})
+
+test("search leaves out rows a page guide hides, since their control is on another page", async () => {
+  const pages = new Map()
+  for (const section of SETTINGS_SECTIONS) for (const page of section.pages) {
+    if (["ui_layout", "favorites"].includes(page)) continue
+    pages.set(page, response(page, []))
+  }
+  pages.set("personalities", response("personalities", [{ label: "Standard Personality", page: "standard" }]))
+  pages.set("standard", response("standard", [{ label: "Edit custom braking", page: "standard/braking" }]))
+  pages.set("standard/braking", response("standard/braking", [{ label: "Preset", value: "Standard", available: true },
+    { label: "20 mph point", value: "1.0", available: true }]))
+  let state
+  const index = new SettingsSearchIndex({ fetcher: async (url) => pages.get(decodeURIComponent(url.split("/").at(-1))), publish: (update) => { state = update } })
+  await index.load()
+  assert.deepEqual(searchSettings(state.entries, "preset").map(hit => hit.page), [])
+  assert.deepEqual(searchSettings(state.entries, "20 mph point").map(hit => hit.page), ["standard/braking"])
+})
+
+test("search uses the menu's page names, and finds menu pages that are not catalog tools", () => {
+  const entries = toolSearchEntries(catalogTools)
+  const at = query => searchSettings(entries, query).map(hit => `${hit.label} @ ${hit.context} -> ${hit.path}`)
+  assert.deepEqual(at("system tools"), ["Updates & Backup @ System -> /system"])
+  assert.deepEqual(at("vehicle controls"), ["Vehicle @ Car -> /vehicle"])
+  assert.deepEqual(at("model manager"), ["Driving Model @  -> /manage_models"])
+  assert.deepEqual(at("changed settings"), ["Changed Settings @ Help -> /settings/recovery"])
+  assert.deepEqual(at("quick select"), ["Quick Select @ Screen & Sound -> /quick-select"])
+  assert.deepEqual(at("developer options"), ["Developer Options @ Developer -> /developer/connect"])
+  assert.equal(new Set(entries.map(hit => `${hit.label} ${hit.context}`)).size, entries.length, "one result per menu page")
 })

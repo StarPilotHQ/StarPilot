@@ -107,7 +107,7 @@ const layout = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c',
   assert.equal(await page.getByText('Waiting for a live cabin frame.',{exact:false}).count(),0)
   cameraFail=false
   await page.evaluate(()=>location.hash='/vehicle')
-  await page.getByRole('heading',{name:'Vehicle Selection',exact:true}).waitFor()
+  await page.getByRole('heading',{name:'Vehicle',exact:true}).waitFor()
   const vehicleDefault=page.getByRole('button',{name:'Reset Detection confidence to default'})
   await vehicleDefault.waitFor()
   await page.evaluate(()=>{

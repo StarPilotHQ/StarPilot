@@ -118,7 +118,7 @@ createApp({
     pageName() {
       if (this.currentTool) return this.currentTool.name
       if (route.path === "/device-preferences") return "Force Drive State"
-      if (route.path === "/model_laboratory") return "Model Manager"
+      if (route.path === "/model_laboratory") return "Driving Model"
       return NAV.find((item) => item.path === route.path)?.name || "This page"
     },
     isLight() { return state.theme === "light" },

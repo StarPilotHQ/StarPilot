@@ -43,7 +43,7 @@ export const SettingsRecoveryPage = {
     },
   },
   template: `<section class="gx-settings" :inert="busy" :aria-busy="busy || undefined">
-    <header class="gx-settings__header gx-page-header"><div><h2>Show Non-Default Values</h2>
+    <header class="gx-settings__header gx-page-header"><div><h2>Changed Settings</h2>
       <p>Review saved settings that differ from this vehicle’s StarPilot defaults.</p></div></header>
     <GxState v-if="mode !== 'local'">Connect to local Galaxy to review saved settings.</GxState>
     <template v-else>

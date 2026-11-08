@@ -43,7 +43,7 @@ assert.deepEqual(menuTrail("/settings/page/standard/braking").map(item => item.i
   ["/settings", "/settings/menu/speed", "/settings/page/personalities", "/settings/page/standard", "/settings/page/standard/braking"])
 assert.deepEqual(at("/manage_models"), ["", "Driving Model", ""])
 assert.deepEqual(at("/model_laboratory"), ["", "Driving Model", ""])
-assert.deepEqual(at("/theme_maker/starport"), ["Connections", "StarPort", "StarPort layout"])
+assert.deepEqual(at("/theme_maker/starport"), ["Connections", "StarPort", "StarPort Layout"])
 // Cameras: its own group, the same three pages.
 assert.deepEqual(at("/cameras/vasm"), ["Cameras", "Blind Spot Warnings", ""])
 assert.deepEqual(at("/cameras/pip"), ["Cameras", "Blind Spot Camera", ""])
@@ -61,6 +61,15 @@ assert.deepEqual(at("/vehicle"), ["Car", "Vehicle", ""])
 assert.deepEqual(at("/settings/page/wheel"), ["Car", "Wheel Controls", ""])
 assert.deepEqual(at("/logs/troubleshoot"), ["Help", "Troubleshoot", ""])
 assert.deepEqual(at("/troubleshoot"), ["Help", "Troubleshoot", ""])
+// Tuning's tabs switch inside the page, so the addresses that open a tab are the page itself (no stale "Live plots").
+for (const path of ["/tuning/flm", "/tuning/plots"]) {
+  assert.deepEqual(at(path), ["Steering", "Tuning and Analysis", ""])
+  assert.equal(menuBack(path), null)
+}
+// Old addresses of sub-pages keep the sub-page's place (breadcrumb and back link), not the parent page's.
+assert.deepEqual(at("/spotify"), ["Connections", "StarPort", "Spotify and Phone Audio"])
+assert.deepEqual(at("/manage_tmux"), ["Developer", "Logs & Diagnostics", "tmux Live View"])
+assert.deepEqual(menuBack("/manage_tmux"), { path: "/logs", label: "Logs & Diagnostics" })
 assert.deepEqual(at("/logs/help"), ["Help", "Help & Community", ""])
 assert.deepEqual(at("/logs/monitor"), ["Developer", "System Monitor", ""])
 assert.deepEqual(at("/settings/recovery"), ["Help", "Changed Settings", ""])
@@ -93,7 +102,7 @@ assert.deepEqual(navigationTool.children.map(child => child.path), ["/navigation
 assert.equal(group("steering").icon, "gx-icon-steering-wheel")
 assert.match(readFileSync(new URL("../web/css/menu.css", import.meta.url), "utf8"), /\.bi\.gx-icon-steering-wheel::before \{[^}]*mask: url\("data:image\/svg\+xml,/)
 assert.deepEqual(PAGE_HEADINGS, { power: "Power & Data", profiles: "Acceleration & Braking", conditional: "Experimental & Chill", display: "Brightness & Timeout",
-  localization: "Language & Units" })
+  localization: "Language & Units", traffic: "Traffic" })
 
 // Merged pages and moved rows.
 assert.equal(PAGE_COMPANIONS.profiles, undefined, "Experimental & Chill is its own page, not a card on Acceleration & Braking")

@@ -226,7 +226,7 @@ export class ModelManagerFeed {
       this.request = null
       this.data = null
       this.saving = false
-      this.lastError = payload ? "The result is unknown. Checking automatically…" : "Model Manager is unavailable. Reconnecting automatically…"
+      this.lastError = payload ? "The result is unknown. Checking automatically…" : "Driving models are unavailable. Reconnecting automatically…"
       this.publish({ loading: false, data: null, error: this.lastError })
       this.poll = this.later(() => this.load(), 2000)
     }, 10000)
@@ -777,14 +777,14 @@ export const ModelsPage = {
 
   template: `
     <div class="gx-view gx-model-manager" :inert="!!busy" :aria-busy="!!busy || undefined">
-      <GxState v-if="mode !== 'local'">Model Manager is unavailable in the offline preview.</GxState>
+      <GxState v-if="mode !== 'local'">Driving models are unavailable in the offline preview.</GxState>
       <GxState v-else-if="loading" loading>Reading installed models and available downloads…</GxState>
 
       <template v-else>
-        <header class="gx-settings__header gx-page-header"><div><h2>Model Manager</h2>
+        <header class="gx-settings__header gx-page-header"><div><h2>Driving Model</h2>
           <p>Manage models, downloads, Jetlink connections, and Model Laboratory pairs.</p></div></header>
         <GxNotice v-if="message" tone="info">{{ message }}</GxNotice>
-        <GxNotice v-if="error" tone="danger" title="Model Manager">{{ error }}</GxNotice>
+        <GxNotice v-if="error" tone="danger" title="Driving Model">{{ error }}</GxNotice>
         <GxNotice v-if="status.isOnroad" tone="warn">Selections apply next onroad cycle. Park before downloading models or changing Jetlink.</GxNotice>
         <GxNotice v-if="status.downloading && !status.refreshing" :title="'Downloading ' + downloadTargetLabel">{{ status.progress || 'Keep the device connected until the download finishes.' }}</GxNotice>
         <section class="gx-card gx-model-choose">

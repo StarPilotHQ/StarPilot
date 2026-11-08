@@ -37,7 +37,7 @@ try {
   const app = readFileSync(new URL("../web/js/app.js", import.meta.url), "utf8")
   const tools = readFileSync(new URL("../web/js/diagnostic-tools.js", import.meta.url), "utf8")
   assert.match(app, /route.path === '\/settings\/recovery'/)
-  assert.match(tools, /Show Non-Default Values/)
+  assert.match(tools, /Changed Settings/)
   assert.match(tools, /Reset to Default/)
   assert.match(tools, /navigate', '\/settings\/recovery'/)
 } finally { globalThis.fetch = oldFetch }

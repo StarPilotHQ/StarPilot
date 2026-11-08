@@ -195,8 +195,8 @@ export const VehicleControlsPage = {
     },
   },
   template: `
-    <section class="gx-vehicle" aria-label="Vehicle Controls" :inert="state.busy" :aria-busy="state.busy || undefined">
-      <header class="gx-settings__header gx-page-header"><div><h2>Vehicle Selection</h2>
+    <section class="gx-vehicle" aria-label="Vehicle" :inert="state.busy" :aria-busy="state.busy || undefined">
+      <header class="gx-settings__header gx-page-header"><div><h2>Vehicle</h2>
         <p>Choose Auto Detection or save a vehicle for the next start.</p></div></header>
       <GxState v-if="mode !== 'local'">Local vehicle selection is unavailable in preview.</GxState>
       <template v-else>
