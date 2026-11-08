@@ -1,5 +1,7 @@
 """A physical SET/RES release precedes the cold host join; output still needs a new acknowledgement."""
 
+import unittest
+
 import pytest
 from opendbc.safety.tests.libsafety import libsafety_py
 from opendbc.safety.tests import test_volkswagen_stock_aol as stock
@@ -92,3 +94,16 @@ def test_pending_physical_release_cannot_survive_fault_or_expiry(word, fault):
     assert o.safety.aol_get_permission_mask() & 2 == 0
   finally:
     o.tearDown()
+
+
+class TestVolkswagenFirstPress(unittest.TestCase):
+  def test_first_physical_release_before_host_join(self):
+    for word in (9, 25, 41):
+      for button in ('GRA_Tip_Setzen', 'GRA_Tip_Wiederaufnahme'):
+        for brake in (False, True):
+          test_first_press_before_heartbeat_needs_fresh_host_join(word, button, brake)
+
+  def test_pending_release_native_vetoes(self):
+    for word in (9, 25, 41):
+      for fault in ('timeout', 'cancel', 'main', 'reverse', 'permanent', 'relay', 'crc', 'brake'):
+        test_pending_physical_release_cannot_survive_fault_or_expiry(word, fault)
