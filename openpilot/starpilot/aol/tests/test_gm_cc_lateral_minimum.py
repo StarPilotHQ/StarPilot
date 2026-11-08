@@ -16,7 +16,7 @@ from openpilot.starpilot.aol.runtime import decide_axes
 from openpilot.starpilot.aol.tests.test_gm_parked_startup import _exercise_parked_main
 from openpilot.starpilot.aol.tests.test_gm_startup_main import cases
 from openpilot.starpilot.aol.wire import IntentState
-from openpilot.starpilot.car.gm.aol import cc_independent_lateral_below_engage
+from openpilot.starpilot.car.gm.aol import independent_lateral_below_engage
 from openpilot.starpilot.nostalgia import aol_no_entry
 
 
@@ -35,7 +35,7 @@ def test_actual_bolt_main_park_then_low_speed_drive_without_main_edge(main_actio
 @pytest.mark.parametrize('identity', [CAR.CHEVROLET_BOLT_CC_2017, CAR.CHEVROLET_BOLT_CC_2018_2021, CAR.CHEVROLET_BOLT_CC_2022_2023])
 def test_exact_cc_long_factory_owners(identity):
   cp, intent = setup(identity)
-  assert cc_independent_lateral_below_engage(cp, intent, enabled=False, active=False)
+  assert independent_lateral_below_engage(cp, intent, enabled=False, active=False)
 
 
 @pytest.mark.parametrize('enabled,active', [(False, False), (True, False), (False, True), (True, True)])
@@ -44,7 +44,7 @@ def test_minimum_exemption_cannot_engage_ordinary_long(enabled, active, long_gra
   cp, intent = setup()
   cs = car.CarState(canValid=True, gearShifter='drive', vEgo=4.8, standstill=False)
   cs.cruiseState.available = True
-  allowed = cc_independent_lateral_below_engage(cp, intent, enabled=enabled, active=active)
+  allowed = independent_lateral_below_engage(cp, intent, enabled=enabled, active=active)
   no_entry = aol_no_entry([EventName.belowEngageSpeed], cs, paddle_only_cancel=False, allow_below_engage_speed=allowed)
   native = SimpleNamespace(requestedLateral=True, lateralAllowed=True, requestedLongitudinal=long_grant, longitudinalAllowed=long_grant)
   decision = decide_axes(
@@ -68,22 +68,22 @@ def test_minimum_exemption_cannot_engage_ordinary_long(enabled, active, long_gra
 @pytest.mark.parametrize('field', ['settingsQualified', 'allowedLatch', 'lateralArmed'])
 def test_current_armed_intent_required(field):
   cp, intent = setup()
-  assert not cc_independent_lateral_below_engage(cp, replace(intent, **{field: False}), enabled=False, active=False)
+  assert not independent_lateral_below_engage(cp, replace(intent, **{field: False}), enabled=False, active=False)
 
 
 def test_lateral_pause_and_missing_intent_remain_denied():
   cp, intent = setup()
-  assert not cc_independent_lateral_below_engage(cp, None, enabled=False, active=False)
-  assert not cc_independent_lateral_below_engage(cp, replace(intent, pauseLateral=True), enabled=False, active=False)
-  assert cc_independent_lateral_below_engage(cp, replace(intent, pauseLongitudinal=True), enabled=False, active=False)
+  assert not independent_lateral_below_engage(cp, None, enabled=False, active=False)
+  assert not independent_lateral_below_engage(cp, replace(intent, pauseLateral=True), enabled=False, active=False)
+  assert independent_lateral_below_engage(cp, replace(intent, pauseLongitudinal=True), enabled=False, active=False)
 
 
 @pytest.mark.parametrize('index', [0, 1, 3, 4, 5, 6, 7])
-def test_other_factory_profiles_keep_existing_admission(index):
+def test_factory_profiles_use_independent_steering_minimum(index):
   _, intent = setup()
   cp = list(cases())[index]
   cp.alternativeExperience = 32
-  assert not cc_independent_lateral_below_engage(cp, intent, enabled=False, active=False)
+  assert independent_lateral_below_engage(cp, intent, enabled=False, active=False)
 
 
 @pytest.mark.parametrize(
@@ -93,7 +93,7 @@ def test_other_factory_profiles_keep_existing_admission(index):
 def test_changed_configuration_is_not_a_cc_long_owner(field, value):
   cp, intent = setup()
   setattr(cp, field, value)
-  assert not cc_independent_lateral_below_engage(cp, intent, enabled=False, active=False)
+  assert not independent_lateral_below_engage(cp, intent, enabled=False, active=False)
 
 
 @pytest.mark.parametrize('event', [EventName.buttonCancel, EventName.doorOpen, EventName.controlsMismatch, EventName.commIssue, EventName.steerUnavailable])
@@ -101,5 +101,5 @@ def test_only_cruise_speed_event_is_removed(event):
   cp, intent = setup()
   cs = car.CarState(canValid=True, gearShifter='drive', vEgo=4.8)
   cs.cruiseState.available = True
-  allowed = cc_independent_lateral_below_engage(cp, intent, enabled=False, active=False)
+  allowed = independent_lateral_below_engage(cp, intent, enabled=False, active=False)
   assert aol_no_entry([EventName.belowEngageSpeed, event], cs, paddle_only_cancel=False, allow_below_engage_speed=allowed) == (event != EventName.doorOpen)

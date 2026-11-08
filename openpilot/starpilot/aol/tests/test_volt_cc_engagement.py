@@ -9,7 +9,7 @@ from openpilot.cereal import log
 from openpilot.selfdrive.car.car_events import CarEvents
 from openpilot.starpilot.aol.tests.test_gm_cc_lateral_minimum import setup
 from openpilot.starpilot.aol.tests.test_gm_parked_startup import _exercise_parked_main
-from openpilot.starpilot.car.gm.aol import cc_independent_lateral_below_engage
+from openpilot.starpilot.car.gm.aol import independent_lateral_below_engage
 
 
 def params(f1):
@@ -24,9 +24,9 @@ def test_volt_cc_steering_minimum_keeps_cruise_minimum(f1):
   _, intent = setup()
   assert cp.minSteerSpeed == pytest.approx(7 * CV.MPH_TO_MS)
   assert cp.minEnableSpeed == pytest.approx(24 * CV.MPH_TO_MS)
-  assert cc_independent_lateral_below_engage(cp, intent, enabled=False, active=False)
-  assert not cc_independent_lateral_below_engage(cp, replace(intent, allowedLatch=False), enabled=False, active=False)
-  assert not cc_independent_lateral_below_engage(cp, intent, enabled=True, active=True)
+  assert independent_lateral_below_engage(cp, intent, enabled=False, active=False)
+  assert not independent_lateral_below_engage(cp, replace(intent, allowedLatch=False), enabled=False, active=False)
+  assert not independent_lateral_below_engage(cp, intent, enabled=True, active=True)
 
 
 @pytest.mark.parametrize('f1', [False, True])

@@ -18,7 +18,7 @@ from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.starpilot.aol.intent import read_settings
 from openpilot.starpilot.aol.tests import test_gm_parked_startup as parked, test_ioniq_availability as fixture
 from openpilot.starpilot.aol.tests.test_gm_cc_lateral_minimum import setup
-from openpilot.starpilot.car.gm.aol import cc_independent_lateral_below_engage
+from openpilot.starpilot.car.gm.aol import independent_lateral_below_engage
 
 
 def cc_params(candidate):
@@ -31,16 +31,16 @@ def cc_params(candidate):
 def test_all_exact_ordinary_cc_owners_keep_independent_steering_minimum(candidate):
   cp = cc_params(candidate)
   _, intent = setup()
-  assert cc_independent_lateral_below_engage(cp, intent, enabled=False, active=False)
+  assert independent_lateral_below_engage(cp, intent, enabled=False, active=False)
   for enabled, active in ((True, True), (True, False), (False, True)):
-    assert not cc_independent_lateral_below_engage(cp, intent, enabled=enabled, active=active)
+    assert not independent_lateral_below_engage(cp, intent, enabled=enabled, active=active)
   for key in ('settingsQualified', 'allowedLatch', 'lateralArmed'):
-    assert not cc_independent_lateral_below_engage(cp, replace(intent, **{key: False}), enabled=False, active=False)
-  assert not cc_independent_lateral_below_engage(cp, replace(intent, pauseLateral=True), enabled=False, active=False)
+    assert not independent_lateral_below_engage(cp, replace(intent, **{key: False}), enabled=False, active=False)
+  assert not independent_lateral_below_engage(cp, replace(intent, pauseLateral=True), enabled=False, active=False)
   for flag in (GMFlags.PEDAL_LONG, GMFlags.NO_CAMERA, 1 << 30):
     denied = cp.as_reader().as_builder()
     denied.flags |= int(flag)
-    assert not cc_independent_lateral_below_engage(denied, intent, enabled=False, active=False)
+    assert not independent_lateral_below_engage(denied, intent, enabled=False, active=False)
 
 
 @pytest.mark.parametrize('main_action', [0, 9])
