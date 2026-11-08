@@ -60,6 +60,9 @@ LOG_QUEUE_MAX = 1000          # session log records waiting for the writer; past
 ENCODER_RECOVERIES = 3       # hardware encoder reopens allowed per window before the session is torn down
 ENCODER_RECOVERY_WINDOW = 10.0
 CAR_LINK_HOLD = 10.0         # a hands-free connection from the car counts as "car present" this long
+HANGUP_PROMPT = 6            # early hang-ups in a row before an unofficial dongle is asked to restart
+DONGLE_RESTART_WAIT = 300.0  # longest wait for that restart
+RESTART_QUIET = 20.0         # hands-free silence that counts as the dongle having restarted
 HFP_FRESH = 3.0              # a hands-free link from the car this recent still means "the car is reaching out now"
 COMMA_PAGE_WINDOW = 6.0         # a hands-free link this soon after we paged the car is ours; later is the car's
 RFCOMM_BUSY_WAITS = (1.0, 2.0)   # the kernel can still hold the last session's channel for a moment
@@ -81,14 +84,17 @@ def encoder_preference(configured: str) -> str:
   return 'hardware' if COMMA_HARDWARE else configured
 
 STATE_LABELS = {
-  "idle": "off", "connecting_bluetooth": "connecting to car", "discovering": "finding android auto",
-  "rfcomm": "starting wireless setup", "wifi_start": "waiting for car", "wifi_info": "getting car wi-fi",
-  "joining_wifi": "joining car wi-fi", "connecting_tcp": "connecting", "authenticating": "authenticating",
-  "negotiating": "negotiating video", "streaming": "projecting", "suspended": "car showing its own screen",
-  "backoff": "retrying", "stopping": "stopping", "error": "error",
-  "waiting_for_usb": "plug into the car's usb", "usb_accessory": "starting usb",
-  "waiting_for_ipad": "open headunitpad on the ipad", "waiting_for_tablet": "open open headunit on the tablet",
+  "idle": "Off", "connecting_bluetooth": "Connecting to car", "discovering": "Finding Android Auto",
+  "rfcomm": "Starting wireless setup", "wifi_start": "Waiting for car", "wifi_info": "Getting car Wi-Fi",
+  "joining_wifi": "Joining car Wi-Fi", "connecting_tcp": "Connecting", "authenticating": "Authenticating",
+  "negotiating": "Negotiating video", "streaming": "Projecting", "suspended": "Car showing its own screen",
+  "backoff": "Retrying", "stopping": "Stopping", "error": "Error",
+  "waiting_for_usb": "Plug into the car's USB", "usb_accessory": "Starting USB",
+  "waiting_for_ipad": "Open HeadunitPad on the iPad", "waiting_for_tablet": "Open Open Headunit on the tablet",
+  "dongle_restart": "Waiting for the dongle to restart",
 }
+STAGE_STEPS = {"connecting_bluetooth": "Calling it over Bluetooth", "discovering": "Looking up its Android Auto service",
+               "rfcomm": "Opening the Android Auto channel"}
 
 
 def _is_onroad() -> bool:
@@ -438,6 +444,11 @@ class Supervisor:
     self._paged_at = -COMMA_PAGE_WINDOW   # when this comma last asked BlueZ to connect to the car
     self._attempt_ended_at: float | None = None
     self._hfp_link = threading.Event()  # set when the chosen car opens the hands-free link
+    self._hangups = 0                   # early hang-ups since the receiver last sent its Wi-Fi details
+    self._attempt_frames = 0
+    self._restart = threading.Event()
+    self._restart_how = ""
+    self._receiver_seen_at = -RESTART_QUIET  # receiver only, so a companion car cannot fake a restart
     self._modern_reply: dict[str, bool] = {}  # car address -> answer its v4+ version request like a current phone
     self._ladder = setup_ladder.SetupLadder(identity_store.CONFIG_PATH.with_name("setup_state.json"))  # handshake to try per car
     self._strategy: setup_ladder.Strategy | None = None   # the one this attempt runs
@@ -449,7 +460,8 @@ class Supervisor:
     self.config = identity_store.load_config()
     self._status: dict = {"state": "idle", "detail": "", "error": "", "last_stage": "", "attempt": 0,
                           "retry_in": 0.0, "mode": None, "stats": {}, "head_unit": {}, "identity": "", "running": False,
-                          "view": "", "encoder": "", "target_fps": 0}
+                          "view": "", "encoder": "", "target_fps": 0, "handshake_step": "", "hangups": 0,
+                          "dongle_restart": None}
 
   # ------------------------------------------------------------------ status
 
@@ -460,6 +472,8 @@ class Supervisor:
   def _stage(self, state: str, detail: str = "") -> None:
     self._check_cancel()
     self._set(state=state, detail=detail, last_stage=state)
+    if state in STAGE_STEPS:
+      self._set(handshake_step=STAGE_STEPS[state])
     self.log("stage", state=state, detail=detail)
 
   def _check_cancel(self) -> None:
@@ -476,6 +490,7 @@ class Supervisor:
     status["companion_name"] = self.config.get("companion_name", "")
     status["pairing_note"] = self._pairing_note
     status["car_type"] = self.car_type()
+    status["unofficial_dongle"] = self._unofficial_dongle()
     status.update(car_profiles.summary(self.config))
     status["adapter_choice_needed"] = self._adapter_choice_needed()
     status["configured_view"] = self.config["view"]
@@ -634,6 +649,34 @@ class Supervisor:
     if reset and self._session_alive():
       self._flush_reset_note()
     return reset
+
+  def continue_ladder(self) -> bool:
+    """Continue tapped: stop waiting for the dongle restart."""
+    if self._status.get("state") != "dongle_restart" or self._restart.is_set():
+      return False
+    self.log("dongle_restart_continue")
+    self._restart_how = "continue"
+    self._restart.set()
+    return True
+
+  def _await_dongle_restart(self) -> None:
+    """Ask an unofficial dongle that keeps hanging up for a power cycle; carry on when it returns, on Continue, or on timeout."""
+    self._restart.clear()
+    self._restart_how = "timeout"
+    self.log("dongle_restart_requested", hangups=self._hangups, wait_s=DONGLE_RESTART_WAIT)
+    self._set(state="dongle_restart", dongle_restart={"hangups": self._hangups, "wait_s": DONGLE_RESTART_WAIT}, retry_in=0.0, mode=None,
+              handshake_step="Waiting for the dongle to restart")
+    deadline = time.monotonic() + DONGLE_RESTART_WAIT
+    try:
+      while not self._restart.is_set() and (remaining := deadline - time.monotonic()) > 0:
+        self._wait(min(0.2, remaining))
+    except Cancelled:
+      self._restart_how = "stopped"
+      raise
+    finally:
+      self.log("dongle_restart_done", how=self._restart_how)
+      self._hangups = 0
+      self._set(dongle_restart=None, hangups=0, handshake_step="")
 
   def _flush_reset_note(self) -> None:
     note, self._reset_note = self._reset_note, None
@@ -1183,6 +1226,13 @@ class Supervisor:
       now = time.monotonic()
       since_page = now - self._paged_at
       self.log("hfp_initiator", initiator="comma" if since_page < COMMA_PAGE_WINDOW else "car", since_page_s=round(since_page, 1))
+      if address.upper() == self.config["receiver_address"].upper():
+        quiet = now - self._receiver_seen_at
+        if self._status.get("state") == "dongle_restart" and quiet >= RESTART_QUIET and not self._restart.is_set():
+          self.log("dongle_restart_detected", quiet_s=round(quiet, 1))
+          self._restart_how = "restarted"
+          self._restart.set()
+        self._receiver_seen_at = now
       self._car_seen_at = now
       self._hfp_link.set()
 
@@ -1353,6 +1403,8 @@ class Supervisor:
     wireless = connection == "wireless"
     receiver = {"wired": "usb", "headunitpad": "headunitpad", "openheadunit": "openheadunit"}.get(connection, self.config["receiver_name"])
     self._video_seen, self._strategy = False, None
+    self._hangups = 0
+    self._set(hangups=0, dongle_restart=None, handshake_step="")
     if trigger == "onroad" and wireless:   # a new drive: the ladder's passes are per ignition, and the comma can stay on between drives
       self._ladder.begin_cycle(self.config["receiver_address"])
     from openpilot.starpilot.system.starport.bugsink_transport import device_metadata
@@ -1374,6 +1426,8 @@ class Supervisor:
         self._run_started = started
         peer_stopped = False
         reach = reachability.OTHER  # set by a failed attempt; a clean end or a car-ended session keeps the standard wait
+        self._attempt_frames = 0
+        self._set(handshake_step="")
         self.log("attempt_start")
         try:
           if car_first:
@@ -1394,7 +1448,12 @@ class Supervisor:
           message = self._describe_error(stage, error)
           self._set(error=message)
           reach = reachability.classify(stage, type(error).__name__, f"{message} {error}")
-          self.log("attempt_failed", stage=stage, error=message, kind=type(error).__name__, where=_where(error), reach=reach)
+          hung_up = wireless and reachability.hung_up_early(stage, type(error).__name__, f"{message} {error}", self._attempt_frames)
+          if hung_up:
+            self._hangups += 1
+            self._set(hangups=self._hangups)
+          self.log("attempt_failed", stage=stage, error=message, kind=type(error).__name__, where=_where(error), reach=reach,
+                   frames=self._attempt_frames, hung_up=hung_up, hangups=self._hangups)
           if isinstance(error, SharedRadioStall):
             reconnect_notice.write(reconnect_notice.SHARED_RADIO_TEXT)
           if isinstance(error, StrayLinkError):
@@ -1410,11 +1469,17 @@ class Supervisor:
         if self._stop.is_set():
           break
         attempt = 0 if time.monotonic() - started > STABLE_SESSION_SECONDS else attempt + 1
+        if wireless and self._hangups >= HANGUP_PROMPT and self._unofficial_dongle():
+          try:
+            self._await_dongle_restart()
+          except Cancelled:
+            break
+          continue
         delay = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
         delay = reachability.retry_delay(reach, attempt, delay)
         if peer_stopped:
           delay = max(delay, PEER_STOP_RETRY_SECONDS)  # the car ended projection itself; do not bounce straight back
-        self._set(state="backoff", attempt=attempt, retry_in=delay, mode=None)
+        self._set(state="backoff", attempt=attempt, retry_in=delay, mode=None, handshake_step="")
         try:
           self._wait_backoff(delay, car_can_wake=wireless and not peer_stopped)
         except Cancelled:
@@ -1434,7 +1499,7 @@ class Supervisor:
       self.log("session_stop")
       self.log.close()
       self.log.capture_system()
-      self._set(state="idle", detail="", running=False, retry_in=0.0, mode=None)
+      self._set(state="idle", detail="", running=False, retry_in=0.0, mode=None, handshake_step="")
 
   @staticmethod
   def _describe_error(stage: str, error: Exception) -> str:
@@ -1499,9 +1564,10 @@ class Supervisor:
       base_modern = self._modern_reply.get(address, config.get("modern_reply_cache", {}).get(address, False))
       strategy = self._strategy = self._ladder.strategy(address, base_modern)
       learned = self._ladder.snapshot(address, adapter, unofficial)["learned"]
+      tries = self._ladder.tried(address, strategy.rung)
     self.log("ladder_strategy", rung=strategy.rung, label=strategy.label, learned=learned, modern_reply=strategy.modern_reply,
              channel_type=strategy.channel_type, patience=strategy.patience, experiments=strategy.experiments,
-             phone_identity=strategy.phone_identity)
+             phone_identity=strategy.phone_identity, tries=tries)
     try:
       self._stage("rfcomm", f"channel {channel}")
       rfcomm = self._connect_rfcomm(address, channel)
@@ -1526,14 +1592,17 @@ class Supervisor:
                         and error.stage in ("wifi_start", "wifi_info")
                         and not (error.stage == "wifi_start" and boot.only_not_ready()) and not stopped)
       rejected = boot is not None and not stopped and boot.hung_up_on_reply(error)
+      reason = "" if stopped else self._ladder_reason(error, boot, rejected)
       with self._lock:
         current = self._strategy is strategy
+        if reason and current:
+          self._ladder.note(address, strategy.rung, reason)
         outcome = self._ladder.failed(address, strategy, ladder_failure=ladder_failure and current, rejected=rejected and current,
                                       video_seen=self._video_seen, version_major=boot.version_major if boot is not None else 0,
                                       adapter=adapter, unofficial=unofficial)
         if outcome:
           self.log("ladder_failed", outcome=outcome, rung=strategy.rung, next=self._ladder.strategy(address, base_modern).rung,
-                   version_major=boot.version_major, reason="rejected_reply" if rejected else "timeout")
+                   version_major=boot.version_major, reason="rejected_reply" if rejected else "timeout", why=reason)
         elif boot is not None and isinstance(error, BootstrapTimeout) and error.stage == "wifi_start" and boot.only_not_ready():
           self.log("ladder_not_ready", rung=strategy.rung, refusals=len(boot.refusals))
       if source == "cache" and not self._stop.is_set() and drops_cached_channel(self._status["last_stage"], error):
@@ -1761,10 +1830,65 @@ class Supervisor:
 
   def _bootstrap_log(self, name: str, **values) -> None:
     self.log(name, **values)
+    if name == "bootstrap_rx":
+      self._attempt_frames += 1
+    elif name == "bootstrap_credentials":
+      self._hangups = 0
+      self._set(hangups=0)
     if name == "bootstrap_tx" and values.get("message") == NAMES[2]:
       self._set(state="wifi_info", last_stage="wifi_info")
     elif name == "wifi_joining":
       self._set(state="joining_wifi", last_stage="joining_wifi", detail=str(values.get("ssid", "")))
+    if step := self._handshake_step(name, values):
+      self._set(handshake_step=step)
+
+  def _receiver_word(self) -> str:
+    return "The adapter" if self.car_type() == "adapter" else "The car"
+
+  def _handshake_step(self, name: str, values: dict) -> str:
+    """A bootstrap event in words for the setup screen, or ""."""
+    who = self._receiver_word()
+    message = values.get("message")
+    if name == "bootstrap_version":
+      return f"{who} said hello (protocol {values.get('major')}.{values.get('minor')}); answering it"
+    if name == "bootstrap_tx" and message == NAMES[5]:
+      return f"Answered; waiting for {who.lower()}'s address"
+    if name == "bootstrap_initial_kick":
+      return f"{who} has not said hello; asking it to start"
+    if name == "bootstrap_start_refused":
+      return f"{who} says it is not ready yet"
+    if name == "bootstrap_tx" and message == NAMES[2]:
+      return "Asking for its Wi-Fi name and password"
+    if name == "bootstrap_credentials":
+      return f"Got the Wi-Fi details for {values.get('ssid') or 'its network'}"
+    if name == "wifi_joining":
+      return f"Joining {values.get('ssid') or 'its Wi-Fi'}"
+    if name == "wifi_joined":
+      return "Joined its Wi-Fi"
+    return ""
+
+  def _ladder_reason(self, error: BaseException, boot, rejected: bool) -> str:
+    """Why an attempt with a rung ended, in words."""
+    who = self._receiver_word()
+    stage = getattr(error, "stage", self._status.get("last_stage", ""))
+    if rejected:
+      return f"{who} hung up right after our reply"
+    if reachability.hung_up_early(stage, type(error).__name__, str(error), self._attempt_frames):
+      return f"{who} hung up before sending anything"
+    if isinstance(error, BootstrapTimeout):
+      if stage == "wifi_info":
+        return f"{who} never sent its Wi-Fi name and password"
+      if boot is not None and boot.only_not_ready():
+        return f"{who} kept saying it was not ready"
+      if boot is not None and boot.version_major > 0:
+        return f"{who} said hello but never sent its address"
+      return f"{who} never said hello"
+    reach = reachability.classify(stage, type(error).__name__, str(error))
+    if reach == reachability.ASLEEP:
+      return f"{who} did not answer over Bluetooth"
+    if reach == reachability.NOT_READY and self._attempt_frames:
+      return f"{who} hung up partway through the handshake"
+    return (str(error) or type(error).__name__)[:160]
 
   def _connect_tcp(self, result, lease) -> socket.socket:
     self._stage("connecting_tcp", f"{result.endpoint.ip}:{result.endpoint.port}")

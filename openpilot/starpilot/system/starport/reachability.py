@@ -32,6 +32,16 @@ def classify(stage: str, kind: str, message: str) -> str:
   return OTHER
 
 
+_HANG_UP = ("connection reset", "errno 104]", "connection refused", "errno 111]")
+_HANG_UP_STAGES = ("rfcomm", "wifi_start", "wifi_info")
+
+
+def hung_up_early(stage: str, kind: str, message: str, frames: int) -> bool:
+  """The receiver dropped or refused the link before sending any handshake message; a page timeout is not one."""
+  text = f"{kind} {message}".lower()
+  return frames == 0 and stage in _HANG_UP_STAGES and any(word in text for word in _HANG_UP)
+
+
 def retry_delay(reach: str, attempt: int, standard: float) -> float:
   """The wait before the next attempt; never shorter than the standard backoff, and unchanged for other failures."""
   floor = {ASLEEP: ASLEEP_FLOOR, LOCAL: LOCAL_FLOOR}.get(reach)

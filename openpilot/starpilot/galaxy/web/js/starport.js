@@ -386,7 +386,7 @@ export class StarPortFeed {
 
   async control(action, extra = {}) {
     if (!this.active || this.busy || !this.setup?.enabled || this.pairing?.active ||
-      !["start", "stop", "select_receiver", "auto_connect", "connection", "car_type", "car_profile", "reset_handshake"].includes(action)) return false
+      !["start", "stop", "select_receiver", "auto_connect", "connection", "car_type", "car_profile", "reset_handshake", "continue_ladder"].includes(action)) return false
     const result = await this.request("./api/starport/control", {
       method: "POST",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...extra })
@@ -790,6 +790,7 @@ export const StarPortPage = {
     chooseApp(key) { this.showSteps = true; return this.saveApp(0, HEAD_UNIT_APPS[key]) },
     useClassic() { return this.feed.setNewSetup(false) },
     resetHandshake() { return this.control("reset_handshake") },
+    continueLadder() { return this.control("continue_ladder") },
     useGuided() { return this.feed.setNewSetup(true) },
     saveCarType(index, value) {
       const labels = this.carTypeLabels
@@ -969,7 +970,7 @@ export const StarPortPage = {
           </div>
         </section>
       <StarPortGuidedSetup v-if="setup && newSetup && guided.show" id="gx-starport-guided" :state="guided" :busy="busy" :choices-disabled="appDisabled"
-        @choose-type="chooseType" @choose-adapter="chooseAdapter" @choose-app="chooseApp" @use-car="useCar" @classic="useClassic" @reset-handshake="resetHandshake" @done="showSteps = false">
+        @choose-type="chooseType" @choose-adapter="chooseAdapter" @choose-app="chooseApp" @use-car="useCar" @classic="useClassic" @reset-handshake="resetHandshake" @continue-ladder="continueLadder" @done="showSteps = false">
         <template #car>
           <GxNotice v-if="wiredUnavailable" tone="warn">Wired AA is unavailable: {{ runtime.wired_blocked }}.</GxNotice>
           <template v-if="carType === 'usb'">

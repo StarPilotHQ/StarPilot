@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { StarPortFeed, StarPortPage } from "../web/js/starport.js"
-import { guidedState, connectionStages, handshakeSteps, handshakeResettable, StarPortGuidedSetup, FIRST_RUN_NOTICE, EXHAUSTED_NOTICE } from "../web/js/starport-guided.js"
+import { guidedState, connectionStages, handshakeSteps, handshakeResettable, ladderRound, StarPortGuidedSetup, FIRST_RUN_NOTICE, EXHAUSTED_NOTICE, RESTART_TITLE } from "../web/js/starport-guided.js"
 
 const setup = { identity: { installed: true } }
 const adapterModels = { aawireless: "AAWireless", default: "Motorola MA1", unofficial: "Unofficial dongle" }
@@ -118,7 +118,7 @@ assert.equal(guidedState({ setup: null, runtime: running("rfcomm") }).show, fals
 
 // The component emits the page's actions and never invents state.
 {
-  assert.deepEqual(StarPortGuidedSetup.emits, ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "reset-handshake", "done"])
+  assert.deepEqual(StarPortGuidedSetup.emits, ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "reset-handshake", "continue-ladder", "done"])
   assert.match(StarPortGuidedSetup.template, /v-if="state\.canResetHandshake"[^>]*@click="\$emit\('reset-handshake'\)"/)
   const template = StarPortGuidedSetup.template
   assert.match(template, /\$emit\('choose-type', choice\.key\)/)
@@ -276,3 +276,43 @@ console.log("StarPort guided setup: steps, adapter and app choices, reopening an
   assert.equal(held.apps.options.find((option) => option.selected).key, "headunitpad")
 }
 console.log("StarPort guided setup: a choice keeps the card open passed")
+
+// Every rung says what it does, how often it ran this drive and why it last ended; the live step shows under the current one.
+{
+  const tried = ladder({ steps: [{ id: "standard", label: "Standard handshake", state: "current", description: "Answers normally.", tries: 3, reason: "The car never said hello" },
+    { id: "other_reply", label: "The other version reply", state: "waiting", description: "Other reply.", tries: 0, reason: "" }] })
+  const steps = handshakeSteps(tried)
+  assert.deepEqual(steps[0], { id: "standard", label: "Standard handshake", state: "current", description: "Answers normally.", tries: 3, reason: "The car never said hello" })
+  assert.equal(steps[1].tries, 0)
+  const state = guidedState({ setup, runtime: running("wifi_start", { setup_ladder: tried, handshake_step: "Asking for its Wi-Fi name and password" }) })
+  assert.equal(state.liveStep, "Asking for its Wi-Fi name and password")
+  assert.equal(state.round, "Round 1 of 3")
+  assert.equal(ladderRound(ladder({ passes: 2 })), "Round 3 of 3")
+  assert.equal(ladderRound(ladder({ learned: true })), "")
+  assert.equal(ladderRound(ladder({ exhausted: true })), "")
+  assert.equal(guidedState({ setup, runtime: running("waiting_for_usb", { connection: "wired", handshake_step: "x" }) }).liveStep, "")
+  assert.match(StarPortGuidedSetup.template, /step\.description/)
+  assert.match(StarPortGuidedSetup.template, /state\.liveStep/)
+}
+
+// An unofficial dongle waiting for a restart gets the restart card with Continue; other receivers only get told about the hang-ups.
+{
+  const restart = guidedState({ setup, carType: "adapter", runtime: running("dongle_restart", { hangups: 6, dongle_restart: { hangups: 6 } }) })
+  assert.equal(restart.show, true)
+  assert.equal(restart.phase, "restart")
+  assert.equal(restart.title, RESTART_TITLE)
+  assert.deepEqual(restart.restart, { hangups: 6 })
+  assert.equal(restart.progress[0].state, "active")
+  const builtin = guidedState({ setup, carType: "builtin", runtime: running("backoff", { last_stage: "rfcomm", hangups: 7 }) })
+  assert.equal(builtin.restart, null)
+  assert.match(builtin.notice, /The car has hung up 7 times/)
+  assert.match(guidedState({ setup, carType: "adapter", runtime: running("backoff", { hangups: 6 }) }).notice, /unplug the adapter/)
+  assert.equal(guidedState({ setup, carType: "builtin", runtime: running("backoff", { hangups: 5 }) }).notice, FIRST_RUN_NOTICE)
+  assert.match(StarPortGuidedSetup.template, /\$emit\('continue-ladder'\)/)
+  assert.match(StarPortPage.template, /@continue-ladder="continueLadder"/)
+  const calls = []
+  StarPortPage.methods.continueLadder.call({ control: (action) => calls.push(action) })
+  assert.deepEqual(calls, ["continue_ladder"])
+}
+console.log("StarPort guided setup: rung detail, live step and the dongle restart card passed")
+

@@ -1873,6 +1873,7 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-guided__choice:has(:checked) { background: var(--primary); color: var(--on-primary); }
 .gx-guided__choice:has(:checked):hover { background: var(--primary-hover); }
 .gx-guided__tile { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--radius-sm); background: var(--primary-container); color: var(--primary); font-size: var(--fs-lg); }
+.gx-guided__checklist > .gx-starport-row { flex-wrap: nowrap; }
 .gx-guided__mark { flex: none; display: grid; place-items: center; width: 28px; font-size: var(--fs-lg); color: var(--on-surface-variant); }
 .gx-guided__checklist > li.is-done .gx-guided__mark, .gx-guided__checklist > li.is-worked .gx-guided__mark { color: var(--success); }
 .gx-guided__checklist > li.is-active .gx-guided__mark, .gx-guided__checklist > li.is-current .gx-guided__mark, .gx-guided__checklist > li.is-retry .gx-guided__mark { color: var(--primary); }

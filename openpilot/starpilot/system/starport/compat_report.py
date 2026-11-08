@@ -21,7 +21,7 @@ import zipfile
 from collections.abc import Callable
 from pathlib import Path
 
-from openpilot.starpilot.system.starport import identity as identity_store
+from openpilot.starpilot.system.starport import identity as identity_store, reachability
 from openpilot.starpilot.system.starport import system_snapshot
 from openpilot.starpilot.system.starport.session import describe_video_config
 
@@ -120,11 +120,13 @@ def summarize(events: list[dict]) -> dict:
   report: dict = {"started": events[0].get("t", "") if events else "", "events": len(events), "transport": "",
                   "trigger": "", "car": {}, "stages": [], "furthest_stage": "", "outcome": "no session",
                   "errors": [], "ended": [], "wifi": {}, "tls": {}, "video": {}, "usb": {}, "bluetooth": {},
-                  "focus": {"granted": 0, "lost": 0}, "ignored": [], "stats": {}, "health": {}}
+                  "focus": {"granted": 0, "lost": 0}, "ignored": [], "stats": {}, "health": {},
+                  "ladder": {}, "hangups": 0, "restarts": []}
   ignored: dict[tuple, dict] = {}
   projected = False  # the car acknowledged a frame; focus or the "streaming" stage alone do not show that
   failed_after = None
   car_off = False
+  frames = 0  # handshake messages since the attempt began, for logs written before attempt_failed carried hung_up
   for record in events:
     name = record["event"]
     if name == "session_start":
@@ -136,6 +138,22 @@ def summarize(events: list[dict]) -> dict:
       state = record.get("state", "")
       if state and (not report["stages"] or report["stages"][-1] != state):
         report["stages"].append(state)
+    elif name == "attempt_start":
+      frames = 0
+    elif name == "bootstrap_rx":
+      frames += 1
+    elif name == "ladder_strategy" and record.get("rung"):
+      report["ladder"].setdefault(record["rung"], {"tries": 0, "failed": 0, "why": ""})["tries"] += 1
+    elif name == "ladder_failed" and record.get("rung"):
+      rung = report["ladder"].setdefault(record["rung"], {"tries": 0, "failed": 0, "why": ""})
+      rung["failed"] += 1
+      rung["why"] = record.get("why") or record.get("reason", "")
+    elif name == "ladder_worked" and record.get("rung"):
+      report["ladder"].setdefault(record["rung"], {"tries": 0, "failed": 0, "why": ""})["why"] = "worked"
+    elif name == "dongle_restart_requested":
+      report["restarts"].append({"t": record.get("t", ""), "hangups": record.get("hangups"), "how": ""})
+    elif name == "dongle_restart_done" and report["restarts"]:
+      report["restarts"][-1]["how"] = record.get("how", "")
     elif name == "bootstrap_version" and isinstance(record.get("head_unit"), dict):
       report["car"].update({key: value for key, value in record["head_unit"].items() if isinstance(value, str) and value})
       report["wifi"]["version"] = f"{record.get('major')}.{record.get('minor')}"
@@ -195,6 +213,10 @@ def summarize(events: list[dict]) -> dict:
     elif name == "rfcomm_channel":
       report["bluetooth"]["rfcomm_channel"] = record.get("channel")
     elif name == "attempt_failed":
+      hung_up = record.get("hung_up")
+      if hung_up is None:
+        hung_up = reachability.hung_up_early(record.get("stage", ""), record.get("kind", ""), record.get("error", ""), frames)
+      report["hangups"] += bool(hung_up)
       error = {"stage": record.get("stage", ""), "error": record.get("error", "")}
       if record.get("where"):
         error["where"] = record["where"][-1]  # the innermost frame: which call actually raised
@@ -231,6 +253,22 @@ def summarize(events: list[dict]) -> dict:
   return report
 
 
+def stage_line(stages: list[str]) -> str:
+  """Stages in order, one lap per attempt, with identical laps in a row shown once with a count."""
+  laps: list[list[str]] = []
+  for stage in stages:
+    if not laps or stage == "connecting_bluetooth":
+      laps.append([])
+    laps[-1].append(stage)
+  parts: list[tuple[list[str], int]] = []
+  for lap in laps:
+    if parts and parts[-1][0] == lap:
+      parts[-1] = (lap, parts[-1][1] + 1)
+    else:
+      parts.append((lap, 1))
+  return " | ".join(" > ".join(lap) + (f" (x{count})" if count > 1 else "") for lap, count in parts)
+
+
 def render_text(report: dict, name: str = "") -> str:
   """The report as plain text, to paste into an issue or a message."""
   lines = [f"StarPilot Android Auto compatibility report{f' ({name})' if name else ''}",
@@ -239,7 +277,14 @@ def render_text(report: dict, name: str = "") -> str:
   car = report["car"]
   if car:
     lines.append("Car: " + ", ".join(f"{key.replace('_', ' ')}: {value}" for key, value in car.items()))
-  lines.append("Stages: " + (" > ".join(report["stages"]) or "none"))
+  lines.append("Stages: " + (stage_line(report["stages"]) or "none"))
+  for rung, entry in (report.get("ladder") or {}).items():
+    lines.append(f"Handshake {rung}: {entry['tries']} tries, {entry['failed']} counted failures" +
+                 (f" (last: {entry['why']})" if entry.get("why") else ""))
+  if report.get("hangups"):
+    lines.append(f"Hung up before any handshake message: {report['hangups']} attempts")
+  for restart in report.get("restarts") or []:
+    lines.append(f"Asked to restart the dongle at {restart['t'] or '?'} after {restart['hangups']} hang-ups: {restart['how'] or 'still waiting'}")
   for error in report["errors"][-5:]:
     lines.append(f"Error ({error['stage']}{', after car shutdown' if error.get('after_car_shutdown') else ''}): {error['error']}" +
                  (f"  [at {error['where']}]" if error.get("where") else ""))

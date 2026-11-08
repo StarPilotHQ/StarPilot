@@ -231,6 +231,10 @@ def session_ladder(events: list[dict]) -> list[dict]:
       tried[-1]["outcome"] = str(event.get("outcome", ""))[:16]
       if event.get("reason"):
         tried[-1]["reason"] = str(event["reason"])[:16]
+      if event.get("why"):
+        tried[-1]["why"] = scrub(event["why"], 80)
+    elif name == "attempt_failed" and event.get("hung_up") and tried:
+      tried[-1]["hung_up"] = True
     elif name == "ladder_not_ready" and tried:
       tried[-1]["not_ready"] = tried[-1].get("not_ready", 0) + 1
     elif name == "ladder_worked" and tried:
@@ -303,6 +307,8 @@ def session_record(path: Path) -> dict:
     "error": scrub(last_failure.get("error", "")),
     "failures": len(failures),
     "drops": len(drops),
+    "hangups": report["hangups"],
+    "restarts": [{"hangups": restart.get("hangups"), "how": restart.get("how") or None} for restart in report["restarts"]],
     "ended_by_car": car_ended,
     "attempts": attempts,
     "timing_source": "monotonic" if events and all("mono_s" in e for e in events) else "wall clock (legacy log)",
