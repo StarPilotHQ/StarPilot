@@ -74,6 +74,7 @@ export const SentryNotifications = {
   computed: { relay() { return this.notifications?.relayEnrollment?.supported ? this.notifications.relayEnrollment : null } },
   methods: {
     reportSave,
+    otherPhones() { return (this.notifications?.appSubscriptions || []).filter(phone => !this.pushState.id || phone.id !== this.pushState.id) },
     refreshPush() { try { this.pushState = JSON.parse(window.StarPilotApp?.sentryPush?.() || '{}') } catch { this.pushState = {} } },
     togglePhone() { window.StarPilotApp?.setSentryPush?.(!this.pushState.enabled); this.refreshPush(); setTimeout(() => this.client.run(), 1000) },
     async testPhone(id) {
@@ -115,7 +116,7 @@ export const SentryNotifications = {
       this.refreshPush()
       if (this.mode !== "local" || document.hidden) return
       this.client.run()
-      this.poll = setInterval(() => { if (!this.notificationBusy && !this.client.pending) this.client.run() }, 5000)
+      this.poll = setInterval(() => { this.refreshPush(); if (!this.notificationBusy && !this.client.pending) this.client.run() }, 5000)
     },
     channelExpanded(name) { return this.notifications.channels[name].enabled || !!this.channelSetup[name] },
     toggleChannel(name) {
@@ -168,9 +169,11 @@ export const SentryNotifications = {
         <GxNotice tone="danger" v-if="notifications?.queueFull">The notification queue is full. Some events could not be queued.</GxNotice>
         <template v-if="notifications">
           <p class="gx-note">{{ notifications.deliverySemantics }}</p>
-          <section class="gx-card" aria-label="Phone alerts">
-            <div class="gx-section__header"><i class="bi bi-phone" aria-hidden="true"></i><span class="gx-section__title">Phone alerts</span><span v-if="relay" class="gx-chip">{{ relayChip() }}</span></div>
+          <section class="gx-card" aria-label="Galaxy App Alerts">
+            <div class="gx-section__header"><i class="bi bi-phone" aria-hidden="true"></i><span class="gx-section__title">Galaxy App Alerts</span><span v-if="relay" class="gx-chip">{{ relayChip() }}</span></div>
             <div class="gx-panel gx-stack">
+              <p v-if="!nativePush" class="gx-note">App alerts can be set up and managed in the Galaxy app.</p>
+              <template v-else>
               <p class="gx-note" role="status">{{ relay ? relayStatus() : notifications.appPushAvailable ? 'Push relay configured.' : 'Configure a push relay to deliver phone alerts.' }}</p>
               <div v-if="relay && ['unenrolled', 'revoked', 'actionRequired'].includes(relay.state)" class="gx-actions">
                 <button type="button" class="gx-btn" :disabled="!relay.automaticConfigured" @click="enableHostedAlerts">Enable alerts</button>
@@ -184,7 +187,7 @@ export const SentryNotifications = {
                   <button type="button" class="gx-btn gx-btn--tonal" :disabled="!notifications.appPushAvailable" @click="togglePhone">{{ pushState.enabled ? 'Turn off' : 'Turn on' }}</button>
                 </div>
               </div>
-              <div v-for="phone in (notifications.appSubscriptions || [])" :key="phone.id" class="gx-row gx-row--wrap">
+              <div v-for="phone in otherPhones()" :key="phone.id" class="gx-row gx-row--wrap">
                 <div class="gx-row__info gx-row__info--wide"><span class="gx-row__label">{{ phone.label || 'Phone' }}</span>
                   <span class="gx-row__desc">{{ phone.lastResult || 'Not tested yet' }}<template v-if="phone.lastAt">, {{ new Date(phone.lastAt * 1000).toLocaleString() }}</template></span></div>
                 <div class="gx-actions">
@@ -192,7 +195,7 @@ export const SentryNotifications = {
                   <button type="button" class="gx-btn gx-btn--tonal" @click="removePhone(phone.id)">Remove</button>
                 </div>
               </div>
-              <p v-if="(notifications.appSubscriptions || []).length" class="gx-note">Remove only clears a phone from this comma. To stop it re-adding itself, also turn Sentry alerts off in the phone's app.</p>
+              <p v-if="otherPhones().length" class="gx-note">Remove only clears a phone from this comma. To stop it re-adding itself, also turn Sentry alerts off in the phone's app.</p>
               <p v-for="phone in (notifications.removedAppSubscriptions || [])" :key="phone.id" class="gx-note">{{ phone.lastResult }}</p>
               <details>
                 <summary class="gx-link">Relay settings</summary>
@@ -222,6 +225,7 @@ export const SentryNotifications = {
                   </div>
                 </div>
               </details>
+              </template>
             </div>
           </section>
           <div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="client.run({action: 'test', target: 'all'})">Test all channels</button></div>
