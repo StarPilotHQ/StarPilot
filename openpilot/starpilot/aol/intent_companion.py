@@ -121,7 +121,7 @@ class IntentCompanion:
       verified = ((stamp, *raw_verified) if raw_current else self.verified_sm_projection)
       if (verified is not None and verified[0] == stamp and verified[2] == self.integrity_epoch and
           verified[3] == self.session and sm.valid.get(INTENT_SERVICE, False) and
-          sm.alive.get(INTENT_SERVICE, False) and 0 < stamp <= now_ns <= stamp + SAFETY_MAX_AGE_NS and
+          0 < stamp <= now_ns <= min(stamp + SAFETY_MAX_AGE_NS, verified[1].validUntilMonoTime) and
           (stamp < source_ns or (source_ns == 0 or source_ns == stamp) and
            0 < stamp <= now_ns <= stamp + SAFETY_MAX_AGE_NS) and
           now_ns - stamp > INTENT_MAX_AGE_NS and decode_intent(sm[INTENT_SERVICE]) == verified[1]):
