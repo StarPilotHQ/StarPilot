@@ -148,6 +148,45 @@ function fileSizeText(model) {
   return "Unavailable";
 }
 
+// Download progress on the model's row. While downloading, the comma reports "<model name>: NN%" (models/manager.py);
+// before the first percent it says "Starting download", shown as a moving bar.
+export function modelDownloadProgress(status, models) {
+  if (!status?.downloading || status.refreshing || !Array.isArray(models)) return null
+  const match = /^(.+): (\d{1,3})%$/.exec(String(status.progress || ""))
+  const named = match ? models.find(m => m.label === match[1]) : null
+  const model = named || (!status.downloadAll ? models.find(m => m.value === status.modelToDownload) : null)
+  if (!model) return null
+  const variant = status.downloadVariant === "amd"
+  const percent = named ? Math.min(100, Number(match[2])) : null
+  // The eGPU variant's size is not reported, so its speed cannot be worked out.
+  const size = variant ? 0 : bytes(model.declaredSizeBytes || model.artifactSize) || 0
+  return { model: model.value, percent, size,
+    label: (percent === null ? "Starting download" : "Downloading") + (variant ? " · eGPU variant" : "") }
+}
+
+// Speed from how far the percent moved over the recent samples ({ t: ms, percent }), oldest first. The comma reports
+// whole percents only, so this is an estimate averaged over the samples kept (about the last 15 seconds).
+export function downloadSpeed(samples, size) {
+  if (!size || !Array.isArray(samples) || samples.length < 2) return null
+  const first = samples[0], last = samples[samples.length - 1]
+  const seconds = (last.t - first.t) / 1000
+  if (seconds < 3 || last.percent < first.percent) return null
+  return (last.percent - first.percent) / 100 * size / seconds
+}
+
+export function formatSpeed(bytesPerSecond) {
+  if (bytesPerSecond === null || !Number.isFinite(bytesPerSecond)) return ""
+  return bytesPerSecond >= 1e6 ? `${(bytesPerSecond / 1e6).toFixed(1)} MB/s` : `${Math.round(bytesPerSecond / 1e3)} KB/s`
+}
+
+// Keep the samples for the model being downloaded from the last 15 seconds; start again for another model.
+export function nextDownloadSamples(samples, bar, now) {
+  if (!bar || bar.percent === null) return []
+  const last = samples[samples.length - 1]
+  const kept = last && last.model === bar.model && bar.percent >= last.percent ? samples.filter(s => now - s.t <= 15000) : []
+  return [...kept, { t: now, model: bar.model, percent: bar.percent }]
+}
+
 
 const actionPaths = { "select-small": "active", "select-big": "active", favorite: "preferences", unfavorite: "preferences",
   "enable-randomizer": "preferences", "disable-randomizer": "preferences", exclude: "preferences", include: "preferences",
@@ -463,9 +502,15 @@ export const ModelsPage = {
       pairView: null,
       jetlinkOpen: false, filtersOpen: false, browseOpen: false,
       // Catalog checks report in the Browse models header, never as a banner that pushes the page down.
-      refreshNote: "", trackingRefresh: false }
+      refreshNote: "", trackingRefresh: false,
+      // Recent download percents with their times, for the speed shown by the progress bar.
+      downloadSamples: [] }
   },
   computed: {
+    downloadBar() {
+      const bar = modelDownloadProgress(this.status, this.models)
+      return bar && { ...bar, speed: formatSpeed(downloadSpeed(this.downloadSamples.filter(s => s.model === bar.model), bar.size)) }
+    },
     currentLabel() { return this.models.find(m => m.value === this.currentModel)?.label || this.currentModel || "" },
     installedSmallModels() { return this.models.filter(m => (m.value === this.activeSmallModel || m.selectable) && fitsModelProfile(m, "small")) },
     installedBigModels() { return this.models.filter(m => (m.value === this.activeBigModel || m.selectable) && fitsModelProfile(m, "big")) },
@@ -522,6 +567,7 @@ export const ModelsPage = {
         this.activeBigModel = p.activeBigModel || ""
         this.summary = p.summary || { installed: 0, missing: 0, total: 0 }
         this.status = p
+        this.downloadSamples = nextDownloadSamples(this.downloadSamples, modelDownloadProgress(p, p.models), Date.now())
         if (this.trackingRefresh && !p.downloading) { this.trackingRefresh = false; this.noteRefresh(p.progress || "Model list checked") }
         if (this.trackingProgress) {
           if (p.downloading) this.message = ""
@@ -953,7 +999,14 @@ export const ModelsPage = {
                   <span v-if="isPairable(m)" class="gx-model-tag gx-model-tag--pair" title="An eGPU variant is published, so this model can be part of a model pair"><i aria-hidden="true" class="bi bi-bezier2"></i> Pairable</span>
                   <span class="gx-model-item__facts"><span v-if="m.released" :aria-label="'Released '+ m.released">{{ m.released }}</span><span>{{ fileSizeText(m) }}</span></span>
                 </div>
-                <p v-if="m.unavailableReason && !(rowState(m) === 'available' && m.downloadAvailable && m.unavailableReason === 'Download required')" class="gx-model-reason">{{ m.unavailableReason }}</p>
+                <div v-if="downloadBar?.model === m.value" class="gx-update-progress gx-model-progress" role="status" aria-live="polite">
+                  <div class="gx-update-progress__heading"><span>{{ downloadBar.label }}</span>
+                    <span class="gx-model-progress__numbers"><span v-if="downloadBar.speed">{{ downloadBar.speed }}</span><span v-if="downloadBar.percent !== null">{{ downloadBar.percent }}%</span></span></div>
+                  <div class="gx-update-progress__track" role="progressbar" :aria-label="'Downloading ' + m.label" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="downloadBar.percent ?? undefined">
+                    <div class="gx-update-progress__fill" :class="{'gx-update-progress__fill--indeterminate': downloadBar.percent === null}" :style="downloadBar.percent !== null ? {width: downloadBar.percent + '%'} : {}"></div>
+                  </div>
+                </div>
+                <p v-else-if="m.unavailableReason && !(rowState(m) === 'available' && m.downloadAvailable && m.unavailableReason === 'Download required')" class="gx-model-reason">{{ m.unavailableReason }}</p>
                 <!-- eGPU variants matter only for model pairs, so they show with Model pair or Pairable only. -->
                 <template v-if="showLabVariants">
                   <div v-if="labRow(m)?.small" class="gx-model-lab">

@@ -60,6 +60,11 @@ button.gx-chip.gx-model-chip[aria-pressed="true"] { background: var(--primary); 
 .gx-model-item.gx-model-card--polaris { border-color: var(--outline); }
 /* Active models are marked only by their purple Active Small / Big tag (no row border or tint). */
 .gx-model-item__main { flex: 1; min-width: 0; display: grid; gap: 4px; }
+/* Download progress on the model being downloaded (the Updates page bar, smaller). */
+.gx-model-item .gx-model-progress { margin: 4px 0 0; font-size: .8rem; }
+.gx-model-progress .gx-update-progress__heading { margin-bottom: 4px; }
+.gx-model-progress .gx-update-progress__track { height: 6px; }
+.gx-model-progress__numbers { display: flex; gap: var(--sp-3); font-variant-numeric: tabular-nums; color: var(--on-surface-variant); }
 .gx-model-item__title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .gx-model-item__title strong { font-weight: var(--fw-bold); overflow-wrap: anywhere; }
 .gx-model-item__title .gx-chip { padding: 2px 8px; font-size: .7rem; }
