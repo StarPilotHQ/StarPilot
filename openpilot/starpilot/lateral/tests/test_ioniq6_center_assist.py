@@ -42,3 +42,24 @@ def test_center_correction_retains_output_saturation_and_symmetry():
           negative = assist(-actual - error, -actual, -torque, speed)
           assert -1. <= positive <= 1.
           assert positive == -negative
+
+
+@pytest.mark.parametrize('speed', [0.5, 1., 3., 5.])
+@pytest.mark.parametrize('actual', [-30., -15., 15., 30.])
+@pytest.mark.parametrize('torque', [-.3, 0., .3])
+def test_straight_request_transition_with_turned_wheel_is_continuous(speed, actual, torque):
+  epsilon = 1e-7
+  below = assist(-epsilon, actual, torque, speed)
+  center = assist(0., actual, torque, speed)
+  above = assist(epsilon, actual, torque, speed)
+  assert max(abs(below - center), abs(above - center)) < 1e-6, 'TURN_ASSIST_STRAIGHT_BRANCH_STEP'
+
+
+@pytest.mark.parametrize('speed', [0.5, 1., 3., 5.])
+@pytest.mark.parametrize('actual', [-30., -15., 15., 30.])
+def test_unwind_pid_zero_transition_is_continuous(speed, actual):
+  epsilon = 1e-7
+  below = assist(0., actual, -epsilon, speed)
+  center = assist(0., actual, 0., speed)
+  above = assist(0., actual, epsilon, speed)
+  assert max(abs(below - center), abs(above - center)) < 1e-6, 'TURN_ASSIST_OUTPUT_BRANCH_STEP'

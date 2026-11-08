@@ -681,6 +681,7 @@ def get_ioniq_6_highway_transition_output_taper_scale(desired_lateral_accel: flo
 def get_ioniq_6_low_speed_angle_assist_torque(desired_angle_deg: float, actual_angle_deg: float,
                                               current_output_torque: float, v_ego: float) -> float:
   angle_error = desired_angle_deg - actual_angle_deg
+  turn_in_output = None
   if desired_angle_deg * angle_error > 0.0:
     speed_weight = _ioniq_6_sigmoid((IONIQ_6_LOW_SPEED_ANGLE_ASSIST_SPEED - max(v_ego, 0.0)) /
                                     IONIQ_6_LOW_SPEED_ANGLE_ASSIST_SPEED_WIDTH)
@@ -701,15 +702,16 @@ def get_ioniq_6_low_speed_angle_assist_torque(desired_angle_deg: float, actual_a
       -angle_error,
     )
     if abs(assist_torque) < 1e-4:
-      return current_output_torque
-
-    if current_output_torque * assist_torque >= 0.0:
+      turn_in_output = current_output_torque
+    elif current_output_torque * assist_torque >= 0.0:
       add_scale = float(np.interp(abs(current_output_torque),
                                   IONIQ_6_LOW_SPEED_ANGLE_ASSIST_ADD_BP,
                                   IONIQ_6_LOW_SPEED_ANGLE_ASSIST_ADD_V))
-      return clip_scalar(current_output_torque + (assist_torque * add_scale), -1.0, 1.0)
-
-    return clip_scalar(current_output_torque + assist_torque, -1.0, 1.0)
+      turn_in_output = clip_scalar(current_output_torque + (assist_torque * add_scale), -1.0, 1.0)
+    else:
+      turn_in_output = clip_scalar(current_output_torque + assist_torque, -1.0, 1.0)
+    if abs(desired_angle_deg) >= IONIQ_6_LOW_SPEED_ANGLE_ASSIST_DESIRED_ANGLE_WIDTH:
+      return turn_in_output
 
   speed_weight = _ioniq_6_sigmoid((IONIQ_6_LOW_SPEED_UNWIND_ASSIST_SPEED - max(v_ego, 0.0)) /
                                   IONIQ_6_LOW_SPEED_UNWIND_ASSIST_SPEED_WIDTH)
@@ -719,13 +721,15 @@ def get_ioniq_6_low_speed_angle_assist_torque(desired_angle_deg: float, actual_a
   actual_angle_weight = _ioniq_6_sigmoid((abs(actual_angle_deg) - IONIQ_6_LOW_SPEED_UNWIND_ASSIST_ACTUAL_ANGLE) /
                                          IONIQ_6_LOW_SPEED_UNWIND_ASSIST_ACTUAL_ANGLE_WIDTH)
   assist_torque = math.copysign(IONIQ_6_LOW_SPEED_UNWIND_ASSIST_MAX_TORQUE * speed_weight * error_weight * actual_angle_weight, -angle_error)
-  if abs(assist_torque) < 1e-4:
-    return current_output_torque
-
-  if current_output_torque * assist_torque >= 0.0:
-    assist_torque *= IONIQ_6_LOW_SPEED_UNWIND_ASSIST_BLEND
-
-  return clip_scalar(current_output_torque + assist_torque, -1.0, 1.0)
+  opposition = max(-current_output_torque * math.copysign(1.0, assist_torque), 0.0)
+  assist_torque *= float(np.interp(opposition, [0.0, IONIQ_6_LOW_SPEED_ANGLE_ASSIST_ADD_BP[1]],
+                                  [IONIQ_6_LOW_SPEED_UNWIND_ASSIST_BLEND, 1.0]))
+  unwind_output = (current_output_torque if abs(assist_torque) < 1e-4 else
+                   clip_scalar(current_output_torque + assist_torque, -1.0, 1.0))
+  if turn_in_output is None:
+    return unwind_output
+  turn_in_weight = abs(desired_angle_deg) / IONIQ_6_LOW_SPEED_ANGLE_ASSIST_DESIRED_ANGLE_WIDTH
+  return unwind_output + (turn_in_output - unwind_output) * turn_in_weight
 
 
 # Buffer curvature and scale at the current speed to avoid pull-away unwind
