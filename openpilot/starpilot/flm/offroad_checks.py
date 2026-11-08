@@ -8,6 +8,9 @@ from openpilot.starpilot.flm.log_decode import decode_full_rlog_segment
 from openpilot.starpilot.galaxy.drive_analysis import _closed_source
 
 
+TRAINING_FRACTIONS = (1.0, 0.8, 0.6, 0.4, 0.2, 0.1, 0.05)
+
+
 def qualify(assessment, group, cohort, values, root, *, permitted, require_change=True):
   roles = cohort.get('qualification_roles', cohort)
   ids = tuple(roles['training']['windows']) + tuple(roles['heldout']['windows'])
@@ -36,15 +39,12 @@ def fit_training_step(assessment, group, cohort, proposal, previous, root, *, pe
   if set(previous) != set(proposal['values']):
     raise ValueError('Exact original full-map prior required')
   attempts = []
-  fractions = (1.0, 0.8, 0.6, 0.4, 0.2)
-  if proposal.get('policy') == 'original_stable_recommended_bounded_route_v1':
-    fractions += (0.1, 0.05)
-  for fraction in fractions:
+  for fraction in TRAINING_FRACTIONS:
     values = (
       dict(proposal['values']) if fraction == 1 else {name: previous[name] + fraction * (value - previous[name]) for name, value in proposal['values'].items()}
     )
     checked = _original_results(assessment, original, train, values, root, permitted=permitted)
-    feasible = len(checked) == len(train) and all(row['qualified'] for row in checked)
+    feasible = len(checked) == len(train) and all(row['qualified'] for row in checked) and bool(_changed_windows(checked))
     attempts.append({'fraction': fraction, 'feasible': feasible, 'original_training_windows': checked})
     if feasible:
       fitted = dict(proposal, values=values, delta=proposal['delta'] * fraction)
@@ -104,13 +104,17 @@ def fit_independent_route(assessment, group, cohort, prior, proposal, previous, 
   stable = proposal.get('policy') == 'original_stable_recommended_bounded_route_v1'
   if stable and (scope is None or not 3 <= len(prior.profile_windows) <= 12):
     raise ValueError('Independent original Stable profile inputs and current scope required')
-  fractions = (1.0, 0.8, 0.6, 0.4, 0.2) + ((0.1, 0.05) if stable else ())
-  for fraction in fractions:
+  for fraction in TRAINING_FRACTIONS:
     values = (
       dict(proposal['values']) if fraction == 1 else {name: previous[name] + fraction * (value - previous[name]) for name, value in proposal['values'].items()}
     )
     checked = _original_results(assessment, original, train, values, root, permitted=permitted)
-    feasible = len(checked) == len(train) and {r['window'] for r in checked} == set(train) and all(r['qualified'] for r in checked)
+    feasible = (
+      len(checked) == len(train)
+      and {r['window'] for r in checked} == set(train)
+      and all(r['qualified'] for r in checked)
+      and bool(_changed_windows(checked))
+    )
     attempts.append({'fraction': fraction, 'feasible': feasible, 'original_training_windows': checked})
     if not feasible:
       continue
@@ -178,8 +182,8 @@ def fit_independent_route(assessment, group, cohort, prior, proposal, previous, 
   return None, proof, None
 
 
-def _changed_in_each(results, roles):
-  changed = {
+def _changed_windows(results):
+  return {
     r['window']
     for r in results
     if r.get('numerical', {}).get('qualified')
@@ -188,6 +192,10 @@ def _changed_in_each(results, roles):
     and r['registered_encoder'].get('qualified')
     and r['registered_encoder'].get('candidate_changed_emissions', 0) > 0
   }
+
+
+def _changed_in_each(results, roles):
+  changed = _changed_windows(results)
   return all(changed.intersection(roles[role]['windows']) for role in ('training', 'heldout'))
 
 
