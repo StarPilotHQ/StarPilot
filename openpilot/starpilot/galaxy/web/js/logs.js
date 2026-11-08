@@ -12,11 +12,15 @@ import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 export const Logs = {
   name: "Logs",
   components: { GxState, GxNotice, BluetoothNotice, SystemMonitor, TroubleshootPage, TmuxPage, MenuTile },
-  props: { path: { type: String, required: true }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
-    tools: { type: Array, required: true } },
-  data: () => ({ crashes: { reports: [], scanIncomplete: false, listLimited: false, status: "idle", error: "", selected: null, preview: null, previewStatus: "idle", deleting: false, storageBytes: 0, reportCount: 0 }, search: "",
+  props: {
+    path: { type: String, required: true }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
+    tools: { type: Array, required: true }
+  },
+  data: () => ({
+    crashes: { reports: [], scanIncomplete: false, listLimited: false, status: "idle", error: "", selected: null, preview: null, previewStatus: "idle", deleting: false, storageBytes: 0, reportCount: 0 }, search: "",
     starportLogs: { sessions: [], others: [], status: "idle", error: "" }, bluetooth: bluetoothConnection(),
-    logSend: { state: "idle", message: "", available: true, error: "" }, sendNote: "", messageLimit: MESSAGE_LIMIT }),
+    logSend: { state: "idle", message: "", available: true, error: "" }, sendNote: "", sendDiscord: "", messageLimit: MESSAGE_LIMIT
+  }),
   computed: {
     visibleReports() { return this.crashes.reports.filter((item) => item.name.toLowerCase().includes(this.search.toLowerCase())) },
   },
@@ -45,7 +49,7 @@ export const Logs = {
     fileUrl,
     outcomeLabel,
     async sendLogs() {
-      if (await this.sendFeed.send(this.sendNote)) this.sendNote = ""
+      if (await this.sendFeed.send(this.sendNote, this.sendDiscord)) this.sendNote = ""
     },
     reportDate(seconds) { return new Date(seconds * 1000).toLocaleString() },
     reportSize(bytes) { return `${(bytes / 1024).toFixed(1)} KiB` },
@@ -100,9 +104,13 @@ export const Logs = {
         <BluetoothNotice v-if="bluetooth" feature="Log downloads">Log summaries remain available.</BluetoothNotice>
         <div class="gx-settings__controls gx-actions"><a v-if="!bluetooth" class="gx-btn" :href="bundleUrl()" download><i class="bi bi-file-earmark-zip" aria-hidden="true"></i><span>Download all logs</span><span class="gx-starport-logs__format">ZIP</span></a><button type="button" class="gx-btn gx-btn--tonal" @click="starportFeed.load()"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Refresh</span></button></div>
         <section v-if="logSend.available" class="gx-card gx-panel gx-starport-send" aria-labelledby="gx-starport-send-title">
-          <div class="gx-section__header"><i class="bi bi-send" aria-hidden="true"></i><span id="gx-starport-send-title" class="gx-section__title">Send logs to the developer</span></div>
-          <p class="gx-note">Sends the same archive as Download all logs straight from the device. Add a short note about what happened.</p>
-          <div class="gx-starport-send__row"><input class="gx-field" type="text" v-model="sendNote" :maxlength="messageLimit" placeholder="What happened? (optional)" aria-label="Note for the developer" :disabled="logSend.state === 'sending'" @keydown.enter="sendLogs"><span class="gx-starport-send__count" aria-live="polite">{{ sendNote.length }}/{{ messageLimit }}</span><button type="button" class="gx-btn" :disabled="logSend.state === 'sending'" @click="sendLogs"><i class="bi bi-send" aria-hidden="true"></i><span>Send logs</span></button></div>
+          <div class="gx-section__header"><i class="bi bi-send" aria-hidden="true"></i><span id="gx-starport-send-title" class="gx-section__title">Send StarPort logs</span></div>
+          <p class="gx-note">Only for StarPort issues. For anything else, ask in the Discord. Sends the same archive as Download all logs straight from the device. Add a short note about what happened.</p>
+          <div class="gx-starport-send__row">
+            <div class="gx-starport-send__field"><input class="gx-field" type="text" v-model="sendNote" :maxlength="messageLimit" placeholder="What happened? (optional)" aria-label="Note for the developer" :disabled="logSend.state === 'sending'" @keydown.enter="sendLogs"><span class="gx-starport-send__count" aria-live="polite">{{ sendNote.length }}/{{ messageLimit }}</span></div>
+            <input class="gx-field" type="text" v-model="sendDiscord" maxlength="40" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Discord username (optional)" aria-label="Discord username for a follow-up" :disabled="logSend.state === 'sending'" @keydown.enter="sendLogs">
+            <button type="button" class="gx-btn" :disabled="logSend.state === 'sending'" @click="sendLogs"><i class="bi bi-send" aria-hidden="true"></i><span>Send StarPort logs</span></button>
+          </div>
           <GxState v-if="logSend.state === 'sending'" loading>{{ logSend.message || 'Sending logs' }}…</GxState>
           <GxNotice v-else-if="logSend.state === 'sent'" tone="success">{{ logSend.message }}</GxNotice>
           <GxNotice v-else-if="logSend.state === 'failed'" tone="danger">{{ logSend.message }}</GxNotice>

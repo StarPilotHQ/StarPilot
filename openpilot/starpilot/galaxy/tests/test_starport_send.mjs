@@ -88,3 +88,13 @@ await stale.reply(2, {}, 401)
 assert.equal(stale.unauthorized, 0)
 await stale.reply(3, { state: "sent" })
 assert.equal(stale.states.at(-1).state, "sent")
+
+// A Discord username for a follow-up rides along only when given.
+{
+  const followUp = fixture()
+  followUp.client.start()
+  await followUp.reply(0, { state: "idle", message: "", available: true })
+  followUp.client.send("No video", "  @star.fan_42 ")
+  assert.deepEqual(JSON.parse(followUp.requests[1].options.body), { message: "No video", discord: "@star.fan_42" })
+}
+console.log("StarPort log send: Discord follow-up passed")

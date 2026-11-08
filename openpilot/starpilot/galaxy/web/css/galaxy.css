@@ -935,9 +935,13 @@ background: var(--glass-bg-hover);
 .gx-starport-log__download { flex: none; width: var(--touch-target); height: var(--touch-target); border: 1px solid var(--glass-border); background: var(--primary-container); color: var(--on-primary-container); }
 .gx-starport-log__download:hover { background: var(--primary); color: var(--on-primary); }
 .gx-starport-logs__section-title { margin: var(--sp-6) 0 var(--sp-3); }
-.gx-starport-send__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
-.gx-starport-send__row .gx-field { flex: 1 1 220px; min-width: 0; }
-.gx-starport-send__count { font-size: var(--fs-xs); opacity: .7; font-variant-numeric: tabular-nums; }
+.gx-starport-send__row { display: grid; gap: var(--sp-3); margin-top: var(--sp-3); }
+.gx-starport-send__row .gx-field { width: 100%; box-sizing: border-box; }
+.gx-starport-send__field { position: relative; }
+.gx-starport-send__field .gx-field { padding-right: 4.5em; }
+.gx-starport-send__count { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); pointer-events: none; font-size: var(--fs-xs); opacity: .7; font-variant-numeric: tabular-nums; }
+.gx-starport-send__row > .gx-btn { justify-self: start; }
+@media (max-width: 600px) { .gx-starport-send__row > .gx-btn { justify-self: stretch; } }
 @media (max-width: 700px) {
 .gx-starport-log { gap: var(--sp-3); padding: var(--sp-3); }
 }
