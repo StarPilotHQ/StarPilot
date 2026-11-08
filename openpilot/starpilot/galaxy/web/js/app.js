@@ -21,7 +21,6 @@ const SoftwarePage = page(() => import("./software-status.js").then((module) => 
 const NavigationPage = page(() => import("./navigation.js").then((module) => module.NavigationPage))
 const ModelsPage = page(() => import("./models.js").then((module) => module.ModelsPage))
 import { SettingsPage } from "./settings.js"
-import { SettingsRecoveryPage } from "./settings-recovery.js"
 import { ToggleSearch } from "./toggle-search.js"
 import { SaveFeedback } from "./save-feedback.js"
 const FlmPage = page(() => import("./flm.js").then((module) => module.FlmPage))
@@ -87,7 +86,7 @@ const auth = new LocalAuth({ publish: (update) => {
 
 
 createApp({
-  components: { GxTrail, BottomNav, Home, LocalAccess, Tools, Logs, SoftwarePage, NavigationPage, ModelsPage, SettingsPage, SettingsRecoveryPage, ToggleSearch, SaveFeedback, FlmPage, LocalRecordingsPage, SentryEventsPage, VasmPage, PipPage, DrivingPage, DevicePreferencesPage, BluetoothPage, StarPortPage, SpotifyPage, VehicleControlsPage, OnroadLayoutPage, GalaxyPage, DevicePicker, DeviceState, MenuTile, MenuTree, SettingsIndex, MenuGroupPage, FavoritesPage },
+  components: { GxTrail, BottomNav, Home, LocalAccess, Tools, Logs, SoftwarePage, NavigationPage, ModelsPage, SettingsPage, ToggleSearch, SaveFeedback, FlmPage, LocalRecordingsPage, SentryEventsPage, VasmPage, PipPage, DrivingPage, DevicePreferencesPage, BluetoothPage, StarPortPage, SpotifyPage, VehicleControlsPage, OnroadLayoutPage, GalaxyPage, DevicePicker, DeviceState, MenuTile, MenuTree, SettingsIndex, MenuGroupPage, FavoritesPage },
   data: () => ({ state, authState, authForm, route, NAV, routeDirection: 1, updateRestart, deviceRestart, nextLayoutLeavePresentation: "inline" }),
   computed: {
     visibleTools() { return state.tools.filter(tool => tool.visibility !== "authenticated" ||
@@ -270,8 +269,7 @@ createApp({
         <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="route.path === '/appearance'" key="/appearance" :mode="state.monitorMode" :unauthorized="sessionExpired"
           menu-mode initial-page="appearance" title="Visuals" heading="Visuals" @open-page="openSettingsPage" />
         <OnroadLayoutPage ref="activeLayout" v-else-if="['/theme_maker', '/theme_maker/starport'].includes(route.path)" :key="route.path" :projection="route.path === '/theme_maker/starport'" initial-panel="widgets" :mode="state.monitorMode" :unauthorized="sessionExpired" @target="go($event === 'projection' ? '/theme_maker/starport' : '/theme_maker')" @close="routeBack" />
-        <SettingsRecoveryPage v-else-if="route.path === '/settings/recovery'" :mode="state.monitorMode" :unauthorized="sessionExpired" />
-        <Logs v-else-if="route.path === '/logs' || route.path.startsWith('/logs/') || ['/troubleshoot', '/manage_tmux'].includes(route.path)" :path="route.path === '/troubleshoot' ? '/logs/troubleshoot' : route.path === '/manage_tmux' ? '/logs/tmux' : route.path" :mode="state.monitorMode" :unauthorized="sessionExpired" :tools="currentTool?.children || []" />
+        <Logs v-else-if="route.path === '/logs' || route.path.startsWith('/logs/') || ['/troubleshoot', '/settings/recovery', '/manage_tmux'].includes(route.path)" :path="['/troubleshoot', '/settings/recovery'].includes(route.path) ? '/logs/troubleshoot' : route.path === '/manage_tmux' ? '/logs/tmux' : route.path" :mode="state.monitorMode" :unauthorized="sessionExpired" :tools="currentTool?.children || []" />
         <SoftwarePage v-else-if="route.path === '/system'" :mode="state.monitorMode" :unauthorized="sessionExpired" :restarting="baseline => updateRestart.start({ ...baseline, instance: deviceRestart.instance })"
           :preparing="baseline => updateRestart.prepare({ ...baseline, instance: deviceRestart.instance })" :cancel-preparation="() => updateRestart.cancelPreparation()" />
         <NavigationPage v-else-if="['/navigation', '/navigation/maps', '/navigation/setup', '/navigation/gps'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" :tabs="currentTool?.children || []"

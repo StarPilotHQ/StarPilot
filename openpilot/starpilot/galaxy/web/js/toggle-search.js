@@ -21,7 +21,7 @@ export function searchSettings(entries, query, limit = 30) {
 }
 
 // Galaxy menu pages that are not in the tool catalog (menu.js), so search finds them by name too.
-const MENU_ONLY_PAGES = ["/appearance", "/quick-select", "/developer/connect", "/settings/recovery"]
+const MENU_ONLY_PAGES = ["/appearance", "/quick-select", "/developer/connect"]
 
 // A page is listed by its menu name and place (menu.js), e.g. "Troubleshoot · Help"; its catalog name and
 // description still find it. Catalog entries for the same menu page (Destination, Setup) become one result.

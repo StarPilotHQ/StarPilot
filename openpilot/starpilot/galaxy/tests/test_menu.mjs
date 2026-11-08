@@ -72,7 +72,8 @@ assert.deepEqual(at("/manage_tmux"), ["Developer", "Logs & Diagnostics", "tmux L
 assert.deepEqual(menuBack("/manage_tmux"), { path: "/logs", label: "Logs & Diagnostics" })
 assert.deepEqual(at("/logs/help"), ["Help", "Help & Community", ""])
 assert.deepEqual(at("/logs/monitor"), ["Developer", "System Monitor", ""])
-assert.deepEqual(at("/settings/recovery"), ["Help", "Changed Settings", ""])
+// Changed Settings is part of Troubleshoot now; its old address opens Troubleshoot.
+assert.deepEqual(at("/settings/recovery"), ["Help", "Troubleshoot", ""])
 assert.deepEqual(at("/logs/crashes"), ["Developer", "Logs & Diagnostics", "Crash Reports"])
 assert.equal(menuLocation("/settings"), null)
 
@@ -89,7 +90,7 @@ assert.deepEqual(group("screen-sound").children.map(node => node.label), ["Visua
 assert.deepEqual(group("connections").children.map(node => node.label), ["Bluetooth", "StarPort", "Galaxy Access & Install"])
 assert.deepEqual(group("system").children.map(node => node.label), ["Updates & Backup", "Power & Data", "Language & Units"])
 assert.deepEqual(group("developer").children.map(node => node.label), ["Developer Options", "System Monitor", "Logs & Diagnostics"])
-assert.deepEqual(group("help").children.map(node => node.label), ["Troubleshoot", "Changed Settings", "Help & Community"])
+assert.deepEqual(group("help").children.map(node => node.label), ["Troubleshoot", "Help & Community"])
 // Maps: the page's tabs are menu pages now (no tab bar on the page).
 assert.deepEqual(group("maps").children.map(node => [node.label, node.path]), [["Navigation", "/navigation"], ["Offline Maps", "/navigation/maps"],
   ["GPS Source", "/navigation/gps"]])

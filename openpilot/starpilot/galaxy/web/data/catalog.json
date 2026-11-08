@@ -85,7 +85,7 @@
           "name": "Troubleshoot",
           "path": "/logs/troubleshoot",
           "icon": "bi-wrench",
-          "description": "Read device and vehicle diagnostics",
+          "description": "Car and device details, changed settings and resets",
           "availability": "always"
         },
         {

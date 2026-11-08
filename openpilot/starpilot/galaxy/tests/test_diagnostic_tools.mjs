@@ -9,7 +9,12 @@ assert.equal(validTmux(tail), true)
 assert.equal(validTmux({ ...tail, text: 'a'.repeat(65537) }), false)
 assert.equal(validTmux({ ...tail, text: 'é'.repeat(40000) }), false)
 assert.equal(validTmux({ ...tail, text: '\n'.repeat(301) }), false)
-assert.match(troubleshootReport(report), /Settings\nPlanner: StarPilot/)
+// The report: car and device, then the settings changed from their defaults with where they live (not every value).
+assert.match(troubleshootReport(report), /Build: candidate\n\nChanged settings: unavailable$/)
+assert.doesNotMatch(troubleshootReport(report), /Planner: StarPilot/)
+assert.match(troubleshootReport(report, []), /Changed settings \(0\)\nNone: every setting uses its default\.$/)
+assert.match(troubleshootReport(report, [{ page: 'standard', label: 'Following', current: 'Custom', default: 'StarPilot Default' }]),
+  /Changed settings \(1\)\nSpeed › Driving Personalities › Standard › Following: Custom \(default StarPilot Default\)$/)
 const updates = [], timers = []
 let auth = 0, requests = 0
 const feed = new DiagnosticFeed({ endpoint: './api/tmux/live', validate: validTmux, interval: 2000,

@@ -139,7 +139,9 @@ test("search uses the menu's page names, and finds menu pages that are not catal
   assert.deepEqual(at("system tools"), ["Updates & Backup @ System -> /system"])
   assert.deepEqual(at("vehicle controls"), ["Vehicle @ Car -> /vehicle"])
   assert.deepEqual(at("model manager"), ["Driving Model @  -> /manage_models"])
-  assert.deepEqual(at("changed settings"), ["Changed Settings @ Help -> /settings/recovery"])
+  // Changed Settings is part of Troubleshoot: searching its old name finds Troubleshoot.
+  assert.deepEqual(at("changed settings"), ["Troubleshoot @ Help -> /logs/troubleshoot"])
+  assert.deepEqual(at("reset"), ["Troubleshoot @ Help -> /logs/troubleshoot"])
   assert.deepEqual(at("quick select"), ["Quick Select @ Screen & Sound -> /quick-select"])
   assert.deepEqual(at("developer options"), ["Developer Options @ Developer -> /developer/connect"])
   assert.equal(new Set(entries.map(hit => `${hit.label} ${hit.context}`)).size, entries.length, "one result per menu page")

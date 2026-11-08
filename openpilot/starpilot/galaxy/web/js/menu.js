@@ -109,9 +109,8 @@ export const MENU = Object.freeze([
         "/logs/tmux": "tmux Live View", "/manage_tmux": "tmux Live View", "/device-preferences": "Force Drive State" } },
   ] },
   { id: "help", label: "Help", icon: "bi-question-circle", children: [
-    { id: "troubleshoot", label: "Troubleshoot", path: "/logs/troubleshoot", also: ["/troubleshoot"] },
-    // Settings changed from their defaults, with a way back: a place to look when something behaves oddly.
-    { id: "changed-settings", label: "Changed Settings", path: "/settings/recovery" },
+    // Troubleshoot also holds Changed Settings (8 Nov 2026): /settings/recovery opens it at that list.
+    { id: "troubleshoot", label: "Troubleshoot", path: "/logs/troubleshoot", also: ["/troubleshoot", "/settings/recovery"] },
     { id: "help-community", label: "Help & Community", path: "/logs/help" },
   ] },
 ])
@@ -150,8 +149,7 @@ export const MENU_CARDS = Object.freeze({
   "developer-options": ["bi-code-slash", "Developer driving options and resets"],
   "system-monitor": ["bi-activity", "Temperatures, CPU, memory and processes"],
   logs: ["bi-file-earmark-text", "Crash reports, StarPort logs and tmux"],
-  troubleshoot: ["bi-tools", "Device and vehicle diagnostics"],
-  "changed-settings": ["bi-clock-history", "Settings changed from their defaults"],
+  troubleshoot: ["bi-tools", "Car details, changed settings and resets"],
   "help-community": ["bi-life-preserver", "Guides and community help"],
 })
 export const menuCard = node => { const [icon, summary] = MENU_CARDS[node.id] || []; return { icon: icon || node.icon || "bi-chevron-right", summary: summary || node.summary || "" } }
