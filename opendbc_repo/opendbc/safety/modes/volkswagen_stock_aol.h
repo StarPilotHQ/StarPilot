@@ -85,10 +85,10 @@ static uint8_t vw_aol_request_mask(void) {
     (safety_get_ts_elapsed(microsecond_timer_get(), aol_host_request_ts) > AOL_HOST_REQUEST_TIMEOUT_US);
   const uint32_t grant_age = safety_get_ts_elapsed(microsecond_timer_get(), vw_aol_grant_ts);
   const bool pending_expired = vw_aol_pending && (grant_age > AOL_HOST_REQUEST_TIMEOUT_US);
-  const bool heartbeat_lost = !heartbeat_engaged && (!vw_aol_longitudinal || vw_aol_session);
+  const bool vw_controls_heartbeat_lost = !heartbeat_engaged && (!vw_aol_longitudinal || vw_aol_session);
   uint8_t request = 0U;
   if (!vw_aol_enabled || relay_malfunction || expired || safety_rx_checks_invalid ||
-      heartbeat_lost || pending_expired || !aol_rx_healthy() || !vw_aol_current()) {
+      vw_controls_heartbeat_lost || pending_expired || !aol_rx_healthy() || !vw_aol_current()) {
     vw_aol_clear();
   } else if (heartbeat_engaged) {
     // A physical release may precede the host join; it cannot authorize output.
