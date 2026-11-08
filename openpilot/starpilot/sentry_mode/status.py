@@ -10,7 +10,7 @@ import uuid
 from openpilot.common.hardware.hw import Paths
 from openpilot.starpilot.parked_evidence import RESUME_SKEW_NS
 from openpilot.starpilot.sentry_mode.preferences import SavedPreferences
-from openpilot.starpilot.sentry_mode.storage import EventStore, FILE_FLAGS, StorageUnavailable, _private
+from openpilot.starpilot.sentry_mode.storage import EventStore, FILE_FLAGS, StorageUnavailable, _private, valid_tenths, volts
 from openpilot.starpilot.storage import starpilot_storage_root
 
 
@@ -39,15 +39,13 @@ def boot_id() -> str:
 
 
 def low_voltage_reason(voltage, cutoff, fallback: str) -> str:
-  def valid(tenths):
-    return type(tenths) is int and 0 < tenths < 1000
-  if not valid(voltage):
+  if not valid_tenths(voltage):
     return "Battery voltage cannot be read"
-  if not valid(cutoff):
-    return f"Battery is {voltage / 10:.1f} V; the low-battery cutoff cannot be read"
+  if not valid_tenths(cutoff):
+    return f"Battery is {volts(voltage)}; the low-battery cutoff cannot be read"
   if voltage <= cutoff:
-    return f"Battery is {voltage / 10:.1f} V; needs above {cutoff / 10:.1f} V"
-  return f"{fallback} (battery {voltage / 10:.1f} V)"
+    return f"Battery is {volts(voltage)}; needs above {volts(cutoff)}"
+  return f"{fallback} (battery {volts(voltage)})"
 
 
 class RuntimeStatus(EventStore):

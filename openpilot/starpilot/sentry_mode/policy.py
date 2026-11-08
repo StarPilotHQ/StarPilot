@@ -124,8 +124,7 @@ class SentryPolicy:
       return Decision("unavailable")
 
     sample = inputs.sample
-    # Polling without a new message is not sensor loss. Preserve continuity only
-    # while the last accepted sample is fresh, without counting it as motion.
+    # A poll with no new message keeps arming while the last sample is fresh.
     if sample is None and inputs.sample_pending and self.arm_started is not None and \
        self.last_sample_time is not None and 0 <= now - self.last_sample_time <= MAX_SAMPLE_AGE_SECONDS:
       remaining = ARM_DELAY_SECONDS - (now - self.arm_started)

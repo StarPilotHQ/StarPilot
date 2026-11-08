@@ -70,6 +70,7 @@ class TestRuntime(unittest.TestCase):
     self.addCleanup(self.environment.stop)
     self.params = Params()
     self.params.put_bool("IsOffroad", True, block=True)
+    self.cutoff = effective_power(read_power(self.params)).cutoff_tenths
     Path(self.params.get_param_path(KEY)).write_bytes(encode(Preferences(True)))
     self.clock = Clock()
     self.messages = Messages(self.clock)
@@ -89,7 +90,7 @@ class TestRuntime(unittest.TestCase):
     status = Mock()
     self.runtime.status = status
     decision = self.tick()
-    status.publish.assert_called_once_with(decision, encode(Preferences(True)), "idle", power=(125, effective_power(read_power(self.params)).cutoff_tenths))
+    status.publish.assert_called_once_with(decision, encode(Preferences(True)), "idle", power=(125, self.cutoff))
     self.assertEqual(decision.state, "arming")
     self.messages.updated["accelerometer"] = False
     self.messages.valid["accelerometer"] = False
@@ -115,7 +116,7 @@ class TestRuntime(unittest.TestCase):
   def test_low_battery_warns_once_after_holding_near_cutoff_and_rearms_after_recovery(self):
     warnings = []
     self.runtime.battery = lambda voltage, cutoff: warnings.append((voltage, cutoff))
-    cutoff = effective_power(read_power(self.params)).cutoff_tenths
+    cutoff = self.cutoff
     self.messages.voltage = (cutoff + 2) * 100
     for _ in range(599):
       self.tick()
@@ -137,7 +138,7 @@ class TestRuntime(unittest.TestCase):
   def test_brief_voltage_dip_does_not_warn(self):
     warnings = []
     self.runtime.battery = lambda voltage, cutoff: warnings.append((voltage, cutoff))
-    cutoff = effective_power(read_power(self.params)).cutoff_tenths
+    cutoff = self.cutoff
     for _ in range(20):
       self.messages.voltage = (cutoff + 1) * 100
       for _ in range(300):
@@ -145,6 +146,26 @@ class TestRuntime(unittest.TestCase):
       self.messages.voltage = (cutoff + 3) * 100
       self.tick()
     self.assertEqual(warnings, [])
+
+  def test_battery_warning_storage_failure_is_logged_but_bugs_propagate(self):
+    self.messages.voltage = (self.cutoff - 1) * 100
+    self.runtime.battery = Mock(side_effect=runtime_module.StorageUnavailable("Event storage is full"))
+    for _ in range(101):
+      self.tick()
+    self.runtime.battery.assert_called_once()
+    self.runtime.battery_warned = False
+    self.runtime.battery = Mock(side_effect=ValueError("Invalid Sentry event"))
+    with self.assertRaises(ValueError):
+      for _ in range(101):
+        self.tick()
+
+  def test_recent_battery_warning_ignores_old_other_and_future_events(self):
+    hour = runtime_module.BATTERY_REPEAT_NS
+    now = 10 * hour
+    self.assertTrue(runtime_module.recent_battery_warning([{"kind": "battery", "wallTimeNs": now - hour}], now))
+    self.assertFalse(runtime_module.recent_battery_warning([{"kind": "battery", "wallTimeNs": now - hour - 1}], now))
+    self.assertFalse(runtime_module.recent_battery_warning([{"kind": "warning", "wallTimeNs": now}], now))
+    self.assertFalse(runtime_module.recent_battery_warning([{"kind": "battery", "wallTimeNs": now + 1}], now))
 
   def test_arming_completes_with_brief_gaps_between_sensor_messages(self):
     for _ in range(451):
@@ -155,7 +176,6 @@ class TestRuntime(unittest.TestCase):
       self.assertIn(decision.state, ("arming", "armed"))
     self.assertEqual(decision.state, "armed")
     self.assertEqual(self.events, [])
-
 
   def test_serialized_device_panda_peripheral_use_actual_clock_domains(self):
     self.clock.mono += 100_000_000

@@ -31,8 +31,7 @@ threshold and warning-count behavior. An alarm requires more than 25 qualifying
 deltas and at least 30 seconds within a 60-second motion window. A stale or
 repeated sample, sensor loss, owner-loop gap, system resume, settings change,
 ignition or shutdown request disarms the policy. Recovery requires rearming.
-Polling without a new sensor message preserves arming while the last accepted
-sample remains fresh (at most 0.5 seconds); it never counts as another motion sample.
+A poll with no new sensor message keeps arming while the last sample is fresh.
 Hardwared retains battery accounting and shutdown authority; Sentry neither
 extends parked runtime nor clears shutdown requests.
 

@@ -424,11 +424,13 @@ for (const subtitle of ["Off: Motion monitoring is disabled.", "Not armed: Batte
   assert.equal(sentryMonitorStatus({ subtitle }).label, "Disarmed")
   assert.equal(sentryMonitorStatus({ subtitle }).detail, subtitle)
 }
-assert.equal(sentryMonitorStatus({ subtitle: "Arming · 82s: Monitoring begins after 90 seconds parked." }).tone, "warning")
-assert.equal(sentryMonitorStatus({ subtitle: "Arming · 82s: Monitoring begins after 90 seconds parked." }).label, "Arming")
+const armingStatus = sentryMonitorStatus({ subtitle: "Arming · 82s: Monitoring begins after 90 seconds parked." })
+assert.equal(armingStatus.tone, "warning")
+assert.equal(armingStatus.label, "Arming")
 const armedStatus = { subtitle: "Monitoring motion: Watching for movement while parked." }
 assert.equal(sentryMonitorStatus(armedStatus).label, "Armed")
 assert.equal(sentryMonitorStatus(armedStatus, "Connection lost").label, "Status unavailable")
 assert.equal(sentryMonitorStatus({ subtitle: "Waiting for monitor: The monitor has not responded recently." }).label, "Status unavailable")
 assert.equal(sentryMonitorStatus({ subtitle: "Motion monitor status is unavailable. Reconnecting automatically…" }).label, "Status unavailable")
 assert.equal(sentryMonitorStatus(null).label, "Status unavailable")
+assert.equal(sentryMonitorStatus({ subtitle: 42 }).label, "Status unavailable")

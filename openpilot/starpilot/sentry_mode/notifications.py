@@ -21,7 +21,7 @@ import uuid
 import requests
 
 from openpilot.starpilot.storage import starpilot_storage_root
-from openpilot.starpilot.sentry_mode.storage import BATTERY_FIELDS, EventStore
+from openpilot.starpilot.sentry_mode.storage import BATTERY_FIELDS, EventStore, valid_tenths, volts
 from openpilot.starpilot.sentry_mode import web_push, relay_enrollment
 from openpilot.starpilot.sentry_mode.relay_config import DEFAULT_RELAY_URL
 
@@ -41,7 +41,7 @@ def message_text(job: dict) -> str:
   if job['kind'] == 'test':
     return 'This is a test StarPilot Sentry notification.'
   if job['kind'] == 'battery':
-    return f"Car battery is low ({job['voltage'] / 10:.1f} V). The device and Sentry turn off at {job['cutoff'] / 10:.1f} V."
+    return f"Car battery is low ({volts(job['voltage'])}). The device and Sentry turn off at {volts(job['cutoff'])}."
   return f"Parked motion detected ({job['kind']})."
 
 
@@ -204,7 +204,7 @@ class NotificationOwner:
         raise ValueError('Invalid subscription time')
     for key, job in state['jobs'].items():
       if (type(job) is not dict or set(job) != JOB_FIELDS | (BATTERY_FIELDS if job.get('kind') == 'battery' else set()) or
-          (job['kind'] == 'battery' and not all(type(job[k]) is int and 0 < job[k] < 1000 for k in BATTERY_FIELDS)) or
+          (job['kind'] == 'battery' and not all(valid_tenths(job[k]) for k in BATTERY_FIELDS)) or
           type(key) is not str or len(key) != 64 or type(job['eventId']) is not str or ID.fullmatch(job['eventId']) is None or
           job['kind'] not in ('warning', 'alarm', 'battery', 'test') or job['channel'] not in CHANNELS or
           type(job['generation']) is not str or ID.fullmatch(job['generation']) is None or

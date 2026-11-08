@@ -25,6 +25,14 @@ DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 
 
+def valid_tenths(value: object) -> bool:
+  return type(value) is int and 0 < value < 1000
+
+
+def volts(tenths: int) -> str:
+  return f"{tenths / 10:.1f} V"
+
+
 class StorageUnavailable(Exception):
   """No event was published by this call; recording cannot continue."""
 
@@ -51,7 +59,7 @@ def _valid(value: object, event_id: str) -> bool:
   base = FIELDS | BATTERY_FIELDS if battery else FIELDS
   if set(fields) not in (base, base | {"simulated"}) or ("simulated" in fields and fields["simulated"] is not True) or ID.fullmatch(event_id) is None:
     return False
-  if battery and not all(type(fields[key]) is int and 0 < fields[key] < 1000 for key in BATTERY_FIELDS):
+  if battery and not all(valid_tenths(fields[key]) for key in BATTERY_FIELDS):
     return False
   version = fields["version"]
   session_id = fields["sessionId"]

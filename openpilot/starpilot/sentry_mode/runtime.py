@@ -15,6 +15,7 @@ from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.sentry_mode.policy import Inputs, MotionSample, SentryPolicy
 from openpilot.starpilot.sentry_mode.preferences import read_preferences
 from openpilot.starpilot.sentry_mode.status import RuntimeStatus
+from openpilot.starpilot.sentry_mode.storage import StorageUnavailable
 
 
 PERIPHERAL_TTL_NS = 1_500_000_000  # C++ 2 Hz publisher; one missed frame.
@@ -25,6 +26,10 @@ BATTERY_RECOVERED_TENTHS = 4
 BATTERY_HOLD_NS = 60_000_000_000
 BATTERY_CRITICAL_HOLD_NS = 10_000_000_000
 BATTERY_REPEAT_NS = 3600 * 1_000_000_000
+
+
+def recent_battery_warning(events: list[dict], now_ns: int) -> bool:
+  return any(event["kind"] == "battery" and 0 <= now_ns - event["wallTimeNs"] <= BATTERY_REPEAT_NS for event in events)
 
 
 def boot_time_ns() -> int:
@@ -193,7 +198,7 @@ class SentryRuntime:
       self.battery_low_since = None
       return
     if voltage >= cutoff + BATTERY_RECOVERED_TENTHS:
-      self.battery_low_since, self.battery_warned = None, False
+      self.battery_warned = False
     if voltage > cutoff + BATTERY_WARNING_TENTHS or self.battery_warned:
       self.battery_low_since = None
       return
@@ -205,7 +210,7 @@ class SentryRuntime:
     if self.battery is not None:
       try:
         self.battery(voltage, cutoff)
-      except Exception:
+      except StorageUnavailable:
         cloudlog.exception("sentry motion battery warning failed")
 
   def close(self) -> None:
@@ -237,8 +242,7 @@ def main() -> None:
           raise
     return store.record(kind, stamp, permitted=permitted, images=images)
   def battery(voltage, cutoff):
-    recent = time.time_ns() - BATTERY_REPEAT_NS
-    if any(event["kind"] == "battery" and event["wallTimeNs"] > recent for event in store.snapshot()["events"]):
+    if recent_battery_warning(store.snapshot()["events"], time.time_ns()):
       return
     store.record("battery", time.monotonic_ns(), permitted=lambda: True, details={"voltage": voltage, "cutoff": cutoff})
   runtime = SentryRuntime(Params(), messages, record=record, status=RuntimeStatus(), battery=battery)

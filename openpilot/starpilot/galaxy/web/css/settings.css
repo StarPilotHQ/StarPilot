@@ -742,8 +742,7 @@ html.gx-maker-open, html.gx-maker-open body { touch-action: manipulation; }
 }
 
 .gx-sentry-status { flex: 1 1 100%; order: 1; display: grid; gap: var(--sp-1); color: var(--on-surface-variant); font-size: var(--fs-sm); }
-.gx-sentry-status__label { display: inline-flex; align-items: center; gap: var(--sp-2); width: fit-content; font-weight: 500; }
-.gx-sentry-status__label::before { content: ""; width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--sentry-status-dot, currentColor); }
-.gx-sentry-status--armed { --sentry-status-dot: var(--success); }
-.gx-sentry-status--warning { --sentry-status-dot: var(--warning); }
-.gx-sentry-status__detail { color: var(--on-surface-variant); font-size: var(--fs-sm); }
+.gx-sentry-status__label { display: inline-flex; align-items: center; gap: var(--sp-2); width: fit-content; font-weight: var(--fw-medium); }
+.gx-sentry-status .gx-status-dot { flex: none; background: currentColor; }
+.gx-sentry-status--armed .gx-status-dot { background: var(--success); }
+.gx-sentry-status--warning .gx-status-dot { background: var(--warning); }
