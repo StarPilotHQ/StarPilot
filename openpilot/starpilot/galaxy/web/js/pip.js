@@ -9,8 +9,8 @@ import { GalaxySettingRow } from "./galaxy-setting-row.js"
 import { displayPoint, FORMATS, maskDraft, sourcePoint } from "./pip-geometry.js"
 
 const SIDES = [
-  { key: "centerRight", label: "Left camera", color: "#5ee5ee" },
-  { key: "centerLeft", label: "Right camera", color: "#ffb865" },
+  { key: "centerRight", label: "Vehicle left", color: "#5ee5ee" },
+  { key: "centerLeft", label: "Vehicle right", color: "#ffb865" },
 ]
 
 export const PipPage = {
@@ -171,10 +171,10 @@ export const PipPage = {
     },
   },
   template: `
-    <section class="gx-settings gx-pip" aria-label="Blind Spot Camera and Preview saved settings" :inert="busy" :aria-busy="busy || undefined">
-      <header class="gx-settings__header gx-page-header"><div><h2>Blind Spot Camera and Preview</h2>
+    <section class="gx-settings gx-pip" aria-label="Blind Spot Camera saved settings" :inert="busy" :aria-busy="busy || undefined">
+      <header class="gx-settings__header gx-page-header"><div><h2>Blind Spot Camera</h2>
         <p>Shows a close-up of the cabin window as you drive. Whether it appears on your turn signal or when a car is in your blind spot depends on your settings. Choose which window each side covers and how much to zoom in.</p></div>
-        <div class="gx-actions"><a class="gx-btn gx-btn--tonal" href="https://wiki.firestar.link/exclusive/cameras-and-monitoring/#pip-blind-spot-camera-preview" target="_blank" rel="noopener noreferrer"><i class="bi bi-book" aria-hidden="true"></i> PiP guide</a>
+        <div class="gx-actions"><a class="gx-btn gx-btn--tonal" href="https://wiki.firestar.link/exclusive/cameras-and-monitoring/#pip-blind-spot-camera-preview" target="_blank" rel="noopener noreferrer"><i class="bi bi-book" aria-hidden="true"></i> Camera guide</a>
           <button type="button" class="gx-btn gx-btn--tonal" :disabled="bluetooth || state.cameraWarming" @click="liveCamera.refresh()"><i class="bi bi-camera" aria-hidden="true"></i> Take new snapshot</button><button type="button" class="gx-icon-btn" aria-label="Position side cameras" title="Position side cameras" @click="go('/theme_maker')"><i class="bi bi-layout-wtf" aria-hidden="true"></i></button></div></header>
       <GxState v-if="mode !== 'local'">Local saved settings are unavailable in preview.</GxState>
       <template v-else>
@@ -188,10 +188,10 @@ export const PipPage = {
 
           <section class="gx-card gx-vasm__editor" aria-label="Blind Spot Camera crop editor">
             <div class="gx-section__header"><i class="bi bi-crop" aria-hidden="true"></i><span class="gx-section__title">Camera Crop</span></div>
-            <p class="gx-note">Drag a circle onto the cabin window you want to watch. Both crops share one size.</p>
+            <p class="gx-note">Drag each circle onto the side window it should show. The dot on each button matches its circle. Both crops share one size.</p>
             <p v-if="!bluetooth" class="gx-note gx-camera-status" role="status">{{ state.cameraWarming ? "Warming up the camera · about 10 seconds…" : state.imageName ? "Snapshot ready" : "Take a cabin snapshot while parked." }}</p>
             <div class="gx-actions">
-              <button v-for="side in SIDES" :key="side.key" type="button" class="gx-btn gx-btn--tonal" :disabled="!editable" :aria-pressed="state.activeSide === side.key" :aria-label="side.label" @click="choose(side.key)">{{ side.key === "centerRight" ? "Left" : "Right" }}</button>
+              <button v-for="side in SIDES" :key="side.key" type="button" class="gx-btn gx-btn--tonal gx-side-btn" :style="{ '--side': side.color }" :disabled="!editable" :aria-pressed="state.activeSide === side.key" :aria-label="side.label" @click="choose(side.key)"><span class="gx-side-dot" aria-hidden="true"></span>{{ side.label }}</button>
               <button type="button" class="gx-icon-btn" :disabled="!editable || !state[state.activeSide]" aria-label="Clear selected camera crop" title="Clear selected crop" @click="clear(state.activeSide)"><i class="bi bi-eraser"></i></button>
               <button type="button" class="gx-btn" :disabled="!editable" aria-label="Save Crop" @click="saveCrop">Save</button>
             </div>

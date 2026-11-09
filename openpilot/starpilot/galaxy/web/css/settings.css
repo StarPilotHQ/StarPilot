@@ -1,4 +1,13 @@
 /* Settings controls adapted from the current StarPilot Vue Galaxy. */
+.gx-settings-shell { display: contents; }
+.gx-settings-shell--path { display: grid; gap: var(--sp-4); width: 100%; min-width: 0; }
+.gx-settings-shell--path > .gx-page-header h2 { overflow-wrap: anywhere; }
+.gx-settings-shell--path > .gx-settings-tabs > .gx-chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.gx-settings__summary, .gx-settings__intro { display: grid; gap: var(--sp-3); min-width: 0; }
+.gx-settings__intro { margin: 0 var(--sp-4) var(--sp-3); padding: var(--sp-3); border: 1px solid var(--outline); border-radius: var(--radius-md); background: var(--glass-bg); }
+.gx-settings__intro .gx-page-description { overflow-wrap: anywhere; }
+.gx-settings__intro > .gx-btn, .gx-settings__summary > .gx-btn { justify-self: start; max-width: 100%; white-space: normal; text-align: left; }
+.gx-settings__intro > .gx-btn > .bi { flex: none; }
 .gx-settings__header .gx-note { margin: var(--sp-2) 0 0; }
 .gx-settings__search { padding: var(--sp-3) var(--sp-4) 0; }
 .gx-settings__search .gx-field { width: 100%; }
@@ -23,6 +32,24 @@ input[type="range"].gx-slider:focus-visible { outline: 2px solid var(--secondary
 input[type="range"].gx-slider:disabled { cursor: default; opacity: .4; }
 .gx-row .gx-btn { flex-shrink: 0; }
 .gx-settings-tabs { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.gx-settings--path .gx-settings__section .gx-section__header { flex-wrap: nowrap; align-items: flex-start; gap: var(--sp-2); }
+.gx-settings-path { flex: 1; min-width: 0; }
+.gx-settings-path ol { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; list-style: none; margin: 0; padding: 0; }
+.gx-settings-path li { display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; }
+.gx-settings-path__separator { flex: none; width: 10px; text-align: center; color: var(--on-surface-variant); }
+.gx-settings-path__parent, .gx-settings-path__current { display: inline-flex; align-items: center; min-height: 34px; min-width: 0; padding: 6px 8px; border: 0; border-radius: var(--radius-sm); font: inherit; font-size: var(--fs-sm); line-height: 1.4; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.gx-settings-path__parent { color: var(--on-surface-variant); background: transparent; cursor: pointer; }
+.gx-settings-path__parent:hover:not(:disabled) { color: var(--on-primary-container); background: var(--primary-container); }
+.gx-settings-path__current { color: var(--on-primary-container); background: var(--primary-container); font-weight: var(--fw-medium); }
+.gx-settings-path__parent:focus-visible { outline: 2px solid var(--secondary); outline-offset: -2px; }
+.gx-settings-path__parent:disabled { cursor: default; }
+/* The same tree above pages opened from Tools: its own line, a little air before the page heading. */
+.gx-page-trail { display: block; margin: 0 0 var(--sp-3); }
+@media (pointer: coarse) {
+  .gx-settings-path__parent, .gx-settings-path__current { min-height: 44px; }
+  .gx-settings-path__parent { min-width: 44px; }
+  .gx-settings--path .gx-settings__section .gx-section__header .gx-icon-btn { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+}
 .gx-layout__favorite-display { display: grid; gap: 8px; }
 .gx-layout__favorite-display .gx-segment { display: flex; gap: 8px; }
 .gx-layout__favorite-display .gx-btn { flex: 1; }
@@ -320,6 +347,31 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 
 .gx-model-reason { margin: var(--sp-3) 0; color: var(--text-muted); font-size: var(--fs-sm); }
 .gx-model-card__reason { margin: 0 var(--panel-padding) var(--sp-3); }
+/* External GPU models get a green chip */
+.gx-chip--egpu { --egpu: #3ddc84; background: color-mix(in srgb, var(--egpu) 30%, transparent); color: color-mix(in srgb, var(--egpu) 70%, white); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--egpu) 55%, transparent); font-weight: 600; }
+[data-theme="light"] .gx-chip--egpu { --egpu: #1b8a3f; background: color-mix(in srgb, var(--egpu) 18%, transparent); color: #14632d; }
+/* Choose models: single model and Laboratory pair side by side, stacked on narrow screens */
+.gx-model-choose__groups { display: grid; grid-template-columns: 1fr; }
+.gx-model-choose__group { min-width: 0; align-content: start; }
+.gx-model-choose__group + .gx-model-choose__group { border-top: 1px solid var(--glass-border); }
+@media (min-width: 900px) {
+  .gx-model-choose__groups { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .gx-model-choose__group + .gx-model-choose__group { border-top: 0; border-left: 1px solid var(--glass-border); }
+}
+.gx-model-choose__heading { display: grid; gap: var(--sp-1); }
+.gx-model-choose__heading h3 { margin: 0; font-size: var(--fs-md, 1.05rem); }
+.gx-model-choose__heading small, .gx-model-control small { color: var(--text-muted); font-weight: normal; }
+.gx-model-control label small { display: block; margin-top: 2px; font-size: var(--fs-sm); }
+.gx-model-choose__heading .gx-tags { margin-top: var(--sp-1); }
+.gx-model-search { width: 100%; }
+.gx-model-browse { scroll-margin-top: 100px; }
+.gx-empty.gx-actions { align-items: center; }
+/* Model Laboratory: the pair group (kept clear of the app bar when linked to) and each Small card's eGPU variant line */
+.gx-model-laboratory { scroll-margin-top: 100px; }
+.gx-model-lab { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); min-width: 0; }
+.gx-model-lab__label { color: var(--text-muted); font-size: var(--fs-sm); white-space: nowrap; }
+.gx-model-lab .gx-icon-btn { margin-left: auto; }
+.gx-model-lab__reason { margin: var(--sp-2) 0 0; }
 .gx-model-overview .gx-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 600px) { .gx-model-overview .gx-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
@@ -710,6 +762,10 @@ html.gx-maker-open, html.gx-maker-open body { touch-action: manipulation; }
 .gx-layout__display .gx-row .gx-select__button { min-height: 36px; padding-block: 5px; }
 .gx-layout__display .gx-row .gx-field { min-height: 0; padding-block: 0; }
 
+/* Two native range inputs share one track; endpoint buttons resolve coincident thumbs. */
+.gx-slider-header [aria-pressed="true"] { outline: 2px solid var(--accent, #00b0dc); outline-offset: -2px; }
+
+.gx-range-row .gx-slider-header { flex-wrap: wrap; }
 .gx-model-card--polaris {
   border-color: #9b7be8;
   background-image: radial-gradient(ellipse at top left, #a855f71a, transparent 65%), linear-gradient(120deg, transparent 40%, #38bdf810);

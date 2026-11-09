@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { RouteWorkspace } from '../web/js/route-workspace.js'
 import { CameraViewer } from '../web/js/camera-viewer.js'
-import { BottomNav } from '../web/js/bottom-nav.js'
+import { BottomNav, NAV } from '../web/js/bottom-nav.js'
 import { LocalHistoryFeed, LocalRecordingsPage, availableFiles, hasVideo, validLocalHistory, quickRoadUrl,
   segmentSummaryUrl, validSegmentSummary, routeFiles, firstQuickVideo, routeDate, connectRouteUrl, routeMatchesSearch } from '../web/js/record-history.js'
 
@@ -61,7 +61,9 @@ const cards = LocalRecordingsPage.computed.routeCards.call({ query: "", data: { 
 assert.equal(cards[0].routeId, current)
 const app = readFileSync(new URL('../web/js/app.js', import.meta.url), 'utf8')
 assert.match(app, /<LocalRecordingsPage v-else-if="isActive\('\/recordings'\) && authState.localAccess"/)
-assert.match(app, /<div class="gx-nav-section"><div class="gx-nav-section__title">Routes<\/div><button[^>]*@click="goFromMenu\('\/recordings'\)"/)
+// Galaxy menu: Routes sits in the Main section with Home (every NAV item except the Settings tab).
+assert.match(app, /<div class="gx-nav-section"><div class="gx-nav-section__title">Main<\/div>\s*<button v-for="item in NAV\.filter\(item => item\.path !== '\/settings'\)"[^>]*@click="goFromMenu\(item\.path\)"/)
+assert.ok(NAV.some(item => item.path === '/recordings'))
 assert.match(app, /<div v-else-if="isActive\('\/recordings'\)" class="gx-stack">\s*<GxState[^>]*>Routes are unavailable through the Galaxy tunnel\. Open Galaxy locally to access Routes\.<\/GxState>\s*<LocalAccess :mode="state.monitorMode" :on-unauthorized="sessionExpired" \/>/)
 assert.match(app, /<BottomNav :path="route.path" @navigate="go"/)
 assert.doesNotMatch(BottomNav.template, /disabled|localAccess/)

@@ -36,7 +36,8 @@ class TrafficFeatureTests(unittest.TestCase):
                                       vehicle_fingerprint=lambda: self.cp.carFingerprint, vehicle_params=lambda: self.cp)
 
   def row(self, key):
-    state = self.owner.snapshot("traffic", parked=self.parked, system_long=True, lateral_context=False, metric=False)
+    # Traffic's follow and jerk values sit on its custom-following page.
+    state = self.owner.snapshot("traffic/custom_following", parked=self.parked, system_long=True, lateral_context=False, metric=False)
     return next(row for row in state.rows if row.key == key)
 
   def test_saved_scalar_rows_and_category_editor_are_real_while_master_off(self):
@@ -44,7 +45,7 @@ class TrafficFeatureTests(unittest.TestCase):
     self.assertEqual(traffic.title, "Traffic Profile")
     self.assertEqual(self.row(FOLLOW).value, "0.75")
     self.assertTrue(self.row(FOLLOW).available)
-    self.assertIn("inactive while Custom Driving Profiles is Off", self.row(FOLLOW).reason)
+    self.assertTrue(self.row(FOLLOW).reason.startswith("Following time at low speeds"))
     self.assertNotIn("TrafficPersonalityProfile", [row.key for row in traffic.rows])
     self.assertTrue(self.owner.apply(required_change(self.row(FOLLOW))))
     self.assertEqual(self.params.get(FOLLOW), 0.8)
@@ -52,7 +53,7 @@ class TrafficFeatureTests(unittest.TestCase):
     self.assertEqual((jerk.value, jerk.minimum, jerk.maximum, jerk.step, jerk.unit), ("100.0", 25.0, 200.0, 5.0, "%"))
     self.assertTrue(self.owner.apply(required_change(jerk)))
     self.assertEqual(self.params.get("TrafficJerkAcceleration"), 105.0)
-    self.assertEqual(read_traffic_settings(self.params).follow[0], 0.75)
+    self.assertEqual(read_traffic_settings(self.params).follow[0], 0.8)  # Read always; Following decides use.
     category = self.owner.snapshot("traffic/braking", parked=True, system_long=True, lateral_context=False, metric=False)
     preset = category.rows[0]
     self.assertEqual(preset.key, "profile:traffic:braking")
@@ -63,8 +64,6 @@ class TrafficFeatureTests(unittest.TestCase):
     assert document is not None
     self.assertEqual(document["profiles"]["traffic"]["braking"]["preset"], "standard")
     self.assertFalse(document["enabled"])
-    self.params.put_bool("CustomPersonalities", True, block=True)
-    self.assertIn("apply when Traffic mode is selected", self.row(FOLLOW).reason)
 
   def test_half_second_saved_follow_remains_editable_without_repair(self):
     path = Path(self.params.get_param_path(FOLLOW))

@@ -94,7 +94,8 @@ class SelectedProfilesTests(unittest.TestCase):
       document['selectedAccelerationProfile'] = global_choice
       document['selectedDecelerationProfile'] = global_choice
       self.params.put('LongitudinalPersonalityProfiles', document, block=True)
-      self.assertIsNone(read_settings(self.params))
+      # Every Following is StarPilot Default: no saved follow/jerk tuning, only the selected profiles.
+      self.assertIsNone(resolve(read_settings(self.params), log.LongitudinalPersonality.standard, 10.0, self.cp))
       for personality in (log.LongitudinalPersonality.standard, log.LongitudinalPersonality.relaxed):
         selected = resolve_selected_profiles(document, personality, 10.0, self.cp)
         self.assertEqual(selected.acceleration_max, interpolate_category_curve('acceleration', 10.0,
@@ -132,7 +133,7 @@ class SelectedProfilesTests(unittest.TestCase):
         self.assertIsNone(selected.cruise_brake_magnitude)
         assert legacy.acceleration_max is not None
       else:
-        self.assertIsNone(legacy.acceleration_max)
+        self.assertTrue(legacy is None or legacy.acceleration_max is None)  # StarPilot Default following: no tuning
         self.assertEqual(selected.cruise_brake_magnitude, 2.4)
       self.assertIsNone(selected.acceleration_max)
     updated = update_personality_profile(migrated['profiles'], 'standard', 'acceleration', 'selected_profile', [], False)

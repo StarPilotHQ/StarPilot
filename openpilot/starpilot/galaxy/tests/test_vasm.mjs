@@ -52,3 +52,14 @@ assert.match(VasmPage.template, /state\.pending\.question/)
 assert.doesNotMatch(readFileSync(new URL("../web/js/vasm.js", import.meta.url), "utf8"), /getVasmSnapshot|FormData|fetch\(/)
 const app = readFileSync(new URL("../web/js/app.js", import.meta.url), "utf8")
 assert.match(app, /route\.path === '\/cameras\/vasm'/)
+
+// The side buttons name the vehicle side, with the color of that side's outline.
+assert.match(VasmPage.template, /'Vehicle left' : 'Vehicle right'/)
+assert.doesNotMatch(VasmPage.template, />\{\{ side === 'cameraRight' \? 'Left' : 'Right' \}\}</)
+assert.match(VasmPage.template, /<h2>Blind Spot Warnings<\/h2>/)
+// Plain wording: buttons name the vehicle side, so the help no longer talks about camera left/right.
+assert.doesNotMatch(VasmPage.template, /vehicle left is camera right/)
+assert.match(VasmPage.template, /The image is mirrored, so vehicle left is on the left\./)
+assert.doesNotMatch(VasmPage.template, /Cameras &amp; Monitoring/)
+// The selected side button is filled and outlined in its side's color.
+assert.match(VasmPage.template, /gx-side-btn" :style="\{ '--side': side === 'cameraRight' \? '#5ee5ee' : '#ffb865' \}" :aria-pressed="state\.activeSide === side"/)

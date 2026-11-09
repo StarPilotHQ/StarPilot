@@ -1,0 +1,95 @@
+/* Galaxy menu (js/menu.js): always-on side menu on desktop, Settings tab on phones. */
+
+/* Desktop: a sub-page has one link back up to its page. */
+.gx-menu-back { display: inline-flex; align-items: center; gap: 4px; width: fit-content; margin: 0 0 var(--sp-2) -8px; }
+
+/* Desktop: the menu is always shown (no pin, no menu button); it shows where you are, so no navigation tree. */
+@media (min-width: 768px) {
+  .gx-drawer.gx-drawer--menu { transform: none; width: 320px; box-shadow: none; }
+  .gx-appbar .gx-appbar__menu { display: none; }
+  .gx-menu-trail { display: none; }
+}
+/* Phone: no side menu; the bottom bar is Home · Settings · Routes, and the navigation tree shows where you are. */
+@media (max-width: 767px) {
+  .gx-drawer.gx-drawer--menu { transform: translateX(-100%); visibility: hidden; }
+  .gx-menu-back { display: none; }
+}
+.blur-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.gx-nav-indicator { width: calc((100% - 12px) / 3); }
+
+/* Side menu tree: groups open underneath, one branch at a time. */
+.gx-menu-tree { display: grid; gap: 2px; }
+.gx-menu-item { position: relative; }
+.gx-menu-item .gx-menu-item__chev { margin-left: auto; width: auto; font-size: .8rem; color: var(--text-muted); transition: transform var(--motion-fast); }
+.gx-menu-item[aria-expanded="true"] .gx-menu-item__chev { transform: rotate(90deg); }
+.gx-menu-item--l2 { min-height: 40px; padding-left: 52px; font-size: .95rem; }
+.gx-menu-item--l3 { min-height: 36px; padding-left: 72px; font-size: .9rem; font-weight: 400; }  /* same text color as the rest of the menu */
+.gx-menu-item--ancestor, .gx-menu-item--ancestor > i:first-child { color: var(--primary); }
+.gx-menu-item--l3.active { color: var(--primary); font-weight: var(--fw-bold); }
+.gx-menu-item--l2::before, .gx-menu-item--l3::before, .gx-menu-item--l3::after {
+  content: ""; position: absolute; top: -1px; bottom: -1px; width: 1px; background: var(--glass-border); pointer-events: none;
+}
+.gx-menu-item--l2::before, .gx-menu-item--l3::before { left: 28px; }
+.gx-menu-item--l3::after { left: 60px; }
+.gx-menu-item:focus-visible { outline: 2px solid var(--secondary); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { .gx-menu-item .gx-menu-item__chev { transition: none; } }
+
+/* Phone Settings tab and group pages */
+.gx-menu-cards { display: grid; gap: var(--sp-3); }
+.gx-menu-cards > .gx-card { margin: 0; }
+.gx-menu-card__head { display: flex; align-items: center; gap: var(--sp-3); width: 100%; min-height: 64px; padding: 10px var(--sp-4);
+  border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.gx-menu-card__icon { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: var(--radius-sm);
+  background: var(--primary-container); color: var(--primary); font-size: 1.2rem; }
+.gx-menu-card__text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.gx-menu-card__title { font-weight: var(--fw-bold); }
+.gx-menu-card__summary { color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gx-menu-card__chev { flex: none; color: var(--text-muted); font-size: .9rem; }
+.gx-menu-link { display: flex; align-items: center; gap: var(--sp-3); width: 100%; min-height: 48px; padding: 0 var(--sp-4);
+  border: 0; border-top: 1px solid var(--outline); background: transparent; color: var(--on-surface); font: inherit; text-align: left; cursor: pointer; }
+.gx-menu-section > .gx-menu-link:first-child { border-top: 0; }
+.gx-menu-link .bi { margin-left: auto; color: var(--text-muted); font-size: .85rem; }
+.gx-menu-card__head:hover, .gx-menu-link:hover { background: rgba(255, 255, 255, .03); }
+.gx-menu-card__head:focus-visible, .gx-menu-link:focus-visible { outline: 2px solid var(--secondary); outline-offset: -2px; }
+
+/* Settings pages opened from the menu: title on top, no hierarchy bar in the card. */
+.gx-settings--menu > .gx-settings__header .gx-icon-btn { flex: none; }
+.gx-settings--menu .gx-settings__section > .gx-row:first-child { border-top: 0; }
+/* A second page shown below (e.g. Data Uploads on Power & Data). */
+.gx-settings--embedded { margin-top: var(--sp-5); }
+.gx-menu-embed-title { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); }
+.gx-menu-extra { margin-top: var(--sp-4); }
+
+/* Page guides (js/page-guides.js): each card has a title and a short line saying what it covers. */
+.gx-guide__header { min-height: 48px; padding-bottom: var(--sp-1); }
+.gx-guide__header .gx-section__title { font-size: var(--fs-base); }
+.gx-guide__intro { margin: 0; padding: 0 var(--sp-4) var(--sp-3); color: var(--on-surface-variant); font-size: var(--fs-sm); line-height: 1.5;
+  background: rgba(255, 255, 255, 0.02); overflow-wrap: anywhere; }
+/* Another page's rows shown inside a card: rows only, no card of their own. */
+.gx-settings--embedded.gx-settings--bare { margin-top: 0; gap: 0; }
+.gx-settings--bare .gx-settings__section.gx-card { margin: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+  backdrop-filter: none; -webkit-backdrop-filter: none; }
+.gx-settings--bare .gx-settings__section > .gx-row:first-child { border-top: 1px solid var(--outline); }
+/* A row that belongs to the row above it (e.g. Nudgeless delay under Nudge or nudgeless). */
+.gx-row.gx-guide__sub { padding-left: calc(var(--sp-4) + 24px); }
+@media (max-width: 520px) { .gx-row.gx-guide__sub { padding-left: calc(var(--sp-4) + 14px); } }
+/* Camera editors: Vehicle left / Vehicle right buttons carry the color of their outline on the camera image (--side).
+   The selected side is filled with its color and outlined, and stays clear even before a snapshot enables the buttons. */
+.gx-side-btn { border: 2px solid transparent; }
+.gx-side-dot { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%; margin-right: 0.45em; vertical-align: -0.05em;
+  background: var(--side); box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.35); }
+.gx-actions .gx-side-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--side) 30%, transparent); border-color: var(--side);
+  color: var(--on-surface); font-weight: 700; }
+.gx-actions .gx-side-btn[aria-pressed="true"]:disabled { opacity: 0.8; }
+.gx-actions .gx-side-btn[aria-pressed="false"] { opacity: 0.7; }
+.gx-actions .gx-side-btn[aria-pressed="false"]:disabled { opacity: 0.35; }
+
+/* Steering in the menu: a steering wheel (Bootstrap Icons has none). Drawn as a mask so it takes the text color like the icon font. */
+.bi.gx-icon-steering-wheel::before {
+  content: ""; width: 1em; height: 1em; background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6.75'/%3E%3Ccircle cx='8' cy='8.4' r='1.7' fill='%23000' stroke='none'/%3E%3Cpath d='M1.5 7.4c1.9.4 3.3.7 4.9.9M14.5 7.4c-1.9.4-3.3.7-4.9.9M8 10.1v4.4'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6.75'/%3E%3Ccircle cx='8' cy='8.4' r='1.7' fill='%23000' stroke='none'/%3E%3Cpath d='M1.5 7.4c1.9.4 3.3.7 4.9.9M14.5 7.4c-1.9.4-3.3.7-4.9.9M8 10.1v4.4'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* Phone group pages: a heading above a run of cards when a group has sections. */
+.gx-menu-group__label { margin: var(--sp-4) 0 var(--sp-2); color: var(--text-muted); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+.gx-menu-group .gx-menu-cards + .gx-menu-group__label { margin-top: var(--sp-5); }

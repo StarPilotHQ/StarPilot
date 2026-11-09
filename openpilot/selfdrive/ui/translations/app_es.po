@@ -1240,8 +1240,8 @@ msgid "Always On Lateral"
 msgstr "Control lateral permanente"
 
 #: openpilot/starpilot/ui/translation_strings.py
-msgid "Long Planner"
-msgstr "Planificador longitudinal"
+msgid "Acceleration & Braking"
+msgstr "Aceleración y frenado"
 
 #: openpilot/starpilot/ui/translation_strings.py
 msgid "Conditional Driving Modes"
@@ -3534,8 +3534,8 @@ msgid "Collection counts describe retained data. The fitter separately checks ph
 msgstr "Los recuentos de recopilación describen los datos conservados. El ajustador comprueba por separado la calibración física, la cobertura completa de eventos y la validación."
 
 #: openpilot/starpilot/galaxy/web/js/onroad-layout-template.js
-msgid "Colors & Layout"
-msgstr "Colores y diseño"
+msgid "Display Layout"
+msgstr "Diseño de pantalla"
 
 #: openpilot/starpilot/galaxy/web/js/onroad-layout.js
 msgid "Colors and both layouts saved."
@@ -4741,8 +4741,8 @@ msgid "Driving Personalities"
 msgstr "Personalidades de conducción"
 
 #: openpilot/starpilot/galaxy/web/js/settings.js
-msgid "Driving Screen Widgets, Colors & Layout"
-msgstr "Widgets, colores y diseño de la pantalla de conducción"
+msgid "Driving Screen Widgets, Display Layout"
+msgstr "Widgets de la pantalla de conducción, diseño de pantalla"
 
 #: openpilot/starpilot/galaxy/web/js/driving.js
 msgid "Driving Settings"
@@ -9941,8 +9941,8 @@ msgid "Repair saved units first"
 msgstr "Repara primero las unidades guardadas"
 
 #: openpilot/starpilot/ui/appearance_owner.py
-msgid "Repair the saved layout in Colors & Layout"
-msgstr "Repara el diseño guardado en Colores y diseño"
+msgid "Repair the saved layout in Display Layout"
+msgstr "Repara el diseño guardado en Diseño de pantalla"
 
 #: openpilot/starpilot/galaxy/web/js/spotify.js
 msgid "Replace Key"
@@ -10284,8 +10284,8 @@ msgid "Reset both remembered manual choices to Automatic?"
 msgstr "¿Restablecer ambas selecciones manuales recordadas a Automático?"
 
 #: openpilot/starpilot/ui/runtime_app.py
-msgid "Reset invalid saved Long Planner profiles to defaults?"
-msgstr "¿Restablecer los perfiles guardados no válidos de Long Planner a sus valores predeterminados?"
+msgid "Reset invalid saved Acceleration & Braking profiles to defaults?"
+msgstr "¿Restablecer los perfiles guardados no válidos de Aceleración y frenado a sus valores predeterminados?"
 
 #: openpilot/starpilot/galaxy/settings.py
 msgid "Reset invalid saved profiles and turn their saved switch off?"

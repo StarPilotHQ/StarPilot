@@ -3,7 +3,7 @@
 Rows and their availability still come from the canonical feature owners.
 This presentation catalog supplies the purpose before any genuine prerequisite.
 """
-from openpilot.starpilot.ui.long_profile_feature import CATEGORY_HELP, VALUE_HELP
+from openpilot.starpilot.ui.long_profile_feature import CATEGORY_CHOICE_HELP, CATEGORY_HELP, VALUE_HELP
 from openpilot.starpilot.ui.feature_settings_state import SLC_OFFSET_KEYS
 
 DESCRIPTIONS = {
@@ -42,7 +42,9 @@ DESCRIPTIONS = {
   'torque_prepare_firestar': 'Prepares steering settings for a tuning-request recording. Turning it off restores the previous settings.',
   'SteerLatAccel': 'Sets the legacy lateral-acceleration-to-torque conversion. Review the vehicle-specific tuning profile before applying it.',
   'SteerFriction': 'Sets legacy steering friction compensation. Review the vehicle-specific tuning profile before applying it.',
-  'UseStarPilotLongitudinalPlanner': 'Selects the StarPilot acceleration, braking and following planner. Off selects the upstream planner.',
+  'UseStarPilotLongitudinalPlanner': ("On uses StarPilot's planner, which runs Speed Limit Controller, Curve Speed Controller, Force Stop, " +
+    "driving profile tuning and the other StarPilot speed features. Off uses comma's stock openpilot planner: " +
+    "those features stop working, but Conditional Driving Modes still runs."),
   'CustomCruise': 'Sets how much a short cruise-button press changes the set speed.',
   'CustomCruiseLong': 'Sets how much holding a cruise button changes the set speed.',
   'ReverseCruise': 'Swaps the Toyota short-press and held-press cruise-speed increments.',
@@ -55,8 +57,10 @@ DESCRIPTIONS = {
                         'Selected acceleration profiles, stop detection and vehicle limits still apply.'),
   'CustomPersonalities': 'Uses your following-time and jerk settings for the selected driving personality.',
   'profile:stopped_gap': 'Adds this distance to the following gap behind a stopped lead vehicle.',
-  'profile:global_acceleration': 'Chooses the acceleration curve used by personalities set to Selected Profile.',
-  'profile:global_braking': 'Chooses the braking response used by personalities set to Selected Profile.',
+  'profile:global_acceleration': ("Sets the acceleration curve for every driving personality. A personality with Custom acceleration " +
+    "on in Driving Personalities uses its own choice instead."),
+  'profile:global_braking': ("Sets the braking response for every driving personality. A personality with Custom braking " +
+    "on in Driving Personalities uses its own choice instead."),
   'reset_profiles': 'Restores the default acceleration, braking and following curves and presets.',
   'CurveSpeedController': 'Adjusts cruise speed for curves ahead using available learned cornering preferences.',
   'CurveSpeedControllerNoLead': 'Pauses curve-speed adjustments while following a lead vehicle.',
@@ -131,11 +135,11 @@ DESCRIPTIONS = {
   'pip:mask:size': 'Sets the size of each camera-image crop shown in the preview.',
   'pip:mask:editor': 'Edits the source-image crop for the vehicle left and right camera views.',
   'pip:reset': 'Restores the default source-image camera crops.',
-  'vasm:enabled': 'Enables visual spot-monitor warnings for the configured camera regions when qualified camera observations are available.',
-  'vasm:confidence': 'Sets the model confidence needed for a visual spot-monitor warning.',
-  'vasm:smooth': 'Sets how slowly visual spot-monitor warnings change.',
-  'vasm:annotation': 'Selects the camera-image regions corresponding to the vehicle windows for visual spot monitoring.',
-  'vasm:reset': 'Turns off visual spot monitoring and clears its configured camera regions.',
+  'vasm:enabled': 'Shows a blind spot warning when the cabin camera sees a vehicle through a traced side window.',
+  'vasm:confidence': 'How sure the camera model must be before it warns. Higher values require stronger model evidence, so fewer false warnings.',
+  'vasm:smooth': 'How quickly the warning turns on and off. Higher values make warnings change more slowly.',
+  'vasm:annotation': 'The side-window areas of the cabin camera image that are checked for vehicles.',
+  'vasm:reset': 'Turns off blind spot warnings and clears the traced window regions.',
   'sentry:enabled': 'Monitors parked motion and stores detected events when fresh parked sensor evidence is available.',
   'sentry:sensitivity': 'Sets how large an acceleration change must be to count as parked motion. Lower values detect smaller changes.',
   'sentry:warning': 'Sets how long detected motion must persist before a warning is recorded.',
@@ -167,7 +171,7 @@ INITIALIZATION = {
   'StarPortDedicatedWifi': 'Applies from the next StarPort connection.',
   'LateralControllerSelection': ('Applies when driving processes next start: the controller class, vehicle policy and ' +
     'PID/filter state are constructed together.'),
-  'UseStarPilotLongitudinalPlanner': 'Applies when the planner next starts: each choice runs a different planner process with its own subscriptions and state.',
+  'UseStarPilotLongitudinalPlanner': 'Applies on the next drive.',
   'TurnAssist': ('Applies when driving processes next start: the selected torque controller creates its ' +
     'low-speed feedback controller and filter state at initialization.'),
   'ToyotaAutoHold': 'Requires the next vehicle startup to configure the brake-hold permission in CarParams and Panda safety.',
@@ -337,8 +341,11 @@ def purpose(row):
     parts = key.split(':')
     category = parts[2] if len(parts) >= 3 else None
     if category in CATEGORY_HELP:
+      # Personality-page controls carry their own text; only speed points share one.
+      if len(parts) == 4 and parts[3] in ('custom', 'choice', 'mode'):
+        return row.reason
       if len(parts) == 3:
-        return CATEGORY_HELP[category]
+        return CATEGORY_CHOICE_HELP.get(category, CATEGORY_HELP[category])
       return {'following': 'Sets following time at this speed. Higher values leave more space.',
               'acceleration': 'Sets the acceleration limit at this speed. Higher values allow stronger acceleration.',
               'braking': 'Sets braking response at this speed. Higher values allow stronger braking.'}[category]

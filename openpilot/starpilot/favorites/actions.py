@@ -21,11 +21,10 @@ CYCLE_PERSONALITY = "__starpilot_controller_action__:cycle_driving_personality"
 
 # Saved preference shortcuts retain the current owner's authority and dependencies.
 FEATURE_KEYS = {
-  "slc": ("SpeedLimitController", "ShowSpeedLimits", "SLCConfirmation", "SLCConfirmationHigher", "SLCConfirmationLower"),
+  "slc": ("SpeedLimitController", "SLCConfirmation", "SLCConfirmationHigher", "SLCConfirmationLower"),
   "lane": ("LaneCentering", "LaneCenteringPauseOnSignal"),
   "curve": ("CurveSpeedController", "CurveSpeedControllerNoLead", "ShowCSCStatus"),
   "aol": ("AlwaysOnLateral", "NostalgiaMode"),
-  "profiles": ("CustomPersonalities",),
 }
 # Slots saved with a retired visibility key stay assigned and read as unavailable.
 APPEARANCE_KEYS = ("DriverCamera", "StockConfidenceBallWidget", "HideLeadMarker", "LeadInfo", "SignalMetrics", "BlindSpotMetrics",

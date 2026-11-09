@@ -63,12 +63,11 @@ export class CameraSnapshotFeed {
   }
 }
 
-export const CamerasPage = {
-  name: "CamerasPage",
-  components: { GxNotice, BluetoothNotice, GalaxySelect, MenuTile },
-  props: { mode: { type: String, required: true }, go: { type: Function, required: true },
-    tools: { type: Array, required: true },
-    unauthorized: { type: Function, required: true } },
+// Camera snapshot card: shown on Sentry Mode (and the old Cameras & Monitoring page).
+export const CameraSnapshotCard = {
+  name: "CameraSnapshotCard",
+  components: { GxNotice, BluetoothNotice, GalaxySelect },
+  props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ bluetooth: bluetoothConnection(), camera: "cabin", image: "", capturing: false, error: "" }),
   created() { this.snapshots = new CameraSnapshotFeed({ publish: (state) => Object.assign(this.$data, state), unauthorized: this.unauthorized }) },
   methods: {
@@ -81,12 +80,6 @@ export const CamerasPage = {
   beforeUnmount() { document.removeEventListener("visibilitychange", this.visibility); this.snapshots.stop() },
   watch: { mode() { this.snapshots.stop() } },
   template: `
-    <div class="gx-view gx-settings" aria-label="Cameras and Monitoring">
-      <h2>Cameras &amp; Monitoring</h2>
-      <div class="gx-grid">
-        <MenuTile v-for="tool in tools" :key="tool.path" :icon="tool.icon" :title="tool.name" :description="tool.description"
-          :disabled="tool.availability === 'local-only' && mode !== 'local'" @select="go(tool.path)" />
-      </div>
       <section class="gx-card gx-panel gx-stack"><div class="gx-section__header"><i class="bi bi-camera" aria-hidden="true"></i><span class="gx-section__title">Camera Snapshot</span></div>
         <p>Turn off the vehicle, choose a camera, then take a snapshot.</p>
         <BluetoothNotice v-if="bluetooth" feature="Camera snapshots" />
@@ -101,7 +94,23 @@ export const CamerasPage = {
           <img v-if="image" :src="image" :alt="camera + ' camera snapshot'" class="gx-media gx-media--spaced" />
         </template>
         <p v-else>Camera snapshots are available on the connected device.</p>
-        <small>Snapshots are not saved.</small></section>
+        <small>Snapshots are not saved.</small></section>`,
+}
+
+export const CamerasPage = {
+  name: "CamerasPage",
+  components: { CameraSnapshotCard, MenuTile },
+  props: { mode: { type: String, required: true }, go: { type: Function, required: true },
+    tools: { type: Array, required: true },
+    unauthorized: { type: Function, required: true } },
+  template: `
+    <div class="gx-view gx-settings" aria-label="Cameras and Monitoring">
+      <h2>Cameras &amp; Monitoring</h2>
+      <div class="gx-grid">
+        <MenuTile v-for="tool in tools" :key="tool.path" :icon="tool.icon" :title="tool.name" :description="tool.description"
+          :disabled="tool.availability === 'local-only' && mode !== 'local'" @select="go(tool.path)" />
+      </div>
+      <CameraSnapshotCard :mode="mode" :unauthorized="unauthorized" />
     </div>`,
 }
 

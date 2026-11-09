@@ -133,7 +133,6 @@ const { execFileSync } = require('node:child_process')
           const data = { ...snapshot('vasm'), editorRow: 0, editor: { width: 1344, height: 760, cameraLeft: [[100, 100], [500, 100], [500, 500]], cameraRight: [[800, 100], [1000, 100], [1000, 500]] } }
           vm.feed.publish({ status: 'ready', data }); vm.state.imageName = 'Cabin snapshot'
         }],
-        ['longitudinal-curves', 'LongitudinalCurvesPage', vm => vm.feed.publish({ status: 'ready', data: snapshot('standard/acceleration') })],
         ['favorites', 'FavoritesPage', vm => vm.feed.publish({ status: 'ready', data: { editable: true, valid: true,
           slots: Array.from({ length: 3 }, () => ({ key: 'test', label: 'Test', enabled: true, show_onroad: true })),
           options: [{ key: 'test', label: 'Test', section: 'Visual' }], states: Array.from({ length: 3 }, () => ({ stateLabel: 'Off', reason: '' })) } })],
@@ -152,12 +151,12 @@ const { execFileSync } = require('node:child_process')
         ['onroad-layout', 'OnroadLayoutPage', prepareLayout],
         ['onroad-layout', 'OnroadLayoutPage', prepareLayout, { projection: true }],
         ['models', 'ModelsPage', prepareModels],
-        ['model-laboratory', 'LaboratoryPage', vm => Object.assign(vm, { loading: false,
-          configuration: { enabled: false, lateralModel: 'one', longitudinalModel: 'two' }, status: {
+        ['models', 'ModelsPage', vm => { prepareModels(vm); Object.assign(vm, {
+          labConfig: { enabled: false, lateralModel: 'one', longitudinalModel: 'two' }, lab: {
             configuration: { enabled: false, lateralModel: 'one', longitudinalModel: 'two' },
-            isOnroad: false, runtimeSupported: true, chestnutReady: true, runtime: {}, download: { downloading: false },
+            isOnroad: false, runtimeSupported: true, chestnutReady: true, runtime: {}, download: { downloading: false }, summary: { published: 2 },
             models: ['one', 'two'].map(value => ({ value, label: value, small: true, modelLabEligible: true, modelLabArtifactAvailable: true, modelLabArtifactInstalled: true })),
-            capabilities: { configure: true, download: true, delete: true, cancel: true, refresh: true } } })],
+            capabilities: { configure: true, download: true, delete: true, cancel: true, refresh: true } } }) }],
         ['sentry-notifications', 'SentryNotifications', vm => { vm.notifications = { subscriptionCount: 0, subscriptions: [],
           channels: Object.fromEntries(vm.channels.map(name => [name, { enabled: true, configured: true, pending: 0, lastState: 'idle', lastError: '' }])) } }],
         ['drive-state', 'DriveStatePanel', vm => { vm.state = { mode: 'auto', available: true, effective: 'offroad', overrideAllowed: true } }],

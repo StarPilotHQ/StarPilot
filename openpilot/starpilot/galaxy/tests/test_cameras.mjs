@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
-import { CamerasPage, CameraSnapshotFeed } from "../web/js/cameras.js"
+import { CamerasPage, CameraSnapshotCard, CameraSnapshotFeed } from "../web/js/cameras.js"
 import { SettingsFeed, SettingsPage } from "../web/js/settings.js"
 const cameraTools = JSON.parse(readFileSync(new URL("../web/data/catalog.json", import.meta.url), "utf8"))
   .tools.find(tool => tool.path === "/cameras").children
@@ -29,17 +29,19 @@ assert.equal(returned, 1)
 assert.equal(page.state.query, "")
 
 assert.match(CamerasPage.template, /MenuTile v-for="tool in tools"/)
-assert.equal(cameraTools.find(tool => tool.path === "/cameras/pip").description, "Adjust the camera crop with a live cabin preview.")
+assert.equal(cameraTools.find(tool => tool.path === "/cameras/pip").description, "Choose when the blind spot camera shows and set its crop.")
 assert.doesNotMatch(CamerasPage.template, /live camera preview is unavailable/)
-assert.match(cameraTools.find(tool => tool.path === "/cameras/events").description, /View motion events.*saved motion settings/)
+assert.match(cameraTools.find(tool => tool.path === "/cameras/events").description, /View motion events.*motion and notification settings/)
 assert.doesNotMatch(CamerasPage.template, /go\('\/cameras\/sentry-settings'\)/)
-assert.match(cameraTools.find(tool => tool.path === "/cameras/vasm").description, /Preview the cabin camera/)
-assert.match(CamerasPage.template, /snapshots.capture\(camera\)/)
+assert.match(cameraTools.find(tool => tool.path === "/cameras/vasm").description, /Trace the side windows.*blind spot warnings \(V-ASM\)/)
+assert.match(CameraSnapshotCard.template, /snapshots.capture\(camera\)/)
+assert.match(CamerasPage.template, /<CameraSnapshotCard /)
 assert.match(SettingsPage.template, /\{\{ title \}\}/)
 const app = readFileSync(new URL("../web/js/app.js", import.meta.url), "utf8")
 assert.match(app, /<PipPage v-else-if="route\.path === '\/cameras\/pip'"/)
 assert.match(app, /SentryEventsPage[^>]*\/cameras\/events[^>]*\/cameras\/sentry-settings/)
-assert.match(app, /CamerasPage v-else-if="route\.path === '\/cameras'"/)
+// The old Cameras & Monitoring page now opens Sentry Mode.
+assert.match(app, /SentryEventsPage v-else-if="\['\/cameras', '\/cameras\/events'/)
 
 const captures = [], snapshots = [], revoked = []
 let timer

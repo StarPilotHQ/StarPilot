@@ -4,6 +4,9 @@ import { GxNotice } from "./notice.js"
 import { requestJson } from "./startup.js"
 import { connectionError } from "./polling.js"
 import { reactive } from "../vendor/vue/vue.esm-browser.js"
+import { SettingsRecoveryPage } from "./settings-recovery.js"
+import { menuPlace, settingsSearchPath } from "./menu.js"
+import { route } from "./route-state.js"
 
 const text = (value, max = 1024) => typeof value === "string" && value.length <= max
 const rows = value => Array.isArray(value) && value.length <= 128 && value.every(row => row && text(row.label, 128) && text(row.value))
@@ -19,14 +22,18 @@ export function validTmux(value) {
     typeof value.truncated === "boolean" && typeof value.text === "string" &&
     new TextEncoder().encode(value.text).length <= 65536 && value.text.split("\n").length <= 301
 }
-export function troubleshootReport(data) {
+// The report to paste when asking for help: the car and device, then every setting changed from its default
+// (with where it lives). Settings left at their defaults follow from the build, so they are not listed.
+export function troubleshootReport(data, changes = null) {
   if (!data) return ""
+  const where = row => menuPlace(settingsSearchPath({ page: row.page, label: row.label }))
+  const changed = changes === null ? ["", "Changed settings: unavailable"]
+    : ["", `Changed settings (${changes.length})`, ...(changes.length ? changes.map(row =>
+      `${where(row) ? where(row) + " › " : ""}${row.label}: ${row.current} (default ${row.default})`) : ["None: every setting uses its default."])]
   return ["StarPilot Troubleshoot", `Device: ${data.device.state || "Unavailable"}`,
     `Vehicle: ${data.vehicle.available ? data.vehicle.fingerprint : "Unavailable"}`,
     `Brand: ${data.vehicle.brand}`, `Longitudinal: ${data.vehicle.longitudinal ? "Available" : "Unavailable"}`, `Steering: ${data.vehicle.steering}`,
-    ...data.snapshot.map(row => `${row.label}: ${row.value}`),
-    ...data.sections.flatMap(section => ["", section.title, ...section.rows.map(row => `${row.label}: ${row.value}`)]),
-    "", data.note].join("\n")
+    ...data.snapshot.map(row => `${row.label}: ${row.value}`), ...changed].join("\n")
 }
 
 export class DiagnosticFeed {
@@ -74,7 +81,7 @@ export class DiagnosticFeed {
 
 const props = { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } }
 function setup(props, consoleTail) {
-  const state = reactive({ loading: false, live: true, data: null, error: "", notice: "" })
+  const state = reactive({ loading: false, live: true, data: null, error: "", notice: "", changes: null, showAll: false })
   const feed = new DiagnosticFeed({ endpoint: consoleTail ? "./api/tmux/live" : "./api/troubleshoot",
     validate: consoleTail ? validTmux : validTroubleshoot, interval: consoleTail ? 2000 : 10000,
     publish: update => Object.assign(state, update), unauthorized: props.unauthorized })
@@ -92,17 +99,29 @@ const methods = {
   saveText(value) { const url = URL.createObjectURL(new Blob([value], { type: "text/plain;charset=utf-8" }))
     const link = document.createElement("a"); link.href = url; link.download = "starpilot-console.txt"; link.click(); URL.revokeObjectURL(url) },
 }
+// Troubleshoot: the car and device, the settings changed from their defaults (with resets; this used to be the
+// separate Changed Settings page, whose address /settings/recovery now opens here at that list), and every
+// driving setting folded away underneath.
 export const TroubleshootPage = {
-  components: { GxState, GxIconButton, GxNotice }, props, ...lifecycle,
+  components: { GxState, GxNotice, SettingsRecoveryPage }, props, ...lifecycle,
+  mounted() {
+    lifecycle.mounted.call(this)
+    if (route.path === "/settings/recovery") this.$nextTick(() => this.$refs.changes?.scrollIntoView?.({ block: "start" }))
+  },
   setup: props => setup(props, false), methods: { ...methods, report: troubleshootReport },
   template: `<section class="gx-settings"><header class="gx-settings__header gx-page-header"><div><h2>Troubleshoot</h2>
-    <p>Read-only device, vehicle and settings snapshot. Copy it when reporting a problem.</p></div></header>
+    <p>Your car and device details and the settings you have changed. Copy the report when asking for help.</p></div></header>
     <GxNotice tone="danger" v-if="state.error">{{ state.error }}</GxNotice>
     <GxNotice v-if="state.notice && !state.error" tone="info">{{ state.notice }}</GxNotice>
-    <div class="gx-settings__controls gx-actions"><button class="gx-btn gx-btn--tonal" :disabled="mode !== 'local'" @click="$emit('navigate', '/settings/recovery')">Show Non-Default Values</button><button class="gx-btn gx-btn--tonal" :disabled="mode !== 'local'" @click="$emit('navigate', '/settings/recovery')">Reset to Default</button><button class="gx-btn gx-btn--tonal" @click="$emit('navigate', '/logs/monitor')">System Monitor</button><button class="gx-btn gx-btn--tonal" @click="$emit('navigate', '/logs/crashes')">Crash Reports</button><GxIconButton label="Copy report" icon="bi-clipboard" :disabled="!state.data" @click="copyText(report(state.data))" /></div>
+    <div class="gx-settings__controls gx-actions"><button class="gx-btn" :disabled="!state.data" @click="copyText(report(state.data, state.changes))"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy report</button><button class="gx-btn gx-btn--tonal" @click="$emit('navigate', '/logs/monitor')">System Monitor</button><button class="gx-btn gx-btn--tonal" @click="$emit('navigate', '/logs/crashes')">Crash Reports</button></div>
     <GxState v-if="state.loading && !state.error" loading>Loading report…</GxState>
-    <template v-if="state.data"><section class="gx-card gx-panel"><div class="gx-section__header"><i class="bi bi-cpu" aria-hidden="true"></i><span class="gx-section__title">Device Snapshot</span></div><p>State: {{ state.data.device.state || 'Unavailable' }}</p><p>Vehicle: {{ state.data.vehicle.available ? state.data.vehicle.fingerprint : 'Unavailable' }}</p><p>Brand: {{ state.data.vehicle.brand || 'Unavailable' }} · Longitudinal: {{ state.data.vehicle.longitudinal ? 'Available' : 'Unavailable' }} · Steering: {{ state.data.vehicle.steering || 'Unavailable' }}</p><dl class="gx-details"><template v-for="row in state.data.snapshot" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></template></dl></section>
-      <section v-for="section in state.data.sections" :key="section.title" class="gx-card gx-panel"><div class="gx-section__header"><i class="bi bi-list-check" aria-hidden="true"></i><span class="gx-section__title">{{ section.title }}</span></div><dl class="gx-details"><template v-for="row in section.rows" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></template></dl></section><p class="gx-note">{{ state.data.note }}</p></template></section>`,
+    <section v-if="state.data" class="gx-card gx-panel"><div class="gx-section__header"><i class="bi bi-car-front" aria-hidden="true"></i><span class="gx-section__title">Car and device</span></div><p>State: {{ state.data.device.state || 'Unavailable' }}</p><p>Vehicle: {{ state.data.vehicle.available ? state.data.vehicle.fingerprint : 'Unavailable' }}</p><p>Brand: {{ state.data.vehicle.brand || 'Unavailable' }} · Longitudinal: {{ state.data.vehicle.longitudinal ? 'Available' : 'Unavailable' }} · Steering: {{ state.data.vehicle.steering || 'Unavailable' }}</p><dl class="gx-details"><template v-for="row in state.data.snapshot" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></template></dl></section>
+    <div ref="changes" class="gx-troubleshoot__changes"><SettingsRecoveryPage embedded :mode="mode" :unauthorized="unauthorized" @snapshot="state.changes = $event.rows" /></div>
+    <section v-if="state.data && state.data.sections.length" class="gx-card">
+      <button type="button" class="gx-guide__drop-head" :aria-expanded="state.showAll" @click="state.showAll = !state.showAll"><i class="bi" :class="state.showAll ? 'bi-chevron-down' : 'bi-chevron-right'" aria-hidden="true"></i><span class="gx-guide__drop-title">All driving settings</span><span class="gx-guide__drop-hint">Every saved value on the main driving pages</span></button>
+      <template v-if="state.showAll"><div v-for="section in state.data.sections" :key="section.title" class="gx-panel"><div class="gx-section__header"><i class="bi bi-list-check" aria-hidden="true"></i><span class="gx-section__title">{{ section.title }}</span></div><dl class="gx-details"><template v-for="row in section.rows" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></template></dl></div>
+        <p class="gx-note gx-inset">Saved values only: they do not show whether a feature is active while driving.</p></template>
+    </section></section>`,
 }
 export const TmuxPage = {
   components: { GxState, GxIconButton, GxNotice }, props, ...lifecycle,

@@ -287,7 +287,7 @@ def feature_parent_page(page: str) -> str | None:
 
 def feature_parent_title(page: str) -> str:
   parent = feature_parent_page(page)
-  return {None: "StarPilot", FeaturePage.HUB: "Driving Controls", FeaturePage.PROFILES: "Long Planner",
+  return {None: "StarPilot", FeaturePage.HUB: "Driving Controls", FeaturePage.PROFILES: "Acceleration & Braking",
           FeaturePage.CONDITIONAL: "Conditional Driving Modes", FeaturePage.TORQUE: "Steering and Torque"}.get(parent, (parent or "").replace("_", " ").title())
 
 

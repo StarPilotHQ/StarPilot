@@ -10,11 +10,12 @@ from opendbc.car.structs import car
 from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX
 from openpilot.starpilot.longitudinal.accel_profile import A_CRUISE_MAX_VALS_TRAFFIC_ALL, interpolate_accel_profile
 from openpilot.starpilot.longitudinal.profile_document import (
-  DEFAULT_DECELERATION_PROFILE, active_personality_id, interpolate_category_curve, is_truck_fingerprint,
+  CUSTOM_FOLLOWING_PRESETS, DEFAULT_DECELERATION_PROFILE, STOCK_FOLLOW_SECONDS, STOCK_JERK, TRAFFIC_DEFAULT_FOLLOW,
+  active_personality_id, interpolate_category_curve, is_truck_fingerprint,
 )
 from openpilot.starpilot.longitudinal.profile_preferences import (
   FOLLOW_MIN_SECONDS, FOLLOW_MAX_SECONDS, NAMES, SCALARS, TRAFFIC_JERK_SUFFIXES,
-  read_document_value, read_master_value, read_profile_health, read_traffic_health,
+  read_document_value, read_profile_health, read_traffic_health,
 )
 
 JERK_MIN = 0.25
@@ -154,11 +155,8 @@ class ProfileSmoother:
 
 
 def read_settings(params) -> ProfileSettings | None:
-  """A saved preference is inert unless the host explicitly opts into this runtime."""
-  master = read_master_value(params)
-  if not master.valid or master.value is not True:
-    return None
-  health = read_profile_health(params, master=master)
+  """Each personality's Following choice decides whether its saved follow and jerk values are used (Custom only)."""
+  health = read_profile_health(params)
   if not health.dependencies_valid:
     return None
   try:
@@ -179,8 +177,7 @@ def read_traffic_settings(params) -> TrafficSettings:
   follow = (health.number('TrafficFollow'), health.number('RelaxedFollow'))
   jerk = tuple((health.number('Traffic' + suffix) / 100.0,
                 health.number('Relaxed' + suffix) / 100.0) for suffix in TRAFFIC_JERK_SUFFIXES)
-  return TrafficSettings(True, 'valid', health.document if health.master_on else None,
-                         health.profile_enabled if health.master_on else False, follow, jerk)
+  return TrafficSettings(True, 'valid', health.document, health.profile_enabled, follow, jerk)
 
 
 def _traffic_value(points: tuple[float, float], speed: float) -> float:
@@ -196,23 +193,28 @@ def resolve(settings: ProfileSettings | TrafficSettings | None, personality, v_e
   if traffic_mode:
     if not isinstance(settings, TrafficSettings) or not settings.valid or len(settings.jerk) != 5:
       return None
-    follow = _traffic_value(settings.follow, v_ego)
+    document = settings.document
+    ev_tuning = CP.transmissionType == car.CarParams.TransmissionType.direct
+    truck_tuning = is_truck_fingerprint(str(CP.carFingerprint)) and not ev_tuning
+    following = document['profiles']['traffic']['following'] if document is not None else {'preset': 'dom_default', 'curve': []}
+    custom = following['preset'] in CUSTOM_FOLLOWING_PRESETS
+    if following['preset'] == 'custom_simple':
+      follow = _traffic_value(settings.follow, v_ego)
+    elif following['preset'] == 'dom_default':
+      follow = _traffic_value(TRAFFIC_DEFAULT_FOLLOW, v_ego)
+    else:
+      follow = interpolate_category_curve('following', v_ego, following, ev_tuning, truck_tuning)
     acceleration_max = interpolate_accel_profile(v_ego, A_CRUISE_MAX_VALS_TRAFFIC_ALL)
     cruise_brake_magnitude = TRAFFIC_CRUISE_BRAKE_MAGNITUDE
     traffic_braking_custom = False
-    document = settings.document
     if document is not None and document['enabled'] and settings.profile_enabled:
       categories = document['profiles']['traffic']
-      ev_tuning = CP.transmissionType == car.CarParams.TransmissionType.direct
-      truck_tuning = is_truck_fingerprint(str(CP.carFingerprint)) and not ev_tuning
-      for category in ('following', 'acceleration', 'braking'):
+      for category in ('acceleration', 'braking'):
         config = categories[category]
-        if config['preset'] in ('dom_default', 'selected_profile') or (category != 'following' and not config.get('legacyActivation', False)):
+        if config['preset'] in ('dom_default', 'selected_profile') or not config.get('legacyActivation', False):
           continue
         value = interpolate_category_curve(category, v_ego, config, ev_tuning, truck_tuning)
-        if category == 'following':
-          follow = value
-        elif category == 'acceleration':
+        if category == 'acceleration':
           acceleration_max = value
         else:
           cruise_brake_magnitude = value
@@ -222,7 +224,7 @@ def resolve(settings: ProfileSettings | TrafficSettings | None, personality, v_e
         acceleration_max < 0.0 or not 0.35 <= cruise_brake_magnitude <= abs(ACCEL_MIN)):
       return None
     acceleration, deceleration, speed, speed_decrease, danger = (
-      _traffic_value(points, v_ego) for points in settings.jerk
+      tuple(_traffic_value(points, v_ego) for points in settings.jerk) if custom else (1.0,) * 5
     )
     return ProfileTuning('traffic', follow, acceleration, deceleration, speed, speed_decrease, danger,
                          min(acceleration_max, ACCEL_MAX), cruise_brake_magnitude,
@@ -231,32 +233,43 @@ def resolve(settings: ProfileSettings | TrafficSettings | None, personality, v_e
     return None
   if personality_id not in settings.follow:
     return None
-  low, high = settings.follow[personality_id]
-  follow = float(low + (high - low) * min(max((v_ego - LEGACY_FOLLOW_BP[0]) /
-                                             (LEGACY_FOLLOW_BP[1] - LEGACY_FOLLOW_BP[0]), 0.0), 1.0))
+  document = settings.document
+  ev_tuning = CP.transmissionType == car.CarParams.TransmissionType.direct
+  truck_tuning = is_truck_fingerprint(str(CP.carFingerprint)) and not ev_tuning
+  following = (document['profiles'][personality_id]['following'] if document is not None else
+               {'preset': 'dom_default', 'curve': []})
+  custom = following['preset'] in CUSTOM_FOLLOWING_PRESETS
+  if following['preset'] == 'custom_simple':
+    low, high = settings.follow[personality_id]
+    follow = float(low + (high - low) * min(max((v_ego - LEGACY_FOLLOW_BP[0]) /
+                                               (LEGACY_FOLLOW_BP[1] - LEGACY_FOLLOW_BP[0]), 0.0), 1.0))
+  elif following['preset'] == 'dom_default':
+    follow = STOCK_FOLLOW_SECONDS[personality_id]
+  else:
+    follow = interpolate_category_curve('following', v_ego, following, ev_tuning, truck_tuning)
+    if not math.isfinite(follow):
+      return None
   acceleration_max = None
   cruise_brake_magnitude = None
   custom_acceleration = False
-  document = settings.document
   if document is not None and document['enabled'] and settings.profile_enabled[personality_id]:
     categories = document['profiles'][personality_id]
-    ev_tuning = CP.transmissionType == car.CarParams.TransmissionType.direct
-    truck_tuning = is_truck_fingerprint(str(CP.carFingerprint)) and not ev_tuning
-    for category in ('following', 'acceleration', 'braking'):
+    for category in ('acceleration', 'braking'):
       config = categories[category]
-      if config['preset'] in ('dom_default', 'selected_profile') or (category != 'following' and not config.get('legacyActivation', False)):
+      if config['preset'] in ('dom_default', 'selected_profile') or not config.get('legacyActivation', False):
         continue
       value = interpolate_category_curve(category, v_ego, config, ev_tuning, truck_tuning)
       if not math.isfinite(value):
         return None
-      if category == 'following':
-        follow = value
-      elif category == 'acceleration':
+      if category == 'acceleration':
         custom_acceleration = config['preset'] == 'custom'
         acceleration_max = min(max(value, 0.0), ACCEL_MAX)
       else:
         cruise_brake_magnitude = min(max(value, 0.5), abs(ACCEL_MIN))
-  acceleration_jerk, deceleration_jerk, speed_jerk, speed_decrease_jerk, danger_jerk = settings.jerk[personality_id]
+  if following['preset'] == 'dom_default' and acceleration_max is None and cruise_brake_magnitude is None:
+    return None  # Nothing saved applies: the planner uses openpilot's own follow and jerk.
+  acceleration_jerk, deceleration_jerk, speed_jerk, speed_decrease_jerk, danger_jerk = (
+    settings.jerk[personality_id] if custom else (STOCK_JERK[personality_id],) * 5)
   return ProfileTuning(personality_id, min(max(follow, FOLLOW_MIN_SECONDS), FOLLOW_MAX_SECONDS),
                        acceleration_jerk, deceleration_jerk, speed_jerk, speed_decrease_jerk, danger_jerk,
                        acceleration_max, cruise_brake_magnitude, custom_acceleration=custom_acceleration)
@@ -296,6 +309,16 @@ def read_global_powertrain_preset(params, CP) -> GlobalPowertrainPreset | None:
                                   truck_selected)
   except (OSError, RuntimeError, TypeError, ValueError):
     return None
+
+
+def personality_tuning_requested(document: dict | None) -> bool:
+  """Whether any personality uses saved tuning: a Following other than StarPilot Default, or (while the document is
+  enabled) a legacy-activated acceleration or braking curve. Otherwise every personality drives on openpilot's own values."""
+  if document is None:
+    return False
+  return any(profile['following']['preset'] != 'dom_default' or
+             (document['enabled'] and any(profile[category].get('legacyActivation', False) for category in ('acceleration', 'braking')))
+             for profile in document['profiles'].values())
 
 
 def selected_profiles_requested(document: dict | None) -> bool:
@@ -447,15 +470,16 @@ class ProfileHost:
     if now_ns - self.last_attempt_ns >= self.REFRESH_NS:
       self.last_attempt_ns = now_ns
       try:
-        master = read_master_value(self.params)
-        self.disabled = (not traffic_mode and master.valid and master.value is False and
-                         read_document_value(self.params).valid)
         self.settings = read_traffic_settings(self.params) if traffic_mode else read_settings(self.params)
         self.last_success_ns = now_ns
       except (OSError, RuntimeError, ValueError, TypeError):
-        self.disabled = False
         self.settings = None
     if self.last_success_ns < 0 or now_ns - self.last_success_ns > self.MAX_AGE_NS:
       self.disabled = False
       return None
-    return resolve(self.settings, personality, v_ego, CP, traffic_mode=traffic_mode)
+    tuning = resolve(self.settings, personality, v_ego, CP, traffic_mode=traffic_mode)
+    # No tuning from valid saved settings means this personality is on StarPilot Default (openpilot's own values),
+    # which callers must treat as intended, not as an unreadable profile.
+    self.disabled = (tuning is None and not traffic_mode and isinstance(self.settings, ProfileSettings) and
+                     isinstance(v_ego, (int, float)) and math.isfinite(v_ego) and v_ego >= 0)
+    return tuning

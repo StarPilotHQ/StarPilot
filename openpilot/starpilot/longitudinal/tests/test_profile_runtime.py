@@ -60,10 +60,18 @@ class ProfileRuntimeTests(unittest.TestCase):
     self.params = Params(str(self.path))
     self.cp = CarInterface.get_non_essential_params(CAR.HONDA_CIVIC)
 
+  def follow_custom(self, *names, preset='custom_simple'):
+    """Following = Custom (Simple by default) is what uses a personality's saved follow and jerk (the old global
+    Custom Personalities switch no longer does)."""
+    profiles = deepcopy(default_personality_profiles(False))
+    for name in names or ('aggressive', 'standard', 'relaxed', 'traffic'):
+      profiles[name]['following'] = {'preset': preset, 'curve': []}
+    self.params.put('LongitudinalPersonalityProfiles', current_profile_document(profiles, enabled=True), block=True)
+
   def test_traffic_defaults_apply_without_custom_master(self):
     settings = read_traffic_settings(self.params)
     self.assertTrue(settings.valid)
-    self.assertFalse(settings.profile_enabled)
+    self.assertTrue(settings.profile_enabled)  # the document's enabled flag, not the retired switch, gates Traffic's curves
     for speed, expected in ((0.0, 0.75), (12.5, 1.175), (25.0, 1.6), (30.0, 1.6)):
       with self.subTest(speed=speed):
         tuning = resolve(settings, log.LongitudinalPersonality.aggressive, speed, self.cp, traffic_mode=True)
@@ -122,7 +130,7 @@ class ProfileRuntimeTests(unittest.TestCase):
     self.assertIsNone(global_braking_for_frame(host, frame, now_ns + 1))
 
   def test_traffic_saved_jerk_and_follow_interpolate_on_0_to_25_mps(self):
-    self.params.put_bool('CustomPersonalities', True, block=True)
+    self.follow_custom('traffic')
     self.params.put('TrafficFollow', 0.9, block=True)
     self.params.put('RelaxedFollow', 1.7, block=True)
     for suffix in ('JerkAcceleration', 'JerkDeceleration', 'JerkSpeed', 'JerkSpeedDecrease', 'JerkDanger'):
@@ -179,13 +187,13 @@ class ProfileRuntimeTests(unittest.TestCase):
     self.assertAlmostEqual(required_float(retained_profile.cruise_brake_magnitude), 0.35)
     self.assertTrue(retained_profile.traffic_braking_custom)
     self.assertAlmostEqual(required_float(retained_profile.acceleration_max), 1.4)
-    self.params.put_bool('CustomPersonalities', False, block=True)
-    disabled_master = resolve(read_traffic_settings(self.params), log.LongitudinalPersonality.standard,
-                              12.5, self.cp, traffic_mode=True)
-    self.assertAlmostEqual(required_float(disabled_master.cruise_brake_magnitude), 0.42)
-    self.assertFalse(disabled_master.traffic_braking_custom)
-    self.assertNotAlmostEqual(required_float(disabled_master.acceleration_max), 1.4)
-    self.assertIsNone(read_settings(self.params))
+    self.params.put_bool('CustomPersonalities', False, block=True)  # the retired switch changes nothing either way
+    retired_switch = resolve(read_traffic_settings(self.params), log.LongitudinalPersonality.standard,
+                             12.5, self.cp, traffic_mode=True)
+    self.assertAlmostEqual(required_float(retired_switch.cruise_brake_magnitude), 0.35)
+    self.assertTrue(retired_switch.traffic_braking_custom)
+    self.assertAlmostEqual(required_float(retired_switch.acceleration_max), 1.4)
+    self.assertIsNotNone(read_settings(self.params))  # Following choices, not the old switch, decide follow and jerk.
 
   def test_traffic_valid_historical_six_acceleration_intersects_native_without_losing_other_categories(self):
     profiles = default_personality_profiles(False)
@@ -208,7 +216,7 @@ class ProfileRuntimeTests(unittest.TestCase):
                                                0.05, traffic_mode=False))
 
   def test_half_second_traffic_is_supported_but_malformed_values_are_unavailable(self):
-    self.params.put_bool('CustomPersonalities', True, block=True)
+    self.follow_custom('traffic')
     self.params.put('TrafficFollow', 0.5, block=True)
     settings = read_traffic_settings(self.params)
     self.assertTrue(settings.valid)
@@ -221,11 +229,32 @@ class ProfileRuntimeTests(unittest.TestCase):
     Path(self.params.get_param_path('TrafficJerkDanger')).write_bytes(b'nan')
     self.assertFalse(read_traffic_settings(self.params).valid)
     assert read_settings(self.params) is not None
-    self.params.put_bool('CustomPersonalities', False, block=True)
-    self.assertTrue(read_traffic_settings(self.params).valid)  # Saved custom bytes are inactive with master off.
+    # Saved values are always read now (Following decides whether they apply), so a corrupt one makes Traffic
+    # unavailable and the personality falls back to openpilot's own values.
+    self.assertFalse(read_traffic_settings(self.params).valid)
+
+  def test_traffic_legacy_braking_applies_without_the_retired_switch(self):
+    profiles = default_personality_profiles(False)
+    profiles['traffic']['braking'] = {'preset': 'custom', 'curve': [0.9] * 10, 'legacyActivation': True}
+    self.params.put('LongitudinalPersonalityProfiles', current_profile_document(profiles, enabled=True), block=True)
+    tuning = resolve(read_traffic_settings(self.params), log.LongitudinalPersonality.standard, 0.0, self.cp, traffic_mode=True)
+    assert tuning is not None
+    self.assertAlmostEqual(required_float(tuning.cruise_brake_magnitude), 0.9)
+
+  def test_dormant_invalid_traffic_value_leaves_default_traffic_available(self):
+    Path(self.params.get_param_path('TrafficJerkSpeed')).write_text('bad')
+    settings = read_traffic_settings(self.params)
+    self.assertTrue(settings.valid)
+    tuning = resolve(settings, log.LongitudinalPersonality.standard, 0.0, self.cp, traffic_mode=True)
+    assert tuning is not None
+    self.assertAlmostEqual(tuning.follow_seconds, 0.75)
+    self.assertEqual(tuning.speed_jerk, 1.0)
+    self.follow_custom('traffic')  # now in use: fail closed, bytes untouched for repair
+    self.assertFalse(read_traffic_settings(self.params).valid)
+    self.assertEqual(Path(self.params.get_param_path('TrafficJerkSpeed')).read_text(), 'bad')
 
   def test_traffic_unknown_mode_drops_prior_target_and_nontraffic_stays_legacy(self):
-    self.params.put_bool('CustomPersonalities', True, block=True)
+    self.follow_custom()
     host = ProfileHost(self.params)
     traffic = host.sample(1_000_000_000, log.LongitudinalPersonality.standard, 12.5, self.cp, traffic_mode=True)
     assert traffic is not None
@@ -289,17 +318,19 @@ class ProfileRuntimeTests(unittest.TestCase):
     self.assertIsNone(smoother.applied)
 
   def test_saved_preference_off_and_legacy_values(self):
-    assert read_settings(self.params) is None
-    self.params.put_bool('CustomPersonalities', True, block=True)
     self.params.put('StandardFollow', 2.0, block=True)
     self.params.put('StandardFollowHigh', 1.0, block=True)
     self.params.put('StandardJerkAcceleration', 175.0, block=True)
     settings = read_settings(self.params)
-    assert settings is not None
-    self.assertTrue(settings.profile_enabled['standard'])
-    assert settings.document is not None
+    assert settings is not None and settings.document is not None
     self.assertEqual(settings.document['selectedDecelerationProfile'], 'eco')
     self.assertIsNone(self.params.get('LongitudinalPersonalityProfiles'))
+    # Nothing saved: every personality is on StarPilot Default, so the saved values stay unused.
+    self.assertIsNone(resolve(settings, log.LongitudinalPersonality.standard, 45 * 0.44704, self.cp))
+    self.follow_custom('standard')
+    settings = read_settings(self.params)
+    assert settings is not None
+    self.assertTrue(settings.profile_enabled['standard'])
     low = resolve(settings, log.LongitudinalPersonality.standard, 45 * 0.44704, self.cp)
     high = resolve(settings, log.LongitudinalPersonality.standard, 70 * 0.44704, self.cp)
     assert low is not None and high is not None
@@ -334,17 +365,18 @@ class ProfileRuntimeTests(unittest.TestCase):
     self.assertIsNone(read_settings(self.params))
 
   def test_host_refresh_and_disable(self):
-    self.params.put_bool('CustomPersonalities', True, block=True)
+    self.follow_custom('standard')
     host = ProfileHost(self.params)
     assert host.sample(1_000_000_000, log.LongitudinalPersonality.standard, V_EGO, self.cp) is not None
-    self.params.put_bool('CustomPersonalities', False, block=True)
+    self.follow_custom('standard', preset='dom_default')
     assert host.sample(1_100_000_000, log.LongitudinalPersonality.standard, V_EGO, self.cp) is not None
     self.assertIsNone(host.sample(2_000_000_000, log.LongitudinalPersonality.standard, V_EGO, self.cp))
+    self.assertTrue(host.disabled)  # StarPilot Default is intended, not an unreadable profile.
 
   def test_launch_profile_distinguishes_presets_manual_and_disabled(self):
-    self.params.put_bool('CustomPersonalities', True, block=True)
     for preset in ('dom_default', 'eco', 'standard', 'sport', 'custom'):
       profiles = default_personality_profiles(True)
+      profiles['standard']['following'] = {'preset': 'custom_simple', 'curve': []}
       profiles['standard']['acceleration'] = {'preset': preset, 'curve': [0.3] * 10 if preset == 'custom' else []}
       self.params.put('LongitudinalPersonalityProfiles', legacy_document(profiles, enabled=True), block=True)
       host = ProfileHost(self.params)
@@ -353,7 +385,7 @@ class ProfileRuntimeTests(unittest.TestCase):
       self.assertEqual(tuning.custom_acceleration, preset == 'custom')
       self.assertEqual(tuning.acceleration_max is None, preset == 'dom_default')
       self.assertFalse(host.disabled)
-    self.params.put_bool('CustomPersonalities', False, block=True)
+    self.follow_custom('standard', preset='dom_default')
     self.assertIsNone(host.sample(2_000_000_000, log.LongitudinalPersonality.standard, 0.0, self.cp))
     self.assertTrue(host.disabled)
     Path(self.params.get_param_path('LongitudinalPersonalityProfiles')).write_text('{broken')
@@ -426,7 +458,7 @@ class ProfileRuntimeTests(unittest.TestCase):
     self.assertEqual(self.params.get('LongitudinalPersonalityProfiles'), document)
 
   def test_plannerd_input_freshness_and_host_refresh(self):
-    self.params.put_bool('CustomPersonalities', True, block=True)
+    self.follow_custom()
     host = ProfileHost(self.params)
     sm, _ = messages()
     sm['carState'].canValid = True
@@ -493,12 +525,13 @@ class ProfileRuntimeTests(unittest.TestCase):
     self.params.put('StandardFollowHigh', 2.5, block=True)
     results = []
     for enabled in (False, True):
-      self.params.put_bool('CustomPersonalities', enabled, block=True)
-      # Explicit native response removes the separate default Comfort request;
-      # this comparison isolates the saved following/jerk master switch.
+      # Explicit native response removes the separate default Comfort request; this comparison isolates
+      # Standard's Following choice: StarPilot Default (openpilot's own) vs Custom (its saved follow values).
+      profiles = deepcopy(default_personality_profiles(False))
+      if enabled:
+        profiles['standard']['following'] = {'preset': 'custom_simple', 'curve': []}
       self.params.put('LongitudinalPersonalityProfiles', current_profile_document(
-        default_personality_profiles(False), enabled=enabled,
-        selected_deceleration_profile='dom_default'), block=True)
+        profiles, enabled=enabled, selected_deceleration_profile='dom_default'), block=True)
       data, _ = messages(lead=True)
       data['carState'].canValid = True
       data['carControl'].longActive = True

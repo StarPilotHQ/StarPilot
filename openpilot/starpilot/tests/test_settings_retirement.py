@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 from openpilot.starpilot.lateral.tests.test_inferred_torque_overrides import SavedParams
 from openpilot.starpilot.settings_retirement import retire_settings, PROFILE_FLAGS
-from openpilot.starpilot.longitudinal.profile_document import default_personality_profiles, profile_document, migrate_profile_document
+from openpilot.starpilot.longitudinal.profile_document import (category_curve, default_personality_profiles, profile_document,
+                                                               migrate_profile_document)
 from openpilot.starpilot.ui.appearance_preferences import RETIRED_DISPLAY_KEYS
 from openpilot.starpilot.ui.onroad_customization import PARAM_KEY as LAYOUT_KEY, default_document, read_customization
 
@@ -102,7 +103,7 @@ class TestSettingsRetirement(unittest.TestCase):
   def test_fresh_namespace_completes_and_preserves_later_choice(self):
     retire_settings(self.params)
     state = json.loads(self.params.get('SettingsRetirementState'))
-    self.assertEqual(set(state['completed']), {'cruise', 'profiles', 'display'})
+    self.assertEqual(set(state['completed']), {'cruise', 'profiles', 'display', 'following'})
     self.params.put_bool('ForceStops', True)
     retire_settings(self.params)
     self.assertEqual(self.params.get('ForceStops'), b'1')
@@ -169,3 +170,91 @@ class TestSettingsRetirement(unittest.TestCase):
 
 if __name__ == '__main__':
   unittest.main()
+
+  # The Custom Following and Jerk switch (CustomPersonalities) is folded into each personality's Following.
+  PERSONALITIES = ('aggressive', 'standard', 'relaxed', 'traffic')
+
+  def _profiles_already_retired(self):
+    for key in PROFILE_FLAGS:
+      self.params.put_bool(key, True)
+
+  def _following(self):
+    document = json.loads(self.params.get('LongitudinalPersonalityProfiles'))
+    return {name: profile['following'] for name, profile in document['profiles'].items()}
+
+  def _presets(self):
+    return {name: following['preset'] for name, following in self._following().items()}
+
+  def test_following_switch_on_becomes_custom_simple_once_and_later_choices_survive(self):
+    self.params.put_bool('CustomPersonalities', True)
+    retire_settings(self.params)
+    self.assertEqual(self._presets(), dict.fromkeys(self.PERSONALITIES, 'custom_simple'))
+    self.assertIsNone(self.params.get('CustomPersonalities'))
+    self.assertIn('following', json.loads(self.params.get('SettingsRetirementState'))['completed'])
+    # An older parameter table may write the retired key back as Off at startup; the user then picks Close.
+    self.params.put_bool('CustomPersonalities', False)
+    document = json.loads(self.params.get('LongitudinalPersonalityProfiles'))
+    document['profiles']['standard']['following'] = {'preset': 'close', 'curve': []}
+    self.params.put('LongitudinalPersonalityProfiles', document)
+    retire_settings(self.params)
+    retire_settings(self.params)
+    self.assertEqual(self._presets(), {'aggressive': 'custom_simple', 'standard': 'close', 'relaxed': 'custom_simple', 'traffic': 'custom_simple'})
+
+  def test_following_switch_off_or_absent_returns_choices_that_never_applied_to_default(self):
+    self._profiles_already_retired()
+    profiles = default_personality_profiles(False)
+    profiles['standard']['following'] = {'preset': 'close', 'curve': []}
+    profiles['relaxed']['following'] = {'preset': 'custom', 'curve': [2.0] * 10}
+    self.params.put('LongitudinalPersonalityProfiles', profile_document(profiles, enabled=True))
+    retire_settings(self.params)
+    self.assertEqual(self._presets(), dict.fromkeys(self.PERSONALITIES, 'dom_default'))
+    self.assertEqual(self._following()['relaxed']['curve'], [2.0] * 10, 'the unused curve is kept for later')
+    self.assertIsNone(self.params.get('CustomPersonalities'))
+
+  def test_named_following_keeps_its_name_only_with_stock_smoothness(self):
+    self._profiles_already_retired()
+    self.params.put_bool('CustomPersonalities', True)
+    profiles = default_personality_profiles(False)
+    for name in ('aggressive', 'standard', 'relaxed', 'traffic'):
+      profiles[name]['following'] = {'preset': 'far', 'curve': []}
+    self.params.put('LongitudinalPersonalityProfiles', profile_document(profiles, enabled=True))
+    self.params.put('RelaxedJerkSpeed', 150.0)
+    retire_settings(self.params)
+    following = self._following()
+    self.assertEqual(following['standard'], {'preset': 'far', 'curve': []}, 'saved smoothness 100 % is stock for Standard')
+    far = category_curve('following', {'preset': 'far', 'curve': []}, False)
+    self.assertEqual(following['aggressive'], {'preset': 'custom', 'curve': far}, "Aggressive's stock smoothness is 0.5, saved 1.0")
+    self.assertEqual(following['relaxed'], {'preset': 'custom', 'curve': far}, 'saved smoothness 1.5')
+    self.assertEqual(following['traffic'], {'preset': 'custom', 'curve': far}, 'Traffic blends toward the changed Relaxed smoothness')
+
+  def test_following_curve_that_did_not_apply_becomes_simple(self):
+    self._profiles_already_retired()
+    self.params.put_bool('CustomPersonalities', True)
+    profiles = default_personality_profiles(False)
+    profiles['standard']['following'] = {'preset': 'far', 'curve': []}
+    profiles['relaxed']['following'] = {'preset': 'custom', 'curve': [2.0] * 10}
+    self.params.put('LongitudinalPersonalityProfiles', profile_document(profiles, enabled=False))
+    retire_settings(self.params)
+    following = self._following()
+    self.assertEqual(following['standard'], {'preset': 'custom_simple', 'curve': []})
+    self.assertEqual(following['relaxed'], {'preset': 'custom_simple', 'curve': [2.0] * 10})
+
+  def test_invalid_following_switch_is_archived_and_treated_as_off(self):
+    self._profiles_already_retired()
+    self.params.put('CustomPersonalities', 'maybe')
+    profiles = default_personality_profiles(False)
+    profiles['standard']['following'] = {'preset': 'close', 'curve': []}
+    self.params.put('LongitudinalPersonalityProfiles', profile_document(profiles, enabled=True))
+    retire_settings(self.params)
+    self.assertEqual(self._presets()['standard'], 'dom_default')
+    self.assertIsNone(self.params.get('CustomPersonalities'))
+    self.assertIn('CustomPersonalities', json.loads(self.params.get('RetiredSettingsEvidence')))
+
+  def test_invalid_personality_document_keeps_the_following_switch_for_later(self):
+    self._profiles_already_retired()
+    self.params.put_bool('CustomPersonalities', True)
+    Path(self.params.get_param_path('LongitudinalPersonalityProfiles')).write_bytes(b'{broken')
+    issues = retire_settings(self.params)
+    self.assertEqual(self.params.get('CustomPersonalities'), b'1')
+    self.assertNotIn('following', json.loads(self.params.get('SettingsRetirementState'))['completed'])
+    self.assertTrue(any('following switch retained' in issue for issue in issues))

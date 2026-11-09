@@ -59,10 +59,6 @@ class TrafficFeature:
     capability = self.capability()
     allowed = system_long and self.owner.authority("long") and capability is not None and readable
     fingerprint = self.owner.vehicle_fingerprint()
-    master, master_valid = self._value("CustomPersonalities", source["CustomPersonalities"])
-    active_note = ("Saved profiles switch needs repair" if not master_valid else
-                   "Saved values are inactive while Custom Driving Profiles is Off" if not master else
-                   "Saved follow and jerk settings apply when Traffic mode is selected")
     rows = []
     for key in (FOLLOW, *JERKS):
       value, valid = self._value(key, source[key])
@@ -73,12 +69,11 @@ class TrafficFeature:
                              minimum=0.5 if key == FOLLOW else 25.0,
                              maximum=3.0 if key == FOLLOW else 200.0, unit=unit,
                              available=allowed and valid,
-                             reason=(active_note + ". " + ("Following time at low speeds; blends toward Relaxed as speed rises." if key == FOLLOW else
-                                                          VALUE_HELP[key.removeprefix("Traffic")]) if valid else
+                             reason=(("Following time at low speeds; blends toward Relaxed as speed rises." if key == FOLLOW else
+                                      VALUE_HELP[key.removeprefix("Traffic")]) if valid else
                                      "Invalid saved value; original bytes remain unchanged"),
                              vehicle_fingerprint=fingerprint, capability=capability, dependencies=dependencies))
-    rows.append(FeatureRow("", "Higher-speed values", "Inherited from Relaxed follow and jerk settings",
-                           reason="With Custom Driving Profiles On, blends toward saved Relaxed values; otherwise defaults apply"))
+    rows.append(FeatureRow("", "Higher-speed values", "Blend toward Relaxed's low-speed follow and jerk"))
     return rows
 
   def apply(self, request: FeatureSettingsRequest) -> bool:

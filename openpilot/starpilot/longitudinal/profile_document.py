@@ -39,7 +39,10 @@ def is_truck_fingerprint(fingerprint: object) -> bool:
 ACCELERATION_PRESETS = ("selected_profile", "dom_default", "standard", "eco", "sport", "sport_plus", "custom")
 BRAKING_PRESETS = ("selected_profile", "dom_default", "standard", "eco", "sport", "custom")
 _LEGACY_FOLLOWING_PRESETS = ("close", "medium", "far")
-FOLLOWING_PRESETS = ("dom_default", "close", "medium", "far", "traffic", "custom", "legacy_close", "legacy_medium", "legacy_far")
+# custom_simple: Custom following in Simple mode (the personality's Low/High-speed follow); it keeps any saved Advanced curve.
+FOLLOWING_PRESETS = ("dom_default", "close", "medium", "far", "traffic", "custom", "legacy_close", "legacy_medium", "legacy_far",
+                     "custom_simple")
+CUSTOM_FOLLOWING_PRESETS = ("custom", "custom_simple")
 CURVE_BOUNDS = {
   "acceleration": (0.0, 3.5),
   "braking": (0.5, 2.0),
@@ -130,6 +133,11 @@ FOLLOWING_PRESET_CURVES = {
   "legacy_medium": (1.45, 1.45),
   "legacy_far": (1.75, 1.75),
 }
+# openpilot's own follow time and smoothness (long_mpc get_T_FOLLOW and get_jerk_factor): what a personality drives on
+# while its Following is StarPilot Default; a named curve keeps this smoothness. Only Following = Custom uses saved values.
+STOCK_FOLLOW_SECONDS = {"aggressive": 1.25, "standard": 1.45, "relaxed": 1.75}
+STOCK_JERK = {"aggressive": 0.5, "standard": 1.0, "relaxed": 1.0, "traffic": 1.0}
+TRAFFIC_DEFAULT_FOLLOW = (0.75, 1.6)  # Registered TrafficFollow / RelaxedFollow defaults.
 _FOLLOWING_PRESET_SPEEDS_MPH = {
   preset: (0.0, 25.0 / 0.44704) if preset == "traffic" else (45.0, 70.0)
   for preset in FOLLOWING_PRESET_CURVES
@@ -589,8 +597,8 @@ def category_curve(category: str, config: dict, ev_tuning: bool, truck_tuning: b
   if validated is None:
     raise ValueError(f"Invalid {category} profile configuration.")
   preset = validated["preset"]
-  if preset in ("dom_default", "selected_profile"):
-    raise ValueError("Dom default resolves through the legacy controller path")
+  if preset in ("dom_default", "selected_profile", "custom_simple"):
+    raise ValueError("Dom default and Simple custom following resolve through the scalar follow values")
   if preset == "custom":
     return list(validated["curve"])
   if category == "acceleration":

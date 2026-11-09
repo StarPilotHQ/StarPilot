@@ -1,0 +1,44 @@
+/* Deep field sky (8 Nov 2026): dark mode, while <html data-look="refined">. Light mode keeps its soft gradient.
+   A still sky: three star fields at different depths (far, mid, and a few bright stars with spikes) on a dark sky
+   with a faint purple and teal glow, kept darker than the violet panels so they stand out. All painted on Galaxy's
+   existing backdrop. Nothing moves: no drifting stars, no shooting stars, and the twinkling stars hold still.
+   Art: assets/space (generated, see the commit message). */
+
+html[data-look="refined"]:not([data-theme="light"]) #galaxy-bg {
+  background-color: #05040b;
+  background-image:
+    url("../assets/space/stars-near.svg"),
+    radial-gradient(70% 50% at 12% 8%, rgba(157, 114, 255, 0.22), transparent 70%),
+    radial-gradient(60% 45% at 92% 88%, rgba(77, 232, 232, 0.10), transparent 70%),
+    radial-gradient(100% 70% at 50% 120%, rgba(85, 45, 180, 0.2), transparent 70%);
+  background-size: 1800px 1800px, auto, auto, auto;
+  background-position: 220px 140px, 0 0, 0 0, 0 0;
+  background-repeat: repeat, no-repeat, no-repeat, no-repeat;
+}
+html[data-look="refined"]:not([data-theme="light"]) #galaxy-bg::before {
+  background-image: url("../assets/space/stars-far.svg");
+  background-size: 1200px 1200px;
+  opacity: 1;
+}
+html[data-look="refined"]:not([data-theme="light"]) #galaxy-bg::after {
+  background-image: url("../assets/space/stars-mid.svg");
+  background-size: 1400px 1400px;
+  background-position: 380px 610px;
+  opacity: 1;
+}
+
+/* Galaxy's twinkling stars stay as still points of light. */
+html[data-look="refined"] #galaxy-bg .galaxy-hero { animation: none; opacity: 0.8; }
+
+/* Text that sits straight on the sky (page titles and intros, breadcrumbs, Dashboard headings): the sky behind it
+   is blurred, which dissolves the stars but leaves the color and purple glow exactly as they are, so there is no
+   dark patch or box. Each zone reaches 8px past the text at the sides without moving it. Panels are left alone. */
+html[data-look="refined"]:not([data-theme="light"]) :is(.gx-settings__summary, .gx-page-header, .gx-home__hero, .gx-settings-path, .gx-home__section-title):not(.gx-card, .gx-card *) {
+  -webkit-backdrop-filter: blur(9px);
+  backdrop-filter: blur(9px);
+  margin-inline: -8px;
+  padding-inline: 8px;
+}
+/* Galaxy's page fade-in lets go once it ends. Held at its end state it would cut the page off from the sky,
+   and the blur above would have nothing to blur. It looks the same either way. */
+html[data-look="refined"] .gx-app { animation-fill-mode: backwards; }

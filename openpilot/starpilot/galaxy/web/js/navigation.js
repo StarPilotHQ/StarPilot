@@ -27,6 +27,16 @@ const ROUTE_AVOIDANCES = [{ key: "avoidTolls", label: "Avoid tolls" }, { key: "a
 const GPS_MODES = [{ value: "backup", label: "Phone GPS as backup" }, { value: "comma", label: "Comma and car GPS only" },
   { value: "phone", label: "Prefer phone GPS" }]
 const GPS_NAMES = { comma: "Comma", car: "Car", phone: "Phone" }
+// The Maps menu pages (menu.js): one title and intro per page.
+// Navigation: destination and route, with navigation setup below (/navigation/setup opens the same page at its setup).
+const NAVIGATION_PAGE = Object.freeze({ title: "Navigation",
+  intro: "Choose a destination and follow your route. Turn navigation on and connect Mapbox under Navigation setup." })
+export const NAVIGATION_PAGES = Object.freeze({
+  route: NAVIGATION_PAGE,
+  maps: { title: "Offline Maps", intro: "Download and manage maps the comma can use without a connection." },
+  setup: NAVIGATION_PAGE,
+  gps: { title: "GPS Source", intro: "Choose where your comma gets its position, and share your phone's GPS." },
+})
 const coordinate = (value) => !!value && Number.isFinite(value.latitude) && Math.abs(value.latitude) <= 90 &&
   Number.isFinite(value.longitude) && Math.abs(value.longitude) <= 180
 const text = (value, limit) => typeof value === "string" && value.trim().length > 0 && value.length <= limit
@@ -299,7 +309,7 @@ export const NavigationPage = {
     go: { type: Function, default: null }, initialTab: { type: String, default: "route" }, tabs: { type: Array, required: true } },
   data() { return { bluetooth: bluetoothConnection(), data: null, results: [], busy: false, error: "", stale: false, tab: this.initialTab, gpsGuide: "android", query: "", token: "", searched: false,
     suggestions: [], suggestOpen: false, savedSuggestionPlaces: {}, favoritePicker: null, searchPending: false } },
-  watch: { initialTab(value) { this.tab = value } },
+  watch: { initialTab(value) { this.tab = value; if (value === 'setup') this.showSetup() } },
   computed: {
     routeAvoidances() { return ROUTE_AVOIDANCES },
     gpsModes() { return GPS_MODES },
@@ -307,6 +317,10 @@ export const NavigationPage = {
       if (this.mode !== "local" || !this.ready || this.stale) return "GPS Source"
       const source = this.data?.location?.lastKnown ? null : GPS_NAMES[this.data?.location?.source]
       return source ? `GPS: ${source}` : "GPS: No fix"
+    },
+    // Each Maps menu page (menu.js) has its own title.
+    pageHeading() {
+      return NAVIGATION_PAGES[this.tab] || NAVIGATION_PAGES.route
     },
     controlsAvailable() { return this.mode === "local" && !!this.data && !this.stale },
     available() { return this.controlsAvailable && !this.busy && !this.searchPending },
@@ -353,11 +367,14 @@ export const NavigationPage = {
   },
   created() { this.client = new NavigationClient({ publish: (state) => Object.assign(this.$data, state), unauthorized: this.unauthorized }) },
   mounted() {
+    if (this.tab === 'setup') this.showSetup()
     if (this.mode !== "local") return
     this.visibilityHandler = () => document.visibilityState === "hidden" ? this.client.stop() : this.client.start()
     document.addEventListener("visibilitychange", this.visibilityHandler)
     if (document.visibilityState !== "hidden") {
       this.client.start().then(async () => {
+        // Opened at Navigation setup: the destination part above has now loaded, so bring setup back into view.
+        if (this.tab === 'setup') this.showSetup()
         const params = new URLSearchParams(location.search)
         const share = params.get('share')
         if (!share || !this.client.data || this.client.stale || !this.client.active) return
@@ -377,7 +394,7 @@ export const NavigationPage = {
   methods: {
     reportSave,
     async openGpsSetup() {
-      this.selectTab('setup')
+      this.selectTab('gps')
       await this.$nextTick()
       this.$refs.gpsSetup?.focus()
       this.$refs.gpsSetup?.scrollIntoView({ block: 'start' })
@@ -385,6 +402,13 @@ export const NavigationPage = {
     selectTab(tab) {
       this.tab = tab
       this.go?.(tab === 'route' ? '/navigation' : `/navigation/${tab}`)
+      if (tab === 'setup') this.showSetup()
+    },
+    // Navigation setup is the lower part of the Navigation page: bring it into view.
+    async showSetup() {
+      await this.$nextTick()
+      this.$refs.setupArea?.scrollIntoView?.({ block: 'start' })
+      this.$refs.setupArea?.focus?.({ preventScroll: true })
     },
     async search() {
       if (this.searchPending) return
@@ -468,27 +492,17 @@ export const NavigationPage = {
   },
   template: `
     <div class="gx-view gx-navigation" :inert="busy || searchPending" :aria-busy="busy || searchPending || undefined">
-      <header class="gx-settings__header gx-page-header"><div><h2>Navigation</h2>
-        <p>Set a destination, prepare offline maps, and configure navigation and Mapbox.</p></div></header>
-      <div class="gx-tabs gx-actions" role="group" aria-label="Navigation tools">
-        <button v-for="item in tabs" :key="item.tab"
-          type="button" class="gx-btn" :class="tab === item.tab ? '' : 'gx-btn--tonal'" :aria-pressed="tab === item.tab" @click="selectTab(item.tab)">{{ item.name }}</button>
-        <button type="button" class="gx-btn gx-btn--tonal" @click="openGpsSetup">{{ gpsLabel }}</button>
-      </div>
+      <!-- Galaxy menu: Navigation, Offline Maps and GPS Source are pages in the Maps menu (menu.js), so no tab bar here. -->
+      <header class="gx-settings__header gx-page-header"><div><h2>{{ pageHeading.title }}</h2>
+        <p>{{ pageHeading.intro }}</p></div>
+        <span v-if="tab === 'gps'" class="gx-chip gx-navigation__gps-status" role="status">{{ gpsLabel }}</span></header>
       <div v-if="tab === 'maps'" class="gx-navigation__offline">
         <OfflineRoadMapsPanel :mode="mode" :unauthorized="unauthorized" :has-key="!!data?.hasKey" :metric="data?.isMetric !== false" />
         <MapOperationsPanel :mode="mode" :unauthorized="unauthorized" />
       </div>
-      <template v-else-if="tab === 'setup'">
+      <template v-else-if="tab === 'gps'">
         <p v-if="mode !== 'local'" class="gx-note">Connect to your comma to set up navigation and choose a destination.</p>
         <GxNotice tone="danger" v-if="error">{{ error }}</GxNotice>
-        <section class="gx-card gx-navigation__section">
-          <div class="gx-section__header"><i class="bi bi-compass" aria-hidden="true"></i><span class="gx-section__title">Navigation</span></div>
-          <p>Show directions on your comma. Navigation works with every driving model. Route guidance helps prepare for turns; steering and speed control follow your normal engagement settings.</p>
-          <div v-if="data" class="gx-row gx-row--borderless"><span class="gx-row__info gx-row__label">Navigation</span>
-            <label class="gx-switch"><input type="checkbox" role="switch" aria-label="Navigation" :checked="data.enabled" :disabled="!controlsAvailable"
-              @change="$event.target.checked=data.enabled; reportSave(() => client.action('configure', {patch: {enabled: !data.enabled}}))"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label></div>
-        </section>
         <section ref="gpsSetup" tabindex="-1" class="gx-card gx-navigation__section gx-navigation__gps" aria-labelledby="navigation-gps-heading">
           <h3 id="navigation-gps-heading">GPS Source</h3>
           <p>Choose where your comma gets its position for navigation and map speed limits. Phone GPS comes from the StarPilot app over Bluetooth or local Wi-Fi.</p>
@@ -525,31 +539,6 @@ export const NavigationPage = {
             <p>The GPS source you choose is used for navigation and for map-based speed limits and curves. The phone must reach the comma over Bluetooth or local Wi-Fi; the remote tunnel doesn't carry GPS.</p>
             <p>To change phones, stop GPS sharing in the old app and enable it in the other app. Both apps need a version with phone GPS support, and your comma must support receiving it.</p>
           </details>
-        </section>
-        <section class="gx-card gx-navigation__section">
-          <div class="gx-section__header"><i class="bi bi-signpost-split" aria-hidden="true"></i><span class="gx-section__title">Route preferences</span></div>
-          <p>Apply to new routes and automatic reroutes. Changing a preference recalculates your current route.</p>
-          <div v-for="option in routeAvoidances" :key="option.key" class="gx-row">
-            <span class="gx-row__info gx-row__label">{{ option.label }}</span>
-            <label class="gx-switch"><input type="checkbox" role="switch" :aria-label="option.label" :checked="!!data?.[option.key]"
-              :disabled="!available" @change="reportSave(() => client.action('configure', {patch: {[option.key]: $event.target.checked}}))"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label>
-          </div>
-        </section>
-        <section class="gx-card gx-navigation__section">
-          <div class="gx-section__header"><i class="bi bi-map" aria-hidden="true"></i><span class="gx-section__title">Mapbox</span></div>
-          <p>One public Mapbox access token (starting with pk.) handles the map, place and address search, and routes. A separate secret token is not needed.</p>
-          <p>Save your token while parked. Galaxy keeps it on your comma and never displays it after saving. Address searches use temporary geocoding. Search suggestions are temporary and used only for the current route. Favorites and recent destinations are also kept on your comma; going to one skips search, so it uses none of your search allowance. URL-restricted keys may reject map requests.</p>
-          <p class="gx-note">Typing suggestions, address lookups and offline road maps stop just short of their free monthly allowances and resume on the 1st. Routes, full place searches and map views are counted but not limited. These counts cover this comma only; Mapbox bills total account usage, including other apps and devices.</p>
-          <dl v-if="usageRows.length" class="gx-navigation__usage" aria-label="Mapbox use this month">
-            <template v-for="row in usageRows" :key="row.key"><dt>{{ row.label }}</dt><dd>{{ row.used.toLocaleString() }} of {{ row.limit.toLocaleString() }} free this month</dd></template>
-          </dl>
-          <a class="gx-btn gx-btn--tonal gx-navigation__token-link" href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener noreferrer">Get a Mapbox access token</a>
-          <p v-if="data?.hasKey" class="gx-note">A Mapbox key is saved.</p>
-          <div class="gx-field-group"><label for="navigation-token">Public Mapbox access token</label>
-          <form @submit.prevent="saveKey(false)" class="gx-navigation__search">
-            <input id="navigation-token" class="gx-field" type="password" autocomplete="off" v-model="token" placeholder="pk.…" maxlength="2048" required :disabled="!controlsAvailable">
-            <button class="gx-btn" type="submit" :disabled="!controlsAvailable || !token.trim()">{{ data?.hasKey ? 'Replace key' : 'Save key' }}</button>
-          </form></div>
         </section>
       </template>
       <template v-else>
@@ -662,6 +651,42 @@ export const NavigationPage = {
           <NavigationMap v-else-if="ready" :data="data" :stale="stale" />
           <div v-else class="gx-navigation__empty"><i class="bi bi-signpost-split" aria-hidden="true"></i><p>{{ mode !== 'local' ? 'Connect to your comma to use navigation.' : 'Set up navigation to show the map.' }}</p><button v-if="mode === 'local' && data" type="button" class="gx-btn gx-btn--tonal" @click="selectTab('setup')">Open navigation setup</button></div>
         </section>
+        </div>
+        <!-- Navigation setup sits below the destination and route (it used to be its own Setup page). -->
+        <div ref="setupArea" tabindex="-1" class="gx-navigation__setup" aria-labelledby="navigation-setup-heading">
+          <h3 id="navigation-setup-heading" class="gx-menu-embed-title">Navigation setup</h3>
+          <section class="gx-card gx-navigation__section">
+            <div class="gx-section__header"><i class="bi bi-compass" aria-hidden="true"></i><span class="gx-section__title">Navigation</span></div>
+            <p>Show directions on your comma. Navigation works with every driving model. Route guidance helps prepare for turns; steering and speed control follow your normal engagement settings.</p>
+            <div v-if="data" class="gx-row gx-row--borderless"><span class="gx-row__info gx-row__label">Navigation</span>
+              <label class="gx-switch"><input type="checkbox" role="switch" aria-label="Navigation" :checked="data.enabled" :disabled="!controlsAvailable"
+                @change="$event.target.checked=data.enabled; reportSave(() => client.action('configure', {patch: {enabled: !data.enabled}}))"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label></div>
+          </section>
+          <section class="gx-card gx-navigation__section">
+            <div class="gx-section__header"><i class="bi bi-signpost-split" aria-hidden="true"></i><span class="gx-section__title">Route preferences</span></div>
+            <p>Apply to new routes and automatic reroutes. Changing a preference recalculates your current route.</p>
+            <div v-for="option in routeAvoidances" :key="option.key" class="gx-row">
+              <span class="gx-row__info gx-row__label">{{ option.label }}</span>
+              <label class="gx-switch"><input type="checkbox" role="switch" :aria-label="option.label" :checked="!!data?.[option.key]"
+                :disabled="!available" @change="reportSave(() => client.action('configure', {patch: {[option.key]: $event.target.checked}}))"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label>
+            </div>
+          </section>
+          <section class="gx-card gx-navigation__section">
+            <div class="gx-section__header"><i class="bi bi-map" aria-hidden="true"></i><span class="gx-section__title">Mapbox</span></div>
+            <p>One public Mapbox access token (starting with pk.) handles the map, place and address search, and routes. A separate secret token is not needed.</p>
+            <p>Save your token while parked. Galaxy keeps it on your comma and never displays it after saving. Address searches use temporary geocoding. Search suggestions are temporary and used only for the current route. Favorites and recent destinations are also kept on your comma; going to one skips search, so it uses none of your search allowance. URL-restricted keys may reject map requests.</p>
+            <p class="gx-note">Typing suggestions, address lookups and offline road maps stop just short of their free monthly allowances and resume on the 1st. Routes, full place searches and map views are counted but not limited. These counts cover this comma only; Mapbox bills total account usage, including other apps and devices.</p>
+            <dl v-if="usageRows.length" class="gx-navigation__usage" aria-label="Mapbox use this month">
+              <template v-for="row in usageRows" :key="row.key"><dt>{{ row.label }}</dt><dd>{{ row.used.toLocaleString() }} of {{ row.limit.toLocaleString() }} free this month</dd></template>
+            </dl>
+            <a class="gx-btn gx-btn--tonal gx-navigation__token-link" href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener noreferrer">Get a Mapbox access token</a>
+            <p v-if="data?.hasKey" class="gx-note">A Mapbox key is saved.</p>
+            <div class="gx-field-group"><label for="navigation-token">Public Mapbox access token</label>
+            <form @submit.prevent="saveKey(false)" class="gx-navigation__search">
+              <input id="navigation-token" class="gx-field" type="password" autocomplete="off" v-model="token" placeholder="pk.…" maxlength="2048" required :disabled="!controlsAvailable">
+              <button class="gx-btn" type="submit" :disabled="!controlsAvailable || !token.trim()">{{ data?.hasKey ? 'Replace key' : 'Save key' }}</button>
+            </form></div>
+          </section>
         </div>
       </template>
     </div>`,

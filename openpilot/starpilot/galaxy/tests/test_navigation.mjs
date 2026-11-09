@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { NavigationPage, NavigationClient, validNavigation, validSearchResult, searchUuid, routePath } from "../web/js/navigation.js"
+import { NavigationPage, NAVIGATION_PAGES, NavigationClient, validNavigation, validSearchResult, searchUuid, routePath } from "../web/js/navigation.js"
 
 const place = { id: "place", name: "Library", latitude: 41, longitude: -88 }
 const snapshot = (revision = "a") => ({ enabled: true, isMetric: false, hasKey: true, destination: null, favorites: [],
@@ -256,5 +256,36 @@ console.log("Local HTTP search UUID fallback passed")
   assert.ok(NavigationPage.template.includes('Save key'))
   assert.ok(NavigationPage.template.includes('<BluetoothNotice v-if="bluetooth" feature="Map preview"'))
   assert.ok(NavigationPage.template.includes('<NavigationMap v-else-if="ready"'))
+}
+{
+  // Maps menu pages (menu.js): no tab bar on the page; Navigation (destination + setup below), Offline Maps, GPS Source.
+  const template = NavigationPage.template
+  assert.doesNotMatch(template, /class="gx-tabs/)
+  assert.deepEqual(Object.keys(NAVIGATION_PAGES), ["route", "maps", "setup", "gps"])
+  for (const tab of Object.keys(NAVIGATION_PAGES)) assert.equal(NavigationPage.computed.pageHeading.call({ tab }), NAVIGATION_PAGES[tab])
+  assert.equal(NAVIGATION_PAGES.setup, NAVIGATION_PAGES.route, "the old Setup page is the Navigation page")
+  assert.equal(NAVIGATION_PAGES.route.title, "Navigation")
+  assert.equal(NavigationPage.computed.pageHeading.call({ tab: "unknown" }).title, "Navigation")
+  // GPS Source: its own page with just the GPS card.
+  assert.match(template, /<template v-else-if="tab === 'gps'">/)
+  assert.match(template, /<section ref="gpsSetup"/)
+  assert.match(template, /<span v-if="tab === 'gps'" class="gx-chip gx-navigation__gps-status" role="status">\{\{ gpsLabel \}\}<\/span>/)
+  // Navigation setup follows the route preview on the same page, with all three setup cards.
+  const setup = template.slice(template.indexOf('<div ref="setupArea"'))
+  assert.ok(template.indexOf('<div ref="setupArea"') > template.indexOf('aria-label="Route preview"'))
+  for (const title of ["Navigation</span>", "Route preferences</span>", "Mapbox</span>"]) assert.ok(setup.includes(title), title)
+  assert.doesNotMatch(template, /tab === 'setup'/, "no separate Setup view")
+  const page = { selectTab: tab => { page.opened = tab }, $nextTick: async () => {}, $refs: {} }
+  await NavigationPage.methods.openGpsSetup.call(page)
+  assert.equal(page.opened, "gps")
+  const went = [], shown = []
+  const view = { go: path => went.push(path), showSetup: () => shown.push(true) }
+  NavigationPage.methods.selectTab.call(view, "gps")
+  NavigationPage.methods.selectTab.call(view, "setup")
+  assert.deepEqual(went, ["/navigation/gps", "/navigation/setup"])
+  assert.equal(shown.length, 1, "set up links scroll to Navigation setup")
+  const scrolled = []
+  await NavigationPage.methods.showSetup.call({ $nextTick: async () => {}, $refs: { setupArea: { scrollIntoView: options => scrolled.push(options), focus: () => {} } } })
+  assert.deepEqual(scrolled, [{ block: "start" }])
 }
 await import("./test_navigation_map.mjs")

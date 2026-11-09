@@ -1238,7 +1238,7 @@ msgid "Always On Lateral"
 msgstr ""
 
 #: openpilot/starpilot/ui/translation_strings.py
-msgid "Long Planner"
+msgid "Acceleration & Braking"
 msgstr ""
 
 #: openpilot/starpilot/ui/translation_strings.py
@@ -3532,7 +3532,7 @@ msgid "Collection counts describe retained data. The fitter separately checks ph
 msgstr ""
 
 #: openpilot/starpilot/galaxy/web/js/onroad-layout-template.js
-msgid "Colors & Layout"
+msgid "Display Layout"
 msgstr ""
 
 #: openpilot/starpilot/galaxy/web/js/onroad-layout.js
@@ -4739,7 +4739,7 @@ msgid "Driving Personalities"
 msgstr ""
 
 #: openpilot/starpilot/galaxy/web/js/settings.js
-msgid "Driving Screen Widgets, Colors & Layout"
+msgid "Driving Screen Widgets, Display Layout"
 msgstr ""
 
 #: openpilot/starpilot/galaxy/web/js/driving.js
@@ -9939,7 +9939,7 @@ msgid "Repair saved units first"
 msgstr ""
 
 #: openpilot/starpilot/ui/appearance_owner.py
-msgid "Repair the saved layout in Colors & Layout"
+msgid "Repair the saved layout in Display Layout"
 msgstr ""
 
 #: openpilot/starpilot/galaxy/web/js/spotify.js
@@ -10282,7 +10282,7 @@ msgid "Reset both remembered manual choices to Automatic?"
 msgstr ""
 
 #: openpilot/starpilot/ui/runtime_app.py
-msgid "Reset invalid saved Long Planner profiles to defaults?"
+msgid "Reset invalid saved Acceleration & Braking profiles to defaults?"
 msgstr ""
 
 #: openpilot/starpilot/galaxy/settings.py

@@ -36,8 +36,19 @@ try {
   assert.match(SettingsRecoveryPage.template, /Some settings are unavailable for this vehicle/)
   const app = readFileSync(new URL("../web/js/app.js", import.meta.url), "utf8")
   const tools = readFileSync(new URL("../web/js/diagnostic-tools.js", import.meta.url), "utf8")
-  assert.match(app, /route.path === '\/settings\/recovery'/)
-  assert.match(tools, /Show Non-Default Values/)
-  assert.match(tools, /Reset to Default/)
-  assert.match(tools, /navigate', '\/settings\/recovery'/)
+  // Changed Settings lives inside Troubleshoot; its old address opens Troubleshoot (app.js sends it to the Logs page).
+  assert.match(app, /\['\/troubleshoot', '\/settings\/recovery', '\/manage_tmux'\]\.includes\(route\.path\)/)
+  assert.doesNotMatch(app, /SettingsRecoveryPage/)
+  assert.match(tools, /<SettingsRecoveryPage embedded /)
+  assert.doesNotMatch(tools, /navigate', '\/settings\/recovery'/, "no buttons to a page that is now on this one")
+  assert.match(SettingsRecoveryPage.template, /<header v-if="!embedded"/)
+  // Each refresh hands the list to Troubleshoot (for its report), and each row says where the setting lives.
+  const emitted = []
+  const embedded = { ...SettingsRecoveryPage.data(), mode: "local", embedded: true, $emit: (name, value) => emitted.push([name, value.rows.length]) }
+  for (const [name, method] of Object.entries(SettingsRecoveryPage.methods)) embedded[name] = method.bind(embedded)
+  saved = false
+  await embedded.refresh()
+  assert.deepEqual(emitted, [["snapshot", 1]])
+  assert.equal(embedded.where({ page: "appearance", label: "Wheel colors" }), "Screen & Sound › Visuals")
+  assert.equal(embedded.where({ page: "standard", label: "Following" }), "Speed › Driving Personalities › Standard")
 } finally { globalThis.fetch = oldFetch }

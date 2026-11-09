@@ -19,8 +19,9 @@ class AppearanceSession(Protocol):
   def feature_request(self, request: FeatureSettingsRequest) -> bool: ...
 
 
+# Speed Limit Controller rows shown with Visuals. Show speed limit signs is no longer one: the layout's speed-limit
+# widget decides whether signs show.
 SLC_VISUAL_LABELS = {
-  "ShowSpeedLimits": "show speed limits",
   "SLCConfirmation": "automatic adoption",
 }
 

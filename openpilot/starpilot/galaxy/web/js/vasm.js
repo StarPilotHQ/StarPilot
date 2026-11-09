@@ -163,10 +163,10 @@ export const VasmPage = {
     },
   },
   template: `
-    <section class="gx-settings gx-vasm" aria-label="V-ASM saved settings" :inert="busy" :aria-busy="busy || undefined">
-      <header class="gx-settings__header gx-page-header"><div><h2>V-ASM Spot Monitoring</h2>
-        <p>Highlight the side windows a driver would check in the cabin camera, and tune visual spot-monitoring options.</p></div>
-        <div class="gx-actions"><a class="gx-btn gx-btn--tonal" href="https://wiki.firestar.link/exclusive/cameras-and-monitoring/" target="_blank" rel="noopener noreferrer"><i class="bi bi-book" aria-hidden="true"></i> Cameras &amp; Monitoring guide</a>
+    <section class="gx-settings gx-vasm" aria-label="Blind Spot Warnings saved settings" :inert="busy" :aria-busy="busy || undefined">
+      <header class="gx-settings__header gx-page-header"><div><h2>Blind Spot Warnings</h2>
+        <p>Warns you when the cabin camera sees a vehicle through a side window. Trace each side window on a snapshot, then turn the warnings on.</p></div>
+        <div class="gx-actions"><a class="gx-btn gx-btn--tonal" href="https://wiki.firestar.link/exclusive/cameras-and-monitoring/" target="_blank" rel="noopener noreferrer"><i class="bi bi-book" aria-hidden="true"></i> Warnings guide</a>
           <button type="button" class="gx-btn gx-btn--tonal" :disabled="bluetooth || state.cameraWarming" @click="liveCamera.refresh()"><i class="bi bi-camera" aria-hidden="true"></i> Take new snapshot</button></div></header>
       <GxNotice v-if="mode === 'local' && state.data && !state.data.parked" tone="warn">Turn the vehicle off to change these settings.</GxNotice>
       <GxState v-if="mode !== 'local'">Local saved settings are unavailable in preview.</GxState>
@@ -180,10 +180,10 @@ export const VasmPage = {
 
           <section class="gx-card gx-vasm__editor" aria-label="Camera window region editor">
             <div class="gx-section__header"><i class="bi bi-bounding-box" aria-hidden="true"></i><span class="gx-section__title">Camera Window Regions</span></div>
-            <p>The display is mirrored: vehicle left is camera right; vehicle right is camera left. Trace visible side glass, leaving pillars and interior out.</p>
+            <p>The image is mirrored, so vehicle left is on the left. Trace the visible side glass, leaving pillars and interior out.</p>
             <p v-if="!bluetooth" class="gx-note gx-camera-status" role="status">{{ state.cameraWarming ? "Warming up the camera · about 10 seconds…" : state.imageName ? "Snapshot ready" : "Take a cabin snapshot while parked." }}</p>
             <div class="gx-actions">
-              <button v-for="side in ['cameraRight', 'cameraLeft']" :key="side" type="button" class="gx-btn gx-btn--tonal" :aria-pressed="state.activeSide === side" :disabled="!drawable" :aria-label="displaySide(side)" @click="state.activeSide=side">{{ side === 'cameraRight' ? 'Left' : 'Right' }}</button>
+              <button v-for="side in ['cameraRight', 'cameraLeft']" :key="side" type="button" class="gx-btn gx-btn--tonal gx-side-btn" :style="{ '--side': side === 'cameraRight' ? '#5ee5ee' : '#ffb865' }" :aria-pressed="state.activeSide === side" :disabled="!drawable" :aria-label="displaySide(side)" @click="state.activeSide=side"><span class="gx-side-dot" aria-hidden="true"></span>{{ side === 'cameraRight' ? 'Vehicle left' : 'Vehicle right' }}</button>
               <button type="button" class="gx-icon-btn" :disabled="!drawable || !state[state.activeSide]?.length" aria-label="Undo last region point" title="Undo last point" @click="undo(state.activeSide)"><i class="bi bi-arrow-counterclockwise"></i></button>
               <button type="button" class="gx-icon-btn" :disabled="!drawable || !state[state.activeSide]?.length" aria-label="Clear selected window region" title="Clear region" @click="clear(state.activeSide)"><i class="bi bi-eraser"></i></button>
               <button type="button" class="gx-btn" :disabled="!drawable" aria-label="Save Regions" @click="saveRegions">Save</button>
@@ -191,7 +191,7 @@ export const VasmPage = {
             <canvas ref="canvas" class="gx-vasm__canvas" :aria-label="'Mirrored camera window canvas, editing ' + displaySide(state.activeSide)"
               @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerUp"></canvas>
             <p v-if="state.localNote" class="gx-note" role="status">{{ state.localNote }}</p>
-            <p class="gx-note">A saved choice alone does not activate monitoring.</p>
+            <p class="gx-note">Saving regions does not turn the warnings on. Use the switch below.</p>
           </section>
           <section class="gx-card gx-settings__section" aria-label="Saved settings">
             <GalaxySettingRow v-for="{ row, index } in controls" :key="state.data.page + ':' + index" :row="row" :index="index"

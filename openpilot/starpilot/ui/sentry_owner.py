@@ -29,7 +29,7 @@ class SentryOwner:
     label, reason = self.status.runtime_snapshot(saved)
     if not parked and (label == "Monitoring motion" or label.startswith("Arming")):
       label, reason = "Not armed", "Waiting for confirmation that the car is parked"
-    monitor = f"{label}: {reason}. Motion events can include camera snapshots. Notification settings are in Cameras & Monitoring."
+    monitor = f"{label}: {reason}. Motion events can include camera snapshots. Notification settings are below."
     rows: list[FeatureRow] = []
     if not saved.readable:
       rows.append(FeatureRow("", "Saved motion settings", "Unavailable",

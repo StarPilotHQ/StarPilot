@@ -80,17 +80,21 @@ const listeners = new Map()
 globalThis.document = { hidden: false,
   addEventListener: (name, fn) => listeners.set(name, fn),
   removeEventListener: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name) } }
-const page = { mode: "local", finishDialog() {}, manager: { start() {}, stop() {} }, feed: { starts: 0, stops: 0, start() { this.starts++ }, stop() { this.stops++ } } }
+// The page reads the manager and the laboratory only; the model status feed (Home's running-model line) is not polled here.
+const counter = () => ({ starts: 0, stops: 0, start() { this.starts++ }, stop() { this.stops++ } })
+const page = { mode: "local", finishDialog() {}, manager: counter(), laboratory: counter() }
 ModelsPage.mounted.call(page)
-assert.equal(page.feed.starts, 1)
+assert.equal(page.manager.starts, 1)
 document.hidden = true
 listeners.get("visibilitychange")()
-assert.equal(page.feed.stops, 1)
+assert.equal(page.manager.stops, 1)
 document.hidden = false
 listeners.get("visibilitychange")()
-assert.equal(page.feed.starts, 2)
+assert.equal(page.manager.starts, 2)
 ModelsPage.beforeUnmount.call(page)
-assert.equal(page.feed.stops, 2)
+assert.equal(page.manager.stops, 2)
+assert.deepEqual([page.laboratory.starts, page.laboratory.stops], [2, 2])
+assert.doesNotMatch(ModelsPage.created.toString(), /ModelStatusFeed/)
 assert.equal(listeners.size, 0)
 globalThis.document = priorDocument
 
@@ -244,7 +248,8 @@ console.log('Randomizer and exclusion interactions passed')
 
 assert.match(ModelsPage.template, /Selections apply next onroad cycle/)
 assert.doesNotMatch(ModelsPage.template, /Onroad: switching/)
-assert.equal((ModelsPage.template.match(/class="gx-model-control"/g) || []).length, 2)
+// Active Small, Active Big, and the Laboratory pair's lateral and longitudinal pickers
+assert.equal((ModelsPage.template.match(/class="gx-model-control"/g) || []).length, 4)
 assert.equal(ModelsPage.data().hardwareFilter, 'both')
 const hardware = { hardwareFilter: 'both', setHardwareFilter(value) { this.hardwareFilter = value } }
 ModelsPage.methods.toggleHardware.call(hardware, 'gpu', false)
@@ -276,7 +281,8 @@ feedbackPage.manager.action = async () => {
   return { message: 'Starting download' }
 }
 await ModelsPage.methods.runAction.call(feedbackPage, 'download', { ...missing, requiresGpu: false })
-assert.equal(feedbackPage.message, 'Downloading 20%')
+// progress shows once, in the Downloading notice, not again as a message
+assert.equal(feedbackPage.message, '')
 assert.equal(feedbackPage.trackingProgress, true)
 publishManager({ loading: false, error: '', data: { ...managerPayload, downloading: false, progress: 'Downloaded!',
   summary: { installed: 2, missing: 98, total: 100 } } })
@@ -343,3 +349,70 @@ for (const label of ["Polaris R3 A ⚠️🧪", "Polaris R3 B ⚠️🧪", "Pola
 }
 assert.deepEqual(ModelsPage.methods.polarisTitleParts({value: "spz_polaris_r3a"}), ["spz_polaris_r3a", ""])
 
+
+// Merged page: search, filters, chips, catalog check wording, Download Missing confirmation, pair saving.
+{
+  const { matchesSearch, laboratoryActionAllowed } = await import("../web/js/models.js")
+  const row = { value: 'tr16223', label: 'TR16 👀📡', series: 'TR Series', version: 'v8', released: '2025-07-21' }
+  assert.equal(matchesSearch(row, ''), true)
+  assert.equal(matchesSearch(row, 'tr16'), true)
+  assert.equal(matchesSearch(row, 'TR16223'), true)
+  assert.equal(matchesSearch(row, 'tr series v8'), true)
+  assert.equal(matchesSearch(row, 'v9'), false)
+
+  const page = { ...ModelsPage.data(), activeSmallModel: 'a', activeBigModel: 'b', currentModel: 'a',
+    lab: { configuration: { enabled: false, lateralModel: 'a', longitudinalModel: 'c' } } }
+  assert.deepEqual(ModelsPage.methods.activeRoles.call(page, { value: 'a' }), ['Active Small'])
+  assert.deepEqual(ModelsPage.methods.activeRoles.call(page, { value: 'b' }), ['Active Big'])
+  assert.deepEqual(ModelsPage.methods.activeRoles.call(page, { value: 'c' }), [])
+  assert.deepEqual(ModelsPage.methods.pairRoles.call(page, { value: 'a' }), ['Pair · lateral'])
+  assert.deepEqual(ModelsPage.methods.pairRoles.call(page, { value: 'c' }), ['Pair · longitudinal'])
+
+  const listed = (extra) => ModelsPage.computed.sorted.call({ ...ModelsPage.data(), hardwareFilter: 'both', labRow: () => null,
+    models: [{ value: 'x1', label: 'Alpha', installed: true }, { value: 'x2', label: 'Beta', installed: false }], ...extra }).map(m => m.value)
+  assert.deepEqual(listed({ installedFilter: true }), ['x1'])
+  assert.deepEqual(listed({ search: 'bet' }), ['x2'])
+  const filtered = { ...ModelsPage.data(), search: 'x', installedFilter: true, pairableFilter: true, userFilter: 'yes', communityFilter: 'yes', hardwareFilter: 'gpu',
+    setHardwareFilter(value) { this.hardwareFilter = value } }
+  ModelsPage.methods.clearFilters.call(filtered)
+  assert.deepEqual([filtered.search, filtered.installedFilter, filtered.pairableFilter, filtered.userFilter, filtered.communityFilter, filtered.hardwareFilter],
+    ['', false, false, 'all', 'all', 'both'])
+
+  assert.equal(ModelsPage.computed.downloadTargetLabel.call({ status: { refreshing: true, downloading: true }, models: [] }), 'model catalog')
+  // Galaxy: a catalog check shows in the Browse models header, not as a banner (the banner pushed the page down).
+  assert.match(ModelsPage.template, /<template v-if="status.refreshing">Checking for new models…<\/template>/)
+
+  const asked = []
+  const confirmPage = { ...ModelsPage.data(), disposed: false, models: [], status: {}, laboratory: { load() {} },
+    missingDownloads: [{ artifactSize: 1.5e9 }, { artifactSize: 0.5e9 }], canAction: () => true,
+    confirmAction(dialog) { asked.push(dialog); return Promise.resolve(false) }, manager: { action() { throw new Error('must not download') } } }
+  await ModelsPage.methods.runAction.call(confirmPage, 'downloadAll')
+  assert.match(asked[0].message, /Download 2 models \(about 2\.00 GB\)/)
+
+  const lab = { schemaVersion: 1, isOnroad: false, chestnutReady: false, runtimeSupported: false,
+    configuration: { enabled: false, lateralModel: '', longitudinalModel: '' }, download: { downloading: false },
+    capabilities: { configure: true }, models: ['a', 'b'].map(value => ({ value, label: value, small: true, modelLabEligible: true, modelLabArtifactAvailable: true, modelLabArtifactInstalled: true })) }
+  // a disabled pair saves its picks even while pairing cannot run in this build
+  assert.equal(laboratoryActionAllowed(lab, 'save', null, { lateralModel: 'a', longitudinalModel: 'b' }), true)
+  assert.equal(laboratoryActionAllowed(lab, 'save', null, { lateralModel: 'a', longitudinalModel: 'a' }), false)
+  assert.equal(laboratoryActionAllowed(lab, 'save', null, { lateralModel: 'a', longitudinalModel: 'missing' }), false)
+  assert.equal(laboratoryActionAllowed({ ...lab, isOnroad: true }, 'save', null, { lateralModel: 'a', longitudinalModel: 'b' }), false)
+  assert.equal(laboratoryActionAllowed({ ...lab, configuration: { enabled: true, lateralModel: 'a', longitudinalModel: 'b' } }, 'save', null, { lateralModel: 'b', longitudinalModel: 'a' }), false)
+  assert.equal(ModelsPage.computed.labChoiceProblem.call({ labSelectionError: 'Pair inference is not available in this build yet.' }), false)
+  assert.equal(ModelsPage.computed.labChoiceProblem.call({ labSelectionError: 'Choose two different models' }), true)
+  console.log('Merged page search, chips, catalog wording, download confirmation and pair saving passed')
+}
+
+// After the first read, an action's re-read must not flip the page back to the loading screen.
+{
+  const updates = []
+  const feed = new ModelManagerFeed({ publish: update => updates.push(update), later: () => 0, cancel: () => {},
+    fetcher: async (url, options) => ({ ok: true, status: 200, json: async () => options?.method === 'POST' ? { message: 'Saved' } : managerPayload }) })
+  await feed.start()
+  const firstData = updates.findIndex(update => update.data)
+  await feed.action('favorite', managerPayload.models[0])
+  assert.ok(firstData >= 0)
+  assert.equal(updates.slice(firstData).some(update => update.loading), false)
+  feed.stop()
+  console.log('Model actions keep the page in place')
+}

@@ -92,7 +92,7 @@ class AppearanceOwner:
       rows += (FeatureRow('ReduceMotion', 'Reduce Quick Select motion',
                           ('On' if document.get('reduceMotion') else 'Off') if document is not None else 'Unavailable', source=raw,
                           choices=('Off', 'On'), available=parked and document is not None, default_value='Off',
-                          reason='Show Quick Select without transitions' if document is not None else 'Repair the saved layout in Colors & Layout'),)
+                          reason='Show Quick Select without transitions' if document is not None else 'Repair the saved layout in Display Layout'),)
     return FeatureSettingsState(page="appearance", title="Onroad HUD" if profile == Profile.LARGE else "Visuals",
                                 subtitle="Display preferences; border highlights apply to C4 only.",
                                 rows=tuple(rows), parked=parked)

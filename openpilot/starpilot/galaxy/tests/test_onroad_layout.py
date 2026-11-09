@@ -43,6 +43,22 @@ class TestOnroadLayoutOwner(unittest.TestCase):
     self.assertEqual(self.params.get(PARAM_KEY), compact['document'])
     self.assertNotEqual(initial['revision'], result['revision'])
 
+  def test_saving_the_layout_sets_whether_speed_limit_signs_show(self):
+    from unittest.mock import patch
+    for device, profile, widget in (('mici', 'compact', 'speed_limit'), ('tizi', 'large', 'cruise_limits')):
+      with self.subTest(device=device), patch('openpilot.common.hardware.HARDWARE.get_device_type', return_value=device):
+        for shown in (False, True, False):
+          snapshot = self.owner.snapshot()
+          document = copy.deepcopy(snapshot['document'])
+          document['layouts'][profile][widget]['enabled'] = shown
+          self.owner.save({'revision': snapshot['revision'], 'document': document}, session_valid=lambda: True)
+          self.assertEqual(self.params.get_bool('ShowSpeedLimits'), shown)
+    # A device without a known layout (a PC) leaves the saved value alone.
+    self.params.put_bool('ShowSpeedLimits', True, block=True)
+    with patch('openpilot.common.hardware.HARDWARE.get_device_type', return_value='pc'):
+      self.owner.save(self.changed('compact'), session_valid=lambda: True)
+    self.assertTrue(self.params.get_bool('ShowSpeedLimits'))
+
   def test_disable_map_turns_only_the_big_screen_map_off_and_only_when_it_was_on(self):
     self.assertFalse(self.owner.disable_map(lambda: True), 'nothing saved yet')
     payload = self.changed()

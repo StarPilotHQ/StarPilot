@@ -41,7 +41,7 @@ class TestPlannerSelectionSettings(unittest.TestCase):
     self.assertTrue(row.available)
     self.assertIsNone(row.vehicle_fingerprint)
     self.assertIn('next drive', row.reason)
-    self.assertIn('upstream', row.reason)
+    self.assertIn("comma's stock planner", row.reason)
     self.assertTrue(self.row(system_long=True).available)
 
   def test_saved_switch_uses_preferences_authority_and_exact_source_only(self):

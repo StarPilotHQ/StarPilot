@@ -2,7 +2,6 @@
 
 from pathlib import Path
 from dataclasses import replace
-from types import SimpleNamespace
 import os
 import tempfile
 import unittest
@@ -13,7 +12,6 @@ from openpilot.starpilot.longitudinal.profile_document import migrate_profile_do
 from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, row_change, row_default
 from openpilot.starpilot import saved_document
-from openpilot.starpilot.ui import feature_settings_owner
 
 
 def required_change(row: FeatureRow, direction: int = 1) -> FeatureSettingsRequest:
@@ -256,7 +254,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
 
   def test_source_profile_defaults_and_single_numeric_reset(self):
     self.params.put("StandardFollow", 2.8, block=True)
-    row = self._row("standard", "StandardFollow")
+    row = self._row("standard/custom_following", "StandardFollow")
     self.assertEqual(float(row.default_value), float(self.params.get_default_value("StandardFollow")))
     request = row_default(row)
     assert request is not None
@@ -457,7 +455,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
                                                           vehicle_fingerprint=preset.vehicle_fingerprint)))
     document = required_document(Path(self.params.get_param_path("LongitudinalPersonalityProfiles")).read_bytes())
     self.assertEqual(document["profiles"]["aggressive"]["acceleration"]["preset"], "sport_plus")
-    self.assertIn("Higher values", self._row("aggressive", "AggressiveJerkAcceleration").reason)
+    self.assertIn("Higher values", self._row("aggressive/custom_following", "AggressiveJerkAcceleration").reason)
     self.assertFalse(any(row.key == "AggressivePersonalityProfile" for row in self.owner.snapshot(
       "aggressive", parked=True, system_long=True, lateral_context=True, metric=False).rows))
     self.assertIn("Sport+", self._row("aggressive/acceleration", "profile:aggressive:acceleration").value)
@@ -547,29 +545,12 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
                                                                   vehicle_fingerprint=self.fingerprint)))
         self.assertEqual(path.read_bytes(), raw)
 
-  def test_limit_sign_preference_needs_parked_authority_not_long_control_or_vehicle(self):
-    self.fingerprint = None
-    self.owner = FeatureSettingsOwner(self.params, lambda group: self.allowed and group == "preferences",
-                                      vehicle_fingerprint=lambda: self.fingerprint)
+  def test_slc_page_has_no_speed_limit_sign_switch(self):
+    # The layout's speed-limit widget decides whether signs show (galaxy/onroad_layout.py sync_speed_limit_signs).
+    self.owner = FeatureSettingsOwner(self.params, lambda group: group == "preferences", vehicle_fingerprint=lambda: None)
     page = self.owner.snapshot("slc", parked=True, system_long=False, lateral_context=False, metric=False)
-    fresh_sign = next(row for row in page.rows if row.key == "ShowSpeedLimits")
-    self.assertEqual((fresh_sign.value, fresh_sign.default_value), ('On', 'On'))
-    self.params.put_bool('ShowSpeedLimits', False, block=True)
-    self.params.put('SLCPriority1', 'Dashboard', block=True)
-    page = self.owner.snapshot("slc", parked=True, system_long=False, lateral_context=False, metric=False)
-    sign = next(row for row in page.rows if row.key == "ShowSpeedLimits")
-    self.assertTrue(sign.available)
-    self.assertIsNone(sign.vehicle_fingerprint)
-    for key in ("SpeedLimitController", "SLCConfirmation", "SLCPriority1"):
-      self.assertFalse(next(row for row in page.rows if row.key == key).available)
-    request = required_change(sign)
-    self.allowed = False
-    self.assertFalse(self.owner.apply(request))
-    self.allowed = True
-    self.assertTrue(self.owner.apply(request))
-    self.assertTrue(self.params.get_bool("ShowSpeedLimits"))
-    self.assertFalse(self.params.get_bool("SpeedLimitController"))
-    self.assertFalse(self.owner.apply(request))
+    self.assertNotIn("ShowSpeedLimits", [row.key for row in page.rows])
+    self.assertIn("SpeedLimitController", [row.key for row in page.rows])
 
   def test_curve_saved_choices_and_invalid_learning(self):
     hub = self.owner.snapshot("hub", parked=True, system_long=True, lateral_context=True, metric=False)
@@ -593,7 +574,9 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     self.assertEqual(document.read_bytes(), b"{invalid")
     self.assertFalse(self._row("curve", "CurveSpeedControllerNoLead").available)
     self.assertFalse(self._row("curve", "CurveSpeedController").available)
-    self.assertTrue(self._row("curve", "ShowCSCStatus").available)
+    status = self._row("curve", "ShowCSCStatus")  # Galaxy: grayed while Curve Speed Controller is off
+    self.assertFalse(status.available)
+    self.assertEqual(status.reason, "Turn on Curve Speed Controller first")
     Path(self.params.get_param_path("CurveSpeedController")).write_bytes(b"maybe")
     invalid_master = self._row("curve", "CurveSpeedController")
     self.assertFalse(invalid_master.available)
@@ -664,7 +647,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     path = Path(self.params.get_param_path("LongitudinalPersonalityProfiles"))
     path.write_bytes(b"{invalid")
     self.params.put_bool("CustomPersonalities", True, block=True)
-    reset = self._row("profiles", "reset_profiles")
+    reset = self._row("personalities", "reset_profiles")
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(reset.key, reset.source, "reset", vehicle_fingerprint=reset.vehicle_fingerprint)))
     self.assertEqual(path.read_bytes(), b"{invalid")
     self.assertTrue(self.owner.apply(FeatureSettingsRequest(reset.key, reset.source, "reset", confirmation=True,
@@ -672,26 +655,6 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     restored = required_document(path.read_bytes())
     self.assertIsNotNone(restored)
     self.assertFalse(restored["enabled"])
-    self.assertFalse(self.params.get_bool("CustomPersonalities"))
-
-  def test_profile_enable_lost_authority_keeps_boolean_disabled(self):
-    self.owner.vehicle_params = lambda: SimpleNamespace(
-      carFingerprint=self.fingerprint, openpilotLongitudinalControl=True, pcmCruise=False,
-      passive=False, notCar=False, dashcamOnly=False, carVin="VIN1")
-    self.params.put("LongitudinalPersonalityProfiles", {}, block=True)
-    row = self._row("profiles", "CustomPersonalities")
-    request = required_change(row)
-    original_replace = os.replace
-    replacements = []
-
-    def lose_authority_after_document(source, destination):
-      original_replace(source, destination)
-      replacements.append(destination)
-      self.allowed = False
-
-    with patch.object(saved_document.os, "replace", side_effect=lose_authority_after_document):
-      self.assertFalse(self.owner.apply(request))
-    self.assertEqual(len(replacements), 1)
     self.assertFalse(self.params.get_bool("CustomPersonalities"))
 
   def test_staged_profile_edit_rechecks_master_vehicle_and_parked_authority(self):
@@ -717,46 +680,6 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
           self.assertFalse(self.owner.apply(request))
         self.assertTrue(staged)
         self.assertIsNone(self.params.get("LongitudinalPersonalityProfiles"))
-
-  def test_profile_enable_does_not_adopt_a_competing_document(self):
-    self.owner.vehicle_params = lambda: SimpleNamespace(
-      carFingerprint=self.fingerprint, openpilotLongitudinalControl=True, pcmCruise=False,
-      passive=False, notCar=False, dashcamOnly=False, carVin="VIN1")
-    request = required_change(self._row("profiles", "CustomPersonalities"))
-    writes = []
-    def replace_after_verified_commit(*args, **kwargs):
-      result = saved_document.commit_exact(*args, **kwargs)
-      self.assertTrue(result.committed and result.verified)
-      competing = required_document(self.params.get("LongitudinalPersonalityProfiles"))
-      competing["globalBrakingResponse"] = "sport"
-      self.params.put("LongitudinalPersonalityProfiles", competing, block=True)
-      writes.append(True)
-      return result
-    with patch.object(feature_settings_owner, "commit_exact", side_effect=replace_after_verified_commit):
-      self.assertFalse(self.owner.apply(request))
-    self.assertEqual(writes, [True])
-    self.assertFalse(self.params.get_bool("CustomPersonalities"))
-    self.assertEqual(self.params.get("LongitudinalPersonalityProfiles")["globalBrakingResponse"], "sport")
-
-  def test_profile_enable_rechecks_document_while_staging_switch(self):
-    self.owner.vehicle_params = lambda: SimpleNamespace(
-      carFingerprint=self.fingerprint, openpilotLongitudinalControl=True, pcmCruise=False,
-      passive=False, notCar=False, dashcamOnly=False, carVin="VIN1")
-    request = required_change(self._row("profiles", "CustomPersonalities"))
-    original_fsync = os.fsync
-    calls = []
-    def competing_edit(fd):
-      original_fsync(fd)
-      calls.append(fd)
-      if len(calls) == 3:
-        document = self.params.get("LongitudinalPersonalityProfiles")
-        document["globalBrakingResponse"] = "sport"
-        self.params.put("LongitudinalPersonalityProfiles", document, block=True)
-    with patch.object(saved_document.os, "fsync", side_effect=competing_edit):
-      self.assertFalse(self.owner.apply(request))
-    self.assertEqual(len(calls), 3)
-    self.assertFalse(self.params.get_bool("CustomPersonalities"))
-    self.assertEqual(self.params.get("LongitudinalPersonalityProfiles")["globalBrakingResponse"], "sport")
 
   def test_global_braking_saved_choice_is_parked_source_bound_and_preserved_by_profile_edit(self):
     row = self._row("profiles", "profile:global_braking")

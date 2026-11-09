@@ -1236,8 +1236,8 @@ msgid "Always On Lateral"
 msgstr "항상 횡방향 제어"
 
 #: openpilot/starpilot/ui/translation_strings.py
-msgid "Long Planner"
-msgstr "종방향 플래너"
+msgid "Acceleration & Braking"
+msgstr "가속 및 제동"
 
 #: openpilot/starpilot/ui/translation_strings.py
 msgid "Conditional Driving Modes"
@@ -3530,8 +3530,8 @@ msgid "Collection counts describe retained data. The fitter separately checks ph
 msgstr "수집 횟수는 보관된 데이터를 나타냅니다. 피터는 물리적 보정, 전체 이벤트 지원 및 검증을 별도로 확인합니다."
 
 #: openpilot/starpilot/galaxy/web/js/onroad-layout-template.js
-msgid "Colors & Layout"
-msgstr "색상 및 레이아웃"
+msgid "Display Layout"
+msgstr "디스플레이 레이아웃"
 
 #: openpilot/starpilot/galaxy/web/js/onroad-layout.js
 msgid "Colors and both layouts saved."
@@ -4737,8 +4737,8 @@ msgid "Driving Personalities"
 msgstr "주행 성향"
 
 #: openpilot/starpilot/galaxy/web/js/settings.js
-msgid "Driving Screen Widgets, Colors & Layout"
-msgstr "주행 화면 위젯, 색상 및 레이아웃"
+msgid "Driving Screen Widgets, Display Layout"
+msgstr "주행 화면 위젯, 디스플레이 레이아웃"
 
 #: openpilot/starpilot/galaxy/web/js/driving.js
 msgid "Driving Settings"
@@ -9937,8 +9937,8 @@ msgid "Repair saved units first"
 msgstr "먼저 저장된 단위를 복구하세요"
 
 #: openpilot/starpilot/ui/appearance_owner.py
-msgid "Repair the saved layout in Colors & Layout"
-msgstr "색상 및 레이아웃에서 저장된 레이아웃을 복구하세요"
+msgid "Repair the saved layout in Display Layout"
+msgstr "디스플레이 레이아웃에서 저장된 레이아웃을 복구하세요"
 
 #: openpilot/starpilot/galaxy/web/js/spotify.js
 msgid "Replace Key"
@@ -10280,8 +10280,8 @@ msgid "Reset both remembered manual choices to Automatic?"
 msgstr "기억된 수동 선택 두 개를 모두 자동으로 초기화할까요?"
 
 #: openpilot/starpilot/ui/runtime_app.py
-msgid "Reset invalid saved Long Planner profiles to defaults?"
-msgstr "잘못된 저장 Long Planner 프로필을 기본값으로 초기화할까요?"
+msgid "Reset invalid saved Acceleration & Braking profiles to defaults?"
+msgstr "잘못된 저장 가속 및 제동 프로필을 기본값으로 초기화할까요?"
 
 #: openpilot/starpilot/galaxy/settings.py
 msgid "Reset invalid saved profiles and turn their saved switch off?"

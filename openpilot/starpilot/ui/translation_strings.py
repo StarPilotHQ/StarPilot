@@ -120,7 +120,7 @@ MESSAGES = (
   tr_noop("Onroad"),
   tr_noop("Offroad"),
   tr_noop("Always On Lateral"),
-  tr_noop("Long Planner"),
+  tr_noop("Acceleration & Braking"),
   tr_noop("Conditional Driving Modes"),
   tr_noop("Curve Speed Controller"),
   tr_noop("Speed Limit Controller"),

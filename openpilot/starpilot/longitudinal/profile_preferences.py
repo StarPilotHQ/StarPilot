@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import math
 
 from openpilot.starpilot.longitudinal.profile_document import (
-  PERSONALITY_PROFILES_PARAM, default_personality_profiles, profile_document,
+  CUSTOM_FOLLOWING_PRESETS, PERSONALITY_PROFILES_PARAM, default_personality_profiles, profile_document,
   is_unconfigured_profile_document, migrate_profile_document,
 )
 from openpilot.starpilot.saved_source import read_saved
@@ -71,10 +71,6 @@ class TrafficHealth:
   def valid(self) -> bool:
     return self.reason == "valid"
 
-  @property
-  def master_on(self) -> bool:
-    return self.values["CustomPersonalities"].value is True
-
   def number(self, key: str) -> float:
     saved = self.values[key]
     if saved.valid and isinstance(saved.value, float):
@@ -104,9 +100,9 @@ def _bool_value(raw: bytes | None, default: object) -> SavedValue:
 
 
 def read_master_value(params) -> SavedValue:
+  """The retired Custom Following and Jerk switch (settings_retirement removes it); absent reads as Off."""
   raw, readable = _read(params, "CustomPersonalities")
-  return (_bool_value(raw, params.get_default_value("CustomPersonalities")) if readable else
-          SavedValue(raw, None, False, False))
+  return _bool_value(raw, False) if readable else SavedValue(raw, None, False, False)
 
 
 def read_document_value(params) -> SavedValue:
@@ -166,19 +162,23 @@ def read_profile_health(params, *, master: SavedValue | None = None) -> ProfileH
 
 
 def read_traffic_health(params) -> TrafficHealth:
-  """Read only Traffic dependencies; unrelated profile corruption stays local."""
-  master = read_master_value(params)
-  values = {"CustomPersonalities": master}
-  if not master.valid:
-    return TrafficHealth(values, "invalid_master")
-  custom = master.value is True
-  if custom:
-    document = read_document_value(params)
-    values[PERSONALITY_PROFILES_PARAM] = document
+  """Read only Traffic dependencies; unrelated profile corruption stays local.
+
+  Traffic's Following choice (in the document) decides which saved values apply: Custom (Simple) uses the saved follow
+  and smoothness, Custom (Advanced) the smoothness only. A saved value that is not in use cannot make Traffic
+  unavailable; its bytes stay as they are for repair and the registered default stands in.
+  """
+  document = read_document_value(params)
+  values = {PERSONALITY_PROFILES_PARAM: document}
+  preset = (document.value["profiles"]["traffic"]["following"]["preset"]
+            if document.valid and isinstance(document.value, dict) else "dom_default")
+  uses_follow, uses_jerk = preset == "custom_simple", preset in CUSTOM_FOLLOWING_PRESETS
   for key in TRAFFIC_NUMBER_KEYS:
-    raw, readable = _read(params, key) if custom else (None, True)
-    values[key] = (_scalar_value(key, raw, params.get_default_value(key))
-                   if readable else SavedValue(raw, None, False, False))
+    raw, readable = _read(params, key)
+    default = params.get_default_value(key)
+    saved = _scalar_value(key, raw, default) if readable else SavedValue(raw, None, False, False)
+    in_use = uses_follow if key in ("TrafficFollow", "RelaxedFollow") else uses_jerk
+    values[key] = saved if saved.valid or in_use else _scalar_value(key, None, default)
   bad = next((key for key, value in values.items() if not value.valid), None)
   if bad is not None:
     return TrafficHealth(values, f"invalid_{bad}")

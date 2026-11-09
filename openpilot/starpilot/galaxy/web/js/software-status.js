@@ -673,7 +673,7 @@ export const SoftwarePage = {
   },
   template: `
     <div class="gx-view gx-stack" :inert="busy" :aria-busy="busy || undefined">
-      <h2>Software &amp; Updates</h2>
+      <h2>Updates &amp; Backup</h2>
       <GxState v-if="mode !== 'local'">Software updates are unavailable in preview.</GxState>
       <template v-else>
         <section class="gx-card gx-panel gx-stack gx-software-card">
