@@ -58,9 +58,17 @@ def _configure_process() -> None:
 
 
 def _place_inference(params) -> None:
+  from openpilot.common.hardware import PC
   from openpilot.common.realtime import set_core_affinity
+  cores = list(VISION_WITH_VASM if vasm_enabled(params, development=True) else LITTLE_CORES)
   try:
-    set_core_affinity(list(VISION_WITH_VASM if vasm_enabled(params, development=True) else LITTLE_CORES))
+    set_core_affinity(cores)
+    if not PC:
+      for tid in os.listdir('/proc/self/task'):
+        try:
+          os.sched_setaffinity(int(tid), cores)
+        except ProcessLookupError:
+          continue
   except OSError:
     pass
 
@@ -164,6 +172,7 @@ def main() -> None:
   core = None
   last_unavailable = 0.0
   tasks = _requested_tasks(params)
+  _place_inference(params)
   try:
     if cv2 is not None:
       cv2.setNumThreads(1)

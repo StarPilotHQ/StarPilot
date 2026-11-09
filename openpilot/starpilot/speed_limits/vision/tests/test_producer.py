@@ -41,11 +41,16 @@ class TestVisionProducer(unittest.TestCase):
       self.addCleanup(patcher.stop)
 
   def test_vision_avoids_vasm_core_when_both_enabled(self):
-    with patch.object(producer, 'vasm_enabled', side_effect=[True, False]), \
-         patch('openpilot.common.realtime.set_core_affinity') as affinity:
+    with patch('openpilot.common.realtime.set_core_affinity') as affinity, \
+         patch.object(producer, 'vasm_enabled', side_effect=[True, False]), \
+         patch('openpilot.common.hardware.PC', False), \
+         patch.object(producer.os, 'listdir', return_value=['100', '101']), \
+         patch.object(producer.os, 'sched_setaffinity') as threads:
       place_inference(object())
       place_inference(object())
     self.assertEqual([call.args[0] for call in affinity.call_args_list], [[0, 1], [0, 1, 2]])
+    self.assertEqual([call.args for call in threads.call_args_list],
+                     [(100, [0, 1]), (101, [0, 1]), (100, [0, 1, 2]), (101, [0, 1, 2])])
 
   def clock_pairs(self, clocks, states=None):
     pairs = iter(clocks)
@@ -662,7 +667,12 @@ class TestVisionProducer(unittest.TestCase):
     self.assertEqual(messages[-1].stopSigns.frameId, 12)
 
   def test_disabling_speed_in_the_live_producer_clears_retained_numbers(self):
-    core = producer.VisionModelCore(is_metric=False)
+    reader = Mock()
+    reader.getLayerId.return_value = 0
+    with patch.object(producer.VisionModelCore, '_load_net', side_effect=[None, reader]), \
+         patch.object(producer.VisionModelCore, '_validate_model_abi'):
+      core = producer.VisionModelCore(is_metric=False)
+    self.assertIsNotNone(core.classifier_net)
     core.published_speed_limit_mph = 55
     core.published_support_count = 3
     core.last_published_support_at = 1.0
