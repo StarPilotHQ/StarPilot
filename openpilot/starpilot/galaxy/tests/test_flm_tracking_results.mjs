@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { compile } from '../web/vendor/vue/vue.esm-browser.js'
 import { FlmPage } from '../web/js/flm.js'
+import { GalaxySettingRow } from '../web/js/galaxy-setting-row.js'
 import { SURFACE_NAMES, PID_UNSUPPORTED, validTrainingResults, validTrackingResults, trackingView, surfaceRows, measurementText, validTrackingValues, trackingCoordinates, validTrackingPlot, trackingPlotView, sourceSeconds, tunerStatus } from '../web/js/flm-training-results.js'
 
 const coordinates = amount => SURFACE_NAMES.map((name, i) => [name, i === 0 ? amount : 0])
@@ -292,3 +293,50 @@ ctx.now=3000
 assert.equal(ctx.reportFresh,false)
 assert.notEqual(ctx.state.title,'Tune saved for the next drive','Expired report cannot assert the current saved tune')
 console.log('Actual parked Vue render exposes all five route candidates, distinguishes saving/application and expires stale status')
+
+// Declared UI states only: never enable driving edits or contact a device.
+// Render BOTH the parent and the actual setting-row template so a parent prop
+// override cannot silently remove help while the slider remains editable.
+const settingRender = compile(GalaxySettingRow.template, { onError: e => { throw e }, decodeEntities: v => v.replaceAll('&amp;', '&') })
+const vnodeRows = vnode => Array.isArray(vnode) ? vnode.flatMap(vnodeRows)
+  : vnode && typeof vnode === 'object' ? [vnode, ...vnodeRows(vnode.children)] : []
+const manualContext = { ...FlmPage.data(), mode: 'local', view: 'tune', group: 'balance', unauthorized() {} }
+for (const [name, fn] of Object.entries(FlmPage.methods)) manualContext[name] = fn.bind(manualContext)
+for (const [name, get] of Object.entries(FlmPage.computed)) Object.defineProperty(manualContext, name, { get: () => get.call(manualContext) })
+const manualHelp = 'Sets the extra planned steering effort in left curves, before tracking-error corrections. Higher adds more effort; lower adds less.'
+for (const state of [{ parked: true }, { parked: false }, { parked: true }, { parked: true, error: 'Connection lost' }]) {
+  const calls = []
+  manualContext.manualFeed = { active: true, async previewValue(index, value) { calls.push([index, value]) } }
+  manualContext.manualState = { status: 'ready', pending: null, error: state.error || '', data: { rows: [{
+    coordinate: 'ff_gain_left', label: 'Steering gain', reason: state.parked ? manualHelp : manualHelp + ' Parked only.',
+    available: state.parked, action: true, value: 0.5, defaultValue: 0, resetAvailable: state.parked,
+    minimum: -25, maximum: 25, step: 0.25, unit: '%',
+  }] } }
+  const parentRows = vnodeRows(render.call(manualContext, manualContext, [])).filter(node => node.props?.row?.coordinate === 'ff_gain_left')
+  assert.equal(parentRows.length, 1)
+  const props = parentRows[0].props
+  assert.equal(props.row.reason, manualContext.manualState.data.rows[0].reason, 'Available manual sliders must retain their descriptions')
+  const defaults = Object.fromEntries(Object.entries(GalaxySettingRow.props)
+    .filter(([, prop]) => Object.hasOwn(prop, 'default')).map(([name, prop]) => [name, prop.default]))
+  const settingContext = { ...defaults, ...GalaxySettingRow.data(), ...props,
+    saveValue: props.saveValue || props['save-value'] }
+  assert.equal(typeof settingContext.saveValue, 'function')
+  for (const [name, fn] of Object.entries(GalaxySettingRow.methods)) settingContext[name] = fn.bind(settingContext)
+  for (const [name, get] of Object.entries(GalaxySettingRow.computed)) Object.defineProperty(settingContext, name, { get: () => get.call(settingContext) })
+  const rowTree = settingRender.call(settingContext, settingContext, [])
+  assert(text(rowTree).includes(manualHelp), 'Help must render when parked, driving, and after returning to park')
+  if (!state.parked) assert(text(rowTree).includes('Parked only.'), 'The driving restriction must remain visible')
+  const input = vnodeRows(rowTree).find(node => node.type === 'input' && node.props?.type === 'range')
+  const reset = vnodeRows(rowTree).find(node => node.type === 'button' && node.props?.['aria-label']?.startsWith('Reset '))
+  assert(input && reset)
+  const locked = !state.parked || !!state.error
+  assert.equal(!!input.props.disabled, locked, 'Descriptions must not change the driving/error slider lockout')
+  assert.equal(!!reset.props.disabled, locked, 'Descriptions must not change the reset lockout')
+  await settingContext.commit(1)
+  assert.equal(calls.length, locked ? 0 : 1, 'Locked slider events must not reach settings preview/save')
+  if (locked) {
+    assert.equal(await manualContext.saveManual(0, 1), false, 'The parent must also reject direct locked saves')
+    assert.equal(calls.length, 0)
+  } else assert.deepEqual(calls, [[0, 1]])
+}
+console.log('Actual FLM and setting-row Vue renders preserve parked/driving descriptions and reject locked saves')
