@@ -41,6 +41,7 @@ class LaneChangeFeatureTests(unittest.TestCase):
       self.assertTrue(self.owner.apply(self.request(row)))
       self.assertTrue(read_saved(self.params).policy.auto_requires_cruise)
       reset = row_default(self.row(REQUIRE_CRUISE))
+      assert reset is not None
       self.assertTrue(self.owner.apply(reset))
       self.assertFalse(read_saved(self.params).policy.auto_requires_cruise)
 
