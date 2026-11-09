@@ -1046,21 +1046,35 @@ class Car:
       self.pm.send('carParams', cp_send)
       self.car_params_published = True
 
+    timing = getattr(self, '_cycle_timing', None)
+    if timing is not None:
+      timing.publication_mark('begin')
+
     # publish new carOutput
     co_send = messaging.new_message('carOutput')
     co_send.valid = self.sm.all_checks(['carControl'])
     co_send.carOutput.actuatorsOutput = self.last_actuators_output
     self.learning_feedback_publication = None
+    if timing is not None:
+      timing.publication_mark('car_output_create')
     capture = self._feedback_capture(int(co_send.logMonoTime))
+    if timing is not None:
+      timing.publication_mark('feedback_capture')
     if capture is not None:
       try:
         self.learning_feedback_publication = capture.publication(co_send)
       except Exception:
         capture.invalidate()  # Optional observation cannot affect the original CO.
+    if timing is not None:
+      timing.publication_mark('feedback_publication')
     self.pm.send('carOutput', co_send)
+    if timing is not None:
+      timing.publication_mark('car_output_send')
 
     # kick off controlsd step while we actuate the latest carControl packet
     cs_send = messaging.new_message('carState')
+    if timing is not None:
+      timing.publication_mark('car_state_create')
     if (self.slc_replay or self.curve_replay or getattr(self, 'conditional_replay', False)) and REPLAY and hasattr(self, 'can_log_mono_time'):
       cs_send.logMonoTime = int(self.can_log_mono_time)
     cs_send.valid = CS.canValid

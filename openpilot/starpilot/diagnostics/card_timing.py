@@ -11,7 +11,9 @@ from dataclasses import dataclass
 PHASES = ("startup", "can_receive", "can_parse", "service_update", "state_decision", "publish_state", "apply_control", "radar")
 SLOW_NS = 20_000_000
 REPORT_INTERVAL_NS = 1_000_000_000
-CAPTURE_NS = 600_000_000_000
+CAPTURE_NS = 3_600_000_000_000
+MAX_REPORTS = 60
+PUBLICATION_PHASES = ("car_output_create", "feedback_capture", "feedback_publication", "car_output_send", "car_state_create")
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +37,8 @@ class CardTiming:
     self.deadline: int | None = None
     self.last_report: int | None = None
     self.suppressed = 0
+    self.reports = 0
+    self.publication_samples: list[Sample] = []
     self.samples: list[Sample] = []
 
   def _sample(self) -> Sample:
@@ -87,6 +91,35 @@ class CardTiming:
     except Exception:
       self.close()
 
+  def publication_mark(self, phase: str) -> None:
+    if not self.enabled or not self.samples:
+      return
+    try:
+      names = ("begin", *PUBLICATION_PHASES)
+      if (threading.get_ident() != self.owner or len(self.samples) - 1 != PHASES.index("publish_state") or
+          len(self.publication_samples) >= len(names) or phase != names[len(self.publication_samples)]):
+        raise ValueError('invalid publication phase')
+      self.publication_samples.append(self.sample())
+    except Exception:
+      self.close()
+
+  @staticmethod
+  def _durations(names: tuple[str, ...], samples: list[Sample]) -> list[dict[str, str | int | None]]:
+    phases = []
+    for name, start, end in zip(names, samples[:-1], samples[1:], strict=True):
+      elapsed, cpu = end.wall - start.wall, end.cpu - start.cpu
+      queue = end.runqueue - start.runqueue if start.runqueue is not None and end.runqueue is not None else None
+      if elapsed < 0 or cpu < 0 or queue is not None and queue < 0:
+        raise ValueError('nonmonotonic timing sample')
+      phases.append({'phase': name, 'wall_ns': elapsed, 'cpu_ns': cpu, 'runqueue_ns': queue,
+                     'other_off_cpu_ns': max(0, elapsed - cpu - queue) if queue is not None else None,
+                     'accounting_skew_ns': max(0, cpu + (queue or 0) - elapsed),
+                     'voluntary_switches': end.voluntary - start.voluntary if start.voluntary is not None and
+                       end.voluntary is not None else None,
+                     'involuntary_switches': end.involuntary - start.involuntary if start.involuntary is not None and
+                       end.involuntary is not None else None})
+    return phases
+
   def finish(self) -> None:
     if not self.enabled or not self.samples:
       return
@@ -97,31 +130,26 @@ class CardTiming:
       wall = last.wall - first.wall
       if wall > SLOW_NS:
         if self.last_report is None or last.wall - self.last_report >= REPORT_INTERVAL_NS:
-          phases = []
-          for name, start, end in zip(PHASES, self.samples[:-1], self.samples[1:], strict=True):
-            elapsed, cpu = end.wall - start.wall, end.cpu - start.cpu
-            queue = end.runqueue - start.runqueue if start.runqueue is not None and end.runqueue is not None else None
-            if elapsed < 0 or cpu < 0 or queue is not None and queue < 0:
-              raise ValueError('nonmonotonic timing sample')
-            phases.append({'phase': name, 'wall_ns': elapsed, 'cpu_ns': cpu, 'runqueue_ns': queue,
-                               'other_off_cpu_ns': max(0, elapsed - cpu - queue) if queue is not None else None,
-                               'accounting_skew_ns': max(0, cpu + (queue or 0) - elapsed),
-                               'voluntary_switches': end.voluntary - start.voluntary if start.voluntary is not None and
-                                 end.voluntary is not None else None,
-                               'involuntary_switches': end.involuntary - start.involuntary if start.involuntary is not None and
-                                 end.involuntary is not None else None})
-          self.emit('card_cycle_timing', wall_ns=wall, phases=phases, suppressed=self.suppressed)
+          phases = self._durations(PHASES, self.samples)
+          publication = self._durations(PUBLICATION_PHASES, self.publication_samples) if self.publication_samples else []
+          self.emit('card_cycle_timing', wall_ns=wall, phases=phases, publication=publication,
+                    suppressed=self.suppressed, report=self.reports + 1)
+          self.reports += 1
+          if self.reports >= MAX_REPORTS:
+            self.close()
           self.last_report = last.wall
           self.suppressed = 0
         else:
           self.suppressed += 1
       self.samples.clear()
+      self.publication_samples.clear()
     except Exception:
       self.close()
 
   def close(self) -> None:
     self.enabled = False
     self.samples.clear()
+    self.publication_samples.clear()
     if self.fd is not None:
       try:
         os.close(self.fd)
