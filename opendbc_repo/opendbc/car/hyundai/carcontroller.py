@@ -43,6 +43,7 @@ from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.vehicle_model import VehicleModel
 
 EV9_OP_LONG_ANGLE_TARGET_MAX = 140.0
+PE_OP_LONG_ANGLE_TARGET_MAX = 175.0
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
@@ -448,8 +449,11 @@ class CarController(CarControllerBase):
         if self.ev9_angle_filter is not None:
           self.ev9_angle_filter.x = self.apply_angle_last
       safety_speed = max(CS.out.vEgoRaw - 1.0, 1.0)
+      target_max = PE_OP_LONG_ANGLE_TARGET_MAX if pe_long else EV9_OP_LONG_ANGLE_TARGET_MAX
       bound = min(get_max_angle_vm(safety_speed, self.ev9_legacy_envelope, self.params),
                   get_max_angle_vm(safety_speed, self.angle_vm, self.params))
+      if pe_long:
+        bound = min(bound, target_max)
       ev9_lateral_allowed = lateral_request_allowed(CC, CS.out, CS.angle_steering_fault,
                                                    independent=(ev9_long_aol_qualified(self.CP, marked_only=True) or
                                                                 pe_long_aol_qualified(self.CP, marked_only=True)))
@@ -457,8 +461,8 @@ class CarController(CarControllerBase):
                     abs(measured) <= bound and abs(self.apply_angle_last) <= bound)
       self.ev9_angle_filter.update_alpha(float(np.interp(CS.out.vEgo, [5.0, 10.0, 20.0], [0.2, 0.1, 0.0])))
       desired = self.ev9_angle_filter.update(float(np.clip(CC.actuators.steeringAngleDeg,
-                                                         -(self.params.ANGLE_LIMITS.STEER_ANGLE_MAX if pe_long else EV9_OP_LONG_ANGLE_TARGET_MAX),
-                                                         self.params.ANGLE_LIMITS.STEER_ANGLE_MAX if pe_long else EV9_OP_LONG_ANGLE_TARGET_MAX)))
+                                                         -target_max,
+                                                         target_max)))
       # Preserve the original two VM passes and its final tolerance-envelope delta.
       angle = apply_steer_angle_limits_vm(desired, self.apply_angle_last, CS.out.vEgoRaw, measured,
                                          active, self.params, self.angle_vm)
