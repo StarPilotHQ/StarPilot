@@ -294,6 +294,7 @@ class WirelessBootstrap:
     self.initial_kick_delay = initial_kick_delay
     self.join_ping_interval = join_ping_interval
     self.peer_uses_pings = False
+    self.endpoint_ip = ""
     self.ping_at: float | None = None       # next phone-style ping while waiting on the car (phone_ping experiment)
     self.start_request_delay = start_request_delay
     self.log = log
@@ -513,6 +514,7 @@ class WirelessBootstrap:
       else:
         self.log("bootstrap_ignored", message=NAMES.get(message_id, message_id))
     assert endpoint is not None
+    self.endpoint_ip = endpoint.ip
     self.log("bootstrap_endpoint", ip=endpoint.ip, port=endpoint.port)
 
     # Stage 2: ask for the network, unless setup info already supplied it.

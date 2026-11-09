@@ -1118,6 +1118,21 @@ def test_network_lease_waits_for_a_slow_honda_access_point(monkeypatch):
   assert budgets == [("AA:BB:CC:DD:EE:FF", 90.0), ("", 30.0)]
 
 
+def test_network_lease_joins_aawireless_on_a_static_address_first():
+  nm = FakeNetworkManager()
+  lease = make_lease(nm)
+  lease.acquire(credentials(), timeout=10.0, dhcp_patience=0.3, endpoint_ip=lambda: "10.42.1.1", static_first=True)
+  assert len(nm.added) == 1
+  assert nm.added[0]["ipv4"]["method"] == ("s", "manual")
+
+
+def test_network_lease_falls_back_to_a_static_address_when_dhcp_never_answers():
+  nm = FakeNetworkManager(stalled_dhcp=1)
+  lease = make_lease(nm)
+  lease.acquire(credentials(), timeout=10.0, dhcp_patience=0.3, endpoint_ip=lambda: "10.42.1.1")
+  assert [settings["ipv4"]["method"][1] for settings in nm.added] == ["auto", "manual"]
+
+
 def test_network_lease_restarts_a_join_whose_dhcp_goes_unanswered():
   nm = FakeNetworkManager(stalled_dhcp=2)
   lease = make_lease(nm)

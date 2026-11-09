@@ -1604,6 +1604,8 @@ class Supervisor:
       self._check_cancel()
       self.log('companion_car_connected', address=companion)
     elif device.get('starport') and '0000111e-0000-1000-8000-00805f9b34fb' not in device.get('uuids', []):
+      if car_profiles.tuning(config)["own_handsfree"]:
+        raise RuntimeError('Waiting for the adapter to finish starting up')
       raise RuntimeError('Connect your paired car in Galaxy Bluetooth first to select it for this Android Auto adapter')
     if delay := car_profiles.tuning(config)["connect_delay_s"]:
       self.log("car_profile_connect_delay", seconds=delay)
@@ -1646,8 +1648,9 @@ class Supervisor:
                                # a car that once took 70 s to be ready gets more than the standard wait for the Wi-Fi handshake
                                patience=max(strategy.patience, self._ladder.ready_patience(address, 20.0)))
       self._set(state="wifi_start")
-      patience = car_profiles.tuning(config)["dhcp_patience_s"]
-      join_options = {"dhcp_patience": patience} if patience else {}
+      tuning = car_profiles.tuning(config)
+      join_options = {"dhcp_patience": tuning["dhcp_patience_s"], "endpoint_ip": lambda: boot.endpoint_ip,
+                      "static_first": tuning["static_ip"]} if tuning["dhcp_patience_s"] or tuning["static_ip"] else {}
       result = boot.run(lambda credentials: lease.acquire(credentials, cancelled=boot.join_is_cancelled, **join_options), cancelled=self._stop.is_set)
     except Exception as error:
       if _stray_link(error):

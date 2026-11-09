@@ -40,7 +40,8 @@ def test_aawireless_tuning_applies_only_when_chosen():
   chosen = config(car_profile_override="aawireless", receiver_name="AAWireless-4F2A")
   assert car_profiles.resolve(chosen) == ("aawireless", "override")
   assert car_profiles.tuning(chosen) == {"connect_delay_s": 0.0, "max_window": 30, "phone_services": True, "phone_frames": True,
-                                          "bootstrap_experiments": False, "stay_while_projecting": True, "dhcp_patience_s": 6.0}
+                                          "bootstrap_experiments": False, "stay_while_projecting": True, "dhcp_patience_s": 6.0,
+                                          "own_handsfree": True, "static_ip": True}
   assert car_profiles.summary(chosen)["car_profile_label"] == "AAWireless"
   for other in (config(receiver_name="AAWireless-4F2A"), config(car_profile_override="default")):
     assert car_profiles.tuning(other) == car_profiles.DEFAULTS
