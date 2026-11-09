@@ -599,7 +599,7 @@ class CarController(CarControllerBase):
         if self.gv60_longitudinal and self.frame % 4 == 0:
           can_sends.append(hyundaicanfd.create_gv60_radar_heartbeat(self.frame // 4, CS.out.brakePressed, CS.out.gasPressed))
         if self.ioniq6_longitudinal is not None and self.frame % 4 == 0:
-          can_sends.append(hyundaicanfd.create_ioniq6_radar_heartbeat(self.frame // 4, CS.out.brakePressed, CS.out.gasPressed))
+          can_sends.append(hyundaicanfd.create_ioniq6_radar_heartbeat(self.frame // 4, CS.out.brakePressed, CS.out.gasPressed, bus=self.CAN.ACAN))
         if self.ioniq6_bsm_enabled and self.frame % 5 == 0:
           sources = getattr(CS, "ioniq6_bsm_sources", None)
           can_now_ns = getattr(CS, "ioniq6_bsm_now_ns", 0)
@@ -610,7 +610,7 @@ class CarController(CarControllerBase):
             if (CS.out.vEgoRaw < 5 * CV.MPH_TO_MS or
                 status.left == 2 and not left_queued or status.right == 2 and not right_queued):
               status = BlindspotStatus(0, 0)
-            can_sends.extend(hyundaicanfd.create_ioniq6_blindspot_status(self.ioniq6_bsm_counter, status))
+            can_sends.extend(hyundaicanfd.create_ioniq6_blindspot_status(self.ioniq6_bsm_counter, status, bus=self.CAN.ECAN))
             self.ioniq6_bsm_counter = (self.ioniq6_bsm_counter + 1) & 0xff
             self.ioniq6_bsm_last_can_ns = can_now_ns
       elif not ccnc_non_lka:

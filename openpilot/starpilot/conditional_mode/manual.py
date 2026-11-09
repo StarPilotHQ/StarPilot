@@ -13,7 +13,7 @@ from opendbc.car.structs import car
 from opendbc.car.gm.distance_button import DistanceObservation, DistanceSample
 from opendbc.car.hyundai.ioniq6_media import MediaObservation
 from opendbc.car.hyundai.hyundaicanfd import CanBus
-from opendbc.car.hyundai.ioniq6_handoff import IONIQ6_ECAN_BUS
+from opendbc.car.hyundai.canfd_owner import config_index
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
 from openpilot.selfdrive.car.cruise import CRUISE_LONG_PRESS
 from openpilot.starpilot.conditional_mode.policy import ModeChoice, next_manual_status, restore_manual_status
@@ -31,7 +31,8 @@ ButtonType = car.CarState.ButtonEvent.Type
 
 def ioniq6_media_eligible(CP: car.CarParams) -> bool:
   """Only the reviewed Ioniq E-CAN topology has physical media evidence."""
-  return CP.carFingerprint == HYUNDAI_CAR.HYUNDAI_IONIQ_6 and CanBus(CP).ECAN == IONIQ6_ECAN_BUS
+  return (CP.carFingerprint == HYUNDAI_CAR.HYUNDAI_IONIQ_6 and config_index(CP) is not None and
+          CanBus(CP).ECAN in (1, 5))
 
 
 class Button(StrEnum):

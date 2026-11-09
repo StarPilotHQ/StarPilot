@@ -53,8 +53,8 @@ def _ioniq6_hda2_base(CP) -> bool:
     or CP.notCar
     or CP.passive
     or CP.dashcamOnly
-    or len(CP.safetyConfigs) != 1
-    or CP.safetyConfigs[0].safetyModel != car.CarParams.SafetyModel.hyundaiCanfd
+    or CP.steerControlType != car.CarParams.SteerControlType.torque
+    or config_index(CP) is None
   ):
     return False
   flags = int(CP.flags)
@@ -65,7 +65,7 @@ def _stock_ioniq6(CP, *, marked_only=False) -> bool:
   if not _ioniq6_hda2_base(CP) or CP.openpilotLongitudinalControl or not CP.pcmCruise:
     return False
   stock = 0x91 if int(CP.flags) & int(HyundaiFlags.CANFD_LKA_STEER_MSG_ALT) else 0x11
-  raw = int(CP.safetyConfigs[0].safetyParam)
+  raw = int(CP.safetyConfigs[config_index(CP)].safetyParam)
   return raw == (stock | 0x0800) or (not marked_only and raw == stock)
 
 
@@ -75,21 +75,21 @@ def qualified_ioniq6(CP) -> bool:
   if not _ioniq6_hda2_base(CP) or not CP.openpilotLongitudinalControl or CP.pcmCruise:
     return False
   flags = int(CP.flags)
-  raw = int(CP.safetyConfigs[0].safetyParam)
+  raw = int(CP.safetyConfigs[config_index(CP)].safetyParam)
   return raw == (0x8895 if flags & int(HyundaiFlags.CANFD_LKA_STEER_MSG_ALT) else 0x8815)
 
 
 def native_admission_key(CP):
-  """Complete mutable CP inputs to exact one-slot Ioniq native admission.
+  """Complete mutable CP inputs to exact selected-owner Ioniq native admission.
 
   Keep this in sync with qualified_ioniq6 and native inventory qualification.
   This key is not an admission decision and never contains live authority.
   """
-  if CP.brand != 'hyundai' or CP.carFingerprint != HyundaiCAR.HYUNDAI_IONIQ_6 or len(CP.safetyConfigs) != 1:
+  if CP.brand != 'hyundai' or CP.carFingerprint != HyundaiCAR.HYUNDAI_IONIQ_6 or config_index(CP) is None:
     return None
   return (str(CP.brand), str(CP.carFingerprint), int(CP.flags), bool(CP.radarUnavailable),
           bool(CP.notCar), bool(CP.passive), bool(CP.dashcamOnly),
-          bool(CP.openpilotLongitudinalControl), bool(CP.pcmCruise), int(CP.alternativeExperience),
+          bool(CP.openpilotLongitudinalControl), bool(CP.pcmCruise), int(CP.alternativeExperience), str(CP.steerControlType),
           tuple((int(c.safetyModel.raw), int(c.safetyParam)) for c in CP.safetyConfigs))
 
 

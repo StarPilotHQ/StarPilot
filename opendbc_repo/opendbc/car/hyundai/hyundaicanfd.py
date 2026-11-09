@@ -246,18 +246,20 @@ def create_acc_control(packer, CAN, enabled, accel_last, accel, stopping, gas_ov
   return packer.make_can_msg("SCC_CONTROL", CAN.ECAN, values)
 
 
-def create_ioniq6_radar_heartbeat(counter: int, brake_pressed: bool, gas_pressed: bool) -> CanData:
+def create_ioniq6_radar_heartbeat(counter: int, brake_pressed: bool, gas_pressed: bool, *, bus: int = 0) -> CanData:
   """Recorded Ioniq 6 ADAS replacement heartbeat, 24 bytes on A-CAN.
 
   Preserve the observed non-pedal body; this is not the 32-byte ICE message
   sharing address 0x100. Only rolling integrity and actual pedal state vary.
   """
+  if type(bus) is not int or bus not in (0, 4):
+    raise ValueError("reviewed Ioniq 6 A-CAN bus required")
   data = bytearray.fromhex("000000020000fcff000000000020000055ff000068000000")
   data[2] = counter & 0xff
   data[4] = int(brake_pressed)
   data[22] = int(gas_pressed)
   data[:2] = hkg_can_fd_checksum(0x100, None, data).to_bytes(2, 'little')
-  return CanData(0x100, bytes(data), 0)
+  return CanData(0x100, bytes(data), bus)
 
 
 def create_gv60_radar_heartbeat(counter: int, brake_pressed: bool, gas_pressed: bool) -> CanData:
@@ -270,14 +272,16 @@ def create_gv60_radar_heartbeat(counter: int, brake_pressed: bool, gas_pressed: 
   return CanData(0x100, bytes(data), 0)
 
 
-def create_ioniq6_blindspot_status(counter: int, status: BlindspotStatus) -> list[CanData]:
+def create_ioniq6_blindspot_status(counter: int, status: BlindspotStatus, *, bus: int = 1) -> list[CanData]:
   """Paired HDA-II dashboard status from the frozen Ioniq 6 indicator layout."""
+  if type(bus) is not int or bus not in (1, 5):
+    raise ValueError("reviewed Ioniq 6 E-CAN bus required")
   frames = []
   for address, body in ((0x1BA, rear_body(status)), (0x1E5, FRONT_NEUTRAL_BODY)):
     data = bytearray(body)
     data[2] = counter & 0xff
     data[:2] = hkg_can_fd_checksum(address, None, data).to_bytes(2, 'little')
-    frames.append(CanData(address, bytes(data), 1))
+    frames.append(CanData(address, bytes(data), bus))
   return frames
 
 

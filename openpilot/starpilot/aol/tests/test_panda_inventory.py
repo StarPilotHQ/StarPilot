@@ -120,14 +120,14 @@ def test_legacy_and_strict_version_rollout():
     encode_safety(replace(state, sourcePandaStatesMonoTime=0))
 
 
-def test_two_slot_identity_does_not_bypass_existing_port_admission():
+def test_ioniq6_two_slot_identity_keeps_exact_owner_and_live_inventory_checks():
   cp = configured_cp()
   original = cp.safetyConfigs[0].to_dict()
   cp.safetyConfigs = [{'safetyModel': 'noOutput', 'safetyParam': 0}, original]
   state = bound_state(cp)
   assert native_inventory_matches_cp(state, cp)
-  assert not native_matches_cp(cp, state.safetyModel, state.safetyParam)
-  assert current_native(sm_for(cp, state), cp, now_ns=NOW) is None
+  assert native_matches_cp(cp, state.safetyModel, state.safetyParam)
+  assert current_native(sm_for(cp, state), cp, now_ns=NOW) is not None
   for slots in ((state.pandaInventory[1], state.pandaInventory[0]),
                 (replace(state.pandaInventory[0], hardwareSerial=state.pandaSerial), state.pandaInventory[1]),
                 (replace(state.pandaInventory[0], controlsAllowed=True), state.pandaInventory[1]),

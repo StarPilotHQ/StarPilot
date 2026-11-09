@@ -37,7 +37,7 @@ class Ioniq6MediaButtons:
   """
 
   def __init__(self, bus: int):
-    if type(bus) is not int or not 0 <= bus <= 3:
+    if type(bus) is not int or bus not in (0, 1, 2, 3, 5):
       raise ValueError("physical CAN bus required")
     self.bus = bus
     self.epoch = 0
