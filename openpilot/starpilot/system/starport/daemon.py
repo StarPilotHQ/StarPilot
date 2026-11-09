@@ -30,7 +30,7 @@ from openpilot.starpilot.system.starport.supervisor import Supervisor
 PAIRING_COMMANDS = {"prepare_pairing", "pairing_status", "pairing_response", "cancel_pairing", "pair_device"}
 AUTHENTICATED_COMMANDS = {"start", "set_auto_connect", "select_receiver", "set_view", "set_connection", "set_car_type", "set_car_profile",
                           "prepare_pairing", "pairing_status", "pairing_response", "cancel_pairing", "pair_device", "devices", "bluetooth_action",
-                          "phone_window", "bluetooth_power", "reset_handshake"}
+                          "phone_window", "bluetooth_power", "reset_handshake", "continue_ladder"}
 
 
 def _offroad() -> bool:
@@ -120,12 +120,20 @@ def handle(supervisor: Supervisor, request: dict[str, Any], verifier: StarPortSo
     supervisor.set_dedicated_wifi(request.get("enabled") is True)
   elif command == "set_allow_hevc":
     supervisor.set_allow_hevc(request.get("enabled") is True)
+  elif command == "set_head_unit_experiments":
+    supervisor.set_head_unit_experiments(request.get("enabled") is True)
+  elif command == "set_head_unit_experiment_rule":
+    return {"changed": supervisor.set_head_unit_experiment_rule(str(request.get("rule", "")), request.get("enabled") is True)}
+  elif command == "dismiss_fix_suggestion":
+    return {"dismissed": supervisor.dismiss_fix_suggestion(str(request.get("rule", "")))}
   elif command == "select_receiver":
     supervisor.select_receiver(str(request.get("address", "")), str(request.get("name", "")))
   elif command == "forget_receiver":
     return {"cleared": supervisor.forget_receiver(str(request.get("address", "")))}
   elif command == "reset_handshake":
     return {"reset": supervisor.reset_handshake()}
+  elif command == "continue_ladder":
+    return {"continued": supervisor.continue_ladder()}
   elif command == "set_view":
     supervisor.set_view(str(request.get("view", "")))
   elif command == "set_connection":

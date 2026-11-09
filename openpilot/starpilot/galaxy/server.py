@@ -2355,7 +2355,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             self.json(401, {'error': 'Sign in to Galaxy'})
         return
       if path == '/api/starport/logs/send':
-        if type(payload) is not dict or set(payload) != {'message'}:
+        if type(payload) is not dict or set(payload) not in ({'message'}, {'message', 'discord'}):
           self.json(400, {'error': 'Invalid StarPort log send request'})
           return
         identity = self.settings_session()
@@ -2364,7 +2364,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           return
         from openpilot.starpilot.galaxy.starport_send import SendBusy, SendRejected
         try:
-          result = starport_log_sender().start(payload['message'])
+          result = starport_log_sender().start(payload['message'], payload.get('discord', ''))
         except SendRejected as error:
           self.json(400, {'error': str(error)})
         except SendBusy as error:
@@ -2443,6 +2443,10 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           command, arguments = 'start', {}
         elif action == 'reset_handshake' and set(payload) == {'action'}:
           command, arguments = 'reset_handshake', {}
+        elif action == 'continue_ladder' and set(payload) == {'action'}:
+          command, arguments = 'continue_ladder', {}
+        elif action == 'dismiss_fix_suggestion' and set(payload) == {'action', 'rule'} and isinstance(payload['rule'], str):
+          command, arguments = 'dismiss_fix_suggestion', {'rule': payload['rule'][:64]}
         elif action == 'auto_connect' and set(payload) == {'action', 'enabled'} and type(payload['enabled']) is bool:
           if not configuration_allowed():
             self.json(403, {'error': 'Park before changing automatic connection'})

@@ -82,6 +82,10 @@ def native_dependencies():
   from openpilot.starpilot.ui.pip_preferences import read_pip
   from openpilot.starpilot.ui.pip_render import PiPRenderer
   from openpilot.starpilot.ui.pip_sidecam import Rect, Signals
+  from openpilot.starpilot.ui.pip_warning import PiPWarningSource
+  from openpilot.starpilot.spot_monitor.preferences import read_preferences as read_vasm_preferences
+  from openpilot.starpilot.speed_limits.vision.observation import clock_pair_ns
+  from opendbc.car.structs import car as car_schema
   from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile, default_font_directory
   from openpilot.starpilot.ui.runtime_snapshot import RuntimeSnapshotAdapter, current_message, display_message
   from openpilot.starpilot.ui.shell import ShellMode
@@ -141,6 +145,8 @@ def native_dependencies():
                          font_role=FontRole, profile=Profile, font_directory=default_font_directory,
                          adapter=RuntimeSnapshotAdapter, current_message=current_message, display_message=display_message,
                          shell_mode=ShellMode, pip_renderer=PiPRenderer, read_pip=read_pip, pip_signals=Signals,
+                         pip_warning=PiPWarningSource, read_vasm=read_vasm_preferences, clock_pair_ns=clock_pair_ns,
+                         car_schema=car_schema,
                          pip_rect=Rect, pip_widgets=CAMERA_WIDGETS, placement=placement, widget_size=widget_size,
                          alert=OnroadAlert, alert_size=AlertSize, map_overlay=MapOverlay, map_feed=MapFeed,
                          favorites=ProjectionFavorites, standby_logo=standby_logo, now_playing_feed=ProjectionNowPlayingFeed,
@@ -211,9 +217,14 @@ class ProjectionOnroad:
       self.pip = None
       self._pip_saved = None
       self._pip_read_ns = None
+      self._vasm_saved = None
+      self.pip_warning = None
       if getattr(native, 'pip_renderer', None) is not None:
         self.pip = native.pip_renderer("bubble")
         self._resources.callback(self.pip.close)
+        if getattr(native, 'pip_warning', None) is not None:
+          self.pip_warning = native.pip_warning()
+          self._resources.callback(self.pip_warning.close)
         self.onroad.pip_layer = self._pip_layer
       self.map = None
       self.map_feed = None
@@ -382,6 +393,7 @@ class ProjectionOnroad:
     now_ns = time.monotonic_ns()
     if self._pip_read_ns is None or not 0 <= now_ns - self._pip_read_ns < 1_000_000_000:
       self._pip_saved = native.read_pip(native.ui_state.params)
+      self._vasm_saved = native.read_vasm(native.ui_state.params) if self.pip_warning is not None else None
       self._pip_read_ns = now_ns
     saved = self._pip_saved
     # AA can show warnings with the comma preview off; only crops and mirroring are shared.
@@ -394,11 +406,22 @@ class ProjectionOnroad:
     ui = native.ui_state
     # Display freshness: carState is 100 Hz, so the 20 ms control window often lapses within one drawn frame.
     car = native.display_message(ui.sm, 'carState', now_ns, after_frame=ui.started_frame)
+    vasm = self._vasm_saved
+    pair = native.clock_pair_ns() if car is not None and self.pip_warning is not None else None
+    vasm_enabled = (self.pip_warning is not None and car is not None and car.canValid and
+                    car.gearShifter == native.car_schema.CarState.GearShifter.drive and
+                    pair is not None and vasm is not None and vasm.readable and vasm.valid and vasm.preferences.enabled)
+    left_warning, right_warning = (False, False)
+    if self.pip_warning is not None:
+      left_warning, right_warning = self.pip_warning.sample(
+        enabled=vasm_enabled, settings_fingerprint=vasm.fingerprint if vasm_enabled else "",
+        now_mono_ns=pair[0] if pair is not None else 0, now_boot_ns=pair[1] if pair is not None else 0)
     signals = native.pip_signals(car is not None,
                                  bool(car.leftBlinker) if car is not None else False,
                                  bool(car.rightBlinker) if car is not None else False,
                                  bool(car.leftBlindspot) if car is not None else False,
-                                 bool(car.rightBlindspot) if car is not None else False)
+                                 bool(car.rightBlindspot) if car is not None else False,
+                                 left_warning, right_warning)
     placements = {}
     for side, key in zip(('left', 'right'), native.pip_widgets, strict=True):
       position = native.placement(state.customization, 'large', key)

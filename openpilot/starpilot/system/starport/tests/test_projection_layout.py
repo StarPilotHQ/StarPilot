@@ -34,6 +34,26 @@ class TestProjectionLayout(unittest.TestCase):
           self.assertGreaterEqual(placed[axis], metadata['bounds'][axis])
           self.assertLessEqual(placed[axis] + widget[extent], metadata['bounds'][axis] + metadata['bounds'][extent])
 
+  def test_saved_layout_survives_a_new_widget_and_a_stale_one(self):
+    document = default_layout(SCREEN)
+    document['widgets']['steering_wheel'].update(x=500, y=400, enabled=False)
+    del document['widgets']['weather']
+    document['widgets']['retired_widget'] = {'x': 0, 'y': 0, 'enabled': True}
+    document['widgets']['nav_card']['x'] = 99999
+    decoded = decode_layout(json.dumps(document).encode(), SCREEN)
+    self.assertEqual({key: decoded['widgets']['steering_wheel'][key] for key in ('x', 'y', 'enabled')}, {'x': 500, 'y': 400, 'enabled': False})
+    self.assertEqual(decoded['widgets']['weather'], default_layout(SCREEN)['widgets']['weather'])
+    self.assertNotIn('retired_widget', decoded['widgets'])
+    metadata = layout_metadata(SCREEN)
+    bounds, card = metadata['bounds'], metadata['widgets']['nav_card']
+    self.assertEqual(decoded['widgets']['nav_card']['x'], bounds['x'] + bounds['width'] - card['width'])
+
+  def test_salvage_still_rejects_a_different_screen(self):
+    document = default_layout(SCREEN)
+    document['canvas'] = {'width': 1, 'height': 1}
+    with self.assertRaises(ValueError):
+      decode_layout(json.dumps(document).encode(), SCREEN)
+
   def test_unsaved_layer_order_draws_the_editor_default(self):
     document = default_layout(SCREEN)
     self.assertNotIn('widgetOrder', document)

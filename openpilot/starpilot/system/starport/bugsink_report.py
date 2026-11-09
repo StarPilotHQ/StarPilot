@@ -219,6 +219,40 @@ def session_setup(events: list[dict]) -> dict:
   ) if value}
 
 
+HANGUP_BUCKETS = ((10, "0-10s"), (30, "10-30s"), (120, "30-120s"))
+MILESTONES = ("discovery_requested", "discovered", "focus_requested", "focus_granted", "video_acknowledged")
+
+
+def session_fixes(events: list[dict]) -> dict:
+  """Car-specific fixes this session ran, how it ended for them, and how far the car got before it ended the session."""
+  fixes: dict = {}
+  reached = set()
+  for event in events:
+    name = event["event"]
+    if name == "fix_applied":
+      fixes["rule"], fixes["level"] = str(event.get("rule", ""))[:40], event.get("level")
+    elif name == "fix_outcome":
+      fixes["verdict"], fixes["state"] = str(event.get("verdict", ""))[:16], str(event.get("state", ""))[:16]
+    elif name == "peer_requested_shutdown":
+      fixes["shutdown"] = str(event.get("reason_label", ""))[:24]
+      if isinstance(event.get("after_focus_s"), (int, float)):
+        fixes["after_focus_s"] = event["after_focus_s"]
+    elif name == "video_focus" and event.get("focused"):
+      reached.add("focus_granted")
+      if isinstance(event.get("wait_s"), (int, float)):
+        fixes["focus_wait_s"] = event["wait_s"]
+    elif name in MILESTONES:
+      reached.add(name)
+  furthest = next((m for m in reversed(MILESTONES) if m in reached), "")
+  return {**fixes, **({"milestone": furthest} if furthest else {})}
+
+
+def hangup_bucket(seconds) -> str:
+  if not isinstance(seconds, (int, float)):
+    return ""
+  return next((label for limit, label in HANGUP_BUCKETS if seconds < limit), ">120s")
+
+
 def session_ladder(events: list[dict]) -> list[dict]:
   """Summarize attempted handshakes, outcomes, failure reasons and busy waits."""
   tried: list[dict] = []
@@ -231,6 +265,10 @@ def session_ladder(events: list[dict]) -> list[dict]:
       tried[-1]["outcome"] = str(event.get("outcome", ""))[:16]
       if event.get("reason"):
         tried[-1]["reason"] = str(event["reason"])[:16]
+      if event.get("why"):
+        tried[-1]["why"] = scrub(event["why"], 80)
+    elif name == "attempt_failed" and event.get("hung_up") and tried:
+      tried[-1]["hung_up"] = True
     elif name == "ladder_not_ready" and tried:
       tried[-1]["not_ready"] = tried[-1].get("not_ready", 0) + 1
     elif name == "ladder_worked" and tried:
@@ -282,9 +320,10 @@ def session_record(path: Path) -> dict:
     "setup": setup,
     "offered_modes": offered_modes(events),
     # True when the comma's address went to the car in the pairing request; None when the car never opened that channel.
-    "phone_address_sent": bool(opened.get("phone_address")) if opened is not None else None,
+    "phone_address_sent": bool(opened.get("phone_address_sent", opened.get("phone_address"))) if opened is not None else None,
     "strategy": session_strategy(events, setup),
     "ladder": session_ladder(events),
+    "fixes": session_fixes(events),
     "sdp": session_sdp(events),
     "software": {key: str(software.get(key) or "unknown") for key in ("commit", "branch")} if isinstance(software, dict) else {},
     "settings": settings if isinstance(settings, dict) else {},
@@ -303,6 +342,8 @@ def session_record(path: Path) -> dict:
     "error": scrub(last_failure.get("error", "")),
     "failures": len(failures),
     "drops": len(drops),
+    "hangups": report["hangups"],
+    "restarts": [{"hangups": restart.get("hangups"), "how": restart.get("how") or None} for restart in report["restarts"]],
     "ended_by_car": car_ended,
     "attempts": attempts,
     "timing_source": "monotonic" if events and all("mono_s" in e for e in events) else "wall clock (legacy log)",
@@ -504,6 +545,9 @@ def drive_event(sessions: list[dict]) -> dict:
   sent = next((s["phone_address_sent"] for s in reversed(sessions) if s.get("phone_address_sent") is not None), None)
   ladder = next((s["ladder"][-1] for s in reversed(sessions) if s.get("ladder")), {})
   strategy = next((s["strategy"] for s in reversed(sessions) if s.get("strategy")), {})
+  fixes = next((s["fixes"] for s in reversed(sessions) if s.get("fixes", {}).get("rule")), {})
+  last_fixes = next((s["fixes"] for s in reversed(sessions) if s.get("fixes")), {})
+  ended_after = next((s["streamed_s"] for s in reversed(sessions) if s.get("ended_by_car") and s.get("streamed_s") is not None), None)
   failures = [failure_detail(failure) for failure in drive_failures(sessions)]
   failed = [session for session in sessions if session["seq"] in {failure["session"] for failure in failures}]
   heading = "failures" if failures else "sessions"
@@ -541,6 +585,10 @@ def drive_event(sessions: list[dict]) -> dict:
              **({"aa.phone_address_sent": "yes" if sent else "no"} if sent is not None else {}),
              **({"aa.reply_style": strategy["reply_style"]} if strategy.get("reply_style") else {}),
              **({"aa.wifi_channel_type": str(strategy["channel_type"])} if strategy.get("channel_type") else {}),
+             **({"aa.fixes": f"{fixes['rule']}:{fixes.get('level')}"[:60]} if fixes else {}),
+             **({"aa.fix_verdict": fixes["verdict"]} if fixes.get("verdict") else {}),
+             **({"aa.milestone": last_fixes["milestone"]} if last_fixes.get("milestone") else {}),
+             **({"aa.hangup_after": hangup_bucket(ended_after)} if ended_after is not None else {}),
              **({"aa.ladder_rung": ladder["rung"], "aa.ladder_learned": "yes" if ladder.get("learned") else "no"} if ladder else {}),
              **({"aa.attention": ",".join(reasons)[:190]} if reasons else {}),
              **({"aa.cause": latest["cause"], "aa.stage": latest["stage"], "aa.error_kind": latest["error_kind"]} if latest else {}),

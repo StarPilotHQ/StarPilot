@@ -236,7 +236,7 @@ class TestProjectionOnroad(unittest.TestCase):
     self.assertEqual(view.onroad.pip_layer, view._pip_layer)
 
     view._pip_layer('content', SimpleNamespace(customization={}))
-    self.assertEqual(calls, [('content', 'mask', (True, True, False, False, True),
+    self.assertEqual(calls, [('content', 'mask', (True, True, False, False, True, False, False),
                               {'enabled': True, 'on_blinker': True, 'on_bsm': True, 'invert': False,
                                'placements': {'left': (10, 20, 600, 600)}})])
     self.assertEqual(view.onroad.alert.text_only_alert_names, projection.BUBBLE_REDUNDANT_ALERTS)
@@ -253,6 +253,44 @@ class TestProjectionOnroad(unittest.TestCase):
     self.assertEqual(events[before:before + 2], ['pip_off', 'draw'])
     view.close()
     self.assertIn('pip_closed', events)
+
+  def test_side_camera_layer_passes_visual_spot_monitor_warnings(self):
+    native, _events = self.dependencies()
+    calls = []
+
+    class Renderer:
+      def __init__(self, shape): pass
+      def render(self, rect, mask, signals, **kwargs):
+        calls.append(signals)
+        return 'rendered'
+      def deactivate(self): pass
+      def close(self): pass
+
+    class FakeWarning:
+      def sample(self, **kwargs):
+        calls.append(kwargs)
+        return True, False
+      def close(self): pass
+
+    drive = object()
+    saved = SimpleNamespace(enabled=True, mask='mask', invert=False, on_blinker=False, on_bsm=True)
+    vasm = SimpleNamespace(readable=True, valid=True, fingerprint='fp', preferences=SimpleNamespace(enabled=True))
+    car = SimpleNamespace(leftBlinker=False, rightBlinker=False, leftBlindspot=False, rightBlindspot=False,
+                          canValid=True, gearShifter=drive)
+    native.ui_state.params = object()
+    native.display_message = lambda _sm, name, *_a, **_k: car if name == 'carState' else None
+    native.pip_renderer, native.pip_warning = Renderer, FakeWarning
+    native.read_pip, native.read_vasm = (lambda _p: saved), (lambda _p: vasm)
+    native.clock_pair_ns = lambda: (1, 2)
+    native.car_schema = SimpleNamespace(CarState=SimpleNamespace(GearShifter=SimpleNamespace(drive=drive)))
+    native.pip_signals = lambda *values: values
+    native.pip_rect = lambda *values: values
+    native.pip_widgets = ('pip_left', 'pip_right')
+    native.placement = lambda *_: {'enabled': False}
+    view = projection.ProjectionOnroad(dependencies=native, customization={'blindSpotCamera': True, 'widgets': {}})
+    view._pip_layer('content', SimpleNamespace(customization={}))
+    self.assertEqual(calls[0], {'enabled': True, 'settings_fingerprint': 'fp', 'now_mono_ns': 1, 'now_boot_ns': 2})
+    self.assertEqual(calls[1], (True, False, False, False, False, True, False))
 
   def test_blind_spot_camera_uses_its_own_switch_fresh_signals_and_enabled_sides(self):
     from openpilot.starpilot.ui.pip_preferences import DEFAULT_MASK

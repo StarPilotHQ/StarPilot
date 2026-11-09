@@ -482,6 +482,9 @@ def test_report_records_that_the_address_was_not_sent_and_old_logs_still_report(
   events: list = [list(item) for item in STREAMED]
   events.insert(6, (0, 10, "bluetooth_opened", {"channel": 6, "phone_address": ""}))
   assert br.drive_event([br.session_record(write_session(tmp_path, 1, events))])["tags"]["aa.phone_address_sent"] == "no"
+  current: list = [list(item) for item in STREAMED]
+  current.insert(6, (0, 10, "bluetooth_opened", {"channel": 6, "phone_address_sent": True, "has_car_address": True}))
+  assert br.session_record(write_session(tmp_path, 3, current))["phone_address_sent"] is True
   old = br.session_record(write_session(tmp_path, 2, STREAMED))  # a log written before these fields existed
   assert old["setup"] == {} and old["offered_modes"] == [] and old["phone_address_sent"] is None and old["strategy"] == {}
   tags = br.drive_event([old])["tags"]
@@ -539,3 +542,26 @@ def test_trace_keeps_how_the_session_started_as_well_as_how_it_ended(tmp_path):
   assert names[:2] == ["session_start", "hfp_initiator"] and names[-2:] == ["attempt_failed", "session_stop"]
   assert trace["omitted"] > 0 and 0 < trace["head"] < len(names)
   assert len(json.dumps(trace)) <= br.TRACE_SESSION_BYTES + 1024
+
+
+def test_fix_milestones_and_hangup_bucket_are_reported_without_changing_other_tags(tmp_path):
+  events = STREAMED[:10] + [
+    (0, 10, "fix_applied", {"rule": "gm_mychevrolet_w28e", "level": 1, "actions": ["open_bluetooth"]}),
+    (0, 11, "focus_requested", {}),
+    (0, 12, "video_focus", {"focused": True, "wait_s": 0.4}),
+    (0, 12, "video_acknowledged", {}),
+    (0, 40, "peer_requested_shutdown", {"reason": 1, "reason_label": "user_selection", "after_focus_s": 28.0}),
+    (0, 41, "fix_outcome", {"rule": "gm_mychevrolet_w28e", "level": 1, "verdict": "failed", "state": "trying"}),
+  ]
+  record = br.session_record(write_session(tmp_path, 1, events))
+  assert record["fixes"] == {"rule": "gm_mychevrolet_w28e", "level": 1, "focus_wait_s": 0.4, "shutdown": "user_selection",
+                             "after_focus_s": 28.0, "verdict": "failed", "state": "trying", "milestone": "video_acknowledged"}
+  tags = br.drive_event([record])["tags"]
+  assert tags["aa.fixes"] == "gm_mychevrolet_w28e:1" and tags["aa.fix_verdict"] == "failed"
+  assert tags["aa.milestone"] == "video_acknowledged"
+  plain = br.drive_event([br.session_record(write_session(tmp_path, 2, STREAMED))])["tags"]
+  assert not any(key in plain for key in ("aa.fixes", "aa.fix_verdict", "aa.hangup_after"))
+
+
+def test_hangup_bucket_edges():
+  assert [br.hangup_bucket(v) for v in (0, 9.9, 10, 29, 30, 119, 120, None)] == ["0-10s", "0-10s", "10-30s", "10-30s", "30-120s", "30-120s", ">120s", ""]

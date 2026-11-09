@@ -36,6 +36,7 @@ from openpilot.system.ui.lib.shader_polygon import Gradient, draw_polygon
 
 CEM_SCENE_REASONS = {"cem_stop_light": "STOP LIGHT", "cem_lead": "LEAD", "cem_curve": "CURVE"}
 IDLE_SECONDS = 30.0
+MAX_SHEET_WIDTH = 2048
 ASSET_DIRECTORY = Path(__file__).parents[2] / "selfdrive/assets"
 
 
@@ -339,10 +340,20 @@ class _Canvas:
     # A bounded subset covers the edited widgets without adding an onroad render loop.
     x = y = row_height = 0
     captures = []
-    for key in RUNTIME_PREVIEW_WIDGETS[str(self.profile)]:
-      logical_width, logical_height = widget_size(state.customization, self.profile, key)
+    keys, extra = RUNTIME_PREVIEW_WIDGETS[str(self.profile)], {}
+    if self.viewport is not None:
+      from openpilot.starpilot.system.starport.projection_layout import SPRITE_WIDGETS, layout_metadata_for_viewport, placement_size
+      metadata = layout_metadata_for_viewport(self.viewport)['widgets']
+      extra = {key: metadata[key] for key in SPRITE_WIDGETS if positions.get(key, {}).get('enabled')}
+      keys = (*keys, *extra)
+    for key in keys:
       position = positions[key]
-      widget = PROFILES[str(self.profile)]['widgets'][key]
+      if key in extra:
+        widget = extra[key]
+        logical_width, logical_height = placement_size(key, widget, position)
+      else:
+        widget = PROFILES[str(self.profile)]['widgets'][key]
+        logical_width, logical_height = widget_size(state.customization, self.profile, key)
       crop_x = max(0, math.floor(position['x'] - widget.get('visualInsetLeft', 0)))
       crop_y = max(0, math.floor(position['y'] - widget.get('visualInsetTop', 0)))
       offset_x, offset_y = crop_x - position['x'], crop_y - position['y']
@@ -355,12 +366,9 @@ class _Canvas:
         offset_x, offset_y = crop_x - position['x'], crop_y - position['y']
       if self.profile == Profile.COMPACT and key == 'speed_limit' and 0 <= crop_y < canvas_height:
         height = min(height, canvas_height - crop_y)
-      if x + width > 1024:
-        x, y, row_height = 0, y + row_height, 0
-      sprites[key] = {'x': x, 'y': y, 'width': width, 'height': height, 'offsetX': offset_x, 'offsetY': offset_y}
-      x += width
-      row_height = max(row_height, height)
       if not (0 <= crop_x <= canvas_width - width and 0 <= crop_y <= canvas_height - height):
+        if key in extra:
+          continue
         raise ValueError("Widget art crop lies outside the canvas")
       rl.begin_texture_mode(self.target)
       try:
@@ -387,12 +395,21 @@ class _Canvas:
         rl.image_format(image, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)
         rl.image_flip_vertical(image)
         rl.image_crop(image, rl.Rectangle(crop_x, crop_y, width, height))
-        captures.append((key, _straight_rgba(bytes(image.data[:width * height * 4]))))
+        data = _straight_rgba(bytes(image.data[:width * height * 4]))
       finally:
         rl.unload_image(image)
+      # StarPort widgets with nothing to show keep the editor's sketch.
+      if key in extra and not any(data[3::4]):
+        continue
+      if x + width > MAX_SHEET_WIDTH:
+        x, y, row_height = 0, y + row_height, 0
+      sprites[key] = {'x': x, 'y': y, 'width': width, 'height': height, 'offsetX': offset_x, 'offsetY': offset_y}
+      x += width
+      row_height = max(row_height, height)
+      captures.append((key, data))
     sheet_width = max(slot['x'] + slot['width'] for slot in sprites.values())
     sheet_height = y + row_height
-    if not (0 < sheet_width <= 1024 and 0 < sheet_height <= 1440):
+    if not (0 < sheet_width <= MAX_SHEET_WIDTH and 0 < sheet_height <= 1440):
       raise ValueError("Widget art sheet exceeds preview bounds")
     pixels = bytearray(sheet_width * sheet_height * 4)
     for key, data in captures:
@@ -490,6 +507,9 @@ class LayoutPreviewRenderer:
     state = sample_state(scene, document)
     if profile == Profile.LARGE and viewport is None:
       state = replace(state, viewport_width=width, appearance=replace(state.appearance, show_developer_sidebar=sidebar))
+    elif viewport is not None:
+      # Match ProjectionOnroad, which draws at the car canvas width.
+      state = replace(state, viewport_width=viewport[0])
     if profile == Profile.LARGE:
       from openpilot.starpilot.ui.navigation_state import NavigationDisplay
       state = replace(state, navigation=NavigationDisplay(("preview", 1), "Turn left onto Desert Inn Road", "turn", "left",

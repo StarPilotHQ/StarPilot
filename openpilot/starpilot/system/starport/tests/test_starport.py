@@ -110,7 +110,7 @@ def unexpected_join(_):
   raise AssertionError("Unexpected join")
 
 
-def run_bootstrap(start_request_delay=5.0, initial_kick_delay=bs.INITIAL_KICK_SECONDS, **hu_options):
+def run_bootstrap(start_request_delay=5.0, initial_kick_delay=bs.INITIAL_KICK_SECONDS, experiment="", **hu_options):
   phone, car = socket.socketpair()
   joined = []
   result_holder = {}
@@ -125,7 +125,7 @@ def run_bootstrap(start_request_delay=5.0, initial_kick_delay=bs.INITIAL_KICK_SE
   thread.start()
   events = []
   boot = bs.WirelessBootstrap(phone, lambda name, **values: events.append((name, values)), stage_timeout=5.0,
-                              start_request_delay=start_request_delay, initial_kick_delay=initial_kick_delay)
+                              start_request_delay=start_request_delay, initial_kick_delay=initial_kick_delay, experiment=experiment)
 
   def join(credentials):
     time.sleep(0.3)  # the car pings while we join
@@ -613,6 +613,8 @@ def test_session_opens_car_data_and_bluetooth_like_a_phone(identity):
   session = connect(hu, identity)
   session.phone_services = True
   session.phone_address = "39:90:21:64:07:00"
+  events = []
+  session._log = lambda name, **values: events.append((name, values))
   session.authenticate()
   session.start("StarPilot", "comma.ai")
   pump_until(session, lambda: session.focused and session.sensor_events)
@@ -624,6 +626,9 @@ def test_session_opens_car_data_and_bluetooth_like_a_phone(identity):
   assert hu.sensor_requests == [13, 10]  # driving status and night only; never location
   assert hu.pairing_requests == [("39:90:21:64:07:00", 2)]
   assert session.stats()["sensor_events"] == 1
+  opened = next(values for name, values in events if name == "bluetooth_opened")
+  assert opened["phone_address_sent"] is True
+  assert "39:90:21:64:07:00" not in repr(opened)
 
 
 def test_session_leaves_car_data_alone_by_default(identity):
@@ -1116,6 +1121,21 @@ def test_network_lease_waits_for_a_slow_honda_access_point(monkeypatch):
   with pytest.raises(network.NetworkError):
     lease.acquire(credentials())
   assert budgets == [("AA:BB:CC:DD:EE:FF", 90.0), ("", 30.0)]
+
+
+def test_network_lease_joins_aawireless_on_a_static_address_first():
+  nm = FakeNetworkManager()
+  lease = make_lease(nm)
+  lease.acquire(credentials(), timeout=10.0, dhcp_patience=0.3, endpoint_ip=lambda: "10.42.1.1", static_first=True)
+  assert len(nm.added) == 1
+  assert nm.added[0]["ipv4"]["method"] == ("s", "manual")
+
+
+def test_network_lease_falls_back_to_a_static_address_when_dhcp_never_answers():
+  nm = FakeNetworkManager(stalled_dhcp=1)
+  lease = make_lease(nm)
+  lease.acquire(credentials(), timeout=10.0, dhcp_patience=0.3, endpoint_ip=lambda: "10.42.1.1")
+  assert [settings["ipv4"]["method"][1] for settings in nm.added] == ["auto", "manual"]
 
 
 def test_network_lease_restarts_a_join_whose_dhcp_goes_unanswered():

@@ -2,6 +2,9 @@
 
 export const FIRST_RUN_NOTICE = "The first connection can take a few minutes, and sometimes more than one drive, while we find what your car accepts. Keep the car on and its screen awake. Later connections are much faster because we remember what worked."
 export const EXHAUSTED_NOTICE = "We tried every option we have this drive. We keep what works best and will try again the next time the car starts."
+export const RESTART_TITLE = "Your dongle keeps hanging up"
+export const RESTART_DETAIL = "Unplug it for 10 seconds, plug it back in and keep the car on. We carry on by ourselves when it comes back, or tap Continue."
+export const HANGUP_NOTICE_AT = 6
 
 // Adapter setup may require connecting the companion car first.
 export const BLUETOOTH_FIRST = /connect your paired car in galaxy bluetooth first/i
@@ -25,7 +28,7 @@ const CAR_STEP_LABEL = { builtin: "Car", adapter: "Adapter", usb: "Cable", app: 
 
 const STAGES = {
   wireless: [
-    { id: "bluetooth", label: "Reach the car over Bluetooth", states: ["connecting_bluetooth", "discovering", "rfcomm"] },
+    { id: "bluetooth", label: "Reach the car over Bluetooth", states: ["connecting_bluetooth", "discovering", "rfcomm", "dongle_restart"] },
     { id: "wifi", label: "Join the car’s Wi-Fi", states: ["wifi_start", "wifi_info", "joining_wifi"] },
     { id: "secure", label: "Secure the connection", states: ["connecting_tcp", "authenticating"] },
     { id: "dashboard", label: "Bring up your dashboard", states: ["negotiating", "streaming", "suspended"] },
@@ -43,7 +46,7 @@ const STAGES = {
 }
 
 const CONNECTING = new Set(["connecting_bluetooth", "discovering", "rfcomm", "wifi_start", "wifi_info", "joining_wifi", "connecting_tcp",
-  "authenticating", "negotiating", "waiting_for_usb", "usb_accessory", "waiting_for_ipad", "waiting_for_tablet", "backoff"])
+  "authenticating", "negotiating", "waiting_for_usb", "usb_accessory", "waiting_for_ipad", "waiting_for_tablet", "backoff", "dongle_restart"])
 
 export function connectionStages(runtime) {
   const kind = runtime?.connection === "wired" ? "wired" : ["headunitpad", "openheadunit"].includes(runtime?.connection) ? "app" : "wireless"
@@ -58,11 +61,19 @@ export function connectionStages(runtime) {
   }))
 }
 
-// Only worth showing once a handshake option has been tried and failed, or one is remembered for this car.
+// Worth showing once a handshake option has been tried this drive, has failed, or is remembered for this car.
 export function handshakeSteps(ladder) {
   const steps = Array.isArray(ladder?.steps) ? ladder.steps.filter((step) => step && typeof step.label === "string") : []
-  const interesting = ladder?.learned || steps.some((step) => step.state === "failed" || step.state === "worked")
-  return interesting ? steps.map((step) => ({ id: String(step.id), label: step.label, state: String(step.state) })) : []
+  const interesting = ladder?.learned || steps.some((step) => step.state === "failed" || step.state === "worked" || step.tries > 0)
+  return interesting ? steps.map((step) => ({ id: String(step.id), label: step.label, state: String(step.state),
+    description: typeof step.description === "string" ? step.description : "", tries: Number.isInteger(step.tries) ? step.tries : 0,
+    reason: typeof step.reason === "string" ? step.reason : "" })) : []
+}
+
+// "Round 2 of 3" while the options are still being worked through; nothing once one is learned or all are used up.
+export function ladderRound(ladder) {
+  if (!ladder || ladder.learned || ladder.exhausted || !Number.isInteger(ladder.max_passes)) return ""
+  return `Round ${Math.min((Number(ladder.passes) || 0) + 1, ladder.max_passes)} of ${ladder.max_passes}`
 }
 
 // Reset learned or failed handshakes without re-pairing.
@@ -87,6 +98,12 @@ function options(models, chosen) {
   return Object.entries(models || {}).map(([key, label]) => ({ key, label: String(label), selected: key === chosen }))
 }
 
+// Advice only: the daemon names a setting made for this exact car, and nothing is switched on from here.
+export function fixSuggestion(runtime) {
+  const item = runtime?.fix_suggestion
+  return item && typeof item.rule === "string" && typeof item.detail === "string" ? { rule: item.rule, text: item.detail } : null
+}
+
 export function guidedState({ setup = null, runtime = null, selected = null, receivers = [], wired = false, app = "", carType = "builtin",
   setupDone = false, pairingActive = false, editing = false, adapterModels = {}, adapterKey = "", appModels = {} } = {}) {
   const ladder = runtime?.setup_ladder || null
@@ -95,16 +112,24 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
   const installed = !!setup?.identity?.installed
   const steps = setupSteps({ installed, carDone: setupDone, live: state === "streaming", carType })
   const base = { show: false, phase: "live", title: "", detail: "", choices: [], carType, candidates: [], progress: [], handshake: [], canResetHandshake: false,
-    notice: "", exhausted: false, hint: null, steps, adapter: null, apps: null, editing: false }
+    notice: "", suggestion: null, exhausted: false, hint: null, steps, adapter: null, apps: null, editing: false, liveStep: "", round: "", restart: null }
   if (setup === null) return base
   const hint = BLUETOOTH_FIRST.test(String(runtime?.error || "")) ? BLUETOOTH_HINT : null
   if (connecting) {
-    const firstRun = !ladder?.learned && !(ladder?.successes > 0) && (runtime?.connection || "wireless") === "wireless"
-    return { ...base, show: true, phase: "connecting", title: runtime?.label || "Connecting to your car",
-      detail: runtime?.detail || "Keep your car’s screen on. We’ll move to the next step automatically.",
-      progress: connectionStages(runtime), handshake: handshakeSteps(ladder), exhausted: !!ladder?.exhausted,
-      canResetHandshake: (runtime?.connection || "wireless") === "wireless" && handshakeResettable(ladder),
-      notice: ladder?.exhausted ? EXHAUSTED_NOTICE : firstRun ? FIRST_RUN_NOTICE : "", hint }
+    const wireless = (runtime?.connection || "wireless") === "wireless"
+    const firstRun = !ladder?.learned && !(ladder?.successes > 0) && wireless
+    const restarting = state === "dongle_restart"
+    const hangups = Number(runtime?.hangups) || 0
+    // Only an unofficial dongle waits for a restart; for every other receiver repeated hang-ups are said, not acted on.
+    const adapter = carType === "adapter"
+    const hangupNotice = wireless && !restarting && hangups >= HANGUP_NOTICE_AT ?
+      `${adapter ? "The adapter" : "The car"} has hung up ${hangups} times before answering. If this keeps happening, ${adapter ? "unplug the adapter for 10 seconds" : "turn the car off and on again"}.` : ""
+    return { ...base, show: true, phase: restarting ? "restart" : "connecting", title: restarting ? RESTART_TITLE : runtime?.label || "Connecting to your car",
+      detail: restarting ? RESTART_DETAIL : runtime?.detail || "Keep your car’s screen on. We’ll move to the next step automatically.",
+      progress: connectionStages(runtime), handshake: wireless ? handshakeSteps(ladder) : [], exhausted: !!ladder?.exhausted,
+      canResetHandshake: wireless && handshakeResettable(ladder), liveStep: wireless ? String(runtime?.handshake_step || "") : "",
+      round: wireless ? ladderRound(ladder) : "", restart: restarting ? { hangups: Number(runtime?.dongle_restart?.hangups) || hangups } : null,
+      notice: ladder?.exhausted ? EXHAUSTED_NOTICE : hangupNotice || (firstRun ? FIRST_RUN_NOTICE : ""), hint, suggestion: fixSuggestion(runtime) }
   }
   if (setupDone && !editing) {
     // A finished setup shows nothing, except a refusal that is the one thing to act on.
@@ -126,7 +151,7 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
   }
   const pairs = carType === "builtin" || carType === "adapter"
   return { ...base, show: true, phase: "setup", title: editing ? "Change how your car connects" : "Set up your car",
-    detail: INSTRUCTIONS[carType] || INSTRUCTIONS.builtin, choices, candidates: pairs && !pairingActive ? candidates : [], hint, editing,
+    detail: INSTRUCTIONS[carType] || INSTRUCTIONS.builtin, choices, candidates: pairs && !pairingActive ? candidates : [], hint, editing, suggestion: fixSuggestion(runtime),
     adapter: carType === "adapter" ? { options: options(adapterModels, adapterKey), needsChoice: !adapterKey } : null,
     apps: carType === "app" ? { options: options(appModels, Object.keys(appModels).find((key) => appModels[key] === app) || ""), needsChoice: !app } : null }
 }
@@ -134,7 +159,7 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
 export const StarPortGuidedSetup = {
   props: { state: { type: Object, required: true }, busy: { type: Boolean, default: false },
     choicesDisabled: { type: Boolean, default: false } },
-  emits: ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "reset-handshake", "done"],
+  emits: ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "reset-handshake", "continue-ladder", "dismiss-suggestion", "done"],
   template: `
     <section class="gx-card gx-guided" :data-phase="state.phase" aria-label="Guided StarPort setup">
       <ol class="gx-guided__steps" aria-label="Setup progress">
@@ -207,13 +232,18 @@ export const StarPortGuidedSetup = {
               <i v-else-if="step.state === 'retry'" class="bi bi-arrow-repeat"></i>
               <i v-else class="bi bi-circle"></i>
             </span>
-            <span class="gx-starport-row__text"><strong>{{ step.label }}</strong><small v-if="step.state === 'retry'">Trying again</small></span>
+            <span class="gx-starport-row__text"><strong>{{ step.label }}</strong><small v-if="step.state === 'retry'">Trying again</small><small v-else-if="step.state === 'active' && state.liveStep" aria-live="polite">{{ state.liveStep }}</small></span>
           </li>
         </ol>
       </div>
 
+      <div v-if="state.restart" class="gx-guided__callout" role="alert">
+        <span>It hung up {{ state.restart.hangups }} times before sending anything, so we stopped calling it.</span>
+        <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="$emit('continue-ladder')">Continue</button>
+      </div>
+
       <details v-if="state.handshake.length" class="gx-starport-wiki" open>
-        <summary>What we are trying</summary>
+        <summary>What we are trying<template v-if="state.round"> · {{ state.round }}</template></summary>
         <ol class="gx-starport-list gx-guided__checklist" aria-label="Handshake options">
           <li v-for="step in state.handshake" :key="step.id" class="gx-starport-row" :class="'is-' + step.state">
             <span class="gx-guided__mark" aria-hidden="true">
@@ -223,7 +253,10 @@ export const StarPortGuidedSetup = {
               <span v-else-if="step.state === 'current'" class="gx-spinner"></span>
               <i v-else class="bi bi-circle"></i>
             </span>
-            <span class="gx-starport-row__text"><strong>{{ step.label }}</strong></span>
+            <span class="gx-starport-row__text"><strong>{{ step.label }}</strong>
+              <small v-if="step.description">{{ step.description }}</small>
+              <small v-if="step.state === 'current' && state.liveStep">Now: {{ state.liveStep }}</small>
+              <small v-if="step.tries || step.reason">{{ step.tries === 1 ? "1 try" : step.tries + " tries" }}<template v-if="step.reason"> · last: {{ step.reason }}</template></small></span>
           </li>
         </ol>
         <button v-if="state.canResetHandshake" type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="$emit('reset-handshake')">
@@ -232,6 +265,10 @@ export const StarPortGuidedSetup = {
       </details>
 
       <p v-if="state.notice" class="gx-guided__callout gx-guided__callout--quiet" role="status">{{ state.notice }}</p>
+      <div v-if="state.suggestion" class="gx-guided__callout" role="status">
+        <span>{{ state.suggestion.text }}</span>
+        <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="$emit('dismiss-suggestion', state.suggestion.rule)">Not now</button>
+      </div>
 
       <div v-if="state.phase === 'setup'" class="gx-guided__body"><slot name="car" /></div>
 

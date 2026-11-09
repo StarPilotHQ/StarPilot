@@ -106,7 +106,20 @@ def recover_autoconnect(log: Callable[..., None], marker: Path = AUTOCONNECT_MAR
   return True
 
 
-def connection_settings(credentials: WifiCredentials, interface: str) -> dict:
+def static_address(endpoint_ip: str) -> str:
+  """An unused address beside the dongle's own, for dongles whose DHCP server never answers."""
+  try:
+    address = ipaddress.ip_address(endpoint_ip)
+  except ValueError:
+    return ""
+  if address.version != 4 or not address.is_private:
+    return ""
+  octets = str(address).split(".")
+  octets[3] = "77" if octets[3] != "77" else "78"
+  return ".".join(octets)
+
+
+def connection_settings(credentials: WifiCredentials, interface: str, static_ip: str = "") -> dict:
   wireless = {
     "ssid": ("ay", credentials.ssid.encode("utf-8")),
     "mode": ("s", "infrastructure"),
@@ -114,7 +127,7 @@ def connection_settings(credentials: WifiCredentials, interface: str) -> dict:
   }
   if credentials.bssid:
     wireless["bssid"] = ("ay", bytes.fromhex(credentials.bssid.replace(":", "")))
-  settings = {
+  settings: dict[str, dict] = {
     "connection": {
       "type": ("s", "802-11-wireless"),
       "uuid": ("s", str(uuid.uuid4())),
@@ -132,6 +145,9 @@ def connection_settings(credentials: WifiCredentials, interface: str) -> dict:
     },
     "ipv6": {"method": ("s", "ignore")},
   }
+  if static_ip:
+    settings["ipv4"]["method"] = ("s", "manual")
+    settings["ipv4"]["address-data"] = ("aa{sv}", [{"address": ("s", static_ip), "prefix": ("u", 24)}])
   if not credentials.open:
     settings["802-11-wireless-security"] = {
       "key-mgmt": ("s", "sae" if credentials.security in SECURITY_WPA3 else "wpa-psk"),
@@ -155,6 +171,8 @@ class NetworkLease:
     self.device_ready = False
     self.autoconnect_paused = False
     self.dhcp_patience = 0.0
+    self.static_ip = ""
+    self.endpoint_ip: Callable[[], str] = lambda: ""
     self.marker = AUTOCONNECT_MARKER
     self._lock = threading.Lock()
 
@@ -210,7 +228,7 @@ class NetworkLease:
       self._prepare_device(cancelled)
 
   def acquire(self, credentials: WifiCredentials, timeout: float = JOIN_TIMEOUT_S, cancelled: Callable[[], bool] = lambda: False,
-              dhcp_patience: float = 0.0) -> str:
+              dhcp_patience: float = 0.0, endpoint_ip: Callable[[], str] = lambda: "", static_first: bool = False) -> str:
     """Join the projection network and return the comma's IPv4 address on it.
 
     The BSSID the car reports is tried first (fast, unambiguous); if that
@@ -218,6 +236,8 @@ class NetworkLease:
     belongs to a different radio of the head unit.
     """
     self.dhcp_patience = dhcp_patience
+    self.endpoint_ip = endpoint_ip
+    self.static_ip = static_address(endpoint_ip()) if static_first else ""
     attempts = [credentials]
     if credentials.bssid:
       attempts.append(replace(credentials, bssid=""))
@@ -258,7 +278,8 @@ class NetworkLease:
       if self._wait_activated(deadline, timeout, cancelled, restarts < DHCP_RESTARTS):
         break
       restarts += 1
-      self.log("wifi_dhcp_restart", interface=self.interface, patience_s=self.dhcp_patience, restarts=restarts)
+      self.static_ip = static_address(self.endpoint_ip())
+      self.log("wifi_dhcp_restart", interface=self.interface, patience_s=self.dhcp_patience, restarts=restarts, static_ip=self.static_ip)
       self._drop_attempt()
     self.local_ip = self._ipv4()
     if self.dedicated:
@@ -286,9 +307,9 @@ class NetworkLease:
           pass
       self._delete_stale_profiles()
       self.log("wifi_joining", interface=self.interface, **{k: v for k, v in credentials.describe().items() if k != "key_length"},
-               had_previous=bool(self.previous_connection))
+               had_previous=bool(self.previous_connection), static_ip=self.static_ip)
       body = self._call(NM_PATH, NM_IFACE, "AddAndActivateConnection2", "a{sa{sv}}ooa{sv}",
-                        (connection_settings(credentials, self.interface), self.device_path, "/",
+                        (connection_settings(credentials, self.interface, self.static_ip), self.device_path, "/",
                          {"persist": ("s", "volatile")}), timeout=15.0)
       self.connection_path, self.active_path = body[0], body[1]
 

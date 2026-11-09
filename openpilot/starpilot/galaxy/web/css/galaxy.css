@@ -648,16 +648,16 @@ grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
 }
 .gx-card-grid .gx-card { margin-bottom: 0; }
 .gx-plots__toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; margin: 1rem 0; }
-.gx-plots__status { flex: 0 0 100%; height: 2.8em; overflow: auto; display: flex; align-items: center; }
-.gx-plots__hint { height: 2.8em; overflow: auto; }
+.gx-plots__status { flex: 0 0 100%; min-height: 2.8em; display: flex; align-items: center; }
+.gx-plots__hint { min-height: 2.8em; }
 .gx-plots__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr)); gap: 1rem; }
 .gx-card.gx-plots__panel { min-width: 0; --card-inset: clamp(.85rem, 2vw, 1.25rem); padding: var(--card-inset); background: linear-gradient(var(--surface), var(--surface)), var(--background); backdrop-filter: none; }
 /* Telemetry can change length without moving the chart or the next card. */
-.gx-plots__source { height: 2.8em; overflow: auto; }
+.gx-plots__source { min-height: 2.8em; }
 .gx-plots__readout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin: .85rem 0; }
 .gx-plots__readout dt { color: var(--on-surface-variant); font-size: .8rem; }
 .gx-plots__readout dd { margin: .2rem 0 0; min-height: 1.5em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: auto; }
-.gx-plots__match { height: 4.5em; overflow: auto; line-height: 1.5; }
+.gx-plots__match { min-height: 4.5em; line-height: 1.5; }
 .gx-plots__panel svg { display: block; width: 100%; height: auto; min-height: 8rem; background: rgba(127,127,127,.06); border-radius: .6rem; }
 .gx-plots__panel polyline { fill: none; stroke-width: 2.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
 .gx-plots__panel .gx-plot-axis { stroke: var(--on-surface-variant); opacity: .5; stroke-width: 1; }
@@ -935,9 +935,13 @@ background: var(--glass-bg-hover);
 .gx-starport-log__download { flex: none; width: var(--touch-target); height: var(--touch-target); border: 1px solid var(--glass-border); background: var(--primary-container); color: var(--on-primary-container); }
 .gx-starport-log__download:hover { background: var(--primary); color: var(--on-primary); }
 .gx-starport-logs__section-title { margin: var(--sp-6) 0 var(--sp-3); }
-.gx-starport-send__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
-.gx-starport-send__row .gx-field { flex: 1 1 220px; min-width: 0; }
-.gx-starport-send__count { font-size: var(--fs-xs); opacity: .7; font-variant-numeric: tabular-nums; }
+.gx-starport-send__row { display: grid; gap: var(--sp-3); margin-top: var(--sp-3); }
+.gx-starport-send__row .gx-field { width: 100%; box-sizing: border-box; }
+.gx-starport-send__field { position: relative; }
+.gx-starport-send__field .gx-field { padding-right: 4.5em; }
+.gx-starport-send__count { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); pointer-events: none; font-size: var(--fs-xs); opacity: .7; font-variant-numeric: tabular-nums; }
+.gx-starport-send__row > .gx-btn { justify-self: start; }
+@media (max-width: 600px) { .gx-starport-send__row > .gx-btn { justify-self: stretch; } }
 @media (max-width: 700px) {
 .gx-starport-log { gap: var(--sp-3); padding: var(--sp-3); }
 }
@@ -1570,7 +1574,7 @@ border-top: 1px solid var(--outline-variant);
 .gx-device-picker__row { display: flex; align-items: center; gap: var(--sp-1); }
 .gx-device-picker__form { padding: var(--sp-2); display: grid; gap: var(--sp-2); }
 .gx-tunnel__qr { display: block; width: min(250px, 100%); background: white; padding: var(--sp-2); border-radius: var(--radius-sm); }
-.gx-plots__hint { height: 2.8em; overflow: auto; }
+.gx-plots__hint { min-height: 2.8em; }
 .gx-tabs > button { min-height: var(--touch-target); padding: var(--sp-2) var(--sp-4); }
 .gx-tabs > button[aria-pressed="true"], .gx-tabs > button[aria-selected="true"], .gx-chip--selected { background: var(--primary); color: var(--on-primary); }
 .gx-field:disabled, .gx-icon-btn:disabled { opacity: .4; cursor: not-allowed; }
@@ -1873,6 +1877,7 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-guided__choice:has(:checked) { background: var(--primary); color: var(--on-primary); }
 .gx-guided__choice:has(:checked):hover { background: var(--primary-hover); }
 .gx-guided__tile { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--radius-sm); background: var(--primary-container); color: var(--primary); font-size: var(--fs-lg); }
+.gx-guided__checklist > .gx-starport-row { flex-wrap: nowrap; }
 .gx-guided__mark { flex: none; display: grid; place-items: center; width: 28px; font-size: var(--fs-lg); color: var(--on-surface-variant); }
 .gx-guided__checklist > li.is-done .gx-guided__mark, .gx-guided__checklist > li.is-worked .gx-guided__mark { color: var(--success); }
 .gx-guided__checklist > li.is-active .gx-guided__mark, .gx-guided__checklist > li.is-current .gx-guided__mark, .gx-guided__checklist > li.is-retry .gx-guided__mark { color: var(--primary); }
