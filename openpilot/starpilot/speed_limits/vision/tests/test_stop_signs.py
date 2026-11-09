@@ -6,7 +6,9 @@ from unittest.mock import patch
 import numpy as np
 
 from openpilot.starpilot.speed_limits.vision.traffic_signs import TrafficSignModelCore as VisionModelCore
+from openpilot.starpilot.speed_limits.vision.speed_face import StopFaceVerifier
 from openpilot.starpilot.speed_limits.vision.stop_signs import StopDetection, SignDetectorOutputs, decode_stop_signs
+from openpilot.starpilot.speed_limits.vision.tests import _identity_fixture as identity_fixture
 
 
 class TestStopSigns(unittest.TestCase):
@@ -48,6 +50,8 @@ class TestStopSigns(unittest.TestCase):
   def test_reset_and_invalid_new_frame_clear_stop_detections(self):
     core = VisionModelCore.__new__(VisionModelCore)
     core.history = deque()
+    core.net = SimpleNamespace(rgb256=None)
+    core._stop_face_filter = StopFaceVerifier(identity_fixture.Net('aux'))
     core.stop_detections = (StopDetection(.9, (10, 10, 30, 30)),)
     core.reset()
     self.assertEqual(core.stop_detections, ())
