@@ -129,6 +129,8 @@ def fit_independent_route(assessment, group, cohort, prior, proposal, previous, 
 
       selector = StableRouteSelector(prior, root, previous, scope, permitted=permitted)
       replicated, profile_proof = selector.profile(tuple(w['identity'] for w in prior.profile_windows), cohort['cohort'])
+      if proposal.get('coordinate_policy') == 'symptom_bound_all30_v1':
+        replicated = next((p for p in profile_proof.get('coordinate_candidates', []) if p['parameter'] == proposal['parameter']), None)
       supported = independent_profile_support({'values': values}, replicated, previous)
       proof['independent_tracking'] = {'qualified': supported, 'profile': profile_proof, 'replication': replicated}
     else:

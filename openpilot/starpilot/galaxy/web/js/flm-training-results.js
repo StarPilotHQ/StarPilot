@@ -135,11 +135,32 @@ export function surfaceRows(report, live = false) {
   const values = validTrackingValues(report?.current?.trackingValues) ? report.current.trackingValues : null
   const accepted = values ? trackingCoordinates(values.accepted) : null
   const pending = values && live && report.current?.tracking?.bindingCurrent === true ? trackingCoordinates(values.pending) : null
+  const route = offroadView(report)
   return SURFACE_NAMES.map(name => ({ name, baseline: 0, accepted: accepted?.[name] ?? null, pending: pending?.[name] ?? null, learned: learned?.[name] ?? null,
+    saved: route?.savedValues?.[name] ?? null, recommendations: route?.suggestions.filter(row => row.parameter === name) || [],
     applied: applied?.[name] ?? null, pidSupported: !PID_UNSUPPORTED.includes(name) }))
 }
 export const coordinateText = value => value === null ? "Not reported" :
   value === 0 ? "0" : Math.abs(value) < 1e-6 ? value.toExponential(3) : (value > 0 ? "+" : "") + value.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")
+
+export const FRICTION_NAMES = Object.freeze(['friction_threshold_crawl', 'friction_threshold_low', 'friction_threshold_mid',
+  'friction_threshold_fast', 'friction_threshold_highway'])
+const frictionCoordinates = rows => Array.isArray(rows) && rows.length === 5 && rows.every((row, i) =>
+  Array.isArray(row) && row.length === 2 && row[0] === FRICTION_NAMES[i] && typeof row[1] === 'number' &&
+  Number.isFinite(row[1]) && Math.abs(row[1]) <= .25) ? Object.fromEntries(rows) : null
+
+export function offroadCoordinateEvidence(report, name, live = false) {
+  const route = offroadView(report), row = surfaceRows(report, live).find(row => row.name === name)
+  const statements = []
+  if (row?.applied !== null && row?.applied !== undefined && row.applied !== 0)
+    statements.push(`Auto Learn applied now: ${coordinateText(row.applied)}.`)
+  const saved = route?.savedValues?.[name]
+  if (saved !== undefined && saved !== 0)
+    statements.push(`Auto Learn saved: ${coordinateText(saved)}${route.configurationState === 'ready_for_next_drive' ? ' for the next drive' : ''}.`)
+  for (const suggestion of route?.suggestions || []) if (suggestion.parameter === name)
+    statements.push(`Previous-drive recommendation: change ${coordinateText(suggestion.delta)}; not saved.`)
+  return statements.join(' ')
+}
 
 export function validLearningPreference(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) && value.version === 1 &&
@@ -219,9 +240,13 @@ export function offroadView(report) {
   const checks = Array.isArray(checked) && checked.length === 2 && checked.every(stamp) && checked[0] <= checked[1] && checked[1] <= 36 &&
     Array.isArray(refused) && refused.length <= 36 && refused.every(r => Array.isArray(r) && r.length === 2 && text(r[0]) && stamp(r[1])) ?
     { passed: checked[0], required: checked[1], refusals: refused.map(([reason, count]) => ({ reason, count })) } : null
+  const configurationState = details['Saved route configuration state'] ?? null
+  const stored = ['ready_for_next_drive', 'accepted', 'accepted_after_drive', 'rolled_back'].includes(configurationState)
+  const savedSurface = stored ? fullCoordinates(details['Full surface coordinates']) : null
+  const savedFriction = stored ? frictionCoordinates(details['Saved friction-curve adjustments']) : null
   return { route: details['Completed drive analyzed'], samples: details['Recorded steering observations'],
     reason: details['Analysis decision'], saved: details['Automatic configuration changed'] === true,
-    configurationState: details['Saved route configuration state'] ?? null,
+    configurationState, savedValues: savedSurface ? { ...savedSurface, ...(savedFriction || {}) } : null,
     observed, checks, savedCount: stamp(savedCount) && savedCount <= 35 ? savedCount : null,
     suggestions: rows.map(([parameter, delta, windows, qualification]) => ({ parameter, delta, windows, qualification })),
     moreSuggestions: details['More recorded suggestions omitted'] === true }

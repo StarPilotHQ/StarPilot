@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { validTrainingResults, trainingSummary, detailText, offroadView, tunerStatus } from "../web/js/flm-training-results.js"
+import { validTrainingResults, trainingSummary, detailText, offroadView, tunerStatus, SURFACE_NAMES, FRICTION_NAMES, surfaceRows, offroadCoordinateEvidence } from "../web/js/flm-training-results.js"
 
 const report = () => ({ version: 1, current: { fresh: true, ageSeconds: .1, enabled: true,
   status: "collecting", reason: "independent_evidence", progress: { samples: 140, blocks: 3, requiredBlocks: 16 },
@@ -82,3 +82,41 @@ for (const mutate of [v => v.current.details['Recorded route suggestions'][0][1]
   const malformed = structuredClone(completed); mutate(malformed); assert.equal(offroadView(malformed), null)
 }
 console.log('Completed-drive recommendations, parked analysis, saved-versus-applied state and malformed candidate refusal passed')
+
+// Reproduce the user's observed combination: three saved curve changes, two
+// UNSAVED scalar recommendations, no live application and empty event history.
+const reconciled = structuredClone(completed)
+Object.assign(reconciled.current.details, {
+  'Saved route configuration state': 'ready_for_next_drive', 'Saved route adjustment count': 3,
+  'Full surface coordinates': SURFACE_NAMES.map(name => [name, 0]),
+  'Saved friction-curve adjustments': FRICTION_NAMES.map((name, index) => [name, [0, 0, .002775, .0037125, .0037125][index]]),
+  'Controller and encoder check windows': [24, 24], 'Automatic tune refusal reasons': [],
+  'Recorded route suggestions': [['turn_in_boost_left', .005, 13, 'controller_native_checks_not_passed'],
+    ['unwind_taper_right', .005, 6, 'controller_native_checks_not_passed']],
+})
+assert(validTrainingResults(reconciled))
+const observedState = offroadView(reconciled)
+assert.equal(observedState.savedCount, 3)
+assert.equal(Object.values(observedState.savedValues).filter(value => value !== 0).length, 3)
+assert.equal(observedState.savedValues.friction_threshold_mid, .002775)
+assert.equal(observedState.savedValues.friction_threshold_highway, .0037125)
+assert.equal(observedState.savedValues.turn_in_boost_left, 0, 'A recommendation must not overwrite the saved map')
+assert.equal(observedState.suggestions[0].delta, .005)
+assert.equal(surfaceRows(reconciled, false).find(row => row.name === 'turn_in_boost_left').recommendations.length, 1)
+assert(surfaceRows(reconciled, false).every(row => row.pending === null && row.applied === null))
+assert.match(offroadCoordinateEvidence(reconciled, 'turn_in_boost_left'), /recommendation: change \+0.005; not saved/)
+assert.doesNotMatch(offroadCoordinateEvidence(reconciled, 'turn_in_boost_left'), /applied now|Auto Learn saved/)
+assert.match(offroadCoordinateEvidence(reconciled, 'friction_threshold_mid'), /Auto Learn saved: \+0.002775 for the next drive/)
+assert.equal(reconciled.history.length, 0, 'The completed assessment must not fabricate history events')
+assert.equal(reconciled.current.application.applied, false)
+const noStore = structuredClone(reconciled)
+delete noStore.current.details['Saved route configuration state']
+assert.equal(offroadView(noStore).savedValues, null, 'An unqualified proposal must never be labelled a saved tune')
+const badCurve = structuredClone(reconciled)
+badCurve.current.details['Saved friction-curve adjustments'][0][1] = NaN
+assert.equal(offroadView(badCurve).savedValues.friction_threshold_crawl, undefined)
+const adjustedSlider = structuredClone(reconciled)
+adjustedSlider.current.details['Full surface coordinates'][0][1] = .005
+assert.match(offroadCoordinateEvidence(adjustedSlider, SURFACE_NAMES[0]), /Auto Learn saved: \+0.005 for the next drive/)
+assert(surfaceRows(adjustedSlider, false).every(row => row.applied === null))
+console.log('Saved curve and slider adjustments, unsaved recommendations, absent history and current application reconcile without writes')

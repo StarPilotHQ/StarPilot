@@ -263,7 +263,8 @@ assert.equal(ctx.recordedTrackingChart.valid,true)
 assert(ctx.recordedTrackingChart.paths.every(path=>path.length===1),'Both original series render')
 const measuredText=text(render.call(ctx,ctx,[]))
 assert(measuredText.includes('Recorded baseline') && measuredText.includes(measurementText(.12)))
-assert(measuredText.includes('Saved adjustments') && measuredText.includes('Awaiting next-drive measurement'))
+assert(measuredText.includes('Saved adjustments') && measuredText.includes('No pending trial reported'))
+assert(!measuredText.includes('Awaiting next-drive measurement'), 'Recorded analysis without a saved trial must not invent a pending trial')
 assert(measuredText.includes('No interpolation or delay alignment'))
 assert(measuredText.includes('22 / 24 original controller and encoder windows passed'))
 assert(measuredText.includes('candidate triggered an encoder limiter'))
@@ -285,6 +286,7 @@ assert.equal(ctx.offroad.observed.units,'degrees','PID observations retain their
 ctx.report.current.details['Recorded steering response']=measuredWindow
 ctx.report.current.details['Saved route configuration state']='ready_for_next_drive'
 assert.equal(ctx.state.title,'Tune saved for the next drive')
+assert(text(render.call(ctx,ctx,[])).includes('Awaiting next-drive measurement'), 'A genuinely reported saved trial awaits the next drive')
 assert.equal(ctx.currentApplied,false,'Next-drive saving never fabricates live application')
 ctx.now=3000
 assert.equal(ctx.reportFresh,false)

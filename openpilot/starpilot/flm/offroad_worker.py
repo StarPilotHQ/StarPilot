@@ -470,6 +470,9 @@ class OffroadWorker:
             report['stable_profile_reports'].append({'context': group['original_context_sha256'], 'cohort': cohort['cohort'], **proof})
             if proposal is not None:
               choices.append((group, {**cohort, 'stable_profile_proof': proof}, proposal))
+            for alternative in proof.get('coordinate_candidates', []):
+              if proposal is None or alternative['values'] != proposal['values']:
+                choices.append((group, {**cohort, 'stable_profile_proof': proof}, alternative))
       # Freeze input-only ranking; training may select a candidate, validation may not.
       choices.sort(key=lambda v: (-input_coverage(v[1]), -v[1]['whole_windows'], v[1]['cohort'], v[0]['original_context_sha256']))
       training_seen = set()
