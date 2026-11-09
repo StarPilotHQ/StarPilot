@@ -3,7 +3,7 @@
 A rule names the build it was seen on, the failure it targets and an ordered ladder of actions. A trial runs one more action
 per level (see quirk_state), so the smallest change that helps is the one that stays. Rules are either
 ``experimental`` (they run only when the owner switches them on) or ``validated`` (a tested sequence, applied automatically
-to the matching build). The global "Car-specific fixes" switch turns every rule off, whatever has been learned.
+to the matching build). "Try experimental fixes" is the master switch: off, no rule runs, whatever has been learned.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ SDR_LABELS = {"2": "car_make", "3": "car_model", "4": "car_year", "7": "head_uni
               "9": "head_unit_software_build", "10": "head_unit_software_version"}
 MATCH_FIELDS = ("car_make", "car_model", "car_year", "head_unit_make", "head_unit_model", "head_unit_software_version")
 
-# Automatic experiments (an experimental rule that starts without being switched on) are not enabled in this release.
+# Automatic experiments (an experimental rule that starts without its own toggle) are not enabled in this release.
 AUTO_EXPERIMENTS = False
 WIRELESS, WIRED = "wireless", "wired"
 
@@ -51,7 +51,7 @@ class Rule:
   ladder: tuple[str, ...]         # one action per level, cumulative
   validated_level: int = 0        # for a validated rule: how many ladder steps the tested sequence uses
   summary: str = ""               # one sentence for the setup suggestion
-  setting_path: str = "Settings → Developer → StarPort → Specific car experiments"
+  setting_path: str = "Settings → Developer → StarPort → Try experimental fixes"
 
 
 RULES: tuple[Rule, ...] = (
@@ -99,7 +99,7 @@ def experimental_entries() -> list[dict]:
 
 def bootstrap_experiment(config: dict) -> str:
   """The Wi-Fi setup experiment to add, or "". Needs the master switch, the experiments switch and its own toggle."""
-  if not (config.get("head_unit_fixes", True) and config.get("head_unit_experiments")):
+  if not config.get("head_unit_experiments"):
     return ""
   chosen = config.get("head_unit_experiment_rules") or []
   return next((fix.experiment for fix in BOOTSTRAP_FIXES if fix.id in chosen), "")
@@ -160,24 +160,21 @@ class Selection:
 
 
 def _enabled(config: dict, rule: Rule) -> bool:
-  if not config.get("head_unit_fixes", True):
+  """Try experimental fixes is the master switch: off, no rule of either status runs, whatever has been learned."""
+  if not config.get("head_unit_experiments"):
     return False
-  if rule.status == VALIDATED:
-    return True
-  if AUTO_EXPERIMENTS:
-    return True
-  return bool(config.get("head_unit_experiments")) and rule.id in (config.get("head_unit_experiment_rules") or [])
+  return rule.status == VALIDATED or AUTO_EXPERIMENTS or rule.id in (config.get("head_unit_experiment_rules") or [])
 
 
-def eligible(config: dict, car_type: str, profile: str) -> bool:
+def eligible(car_type: str, profile: str) -> bool:
   """A rule never applies behind an adapter, or on top of a car profile the owner or the fingerprint picked."""
-  return config.get("head_unit_fixes", True) and car_type != "adapter" and profile == "default"
+  return car_type != "adapter" and profile == "default"
 
 
 def select(config: dict, labels: dict[str, str], transport: str, quirks: QuirkState, key: str, *, car_type: str,
            profile: str) -> Selection | None:
   """The fix to run for this session, or None. Starts a trial the first time a rule applies to a car."""
-  if not eligible(config, car_type, profile):
+  if not eligible(car_type, profile):
     return None
   for rule in RULES:
     if not matches(rule, labels) or transport not in rule.transports or not _enabled(config, rule):
@@ -197,7 +194,7 @@ def select(config: dict, labels: dict[str, str], transport: str, quirks: QuirkSt
 def suggestion(config: dict, labels: dict[str, str], transport: str, quirks: QuirkState, key: str, *, car_type: str,
                profile: str) -> dict | None:
   """Advice for the setup screen: a fix made for this exact build exists and this car has shown the failure. Advice only."""
-  if not eligible(config, car_type, profile) or not key:
+  if not eligible(car_type, profile) or not key:
     return None
   for rule in RULES:
     if rule.status != EXPERIMENTAL or not matches(rule, labels) or transport not in rule.transports:
@@ -210,5 +207,5 @@ def suggestion(config: dict, labels: dict[str, str], transport: str, quirks: Qui
     if quirks.early_shutdowns(key) < 2:
       continue
     return {"rule": rule.id, "title": rule.summary, "label": rule.label, "path": rule.setting_path,
-            "detail": f"{rule.summary} A setting made for this exact car might help: {rule.setting_path} → {rule.label}. It's experimental."}
+            "detail": f"{rule.summary} A setting made for this exact car might help: {rule.setting_path}, then {rule.label}. It's experimental."}
   return None

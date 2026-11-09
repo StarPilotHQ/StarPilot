@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from openpilot.starpilot.galaxy.developer_settings import (CALIBRATION_RESET, DRIVER_MONITORING_RESET, STARPORT_EXPERIMENT_PREFIX,
                                                           STARPORT_EXPERIMENTS_KEY,
-                                                          STARPORT_FIXES_KEY, STARPORT_HEADING_KEY, STARPORT_HEVC_KEY,
+                                                          STARPORT_HEADING_KEY, STARPORT_HEVC_KEY,
                                                           STARPORT_NEW_SETUP_KEY, STARPORT_WIFI_KEY, DeveloperSettingsOwner)
 from openpilot.starpilot.galaxy.settings import AuthorityContext, ContextSource, SettingsChanged, SettingsGateway
 from openpilot.starpilot.longitudinal.voacc import KEY, selected
@@ -46,7 +46,7 @@ class FileParams:
 class FakeStarPort:
   def __init__(self, enabled=False, running=True):
     self.enabled, self.running, self.hevc = enabled, running, False
-    self.fixes, self.experiments, self.rules = True, False, []
+    self.experiments, self.rules = False, []
 
   def call(self, command, **payload):
     if not self.running:
@@ -57,16 +57,13 @@ class FakeStarPort:
     if command == "set_allow_hevc":
       self.hevc = payload["enabled"]
       return {"ok": True}
-    if command == "set_head_unit_fixes":
-      self.fixes = payload["enabled"]
-      return {"ok": True}
     if command == "set_head_unit_experiments":
       self.experiments = payload["enabled"]
       return {"ok": True}
     if command == "set_head_unit_experiment_rule":
       self.rules = sorted(set(self.rules) | {payload["rule"]} if payload["enabled"] else set(self.rules) - {payload["rule"]})
       return {"ok": True, "changed": True}
-    return {"ok": True, "status": {"dedicated_wifi_interface": self.enabled, "allow_hevc": self.hevc, "head_unit_fixes": self.fixes,
+    return {"ok": True, "status": {"dedicated_wifi_interface": self.enabled, "allow_hevc": self.hevc,
                                    "head_unit_experiments": self.experiments, "head_unit_experiment_rules": self.rules}}
 
 
@@ -244,17 +241,17 @@ class DeveloperSettingsTest(unittest.TestCase):
     service.running = False
     self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_HEVC_KEY, b"1", "Off")))
 
-  def test_car_specific_fixes_default_on_and_experiments_default_off(self):
+  def test_try_experimental_fixes_defaults_off_and_is_the_only_master_switch(self):
     service = FakeStarPort()
     owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
     rows = {row.key: row for row in owner.snapshot().rows}
-    self.assertEqual((rows[STARPORT_FIXES_KEY].value, rows[STARPORT_FIXES_KEY].default_value), ("On", "On"))
     self.assertEqual((rows[STARPORT_EXPERIMENTS_KEY].value, rows[STARPORT_EXPERIMENTS_KEY].default_value), ("Off", "Off"))
-    self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_FIXES_KEY, b"1", "Off")))
-    self.assertFalse(service.fixes)
-    self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_FIXES_KEY, b"1", "Off")))  # stale view
+    self.assertNotIn("StarPortHeadUnitFixes", rows)
     self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_EXPERIMENTS_KEY, b"0", "On")))
     self.assertTrue(service.experiments)
+    self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_EXPERIMENTS_KEY, b"0", "On")))  # stale view
+    self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_EXPERIMENTS_KEY, b"1", "Off")))
+    self.assertFalse(service.experiments)
 
   def test_experiment_toggles_appear_only_under_try_experimental_fixes(self):
     service = FakeStarPort()
@@ -289,7 +286,7 @@ class DeveloperSettingsTest(unittest.TestCase):
 
   def test_experiment_rows_are_hidden_when_the_service_is_off(self):
     keys = [row.key for row in self.owner.snapshot().rows]
-    self.assertNotIn(STARPORT_FIXES_KEY, keys)
+    self.assertNotIn(STARPORT_EXPERIMENTS_KEY, keys)
     self.assertNotIn(STARPORT_EXPERIMENTS_KEY, keys)
 
 

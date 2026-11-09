@@ -10,7 +10,7 @@ from openpilot.starpilot.system.starport.tests.test_starport import connect, del
 from openpilot.starpilot.system.starport.wire import field
 
 RULE = hf.RULES[0]
-ON = {"head_unit_fixes": True, "head_unit_experiments": True, "head_unit_experiment_rules": [RULE.id]}
+ON = {"head_unit_experiments": True, "head_unit_experiment_rules": [RULE.id]}
 
 
 @pytest.fixture(scope="module")
@@ -48,13 +48,13 @@ def test_discovery_labels_identify_the_bolt_build(identity, tmp_path):
 
 
 def test_without_opt_in_the_bolt_gets_the_default_session(identity, tmp_path):
-  hu, _ = run(identity, tmp_path, {"head_unit_fixes": True})
+  hu, _ = run(identity, tmp_path, {})
   assert sorted(hu.opened) == [1, 3] and hu.pairing_requests == []
   assert hu.focus_request_bodies == [field(2, 1) + field(3, 4)]
 
 
-def test_kill_switch_off_gives_default_session(identity, tmp_path):
-  hu, _ = run(identity, tmp_path, {**ON, "head_unit_fixes": False})
+def test_experiments_off_gives_default_session(identity, tmp_path):
+  hu, _ = run(identity, tmp_path, {**ON, "head_unit_experiments": False})
   assert sorted(hu.opened) == [1, 3]
 
 
@@ -102,5 +102,5 @@ def bolt_hangs_up(identity, tmp_path, config):
 
 
 def test_fix_stops_the_bolt_hang_up(identity, tmp_path):
-  assert bolt_hangs_up(identity, tmp_path, {"head_unit_fixes": True}) is True
+  assert bolt_hangs_up(identity, tmp_path, {}) is True
   assert bolt_hangs_up(identity, tmp_path, ON) is False

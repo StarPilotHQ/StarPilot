@@ -78,7 +78,7 @@ RADIO_CHECK_INTERVAL = 0.5   # how often the comma's own Wi-Fi is checked for a 
 RADIO_CHANGE_WINDOW = 15.0   # a join or roam this recent can still stall the car (11-02: stall came 7.5 s after a roam)
 REPORTED_SETTINGS = ("connection", "usb_mode", "view", "encoder", "fps", "bitrate_kbps", "rate_control", "gpu_nv12",
                      "async_readback", "wifi_interface", "dedicated_wifi_interface", "verify_head_unit", "version_status",
-                     "rfcomm_channel", "phone_class", "auto_connect", "allow_hevc", "head_unit_fixes", "head_unit_experiments",
+                     "rfcomm_channel", "phone_class", "auto_connect", "allow_hevc", "head_unit_experiments",
                      "head_unit_experiment_rules")
 
 
@@ -515,7 +515,6 @@ class Supervisor:
     status["auto_connect"] = bool(self.config["auto_connect"])
     status["dedicated_wifi_interface"] = bool(self.config["dedicated_wifi_interface"])
     status["allow_hevc"] = bool(self.config["allow_hevc"])
-    status["head_unit_fixes"] = bool(self.config["head_unit_fixes"])
     status["head_unit_experiments"] = bool(self.config["head_unit_experiments"])
     status["head_unit_experiment_rules"] = list(self.config["head_unit_experiment_rules"])
     status["experimental_fixes"] = head_unit_fixes.experimental_entries()
@@ -558,14 +557,8 @@ class Supervisor:
       identity_store.save_config(self.config)
     self.log("allow_hevc_selected", enabled=bool(enabled))
 
-  def set_head_unit_fixes(self, enabled: bool) -> None:
-    """The master switch for car-specific fixes; off gives the standard connection to every car from the next session."""
-    with self._lock:
-      self.config["head_unit_fixes"] = bool(enabled)
-      identity_store.save_config(self.config)
-    self.log("head_unit_fixes_selected", enabled=bool(enabled))
-
   def set_head_unit_experiments(self, enabled: bool) -> None:
+    """The master switch for car and dongle fixes; off gives the standard connection to every car from the next session."""
     with self._lock:
       self.config["head_unit_experiments"] = bool(enabled)
       identity_store.save_config(self.config)
@@ -2108,7 +2101,7 @@ class Supervisor:
            else quirk_state.QuirkState.wired_key(labels))
     profile = car_profiles.resolve(config)[0]
     car_type = self.car_type()
-    if head_unit_fixes.eligible(config, car_type, profile):
+    if head_unit_fixes.eligible(car_type, profile):
       for rule in head_unit_fixes.RULES:
         if head_unit_fixes.near_miss(rule, labels):
           self.log("head_unit_rule_near_miss", rule=rule.id, build=labels.get("head_unit_software_version", ""))

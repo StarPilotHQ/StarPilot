@@ -38,9 +38,8 @@ def test_unofficial_dongle_profile_and_last_rung_do_not_ping():
 
 def test_phone_ping_needs_every_switch():
   from openpilot.starpilot.system.starport import head_unit_fixes as hf
-  on = {"head_unit_fixes": True, "head_unit_experiments": True, "head_unit_experiment_rules": ["phone_ping"]}
+  on = {"head_unit_experiments": True, "head_unit_experiment_rules": ["phone_ping"]}
   assert hf.bootstrap_experiment(on) == "phone_ping"
-  assert hf.bootstrap_experiment({**on, "head_unit_fixes": False}) == ""
   assert hf.bootstrap_experiment({**on, "head_unit_experiments": False}) == ""
   assert hf.bootstrap_experiment({**on, "head_unit_experiment_rules": []}) == ""
-  assert hf.bootstrap_experiment({"head_unit_fixes": True}) == ""
+  assert hf.bootstrap_experiment({}) == ""

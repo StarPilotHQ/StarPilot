@@ -7,7 +7,7 @@ from openpilot.starpilot.system.starport.quirk_state import QuirkState, SessionO
 
 RULE = hf.RULES[0]
 BOLT = dict(RULE.match)
-CFG_ON = {"head_unit_fixes": True, "head_unit_experiments": True, "head_unit_experiment_rules": [RULE.id]}
+CFG_ON = {"head_unit_experiments": True, "head_unit_experiment_rules": [RULE.id]}
 
 
 def pick(config, labels=BOLT, transport="wireless", q=None, key="bt:AA", car_type="builtin", profile="default"):
@@ -57,18 +57,18 @@ def test_match_is_case_insensitive_exact():
 
 
 def test_experimental_rule_needs_both_opt_ins_and_the_rule_toggle():
-  assert pick({"head_unit_fixes": True}) is None
-  assert pick({"head_unit_fixes": True, "head_unit_experiments": True}) is None
-  assert pick({"head_unit_fixes": True, "head_unit_experiments": False, "head_unit_experiment_rules": [RULE.id]}) is None
+  assert pick({}) is None
+  assert pick({"head_unit_experiments": True}) is None
+  assert pick({"head_unit_experiments": False, "head_unit_experiment_rules": [RULE.id]}) is None
   sel = pick(CFG_ON)
   assert sel and sel.level == 1 and sel.actions == (hf.OPEN_BLUETOOTH,)
 
 
-def test_kill_switch_beats_populated_state(tmp_path):
+def test_experiments_off_beats_populated_state(tmp_path):
   q = QuirkState(tmp_path / "q.json")
   q.begin("bt:AA", BOLT, RULE.id)
   assert pick(CFG_ON, q=q) is not None
-  assert pick({**CFG_ON, "head_unit_fixes": False}, q=q) is None
+  assert pick({**CFG_ON, "head_unit_experiments": False}, q=q) is None
 
 
 @pytest.mark.parametrize("kwargs", [{"car_type": "adapter"}, {"profile": "aawireless"}, {"profile": "unofficial"}, {"key": ""},
@@ -89,7 +89,7 @@ def test_reverted_trial_stays_off(tmp_path):
 
 def test_suggestion_conditions(tmp_path):
   q = QuirkState(tmp_path / "q.json")
-  cfg = {"head_unit_fixes": True}
+  cfg = {}
   early = SessionOutcome(video_seen=True, streamed_s=20, ended_by_car=True)
   assert hf.suggestion(cfg, BOLT, "wireless", q, "bt:AA", car_type="builtin", profile="default") is None
   q.record("bt:AA", BOLT, early, now=1)
@@ -97,7 +97,7 @@ def test_suggestion_conditions(tmp_path):
   q.record("bt:AA", BOLT, early, now=2)
   s = hf.suggestion(cfg, BOLT, "wireless", q, "bt:AA", car_type="builtin", profile="default")
   assert s and s["rule"] == RULE.id
-  assert hf.suggestion({"head_unit_fixes": False}, BOLT, "wireless", q, "bt:AA", car_type="builtin", profile="default") is None
+  assert hf.suggestion({"head_unit_experiments": True}, BOLT, "wireless", q, "bt:AA", car_type="builtin", profile="default") is not None
   assert hf.suggestion(cfg, BOLT, "wireless", q, "bt:AA", car_type="adapter", profile="default") is None
   assert hf.suggestion(cfg, BOLT, "wireless", q, "bt:AA", car_type="builtin", profile="aawireless") is None
   assert hf.suggestion(CFG_ON, BOLT, "wireless", q, "bt:AA", car_type="builtin", profile="default") is None
