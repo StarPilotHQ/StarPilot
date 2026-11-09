@@ -351,3 +351,23 @@ def test_main_subscribes_to_registered_gps_carriers(monkeypatch):
   monkeypatch.setattr(navtilesd.os, "nice", lambda _: None)
   with pytest.raises(SubscriptionsChecked):
     navtilesd.main()
+
+
+def test_environment_passes_the_google_key_only_while_google_is_chosen():
+  from types import SimpleNamespace
+  from unittest.mock import patch
+  from openpilot.starpilot.navigation import navtilesd
+  class SubMaster:
+    valid = {"deviceState": False, "starpilotNavigation": False}
+    logMonoTime = {"deviceState": 0}
+
+    def __getitem__(self, name):
+      return None
+  sm = SubMaster()
+  settings = {"token": "pk.test", "mapProvider": "google", "googleKey": "AIzaSyFixtureKey_0123456789abcdef"}
+  owner = SimpleNamespace(read=lambda: dict(settings))
+  with patch("openpilot.starpilot.navigation.runtime.location", return_value=None):
+    assert navtilesd._environment(sm, owner, True, 0).google_key == settings["googleKey"]
+    settings["mapProvider"] = "mapbox"
+    env = navtilesd._environment(sm, owner, True, 0)
+  assert env.google_key == "" and env.token == "pk.test"

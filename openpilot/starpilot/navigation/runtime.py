@@ -7,7 +7,10 @@ import time
 import uuid
 
 from openpilot.starpilot.navigation.owner import ConflictError, NavigationOwner, ValidationError, ROUTE_AVOIDANCES
-from openpilot.starpilot.navigation.route_engine import MapboxRouteEngine, distance
+from openpilot.starpilot.navigation.route_engine import SLOW_MPS, MapboxRouteEngine, distance
+from openpilot.starpilot.navigation.google_routes import (
+  GoogleRouteEngine, GoogleRoutesFailed, essentials_budget, route_budget, write_route_status,
+)
 
 from openpilot.starpilot.gps.phone import read_phone_gps
 from openpilot.starpilot.gps.source import GPS_MAX_AGE_NS, GPS_SERVICES, bearing, select_location
@@ -17,6 +20,14 @@ END_ROUTE_NS = 15_000_000_000   # ...and this long ends navigation, like tapping
 STOPPED_RADIUS_M = 100.         # stopped this close to the destination arrives, wherever the route itself ends
 PARKED_RADIUS_M = 300.          # a drive that ends or starts this close to the destination arrived (garages lose GPS)
 DRIVE_END_NS = 5_000_000_000    # the car has been off this long, not a deviceState hiccup
+MOVING_MPS = 5.                 # a Google route asked for faster than this starts the way the car faces
+TRAFFIC_EVERY_NS = 450_000_000_000  # Google's traffic corrects the arrival time this often (one Pro request)
+TRAFFIC_MIN_M = 2000.           # ...but not this close to the destination
+TRAFFIC_MATCH_M = 500.          # Google's answer must be for about the same remaining distance
+OFF_ROUTE_NS = 2_000_000_000    # off the route this long reroutes
+SLOW_OFF_ROUTE_NS = 8_000_000_000  # ...or this long when slower than SLOW_MPS (garages, lots)
+JOINED_M = 25.                  # this close to the line, the car has joined the route
+UNJOINED_REROUTE_M = 300.       # before joining, only this far from where the route starts reroutes (leaving a garage or lot)
 
 
 def location(sm, now_ns: int, phone_fix=None):
@@ -29,13 +40,23 @@ def location(sm, now_ns: int, phone_fix=None):
 
 
 class RouteRuntime:
-  def __init__(self, owner: NavigationOwner, engine=None, executor=None):
+  def __init__(self, owner: NavigationOwner, engine=None, executor=None, google_engine=None):
     self.owner = owner
     if engine is None:
       from openpilot.starpilot.navigation.mapbox_budget import MonthlyBudget
       engine = MapboxRouteEngine(owner.session, MonthlyBudget('directions', owner.root / 'mapbox-usage'))
     self.engine = engine
+    self.google_engine = google_engine or GoogleRouteEngine(owner.session, route_budget(owner.google_root),
+                                                            essentials_budget(owner.google_root))
+    self.joined_route = None
+    self.joined = False
+    self.eta_route = None
+    self.eta_ratio = 1.
+    self.traffic_future = None
+    self.traffic_job = None
+    self.traffic_due = 0
     self.executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix='route')
+    self.traffic_executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix='traffic')
     self.key = None
     self.route = None
     self.routes = []
@@ -72,7 +93,8 @@ class RouteRuntime:
     selected = settings['destination']
     destination_key = None if selected is None else (selected['id'], selected['longitude'], selected['latitude'])
     exclusions = tuple(value for key, value in ROUTE_AVOIDANCES.items() if settings[key])
-    key = settings['enabled'], hashlib.sha256(settings['token'].encode()).digest(), destination_key, drive_id, exclusions
+    credentials = (settings['token'], settings['googleKey'] if settings['routeProvider'] == 'google' else '')
+    key = settings['enabled'], hashlib.sha256('\0'.join(credentials).encode()).digest(), destination_key, drive_id, exclusions
     if key != self.key:
       self.key, self.route = key, None
       self.routes = []
@@ -123,8 +145,8 @@ class RouteRuntime:
           if self.future is None and now_ns >= self.retry_after:
             self.preview_only = True
             self.fetch_key = self.key
-            self.future = self.executor.submit(self.engine.fetch, settings['token'],
-                                               (saved['longitude'], saved['latitude']), settings['destination'], saved.get('bearing'), exclusions)
+            self.future = self.executor.submit(*self._fetcher(credentials), (saved['longitude'], saved['latitude']),
+                                               settings['destination'], None if credentials[1] else saved.get('bearing'), exclusions)
       return result
     stamp, coordinates, speed, bearing = position
     result['locationMonoTime'] = stamp
@@ -132,26 +154,78 @@ class RouteRuntime:
       result['status'] = 'routeUnavailable' if self.retry_after > now_ns else 'routing'
       if self.future is None and now_ns >= self.retry_after:
         self.fetch_key = self.key
-        self.future = self.executor.submit(self.engine.fetch, settings['token'], coordinates, settings['destination'], bearing, exclusions)
+        moving = speed is not None and speed >= MOVING_MPS
+        self.future = self.executor.submit(*self._fetcher(credentials), coordinates, settings['destination'],
+                                           bearing if moving or not credentials[1] else None, exclusions)
       return result
     progress = self.route.progress(coordinates, speed, bearing)
     fresh = now_ns <= stamp + GPS_MAX_AGE_NS
-    self.off_route_since = (self.off_route_since or now_ns) if fresh and progress.off_route else 0
+    off_route = fresh and progress.off_route and self._may_reroute(coordinates, progress, selected)
+    self.off_route_since = (self.off_route_since or now_ns) if off_route else 0
     arriving = progress.arrived or (speed is not None and speed < 2 and
                                     distance(coordinates, (selected['longitude'], selected['latitude'])) < STOPPED_RADIUS_M)
     self.arrived_since = (self.arrived_since or now_ns) if fresh and arriving else 0
-    if self.off_route_since and now_ns - self.off_route_since >= 2_000_000_000:
+    hold = SLOW_OFF_ROUTE_NS if speed is None or speed < SLOW_MPS else OFF_ROUTE_NS
+    if self.off_route_since and now_ns - self.off_route_since >= hold:
       self.route = None
       self.routes = []
       result['status'] = 'routing'
       return result
     arrived = self.arrived_since and now_ns - self.arrived_since >= ARRIVED_NS
+    self._traffic_eta(now_ns, credentials[1], coordinates, speed, bearing, settings['destination'], exclusions, progress.instruction)
     if self.arrived_since and now_ns - self.arrived_since >= END_ROUTE_NS:
       self._end_route(settings['revision'])
     result.update(status='arrived' if arrived else 'guiding', instruction=progress.instruction,
                   nextManeuver=progress.next_maneuver, route=self.route.preview(),
                   controlValid=bool(speed is not None and fresh and drive_id > 0 and not progress.off_route and not arriving and stamp >= drive_id))
     return result
+
+  def _may_reroute(self, coordinates, progress, destination) -> bool:
+    """No reroutes before the car first reaches the route near its start, or near the destination (garages, lots)."""
+    if self.route is not self.joined_route:
+      self.joined_route, self.joined = self.route, False
+    if progress.separation <= JOINED_M and not progress.off_route:
+      self.joined = True
+    if distance(coordinates, (destination['longitude'], destination['latitude'])) < PARKED_RADIUS_M:
+      return False
+    return self.joined or distance(coordinates, self.route.points[0]) >= UNJOINED_REROUTE_M
+
+  def _traffic_eta(self, now_ns: int, key: str, coordinates, speed, bearing, destination, exclusions, instruction: dict) -> None:
+    """The route's own remaining time, scaled by how far off Google's latest traffic said it was."""
+    if self.route is not self.eta_route:
+      self.eta_route, self.eta_ratio, self.traffic_future = self.route, 1., None
+      self.traffic_due = now_ns + (TRAFFIC_EVERY_NS if getattr(self.route, 'traffic_aware', True) else 0)
+    if self.traffic_future is not None and self.traffic_future.done() and self.traffic_job is not None:
+      route, static, meters = self.traffic_job
+      try:
+        duration, google_meters = self.traffic_future.result()
+      except (GoogleRoutesFailed, ValidationError, OSError, ValueError):
+        duration = None
+      if duration is not None and route is self.route and static > 0 and abs(google_meters - meters) <= max(TRAFFIC_MATCH_M, meters * .15):
+        self.eta_ratio = min(4., max(.5, duration / static))
+      self.traffic_future = None
+    static, meters = instruction['remainingDurationSeconds'], instruction['remainingDistanceMeters']
+    if key and self.traffic_future is None and now_ns >= self.traffic_due and meters > TRAFFIC_MIN_M:
+      self.traffic_due = now_ns + TRAFFIC_EVERY_NS
+      self.traffic_job = (self.route, static, meters)
+      moving = speed is not None and speed >= MOVING_MPS
+      self.traffic_future = self.traffic_executor.submit(self.google_engine.traffic, key, coordinates, destination,
+                                                 bearing if moving else None, exclusions)
+    instruction['remainingDurationSeconds'] = static * self.eta_ratio
+
+  def _fetcher(self, credentials):
+    return (self._fetch_google, credentials) if credentials[1] else (self.engine.fetch, credentials[0])
+
+  def _fetch_google(self, credentials, position, destination, bearing, exclusions):
+    """Google's traffic-aware route; Mapbox routes the trip whenever Google cannot."""
+    token, key = credentials
+    try:
+      route = self.google_engine.fetch(key, position, destination, bearing, exclusions)
+    except GoogleRoutesFailed as error:
+      write_route_status(self.owner.google_root, error.failure)
+      return self.engine.fetch(token, position, destination, bearing, exclusions)
+    write_route_status(self.owner.google_root, None)
+    return route
 
   @staticmethod
   def _near_destination(settings, coordinates) -> bool:

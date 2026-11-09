@@ -25,6 +25,7 @@ from pathlib import Path
 
 import requests
 
+from openpilot.starpilot.navigation.google_tiles import GoogleTiles
 from openpilot.starpilot.navigation.offline_roads import (
   AREA_REFRESH_SECONDS, CACHE_MAX_BYTES, DRIVEN_MAX_BYTES, SAVED_MAX_BYTES, OfflineState, TileStore, Usage, area_tiles,
 )
@@ -49,6 +50,7 @@ BUDGET_RECHECK_S = 3600.0
 class Environment:
   """What the loop observed this second."""
   token: str = ""
+  google_key: str = ""              # only while Google is the chosen map style
   network: str = "offline"          # offline, cellular, wifi
   onroad: bool = False
   map_enabled: bool = False
@@ -457,8 +459,9 @@ def _environment(sm, owner, map_enabled: bool, now_ns: int) -> Environment:
   try:
     settings = owner.read()
     env.token = settings["token"]
+    env.google_key = settings["googleKey"] if settings["mapProvider"] == "google" else ""
   except Exception:
-    env.token = ""
+    env.token = env.google_key = ""
   device = sm["deviceState"]
   if sm.valid["deviceState"] and sm.logMonoTime["deviceState"] > 0:
     kind = str(device.networkType)
@@ -490,6 +493,7 @@ def main() -> None:
   except OSError:
     pass
   daemon = TileDaemon()
+  google = GoogleTiles()
   owner = NavigationOwner()
   from openpilot.starpilot.gps.source import GPS_SERVICES
   sm = messaging.SubMaster(["deviceState", *GPS_SERVICES])
@@ -505,13 +509,16 @@ def main() -> None:
     idle = False
     deadline = time.monotonic() + 0.9
     while time.monotonic() < deadline:
-      wait = daemon.step(env)
+      wait = google.step(env.google_key, env.network != "offline")
+      if wait is None:
+        wait = daemon.step(env)
       if wait is None:
         idle = True
         break
       if wait > 0:
         time.sleep(min(wait, max(0.0, deadline - time.monotonic())))
     daemon.status(env)
+    google.write_status()
     if idle:
       time.sleep(1.0)
 

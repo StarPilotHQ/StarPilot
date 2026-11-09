@@ -19,3 +19,11 @@ export function parseSharedDestination(input) {
   const query = text.match(/[?&:](?:q|query|daddr|destination)=([^&#]+)/)?.[1] || text
   return { query: query.slice(0, 200) }
 }
+
+export const SHORT_MAP_LINK = /https:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps)\//
+
+// A pasted or shared map link opens its place; anything else is a search.
+export function isMapLink(input) {
+  const text = String(input || '')
+  return SHORT_MAP_LINK.test(text) || Boolean(parseSharedDestination(text).destination)
+}

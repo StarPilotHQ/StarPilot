@@ -29,8 +29,8 @@ class NativeMapLayer:
       self._release()
       return
     if self.map is None:
-      from openpilot.starpilot.ui.onroad_map import MapFeed, MapOverlay
-      self.map = MapOverlay(fonts=self.fonts)
+      from openpilot.starpilot.ui.onroad_map import MapFeed, live_overlay
+      self.map = live_overlay(self.fonts)
       self.feed = MapFeed()
     self.map.prepare(self.feed.read(self.ui.sm), placed["width"], placed["height"])
     self.prepared_size = (placed["width"], placed["height"])

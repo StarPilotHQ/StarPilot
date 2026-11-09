@@ -1895,21 +1895,27 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             fields = {'configure': {'patch'}, 'select': {'destination'}, 'selectPlace': {'id', 'searchId'},
                       'cancelSearch': {'searchId'}, 'clear': set(), 'favorite': {'destination'},
                       'favoritePlace': {'id', 'searchId'}, 'removeFavorite': {'id'}, 'labelFavorite': {'id', 'label'},
-                      'removeRecent': {'id'}, 'clearRecents': set(), 'selectRoute': {'index'}}
+                      'removeRecent': {'id'}, 'clearRecents': set(), 'selectRoute': {'index'}, 'testGoogleKey': set(),
+                      'resolveShare': {'text'}}
             action = payload.get('action')
-            optional = {'label'} if action in ('favorite', 'favoritePlace') and 'label' in payload else set()
+            optional = ({'label'} if action in ('favorite', 'favoritePlace') and 'label' in payload else
+                        {'key'} if action == 'testGoogleKey' and 'key' in payload else set())
             if type(action) is not str or action not in fields or set(payload) != {'action', 'revision'} | fields[action] | optional:
               raise ValidationError('Invalid navigation action')
-            needs_park = action == 'configure' and isinstance(payload['patch'], dict) and 'token' in payload['patch']
+            needs_park = action == 'configure' and isinstance(payload['patch'], dict) and bool({'token', 'googleKey'} & payload['patch'].keys())
             def authorized():
               return self.settings_session() == identity and (not needs_park or configuration_allowed())
-            with (nullcontext() if action in ('selectPlace', 'favoritePlace') else effect_lock):
+            with (nullcontext() if action in ('selectPlace', 'favoritePlace', 'testGoogleKey', 'resolveShare') else effect_lock):
               if not authorized():
-                raise PermissionError('Park your car before changing the Mapbox key' if needs_park else 'Sign in to Galaxy')
+                raise PermissionError('Park your car before changing a map key' if needs_park else 'Sign in to Galaxy')
               nav = navigation_owner()
               keywords = {'expected_revision': payload['revision'], 'authorized': authorized}
               if action == 'configure':
                 result = nav.configure(payload['patch'], **keywords)
+              elif action == 'testGoogleKey':
+                result = dict(nav.snapshot(), googleKeyTest=nav.test_google_key(payload.get('key')))
+              elif action == 'resolveShare':
+                result = dict(nav.snapshot(), sharedText=nav.resolve_share(payload['text']))
               elif action == 'selectPlace':
                 result = nav.select_place(payload['id'], payload['searchId'], identity, **keywords)
               elif action == 'cancelSearch':

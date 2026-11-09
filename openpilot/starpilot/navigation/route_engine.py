@@ -4,10 +4,17 @@ from bisect import bisect_right
 from dataclasses import dataclass
 import math
 
+import numpy as np
+
 from openpilot.starpilot.navigation.owner import ValidationError, response_json
 
 EARTH_RADIUS = 6371007.2
 MAX_POINTS = 20000
+PREVIEW_POINTS = 512
+PREVIEW_TOLERANCE_M = 1.0
+HEADING_CHECK_MPS = 8.          # pointing away from the route counts as off it only at road speed, not on ramps or in lots
+SLOW_MPS = 5.
+SLOW_OFF_ROUTE_M = 75.          # slower than SLOW_MPS, the car must be this far from the line to be off it
 
 
 def point(value) -> tuple[float, float]:
@@ -42,6 +49,42 @@ def number(value, maximum=1e8) -> float:
 def modifier(value) -> str:
   return str(value).replace('slight left', 'slightLeft').replace('slight right', 'slightRight').replace(
     'sharp left', 'sharpLeft').replace('sharp right', 'sharpRight')
+
+
+def simplify(points, limit: int = PREVIEW_POINTS, tolerance: float = PREVIEW_TOLERANCE_M) -> list[int]:
+  """Indices of the points that best keep the line's shape (Douglas-Peucker ranking): corners survive, straight runs thin out."""
+  count = len(points)
+  if count <= 2:
+    return list(range(count))
+  xy = np.asarray(points, np.float64)[:, :2]
+  scale = EARTH_RADIUS * math.pi / 180
+  xy = np.column_stack(((xy[:, 0] - xy[0, 0]) * scale * math.cos(math.radians(float(xy[:, 1].mean()))), (xy[:, 1] - xy[0, 1]) * scale))
+  importance = np.zeros(count)
+  importance[0] = importance[-1] = math.inf
+  stack = [(0, count - 1)]
+  while stack:
+    first, last = stack.pop()
+    if last - first < 2:
+      continue
+    a, b = xy[first], xy[last]
+    inner = xy[first + 1:last]
+    direction = b - a
+    length = math.hypot(*direction)
+    if length < 1e-9:
+      deviation = np.hypot(*(inner - a).T)
+    else:
+      deviation = np.abs(direction[0] * (inner[:, 1] - a[1]) - direction[1] * (inner[:, 0] - a[0])) / length
+    index = int(np.argmax(deviation))
+    if deviation[index] <= tolerance:
+      continue
+    split = first + 1 + index
+    importance[split] = deviation[index]
+    stack.append((first, split))
+    stack.append((split, last))
+  ranked = np.flatnonzero(importance > tolerance)
+  if len(ranked) > limit:
+    ranked = np.sort(np.argsort(-importance, kind='stable')[:limit])
+  return [int(i) for i in ranked]
 
 
 @dataclass(frozen=True)
@@ -81,6 +124,7 @@ class Progress:
   next_maneuver: dict
   off_route: bool
   arrived: bool
+  separation: float = 0.
 
 
 class NavigationRoute:
@@ -114,15 +158,12 @@ class NavigationRoute:
       if self.total_distance < 1 or offset < 1:
         raise ValidationError('The route is empty')
       self.starts = [step.start for step in self.steps]
+      self._preview = [{'longitude': self.points[i][0], 'latitude': self.points[i][1]} for i in simplify(self.points)]
     except (KeyError, TypeError, IndexError, AttributeError):
       raise ValidationError('The map service returned an incomplete route') from None
 
   def preview(self) -> list[dict]:
-    stride = max(1, math.ceil((len(self.points) - 1) / 511))
-    points = self.points[::stride]
-    if points[-1] != self.points[-1]:
-      points.append(self.points[-1])
-    return [{'longitude': x, 'latitude': y} for x, y in points]
+    return self._preview
 
   def progress(self, position, speed: float | None, bearing: float | None = None) -> Progress:
     best = (float('inf'), 0., 0)
@@ -152,15 +193,17 @@ class NavigationRoute:
     bucket = min(3, max(0, bisect_right(speeds, threshold_speed) - 1))
     fraction = min(1., max(0., (threshold_speed - speeds[bucket]) / (speeds[bucket + 1] - speeds[bucket])))
     threshold = distances[bucket] + fraction * (distances[bucket + 1] - distances[bucket])
+    if threshold_speed < SLOW_MPS:
+      threshold = max(threshold, SLOW_OFF_ROUTE_M)
     misaligned = False
-    if bearing is not None and known_speed and speed >= 2.5:
+    if bearing is not None and known_speed and speed >= HEADING_CHECK_MPS:
       a, b = self.points[segment], self.points[segment + 1]
       lat1, lat2, delta = math.radians(a[1]), math.radians(b[1]), math.radians(b[0] - a[0])
       direction = math.degrees(math.atan2(math.sin(delta) * math.cos(lat2),
                               math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(delta)))
       misaligned = abs((direction - bearing + 180) % 360 - 180) > 75
     arrived = known_speed and speed < 2 and distance(position, self.points[-1]) < 40 and instruction['remainingDistanceMeters'] < 40
-    return Progress(instruction, next_maneuver, separation > threshold or misaligned, arrived)
+    return Progress(instruction, next_maneuver, separation > threshold or misaligned, arrived, separation)
 
 
 class MapboxRouteEngine:
