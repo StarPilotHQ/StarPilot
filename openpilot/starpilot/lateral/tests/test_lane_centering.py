@@ -738,6 +738,42 @@ class TestSingleLineTracking(unittest.TestCase):
       previous = result.correction
 
 
+class TestTrackingRecovery(unittest.TestCase):
+  def test_planner_recovery_reduces_the_added_nudge(self):
+    from openpilot.starpilot.lateral.lane_clearance import limit_tracking
+    source = observation(model(left=-1.5, right=2.1), base_curvature=.0007,
+                         measured_curvature=.0007, lateral_delay_s=.1)
+    controller = LaneCenteringController()
+    result = controller.update(source)
+    path = controller._tracker.path
+    assert path is not None
+    raw = raw_correction(source.model, 20., 0., 0.)
+    assert raw is not None
+    full = limit_tracking(path, .0007, min(MAX_CORRECTION, raw * .3 * 1.5), .0007, 20., .1)
+    self.assertGreater(result.correction, 0.)
+    self.assertLess(result.correction, full * (1. - math.exp(-.01 / .4)) * .95)
+    assert result.candidate_curvature is not None
+    self.assertAlmostEqual(controller.guard_applied(source.model, .0007, result.candidate_curvature,
+                                                   .0007, 20., .1) - .0007, result.correction, delta=1e-12)
+
+  def test_boundary_approach_preserves_nudge_and_immediate_override(self):
+    from openpilot.starpilot.lateral.lane_clearance import limit_tracking
+    source = observation(model(left=-.9, right=2.7), base_curvature=.0007,
+                         measured_curvature=.0007, lateral_delay_s=.1)
+    controller = LaneCenteringController()
+    result = controller.update(source)
+    path = controller._tracker.path
+    assert path is not None
+    raw = raw_correction(source.model, 20., 0., 0.)
+    assert raw is not None
+    full = limit_tracking(path, .0007, min(MAX_CORRECTION, raw * .3 * 1.5), .0007, 20., .1)
+    expected = min(full * (1. - math.exp(-.01 / .4)), .01 / 20. / 20.)
+    self.assertGreater(result.correction, 0.)
+    self.assertAlmostEqual(result.correction, expected, delta=1e-12)
+    self.assertEqual(controller.update(replace(source, driver_override=True)).correction, 0.)
+    self.assertEqual(controller.update(replace(source, lateral_active=False)).correction, 0.)
+
+
 class TestVehicleClearance(unittest.TestCase):
   def test_required_unknown_body_preserves_nominal_and_clears_retained_state(self):
     from openpilot.starpilot.lateral.lane_clearance import BodyDimensions

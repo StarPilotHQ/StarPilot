@@ -297,7 +297,7 @@ class LaneCenteringController:
       self._correction = 0.0
     return self._result(base, reason)
 
-  def _tracking_correction(self, base: float, correction: float, measured: float, speed: float, delay: float) -> float:
+  def _tracking_correction(self, base: float, correction: float, measured: float, speed: float, delay: float, *, damp_recovery: bool = False) -> float:
     if self._tracker.path is None:
       return correction
     x, y = self._tracker.path
@@ -306,7 +306,9 @@ class LaneCenteringController:
     if self._tracker.side is None and self._tracker.width is not None:
       bound = min(MAX_OFFSET, max(0., self._tracker.width * .5 - MIN_CENTER_TO_LINE))
       offset = clip_scalar(offset, -bound, bound)
-    return limit_tracking((x, y + offset), base, correction, measured, speed, delay)
+    spacing = self._tracker.width * .5 if self._tracker.side is None and self._tracker.width is not None else self._tracker.spacing
+    budget = max(0., spacing - MIN_CENTER_TO_LINE - abs(offset)) if damp_recovery and spacing is not None else 0.
+    return limit_tracking((x, y + offset), base, correction, measured, speed, delay, recovery_budget=budget)
 
   def guard_applied(self, model, base: float, candidate: float, measured: float, speed: float, delay) -> float:
     if self._body_required and (self._body is None or not self._body.valid):
@@ -394,7 +396,7 @@ class LaneCenteringController:
     measured = _finite_number(observation.measured_curvature)
     delay = _finite_number(observation.lateral_delay_s)
     if measured is not None and delay is not None:
-      target = self._tracking_correction(base, target, measured, speed, delay)
+      target = self._tracking_correction(base, target, measured, speed, delay, damp_recovery=True)
     step = (target - self._correction) * (1.0 - math.exp(-dt / ACQUIRE_TAU))
     max_step = MAX_CORRECTION_JERK * dt / speed / speed
     self._correction += clip_scalar(step, -max_step, max_step)
