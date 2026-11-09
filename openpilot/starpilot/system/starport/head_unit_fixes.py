@@ -66,8 +66,43 @@ RULES: tuple[Rule, ...] = (
 )
 
 
+@dataclass(frozen=True)
+class BootstrapFix:
+  """A Wi-Fi setup tweak for whichever receiver is chosen, run only when its experimental toggle is on."""
+  id: str
+  label: str
+  experiment: str                 # the bootstrap experiment it switches on
+  evidence: Evidence
+  status: str = EXPERIMENTAL
+
+
+BOOTSTRAP_FIXES: tuple[BootstrapFix, ...] = (
+  BootstrapFix(id="phone_ping", label="Dongle Wi-Fi setup: ping like a phone", experiment="phone_ping",
+               evidence=Evidence("A Mavlou dongle never sends its Wi-Fi start request to the comma. A phone pings it once a second after its version reply.",
+                                 ("2026-11-03 phone capture", "2026-11-07 sessions 5, 19, 24"), None)),
+)
+
+
 def rule_ids() -> tuple[str, ...]:
   return tuple(rule.id for rule in RULES)
+
+
+def experiment_ids() -> tuple[str, ...]:
+  return rule_ids() + tuple(fix.id for fix in BOOTSTRAP_FIXES)
+
+
+def experimental_entries() -> list[dict]:
+  """Every experimental fix the settings page lists: the car rules, then the device tweaks."""
+  return ([{"id": rule.id, "label": rule.label, "evidence": rule.evidence.failure} for rule in RULES if rule.status == EXPERIMENTAL] +
+          [{"id": fix.id, "label": fix.label, "evidence": fix.evidence.failure} for fix in BOOTSTRAP_FIXES if fix.status == EXPERIMENTAL])
+
+
+def bootstrap_experiment(config: dict) -> str:
+  """The Wi-Fi setup experiment to add, or "". Needs the master switch, the experiments switch and its own toggle."""
+  if not (config.get("head_unit_fixes", True) and config.get("head_unit_experiments")):
+    return ""
+  chosen = config.get("head_unit_experiment_rules") or []
+  return next((fix.experiment for fix in BOOTSTRAP_FIXES if fix.id in chosen), "")
 
 
 def validate_rules(rules: tuple[Rule, ...] = RULES) -> list[str]:

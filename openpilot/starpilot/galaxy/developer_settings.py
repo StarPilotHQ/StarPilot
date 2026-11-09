@@ -73,12 +73,11 @@ class DeveloperSettingsOwner:
       rows.append(FeatureRow(STARPORT_EXPERIMENTS_KEY, "Try experimental fixes", "On" if experiments else "Off",
                              b"1" if experiments else b"0", ("Off", "On"), available=parked,
                              reason=STARPORT_EXPERIMENTS_DESCRIPTION if parked else held, default_value="Off"))
-      for rule in head_unit_fixes.RULES:
-        if rule.status == head_unit_fixes.EXPERIMENTAL:
-          on = rule.id in chosen
-          rows.append(FeatureRow(STARPORT_EXPERIMENT_PREFIX + rule.id, rule.label, "On" if on else "Off", b"1" if on else b"0",
-                                 ("Off", "On"), available=parked, default_value="Off",
-                                 reason=f"Experimental. {rule.evidence.failure} Applies from the next StarPort connection." if parked else held))
+      for entry in head_unit_fixes.experimental_entries():
+        on = entry["id"] in chosen
+        rows.append(FeatureRow(STARPORT_EXPERIMENT_PREFIX + entry["id"], entry["label"], "On" if on else "Off", b"1" if on else b"0",
+                               ("Off", "On"), available=parked, default_value="Off",
+                               reason=f"Experimental. {entry['evidence']} Applies from the next StarPort connection." if parked else held))
     return tuple(rows)
 
   def _driver_monitoring_reset_allowed(self):
@@ -172,7 +171,7 @@ class DeveloperSettingsOwner:
   def _apply_experiment_rule(self, request):
     rule_id = request.key.removeprefix(STARPORT_EXPERIMENT_PREFIX)
     status, client = self._starport_status(), self.starport
-    if status is None or client is None or rule_id not in head_unit_fixes.rule_ids() or not self.authorized():
+    if status is None or client is None or rule_id not in head_unit_fixes.experiment_ids() or not self.authorized():
       return False
     on = rule_id in (status.get("head_unit_experiment_rules") or ())
     if request.value not in ("Off", "On") or request.expected != (b"1" if on else b"0"):

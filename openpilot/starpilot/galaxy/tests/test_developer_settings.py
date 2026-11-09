@@ -273,6 +273,11 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.assertFalse(owner.apply(FeatureSettingsRequest(rule_key, b"0", "On")))  # stale view
     self.assertTrue(owner.apply(FeatureSettingsRequest(rule_key, b"1", "Off")))
     self.assertEqual(service.rules, [])
+    mavlou = STARPORT_EXPERIMENT_PREFIX + "phone_ping"
+    self.assertEqual(rows[keys.index(mavlou)].value, "Off")
+    self.assertTrue(owner.apply(FeatureSettingsRequest(mavlou, b"0", "On")))
+    self.assertEqual(service.rules, ["phone_ping"])
+    self.assertTrue(owner.apply(FeatureSettingsRequest(mavlou, b"1", "Off")))
     self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_EXPERIMENT_PREFIX + "unknown", b"0", "On")))
     self.parked = False
     self.assertFalse(owner.apply(FeatureSettingsRequest(rule_key, b"0", "On")))

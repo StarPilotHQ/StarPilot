@@ -30,3 +30,17 @@ def test_default_bootstrap_sends_no_pings_of_its_own():
   from openpilot.starpilot.system.starport.tests.test_starport import run_bootstrap
   _, _, seen, _ = run_bootstrap(version_first=True)
   assert bs.WIFI_PING_REQUEST not in seen["messages"]
+
+
+def test_unofficial_dongle_profile_and_last_rung_do_not_ping():
+  assert "phone_ping" not in bs.EXPERIMENTS["all"][1]
+
+
+def test_phone_ping_needs_every_switch():
+  from openpilot.starpilot.system.starport import head_unit_fixes as hf
+  on = {"head_unit_fixes": True, "head_unit_experiments": True, "head_unit_experiment_rules": ["phone_ping"]}
+  assert hf.bootstrap_experiment(on) == "phone_ping"
+  assert hf.bootstrap_experiment({**on, "head_unit_fixes": False}) == ""
+  assert hf.bootstrap_experiment({**on, "head_unit_experiments": False}) == ""
+  assert hf.bootstrap_experiment({**on, "head_unit_experiment_rules": []}) == ""
+  assert hf.bootstrap_experiment({"head_unit_fixes": True}) == ""

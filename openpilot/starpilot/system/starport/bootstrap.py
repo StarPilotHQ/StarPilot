@@ -81,7 +81,8 @@ EXPERIMENTS = {
   "start_response_first": ("Answer start request first", {"start_response_first"}),
   "version_endpoint": ("Use version endpoint", {"version_endpoint"}),
   "phone_ping": ("Ping like a phone", {"phone_ping"}),
-  "all": ("All of these", {"start_response_first", "version_endpoint", "phone_ping"}),
+  "all": ("All of these", {"start_response_first", "version_endpoint"}),
+  "all_with_ping": ("All of these and phone ping", {"start_response_first", "version_endpoint", "phone_ping"}),
 }
 # Frames that carry credentials or the vehicle identifier are never dumped as hex.
 HEX_LOG_SKIP = (WIFI_INFO_RESPONSE, WIFI_SETUP_INFO, WIFI_VERSION_REQUEST)

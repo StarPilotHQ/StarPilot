@@ -518,8 +518,7 @@ class Supervisor:
     status["head_unit_fixes"] = bool(self.config["head_unit_fixes"])
     status["head_unit_experiments"] = bool(self.config["head_unit_experiments"])
     status["head_unit_experiment_rules"] = list(self.config["head_unit_experiment_rules"])
-    status["experimental_fixes"] = [{"id": rule.id, "label": rule.label, "evidence": rule.evidence.failure}
-                                    for rule in head_unit_fixes.RULES if rule.status == head_unit_fixes.EXPERIMENTAL]
+    status["experimental_fixes"] = head_unit_fixes.experimental_entries()
     status["fix_suggestion"] = self._fix_suggestion()
     status["car_candidates"] = list(getattr(self, "_candidates", []))[:8]  # paired Android Auto devices to choose between
     status["new_setup"] = new_setup.enabled()
@@ -573,7 +572,7 @@ class Supervisor:
     self.log("head_unit_experiments_selected", enabled=bool(enabled))
 
   def set_head_unit_experiment_rule(self, rule_id: str, enabled: bool) -> bool:
-    if rule_id not in head_unit_fixes.rule_ids():
+    if rule_id not in head_unit_fixes.experiment_ids():
       return False
     with self._lock:
       rules = set(self.config["head_unit_experiment_rules"])
@@ -1647,7 +1646,7 @@ class Supervisor:
       rfcomm = self._connect_rfcomm(address, channel)
       boot = WirelessBootstrap(rfcomm, self._bootstrap_log, device_serial=config["device_name"],
                                version_status=int(config.get("version_status", 0)),
-                               experiment="all" if car_profiles.tuning(config)["bootstrap_experiments"] or strategy.experiments else "",
+                               experiment=self._bootstrap_experiment(strategy),
                                modern_reply=strategy.modern_reply, channel_override=strategy.channel_type,
                                phone_identity=strategy.phone_identity,
                                phone_address=self._adapter_address() if strategy.phone_identity else "",
@@ -2091,6 +2090,14 @@ class Supervisor:
           session.shutdown()
         except Exception:
           pass
+
+  def _bootstrap_experiment(self, strategy) -> str:
+    """The Wi-Fi setup experiment for this attempt: today's choice, plus a phone-style ping when its toggle is on."""
+    base = "all" if car_profiles.tuning(self.config)["bootstrap_experiments"] or strategy.experiments else ""
+    extra = head_unit_fixes.bootstrap_experiment(self.config)
+    if not extra:
+      return base
+    return "all_with_ping" if base == "all" and extra == "phone_ping" else extra
 
   def _choose_fixes(self, head_unit: dict) -> tuple[str, ...]:
     """Called once the car has described itself: the extra channels this car gets this session, or none."""
