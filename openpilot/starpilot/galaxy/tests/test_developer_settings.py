@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from openpilot.starpilot.galaxy.developer_settings import (CALIBRATION_RESET, DRIVER_MONITORING_RESET, STARPORT_EXPERIMENT_PREFIX,
-                                                          STARPORT_EXPERIMENTS_HEADING_KEY, STARPORT_EXPERIMENTS_KEY,
+                                                          STARPORT_EXPERIMENTS_KEY,
                                                           STARPORT_FIXES_KEY, STARPORT_HEADING_KEY, STARPORT_HEVC_KEY,
                                                           STARPORT_NEW_SETUP_KEY, STARPORT_WIFI_KEY, DeveloperSettingsOwner)
 from openpilot.starpilot.galaxy.settings import AuthorityContext, ContextSource, SettingsChanged, SettingsGateway
@@ -256,14 +256,18 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_EXPERIMENTS_KEY, b"0", "On")))
     self.assertTrue(service.experiments)
 
-  def test_specific_car_experiments_group_is_collapsed_and_lists_the_bolt(self):
+  def test_experiment_toggles_appear_only_under_try_experimental_fixes(self):
     service = FakeStarPort()
     owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    keys = [row.key for row in owner.snapshot().rows]
+    self.assertIn(STARPORT_EXPERIMENTS_KEY, keys)
+    self.assertFalse([key for key in keys if key.startswith(STARPORT_EXPERIMENT_PREFIX)])
+    self.assertNotIn("heading:starport_experiments", keys)
+    self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_EXPERIMENTS_KEY, b"0", "On")))
     rows = owner.snapshot().rows
     keys = [row.key for row in rows]
-    heading = rows[keys.index(STARPORT_EXPERIMENTS_HEADING_KEY)]
-    self.assertEqual((heading.label, heading.collapsed, heading.available), ("Specific car experiments", True, False))
-    self.assertEqual(keys[keys.index(STARPORT_EXPERIMENTS_HEADING_KEY) + 1], STARPORT_EXPERIMENTS_KEY)
+    self.assertEqual(keys[keys.index(STARPORT_EXPERIMENTS_KEY) + 1:],
+                     [STARPORT_EXPERIMENT_PREFIX + "gm_mychevrolet_w28e", STARPORT_EXPERIMENT_PREFIX + "phone_ping"])
     rule_key = STARPORT_EXPERIMENT_PREFIX + "gm_mychevrolet_w28e"
     row = rows[keys.index(rule_key)]
     self.assertEqual((row.value, row.default_value, row.available), ("Off", "Off", True))
@@ -286,7 +290,7 @@ class DeveloperSettingsTest(unittest.TestCase):
   def test_experiment_rows_are_hidden_when_the_service_is_off(self):
     keys = [row.key for row in self.owner.snapshot().rows]
     self.assertNotIn(STARPORT_FIXES_KEY, keys)
-    self.assertNotIn(STARPORT_EXPERIMENTS_HEADING_KEY, keys)
+    self.assertNotIn(STARPORT_EXPERIMENTS_KEY, keys)
 
 
 class CalibrationResetSettingsTest(unittest.TestCase):

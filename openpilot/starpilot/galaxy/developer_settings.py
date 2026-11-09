@@ -25,9 +25,8 @@ STARPORT_HEVC_DESCRIPTION = ("Experimental. Only for a car that offers H.265 and
 STARPORT_FIXES_KEY = "StarPortHeadUnitFixes"
 STARPORT_FIXES_DESCRIPTION = ("Lets StarPort adjust how it talks to head units it has learned about. Turn off to use the standard " +
                               "connection for every car. Applies from the next StarPort connection.")
-STARPORT_EXPERIMENTS_HEADING_KEY = HEADING_PREFIX + "starport_experiments"
 STARPORT_EXPERIMENTS_KEY = "StarPortHeadUnitExperiments"
-STARPORT_EXPERIMENTS_DESCRIPTION = ("Allows the experimental fixes below to run. Each one still needs its own switch, and the " +
+STARPORT_EXPERIMENTS_DESCRIPTION = ("Shows experimental fixes for specific cars and dongles. Each one still needs its own switch, and the " +
                                     "car-specific fixes setting must be on. Applies from the next StarPort connection.")
 STARPORT_EXPERIMENT_PREFIX = "StarPortExperiment:"
 DRIVER_MONITORING_RESET = "reset_driver_monitoring"
@@ -69,11 +68,10 @@ class DeveloperSettingsOwner:
       chosen = set(status.get("head_unit_experiment_rules") or ())
       rows.append(FeatureRow(STARPORT_FIXES_KEY, "Car-specific fixes", "On" if fixes else "Off", b"1" if fixes else b"0",
                              ("Off", "On"), available=parked, reason=STARPORT_FIXES_DESCRIPTION if parked else held, default_value="On"))
-      rows.append(FeatureRow(STARPORT_EXPERIMENTS_HEADING_KEY, "Specific car experiments", "", available=False, collapsed=True))
       rows.append(FeatureRow(STARPORT_EXPERIMENTS_KEY, "Try experimental fixes", "On" if experiments else "Off",
                              b"1" if experiments else b"0", ("Off", "On"), available=parked,
                              reason=STARPORT_EXPERIMENTS_DESCRIPTION if parked else held, default_value="Off"))
-      for entry in head_unit_fixes.experimental_entries():
+      for entry in head_unit_fixes.experimental_entries() if experiments else ():
         on = entry["id"] in chosen
         rows.append(FeatureRow(STARPORT_EXPERIMENT_PREFIX + entry["id"], entry["label"], "On" if on else "Off", b"1" if on else b"0",
                                ("Off", "On"), available=parked, default_value="Off",
