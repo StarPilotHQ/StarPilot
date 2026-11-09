@@ -62,6 +62,7 @@ jobs:
         run: >-
           tools/op.sh test
           openpilot/starpilot/flm/tests/test_offroad_backend.py
+          openpilot/starpilot/flm/tests/test_offroad_coordinate_policy.py
           openpilot/starpilot/flm/tests/test_offroad_equal_native_output.py
           --json-output ci-results/flm-offroad.json
       - name: Test completed-drive and steering-result presentation

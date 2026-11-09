@@ -111,7 +111,7 @@ assert.equal(reconciled.history.length, 0, 'The completed assessment must not fa
 assert.equal(reconciled.current.application.applied, false)
 const noStore = structuredClone(reconciled)
 delete noStore.current.details['Saved route configuration state']
-assert.equal(offroadView(noStore).savedValues, null, 'An unqualified proposal must never be labelled a saved tune')
+assert.equal(offroadView(noStore).savedValues, null, 'An unqualified proposal must never be labeled a saved tune')
 const badCurve = structuredClone(reconciled)
 badCurve.current.details['Saved friction-curve adjustments'][0][1] = NaN
 assert.equal(offroadView(badCurve).savedValues.friction_threshold_crawl, undefined)
