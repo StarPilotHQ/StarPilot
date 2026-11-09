@@ -178,7 +178,7 @@ export const SentryNotifications = {
               <p v-if="!nativePush" class="gx-note">App alerts can be set up and managed in the Galaxy app.</p>
               <template v-else>
               <p class="gx-note" role="status">{{ relay ? relayStatus() : notifications.appPushAvailable ? 'Push relay configured.' : 'Configure a push relay to deliver phone alerts.' }}</p>
-              <div v-if="relay && ['unenrolled', 'revoked', 'actionRequired'].includes(relay.state)" class="gx-actions">
+              <div v-if="relay && ['unenrolled', 'revoked'].includes(relay.state)" class="gx-actions">
                 <button type="button" class="gx-btn" :disabled="!relay.automaticConfigured" @click="enableHostedAlerts">Enable alerts</button>
                 <span class="gx-note">{{ relay.automaticConfigured ? 'Sends phone destinations and alert details to the hosted relay.' : 'Hosted alerts are not configured in this release yet.' }}</span>
               </div>
@@ -205,7 +205,7 @@ export const SentryNotifications = {
                 <div class="gx-stack gx-sentry-relay">
                   <template v-if="relay">
                     <dl v-if="relay.installationId" class="gx-details"><dt>Installation ID</dt><dd>{{ relay.installationId }}</dd></dl>
-                    <template v-if="['unenrolled', 'revoked', 'actionRequired'].includes(relay.state)">
+                    <template v-if="['unenrolled', 'revoked'].includes(relay.state)">
                       <div class="gx-sentry-channel__fields">
                         <label>Custom relay address <input v-model="relayUrl" class="gx-field" type="url" autocomplete="off" placeholder="https://your-relay.workers.dev"></label>
                         <label>One-time enrollment code <input v-model="enrollmentCode" class="gx-field" type="password" autocomplete="off"></label>
@@ -213,7 +213,7 @@ export const SentryNotifications = {
                     </template>
                     <label><input type="checkbox" v-model="relayConfirmed"> Tick to enable the buttons below. Enrolling shares your phone destinations and alert details with the relay operator. Forget locally does not revoke a copied credential.</label>
                     <div class="gx-actions">
-                      <button v-if="['unenrolled', 'revoked', 'actionRequired'].includes(relay.state)" type="button" class="gx-btn gx-btn--tonal" :disabled="!relayConfirmed || !relayUrl || !enrollmentCode" @click="enrollRelay">Enroll with custom relay</button>
+                      <button v-if="['unenrolled', 'revoked'].includes(relay.state)" type="button" class="gx-btn gx-btn--tonal" :disabled="!relayConfirmed || !relayUrl || !enrollmentCode" @click="enrollRelay">Enroll with custom relay</button>
                       <button v-if="relay.state === 'enrolled'" type="button" class="gx-btn gx-btn--tonal" :disabled="!relayConfirmed" @click="relayAction('relayRotate')">Rotate credential</button>
                       <button v-if="!['unenrolled', 'revoked'].includes(relay.state)" type="button" class="gx-btn gx-btn--tonal" :disabled="!relayConfirmed" @click="relayAction('relayRevoke')">Revoke relay access</button>
                       <button v-if="relay.state !== 'unenrolled'" type="button" class="gx-btn gx-btn--tonal" :disabled="!relayConfirmed" @click="relayAction('relayForget')">Forget locally</button>

@@ -123,6 +123,22 @@ def test_owner_rejects_silent_enrollment_and_host_changes(tmp_path):
     owner.close()
 
 
+def test_owner_requires_resolving_action_required_relay_before_enrollment(tmp_path):
+  import pytest
+  from types import SimpleNamespace
+  from openpilot.starpilot.sentry_mode.notifications import NotificationOwner
+  owner = NotificationOwner(tmp_path / 'notifications', SimpleNamespace(snapshot=lambda: {'events': []}))
+  try:
+    owner.state['relayEnrollment'] = relay.begin('https://relay.example', 'a' * 64)
+    owner.state['relayEnrollment'].update(state='actionRequired', invitation='')
+    with pytest.raises(ValueError):
+      owner.action({'action': 'relayEnroll', 'confirmed': True})
+    owner.action({'action': 'relayRevoke', 'confirmed': True})
+    assert owner.state['relayEnrollment']['state'] == 'revoking'
+  finally:
+    owner.close()
+
+
 def test_rotation_recovers_after_old_credential_overlap_expired():
   state = relay.begin('https://relay.example', 'a' * 64)
   state.update(state='rotating', invitation='', candidate='b' * 64)

@@ -295,7 +295,7 @@ class NotificationOwner:
         current = self.state['relayEnrollment']
         if automatic and current['state'] in ('enrolling', 'enrolled', 'rotating', 'confirming'):
           return self.snapshot()
-        if current['state'] not in ('unenrolled', 'revoked', 'actionRequired'):
+        if current['state'] not in ('unenrolled', 'revoked'):
           raise ValueError('Revoke or forget the current enrollment first')
         url = DEFAULT_RELAY_URL if automatic else payload['url']
         if not url:
