@@ -1785,7 +1785,8 @@ class SelfdriveD:
     from openpilot.starpilot.car.mazda.aol import physical_cancel_lateral_allowed as mazda_cancel_lateral_allowed
     from openpilot.starpilot.car.ford.aol import physical_cancel_lateral_allowed as ford_cancel_lateral_allowed
     from openpilot.starpilot.car.subaru.aol import sng_standstill_lateral_inhibit
-    from openpilot.starpilot.car.volkswagen.aol import lateral_output_inhibited as volkswagen_lateral_output_inhibited
+    from openpilot.starpilot.car.volkswagen.aol import (lateral_output_inhibited as volkswagen_lateral_output_inhibited,
+                                                         below_engage_lateral_allowed as volkswagen_below_engage_lateral_allowed)
     from openpilot.starpilot.aol.dm import lateral_event_context
     from openpilot.starpilot.car.toyota.legacy_lateral import below_engage_lateral_allowed as toyota_below_engage_lateral_allowed
     retained_dm_lateral, lateral_events = lateral_event_context(self, CS, intent, native, now_ns, ordinary_lag)
@@ -1824,7 +1825,8 @@ class SelfdriveD:
                                                        not self.CP.flags & GMFlags.PEDAL_LONG) or
                              toyota_below_engage_lateral_allowed(self.CP, CS, intent, native,
                                source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns,
-                               axis_session_id=getattr(self, 'aol_session_id', ''))),
+                               axis_session_id=getattr(self, 'aol_session_id', '')) or
+                             volkswagen_below_engage_lateral_allowed(self.CP, CS, intent)),
       immediate_disable=self.events.contains(ET.IMMEDIATE_DISABLE),
       dm_lockout=bool(not self.sm.all_checks(['driverMonitoringState']) or
                       not retained_dm_lateral and (self.sm['driverMonitoringState'].lockout or
@@ -1880,7 +1882,9 @@ class SelfdriveD:
     ordinary_ford = bool(self.CP.brand == 'ford' and self.CP.openpilotLongitudinalControl and self.CP.safetyConfigs and
       ford_native_accepts_cp(self.CP, int(car.CarParams.SafetyModel.ford), self.CP.safetyConfigs[-1].safetyParam))
     # Driver steering does not invalidate a still-current native LAT grant.
-    steering_override_allowed = ordinary_ford or self.CP.brand == 'hyundai'
+    from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
+    steering_override_allowed = (ordinary_ford or self.CP.brand == 'hyundai' or
+                                 volkswagen_long_qualified(self.CP, marked_only=True))
     proof = getattr(self, 'aol_published_input_proof', None)
     prior = getattr(self, 'aol_published_input_native', None)
     anchor = getattr(self, 'aol_ordinary_source_anchor', None)

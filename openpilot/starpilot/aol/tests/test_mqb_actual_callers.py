@@ -31,7 +31,7 @@ from openpilot.starpilot.aol.tests.stock_lateral_test_helpers import authority_c
 @pytest.mark.parametrize('fixed', (False,))
 def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, offset, fixed, engage_on_set,
                                                                stop_and_resume=False, candidate=CAR.VOLKSWAGEN_GOLF_MK7,
-                                                               brake_held_engagement=False):
+                                                               brake_held_engagement=False, creep_start=False, early_brake=False):
   with ExitStack() as cleanup:
     cleanup.enter_context(OpenpilotPrefix())
     cleanup.enter_context(mock.patch.dict('os.environ', {'SIMULATION': '0', 'AOL_REPLAY_RUNTIME': '1'}))
@@ -116,7 +116,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
     # Explicit ambient producers added since the original shared caller fixture.
     # Keep production SubMaster health/frequency checks; never ignore a required service.
     from openpilot.cereal.services import SERVICE_LIST
-    ambient_services = ('alertDebug', 'lateralManeuverPlan', 'laneChangeAssistWire',
+    ambient_services = ('laneChangeAssistWire',
                         'starpilotLongitudinalPlan', 'slcState', 'gpsLocation')
     original_sd_update = sd.sm.update_msgs
     ambient_due = {}
@@ -156,6 +156,8 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
     for tick in range(120):
       now = 10_000_000_000 + tick * 10_000_000
       native.set_timer(1_000_000 + tick * 10_000)
+      if creep_start and tick >= 12:
+        native.set_aol_test_heartbeat(bool(card.aol_card_intent.allowed_latch or request))
       if quiet is not None:
         quiet.set_timer(1_000_000 + tick * 10_000)
         quiet.safety_tick()
@@ -163,12 +165,12 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         assert not quiet.get_controls_allowed()
         assert native.get_current_safety_mode() != quiet.get_current_safety_mode()
 
-      brake = 65 <= tick < 75 or (brake_held_engagement and tick < 29)
+      brake = (60 if early_brake else 65) <= tick < 75 or (brake_held_engagement and tick < 29)
       reverse = 85 <= tick < 95
       ordinary = engage_on_set and 21 <= tick < 65
       overrides = {
         'TSK_06': {'TSK_Status': 3 if ordinary and not alpha else 2},
-        'LH_EPS_03': {'EPS_HCA_Status': 3, 'EPS_Lenkmoment': 0},
+        'LH_EPS_03': {'EPS_HCA_Status': 3, 'EPS_Lenkmoment': 100 if early_brake and 52 <= tick <= 61 else 0},
         'Motor_20': {'MO_Fahrpedalrohwert_01': 0},
         'Motor_14': {'MO_Fahrer_bremst': int(brake), 'MO_Kuppl_schalter': 0},
         'ESP_05': {'ESP_Fahrer_bremst': int(brake)},
@@ -176,9 +178,10 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         'Gateway_72': {'BCM1_Rueckfahrlicht_Schalter': int(reverse)},
         'Motor_EV_01': {'MO_Waehlpos': 3 if reverse else 5},
         'ESP_19': dict.fromkeys(('ESP_VL_Radgeschw_02', 'ESP_VR_Radgeschw_02', 'ESP_HL_Radgeschw_02', 'ESP_HR_Radgeschw_02'),
+                                      (72 if tick < 12 else 0 if tick < 20 else 1 if tick < 24 else 2 if tick < 46 else 72) if creep_start else
                                       0 if (stop_and_resume and 45 <= tick < 56) or (brake_held_engagement and tick < 30) else 72),
         'Airbag_02': {'AB_Gurtschloss_FA': 0 if 105 <= tick < 111 else 3},
-        'GRA_ACC_01': {'GRA_Hauptschalter': 1, 'GRA_Tip_Setzen': int(engage_on_set and tick == 20)},
+        'GRA_ACC_01': {'GRA_Hauptschalter': 1, 'GRA_Tip_Setzen': int(engage_on_set and (tick in (20, 50) if creep_start else tick == 20))},
         'ACC_02': {'ACC_Gesetzte_Zeitluecke': 1},
       }
       incoming = []
@@ -196,6 +199,9 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
       native.safety_tick()
       native.aol_set_host_request(request)
       permission = native.aol_get_permission_mask()
+      if early_brake and tick == 60:
+        incoming = [(address, data, bus) for address, data, bus in incoming if address not in (0x106, 0x3BE)]
+        assert not native.get_controls_allowed() and not permission & 2
       original_message = messaging.new_message
       def clocked_card_message(*args, original_message=original_message, now=now, **kwargs):
         message = original_message(*args, **kwargs)
@@ -218,6 +224,11 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         allowed=bool(permission & 1), long_allowed=bool(permission & 2),
         native_request_lat=bool(request & 1), native_request_long=bool(request & 2),
         panda_controls_allowed=native.get_controls_allowed())
+      if early_brake and tick == 60:
+        assert not state.brakePressed and state.steeringPressed
+        assert log.OnroadEvent.EventName.controlsMismatch not in sd.events.names, 'VW_EARLY_BRAKE_STEERING_MISMATCH'
+        assert not command.longActive
+        assert card.aol_card_intent.allowed_latch
       if brake_held_engagement and 22 <= tick < 29:
         assert state.standstill and state.brakePressed
         assert selfdrive.state == log.SelfdriveState.OpenpilotState.preEnabled
@@ -262,6 +273,9 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
       emitted.extend(sent)
       lat_commands.append(command.latActive)
       long_commands.append(command.longActive)
+    if creep_start:
+      assert any(lat_commands[35:45]), 'AOL must request and obtain native steering below the manual long-enable speed'
+      assert not any(long_commands[:46]), 'Creep AOL must not enable longitudinal below its independent minimum'
     assert any(lat_commands[35:60])
     assert any(lat_commands[76:84])  # braking released long, not qualified lateral intent
     assert not any(lat_commands[86:95])
@@ -270,7 +284,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
     assert not any(long_commands[66:])  # no automatic longitudinal restoration
     assert emitted
     if alpha and engage_on_set:
-      assert any(long_commands[35:60])
+      assert any(long_commands[50:65] if creep_start else long_commands[35:60])
     else:
       assert not any(long_commands)
 
@@ -286,4 +300,51 @@ def test_mqb_stop_pauses_only_lateral_and_recovers_without_mismatch(gearbox, alp
 def test_mqb_brake_held_engagement_waits_for_release_actual_callers(gearbox):
   test_mqb_full_engagement_brake_reverse_drive_actual_callers(
     gearbox, True, 0, False, True, brake_held_engagement=True,
+    candidate=CAR.SEAT_ATECA_MK1 if gearbox == 'automatic' else CAR.VOLKSWAGEN_GOLF_MK7)
+
+
+@pytest.mark.parametrize('offset,fixed', [(0, False), (0, True), (4, False), (4, True)])
+def test_mqb_manual_alpha_stopped_creep_preserves_native_arm_and_fresh_speed_engagement(offset, fixed):
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    'manual', True, offset, fixed, True, creep_start=True)
+
+
+@pytest.mark.parametrize('veto', ('none', 'can', 'timeout', 'temporary', 'permanent', 'main', 'reverse', 'latch', 'pause', 'automatic', 'stock'))
+def test_manual_cruise_minimum_exception_retains_physical_and_intent_vetoes(veto):
+  from types import SimpleNamespace
+  from openpilot.starpilot.car.volkswagen.aol import below_engage_lateral_allowed
+  from openpilot.starpilot.aol.vehicle import policy_for
+  fp = {bus: {} for bus in range(8)}
+  fp[1][0xFD] = 8
+  cp = CarInterface.get_params(CAR.VOLKSWAGEN_GOLF_MK7, fp, [], True, False, False)
+  policy = policy_for(cp)
+  cp.safetyConfigs[-1].safetyParam |= policy.safety_param_addition
+  cp.alternativeExperience |= policy.alternative_experience_addition
+  state = structs.CarState(canValid=True, gearShifter=structs.CarState.GearShifter.drive)
+  state.cruiseState.available = True
+  intent = SimpleNamespace(allowedLatch=True, pauseLateral=False)
+  if veto in ('can', 'timeout', 'temporary', 'permanent'):
+    setattr(state, {'can': 'canValid', 'timeout': 'canTimeout', 'temporary': 'steerFaultTemporary',
+                    'permanent': 'steerFaultPermanent'}[veto], veto != 'can')
+  elif veto == 'main':
+    state.cruiseState.available = False
+  elif veto == 'reverse':
+    state.gearShifter = structs.CarState.GearShifter.reverse
+  elif veto == 'latch':
+    intent.allowedLatch = False
+  elif veto == 'pause':
+    intent.pauseLateral = True
+  elif veto == 'automatic':
+    cp.transmissionType = structs.CarParams.TransmissionType.automatic
+    cp.safetyConfigs[-1].safetyParam = 9
+  elif veto == 'stock':
+    cp.openpilotLongitudinalControl, cp.pcmCruise = False, True
+    cp.safetyConfigs[-1].safetyParam = 24
+  assert below_engage_lateral_allowed(cp, state, intent) is (veto == 'none')
+
+
+@pytest.mark.parametrize('gearbox', ('automatic', 'manual', 'direct'))
+def test_native_brake_precedes_parsed_pedal_during_driver_steering(gearbox):
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    gearbox, True, 0, False, True, early_brake=True,
     candidate=CAR.SEAT_ATECA_MK1 if gearbox == 'automatic' else CAR.VOLKSWAGEN_GOLF_MK7)
