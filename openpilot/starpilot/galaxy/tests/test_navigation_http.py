@@ -169,10 +169,13 @@ class NavigationHttpTest(unittest.TestCase):
     status, body, _ = self.action('configure', patch={'googleKey': key, 'mapProvider': 'google'})
     self.assertEqual((status, body['hasGoogleKey'], body['mapProvider']), (200, True, 'google'))
     self.assertNotIn(key, json.dumps(self.request('/api/navigation/status', cookie=self.local_cookie)[1]))
-    with patch('openpilot.starpilot.navigation.google_tiles.test_key', return_value={'ok': False, 'message': 'Billing is off'}) as tested:
+    with (patch('openpilot.starpilot.navigation.google_tiles.test_key', return_value={'ok': False, 'message': 'Billing is off'}) as tested,
+          patch('openpilot.starpilot.navigation.google_routes.test_routes', return_value={'ok': True, 'failure': None, 'message': 'routes'}),
+          patch('openpilot.starpilot.navigation.google_places.test_places', return_value={'ok': True, 'failure': None, 'message': 'places'})):
       self.parked = False
       status, body, _ = self.action('testGoogleKey')
       self.assertEqual((status, body['googleKeyTest']['message'], body['hasGoogleKey']), (200, 'Billing is off', True))
+      self.assertEqual((body['googleKeyTest']['routes']['ok'], body['googleKeyTest']['places']['message']), (True, 'places'))
       self.assertEqual(self.action('testGoogleKey', key='AIzaSyOtherKey_0123456789abcdefgh')[0], 200)
     self.assertEqual([call.args[0] for call in tested.call_args_list], [key, 'AIzaSyOtherKey_0123456789abcdefgh'])
     self.assertEqual(self.action('testGoogleKey', key='bad key')[0], 400)
@@ -185,6 +188,33 @@ class NavigationHttpTest(unittest.TestCase):
     self.assertIn('revision', body)
     resolved.assert_called_once_with('Bellagio https://maps.app.goo.gl/abc123')
     self.assertEqual(self.action('resolveShare')[0], 400)
+
+  def test_shared_place_turns_navigation_on_and_starts_the_route(self):
+    self.assertEqual(self.action('share', text='geo:40.5,-89.5')[1], {'error': 'Add your Mapbox access token first'})
+    self.navigation.configure({'token': 'pk.test'}, self.navigation.read()['revision'], True)
+    self.assertFalse(self.navigation.snapshot()['enabled'])
+    status, body, _ = self.action('share', remote=True, text='https://www.google.com/maps/place/Bellagio/data=!3d36.1126!4d-115.1767')
+    self.assertEqual(status, 200)
+    self.assertEqual(body['shared'], {'name': 'Bellagio', 'latitude': 36.1126, 'longitude': -115.1767})
+    self.assertTrue(body['enabled'] and body['hasKey'])
+    self.assertEqual((body['destination']['latitude'], body['revision']), (36.1126, self.navigation.snapshot()['revision']))
+    self.assertNotIn('pk.test', json.dumps(body))
+    feature = {'features': [{'properties': {'name': '3600 S Las Vegas Blvd', 'full_address': '3600 S Las Vegas Blvd, Las Vegas, NV'},
+                             'geometry': {'coordinates': [-115.17, 36.11]}}]}
+    with patch('openpilot.starpilot.navigation.owner.response_json', return_value=feature) as geocode:
+      status, body, _ = self.action('share', text='https://www.google.com/maps/place/Bellagio,+3600+S+Las+Vegas+Blvd,+Las+Vegas,+NV/data=!4m2!3m1!1s0x1:0x2')
+    self.assertEqual((status, body['shared']), (200, {'name': 'Bellagio', 'latitude': 36.11, 'longitude': -115.17}))
+    self.assertEqual(geocode.call_args.args[2]['q'], '3600 S Las Vegas Blvd, Las Vegas, NV')
+    with patch('openpilot.starpilot.navigation.owner.response_json', return_value={'features': []}):
+      self.assertEqual(self.action('share', text='https://maps.google.com/?q=Nowhere,+Atlantis')[1],
+                       {'error': 'No map location found for Nowhere', 'query': 'Nowhere, Atlantis'})
+    self.assertEqual(self.action('share', text='Starbucks')[:2], (400, {'error': 'Open StarPilot to search for Starbucks', 'query': 'Starbucks'}))
+    revision = self.navigation.read()['revision']
+    stale = {'action': 'share', 'revision': '0', 'text': 'geo:40.5,-89.5'}
+    self.assertEqual(self.request('/api/navigation/action', payload=stale, cookie=self.local_cookie)[0], 409)
+    self.assertEqual(self.navigation.read()['revision'], revision)
+    self.assertEqual(self.action('share')[0], 400)
+    self.assertNotIn('query', self.action('share', text='x' * 8193)[1])
 
   def test_stale_or_invalid_actions_never_overwrite_configuration(self):
     self.action('configure', patch={'enabled': True})
@@ -232,6 +262,27 @@ class NavigationHttpTest(unittest.TestCase):
     self.assertEqual(self.action('removeRecent',id=place)[1]['recents'],[])
     self.assertEqual(self.action('clearRecents')[1]['recents'],[])
     self.assertEqual(self.action('removeFavorite',id=place)[1]['favorites'],[])
+
+  def test_search_names_the_provider_that_found_the_places(self):
+    self.action('configure', patch={'token':'pk.synthetic','enabled':True})
+    def search():
+      return {'query':'bellagio', 'searchId':str(uuid.uuid4()), 'clientId':str(uuid.uuid4())}
+    suggestion = {'suggestions':[{'mapbox_id':'poi/id','name':'Coffee Shop','feature_type':'poi'}]}
+    with patch('openpilot.starpilot.navigation.owner.response_json', return_value=suggestion):
+      self.assertEqual(self.request('/api/navigation/search',payload=search(),cookie=self.local_cookie)[1]['provider'], 'mapbox')
+    key = 'AIzaSyFixtureKey_0123456789abcdef'
+    self.action('configure', patch={'googleKey':key, 'routeProvider':'google'})
+    found = [{'name':'Bellagio','address':'3600 S Las Vegas Blvd','latitude':36.1126,'longitude':-115.1767}]
+    with patch('openpilot.starpilot.navigation.google_places.text_search', return_value=found) as google:
+      status, result, _ = self.request('/api/navigation/search',payload=search(),cookie=self.local_cookie)
+    self.assertEqual((status, result['provider'], result['results'][0]['name']), (200, 'google', 'Bellagio'))
+    self.assertNotIn('searchId', result['results'][0])
+    self.assertEqual(google.call_args.args[1], key)
+    self.assertNotIn(key, json.dumps(result))
+    from openpilot.starpilot.navigation.google_places import GooglePlacesFailed
+    with (patch('openpilot.starpilot.navigation.google_places.text_search', side_effect=GooglePlacesFailed('budget')),
+          patch('openpilot.starpilot.navigation.owner.response_json', return_value=suggestion)):
+      self.assertEqual(self.request('/api/navigation/search',payload=search(),cookie=self.local_cookie)[1]['provider'], 'mapbox')
 
   def test_temporary_search_result_cannot_be_saved(self):
     self.action('configure', patch={'token':'pk.synthetic','enabled':True})

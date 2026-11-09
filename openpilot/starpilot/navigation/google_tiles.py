@@ -72,13 +72,16 @@ def _wall() -> float:
   return time.time()  # noqa: TID251 - expiry and calendar days are wall-clock
 
 
-def session_body(language: str = "en-US", region: str = "US") -> dict:
-  return {"mapType": "roadmap", "language": language, "region": region, "imageFormat": "png", "layerTypes": ["layerTraffic"],
-          "styles": DARK_STYLE}
+def session_body(language: str = "en-US", region: str = "US", theme: str = "dark") -> dict:
+  body = {"mapType": "roadmap", "language": language, "region": region, "imageFormat": "png", "layerTypes": ["layerTraffic"]}
+  if theme != "light":
+    body["styles"] = DARK_STYLE
+  return body
 
 
-def key_digest(api_key: str) -> str:
-  return hashlib.sha256(f"{api_key}\n{STYLE_VERSION}".encode()).hexdigest()[:24]
+def key_digest(api_key: str, theme: str = "dark") -> str:
+  suffix = "\nlight" if theme == "light" else ""
+  return hashlib.sha256(f"{api_key}\n{STYLE_VERSION}{suffix}".encode()).hexdigest()[:24]
 
 
 # ---------------------------------------------------------------- planning
@@ -297,9 +300,9 @@ def classify(status: int, body: bytes) -> str | None:
 
 
 MESSAGES = {
-  FAILURE_KEY: "Google rejected the key. Check that it was copied whole and that its restrictions allow the Map Tiles API.",
+  FAILURE_KEY: "Google rejected the key for the Map Tiles API. Check that it was copied whole and that its API restrictions allow the Map Tiles API.",
   FAILURE_BILLING: "Billing is not turned on for this Google Cloud project. Add a billing account, then test again.",
-  FAILURE_DISABLED: "The Map Tiles API is not enabled for this key's project. Enable it in Google Cloud, then test again.",
+  FAILURE_DISABLED: "The Map Tiles API is off for this key. Enable it in Google Cloud and allow it in the key's API restrictions, then test again.",
   FAILURE_SERVER: "Google is busy or refused the request. Try again in a minute.",
   FAILURE_NETWORK: "The comma could not reach Google. Check its internet connection.",
   FAILURE_BUDGET: "This month's or today's free Google tiles are used up. The map uses Mapbox road lines until they reset.",
@@ -307,8 +310,8 @@ MESSAGES = {
 }
 
 
-def _post_session(http, api_key: str, timeout=REQUEST_TIMEOUT) -> tuple[int, bytes]:
-  with http.post(SESSION_URL, json=session_body(), headers={"X-Goog-Api-Key": api_key}, timeout=timeout, stream=True) as response:
+def _post_session(http, api_key: str, timeout=REQUEST_TIMEOUT, theme: str = "dark") -> tuple[int, bytes]:
+  with http.post(SESSION_URL, json=session_body(theme=theme), headers={"X-Goog-Api-Key": api_key}, timeout=timeout, stream=True) as response:
     return response.status_code, _body(response, 64 * 1024)
 
 
@@ -366,6 +369,52 @@ def viewport_copyright(http, api_key: str, session: str, position: tuple[float, 
     return ""
   text = value.get("copyright") if isinstance(value, dict) else None
   return " ".join(text.split())[:160] if isinstance(text, str) else ""
+
+
+def fetch_tile(api_key: str, z: int, x: int, y: int, theme: str = "dark", *, http=requests, root: Path | None = None,
+               wall: Callable[[], float] = _wall) -> bytes:
+  """One 2D Google map tile for Galaxy's preview map, sharing the disk store and free-allowance budget."""
+  root = Path(root) if root is not None else google_root()
+  store = GoogleTileStore(root)
+  budget = GoogleBudget(root, wall)
+  digest = key_digest(api_key, theme)
+  key = TileKey(z, x, y)
+  now = wall()
+  cached = store.read(digest, key, now)
+  if cached is not None:
+    return cached
+  session_file = root / ("session.json" if theme != "light" else "session-light.json")
+  saved = read_json(session_file, 4096)
+  session = None
+  if isinstance(saved, dict) and saved.get("digest") == digest:
+    try:
+      if float(saved["expiry"]) - now > SESSION_RENEW_S and isinstance(saved["session"], str):
+        session = saved["session"]
+    except (KeyError, TypeError, ValueError):
+      pass
+  if session is None:
+    status, body = _post_session(http, api_key, REQUEST_TIMEOUT, theme=theme)
+    failure = classify(status, body)
+    if failure is not None:
+      raise ValueError(MESSAGES[failure])
+    parsed = dict(parse_session(body, now), digest=digest)
+    root.mkdir(parents=True, exist_ok=True)
+    _write_atomic(session_file, parsed, 0o600)
+    session = parsed["session"]
+  if not budget.spend():
+    raise ValueError(MESSAGES[FAILURE_BUDGET])
+  with http.get(TILE_URL.format(z=z, x=x, y=y), params={"session": session}, headers={"X-Goog-Api-Key": api_key},
+                timeout=REQUEST_TIMEOUT, stream=True) as response:
+    status, body, lifetime = response.status_code, _body(response, MAX_TILE_BYTES), cache_lifetime(response.headers)
+  failure = classify(status, body)
+  if failure is not None:
+    if failure in (FAILURE_KEY, FAILURE_BILLING, FAILURE_DISABLED):
+      session_file.unlink(missing_ok=True)
+    raise ValueError(MESSAGES[failure])
+  if not body or not body.startswith(b"\x89PNG\r\n\x1a\n"):
+    raise ValueError(MESSAGES[FAILURE_SERVER])
+  store.write(digest, key, body, lifetime, now)
+  return body
 
 
 # ---------------------------------------------------------------- navtilesd's side

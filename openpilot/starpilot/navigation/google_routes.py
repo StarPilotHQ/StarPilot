@@ -44,9 +44,9 @@ MANEUVERS = {
 
 
 MESSAGES = {
-  "key": "Google rejected the key for routing. Check that its restrictions allow the Routes API.",
+  "key": "Google rejected the key for the Routes API. Check that it was copied whole and that its API restrictions allow the Routes API.",
   "billing": "Billing is not turned on for this Google Cloud project. Add a billing account, then test again.",
-  "disabled": "The Routes API is not enabled for this key's project. Enable it in Google Cloud, then test again.",
+  "disabled": "The Routes API is off for this key. Enable it in Google Cloud and allow it in the key's API restrictions, then test again.",
   FAILURE_SERVER: "Google could not find a route just now, so Mapbox routed this trip.",
   FAILURE_NETWORK: "The comma could not reach Google, so Mapbox routed this trip.",
   FAILURE_BUDGET: "This month's free Google routes are used up. Mapbox routes until they reset.",
@@ -244,7 +244,7 @@ def test_routes(key: str, http=requests, budget: GoogleBudget | None = None) -> 
   """One short free (Essentials) route, the same request a trip starts with."""
   budget = budget or essentials_budget(google_root())
   if not budget.spend():
-    return {"ok": False, "message": MESSAGES[FAILURE_BUDGET]}
+    return {"ok": False, "failure": FAILURE_BUDGET, "message": MESSAGES[FAILURE_BUDGET]}
   body = request_body((-122.0840, 37.4220), {"latitude": 37.4275, "longitude": -122.1697}, None, (), alternatives=False)
   try:
     compute_routes(http, key, body, TEST_TIMEOUT)
@@ -252,5 +252,5 @@ def test_routes(key: str, http=requests, budget: GoogleBudget | None = None) -> 
     message = MESSAGES.get(error.failure, MESSAGES[FAILURE_SERVER])
     if error.failure in (FAILURE_SERVER, FAILURE_NETWORK):
       message = message.split(", so")[0] + "."
-    return {"ok": False, "message": message}
-  return {"ok": True, "message": "Google routing works with this key."}
+    return {"ok": False, "failure": error.failure, "message": message}
+  return {"ok": True, "failure": None, "message": "Google routing works with this key."}

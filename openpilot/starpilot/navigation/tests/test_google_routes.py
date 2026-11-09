@@ -176,7 +176,7 @@ def test_key_test_reports_routes_plainly(tmp_path):
   assert http.calls[0][1]["json"]["routingPreference"] == "TRAFFIC_UNAWARE"
   failed = gr.test_routes(KEY, Http(error=requests.Timeout()), budget(tmp_path))
   assert not failed["ok"] and "Mapbox" not in failed["message"]
-  assert "Routes API is not enabled" in gr.test_routes(KEY, Http(403, b"SERVICE_DISABLED"), budget(tmp_path))["message"]
+  assert "Routes API is off" in gr.test_routes(KEY, Http(403, b"SERVICE_DISABLED"), budget(tmp_path))["message"]
 
 
 def google_runtime(tmp_path, google_fetch):
