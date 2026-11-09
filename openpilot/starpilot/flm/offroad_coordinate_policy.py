@@ -8,6 +8,28 @@ from openpilot.starpilot.flm.offroad_store import MAX_ROUTE_STEP
 from openpilot.starpilot.flm.offroad_surface import route_bounds, route_values
 
 
+def recorded_observation(bucket, direction, peak_score, speed_mps):
+  """Put the pinned classifier's unlike score units on one severity scale.
+
+  Turn/tracking scores are acceleration errors; chatter already uses ratios.
+  These are the existing classifier thresholds, not new event acceptance
+  limits. Classification, independent support and native checks are unchanged.
+  """
+  if (
+    type(peak_score) not in (int, float) or not math.isfinite(peak_score) or peak_score < 0
+    or type(speed_mps) not in (int, float) or not math.isfinite(speed_mps) or speed_mps < 0
+  ):
+    raise ValueError('Actual finite classifier score and speed required')
+  scale = {
+    'understeer': 0.20, 'oversteer': 0.20,
+    'late_turn_in': 0.16, 'early_turn_in': 0.16,
+    'unwind_too_slow': 0.14, 'unwind_too_fast': 0.14,
+    'low_speed_unwillingness': 0.18,
+  }.get(bucket, 1.0)
+  return {'bucket': bucket, 'direction': direction, 'severity': peak_score / scale, 'speed_mps': speed_mps,
+          'raw_peak_score': peak_score, 'score_scale': scale, 'severity_units': 'classifier_threshold_multiple'}
+
+
 def _symptom_steps(summary, previous):
   bucket, side = summary['bucket'], summary['direction']
   speed = summary.get('speed_mps')

@@ -2474,5 +2474,32 @@ class TestShortTurnProposalCoverage(unittest.TestCase):
     self.assertEqual(self.dispatch(overlap=True), [('profile', '2:both:center'), ('profile', '2:left:turn_in'), ('training', '2:both:center')])
 
 
+class TestRecordedProposalScoreUnits(unittest.TestCase):
+  def test_real_classifier_score_keeps_measurement_units_and_uses_dimensionless_strength(self):
+    from openpilot.starpilot.flm.offroad_stable_policy import FLMSample, classify_current_stable
+    from openpilot.starpilot.flm.offroad_coordinate_policy import recorded_observation, coordinate_candidates
+
+    # Declared signal, not a road or acceptance claim. Use the actual classifier
+    # so its m/s^2 peak cannot be mistaken for an already-normalized severity.
+    samples = [FLMSample('declared-score-units', 0, i / 10, 20.0, True, False, False,
+      0.75, 1.0, 0.0, -0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 5.0, 0.0, 0.0, 0.0, 0.0) for i in range(60)]
+    summaries, _ = classify_current_stable(samples)
+    event = next(s for s in summaries if s['bucket'] == 'understeer')['events'][0]
+    self.assertEqual(event['peakScore'], 0.25)
+    observed = recorded_observation('understeer', event['direction'], event['peakScore'], 20.0)
+    self.assertEqual(observed['raw_peak_score'], 0.25)
+    self.assertEqual(observed['severity'], 1.25)
+    candidates = coordinate_candidates([(str(i), observed) for i in range(3)], values())
+    self.assertEqual(len(candidates), 1)
+    self.assertEqual(candidates[0]['parameter'], 'stable:ff_gain_left')
+    self.assertAlmostEqual(candidates[0]['delta'], 0.006)
+    self.assertLessEqual(abs(candidates[0]['delta']), 0.01)
+    chatter = recorded_observation('center_chatter', 'center', 0.8, 25.0)
+    self.assertEqual(chatter['severity'], 0.8, 'Already normalized chatter must keep its original strength')
+    for score in (float('nan'), float('inf'), -1, True):
+      with self.subTest(score=score), self.assertRaises(ValueError):
+        recorded_observation('understeer', 'left', score, 20.0)
+
+
 if __name__ == '__main__':
   unittest.main()

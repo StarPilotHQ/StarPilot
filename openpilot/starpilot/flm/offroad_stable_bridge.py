@@ -219,6 +219,8 @@ class StableRouteSelector:
     selected = []
     unavailable = []
     observations = []
+    from openpilot.starpilot.flm.offroad_coordinate_policy import coordinate_candidates, recorded_observation
+
     for key in windows:
       values = rows[key]
       assert values is not None
@@ -227,10 +229,9 @@ class StableRouteSelector:
         for summary in summaries:
           for event in summary['events']:
             event_samples = run[event['startIdx']:event['endIdx'] + 1]
-            observations.append((key, {
-              'bucket': summary['bucket'], 'direction': event['direction'], 'severity': event['peakScore'],
-              'speed_mps': fmean(sample.v_ego for sample in event_samples),
-            }))
+            observations.append((key, recorded_observation(
+              summary['bucket'], event['direction'], event['peakScore'], fmean(sample.v_ego for sample in event_samples),
+            )))
           # Capability-based exclusions affect proposals only. No scored
           # window is discarded; ALL original spans go to the native checker.
           if summary['bucket'] == 'saturation_limited':
@@ -251,8 +252,6 @@ class StableRouteSelector:
     if recommended is not None:
       recommended['frictionCurveUnits'] = 'relative_actual_selected_threshold'
     report = {'original_windows': windows, 'supported_dimensions': len(selected), 'unavailable_dimensions': unavailable, 'profile': recommended}
-    from openpilot.starpilot.flm.offroad_coordinate_policy import coordinate_candidates
-
     report['coordinate_candidates'] = coordinate_candidates(observations, self.previous)
     if recommended is None:
       mapped = None
