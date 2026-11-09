@@ -45,13 +45,16 @@ class CarController(CarControllerBase):
     # Under the GEN2 AOL policy panda refuses nonzero torque while stopped, and the host
     # only hears of it about 60 ms later through latActive. The TI2 pauses for 10 s when
     # 0x249 stops for about 50 ms, so release in this frame: panda always accepts zero.
-    if CC.latActive and not (CS.out.standstill and gen2_qualified(self.CP, marked_only=True)):
+    steer_requested = CC.latActive and not (CS.out.standstill and gen2_qualified(self.CP, marked_only=True))
+
+    if CC.latActive:
       # calculate steer and also set limits due to driver torque
       new_torque = int(round(CC.actuators.torque * self.ccp.STEER_MAX))
       if _projection is not None:
         _projection.input(new_torque, self.ccp.STEER_MAX, self.apply_torque_last, CS.out.steeringTorque, self.ccp, limiter='driver')
-      apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
-                                                      CS.out.steeringTorque, self.ccp)
+      if steer_requested:
+        apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
+                                                        CS.out.steeringTorque, self.ccp)
       if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR:
         if CS.ti_lkas_allowed:
           ti_new_torque = int(round(CC.actuators.torque * self.ccp.STEER_MAX))
@@ -188,7 +191,7 @@ class CarController(CarControllerBase):
       # cruise-button or HUD packet must not be mislabeled as such)
       if self.CP.flags & (MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.GEN3):
         if can_sends[-1][0] == 0x249:
-          _projection.emit('mazda.EPS_LKAS', apply_torque, CC.latActive, can_sends[-1])
+          _projection.emit('mazda.EPS_LKAS', apply_torque, steer_requested, can_sends[-1])
       elif not (self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR) and can_sends[-1][0] == 0x243:
         _projection.emit('mazda.CAM_LKAS', apply_torque, CC.latActive, can_sends[-1])
       # GEN1 TI has two independent torque paths; a single observation would be
