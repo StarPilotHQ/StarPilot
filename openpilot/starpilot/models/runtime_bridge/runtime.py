@@ -1,5 +1,7 @@
 """Load existing bank and stock artifacts with one explicitly selected runtime."""
 import hashlib
+import os
+import stat
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -20,6 +22,40 @@ _selection = None
 _protection = None
 
 
+def _inference_cache_root(role):
+  if role not in ('driving', 'monitoring'):
+    raise ValueError('Unsupported model runtime role')
+  root = Path('/data/starpilot-model-runtime')
+  leaf = root / LEGACY_REVISION / role / MANIFEST_SHA256
+  uid = os.geteuid()
+  trusted_parent = True
+  for current in (*reversed(root.parents), root, root / LEGACY_REVISION,
+                  root / LEGACY_REVISION / role, leaf, leaf / 'xdg'):
+    try:
+      status = current.lstat()
+    except FileNotFoundError:
+      break
+    if stat.S_ISLNK(status.st_mode) or not stat.S_ISDIR(status.st_mode):
+      raise ValueError('Invalid runtime cache directory')
+    if current in root.parents:
+      trusted_parent = trusted_parent and status.st_uid in (0, uid) and not stat.S_IMODE(status.st_mode) & 0o022
+    if current.is_relative_to(root) and status.st_uid != uid:
+      if uid == 0:
+        raise ValueError('Root ownership mismatch requires an explicit private runtime cache')
+      if not trusted_parent:
+        raise ValueError('Untrusted parent for per-user runtime cache')
+      sibling = root.with_name(root.name + '-uid' + str(uid))
+      try:
+        owner = sibling.lstat()
+      except FileNotFoundError:
+        return sibling
+      if (not stat.S_ISDIR(owner.st_mode) or owner.st_uid != uid or
+          stat.S_IMODE(owner.st_mode) & 0o022):
+        raise ValueError('Invalid per-user runtime cache root')
+      return sibling
+  return root
+
+
 def prepare(role):
   global _selection
   if _selection is not None and _selection.get('purpose') == 'compiler':
@@ -32,7 +68,7 @@ def prepare(role):
       raise RuntimeError('A model child cannot change its execution role')
     return _selection
   _verify_policy()
-  cache = Path('/data/starpilot-model-runtime')
+  cache = _inference_cache_root(role)
   _selection = activate(BUNDLE, MANIFEST_SHA256, LEGACY_REVISION, role, cache)
   return _selection
 
