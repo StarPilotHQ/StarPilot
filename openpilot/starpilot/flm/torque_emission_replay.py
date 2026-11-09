@@ -102,7 +102,8 @@ def exact_local_emission(witness, reference_raw, candidate_raw, recorded_debt, r
 class EncoderBranch:
   """Own previous raw/normalized torque and modified-Civic state per branch."""
 
-  def __init__(self, *, quality_contract=RECORDED_DEBT, identification_policy=STRICT_IDENTIFICATION):
+  def __init__(self, *, quality_contract=RECORDED_DEBT, identification_policy=STRICT_IDENTIFICATION, allow_unclipped_equal_output=False):
+    self.allow_unclipped_equal_output = allow_unclipped_equal_output
     self.quality_contract = clipping_quality(quality_contract)
     self.identification_policy = validate_identification_policy(identification_policy)
     if (self.identification_policy == NATIVE_SHADOW_IDENTIFICATION and
@@ -198,6 +199,28 @@ class EncoderBranch:
           admitted = exact_local_emission(witness, reference_raw, raw, original_demand, reference_demand, candidate_demand)
         if not shadow and (not original_demand or not actual and not admitted):
           raise ValueError('candidate encoder clipping regression')
+    if (raw is None and self.allow_unclipped_equal_output and not actual and not shadow and not event.limited and
+        witness.mapping_kind == 'round' and not witness.shape and witness.steer_requested and
+        witness.unlimited_raw == witness.final_raw and witness.limiter_kind in ('driver', 'measured')):
+      from opendbc.car.steering_projection import project_request
+      from opendbc.car.lateral import apply_driver_steer_torque_limits, apply_meas_steer_torque_limits
+
+      requested_raw = project_request(witness, request)
+      reference_raw = project_request(witness, witness.requested_torque)
+      # Replaying a different history can engage a rate limiter that was idle
+      # on the original drive. BOTH requests must produce the EXACT same native
+      # output from this SAME candidate prestate, with no larger request.
+      if (reference_raw == witness.unlimited_raw and requested_raw is not None and reference_raw is not None and
+          (requested_raw == reference_raw or requested_raw * reference_raw > 0 and abs(requested_raw) < abs(reference_raw))):
+        params = SimpleNamespace(STEER_MAX=witness.effective_max, **dict(witness.limits))
+        if witness.limiter_kind == 'driver':
+          candidate_output = apply_driver_steer_torque_limits(requested_raw, self.previous, witness.measured_torque, params, int(witness.effective_max))
+          reference_output = apply_driver_steer_torque_limits(reference_raw, self.previous, witness.measured_torque, params, int(witness.effective_max))
+        else:
+          candidate_output = apply_meas_steer_torque_limits(requested_raw, self.previous, witness.measured_torque, params)
+          reference_output = apply_meas_steer_torque_limits(reference_raw, self.previous, witness.measured_torque, params)
+        if candidate_output == reference_output:
+          raw = candidate_output
     if raw is None and (event.limited or shadow) and witness.limiter_kind in ('driver', 'measured'):
       from opendbc.car.steering_projection import project_request
       from opendbc.car.lateral import apply_driver_steer_torque_limits, apply_meas_steer_torque_limits
@@ -454,9 +477,10 @@ class EmissionHistory:
     return base, features
 
   def rollout(self, requests, start_ns, end_ns, windows=(), *, quality_contract=RECORDED_DEBT,
-              identification_policy=STRICT_IDENTIFICATION, feedback_reported=None):
+              identification_policy=STRICT_IDENTIFICATION, feedback_reported=None, allow_unclipped_equal_output=False):
     """Advance on EVERY actual emission, including unscored warmup emissions."""
-    branch = EncoderBranch(quality_contract=quality_contract, identification_policy=identification_policy)
+    branch = EncoderBranch(quality_contract=quality_contract, identification_policy=identification_policy,
+                           allow_unclipped_equal_output=allow_unclipped_equal_output)
     if feedback_reported is not None and (type(feedback_reported) is not dict or feedback_reported):
       raise ValueError('empty private candidate reported CO sink required')
     values = {}
@@ -469,7 +493,8 @@ class EmissionHistory:
         raise ValueError('missing consumed controller source')
       window = next((i for i, (a, b) in enumerate(windows) if a <= event.control_ns <= b), 0)
       if window != last_window:
-        branch = EncoderBranch(quality_contract=quality_contract, identification_policy=identification_policy)
+        branch = EncoderBranch(quality_contract=quality_contract, identification_policy=identification_policy,
+                           allow_unclipped_equal_output=allow_unclipped_equal_output)
         previous = None
       self.decode(event)
       value = branch.step(event, requests[event.control_ns])

@@ -278,16 +278,17 @@ def check_original_native(cp, controls, outputs, commands, *, require_change=Tru
     for output in originals.values():
       history.verify(by_control[output.control_ns], output)
     before = history.rollout(baseline, start, end)
-    after = history.rollout(candidate, start, end)
+    if set(before) != set(originals) or any(before[stamp] != delivered(originals[stamp]) for stamp in before):
+      return {'qualified': False, 'reason': 'original_encoder_reconstruction_mismatch'}
+    after = history.rollout(candidate, start, end, allow_unclipped_equal_output=True)
   except (AttributeError, KeyError, TypeError, ValueError, OverflowError) as error:
     return {'qualified': False, 'reason': 'original_encoder_or_candidate_quality_refused', 'detail': str(error)[:160]}
-  if set(before) != set(originals) or any(before[stamp] != delivered(originals[stamp]) for stamp in before):
-    return {'qualified': False, 'reason': 'original_encoder_reconstruction_mismatch'}
   changed = sum(before[k] != after[k] for k in before)
   return {
     'qualified': bool(changed or not require_change),
     'reason': 'registered_encoder_trial_only' if require_change else 'original_registered_encoder_observed',
     'original_decoded_emissions': len(originals),
+    'limiter_policy': 'same_state_equal_output_unclipped_v1',
     'candidate_changed_emissions': changed,
     'physical_improvement_proven': False,
     'hardware_current_permission': False,

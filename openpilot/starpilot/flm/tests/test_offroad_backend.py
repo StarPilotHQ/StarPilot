@@ -1296,6 +1296,132 @@ class TestOffroadRouteCoverage(unittest.TestCase):
 
 
 class TestOffroadTrackingPolicy(unittest.TestCase):
+  def test_current_disjoint_windows_do_not_trigger_an_older_drive_rescan(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_worker as module
+    from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+
+    # Dispatch-only fixture: training refuses, so no accepted tune is fabricated.
+    roles = trial()['before']
+    proposal = {'parameter': 'center_taper_max', 'delta': 0.005, 'values': values(0.005)}
+    cohort = {'cohort': 'declared-current-drive', 'whole_windows': 6, 'qualification_roles': roles,
+              'training': dict(roles['training'], reference_rms=0.5), 'heldout': dict(roles['heldout'], reference_rms=0.5), 'proposal': proposal}
+    metadata = {'route_values': tuple(values().items()), 'route_revision': REVISION, 'controller_mode': 'starpilot', 'route_scope': scope().key()}
+    group = {'original_metadata': metadata, 'original_context_sha256': 'f' * 64, 'cohorts': [cohort]}
+    cp = SimpleNamespace(carFingerprint='declared-current-drive')
+    receipt = RouteReceipt('declared-current-drive', 'd' * 64, (), 'a' * 64, 1, 2, 3, ())
+    inventory = {'routeId': receipt.route_id}
+    assessment = CompletedAssessment(receipt, (group,), {}, cp, (), inventory)
+    calls = []
+
+    def assessed(params, root, previous, *, permitted):
+      previous(cp)
+      return assessment
+
+    def refuse_training(actual, original, selected, proposed, previous, root, *, permitted):
+      self.assertIs(actual, assessment)
+      self.assertEqual(selected['qualification_roles'], roles)
+      self.assertEqual(proposed, proposal)
+      self.assertTrue(permitted())
+      calls.append('current_drive_training')
+      return None, {'declared_training_refusal': True}
+
+    def refused_check(*args, **kwargs):
+      self.fail('A refused training step cannot enter validation')
+
+    with tempfile.TemporaryDirectory() as directory:
+      params = Params(directory)
+      with (
+        patch.object(module, 'latest_route', return_value=inventory),
+        patch.object(module, 'analyze_latest', new=assessed),
+        patch.object(module, 'qualify', new=refused_check),
+        patch('openpilot.starpilot.flm.offroad_checks.fit_training_step', new=refuse_training),
+        patch('openpilot.starpilot.flm.offroad_prior_inputs.prior_originals', side_effect=AssertionError('Unexpected older drive rescan')),
+        patch('openpilot.starpilot.flm.offroad_prior_inputs.prior_stable_originals', side_effect=AssertionError('Unexpected older drive rescan')),
+      ):
+        worker = module.OffroadWorker(params, directory, Path(directory) / 'cache', permitted=lambda: True,
+          assessor=assessed, checker=refused_check, scope_for=lambda cp, params: scope())
+        result = worker.run_once()
+      self.assertEqual(calls, ['current_drive_training'])
+      self.assertFalse(result['configuration_changed'])
+      self.assertEqual(result['reason'], 'no_new_native_feasible_training_step')
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES), (None, True))
+
+  def test_quieting_trial_is_frozen_before_unrelated_heldout_turn_disagreement(self):
+    import copy
+    from openpilot.starpilot.flm.offroad_stable_bridge import StableRouteSelector
+
+    # Declared proposal-policy regression, using the retained profile's numeric shape.
+    # Actual controller/native qualification and automatic storage are not mocked.
+    roles = trial()['before']
+    cohort = {'cohort': '2:left:steady', **roles}
+    original = values()
+    original.update(friction_threshold_mid=0.004625, friction_threshold_fast=0.0061875, friction_threshold_highway=0.0061875, unwind_taper_left=0.01)
+    training = {
+      'values': original,
+      'changed_parameters': tuple(name for name, value in original.items() if value),
+      'maximum_coordinate_step': 0.01,
+      'bounded_profile_scale': 0.625,
+    }
+    independent = values()
+    independent.update(friction_threshold_mid=0.0071, friction_threshold_fast=0.0095, friction_threshold_highway=0.0095)
+    frozen = copy.deepcopy(training)
+    for unsupported in (None, 0.0, -0.0095, 0.0001):
+      with self.subTest(unsupported_primary=unsupported):
+        selector = object.__new__(StableRouteSelector)
+        selector.previous = values()
+        selector.rows = dict.fromkeys(roles['training']['windows'] + roles['heldout']['windows'], [])
+        events = []
+        heldout_values = dict(independent)
+        if unsupported is not None:
+          heldout_values['friction_threshold_fast'] = unsupported
+
+        def declared_profile(windows, selected_cohort, events=events, heldout_values=heldout_values):
+          self.assertEqual(selected_cohort, cohort['cohort'])
+          if windows == tuple(roles['training']['windows']):
+            events.append('training')
+            return copy.deepcopy(frozen), {'declared_role': 'training'}
+          self.assertEqual(windows, tuple(roles['heldout']['windows']))
+          events.append('heldout')
+          return {'values': heldout_values}, {'declared_role': 'heldout'}
+
+        with patch.object(selector, 'profile', side_effect=declared_profile):
+          proposed, proof = selector.propose({}, cohort)
+        self.assertEqual(events, ['training', 'heldout'])
+        self.assertEqual(proof['selection'], 'training_only_conservative_friction_trial_before_heldout')
+        expected = values()
+        expected.update(friction_threshold_mid=0.002775, friction_threshold_fast=0.0037125, friction_threshold_highway=0.0037125)
+        self.assertEqual(proof['frozen_training_profile']['values'], expected)
+        self.assertEqual(training, frozen)
+        if unsupported is None:
+          self.assertIsNotNone(proposed)
+          assert proposed is not None
+          self.assertEqual(proposed['values'], expected)
+          self.assertEqual(proposed['values']['unwind_taper_left'], 0.0)
+          self.assertEqual(set(proof['frozen_training_profile']['changed_parameters']), set(CURVE_NAMES[2:]))
+          self.assertTrue(proof['all_original_windows_still_required'])
+        else:
+          self.assertIsNone(proposed, 'Missing, reversed or weaker primary evidence must still refuse; no resizing or fallback')
+
+  def test_turn_only_training_profile_keeps_original_values(self):
+    from openpilot.starpilot.flm.offroad_stable_bridge import StableRouteSelector
+
+    roles = trial()['before']
+    mapped = values()
+    mapped['unwind_taper_left'] = 0.005
+    profile = {'values': mapped, 'changed_parameters': ('unwind_taper_left',), 'maximum_coordinate_step': 0.005, 'bounded_profile_scale': 1.0}
+    selector = object.__new__(StableRouteSelector)
+    selector.previous = values()
+    selector.rows = dict.fromkeys(roles['training']['windows'] + roles['heldout']['windows'], [])
+    with patch.object(selector, 'profile', return_value=(profile, {'declared_proposal_only': True})):
+      proposed, proof = selector.propose({}, {'cohort': '2:left:unwind', **roles})
+    self.assertIsNotNone(proposed)
+    assert proposed is not None
+    self.assertEqual(proposed['values'], mapped)
+    self.assertEqual(proposed['delta'], 0.005)
+    self.assertEqual(proof['selection'], 'training_values_only_no_heldout_resizing')
+
   def test_heldout_profile_supports_frozen_training_step_without_identical_floats(self):
     import copy
     from openpilot.starpilot.flm.offroad_stable_bridge import independent_profile_support
@@ -2232,6 +2358,96 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
     result = compare_observed(before, after)
     self.assertTrue(result['improved'])
     self.assertEqual(result['improvement_kind'], 'forced_tracking')
+
+
+class TestOffroadEqualNativeOutput(unittest.TestCase):
+  @staticmethod
+  def boundary(platform, *, unwind=False):
+    from openpilot.starpilot.flm.tests.test_steering_projection import make_interface, control, apply, settle, install_observer, check_packet
+    from openpilot.starpilot.flm.torque_emission_replay import Emission
+
+    ci = make_interface(platform)
+    assert install_observer(ci)
+    initial = settle(ci, control(0.0))[-1][2]
+    limits = dict(initial.limits)
+    step = limits['STEER_DELTA_DOWN' if unwind else 'STEER_DELTA_UP']
+    if unwind:
+      settle(ci, control(4 * step / initial.effective_max))
+    target = (3 if unwind else 2) * step
+    for _ in range(24):
+      _, packets, witness = apply(ci, control(target / initial.effective_max))
+      if witness is None:
+        continue
+      if (witness.unlimited_raw == witness.final_raw == target and
+          witness.final_raw - witness.previous_torque == (-step if unwind else step)):
+        check_packet(ci, packets, witness)
+        stamp = 10_000_000_000 + witness.frame * 10_000_000
+        return Emission(stamp, stamp, stamp + 1_000_000, witness, 'a' * 64, 'b' * 64, 'c' * 64,
+                        True, True, False, False, False, False, False, 0, 0, '')
+    raise AssertionError('Actual registered encoder did not provide the unclipped rate boundary')
+
+  def test_exact_same_request_uses_candidate_native_prestate(self):
+    from opendbc.car.gm.values import CAR as GM
+    from opendbc.car.hyundai.values import CAR as HYUNDAI
+    from opendbc.car.toyota.values import CAR as TOYOTA
+    from openpilot.starpilot.flm.torque_emission_replay import EncoderBranch
+
+    for platform in (GM.GMC_ACADIA, HYUNDAI.HYUNDAI_IONIQ_6, TOYOTA.TOYOTA_COROLLA_TSS2):
+      with self.subTest(platform=platform):
+        event = self.boundary(platform)
+        w = event.witness
+        original = EncoderBranch()
+        self.assertEqual(original.step(event, w.requested_torque, actual=True), w.final_raw / w.effective_max)
+        strict = EncoderBranch()
+        strict.previous = w.previous_torque - 1
+        with self.assertRaisesRegex(ValueError, 'limiter/support'):
+          strict.step(event, w.requested_torque)
+        candidate = EncoderBranch(allow_unclipped_equal_output=True)
+        candidate.previous = w.previous_torque - 1
+        self.assertEqual(candidate.step(event, w.requested_torque), (w.final_raw - 1) / w.effective_max)
+        self.assertEqual(candidate.previous, w.final_raw - 1)
+        self.assertFalse(event.limited)
+        self.assertEqual(event.witness, w)
+
+  def test_native_unwind_cap_is_not_an_unsafe_request(self):
+    from opendbc.car.hyundai.values import CAR
+    from openpilot.starpilot.flm.torque_emission_replay import EncoderBranch
+
+    event = self.boundary(CAR.HYUNDAI_IONIQ_6, unwind=True)
+    w = event.witness
+    request = (w.unlimited_raw - 1) / w.effective_max
+    with self.assertRaisesRegex(ValueError, 'limiter/support'):
+      EncoderBranch().step(event, request)
+    branch = EncoderBranch(allow_unclipped_equal_output=True)
+    self.assertEqual(branch.step(event, request), w.final_raw / w.effective_max)
+    self.assertEqual(branch.previous, w.final_raw)
+    for unsafe in ((w.unlimited_raw + 1) / w.effective_max, -w.requested_torque):
+      candidate = EncoderBranch(allow_unclipped_equal_output=True)
+      candidate.previous = w.previous_torque + 100
+      with self.assertRaises(ValueError):
+        candidate.step(event, unsafe)
+
+  def test_equal_output_does_not_relax_original_or_legacy_quality(self):
+    from opendbc.car.gm.values import CAR as GM
+    from opendbc.car.hyundai.values import CAR as HYUNDAI
+    from opendbc.car.toyota.values import CAR as TOYOTA
+    from openpilot.starpilot.flm.torque_emission_replay import EncoderBranch
+    from openpilot.starpilot.flm.tests import test_state_aligned_encoder as legacy
+
+    event = self.boundary(HYUNDAI.HYUNDAI_IONIQ_6)
+    branch = EncoderBranch(allow_unclipped_equal_output=True)
+    branch.previous = event.witness.previous_torque - 1
+    with self.assertRaisesRegex(ValueError, 'actual previous'):
+      branch.step(event, event.witness.requested_torque, actual=True)
+    clipped = legacy.captured_event(TOYOTA.TOYOTA_COROLLA_TSS2)
+    with self.assertRaisesRegex(ValueError, 'limiter/support'):
+      EncoderBranch(allow_unclipped_equal_output=True).step(replace(clipped, limited=False), clipped.witness.requested_torque)
+    for platform in (TOYOTA.TOYOTA_COROLLA_TSS2, GM.GMC_ACADIA):
+      legacy.test_registered_measured_driver_same_request_shadow_and_increased_demand(platform)
+    legacy.test_common_state_unlimited_reference_recorded_opposite_and_original_unlimited_vetoes()
+    legacy.test_unsupported_paired_projection_fails_without_advancing_candidate_native_state()
+    legacy.test_honda_normalized_pre_lookup_comparison_and_modified_filter_shadow_is_pure()
+    legacy.test_honda_nonfinite_reference_and_paired_original_pressed_fail_closed()
 
 
 if __name__ == '__main__':

@@ -268,18 +268,35 @@ class StableRouteSelector:
     all_ids = ids['training'] + ids['heldout']
     if any(key not in rows or rows[key] is None for key in all_ids):
       return None, {'reason': 'original_stable_input_fields_missing', 'original_windows': all_ids}
-    mapped, reports = {}, {}
-    for role, windows in ids.items():
-      mapped[role], reports[role] = self.profile(windows, cohort['cohort'])
-    training, heldout = mapped['training'], mapped['heldout']
+    training, training_report = self.profile(ids['training'], cohort['cohort'])
+    selection = 'training_values_only_no_heldout_resizing'
+    if training is not None:
+      from openpilot.starpilot.flm.offroad_surface import CURVE_NAMES
+
+      if any(training['values'][name] != self.previous[name] for name in CURVE_NAMES):
+        # Quieting is one trial; unrelated turn changes need their own evidence.
+        values = dict(self.previous)
+        for name in CURVE_NAMES:
+          if training['values'][name] != self.previous[name]:
+            values[name] = round(self.previous[name] + 0.6 * (training['values'][name] - self.previous[name]), 12)
+        training = dict(
+          training,
+          values=values,
+          changed_parameters=tuple(name for name in CURVE_NAMES if values[name] != self.previous[name]),
+          maximum_coordinate_step=max(abs(values[name] - self.previous[name]) for name in CURVE_NAMES),
+          bounded_profile_scale=training['bounded_profile_scale'] * 0.6,
+        )
+        selection = 'training_only_conservative_friction_trial_before_heldout'
+    heldout, heldout_report = self.profile(ids['heldout'], cohort['cohort'])
     agrees = independent_profile_support(training, heldout, self.previous)
     proof = {
       'source_policy_commit': ORIGINAL_COMMIT,
       'source_classifier_commit': CURRENT_CLASSIFIER_SOURCE,
       'policy': 'original_stable_recommended_bounded_route_v1',
       'reason': 'independent_support_for_frozen_training_profile' if agrees else 'heldout_profile_does_not_support_training_step',
-      'selection': 'training_values_only_no_heldout_resizing',
-      'roles': reports,
+      'selection': selection,
+      'frozen_training_profile': training,
+      'roles': {'training': training_report, 'heldout': heldout_report},
       'all_original_windows_still_required': True,
       'physical_improvement_proven': False,
     }

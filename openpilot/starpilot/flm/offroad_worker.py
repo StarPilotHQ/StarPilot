@@ -492,10 +492,6 @@ class OffroadWorker:
             independent = None
             stable = proposal.get('policy') == 'original_stable_recommended_bounded_route_v1'
             provider = self.stable_prior_provider if stable else self.prior_provider
-            if provider is None and self.assessor is analyze_latest:
-              from openpilot.starpilot.flm.offroad_prior_inputs import prior_originals, prior_stable_originals
-
-              provider = prior_stable_originals if stable else prior_originals
             independent = None if provider is None else provider(assessment, group, cohort, self.root, permitted=self.permitted)
             if independent is not None and row is not None and independent.receipt.source_sha256 in row['route_sha256s']:
               independent = None
