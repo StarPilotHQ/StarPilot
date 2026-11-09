@@ -72,3 +72,19 @@ class CapturedSignDetectorOutputs(SignDetectorOutputs):
     self.rgb256 = np.ascontiguousarray(blob[0]).copy()
     self.rgb256.flags.writeable = False
     return super().setInput(blob)
+
+
+class CapturedStopDetectorOutputs(CapturedSignDetectorOutputs):
+  def forward(self):
+    raise ValueError('STOP-only detector has no Speed output')
+
+  def forward_stops(self):
+    self.stops = None
+    outputs = self.net.forward(['stop/output0'])
+    if not isinstance(outputs, (tuple, list)) or len(outputs) != 1:
+      raise ValueError('Expected one STOP output')
+    stops = outputs[0]
+    if stops.shape != (1, 5, 4096) or stops.dtype != np.float32 or not np.isfinite(stops).all():
+      raise ValueError('Unsupported STOP output shape or nonfinite output')
+    self.stops = stops
+    return stops

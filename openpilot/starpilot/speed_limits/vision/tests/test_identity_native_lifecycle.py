@@ -17,7 +17,7 @@ class TestIdentityNativeLifecycle(unittest.TestCase):
   def test_stop_only_shared_aux_has_zero_speed_head_and_reader(self):
     before = len(fixture.LOADS)
     core = traffic_signs.TrafficSignModelCore(is_metric=False, speed_enabled=False)
-    self.assertEqual(fixture.LOADS[before:], ['joint', 'aux'])
+    self.assertEqual(fixture.LOADS[before:], ['stop', 'aux'])
     self.assertIsNone(core.classifier_net)
     self.assertIsNone(core._speed_face_filter)
     core.net.net.stop_hits = True
@@ -44,7 +44,7 @@ class TestIdentityNativeLifecycle(unittest.TestCase):
     self.assertIsNone(core.classifier_net)
     before = len(fixture.LOADS)
     core.set_speed_enabled(True)
-    self.assertEqual(fixture.LOADS[before:], ['reader'])
+    self.assertEqual(fixture.LOADS[before:], ['joint', 'reader'])
     self.assertIs(core._speed_face_filter.net, net)
 
   def test_nonfinite_STOP_head_invalidates_entire_current_and_clears_refs(self):

@@ -152,14 +152,16 @@ class RetryConsistencyTests(unittest.TestCase):
     core.reset()
     self.assertFalse(core.last_classifier_reject_dominant)
     core.last_classifier_reject_dominant = True
-    core.set_speed_enabled(False)
+    from openpilot.starpilot.speed_limits.vision.stop_signs import CapturedStopDetectorOutputs
+    with patch.object(core, '_detector_for_mode', return_value=CapturedStopDetectorOutputs(identity_fixture.Net('stop'))), patch.object(core, '_verified_model_path', return_value=Path('unused')):
+      core.set_speed_enabled(False)
     self.assertFalse(core.last_classifier_reject_dominant)
     self.assertIsNone(core.classifier_net)
     self.assertIsNone(core.infer(self.frame))
     self.assertEqual(core.last_classifier_forward_count, 0)
 
   def test_stop_only_constructor_has_no_numeric_evidence_or_numeric_load(self):
-    with patch.object(TrafficSignModelCore, '_load_net', return_value=FakeReader([])) as load, \
+    with patch.object(model.VisionModelCore, '_load_net', return_value=identity_fixture.Net('stop')) as load, \
          patch.object(TrafficSignModelCore, '_verified_model_path', return_value=Path('unused')), \
          patch('openpilot.starpilot.speed_limits.vision.traffic_signs.SpeedFaceVerifier', side_effect=lambda _: identity_fixture.fake_identity()), \
          patch.object(TrafficSignModelCore, '_validate_model_abi'):
@@ -167,7 +169,7 @@ class RetryConsistencyTests(unittest.TestCase):
     self.assertFalse(core.last_classifier_reject_dominant)
     self.assertIsNone(core.classifier_net)
     self.assertEqual(load.call_count, 1)
-    self.assertEqual(load.call_args.args[0], 'speed_limit_us_detector.onnx')
+    self.assertEqual(load.call_args.args[0], 'traffic_signs_us_stop_detector.onnx')
     self.assertEqual(core.last_classifier_forward_count, 0)
 
 

@@ -46,7 +46,7 @@ class Net:
     stops = np.zeros((1, 5, 4096), np.float32)
     if self.stop_hits:
       stops[0, :, 0] = [128, 128, 20, 20, 0.9]
-    return speed, stops
+    return [stops] if self.kind == 'stop' else (speed, stops)
 
 
 def load(path):
@@ -54,6 +54,7 @@ def load(path):
   known = {
     'traffic_sign_identity.onnx': 'aux',
     'traffic_signs_us_detector.onnx': 'joint',
+    'traffic_signs_us_stop_detector.onnx': 'stop',
     'speed_limit_us_detector.onnx': 'speed',
     'speed_limit_us_value_classifier.onnx': 'reader',
   }

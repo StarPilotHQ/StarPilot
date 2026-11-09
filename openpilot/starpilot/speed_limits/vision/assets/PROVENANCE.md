@@ -235,3 +235,27 @@ expansion fallback. Five focused tests cover the real classifier ABI, same-forwa
 rejections, duplicate-object scope and regulatory fallback. This reduces repeated
 classifier work after a confident advisory rejection; it does not change
 acceptance, confirmation, expiry or processing-cost cooldown thresholds.
+
+
+## STOP-only execution graph
+
+`traffic_signs_us_stop_detector.onnx` (6,239,163 bytes, SHA-256
+`a744df1b585bfd80a2a983229509f52bf2f09714d9df011109ad1b8b875aaecc`)
+is an ancestor-only extraction of `stop/output0` from the joint detector
+`52bb30f73bf0d166342f33d1b32b29b726bf036004e0359fef10ef7bf1f5556f`.
+Its 303 retained nodes and 146 retained initializers are byte-identical to the
+source graph. Input is float32 RGB `[1, 3, 256, 256]`; the only output is
+`stop/output0`, float32 `[1, 5, 4096]`. No weights were trained or numerically
+converted for this extraction. Original detector provenance, copyright notices
+and license obligations continue to apply; this extraction adds no license grant.
+The separate `traffic_sign_identity.LICENSE` and identity network are unchanged.
+
+Combined mode uses the original joint detector and reader. STOP-only mode uses
+the extracted graph and the same STOP identity veto, without loading the numeric
+reader or requesting the Speed identity head. Both modes verify the joint graph,
+extracted graph, reader and identity network. Their composite runtime identity
+binds all four SHA-256 values; it differs from the previous three-asset identity.
+Mode changes validate replacement networks before use and discard previous
+evidence. Scheduling, processing cooldown, source clocks, thresholds and
+confirmation rules are unchanged. This execution change does not establish
+loaded Controls performance or a camera frame-rate guarantee.

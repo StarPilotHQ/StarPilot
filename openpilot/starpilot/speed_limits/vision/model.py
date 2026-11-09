@@ -300,7 +300,7 @@ class VisionModelCore:
       raise RuntimeError("OpenCV DNN is unavailable")
     self.is_metric = is_metric
     self.last_classifier_reject_dominant = False
-    self.net = self._load_net("speed_limit_us_detector.onnx", self.DETECTOR_SHA256)
+    self.net = self._load_detector_net()
     self.classifier_net = (self._load_net("speed_limit_us_value_classifier.onnx", self.CLASSIFIER_SHA256)
                            if load_classifier else None)
     if not load_classifier:
@@ -341,6 +341,9 @@ class VisionModelCore:
     self.last_published_support_at = 0.0
     self.published_support_count = 0
     self.episode = 0
+
+  def _load_detector_net(self):
+    return self._load_net("speed_limit_us_detector.onnx", self.DETECTOR_SHA256)
 
   @classmethod
   def _verified_model_path(cls, name: str, expected_sha256: str) -> Path:

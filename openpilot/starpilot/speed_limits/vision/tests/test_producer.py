@@ -671,7 +671,10 @@ class TestVisionProducer(unittest.TestCase):
     reader.getLayerId.return_value = 0
     detector = Mock(stops=np.zeros((1, 5, 4096), np.float32), rgb256=None)
     detector.forward.return_value = np.zeros((1, 5, 1344), np.float32)
-    with patch.object(producer.VisionModelCore, '_load_net', side_effect=[detector, reader]), \
+    from openpilot.starpilot.speed_limits.vision.tests import _identity_fixture as projection_fixture
+    with patch.object(producer.VisionModelCore, '_verified_model_path'), \
+         patch('openpilot.starpilot.speed_limits.vision.traffic_signs.SpeedFaceVerifier', side_effect=lambda _: projection_fixture.fake_identity()), \
+         patch.object(producer.VisionModelCore, '_load_net', side_effect=[detector, reader]), \
          patch.object(producer.VisionModelCore, '_validate_model_abi'):
       core = producer.VisionModelCore(is_metric=False)
     self.assertIsNotNone(core.classifier_net)
@@ -690,7 +693,10 @@ class TestVisionProducer(unittest.TestCase):
 
     clocks = [(1_000_000_000, 5_000_000_000), (1_000_000_000, 5_000_000_000),
               (1_010_000_000, 5_010_000_000)]
-    with patch.object(producer, '_requested_tasks', side_effect=[(True, True), (False, True)]), \
+    from openpilot.starpilot.speed_limits.vision.stop_signs import CapturedStopDetectorOutputs
+    with patch.object(core, '_detector_for_mode', return_value=CapturedStopDetectorOutputs(projection_fixture.Net('stop'))), \
+         patch.object(core, '_verified_model_path'), \
+         patch.object(producer, '_requested_tasks', side_effect=[(True, True), (False, True)]), \
          patch('msgq.visionipc.VisionIpcClient', camera), \
          patch('openpilot.common.params.Params', return_value=SimpleNamespace(get_bool=lambda _: False)), \
          patch.object(messaging, 'PubMaster', return_value=SimpleNamespace(send=send)), \
