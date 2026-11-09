@@ -53,7 +53,7 @@ class StableRouteSelector:
 
     if type(assessment) is CompletedAssessment:
       groups = []
-      for group in assessment.stable_groups:
+      for group in (*assessment.stable_groups, *assessment.groups):
         ids = {
           wid for c in group['cohorts'] if all(role in c for role in ('training', 'heldout')) for role in ('training', 'heldout') for wid in c[role]['windows']
         }

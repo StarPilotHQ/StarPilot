@@ -249,6 +249,15 @@ def input_coverage(cohort):
   return cohort['whole_windows'] * min(references) ** 2
 
 
+def _input_spans(group, cohort, ids):
+  name = 'qualification_original_windows' if 'qualification_roles' in cohort else 'selected_original_windows'
+  return {
+    (row['segment'], row['start_ns'], row['end_ns'])
+    for row in group.get(name, ())
+    if row['identity'] in ids and all(key in row for key in ('segment', 'start_ns', 'end_ns'))
+  }
+
+
 class OffroadWorker:
   def __init__(
     self,
@@ -448,7 +457,18 @@ class OffroadWorker:
             choices.append((group, cohort, proposal))
       # Freeze all proposal sources before any controller/native fit. One
       # marginal tracking proposal must not hide the Recommended profile.
-      if type(assessment) is CompletedAssessment and assessment.stable_groups and self.checker is qualify and scope.controller_domain == 'torque':
+      short_groups = tuple(
+        group for group in assessment.groups
+        if any(
+          c['cohort'].rsplit(':', 1)[-1] in ('steady', 'turn_in', 'unwind')
+          and all(3 <= len(c.get(role, {}).get('windows', ())) <= 12 for role in ('training', 'heldout'))
+          for c in group['cohorts']
+        )
+      ) if type(assessment) is CompletedAssessment else ()
+      if (
+        type(assessment) is CompletedAssessment and (assessment.stable_groups or short_groups)
+        and self.checker is qualify and scope.controller_domain == 'torque'
+      ):
         from openpilot.starpilot.flm.offroad_stable_bridge import StableRouteSelector
 
         selector = StableRouteSelector(assessment, self.root, current, scope, permitted=self.permitted)
@@ -473,9 +493,33 @@ class OffroadWorker:
             for alternative in proof.get('coordinate_candidates', []):
               if proposal is None or alternative['values'] != proposal['values']:
                 choices.append((group, {**cohort, 'stable_profile_proof': proof}, alternative))
+        # Turn entry/exit need the existing short controller windows, not a
+        # six-second steady interval. Keep their original partitions and all
+        # native checks; legacy quieting profiles still use stable windows.
+        report['short_turn_profile_reports'] = []
+        for group in short_groups:
+          metadata = group['original_metadata']
+          if _recorded_values(metadata) != current or metadata['controller_mode'] != scope.controller_mode:
+            continue
+          contract = recorded_source_contract(assessment.cp, metadata, scope, self.params)
+          if contract is None:
+            continue
+          for cohort in group['cohorts']:
+            if cohort['cohort'].rsplit(':', 1)[-1] not in ('steady', 'turn_in', 'unwind'):
+              continue
+            if not all(role in cohort for role in ('training', 'heldout')):
+              continue
+            roles = cohort.get('qualification_roles', cohort)
+            if any(not 3 <= len(roles[role]['windows']) <= 12 for role in ('training', 'heldout')):
+              continue
+            _, proof = selector.propose(group, cohort)
+            report['short_turn_profile_reports'].append({'context': group['original_context_sha256'], 'cohort': cohort['cohort'], **proof})
+            for alternative in proof.get('coordinate_candidates', []):
+              choices.append((group, {**cohort, 'stable_profile_proof': proof}, alternative))
       # Freeze input-only ranking; training may select a candidate, validation may not.
       choices.sort(key=lambda v: (-input_coverage(v[1]), -v[1]['whole_windows'], v[1]['cohort'], v[0]['original_context_sha256']))
       training_seen = set()
+      training_spans = set()
       for group, cohort, proposal in choices:
         selected_profile_windows = cohort['whole_windows']
         offered = {'values': proposal['values'], 'parameter': proposal['parameter'], 'delta': proposal['delta']}
@@ -504,10 +548,14 @@ class OffroadWorker:
             if independent is not None:
               training += validation
               validation = tuple(w['identity'] for w in independent.windows)
-            if training_seen.intersection(validation):
+            validation_spans = _input_spans(group, cohort, validation) if independent is None else ()
+            if training_seen.intersection(validation) or any(
+              a[0] == b[0] and max(a[1], b[1]) <= min(a[2], b[2]) for a in training_spans for b in validation_spans
+            ):
               reason = 'candidate_validation_already_used_for_training'
               continue
             training_seen.update(training)
+            training_spans.update(_input_spans(group, cohort, training))
             if independent is None:
               fitted, fit_proof = fit_training_step(assessment, group, cohort, proposal, current, self.root, permitted=self.permitted)
             else:
