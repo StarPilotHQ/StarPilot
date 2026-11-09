@@ -648,16 +648,16 @@ grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
 }
 .gx-card-grid .gx-card { margin-bottom: 0; }
 .gx-plots__toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; margin: 1rem 0; }
-.gx-plots__status { flex: 0 0 100%; height: 2.8em; overflow: auto; display: flex; align-items: center; }
-.gx-plots__hint { height: 2.8em; overflow: auto; }
+.gx-plots__status { flex: 0 0 100%; min-height: 2.8em; display: flex; align-items: center; }
+.gx-plots__hint { min-height: 2.8em; }
 .gx-plots__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr)); gap: 1rem; }
 .gx-card.gx-plots__panel { min-width: 0; --card-inset: clamp(.85rem, 2vw, 1.25rem); padding: var(--card-inset); background: linear-gradient(var(--surface), var(--surface)), var(--background); backdrop-filter: none; }
 /* Telemetry can change length without moving the chart or the next card. */
-.gx-plots__source { height: 2.8em; overflow: auto; }
+.gx-plots__source { min-height: 2.8em; }
 .gx-plots__readout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin: .85rem 0; }
 .gx-plots__readout dt { color: var(--on-surface-variant); font-size: .8rem; }
 .gx-plots__readout dd { margin: .2rem 0 0; min-height: 1.5em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: auto; }
-.gx-plots__match { height: 4.5em; overflow: auto; line-height: 1.5; }
+.gx-plots__match { min-height: 4.5em; line-height: 1.5; }
 .gx-plots__panel svg { display: block; width: 100%; height: auto; min-height: 8rem; background: rgba(127,127,127,.06); border-radius: .6rem; }
 .gx-plots__panel polyline { fill: none; stroke-width: 2.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
 .gx-plots__panel .gx-plot-axis { stroke: var(--on-surface-variant); opacity: .5; stroke-width: 1; }
@@ -1574,7 +1574,7 @@ border-top: 1px solid var(--outline-variant);
 .gx-device-picker__row { display: flex; align-items: center; gap: var(--sp-1); }
 .gx-device-picker__form { padding: var(--sp-2); display: grid; gap: var(--sp-2); }
 .gx-tunnel__qr { display: block; width: min(250px, 100%); background: white; padding: var(--sp-2); border-radius: var(--radius-sm); }
-.gx-plots__hint { height: 2.8em; overflow: auto; }
+.gx-plots__hint { min-height: 2.8em; }
 .gx-tabs > button { min-height: var(--touch-target); padding: var(--sp-2) var(--sp-4); }
 .gx-tabs > button[aria-pressed="true"], .gx-tabs > button[aria-selected="true"], .gx-chip--selected { background: var(--primary); color: var(--on-primary); }
 .gx-field:disabled, .gx-icon-btn:disabled { opacity: .4; cursor: not-allowed; }

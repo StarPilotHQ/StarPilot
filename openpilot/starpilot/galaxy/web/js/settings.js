@@ -308,10 +308,13 @@ export const SettingsPage = {
     // A heading row starts its own card; the rows after it belong to that card even when search hides the heading.
     rowCards() {
       const heads = []
-      const owner = (this.state.data?.rows || []).map((row) => (row.heading ? heads.push({ title: row.label, collapsible: !!row.collapsed }) : heads.length))
-      const cards = [{ title: "", entries: [], collapsible: false, open: true }, ...heads.map(({ title, collapsible }) => ({ title, entries: [], collapsible, open: !collapsible }))]
+      const owner = (this.state.data?.rows || []).map((row) => {
+        if (row.heading) heads.push({ title: row.label, key: row.key, collapsible: !!row.collapsed })
+        return heads.length
+      })
+      const cards = [{ title: "", key: "main", entries: [], collapsible: false, open: true }, ...heads.map(({ title, key, collapsible }) => ({ title, key, entries: [], collapsible, open: !collapsible }))]
       for (const entry of this.visibleRows) if (!entry.row.heading) cards[owner[entry.index] || 0].entries.push(entry)
-      for (const card of cards) if (card.collapsible) card.open = !!this.state.query || this.state.openCards.includes(card.title)
+      for (const card of cards) if (card.collapsible) card.open = !!this.state.query || this.state.openCards.includes(card.key)
       return cards.filter((card, index) => !index || card.entries.length)
     },
   },
@@ -477,8 +480,8 @@ export const SettingsPage = {
             <div v-if="state.data.page === 'pip'" class="gx-settings__actions gx-actions">
               <button type="button" class="gx-btn gx-btn--tonal" @click="openCropEditor"><i class="bi bi-crop" aria-hidden="true"></i> Crop editor</button>
             </div>
-            <section v-for="(card, cardIndex) in rowCards" :key="card.title || 'main'" class="gx-card gx-settings__section">
-              <button v-if="card.collapsible" type="button" class="gx-section__header gx-section__header--toggle" :aria-expanded="card.open" @click="toggleCard(card.title)"><i class="bi bi-car-front" aria-hidden="true"></i><span class="gx-section__title">{{ card.title }}</span><i class="bi" :class="card.open ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i></button>
+            <section v-for="(card, cardIndex) in rowCards" :key="card.key" class="gx-card gx-settings__section">
+              <button v-if="card.collapsible" type="button" class="gx-section__header gx-section__header--toggle" :aria-expanded="card.open" @click="toggleCard(card.key)"><i class="bi bi-car-front" aria-hidden="true"></i><span class="gx-section__title">{{ card.title }}</span><i class="bi" :class="card.open ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i></button>
               <div v-else-if="cardIndex" class="gx-section__header"><i class="bi bi-car-front" aria-hidden="true"></i><span class="gx-section__title">{{ card.title }}</span></div>
               <div v-else class="gx-section__header"><i class="bi" :class="activeSection.icon" aria-hidden="true"></i><span class="gx-section__title">{{ state.data.page === 'hub' ? activeSection.label : state.data.title }}</span>
                 <button v-if="state.data.page !== 'hub' && state.data.rows.length" type="button" class="gx-icon-btn" :aria-label="state.searchOpen ? 'Close page search' : 'Search within this page'" :aria-pressed="state.searchOpen" @click="togglePageSearch"><i class="bi" :class="state.searchOpen ? 'bi-x-lg' : 'bi-search'" aria-hidden="true"></i></button>
