@@ -17,6 +17,7 @@ def test_duration_document_roundtrip_and_previous_versions():
   old.pop('durationS')
   assert decode(json.dumps(old).encode()) is None  # A v3 document cannot contain a later field.
   old.pop('turnSignalGuidance')
+  old.pop('autoRequiresCruise')
   decoded = decode(json.dumps(old).encode())
   assert decoded is not None
   assert decoded.duration_s == LaneChangePolicy().duration_s

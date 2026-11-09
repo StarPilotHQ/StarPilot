@@ -169,6 +169,7 @@
   "lane_change:enabled",
   "lane_change:one",
   "lane_change:pace",
+  "lane_change:require_cruise",
   "lane_change:reset",
   "lane_change:speed",
   "lane_change:turn_signal_guidance",

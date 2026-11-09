@@ -18,6 +18,9 @@ DESCRIPTIONS = {
   'lane_change:pace': 'Sets how quickly steering moves into the adjacent lane. Higher values change lanes more quickly; lower values make steering gentler.',
   'lane_change:speed': 'Sets the lowest speed at which lane-change assistance can begin.',
   'lane_change:one': 'Allows one assisted lane change until you release the turn signal.',
+  'lane_change:require_cruise': ('Limits nudgeless lane changes to when factory cruise or openpilot speed control is engaged. ' +
+    'With cruise off, use a wheel nudge. If cruise engages after signaling, release and reapply the signal. ' +
+    'Off also allows automatic changes during lateral-only driving; lane and blindspot checks still apply.'),
   'lane_change:auto': 'Starts a lane change after the signal delay without a steering nudge, when the adjacent lane and blind spot are clear.',
   'lane_change:delay': 'Sets the waiting time after signaling before an automatic lane change can begin.',
   'lane_change:width': 'Sets the minimum detected width of the adjacent lane for an automatic lane change.',

@@ -85,6 +85,21 @@ def _fresh_submaster(sm, service: str, now_mono_ns: int, limit_ns: int) -> bool:
     return False
 
 
+def auto_trigger_engaged(sm, policy: LaneChangePolicy, *, openpilot_longitudinal: bool, now_mono_ns: int) -> bool:
+  try:
+    control = sm["carControl"]
+    if not control.latActive:
+      return False
+    if not policy.auto_requires_cruise:
+      return True
+    if not (_fresh_submaster(sm, "carState", now_mono_ns, CAR_MAX_AGE_NS) and
+            _fresh_submaster(sm, "carControl", now_mono_ns, CONTROL_MAX_AGE_NS)):
+      return False
+    return bool(control.enabled if openpilot_longitudinal else sm["carState"].cruiseState.enabled)
+  except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+    return False
+
+
 def current_calibration(sm, now_mono_ns: int) -> bool:
   if not _fresh_submaster(sm, "extrinsicsCalibration", now_mono_ns, CALIBRATION_MAX_AGE_NS):
     return False
