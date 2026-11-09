@@ -15,6 +15,10 @@ AlertLevel = log.DriverMonitoringState.AlertLevel
 
 def stock_lateral_role(self, CS, native, intent=None, *, allow_independent_cancel=False, allow_independent_brake=False, allow_independent_gas=False, now_ns=0):
   """Current stock USER role while an established independent LAT owner remains."""
+  from opendbc.car.hyundai.classic_scc_aol import qualified as classic_stock_qualified
+  hkg_stock = bool(self.CP.brand == 'hyundai' and classic_stock_qualified(self.CP, marked_only=True))
+  main_off_role = bool(hkg_stock and not getattr(self, 'aol_cruise_main_required', True) and
+                       not CS.cruiseState.available)
   cancel_role = False
   if allow_independent_cancel:
     from opendbc.car.hyundai.canfd_angle_aol import qualified as angle_qualified
@@ -33,11 +37,13 @@ def stock_lateral_role(self, CS, native, intent=None, *, allow_independent_cance
     settings = getattr(self, 'aol_settings', None)
     previous = getattr(self, 'aol_axis_decision', None)
     brake_role = held_lateral_pedal(self, CS) or bool(settings is not None and settings.enabled and CS.brakePressed and not CS.regenBraking and
-      previous is not None and previous.lateral_active and previous.native_acknowledged and not previous.longitudinal_active and
+      previous is not None and (previous.lateral_active or hkg_stock and
+       getattr(self, 'aol_fault_reason', 'none') == 'availabilityPause' and previous.desired_lateral) and
+      previous.native_acknowledged and not previous.longitudinal_active and
       (toyota_qualified(self.CP, marked_only=True) and CS.standstill and not CS.cruiseState.enabled and
        CS.gearShifter == car.CarState.GearShifter.drive and isfinite(CS.vEgoRaw) and isfinite(CS.vEgo) or
        CS.vEgo >= settings.pause_brake_mps and command_allowed(self.CP, CS) or
-       len(self.CP.safetyConfigs) == 1 and stock_canfd_qualified(self.CP, marked_only=True) and
+       len(self.CP.safetyConfigs) == 1 and (stock_canfd_qualified(self.CP, marked_only=True) or hkg_stock) and
        CS.gearShifter == car.CarState.GearShifter.drive and isfinite(CS.vEgoRaw) and isfinite(CS.vEgo) and
        (settings.pause_brake_mps <= 0 or CS.vEgo >= settings.pause_brake_mps or CS.standstill)))
   gas_role = False
@@ -50,11 +56,11 @@ def stock_lateral_role(self, CS, native, intent=None, *, allow_independent_cance
     from opendbc.car.subaru.stock_aol import qualified as subaru_qualified
 
     gas_role = bool((self.CP.brand == 'hyundai' and len(self.CP.safetyConfigs) == 1 and
-      stock_canfd_qualified(self.CP, marked_only=True) or self.CP.brand == 'gm' and qualified_gm(self.CP) and self.CP.pcmCruise and
+      (stock_canfd_qualified(self.CP, marked_only=True) or hkg_stock) or self.CP.brand == 'gm' and qualified_gm(self.CP) and self.CP.pcmCruise and
       not self.CP.openpilotLongitudinalControl or
       self.CP.brand == 'subaru' and subaru_qualified(self.CP, marked_only=True)) and settings is not None and settings.enabled and
       CS.gasPressed and not CS.brakePressed and not CS.regenBraking and
-      previous is not None and (previous.lateral_active or self.CP.brand in ('gm', 'subaru') and
+      previous is not None and (previous.lateral_active or (self.CP.brand in ('gm', 'subaru') or hkg_stock) and
        getattr(self, 'aol_fault_reason', 'none') == 'availabilityPause' and previous.desired_lateral) and
       previous.native_acknowledged and not previous.longitudinal_active and
       (CS.gearShifter == car.CarState.GearShifter.drive or self.CP.brand == 'gm' and
@@ -63,7 +69,7 @@ def stock_lateral_role(self, CS, native, intent=None, *, allow_independent_cance
   stock_user = stock_lateral_user_event(self.CP)
   users = [name for name in self.events.names if ET.USER_DISABLE in rules.get(name, {})]
   if stock_user is None or not users or any((name != stock_user and not (cancel_role and name == EventName.buttonCancel) and
-      not (brake_role and name == EventName.pedalPressed)) or
+      not (brake_role and name == EventName.pedalPressed) and not (main_off_role and name == EventName.wrongCarMode)) or
       ET.SOFT_DISABLE in rules.get(name, {}) or ET.IMMEDIATE_DISABLE in rules.get(name, {}) for name in users):
     return False
   anchor = getattr(self, 'aol_ordinary_source_anchor', None)
@@ -77,7 +83,8 @@ def stock_lateral_role(self, CS, native, intent=None, *, allow_independent_cance
       self.sm['driverMonitoringState'].lockout or self.sm['driverMonitoringState'].alwaysOnLockout or
       not stock_lateral_off(self.CP, CS, native, allow_independent_cancel=cancel_role,
                             allow_independent_brake=brake_role,
-                            allow_independent_gas=gas_role or brake_role and self.CP.brand == 'toyota' and CS.gasPressed)):
+                            allow_independent_gas=gas_role or brake_role and self.CP.brand == 'toyota' and CS.gasPressed,
+                            allow_independent_main=main_off_role)):
     return False
   accepted = intent if intent is not None else anchor[2]
   companion = getattr(self, 'aol_intent_companion', None)
@@ -134,7 +141,11 @@ def ordinary_source_availability(self, CS, now_ns, native=None, *, replay: bool,
   from openpilot.starpilot.car.gm.aol import held_gm_lateral_pedal
   from openpilot.starpilot.car.toyota.aol import held_lateral_pedal
   toyota_pedal = held_lateral_pedal(self, CS)
-  held_pedal = held_gm_lateral_pedal(self, CS) or toyota_pedal
+  hkg_brake = False
+  if self.CP.brand == 'hyundai' and CS.brakePressed and anchor is not None and CS is anchor[4]:
+    native = native or native_provider(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
+    hkg_brake = stock_lateral_role(self, CS, native, allow_independent_brake=True)
+  held_pedal = held_gm_lateral_pedal(self, CS) or toyota_pedal or hkg_brake
   if held_pedal:
     events = [event for event in events if not (event.name == EventName.pedalPressed and
       event.userDisable and not event.softDisable and not event.immediateDisable)]
@@ -147,8 +158,9 @@ def ordinary_source_availability(self, CS, now_ns, native=None, *, replay: bool,
     if stock_lateral_role(self, CS, native, allow_independent_brake=held_pedal, allow_independent_gas=True):
       stock_gas = bool(CS.gasPressed and anchor is not None and anchor[4].gasPressed)
       stock_user = stock_lateral_user_event(self.CP)
-      events = [event for event in events if not (event.name == stock_user and event.userDisable and
-        not event.softDisable and not event.immediateDisable)]
+      events = [event for event in events if not ((event.name == stock_user or
+        self.CP.brand == 'hyundai' and not CS.cruiseState.available and event.name == EventName.wrongCarMode) and
+        event.userDisable and not event.softDisable and not event.immediateDisable)]
   if (replay or not self.aol_replay or not self.axis_transport_required or anchor is None or
       not self.initialized or self.aol_authority_lost or
       getattr(self, 'aol_availability_long_inhibit', False) and stock_user is None or

@@ -1274,7 +1274,8 @@ class SelfdriveD:
         not 0 < intent.carStateLogMonoTime <= now_ns or now_ns - intent.carStateLogMonoTime > INTENT_MAX_AGE_NS or
         intent.carStateLogMonoTime <= anchor[2].carStateLogMonoTime or
         intent.producerSessionId != anchor[0][4] or companion is None or companion.integrity_epoch != anchor[0][5] or
-        (self.events.contains(ET.USER_DISABLE) and not stock_lateral_role(self, CS, native, intent, allow_independent_gas=True)) or
+        (self.events.contains(ET.USER_DISABLE) and not stock_lateral_role(self, CS, native, intent,
+          allow_independent_brake=True, allow_independent_gas=True)) or
         self.events.contains(ET.IMMEDIATE_DISABLE) or
         native is None or native is not getattr(self.aol_transport_pause, 'observed_native', None) or
         native.pandaSerial != anchor[1].pandaSerial or native.observedMonoTime < anchor[1].observedMonoTime or
@@ -1457,12 +1458,13 @@ class SelfdriveD:
     if user_disable:
       from opendbc.car.hyundai.canfd_angle_aol import qualified as angle_qualified
       from opendbc.car.hyundai.canfd_stock_aol import qualified as stock_canfd_qualified
+      from opendbc.car.hyundai.classic_scc_aol import qualified as stock_classic_qualified
       from openpilot.starpilot.car.toyota.aol import qualified as toyota_qualified
 
       if (toyota_qualified(self.CP, marked_only=True) and CS.standstill or
           angle_qualified(self.CP, marked_only=True) or
           self.CP.brand == 'hyundai' and len(self.CP.safetyConfigs) == 1 and
-          stock_canfd_qualified(self.CP, marked_only=True) or
+          (stock_canfd_qualified(self.CP, marked_only=True) or stock_classic_qualified(self.CP, marked_only=True)) or
           self.CP.brand == 'gm' and qualified_gm(self.CP) and self.CP.pcmCruise and not self.CP.openpilotLongitudinalControl):
         native = current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
         if stock_lateral_role(self, CS, native, intent, allow_independent_cancel=True,

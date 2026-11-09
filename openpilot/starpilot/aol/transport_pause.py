@@ -114,7 +114,7 @@ def stock_lateral_user_event(cp):
 
 
 def stock_lateral_off(cp, cs, native, *, allow_independent_cancel=False, allow_independent_brake=False,
-  allow_independent_gas=False):
+  allow_independent_gas=False, allow_independent_main=False):
   from openpilot.starpilot.nostalgia import physical_cancel
   from opendbc.car.hyundai.canfd_angle_aol import qualified as angle_qualified
 
@@ -127,18 +127,20 @@ def stock_lateral_off(cp, cs, native, *, allow_independent_cancel=False, allow_i
 
   stock_gas = bool(cp.brand == 'gm' and qualified_gm(cp) and cp.pcmCruise and not cp.openpilotLongitudinalControl or
                    cp.brand == 'subaru' and subaru_qualified(cp, marked_only=True))
+  from opendbc.car.hyundai.classic_scc_aol import qualified as classic_stock_qualified
+  classic_stock = classic_stock_qualified(cp, marked_only=True)
   independent_angle = angle_qualified(cp, marked_only=True)
   independent_brake = independent_angle or (allow_independent_brake and (
     toyota_qualified(cp, marked_only=True) and not cs.cruiseState.enabled or
-    cp.brand == 'hyundai' and len(cp.safetyConfigs) == 1 and stock_canfd_qualified(cp, marked_only=True)))
-  return bool(cp.pcmCruise and cs.cruiseState.available and
+    cp.brand == 'hyundai' and len(cp.safetyConfigs) == 1 and (stock_canfd_qualified(cp, marked_only=True) or classic_stock)))
+  return bool(cp.pcmCruise and (cs.cruiseState.available or allow_independent_main and classic_stock) and
     (not cs.cruiseState.enabled or independent_brake and allow_independent_brake and cs.brakePressed) and
     cs.canValid and not cs.canTimeout and not cs.steerFaultPermanent and not cs.steerFaultTemporary and
     not cs.accFaulted and not cs.doorOpen and not cs.seatbeltUnlatched and
     (not cs.brakePressed or independent_brake and allow_independent_brake) and
     not cs.regenBraking and (not cs.gasPressed or independent_angle or
       allow_independent_gas and (stock_gas or toyota_qualified(cp, marked_only=True) or
-        cp.brand == 'hyundai' and stock_canfd_qualified(cp, marked_only=True))) and
+        cp.brand == 'hyundai' and (stock_canfd_qualified(cp, marked_only=True) or classic_stock))) and
     (not physical_cancel(cs, cp) or independent_angle and allow_independent_cancel) and
     native is not None and native.requestedLateral and native.lateralAllowed and not native.requestedLongitudinal)
 
