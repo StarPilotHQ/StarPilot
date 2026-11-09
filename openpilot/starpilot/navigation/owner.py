@@ -8,10 +8,11 @@ import hashlib
 import json
 import math
 import os
+import re
 import stat
 import sys
 import subprocess
-from urllib.parse import quote
+from urllib.parse import quote, urljoin, urlsplit
 from pathlib import Path
 from itertools import islice
 import tempfile
@@ -43,6 +44,21 @@ FAVORITE_LABELS = ('home', 'work')
 ROUTE_AVOIDANCES = {'avoidTolls': 'toll', 'avoidHighways': 'motorway', 'avoidFerries': 'ferry'}
 # Fixed provider styles matching Galaxy; cache entries are separate for each theme.
 MAP_STYLES = {'light': 'mapbox/light-v11', 'dark': 'mapbox/dark-v11'}
+MAP_PROVIDERS = ('mapbox', 'google')
+SHORT_MAP_LINK = re.compile(r'https://(?:maps\.app\.goo\.gl|goo\.gl/maps)/[A-Za-z0-9_-]{1,64}')
+GOOGLE_MAP_HOST = re.compile(r'(?:maps\.app\.goo\.gl|goo\.gl|(?:[a-z0-9-]+\.)*google\.com)')
+CONFIGURABLE = {'enabled', 'token', 'gpsSource', 'mapProvider', 'routeProvider', 'googleKey'}
+KEEPS_ACTIVE = {'gpsSource', 'mapProvider', 'routeProvider', 'googleKey'}
+GOOGLE_KEY_CHARS = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-')
+
+
+def valid_google_key(key: str) -> bool:
+  return key == '' or (20 <= len(key) <= 128 and set(key) <= GOOGLE_KEY_CHARS)
+
+
+def default_settings() -> dict:
+  return {'version': 1, 'revision': '0', 'enabled': False, 'token': '', 'destination': None, 'favorites': [], 'recents': [], 'gpsSource': 'backup',
+          'mapProvider': 'mapbox', 'routeProvider': 'mapbox', 'googleKey': '', **dict.fromkeys(ROUTE_AVOIDANCES, False)}
 
 
 class ValidationError(ValueError):
@@ -117,6 +133,7 @@ class NavigationOwner:
     self.root = Path(root) if root is not None else starpilot_storage_root() / 'navigation'
     self.path = self.root / 'settings.json'
     self.position_store = LastPositionStore(self.root)
+    self.google_root = self.root / 'google-tiles'
     self.runtime_source, self.session = runtime_source, session
     self._tile_slots = threading.BoundedSemaphore(TILE_SLOTS)
     from openpilot.starpilot.navigation.mapbox_budget import MonthlyBudget
@@ -146,8 +163,7 @@ class NavigationOwner:
     try:
       info = os.stat(self.path)
     except FileNotFoundError:
-      return {'version': 1, 'revision': '0', 'enabled': False, 'token': '', 'destination': None, 'favorites': [], 'recents': [], 'gpsSource': 'backup',
-              **dict.fromkeys(ROUTE_AVOIDANCES, False)}
+      return default_settings()
     key = (info.st_ino, info.st_mtime_ns, info.st_size)
     cached = getattr(self, '_read_cache', None)
     if cached is not None and cached[0] == key:
@@ -156,8 +172,7 @@ class NavigationOwner:
       with self.path.open('rb') as source:
         raw = source.read(MAX_DOCUMENT + 1)
     except FileNotFoundError:
-      return {'version': 1, 'revision': '0', 'enabled': False, 'token': '', 'destination': None, 'favorites': [], 'recents': [], 'gpsSource': 'backup',
-              **dict.fromkeys(ROUTE_AVOIDANCES, False)}
+      return default_settings()
     try:
       value = json.loads(raw)
       if (len(raw) > MAX_DOCUMENT or not isinstance(value, dict) or value.get('version') != 1 or
@@ -177,6 +192,10 @@ class NavigationOwner:
         if type(value.setdefault(setting, False)) is not bool:
           raise ValueError
       if value.setdefault('gpsSource', 'backup') not in GPS_MODES:
+        raise ValueError
+      if value.setdefault('mapProvider', 'mapbox') not in MAP_PROVIDERS or value.setdefault('routeProvider', 'mapbox') not in MAP_PROVIDERS:
+        raise ValueError
+      if not isinstance(value.setdefault('googleKey', ''), str) or not valid_google_key(value['googleKey']):
         raise ValueError
     except (ValueError, TypeError, KeyError):
       raise ValidationError('Saved navigation settings could not be read') from None
@@ -340,6 +359,16 @@ class NavigationOwner:
     result['favorites'] = sorted(document['favorites'], key=lambda row: FAVORITE_LABELS.index(row['label']) if 'label' in row else 2)
     from openpilot.starpilot.navigation.mapbox_budget import read_usage
     result['mapboxUsage'] = read_usage(self.root / 'mapbox-usage')
+    result['mapProvider'] = document['mapProvider']
+    result['hasGoogleKey'] = bool(document['googleKey'])
+    from openpilot.starpilot.navigation.google_tiles import MESSAGES, GoogleBudget, read_status
+    failure = read_status(self.google_root).get('failure') if document['mapProvider'] == 'google' else None
+    result['googleMap'] = {'usage': GoogleBudget(self.google_root).snapshot(), 'failure': MESSAGES.get(failure)}
+    from openpilot.starpilot.navigation.google_routes import essentials_budget, read_route_failure, route_budget
+    result['routeProvider'] = document['routeProvider']
+    google_routing = document['routeProvider'] == 'google' and bool(document['googleKey'])
+    result['googleRoutes'] = {'usage': route_budget(self.google_root).snapshot(), 'essentials': essentials_budget(self.google_root).snapshot(),
+                              'failure': read_route_failure(self.google_root) if google_routing else None}
     result['alternatives'] = [dict(row, geometry=rounded(row['geometry'])) for row in self.route_options(document['revision'])]
     result['selectedRoute'] = document.get('routeChoice', 0)
     result.update(hasKey=bool(document['token']), status=status, instruction=None, route=[], isMetric=self._is_metric(), location=None,
@@ -484,8 +513,14 @@ class NavigationOwner:
         self._tile_bytes -= len(tile)
 
   def configure(self, patch: dict, expected_revision: str, authorized) -> dict:
-    if not isinstance(patch, dict) or not patch or set(patch) - ({'enabled', 'token', 'gpsSource'} | ROUTE_AVOIDANCES.keys()):
+    if not isinstance(patch, dict) or not patch or set(patch) - (CONFIGURABLE | ROUTE_AVOIDANCES.keys()):
       raise ValidationError('Unknown navigation setting')
+    if 'mapProvider' in patch and patch['mapProvider'] not in MAP_PROVIDERS:
+      raise ValidationError('Choose a map style')
+    if 'routeProvider' in patch and patch['routeProvider'] not in MAP_PROVIDERS:
+      raise ValidationError('Choose a route provider')
+    if 'googleKey' in patch and (not isinstance(patch['googleKey'], str) or not valid_google_key(patch['googleKey'])):
+      raise ValidationError('Enter a valid Google Maps API key')
     if 'gpsSource' in patch and patch['gpsSource'] not in GPS_MODES:
       raise ValidationError('Choose a GPS source')
     if 'enabled' in patch and type(patch['enabled']) is not bool:
@@ -501,13 +536,51 @@ class NavigationOwner:
       if any(key in patch and patch[key] != value[key] for key in ROUTE_AVOIDANCES):
         value['routeChoice'] = 0
       value.update(patch)
-    result = self._change(update, expected_revision, authorized, preserve_active=set(patch) <= ROUTE_AVOIDANCES.keys() | {'gpsSource'})
+    result = self._change(update, expected_revision, authorized, preserve_active=set(patch) <= ROUTE_AVOIDANCES.keys() | KEEPS_ACTIVE)
     if 'token' in patch:
       with self._tile_lock:
         self._tiles.clear()
         self._tile_bytes = 0
         self._tile_key = None
     return result
+
+  def test_google_key(self, key=None) -> dict:
+    """Tries the typed key, or the saved one, the same way the map will use it."""
+    settings = self.read()
+    key = settings['googleKey'] if key is None else key
+    if not isinstance(key, str) or not key or not valid_google_key(key):
+      raise ValidationError('Enter a valid Google Maps API key')
+    from openpilot.starpilot.navigation.google_tiles import GoogleBudget, test_key
+    from openpilot.starpilot.navigation.google_routes import essentials_budget, test_routes
+    if settings['routeProvider'] != 'google':
+      return test_key(key, self.session, GoogleBudget(self.google_root))
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+      routes = pool.submit(test_routes, key, self.session, essentials_budget(self.google_root))
+      return dict(test_key(key, self.session, GoogleBudget(self.google_root)), routes=routes.result())
+
+  def resolve_share(self, text) -> str:
+    """A shared Google Maps short link followed to the full link, which carries the place's coordinates."""
+    if not isinstance(text, str) or len(text) > 8192:
+      raise ValidationError('The shared text could not be read')
+    match = SHORT_MAP_LINK.search(text)
+    if match is None:
+      return text
+    current = match.group(0)
+    for _ in range(4):
+      try:
+        with self.session.get(current, allow_redirects=False, stream=True, timeout=(2., 2.)) as response:
+          location = response.headers.get('Location') if 300 <= response.status_code < 400 else None
+      except requests.RequestException:
+        break
+      if not location:
+        break
+      following = urljoin(current, location)
+      parts = urlsplit(following)
+      if parts.scheme != 'https' or not GOOGLE_MAP_HOST.fullmatch(parts.hostname or '') or len(following) > 8192:
+        break
+      current = following
+    return text.replace(match.group(0), current) if current != match.group(0) else text
 
   def search(self, query: str) -> list[dict]:
     if not isinstance(query, str) or not 2 <= len(query.strip()) <= 256:

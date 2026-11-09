@@ -83,7 +83,9 @@ def test_route_interpolation_preserves_distance_and_advice(route):
   assert abs(progress.instruction['distanceMeters'] - 556.) < .01
   assert progress.instruction['text'] == 'Turn right on First Street'
   assert not progress.off_route and not progress.arrived
-  assert route.progress((.005, 0.), 5., 270.).off_route
+  assert route.progress((.005, 0.), 10., 270.).off_route
+  assert not route.progress((.005, 0.), 5., 270.).off_route, "turning around on a ramp or in a lot is not off the route"
+  assert not route.progress((.005, .0005), 2., 90.).off_route and route.progress((.005, .0008), 2., 90.).off_route
   assert route.progress((.01, 0.), 0.).arrived
   assert project((0, 0), (0, 0), (0, .001))[0] == 0
   assert distance((0, 0), (0, .001)) == pytest.approx(111.195, abs=.01)
@@ -500,3 +502,62 @@ def test_lane_guidance_comes_from_the_banner_and_reaches_the_instruction():
                                  {'components': [{'type': 'lane', 'active': True, 'directions': ['left']}] * 9}])
 def test_missing_unusable_or_malformed_lane_data_is_ignored(sub):
   assert lane_route(sub).progress((.005, 0.), 5., 90.).instruction['lanes'] == []
+
+
+def test_route_line_keeps_corners_and_thins_straight_road():
+  from openpilot.starpilot.navigation.route_engine import PREVIEW_POINTS, simplify
+  east = [[i * 1e-5, 0.] for i in range(5000)]
+  north = [[east[-1][0], i * 1e-5] for i in range(1, 5000)]
+  route = NavigationRoute({'distance': 1100., 'duration': 100., 'geometry': {'coordinates': east + north}, 'legs': [{'steps': [
+    {'distance': 1100., 'duration': 100., 'maneuver': {'type': 'depart'}},
+    {'distance': 0., 'duration': 0., 'maneuver': {'type': 'arrive'}}]}]})
+  preview = route.preview()
+  assert {'longitude': east[-1][0], 'latitude': 0.} in preview and len(preview) == 3
+  assert route.preview() is preview
+  wiggle = [[i * 1e-5, (i % 2) * 1e-4] for i in range(4000)]
+  assert len(simplify(wiggle)) == PREVIEW_POINTS
+
+
+def garage_runtime(tmp_path, monkeypatch):
+  monkeypatch.setattr(NavigationOwner, '_is_metric', lambda self: True)
+  owner = NavigationOwner(tmp_path, runtime_source=lambda: None)
+  settings = owner.configure({'enabled': True, 'token': 'pk.test'}, '0', True)
+  owner.select({'name': 'Far', 'longitude': .05, 'latitude': 0.}, settings['revision'], True)
+  executor = Executor()
+  runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None), executor=executor)
+  long_route = NavigationRoute({'distance': 5560., 'duration': 400., 'geometry': {'coordinates': [[0., 0.], [.05, 0.]]}, 'legs': [{'steps': [
+    {'distance': 5560., 'duration': 400., 'maneuver': {'type': 'depart'}}, {'distance': 0., 'duration': 0., 'maneuver': {'type': 'arrive'}}]}]})
+  runtime.update(1, (1, (0., 0.), 0., None), 1)
+  executor.jobs[0].set_result(long_route)
+  return runtime, executor
+
+
+def drive(runtime, start_ns, seconds, coordinates, speed, bearing):
+  result = None
+  for tick in range(seconds + 1):
+    now = start_ns + tick * 1_000_000_000
+    result = runtime.update(now, (now, coordinates, speed, bearing), 1)
+  return result
+
+
+def test_leaving_a_garage_before_reaching_the_route_does_not_reroute(tmp_path, monkeypatch):
+  runtime, executor = garage_runtime(tmp_path, monkeypatch)
+  assert drive(runtime, 2, 30, (.0005, .0015), 3., 200.)['status'] == 'guiding', "spiral ramp 170 m from the street"
+  assert len(executor.jobs) == 1
+  assert drive(runtime, 40_000_000_000, 5, (-.004, .002), 12., 270.)['status'] == 'routing', "really went the other way"
+  assert len(executor.jobs) == 2
+
+
+def test_slow_off_route_waits_longer_once_joined(tmp_path, monkeypatch):
+  runtime, executor = garage_runtime(tmp_path, monkeypatch)
+  drive(runtime, 2, 2, (.01, 0.), 15., 90.)
+  assert drive(runtime, 10_000_000_000, 6, (.02, .001), 3., 0.)['status'] == 'guiding'
+  assert drive(runtime, 17_000_000_000, 2, (.02, .001), 3., 0.)['status'] == 'routing'
+  assert len(executor.jobs) == 2
+
+
+def test_no_reroute_in_the_destination_garage(tmp_path, monkeypatch):
+  runtime, executor = garage_runtime(tmp_path, monkeypatch)
+  drive(runtime, 2, 2, (.03, 0.), 15., 90.)
+  assert drive(runtime, 10_000_000_000, 20, (.049, .0015), 3., 180.)['status'] in ('guiding', 'arrived')
+  assert len(executor.jobs) == 1

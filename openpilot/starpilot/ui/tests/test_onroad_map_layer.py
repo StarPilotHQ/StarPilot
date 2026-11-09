@@ -7,7 +7,7 @@ from openpilot.starpilot.ui.onroad_map_layer import NativeMapLayer
 
 def test_native_map_prepares_outside_render_and_releases_when_hidden_disabled_or_offroad():
   with patch('openpilot.starpilot.ui.onroad_map_layer.gui_app') as app, \
-       patch('openpilot.starpilot.ui.onroad_map.MapOverlay') as overlay, \
+       patch('openpilot.starpilot.ui.onroad_map.live_overlay') as overlay, \
        patch('openpilot.starpilot.ui.onroad_map.MapFeed') as feed:
     ui = NS(started=True, sm=Mock())
     layer = NativeMapLayer(Mock(), ui)
@@ -52,7 +52,7 @@ def test_native_map_prepares_outside_render_and_releases_when_hidden_disabled_or
 def test_native_map_yields_while_starport_draws_its_own():
   with patch('openpilot.starpilot.ui.onroad_map_layer.gui_app'), \
        patch('openpilot.starpilot.ui.onroad_map_layer.projection_map_active') as lease, \
-       patch('openpilot.starpilot.ui.onroad_map.MapOverlay') as overlay, \
+       patch('openpilot.starpilot.ui.onroad_map.live_overlay') as overlay, \
        patch('openpilot.starpilot.ui.onroad_map.MapFeed'):
     ui = NS(started=True, sm=Mock())
     layer = NativeMapLayer(Mock(), ui)

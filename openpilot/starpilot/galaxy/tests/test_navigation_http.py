@@ -160,6 +160,32 @@ class NavigationHttpTest(unittest.TestCase):
     self.assertEqual(self.action('configure', patch={'enabled': True})[0], 200)
     self.assertEqual(self.action('select', destination=PLACE)[0], 200)
 
+  def test_google_key_needs_parked_and_test_key_reports_without_leaking(self):
+    key = 'AIzaSyFixtureKey_0123456789abcdef'
+    self.parked = False
+    self.assertEqual(self.action('configure', patch={'googleKey': key})[0], 409)
+    self.assertFalse(self.navigation.snapshot()['hasGoogleKey'])
+    self.parked = True
+    status, body, _ = self.action('configure', patch={'googleKey': key, 'mapProvider': 'google'})
+    self.assertEqual((status, body['hasGoogleKey'], body['mapProvider']), (200, True, 'google'))
+    self.assertNotIn(key, json.dumps(self.request('/api/navigation/status', cookie=self.local_cookie)[1]))
+    with patch('openpilot.starpilot.navigation.google_tiles.test_key', return_value={'ok': False, 'message': 'Billing is off'}) as tested:
+      self.parked = False
+      status, body, _ = self.action('testGoogleKey')
+      self.assertEqual((status, body['googleKeyTest']['message'], body['hasGoogleKey']), (200, 'Billing is off', True))
+      self.assertEqual(self.action('testGoogleKey', key='AIzaSyOtherKey_0123456789abcdefgh')[0], 200)
+    self.assertEqual([call.args[0] for call in tested.call_args_list], [key, 'AIzaSyOtherKey_0123456789abcdefgh'])
+    self.assertEqual(self.action('testGoogleKey', key='bad key')[0], 400)
+    self.assertEqual(self.action('testGoogleKey', other=True)[0], 400)
+
+  def test_shared_short_link_is_followed_on_the_comma(self):
+    with patch.object(type(self.navigation), 'resolve_share', return_value='https://www.google.com/maps/place/X/data=!3d36.1!4d-115.1') as resolved:
+      status, body, _ = self.action('resolveShare', text='Bellagio https://maps.app.goo.gl/abc123')
+    self.assertEqual((status, body['sharedText']), (200, 'https://www.google.com/maps/place/X/data=!3d36.1!4d-115.1'))
+    self.assertIn('revision', body)
+    resolved.assert_called_once_with('Bellagio https://maps.app.goo.gl/abc123')
+    self.assertEqual(self.action('resolveShare')[0], 400)
+
   def test_stale_or_invalid_actions_never_overwrite_configuration(self):
     self.action('configure', patch={'enabled': True})
     before = self.navigation.path.read_bytes()
