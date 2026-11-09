@@ -470,11 +470,10 @@ class OffroadWorker:
             report['stable_profile_reports'].append({'context': group['original_context_sha256'], 'cohort': cohort['cohort'], **proof})
             if proposal is not None:
               choices.append((group, {**cohort, 'stable_profile_proof': proof}, proposal))
-      # Reference input energy, followed by fixed coverage/cohort/context ties. A failed
-      # original window does not cause a search for another favorable candidate.
+      # Freeze input-only ranking; training may select a candidate, validation may not.
       choices.sort(key=lambda v: (-input_coverage(v[1]), -v[1]['whole_windows'], v[1]['cohort'], v[0]['original_context_sha256']))
-      if choices:
-        group, cohort, proposal = choices[0]
+      training_seen = set()
+      for group, cohort, proposal in choices:
         selected_profile_windows = cohort['whole_windows']
         offered = {'values': proposal['values'], 'parameter': proposal['parameter'], 'delta': proposal['delta']}
         blocked = False
@@ -483,6 +482,7 @@ class OffroadWorker:
           blocked = trial['parameter'] == proposal['parameter'] and trial['delta'] == proposal['delta']
         if blocked:
           reason = 'same_rejected_change_requires_different_evidence_or_reset'
+          continue
         else:
           feasible = True
           independent_checks = None
@@ -499,6 +499,16 @@ class OffroadWorker:
             independent = None if provider is None else provider(assessment, group, cohort, self.root, permitted=self.permitted)
             if independent is not None and row is not None and independent.receipt.source_sha256 in row['route_sha256s']:
               independent = None
+            roles = cohort.get('qualification_roles', cohort)
+            training = tuple(roles['training']['windows'])
+            validation = tuple(roles['heldout']['windows'])
+            if independent is not None:
+              training += validation
+              validation = tuple(w['identity'] for w in independent.windows)
+            if training_seen.intersection(validation):
+              reason = 'candidate_validation_already_used_for_training'
+              continue
+            training_seen.update(training)
             if independent is None:
               fitted, fit_proof = fit_training_step(assessment, group, cohort, proposal, current, self.root, permitted=self.permitted)
             else:
@@ -508,6 +518,11 @@ class OffroadWorker:
                 assessment, group, cohort, independent, proposal, current, self.root, permitted=self.permitted, scope=scope
               )
             report['native_training_feasibility'] = fit_proof
+            report.setdefault('native_candidate_training', []).append(
+              {'parameter': proposal['parameter'], 'cohort': cohort['cohort'], 'feasibility': fit_proof}
+            )
+            if fitted is None and (independent_checks is not None or fit_proof.get('validation_evaluations', 0)):
+              raise ValueError('A validation result cannot select another candidate')
             feasible = fitted is not None
             if fitted is not None:
               proposal = fitted
@@ -517,6 +532,9 @@ class OffroadWorker:
                 feasible = not (trial['parameter'] == proposal['parameter'] and trial['delta'] == proposal['delta'])
           if not feasible:
             reason = 'no_new_native_feasible_training_step'
+            if independent_checks is not None:
+              break
+            continue
           else:
             checked = (
               independent_checks
@@ -582,6 +600,7 @@ class OffroadWorker:
               reason = 'bounded_trial_configured_for_next_drive'
             else:
               reason = checked.get('reason', 'original_controller_or_registered_encoder_check_refused')
+            break
       if not saved and offered is not None and offered['parameter'].startswith('stable:'):
         profile_suggestions = [
           {'parameter': name, 'delta': value - current[name], 'whole_windows': selected_profile_windows, 'qualification': 'controller_native_checks_not_passed'}

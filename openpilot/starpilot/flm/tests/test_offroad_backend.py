@@ -2011,6 +2011,87 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
     self.assertEqual(calls, [train] * 7)
     self.assertIsNone(proof['selected_fraction'])
 
+  def test_training_can_select_an_alternative_but_validation_never_can(self):
+    import hashlib
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+    from openpilot.starpilot.flm.offroad_worker import OffroadWorker
+
+    # Declared dispatch responses only; the final validation always refuses.
+    for scenario in ('first_refuses', 'zero_native_change', 'heldout_refuses', 'overlap', 'all_refuse'):
+      with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as directory:
+        names = ('center_taper_max', 'turn_in_boost_left', 'unwind_taper_right')
+        roles = [
+          {role: {'windows': tuple(hashlib.sha256(f'{index}:{role}:{n}'.encode()).hexdigest() for n in range(3))}
+           for role in ('training', 'heldout')}
+          for index in range(3)
+        ]
+        if scenario == 'overlap':
+          roles[1]['heldout']['windows'] = (roles[0]['training']['windows'][0], *roles[1]['heldout']['windows'][1:])
+        cohorts = [
+          {'cohort': f'declared-{index}', 'whole_windows': 6, 'qualification_roles': roles[index],
+           'training': {'reference_rms': 3 - index}, 'heldout': {'reference_rms': 3 - index},
+           'proposal': {'parameter': name, 'delta': 0.005, 'values': dict(values(), **{name: 0.005})}}
+          for index, name in enumerate(names)
+        ]
+        metadata = {'route_values': tuple(values().items()), 'route_revision': REVISION,
+                    'controller_mode': 'starpilot', 'route_scope': scope().key()}
+        group = {'original_metadata': metadata, 'original_context_sha256': 'f' * 64,
+                 'cohorts': cohorts, 'qualification_original_windows': []}
+        cp = SimpleNamespace(carFingerprint='declared-candidate-selection-only')
+        receipt = RouteReceipt('declared-candidates', 'd' * 64, (), 'a' * 64, 1, 2, 3, ())
+        inventory = {'routeId': receipt.route_id}
+        assessment = CompletedAssessment(receipt, (group,), {}, cp, (), inventory)
+        calls = []
+
+        def checked(actual, original, ids, trial_values, root, *, permitted, assessment=assessment, names=names, roles=roles, calls=calls, scenario=scenario):
+          self.assertIs(actual, assessment)
+          self.assertTrue(permitted())
+          index = next(i for i, name in enumerate(names) if trial_values[name])
+          train, heldout = (roles[index][role]['windows'] for role in ('training', 'heldout'))
+          validation = tuple(ids) == train + heldout
+          self.assertIn(tuple(ids), (train, train + heldout))
+          calls.append((index, validation, tuple(ids)))
+          feasible = scenario != 'all_refuse' and (index > 0 or scenario == 'heldout_refuses')
+          native_change = int(feasible)
+          if scenario == 'zero_native_change' and index == 0:
+            feasible = True
+          return [
+            {'window': wid, 'qualified': feasible and not validation,
+             'numerical': {'qualified': True, 'changed_frames': 50},
+             'registered_encoder': {'qualified': feasible and not validation, 'candidate_changed_emissions': native_change}}
+            for wid in ids
+          ]
+
+        def assessed(params, root, previous, *, permitted, cp=cp, assessment=assessment):
+          previous(cp)
+          return assessment
+
+        params = Params(directory)
+        with (
+          patch('openpilot.starpilot.flm.offroad_worker.latest_route', return_value=inventory),
+          patch('openpilot.starpilot.flm.offroad_checks._original_results', new=checked),
+        ):
+          worker = OffroadWorker(params, directory, Path(directory) / 'cache', permitted=lambda: True,
+                                 assessor=assessed, scope_for=lambda cp, params: scope())
+          result = worker.run_once()
+        self.assertFalse(result['configuration_changed'])
+        self.assertEqual(read_saved(params, KEY, MAX_BYTES), (None, True))
+        if scenario == 'all_refuse':
+          self.assertEqual([i for i, _, _ in calls], [0] * 7 + [1] * 7 + [2] * 7)
+          self.assertFalse(any(validation for _, validation, _ in calls))
+          self.assertEqual(result['reason'], 'no_new_native_feasible_training_step')
+        else:
+          selected = 0 if scenario == 'heldout_refuses' else 2 if scenario == 'overlap' else 1
+          self.assertEqual([i for i, _, _ in calls], ([] if selected == 0 else [0] * 7) + [selected] * 2)
+          self.assertEqual([(i, validation) for i, validation, _ in calls if validation], [(selected, True)])
+          self.assertEqual(result['reason'], 'original_controller_or_registered_encoder_check_refused')
+          report = worker.cache.get(result['assessment_sha256'])['assessment']
+          self.assertEqual(len(report['native_candidate_training']), 1 if selected == 0 else 2)
+          validation_ids = set(roles[selected]['heldout']['windows'])
+          self.assertTrue(all(not validation_ids.intersection(ids) for _, validation, ids in calls if not validation))
+
   def test_zero_native_change_cannot_consume_independent_validation(self):
     from types import SimpleNamespace
     from openpilot.starpilot.flm.offroad_checks import fit_training_step
