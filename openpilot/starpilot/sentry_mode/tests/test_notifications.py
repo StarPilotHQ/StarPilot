@@ -383,3 +383,43 @@ def test_ios_bundle_id_can_subscribe(tmp_path):
     assert snapshot['appSubscriptions'][0]['appId'] == 'link.galaxy.bluetooth.natehuby76'
   finally:
     owner.close()
+
+
+def test_battery_job_survives_restart_and_reaches_every_channel_with_voltage(tmp_path, monkeypatch):
+  clock = [100.]
+  calls = []
+  events = [{'eventId': 'c' * 32, 'kind': 'battery', 'wallTimeNs': int(101e9), 'voltage': 120, 'cutoff': 118}]
+  root = tmp_path / 'notifications'
+  owner = NotificationOwner(root, store(), clock=lambda: clock[0], transport=lambda *args: calls.append(args) or 503)
+  configure(owner, 'ntfy')
+  owner.store = store(events)
+  clock[0] = 101.
+  owner.tick()
+  owner.close()
+  owner = NotificationOwner(root, store(events), clock=lambda: clock[0], transport=lambda *args: calls.append(args) or 204)
+  try:
+    assert owner.available
+    job = calls[0][3]
+    assert job['kind'] == 'battery' and (job['voltage'], job['cutoff']) == (120, 118)
+  finally:
+    owner.close()
+
+  posts = []
+  response = SimpleNamespace(status_code=204, close=lambda: None)
+  monkeypatch.setattr('openpilot.starpilot.sentry_mode.notifications.requests.post', lambda *args, **kwargs: posts.append(kwargs) or response)
+  owner = NotificationOwner(tmp_path / 'sending', SimpleNamespace(snapshot=lambda: {'events': []}, images=lambda _: []))
+  try:
+    text = 'Car battery is low (12.0 V). The device and Sentry turn off at 11.8 V.'
+    job = {'eventId': 'c' * 32, 'kind': 'battery', 'created': 1000.0, 'voltage': 120, 'cutoff': 118}
+    for name in ('ntfy', 'discord', 'webhook'):
+      owner._send(name, {'token': '', 'url': 'https://example.test'}, None, job, 'key', '')
+    assert posts[0]['data'] == text.encode() and posts[0]['headers']['Tags'] == 'battery,car'
+    assert posts[1]['json']['content'] == 'StarPilot Sentry Mode: ' + text
+    assert json.loads(posts[2]['data']['event'])['voltage'] == 120
+    owner._send('appPush', {'url': 'https://relay.example'}, {'token': 't', 'appId': 'com.starpilot.galaxy', 'label': 'Phone'}, job, 'key', '')
+    assert posts[3]['json']['kind'] == 'battery' and posts[3]['json']['detail'] == text
+    owner._send('appPush', {'url': 'https://relay.example'}, {'token': 't', 'appId': 'com.starpilot.galaxy', 'label': 'Phone'},
+                {**job, 'kind': 'warning'}, 'key', '')
+    assert 'detail' not in posts[4]['json']
+  finally:
+    owner.close()

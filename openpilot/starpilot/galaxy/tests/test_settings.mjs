@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { SettingsFeed, SettingsPage, SETTINGS_SECTIONS } from "../web/js/settings.js"
+import { SettingsFeed, SettingsPage, SETTINGS_SECTIONS, sentryMonitorStatus } from "../web/js/settings.js"
 
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve() }
 const response = (body, status = 200) => ({ ok: status === 200, status, json: async () => body,
@@ -146,7 +146,7 @@ assert.equal(expired.states.at(-1).status, "idle")
 assert.match(SettingsPage.template, /v-if="state.pending"/)
 assert.match(SettingsPage.template, /:disabled="!!state\.error \|\| !row\.available"/)
 assert.match(SettingsPage.template, /Local settings are unavailable in preview/)
-assert.match(SettingsPage.template, /state.data\?\.subtitle/)
+assert.match(SettingsPage.template, /sentryStatus.detail/)
 // Driving Screen Widgets opens the layout editor on its Display tab; target switches go through the router.
 assert.match(SettingsPage.template, /:initial-panel="state\.layoutPanel" @target="openLayoutTarget"/)
 assert.doesNotMatch(SettingsPage.template, /Use Colors &amp; Layout to arrange widgets and change colors/)
@@ -435,3 +435,18 @@ assert.equal(category.state.developerOpen, true) // Developer is a direct sectio
 SettingsPage.methods.selectSection.call(category, sections[0])
 assert.equal(category.state.developerOpen, false)
 assert.deepEqual(category.loaded, {page: 'hub', options: {keepData: false, quiet: false}})
+
+for (const subtitle of ["Off: Motion monitoring is disabled.", "Not armed: Battery is low or its charge cannot be checked.", "Not armed: The car is on or the device is shutting down."]) {
+  assert.equal(sentryMonitorStatus({ subtitle }).label, "Disarmed")
+  assert.equal(sentryMonitorStatus({ subtitle }).detail, subtitle)
+}
+const armingStatus = sentryMonitorStatus({ subtitle: "Arming · 82s: Monitoring begins after 90 seconds parked." })
+assert.equal(armingStatus.tone, "warning")
+assert.equal(armingStatus.label, "Arming")
+const armedStatus = { subtitle: "Monitoring motion: Watching for movement while parked." }
+assert.equal(sentryMonitorStatus(armedStatus).label, "Armed")
+assert.equal(sentryMonitorStatus(armedStatus, "Connection lost").label, "Status unavailable")
+assert.equal(sentryMonitorStatus({ subtitle: "Waiting for monitor: The monitor has not responded recently." }).label, "Status unavailable")
+assert.equal(sentryMonitorStatus({ subtitle: "Motion monitor status is unavailable. Reconnecting automatically…" }).label, "Status unavailable")
+assert.equal(sentryMonitorStatus(null).label, "Status unavailable")
+assert.equal(sentryMonitorStatus({ subtitle: 42 }).label, "Status unavailable")

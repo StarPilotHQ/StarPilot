@@ -10,7 +10,7 @@ import uuid
 from openpilot.common.hardware.hw import Paths
 from openpilot.starpilot.parked_evidence import RESUME_SKEW_NS
 from openpilot.starpilot.sentry_mode.preferences import SavedPreferences
-from openpilot.starpilot.sentry_mode.storage import EventStore, FILE_FLAGS, StorageUnavailable, _private
+from openpilot.starpilot.sentry_mode.storage import EventStore, FILE_FLAGS, StorageUnavailable, _private, valid_tenths, volts
 from openpilot.starpilot.storage import starpilot_storage_root
 
 
@@ -38,6 +38,16 @@ def boot_id() -> str:
     return ""
 
 
+def low_voltage_reason(voltage, cutoff, fallback: str) -> str:
+  if not valid_tenths(voltage):
+    return "Battery voltage cannot be read"
+  if not valid_tenths(cutoff):
+    return f"Battery is {volts(voltage)}; the low-battery cutoff cannot be read"
+  if voltage <= cutoff:
+    return f"Battery is {volts(voltage)}; needs above {volts(cutoff)}"
+  return f"{fallback} (battery {volts(voltage)})"
+
+
 class RuntimeStatus(EventStore):
   def __init__(self, root: Path | None = None, *, clock=time.monotonic_ns, boot=boot_id, boot_clock=boot_clock):
     namespace = hashlib.sha256(str(starpilot_storage_root()).encode()).hexdigest()[:24]
@@ -46,17 +56,18 @@ class RuntimeStatus(EventStore):
     self.last_published = None
     self.last_value = None
 
-  def publish(self, decision, source: bytes | None, recording: str) -> None:
+  def publish(self, decision, source: bytes | None, recording: str, power: tuple[int | None, int | None] = (None, None)) -> None:
     identity = self.boot()
     if not identity or decision.state not in STATES:
       return
-    current = (decision, source, recording)
+    current = (decision, source, recording, power)
     now = self.clock()
     if current == self.last_value and self.last_published is not None and 0 <= now - self.last_published < 500_000_000:
       return
     value = {"state": decision.state, "remaining": decision.seconds_remaining,
              "source": hashlib.sha256(source or b"").hexdigest(), "boot": identity,
-             "stamp": now, "bootStamp": self.boot_clock(), "recording": recording}
+             "stamp": now, "bootStamp": self.boot_clock(), "recording": recording,
+             "voltage": power[0], "cutoff": power[1]}
     raw = json.dumps(value, separators=(",", ":")).encode()
     temporary = f".{uuid.uuid4().hex}"
     try:
@@ -106,6 +117,8 @@ class RuntimeStatus(EventStore):
         if type(remaining) is not int or not 0 <= remaining <= 90:
           raise ValueError("Invalid countdown")
         label = f"Arming · {remaining}s"
+      if value["state"] == "low_voltage":
+        reason = low_voltage_reason(value.get("voltage"), value.get("cutoff"), reason)
       if value.get("recording") in ("unavailable", "durability_unknown"):
         reason += "; motion events could not be saved reliably"
       return label, reason

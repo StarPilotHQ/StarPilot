@@ -24,6 +24,8 @@ from openpilot.starpilot.ui.settings_geometry import (
 
 LABEL_SIZE = 50
 DETAIL_SIZE = 35
+SUBTITLE_MIN_SIZE = 24
+SUBTITLE_TONES = {"ok": rl.Color(70, 200, 110, 255), "warn": rl.Color(251, 191, 36, 255)}
 PAGE_TRANSITION_TIME = 0.18
 EDGE_ACCENT = rl.color_lerp(PANEL_BG, ACCENT, 0.4)
 EDGE_FADE_HEIGHT = 96
@@ -111,10 +113,7 @@ class FeatureSettingsView:
       draw_settings_header(self.fonts, state.sidebar_expanded, state.title, state.parent_title, back=True)
     finally:
       clip.end_scissor_mode()
-    subtitle = self._elide(state.subtitle, FontRole.NORMAL, DETAIL_SIZE, 2094 - left - 55)
-    if subtitle:
-      top, _ = self.fonts.vertical_ink(subtitle, FontRole.NORMAL, DETAIL_SIZE)
-      self.fonts.draw(subtitle, FontRole.NORMAL, DETAIL_SIZE, left + 55, 116 - top, TEXT_SECONDARY)
+    self._draw_subtitle(state, left)
     if len(state.rows) == 1 and (buttons := value_buttons(state, state.rows[0], row_top)):
       self._page_frame(state, 0, False)
       self._value_row(state, state.rows[0], rl.Rectangle(*value_editor_rect(state)), buttons, pressed)
@@ -341,6 +340,26 @@ class FeatureSettingsView:
     top, bottom = self.fonts.vertical_ink(text, role, size)
     self.fonts.draw(text, role, size, rect.x + (rect.width - self.fonts.measure(text, role, size).width) / 2,
                     rect.y + rect.height / 2 - (top + bottom) / 2, color)
+
+  def _draw_subtitle(self, state: FeatureSettingsState, left: float) -> None:
+    width = 2094 - left - 55
+    size = DETAIL_SIZE
+    accent = state.subtitle_accent if state.subtitle.startswith(state.subtitle_accent) else ""
+    if accent:
+      # One row: shrink the line to fit instead of cutting off the notification hint.
+      while size > SUBTITLE_MIN_SIZE and self.fonts.measure(state.subtitle, FontRole.NORMAL, size).width > width:
+        size -= 1
+    text = self._elide(state.subtitle, FontRole.NORMAL, size, width)
+    if not text:
+      return
+    top, _ = self.fonts.vertical_ink(text, FontRole.NORMAL, size)
+    if accent and text.startswith(accent):
+      color = SUBTITLE_TONES.get(state.subtitle_tone, TEXT_SECONDARY)
+      self.fonts.draw(accent, FontRole.NORMAL, size, left + 55, 116 - top, color)
+      offset = self.fonts.measure(accent, FontRole.NORMAL, size).width
+      self.fonts.draw(text[len(accent):], FontRole.NORMAL, size, left + 55 + offset, 116 - top, TEXT_SECONDARY)
+    else:
+      self.fonts.draw(text, FontRole.NORMAL, size, left + 55, 116 - top, TEXT_SECONDARY)
 
   def _elide(self, text: str, role: FontRole, size: float, width: float) -> str:
     return elide_text(self.fonts, text, role, size, width)

@@ -36,6 +36,10 @@
 .gx-map-manager { padding: 16px; }
 .gx-map-manager__region { align-items: flex-start; flex-direction: column; }
 }
+@media (max-width: 680px) {
+  .gx-pip .gx-settings__header, .gx-vasm .gx-settings__header { flex-direction: column; align-items: stretch; }
+  .gx-pip .gx-settings__header > .gx-actions, .gx-vasm .gx-settings__header > .gx-actions { flex: 1 1 auto; width: 100%; }
+}
 @media (max-width: 680px) { .gx-settings__header { align-items: flex-start; } .gx-settings__subhead { align-items: flex-start; flex-direction: column; } }
 :root {
 color-scheme: dark;
@@ -888,6 +892,8 @@ transition: transform var(--motion-fast), background-color var(--motion-fast);
 .gx-menu-tile:disabled { cursor: default; opacity: .65; }
 .gx-menu-tile:disabled:hover { background: var(--surface-container); transform: none; }
 .gx-note--danger { color: var(--error); }
+.gx-note--warning { color: var(--warning); }
+.gx-sentry-busy { min-height: 1.5em; }
 .gx-empty { padding: var(--sp-4); color: var(--text-muted); }
 .gx-chip {
 display: inline-flex;
@@ -1157,6 +1163,16 @@ mask: radial-gradient(farthest-side, transparent calc(100% - 22px), #000 calc(10
 }
 .gx-sentry-channel__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: var(--sp-3); margin: var(--sp-3) 0; }
 .gx-sentry-channel__fields .gx-field { width: 100%; min-width: 0; box-sizing: border-box; }
+.gx-sentry-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: var(--sp-3); }
+.gx-sentry-event { display: flex; flex-direction: column; overflow: hidden; }
+.gx-sentry-event .gx-row__info { display: grid; gap: var(--sp-1); }
+.gx-sentry-event .gx-row__info small { word-break: break-all; }
+.gx-sentry-event__media { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; grid-template-rows: minmax(0, 1fr); gap: 2px; aspect-ratio: 4 / 3; overflow: hidden; }
+.gx-sentry-event__media .gx-media { width: 100%; height: 100%; object-fit: cover; }
+.gx-sentry-events__bar { justify-content: space-between; }
+.gx-sentry-events__bar p { margin: 0; }
+.gx-sentry-relay { margin-top: var(--sp-3); }
+
 /* Recording library follows the shared section/row control hierarchy. */
 .gx-recordings__library, .gx-recordings__list, .gx-recordings__delete { overflow: hidden; }
 .gx-recordings__heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); }

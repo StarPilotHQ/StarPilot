@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import stat
 import threading
 import time
@@ -20,8 +21,9 @@ import uuid
 import requests
 
 from openpilot.starpilot.storage import starpilot_storage_root
-from openpilot.starpilot.sentry_mode.storage import EventStore
-from openpilot.starpilot.sentry_mode import web_push
+from openpilot.starpilot.sentry_mode.storage import BATTERY_FIELDS, EventStore, valid_tenths, volts
+from openpilot.starpilot.sentry_mode import web_push, relay_enrollment
+from openpilot.starpilot.sentry_mode.relay_config import DEFAULT_RELAY_URL
 
 CHANNELS = ('webPush', 'discord', 'webhook', 'ntfy', 'appPush')
 APP_PUSH_RELAY_URL = ''
@@ -32,6 +34,15 @@ MAX_AGE = 86400
 MAX_ATTEMPTS = 4
 RETRY_SECONDS = (30, 120, 600, 600)
 ID = re.compile(r'[0-9a-f]{32}\Z')
+JOB_FIELDS = {'eventId', 'kind', 'channel', 'generation', 'subscriptionId', 'created', 'next', 'attempts', 'state', 'error'}
+
+
+def message_text(job: dict) -> str:
+  if job['kind'] == 'test':
+    return 'This is a test StarPilot Sentry notification.'
+  if job['kind'] == 'battery':
+    return f"Car battery is low ({volts(job['voltage'])}). The device and Sentry turn off at {volts(job['cutoff'])}."
+  return f"Parked motion detected ({job['kind']})."
 
 
 class NotificationUnavailable(Exception):
@@ -54,7 +65,7 @@ def endpoint(value: object, *, allow_http: bool = False) -> str:
 def fresh_state() -> dict:
   return {'version': 1, 'channels': {channel: {'enabled': False, 'url': '', 'token': '', 'generation': uuid.uuid4().hex,
                                               'since': 0} for channel in CHANNELS},
-          'appSubscriptions': [], 'subscriptions': [], 'vapid': '', 'jobs': {}, 'queueFull': False}
+          'relayEnrollment': relay_enrollment.fresh(), 'appSubscriptions': [], 'subscriptions': [], 'vapid': '', 'jobs': {}, 'queueFull': False}
 
 
 def wall_seconds() -> float:
@@ -142,6 +153,10 @@ class NotificationOwner:
         state['appSubscriptions'] = []
         if type(state.get('channels')) is dict:
           state['channels']['appPush'] = fresh_state()['channels']['appPush']
+      if type(state) is dict:
+        state.setdefault('relayEnrollment', relay_enrollment.fresh())
+        if type(state['relayEnrollment']) is dict:
+          state['relayEnrollment'].setdefault('rejected', {})
       self._validate_state(state)
       self.state = state
       self.saved_bytes = json.dumps(state, separators=(',', ':'), allow_nan=False).encode()
@@ -149,6 +164,7 @@ class NotificationOwner:
       os.close(directory)
 
   def _validate_state(self, state: dict) -> None:
+    relay_enrollment.validate(state.get('relayEnrollment') if isinstance(state, dict) else None)
     if (type(state) is not dict or set(state) != set(fresh_state()) or type(state['version']) is not int or state['version'] != 1 or
         type(state['channels']) is not dict or set(state['channels']) != set(CHANNELS) or
         type(state['subscriptions']) is not list or len(state['subscriptions']) > 16 or
@@ -187,10 +203,10 @@ class NotificationOwner:
       if type(sub['since']) not in (int, float) or not 0 <= sub['since'] < 2**63:
         raise ValueError('Invalid subscription time')
     for key, job in state['jobs'].items():
-      if (type(job) is not dict or set(job) != {'eventId', 'kind', 'channel', 'generation', 'subscriptionId', 'created',
-                                               'next', 'attempts', 'state', 'error'} or
+      if (type(job) is not dict or set(job) != JOB_FIELDS | (BATTERY_FIELDS if job.get('kind') == 'battery' else set()) or
+          (job['kind'] == 'battery' and not all(valid_tenths(job[k]) for k in BATTERY_FIELDS)) or
           type(key) is not str or len(key) != 64 or type(job['eventId']) is not str or ID.fullmatch(job['eventId']) is None or
-          job['kind'] not in ('warning', 'alarm', 'test') or job['channel'] not in CHANNELS or
+          job['kind'] not in ('warning', 'alarm', 'battery', 'test') or job['channel'] not in CHANNELS or
           type(job['generation']) is not str or ID.fullmatch(job['generation']) is None or
           (type(job['subscriptionId']) is not str or (re.fullmatch(r'[0-9a-f]{12}' if job['channel'] == 'appPush' else
                                                                   r'[0-9a-f]{32}' if job['channel'] == 'webPush' else r'', job['subscriptionId']) is None)) or
@@ -236,12 +252,19 @@ class NotificationOwner:
                 'subscriptionCount': len(self.state['subscriptions']),
                 'subscriptions': [{'id': sub['id']} for sub in self.state['subscriptions']],
                 'deliverySemantics': 'Retries may repeat delivery after an interrupted remote response.'}
-      result['appSubscriptions'] = [{key: sub[key] for key in ('id', 'label', 'appId', 'addedAt', 'lastResult', 'lastAt')}
+      rejected = self.state['relayEnrollment']['rejected']
+      result['appSubscriptions'] = [{key: sub[key] for key in ('id', 'label', 'appId', 'addedAt', 'lastResult', 'lastAt')} |
+                                    ({'lastResult': 'Relay does not accept this app'} if sub['id'] in rejected else {})
                                     for sub in self.state['appSubscriptions']]
       result['removedAppSubscriptions'] = [
         {'id': job['subscriptionId'], 'lastResult': 'Phone unregistered — removed', 'lastAt': job['next']}
         for job in jobs.values() if job['channel'] == 'appPush' and job['error'] == 'expired'][-8:]
+      enrollment = self.state['relayEnrollment']
+      result['relayEnrollment'] = {'supported': True, 'automaticConfigured': bool(DEFAULT_RELAY_URL), 'state': enrollment['state'],
+                                   'installationId': enrollment['id'], 'registeredCount': len(enrollment['registered'])}
       result['appPushAvailable'] = self.state['channels']['appPush']['enabled'] and bool(self.state['channels']['appPush']['url'] or APP_PUSH_RELAY_URL)
+      if enrollment['state'] != 'unenrolled':
+        result['appPushAvailable'] = result['appPushAvailable'] and enrollment['state'] == 'enrolled'
       for name, cfg in self.state['channels'].items():
         relevant = [j for j in jobs.values() if j['channel'] == name and j['generation'] == cfg['generation']]
         latest = max(relevant, key=lambda j: j['created'], default=None)
@@ -265,10 +288,40 @@ class NotificationOwner:
       previous = copy.deepcopy(self.state)
       action = payload['action']
       now = self.clock()
-      if action == 'configure':
+      if action == 'relayEnroll':
+        automatic = set(payload) == {'action', 'confirmed'}
+        if (not automatic and set(payload) != {'action', 'url', 'invitation', 'confirmed'}) or payload.get('confirmed') is not True:
+          raise ValueError('Confirm relay enrollment')
+        current = self.state['relayEnrollment']
+        if automatic and current['state'] in ('enrolling', 'enrolled', 'rotating', 'confirming'):
+          return self.snapshot()
+        if current['state'] not in ('unenrolled', 'revoked'):
+          raise ValueError('Revoke or forget the current enrollment first')
+        url = DEFAULT_RELAY_URL if automatic else payload['url']
+        if not url:
+          raise ValueError('Hosted alerts are not configured in this release yet')
+        self.state['relayEnrollment'] = relay_enrollment.begin(url, '' if automatic else payload['invitation'])
+        self.state['channels']['appPush'].update(url=self.state['relayEnrollment']['url'], enabled=True, generation=uuid.uuid4().hex, since=now)
+      elif action in ('relayRotate', 'relayRevoke', 'relayForget'):
+        if set(payload) != {'action', 'confirmed'} or payload['confirmed'] is not True:
+          raise ValueError('Confirm the relay action')
+        enrollment = self.state['relayEnrollment']
+        if action == 'relayForget':
+          self.state['relayEnrollment'] = relay_enrollment.fresh()
+          self.state['channels']['appPush'] = fresh_state()['channels']['appPush']
+        elif action == 'relayRotate':
+          if enrollment['state'] != 'enrolled':
+            raise ValueError('Enroll the relay before rotating its credential')
+          enrollment.update(state='rotating', candidate=secrets.token_hex(32), requestId=uuid.uuid4().hex, next=0, attempts=0)
+        elif enrollment['id']:
+          enrollment.update(state='revoking', next=0, attempts=0)
+          self.state['channels']['appPush']['enabled'] = False
+      elif action == 'configure':
         if set(payload) != {'action', 'channel', 'enabled', 'url', 'token'} or payload['channel'] not in CHANNELS:
           raise ValueError('Invalid notification channel')
         name = payload['channel']
+        if name == 'appPush' and self.state['relayEnrollment']['state'] != 'unenrolled':
+          raise ValueError('Use relay enrollment controls for this channel')
         if (type(payload['enabled']) is not bool or type(payload['token']) is not str or len(payload['token']) > 512 or
             any(ord(c) < 32 for c in payload['token'])):
           raise ValueError('Invalid notification setting')
@@ -292,6 +345,8 @@ class NotificationOwner:
       elif action == 'forget':
         if set(payload) != {'action', 'channel'} or payload['channel'] not in CHANNELS:
           raise ValueError('Choose a notification channel')
+        if payload['channel'] == 'appPush' and self.state['relayEnrollment']['state'] != 'unenrolled':
+          raise ValueError('Revoke or forget the relay enrollment first')
         self.state['channels'][payload['channel']] = fresh_state()['channels'][payload['channel']]
         if payload['channel'] == 'webPush':
           self.state['subscriptions'] = []
@@ -328,6 +383,7 @@ class NotificationOwner:
           raise ValueError('Invalid app subscription')
         current = self.state['appSubscriptions']
         existing = next((sub for sub in current if sub['token'] == payload['token']), None)
+        self.state['relayEnrollment']['rejected'].pop(hashlib.sha256(payload['token'].encode()).hexdigest()[:12], None)
         if existing:
           existing.update(appId=payload['appId'], label=payload['label'])
         elif len(current) < 8:
@@ -397,7 +453,8 @@ class NotificationOwner:
         self.state['jobs'][key] = {'eventId': event['eventId'], 'kind': event['kind'], 'channel': name,
                                   'generation': cfg['generation'], 'subscriptionId': target['id'],
                                   'created': event['wallTimeNs'] / 1e9, 'next': now, 'attempts': 0,
-                                  'state': 'queued', 'error': ''}
+                                  'state': 'queued', 'error': '',
+                                  **({k: event[k] for k in BATTERY_FIELDS} if event['kind'] == 'battery' else {})}
 
   def delete_events(self, remove, event_id=None):
     with self.lock:
@@ -420,6 +477,17 @@ class NotificationOwner:
       if not self.available:
         return
       now = self.clock()
+      original_enrollment = copy.deepcopy(self.state['relayEnrollment'])
+      updated_enrollment = copy.deepcopy(original_enrollment)
+      subscriptions = copy.deepcopy(self.state['appSubscriptions'])
+      self.lock.release()
+      try:
+        relay_enrollment.step(updated_enrollment, subscriptions, now)
+      finally:
+        self.lock.acquire()
+      if self.state['relayEnrollment'] == original_enrollment:
+        self.state['relayEnrollment'] = updated_enrollment
+      self._save()
       self.state['jobs'] = {key: job for key, job in self.state['jobs'].items() if now - job['created'] <= MAX_AGE}
       self.state['queueFull'] = False
       if not any(cfg["enabled"] for cfg in self.state["channels"].values()):
@@ -436,6 +504,9 @@ class NotificationOwner:
         cfg = self.state['channels'][job['channel']]
         sub = next((s['subscription'] for s in self.state['subscriptions'] if s['id'] == job['subscriptionId']), None)
         if job['channel'] == 'appPush':
+          enrollment = self.state['relayEnrollment']
+          if enrollment['state'] != 'unenrolled' and (enrollment['state'] != 'enrolled' or job['subscriptionId'] not in enrollment['registered']):
+            continue
           sub = next((s for s in self.state['appSubscriptions'] if s['id'] == job['subscriptionId']), None)
         if not cfg['enabled'] or cfg['generation'] != job['generation'] or (job['channel'] in ('webPush', 'appPush') and sub is None):
           job['state'] = 'cancelled'
@@ -469,6 +540,12 @@ class NotificationOwner:
               current_sub['lastAt'] = self.clock()
               current_sub['lastResult'] = ('Delivered to relay' if 200 <= code < 300 else 'Relay not configured' if code == 0 else
                                            'Phone unregistered — removed' if code == 410 else 'Rate limited' if code == 429 else f'Relay error {code}')
+            enrollment = self.state['relayEnrollment']
+            if enrollment['state'] != 'unenrolled' and code in (401, 403):
+              enrollment['state'] = 'actionRequired'
+            if enrollment['state'] == 'enrolled' and code == 409:
+              enrollment['registered'].pop(job['subscriptionId'], None)
+              code = 503
             if code == 410:
               self.state['appSubscriptions'] = [s for s in self.state['appSubscriptions'] if s['id'] != job['subscriptionId']]
           if 200 <= code < 300:
@@ -516,8 +593,9 @@ class NotificationOwner:
     return files
 
   def _send(self, name: str, cfg: dict, subscription: dict | None, job: dict, key: str, pem: str) -> int:
-    message = 'This is a test StarPilot Sentry notification.' if job['kind'] == 'test' else f"Parked motion detected ({job['kind']})."
-    event = {'eventId': job['eventId'], 'kind': job['kind'], 'systemTimeMs': int(job['created'] * 1000)}
+    message = message_text(job)
+    event = {'eventId': job['eventId'], 'kind': job['kind'], 'systemTimeMs': int(job['created'] * 1000),
+             **{k: job[k] for k in BATTERY_FIELDS if k in job}}
     headers = {'Idempotency-Key': key}
     if name == 'appPush':
       if subscription is None:
@@ -525,9 +603,18 @@ class NotificationOwner:
       relay = cfg['url'] or APP_PUSH_RELAY_URL
       if not relay:
         return 0
-      response = requests.post(relay.rstrip('/') + '/v1/sentry', json={
+      protocol = '/v1/sentry'
+      with self.lock:
+        enrollment = copy.deepcopy(self.state['relayEnrollment'])
+      if enrollment['state'] != 'unenrolled':
+        if enrollment['state'] != 'enrolled' or relay != enrollment['url']:
+          return 401
+        protocol = '/v2/sentry'
+        headers['Authorization'] = 'Bearer ' + enrollment['id'] + '.' + enrollment['secret']
+      response = requests.post(relay.rstrip('/') + protocol, json={
         'token': subscription['token'], 'appId': subscription['appId'], 'kind': job['kind'], 'eventId': job['eventId'],
-        'wallTimeNs': int(job['created'] * 1e9), 'label': subscription['label']}, headers=headers,
+        'wallTimeNs': int(job['created'] * 1e9), 'label': subscription['label'],
+        **({'detail': message} if job['kind'] == 'battery' else {})}, headers=headers,
         timeout=(3, 10), allow_redirects=False, stream=True)
     elif name == 'webPush':
       if subscription is None:
@@ -554,7 +641,8 @@ class NotificationOwner:
                                   'event': json.dumps(event, separators=(',', ':'))}, files=files or None,
                                  headers=headers, timeout=(3, 10), allow_redirects=False, stream=True)
       else:
-        headers.update({'Title': 'StarPilot Sentry Mode', 'Priority': 'urgent', 'Tags': 'warning,car'})
+        headers.update({'Title': 'StarPilot Sentry Mode', 'Priority': 'high' if job['kind'] == 'battery' else 'urgent',
+                        'Tags': 'battery,car' if job['kind'] == 'battery' else 'warning,car'})
         response = requests.post(cfg['url'], data=message.encode(), headers=headers, timeout=(3, 10), allow_redirects=False, stream=True)
     try:
       return response.status_code

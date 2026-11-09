@@ -1671,7 +1671,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/settings/reset-default', '/api/settings/restore', '/api/recordings/action',
                       '/api/replay/start', '/api/replay/control', '/api/replay/stop',
                       '/api/replay/export-start',
-                      '/api/galaxy/pair', '/api/galaxy/unpair', '/api/galaxy/device-name', '/api/galaxy/hotspot', '/api/cameras/snapshot',
+                      '/api/galaxy/pair', '/api/galaxy/unpair', '/api/galaxy/device-name', '/api/galaxy/hotspot', '/api/cameras/snapshot', '/api/cameras/white-balance',
                       '/api/starport/layout', '/api/starport/enable', '/api/starport/control', '/api/starport/pairing',
                       '/api/starport/logs/send',
                       '/api/starport/pairing/response', '/api/starport/pairing/cancel', '/api/starport/pairing/select',
@@ -1988,6 +1988,25 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             self.json(503, {'error': 'No fresh camera frame. Try taking a new snapshot.'})
         else:
           self.respond(200, body, 'image/jpeg')
+        return
+      if path == '/api/cameras/white-balance':
+        if type(payload) is not dict or not (payload == {} or (set(payload) == {'enabled'} and type(payload['enabled']) is bool)):
+          self.json(400, {'error': 'Invalid white balance choice'})
+          return
+        identity = self.settings_session()
+        if identity is None:
+          self.json(401, {'error': 'Sign in to Galaxy'})
+          return
+        from openpilot.common.params import Params
+        params = Params()
+        with effect_lock:
+          if 'enabled' in payload:
+            params.put_bool('CabinWhiteBalance', payload['enabled'])
+          enabled = params.get_bool('CabinWhiteBalance')
+        if self.settings_session() == identity:
+          self.json(200, {'enabled': enabled})
+        else:
+          self.json(401, {'error': 'Sign in to Galaxy'})
         return
       if path == '/api/galaxy/device-name':
         if not self.require_session():

@@ -159,6 +159,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"PIPPreviewShowOnBlinker", {PERSISTENT, BOOL, "0"}},
     {"PIPPreviewShowOnBSM", {PERSISTENT, BOOL, "0"}},
     {"PIPPreviewInvert", {PERSISTENT, BOOL, "0"}},
+    {"CabinWhiteBalance", {PERSISTENT, BOOL, "1"}},
     {"StarPilotDisplayPreferencesEnabled", {PERSISTENT, BOOL}},
     {"ScreenBrightness", {PERSISTENT, INT}},
     {"ScreenBrightnessOnroad", {PERSISTENT, INT}},

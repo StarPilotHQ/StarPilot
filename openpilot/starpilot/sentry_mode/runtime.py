@@ -15,11 +15,21 @@ from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.sentry_mode.policy import Inputs, MotionSample, SentryPolicy
 from openpilot.starpilot.sentry_mode.preferences import read_preferences
 from openpilot.starpilot.sentry_mode.status import RuntimeStatus
+from openpilot.starpilot.sentry_mode.storage import StorageUnavailable
 
 
 PERIPHERAL_TTL_NS = 1_500_000_000  # C++ 2 Hz publisher; one missed frame.
 SAMPLE_TTL_NS = 500_000_000
 TICK_SECONDS = 0.1
+BATTERY_WARNING_TENTHS = 2
+BATTERY_RECOVERED_TENTHS = 4
+BATTERY_HOLD_NS = 60_000_000_000
+BATTERY_CRITICAL_HOLD_NS = 10_000_000_000
+BATTERY_REPEAT_NS = 3600 * 1_000_000_000
+
+
+def recent_battery_warning(events: list[dict], now_ns: int) -> bool:
+  return any(event["kind"] == "battery" and 0 <= now_ns - event["wallTimeNs"] <= BATTERY_REPEAT_NS for event in events)
 
 
 def boot_time_ns() -> int:
@@ -29,11 +39,15 @@ def boot_time_ns() -> int:
 class SentryRuntime:
   def __init__(self, params: Params, messages: Any, *, mono_clock: Callable[[], int] = time.monotonic_ns,
                boot_clock: Callable[[], int] = boot_time_ns,
-               record: Callable[[str, int, Callable[[], bool]], Any] | None = None, status: RuntimeStatus | None = None):
+               record: Callable[[str, int, Callable[[], bool]], Any] | None = None, status: RuntimeStatus | None = None,
+               battery: Callable[[int, int], Any] | None = None):
     self.params, self.messages = params, messages
     self.mono_clock, self.boot_clock = mono_clock, boot_clock
     self.record = record
     self.status = status
+    self.battery = battery
+    self.battery_low_since: int | None = None
+    self.battery_warned = False
     self.policy = SentryPolicy()
     self.saved_raw: bytes | None = None
     self.device_after_mono_ns = mono_clock()
@@ -42,6 +56,7 @@ class SentryRuntime:
     self.last_pair_offset_ns: int | None = None
     self.last_sample_ns = 0
     self.recording_state = "idle"
+    self.power: tuple[int | None, int | None] = (None, None)
 
   def _recording_state(self, state: str) -> None:
     if state != self.recording_state:
@@ -80,6 +95,7 @@ class SentryRuntime:
 
   def _authority(self) -> tuple[bool, bool, bool, bool, int]:
     """Return offroad, ignition-off, voltage-safe, device-fresh, current MONO ns."""
+    self.power = (None, None)
     clocks = self._clocks()
     if clocks is None:
       return False, False, False, False, self.mono_clock()
@@ -106,9 +122,11 @@ class SentryRuntime:
       peripheral = sm["peripheralState"]
       power_saved = read_power(self.params)
       cutoff_mv = effective_power(power_saved).cutoff_tenths * 100
-      voltage_ok = (power_saved.readable and power_saved.valid and self._fresh("peripheralState", now_mono_ns=now_ns,
-                     now_boot_ns=boot_ns, ttl_ns=PERIPHERAL_TTL_NS) and
-                    str(peripheral.pandaType) != "unknown" and int(peripheral.voltage) > cutoff_mv and
+      voltage_fresh = self._fresh("peripheralState", now_mono_ns=now_ns, now_boot_ns=boot_ns, ttl_ns=PERIPHERAL_TTL_NS) and \
+                      str(peripheral.pandaType) != "unknown"
+      self.power = (round(int(peripheral.voltage) / 100) if voltage_fresh else None,
+                    cutoff_mv // 100 if power_saved.readable and power_saved.valid else None)
+      voltage_ok = (power_saved.readable and power_saved.valid and voltage_fresh and int(peripheral.voltage) > cutoff_mv and
                     int(sm["deviceState"].carBatteryCapacityUwh) > 0)
       return bool(manager_offroad and not sm["deviceState"].started), ignition_off, bool(voltage_ok), device_fresh, now_ns
     except (AttributeError, KeyError, TypeError, ValueError, OverflowError, OSError, RuntimeError):
@@ -157,7 +175,10 @@ class SentryRuntime:
       self.saved_raw = saved.raw
     offroad, ignition_off, voltage_ok, fresh, now_ns = self._authority()
     sample = self._sample(now_ns) if active else None
-    decision = self.policy.update(now_ns / 1e9, Inputs(active, offroad, voltage_ok, fresh, ignition_off, sample))
+    sm = self.messages
+    sample_pending = bool(not sm.updated["accelerometer"] and sm.seen["accelerometer"] and
+                          sm.alive["accelerometer"] and sm.valid["accelerometer"])
+    decision = self.policy.update(now_ns / 1e9, Inputs(active, offroad, voltage_ok, fresh, ignition_off, sample, sample_pending))
     expected_raw = saved.raw
     if decision.event is not None and self.record is not None and expected_raw is not None and self._permitted(expected_raw):
       try:
@@ -166,9 +187,31 @@ class SentryRuntime:
       except Exception:
         # No retry: storage may have published before its durability result failed.
         self._recording_state("unavailable")
+    self._battery_warning(active and offroad and ignition_off and fresh, now_ns)
     if self.status is not None:
-      self.status.publish(decision, saved.raw, self.recording_state)
+      self.status.publish(decision, saved.raw, self.recording_state, power=self.power)
     return decision
+
+  def _battery_warning(self, parked: bool, now_ns: int) -> None:
+    voltage, cutoff = self.power
+    if not parked or voltage is None or cutoff is None:
+      self.battery_low_since = None
+      return
+    if voltage >= cutoff + BATTERY_RECOVERED_TENTHS:
+      self.battery_warned = False
+    if voltage > cutoff + BATTERY_WARNING_TENTHS or self.battery_warned:
+      self.battery_low_since = None
+      return
+    if self.battery_low_since is None:
+      self.battery_low_since = now_ns
+    if now_ns - self.battery_low_since < (BATTERY_CRITICAL_HOLD_NS if voltage <= cutoff else BATTERY_HOLD_NS):
+      return
+    self.battery_warned, self.battery_low_since = True, None
+    if self.battery is not None:
+      try:
+        self.battery(voltage, cutoff)
+      except StorageUnavailable:
+        cloudlog.exception("sentry motion battery warning failed")
 
   def close(self) -> None:
     for socket in getattr(self.messages, "sock", {}).values():
@@ -198,7 +241,11 @@ def main() -> None:
         if not permitted():
           raise
     return store.record(kind, stamp, permitted=permitted, images=images)
-  runtime = SentryRuntime(Params(), messages, record=record, status=RuntimeStatus())
+  def battery(voltage, cutoff):
+    if recent_battery_warning(store.snapshot()["events"], time.time_ns()):
+      return
+    store.record("battery", time.monotonic_ns(), permitted=lambda: True, details={"voltage": voltage, "cutoff": cutoff})
+  runtime = SentryRuntime(Params(), messages, record=record, status=RuntimeStatus(), battery=battery)
   try:
     while not stop.is_set():
       started = time.monotonic()

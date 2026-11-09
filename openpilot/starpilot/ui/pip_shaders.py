@@ -26,6 +26,8 @@ uniform sampler2D texture1;
 uniform vec2 uCropMin;
 uniform vec2 uCropSize;
 uniform int uFlipX;
+uniform vec3 uGain;
+uniform float uSaturation;
 out vec4 fragColor;
 
 const float BUBBLE_REFRACTION = 0.016;
@@ -60,6 +62,9 @@ void main() {
   float y = texture(texture0, uv).r;
   vec2 c = texture(texture1, uv).ra - 0.5;
   vec3 rgb = vec3(y + 1.402 * c.y, y - 0.344 * c.x - 0.714 * c.y, y + 1.772 * c.x);
+  // Cancel the cabin camera's magenta cast; leave clipped highlights white.
+  rgb = mix(rgb * uGain, rgb, smoothstep(0.95, 1.0, max(rgb.r, max(rgb.g, rgb.b))));
+  rgb = mix(vec3(dot(rgb, vec3(0.299, 0.587, 0.114))), rgb, uSaturation);
 
   // Keep the interior gradient and use cheap analytic lighting instead of specular math.
   float edgeShade = smoothstep(0.22, 0.98, radius);
@@ -84,6 +89,8 @@ uniform sampler2D texture1;
 uniform vec2 uCropMin;
 uniform vec2 uCropSize;
 uniform int uFlipX;
+uniform vec3 uGain;
+uniform float uSaturation;
 uniform vec2 uRectSize;
 out vec4 fragColor;
 
@@ -129,6 +136,9 @@ void main() {
   float y = texture(texture0, uv).r;
   vec2 c = texture(texture1, uv).ra - 0.5;
   vec3 rgb = vec3(y + 1.402 * c.y, y - 0.344 * c.x - 0.714 * c.y, y + 1.772 * c.x);
+  // Cancel the cabin camera's magenta cast; leave clipped highlights white.
+  rgb = mix(rgb * uGain, rgb, smoothstep(0.95, 1.0, max(rgb.r, max(rgb.g, rgb.b))));
+  rgb = mix(vec3(dot(rgb, vec3(0.299, 0.587, 0.114))), rgb, uSaturation);
 
   // Let the rim blend into the camera image and the UI underneath it.
   float edgeShade = smoothstep(-radius, 0.0, dist);

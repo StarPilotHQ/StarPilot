@@ -52,6 +52,11 @@ class SentryActionsTest(unittest.TestCase):
     self.assertIn("Not armed", denied.subtitle)
     self.assertNotIn("Monitoring motion", denied.subtitle)
     self.assertFalse(any(row.available for row in denied.rows))
+    status.runtime_snapshot.return_value = ("Waiting for monitor", "The monitor has not responded recently")
+    onroad = SentryOwner(self.params, lambda: False, status=status).snapshot()
+    self.assertIn("Not armed: The car is on", onroad.subtitle)
+    parked = SentryOwner(self.params, lambda: True, status=status).snapshot()
+    self.assertIn("Waiting for monitor", parked.subtitle)
 
   def test_invalid_source_requires_explicit_reset_and_exact_bytes(self):
     owner = SentryOwner(self.params, lambda: True)
