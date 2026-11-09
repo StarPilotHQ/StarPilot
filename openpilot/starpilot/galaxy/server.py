@@ -1011,15 +1011,19 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(400, {'error': 'Invalid map tile'})
           return
         try:
-          query = parse_qs(urlsplit(self.path).query, keep_blank_values=True, max_num_fields=1)
-          theme = query.get('theme', ['light'])[0]
-          if set(query) - {'theme'} or theme not in ('light', 'dark'):
+          query = parse_qs(urlsplit(self.path).query, keep_blank_values=True, max_num_fields=2)
+          theme = query.get('theme', ['light'])
+          provider = query.get('provider', ['mapbox'])
+          if (set(query) - {'theme', 'provider'} or len(theme) != 1 or theme[0] not in ('light', 'dark') or
+              len(provider) != 1 or provider[0] not in ('mapbox', 'google')):
             raise ValueError('Invalid map theme')
         except ValueError:
           self.json(400, {'error': 'Invalid map theme'})
           return
         try:
-          tile = navigation_owner().map_tile(*(int(value) for value in match.groups()), theme)
+          coords = (int(value) for value in match.groups())
+          tile = (navigation_owner().map_tile(*coords, theme[0], provider='google')
+                  if provider[0] == 'google' else navigation_owner().map_tile(*coords, theme[0]))
         except (OSError, ValueError, RuntimeError):
           self.json(503, {'error': 'Map tiles are unavailable'})
         else:
@@ -1888,15 +1892,16 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
               raise ValidationError('Enter a destination to search')
             if 'autocomplete' in payload and payload['autocomplete'] is not True:
               raise ValidationError('Enter a destination to search')
-            result = {'results': (navigation_owner().search_places(payload['query'], identity, payload['searchId'], payload['clientId'],
-                                                                   autocomplete='autocomplete' in payload)
-                                  if 'searchId' in payload else navigation_owner().search(payload['query']))}
+            results = (navigation_owner().search_places(payload['query'], identity, payload['searchId'], payload['clientId'],
+                                                        autocomplete='autocomplete' in payload)
+                       if 'searchId' in payload else navigation_owner().search(payload['query']))
+            result = {'results': results, 'provider': getattr(results, 'provider', 'mapbox')}
           else:
             fields = {'configure': {'patch'}, 'select': {'destination'}, 'selectPlace': {'id', 'searchId'},
                       'cancelSearch': {'searchId'}, 'clear': set(), 'favorite': {'destination'},
                       'favoritePlace': {'id', 'searchId'}, 'removeFavorite': {'id'}, 'labelFavorite': {'id', 'label'},
                       'removeRecent': {'id'}, 'clearRecents': set(), 'selectRoute': {'index'}, 'testGoogleKey': set(),
-                      'resolveShare': {'text'}}
+                      'resolveShare': {'text'}, 'share': {'text'}}
             action = payload.get('action')
             optional = ({'label'} if action in ('favorite', 'favoritePlace') and 'label' in payload else
                         {'key'} if action == 'testGoogleKey' and 'key' in payload else set())
@@ -1905,7 +1910,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             needs_park = action == 'configure' and isinstance(payload['patch'], dict) and bool({'token', 'googleKey'} & payload['patch'].keys())
             def authorized():
               return self.settings_session() == identity and (not needs_park or configuration_allowed())
-            with (nullcontext() if action in ('selectPlace', 'favoritePlace', 'testGoogleKey', 'resolveShare') else effect_lock):
+            with (nullcontext() if action in ('selectPlace', 'favoritePlace', 'testGoogleKey', 'resolveShare', 'share') else effect_lock):
               if not authorized():
                 raise PermissionError('Park your car before changing a map key' if needs_park else 'Sign in to Galaxy')
               nav = navigation_owner()
@@ -1916,6 +1921,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                 result = dict(nav.snapshot(), googleKeyTest=nav.test_google_key(payload.get('key')))
               elif action == 'resolveShare':
                 result = dict(nav.snapshot(), sharedText=nav.resolve_share(payload['text']))
+              elif action == 'share':
+                result = nav.share(payload['text'], **keywords)
               elif action == 'selectPlace':
                 result = nav.select_place(payload['id'], payload['searchId'], identity, **keywords)
               elif action == 'cancelSearch':
@@ -1945,7 +1952,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         except ConflictError as error:
           self.json(409, {'error': str(error)})
         except ValidationError as error:
-          self.json(400, {'error': str(error)})
+          query = getattr(error, 'query', None)
+          self.json(400, {'error': str(error), **({'query': query} if query else {})})
         except PermissionError as error:
           if self.require_session():
             self.json(409, {'error': str(error)})

@@ -254,3 +254,18 @@ def test_a_clock_running_behind_never_zeroes_the_counts(tmp_path):
   assert budget.spend() and budget.snapshot()["monthUsed"] == 501 and budget.snapshot()["dayUsed"] == 501
   clock[0] = WALL
   assert budget.snapshot()["monthUsed"] == 501
+
+
+def test_fetch_tile_caches_and_separates_light_and_dark_themes(tmp_path):
+  http = Http()
+  root = tmp_path / "google"
+  assert gt.fetch_tile(KEY, 12, 655, 1583, "light", http=http, root=root, wall=lambda: WALL) == PNG
+  assert gt.fetch_tile(KEY, 12, 655, 1583, "light", http=http, root=root, wall=lambda: WALL) == PNG
+  posts = [call for call in http.calls if call[0] == "post"]
+  assert len(posts) == 1 and "styles" not in posts[0][2]["json"]
+  assert len([call for call in http.calls if "2dtiles/12/655/1583" in call[1]]) == 1
+  assert gt.fetch_tile(KEY, 12, 655, 1583, "dark", http=http, root=root, wall=lambda: WALL) == PNG
+  posts = [call for call in http.calls if call[0] == "post"]
+  assert len(posts) == 2 and "styles" in posts[1][2]["json"]
+  assert gt.GoogleBudget(root, lambda: WALL).snapshot()["dayUsed"] == 2
+

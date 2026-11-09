@@ -1390,7 +1390,7 @@ background: var(--surface-container-high); color: var(--on-surface-variant); bor
 .gx-starport-pill:has(> i)::before { display: none; }
 .gx-starport-pill--ready { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); background: color-mix(in srgb, var(--success) 12%, transparent); }
 .gx-starport-pill--soon { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 40%, transparent); background: color-mix(in srgb, var(--warning) 12%, transparent); }
-.gx-starport-pill--expired, .gx-starport-pill--broken { color: var(--error); border-color: color-mix(in srgb, var(--error) 40%, transparent); background: color-mix(in srgb, var(--error) 12%, transparent); }
+.gx-starport-pill--expired, .gx-starport-pill--broken, .gx-starport-pill--danger, .gx-starport-pill--error { color: var(--error); border-color: color-mix(in srgb, var(--error) 40%, transparent); background: color-mix(in srgb, var(--error) 12%, transparent); }
 .gx-starport-list { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--outline); border-radius: var(--radius-md); overflow: hidden; }
 .gx-starport-list > .gx-starport-row + .gx-starport-row { border-top: 1px solid var(--outline); }
 .gx-starport-row { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; margin: 0; padding: var(--sp-3) var(--sp-4); }

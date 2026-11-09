@@ -87,14 +87,14 @@ const status = { enabled: true, hasKey: true, isMetric: true, status: 'noDestina
       await page.screenshot({ path: `/private/tmp/navigation-offline-${width}.png`, fullPage: true })
     }
     await offlineLink.click()
-    await page.getByText('Map Overlay Roads', { exact: true }).waitFor()
+    await page.getByText('Offline Map Management', { exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: 'Offline Maps', exact: true }).getAttribute('aria-pressed'), 'true')
     await page.getByRole('button', { name: 'Destination', exact: true }).click()
     status.network = 'unknown'
     await page.evaluate(() => window.navigation.client.load())
     assert.equal(await offlineLink.count(), 0, 'unknown device state must not be presented as offline')
     await page.goto('http://navigation.test/?shell=1#/navigation/maps')
-    await page.getByText('Map Overlay Roads', { exact: true }).waitFor()
+    await page.getByText('Offline Map Management', { exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: 'Offline Maps', exact: true }).getAttribute('aria-pressed'), 'true')
     await page.getByRole('button', { name: 'Destination', exact: true }).click()
     await page.waitForURL('**#/navigation')

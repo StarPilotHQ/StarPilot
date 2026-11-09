@@ -149,9 +149,23 @@ export class OnroadLayoutFeed {
   }
 }
 
+// Which map and route provider the comma uses, so the navigation previews match what it draws.
+export const navLook = reactive({ map: "mapbox", routes: "mapbox" })
+export async function loadNavLook(fetcher = (...args) => fetch(...args)) {
+  try {
+    const response = await fetcher("./api/navigation/status", { credentials: "same-origin", cache: "no-store" })
+    const data = response.ok ? await response.json() : null
+    navLook.map = data?.mapProvider === "google" && data.hasGoogleKey ? "google" : "mapbox"
+    navLook.routes = data?.routeProvider === "google" && data.hasGoogleKey ? "google" : "mapbox"
+  } catch { /* The Mapbox look stays when navigation is unreachable. */ }
+}
+
 export const LayoutWidgetPreview = {
   props: ["widget", "palette", "profile", "scene", "clock24Hour", "native", "art"],
   computed: {
+    nav() { return navLook },
+    googleMap() { return navLook.map === "google" },
+    googleRoutes() { return navLook.routes === "google" },
     roadNameSize() { return Math.max(18, Math.min(this.widget.width, this.widget.height) * .075) },
   },
   methods: {
@@ -280,8 +294,9 @@ export const LayoutWidgetPreview = {
       </g>
       <g v-else-if="widget.kind === 'nav_card'">
         <rect x="1" y="1" :width="widget.width - 2" :height="widget.height - 2" rx="39" fill="#0f0d17f5" stroke="#a07edcbe" stroke-width="2" />
-        <text x="24" y="66" font-size="54" font-weight="700" fill="white">500 ft</text>
-        <text x="24" y="100" font-size="30" font-weight="600" fill="#ded6f4">Turn right onto Las Vegas Blvd</text>
+        <text v-if="!googleRoutes" x="24" y="66" font-size="54" font-weight="700" fill="white">500 ft</text>
+        <text v-if="!googleRoutes" x="24" y="100" font-size="30" font-weight="600" fill="#ded6f4">Turn right onto Las Vegas Blvd</text>
+        <template v-if="!googleRoutes">
         <g v-for="(lane, i) in [['S', 0], ['S', 0], ['S', 0], ['R', 1], ['R', 1]]" :key="i" :transform="'translate(' + ((widget.width - 320) / 2 + i * 66) + ' 116)'">
           <rect width="56" height="44" rx="13" :fill="lane[1] ? '#4e3e80' : '#222030'" />
           <g transform="translate(28 22)" fill="none" :stroke="lane[1] ? '#ffffff' : '#70688a'" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
@@ -289,6 +304,13 @@ export const LayoutWidgetPreview = {
             <path v-else d="M-8 13 V0 Q-8 -7 -1 -7 H10 M4 -13 L10 -7 L4 -1" />
           </g>
         </g>
+        </template>
+        <template v-else>
+          <g transform="translate(24 28)" fill="none" stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 56 V28 Q12 18 22 18 H48 M34 4 L48 18 L34 32" /></g>
+          <text x="104" y="66" font-size="54" font-weight="700" fill="white">500 ft</text>
+          <text x="104" y="100" font-size="30" font-weight="600" fill="#ded6f4">Las Vegas Blvd</text>
+          <text :x="widget.width - 24" y="150" text-anchor="end" font-size="27" font-weight="500" fill="#d6d2e2">2.4 mi | 6 min</text>
+        </template>
         <rect x="24" y="171" :width="widget.width - 48 - 190" height="6" rx="3" fill="#a07edc3c" />
         <rect x="24" y="171" :width="(widget.width - 48 - 190) * .35" height="6" rx="3" fill="#b296ff" />
         <text :x="widget.width - 24" y="182" text-anchor="end" font-size="22" font-weight="600" fill="#ebe1ff">ETA 3:51 PM</text>
@@ -300,6 +322,15 @@ export const LayoutWidgetPreview = {
         </defs>
         <g mask="url(#gx-nav-map-mask)" :transform="'scale(' + widget.width / 600 + ' ' + widget.height / 450 + ')'" fill="none" stroke-linecap="round" stroke-linejoin="round">
           <g :opacity="(widget.opacity ?? 50) / 100">
+          <template v-if="googleMap">
+            <rect width="600" height="450" fill="#e8eaed" />
+            <path d="M440 -20 L640 -20 L640 200 Q540 170 440 -20 Z" fill="#aadaff" />
+            <path d="M-20 120 Q200 150 640 90 M90 -20 L130 480 M430 -20 Q400 200 470 480 M-20 330 L640 360 M260 -20 L250 480" stroke="#ffffff" stroke-width="12" vector-effect="non-scaling-stroke" />
+            <path d="M-20 120 Q200 150 640 90" stroke="#34a853" stroke-width="5" vector-effect="non-scaling-stroke" />
+            <path d="M-20 330 L640 360" stroke="#ea4335" stroke-width="5" vector-effect="non-scaling-stroke" />
+            <path d="M260 -20 L250 480" stroke="#fbbc04" stroke-width="5" vector-effect="non-scaling-stroke" />
+          </template>
+          <template v-else>
           <rect width="600" height="450" fill="#0b0f16" opacity=".45" />
           <g stroke="#000000a8" vector-effect="non-scaling-stroke">
             <path d="M-20 120 Q200 150 640 90 M90 -20 L130 480 M430 -20 Q400 200 470 480 M-20 330 L640 360 M260 -20 L250 480" stroke-width="11" vector-effect="non-scaling-stroke" />
@@ -307,6 +338,7 @@ export const LayoutWidgetPreview = {
           <path d="M-20 120 Q200 150 640 90 M-20 330 L640 360" stroke="#ebf0f5" stroke-width="6" vector-effect="non-scaling-stroke" />
           <path d="M90 -20 L130 480 M430 -20 Q400 200 470 480" stroke="#bec8d2" stroke-width="4" vector-effect="non-scaling-stroke" />
           <path d="M260 -20 L250 480" stroke="#ffc45c" stroke-width="8" vector-effect="non-scaling-stroke" />
+          </template>
           </g>
           <path d="M300 330 Q258 300 254 250 L262 -20" stroke="#8f6bff55" stroke-width="20" vector-effect="non-scaling-stroke" />
           <path d="M300 330 Q258 300 254 250 L262 -20" stroke="#a98bff" stroke-width="9" vector-effect="non-scaling-stroke" />
@@ -318,6 +350,7 @@ export const LayoutWidgetPreview = {
           <rect :x="-roadNameSize * 4.4" y="0" :width="roadNameSize * 8.8" :height="roadNameSize * 1.55" :rx="roadNameSize * .78" fill="#080c14be" />
           <text x="0" :y="roadNameSize * 1.12" text-anchor="middle" :font-size="roadNameSize" fill="#eceef6">Desert Inn Road</text>
         </g>
+        <text v-if="googleMap" x="16" :y="widget.height - 12" :font-size="Math.max(14, Math.min(widget.width, widget.height) * .04)" font-weight="600" fill="#f0f2fa">Google Maps</text>
       </g>
       <template v-else>
         <rect :width="widget.width" :height="widget.height" :fill="palette.cardFill" :stroke="palette.cardBorder" />
@@ -566,7 +599,7 @@ export const OnroadLayoutPage = {
     stockConfidence() { return this.displayValue("StockConfidenceBallWidget") === "Off" },
   },
   mounted() {
-    if (this.mode === "local") this.feed.start()
+    if (this.mode === "local") { this.feed.start(); loadNavLook() }
     this._stopUnloadGuard = guardUnload(() => this.dirty || this.state.status === "saving")
     // Double-tap zoom stays off across the whole page, app bar included, while a maker page is open.
     if (makerPagesOpen++ === 0) document.documentElement.classList.add("gx-maker-open")
