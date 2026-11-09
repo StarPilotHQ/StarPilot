@@ -35,18 +35,18 @@ class TestPowerSaveReinit(unittest.TestCase):
 #define HARNESS_STATUS_FLIPPED 1U
 #define REGISTER_INTERRUPT(...)
 #define CANIF_FROM_CAN_NUM(n) cans[n]
-typedef unsigned CAN_TypeDef;
-typedef unsigned FDCAN_GlobalTypeDef;
-static unsigned controllers[3] = {0U, 1U, 2U};
-static unsigned *cans[3] = {&controllers[0], &controllers[1], &controllers[2]};
+typedef struct { unsigned index; uint32_t IR; uint32_t TXFQS; } CAN_TypeDef;
+typedef CAN_TypeDef FDCAN_GlobalTypeDef;
+static CAN_TypeDef controllers[3] = {{0U, 0U, 1U}, {1U, 0U, 1U}, {2U, 0U, 1U}};
+static CAN_TypeDef *cans[3] = {&controllers[0], &controllers[1], &controllers[2]};
 static struct { unsigned status; } harness;
 static bool irq[3], transceivers[4];
 static unsigned faults, errors, prints, bad_process;
 static bool power_save_enabled;
 static void print(const char *text) { (void)text; prints++; }
-static void llcan_irq_enable(const unsigned *controller) { irq[*controller] = true; }
-static void llcan_irq_disable(const unsigned *controller) { irq[*controller] = false; }
-static bool llcan_init(const unsigned *controller) { llcan_irq_enable(controller); return true; }
+static void llcan_irq_enable(const CAN_TypeDef *controller) { irq[controller->index] = true; }
+static void llcan_irq_disable(const CAN_TypeDef *controller) { irq[controller->index] = false; }
+static bool llcan_init(const CAN_TypeDef *controller) { llcan_irq_enable(controller); return true; }
 static bool can_set_speed(uint8_t number) { (void)number; return true; }
 static void enable_transceiver(uint8_t number, bool enabled) { transceivers[number - 1U] = enabled; }
 static void set_ir_power(uint8_t power) { (void)power; }
@@ -85,6 +85,27 @@ unsigned error_count(void) { return errors; }
 unsigned print_count(void) { return prints; }
 unsigned process_before_restore(void) { return bad_process; }
 '''
+        if driver == 'fdcan':
+          source += r"""
+#define FDCAN_TX_FIFO_EL_CNT 1UL
+#define FDCAN_TXFQS_TFFL 0x3FU
+#define UNUSED(value) ((void)(value))
+static uint32_t clock_us;
+static struct { unsigned can_core_reset_cnt; unsigned total_tx_lost_cnt; } can_health[3];
+static uint32_t microsecond_timer_get(void) { return clock_us; }
+static uint32_t get_ts_elapsed(uint32_t now, uint32_t then) { return now - then; }
+"""
+          source += function((ROOT / 'panda/board/stm32h7/llfdcan.h').read_text(),
+                             'void llcan_clear_send(FDCAN_GlobalTypeDef *FDCANx)') + '\n'
+          source += function((ROOT / 'panda/board/drivers/fdcan.h').read_text(),
+                             'void can_clear_send(FDCAN_GlobalTypeDef *FDCANx, uint8_t can_number)') + '\n'
+          source += r"""
+void recovery(unsigned controller, unsigned elapsed) {
+  clock_us += elapsed;
+  can_clear_send(cans[controller], (uint8_t)controller);
+}
+unsigned recovery_count(unsigned controller) { return can_health[controller].can_core_reset_cnt; }
+"""
         file = Path(cls.temp.name) / f'{driver}-{hkg}.c'
         lib = file.with_suffix('.so')
         file.write_text(source)
@@ -159,3 +180,34 @@ unsigned process_before_restore(void) { return bad_process; }
           lib.reinit(controller)
           for other in range(3):
             self.assertEqual(lib.irq_enabled(other), other <= controller)
+
+  def test_fdcan_error_recovery_preserves_power_and_latched_faults(self):
+    for hkg in (False, True):
+      lib = self.libs['fdcan', hkg]
+      for flipped in (False, True):
+        for saving in (False, True):
+          for controller in range(3):
+            with self.subTest(hkg=hkg, flipped=flipped, saving=saving, controller=controller):
+              lib.reset(flipped, saving)
+              lib.latch_fault()
+              lib.recovery(controller, 200_000)
+              self.check_state(lib, flipped, saving, hkg)
+              self.assertEqual(lib.fault_mask(), 16)
+              lib.awake_offroad_traffic()
+              self.assertEqual(lib.error_count(), 0, 'FDCAN_RECOVERY_POWER_STATE_LOST')
+
+  def test_fdcan_error_recovery_keeps_existing_reset_rate_limit(self):
+    for hkg in (False, True):
+      lib = self.libs['fdcan', hkg]
+      for flipped in (False, True):
+        with self.subTest(hkg=hkg, flipped=flipped):
+          lib.reset(flipped, True)
+          controller = 0 if flipped else 2
+          before = lib.recovery_count(controller)
+          lib.recovery(controller, 200_000)
+          self.assertEqual(lib.recovery_count(controller), before + 1)
+          lib.recovery(controller, 100_000)
+          self.assertEqual(lib.recovery_count(controller), before + 1)
+          lib.recovery(controller, 1)
+          self.assertEqual(lib.recovery_count(controller), before + 2)
+          self.check_state(lib, flipped, True, hkg)

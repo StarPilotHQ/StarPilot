@@ -29,6 +29,11 @@ void can_clear_send(FDCAN_GlobalTypeDef *FDCANx, uint8_t can_number) {
     can_health[can_number].can_core_reset_cnt += 1U;
     can_health[can_number].total_tx_lost_cnt += (FDCAN_TX_FIFO_EL_CNT - (FDCANx->TXFQS & FDCAN_TXFQS_TFFL)); // TX FIFO msgs will be lost after reset
     llcan_clear_send(FDCANx);
+    #ifndef PANDA_BODY
+    if (power_save_enabled) {
+      set_power_save_state(true);
+    }
+    #endif
     last_reset = time;
   }
 }
