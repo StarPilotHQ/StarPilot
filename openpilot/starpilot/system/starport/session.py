@@ -811,8 +811,8 @@ class ProjectionSession(Session):
     methods = bluetooth["bluetooth"].get("pairing_methods") or []
     if pair:
       self._send_pairing_request(methods)
-    self.event("bluetooth_opened", channel=bluetooth["id"], phone_address=self.phone_address if pair else "",
-               car_address=bluetooth["bluetooth"].get("car_address", ""), pairing_methods=methods)
+    self.event("bluetooth_opened", channel=bluetooth["id"], phone_address_sent=bool(pair and self.phone_address),
+               has_car_address=bool(bluetooth["bluetooth"].get("car_address")), pairing_methods=methods)
     return True
 
   def _send_pairing_request(self, methods: list[int]) -> None:
@@ -961,10 +961,11 @@ class ProjectionSession(Session):
     was_focused = self.focused
     granted = focus in (FOCUS_PROJECTED, FOCUS_PROJECTED_NO_INPUT)
     self.focused = granted and self.allow_projection
-    first_grant = self.focused and self.focus_granted_at is None
+    wait = {}
     if self.focused and self.focus_granted_at is None:
       self.focus_granted_at = time.monotonic()
-    wait = {"wait_s": round(self.focus_granted_at - self.focus_requested_at, 2)} if first_grant and self.focus_requested_at is not None else {}
+      if self.focus_requested_at is not None:
+        wait = {"wait_s": round(self.focus_granted_at - self.focus_requested_at, 2)}
     self.event("video_focus", focus=focus, unsolicited=unsolicited, focused=self.focused, **wait)
     if was_focused and not self.focused and self.grace_frame is not None:
       self.grace_focus_lost = True  # the car gave up on the stalled video: reconnect rather than wait unfocused

@@ -182,7 +182,7 @@ def test_starport_widgets_get_sprites_and_empty_ones_keep_the_sketch(monkeypatch
   monkeypatch.setattr(canvas, 'fonts', NS(profile=Profile.LARGE), raising=False)
   canvas.target = NS(texture=object())
   drawn = []
-  canvas.view = NS(_ordered_widgets=lambda content, state, only_widget=None: drawn.append(only_widget))
+  monkeypatch.setattr(canvas, 'view', NS(_ordered_widgets=lambda content, state, only_widget=None: drawn.append(only_widget)), raising=False)
   monkeypatch.setattr(canvas, '_settle', lambda state: None)
   monkeypatch.setitem(renderer.RUNTIME_PREVIEW_WIDGETS, 'large', ())
   monkeypatch.setattr(rl, 'rl_set_blend_factors_separate', Mock())

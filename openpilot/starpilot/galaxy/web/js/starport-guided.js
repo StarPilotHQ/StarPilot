@@ -121,8 +121,9 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
     const restarting = state === "dongle_restart"
     const hangups = Number(runtime?.hangups) || 0
     // Only an unofficial dongle waits for a restart; for every other receiver repeated hang-ups are said, not acted on.
+    const adapter = carType === "adapter"
     const hangupNotice = wireless && !restarting && hangups >= HANGUP_NOTICE_AT ?
-      `${carType === "adapter" ? "The adapter" : "The car"} has hung up ${hangups} times before answering. If this keeps happening, ${carType === "adapter" ? "unplug the adapter for 10 seconds" : "turn the car off and on again"}.` : ""
+      `${adapter ? "The adapter" : "The car"} has hung up ${hangups} times before answering. If this keeps happening, ${adapter ? "unplug the adapter for 10 seconds" : "turn the car off and on again"}.` : ""
     return { ...base, show: true, phase: restarting ? "restart" : "connecting", title: restarting ? RESTART_TITLE : runtime?.label || "Connecting to your car",
       detail: restarting ? RESTART_DETAIL : runtime?.detail || "Keep your car’s screen on. We’ll move to the next step automatically.",
       progress: connectionStages(runtime), handshake: wireless ? handshakeSteps(ladder) : [], exhausted: !!ladder?.exhausted,

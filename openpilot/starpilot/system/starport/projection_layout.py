@@ -377,7 +377,7 @@ def _salvage_layout(value, viewport):
     raise ValueError('Projection layout does not match saved screen')
   defaults = {key: dict(widget['default']) for key, widget in metadata['widgets'].items()}
   saved = {key: placement for key, placement in value['widgets'].items() if key in defaults}
-  result = {'version': value.get('version'), 'canvas': value['canvas'], 'widgets': dict(defaults)}
+  result: dict = {'version': value.get('version'), 'canvas': value['canvas'], 'widgets': dict(defaults)}
 
   def accepts(candidate):
     try:

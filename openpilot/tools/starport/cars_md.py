@@ -23,7 +23,7 @@ def fetch(base: str, token: str, path: str) -> dict:
     return json.load(response)
 
 
-def pages(base: str, token: str, path: str):
+def pages(base: str, token: str, path: str | None):
   while path:
     page = fetch(base, token, path)
     yield from page["results"]

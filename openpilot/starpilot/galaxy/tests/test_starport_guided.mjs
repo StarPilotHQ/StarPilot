@@ -199,6 +199,8 @@ console.log("StarPort guided setup: question, steps, candidates, live checklist,
   const done = guidedState({ setup, runtime: refused, setupDone: true })
   assert.equal(done.phase, "bluetooth")   // even a finished setup shows the thing to fix
   assert.equal(guidedState({ setup, runtime: { running: false, state: "error", error: "something else" }, carType: "adapter" }).hint, null)
+  const waiting = { running: true, state: "backoff", error: "Connecting to car: Waiting for the adapter to finish starting up" }
+  assert.equal(guidedState({ setup, runtime: waiting, carType: "adapter" }).hint, null)  // AAWireless waits; it never asks for a car
   assert.match(StarPortGuidedSetup.template, /state\.hint\.href/)
 }
 // A car-specific fix is only ever advice on the setup screen: shown when the daemon names one, never otherwise.

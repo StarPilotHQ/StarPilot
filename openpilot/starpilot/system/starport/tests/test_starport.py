@@ -613,6 +613,8 @@ def test_session_opens_car_data_and_bluetooth_like_a_phone(identity):
   session = connect(hu, identity)
   session.phone_services = True
   session.phone_address = "39:90:21:64:07:00"
+  events = []
+  session._log = lambda name, **values: events.append((name, values))
   session.authenticate()
   session.start("StarPilot", "comma.ai")
   pump_until(session, lambda: session.focused and session.sensor_events)
@@ -624,6 +626,9 @@ def test_session_opens_car_data_and_bluetooth_like_a_phone(identity):
   assert hu.sensor_requests == [13, 10]  # driving status and night only; never location
   assert hu.pairing_requests == [("39:90:21:64:07:00", 2)]
   assert session.stats()["sensor_events"] == 1
+  opened = next(values for name, values in events if name == "bluetooth_opened")
+  assert opened["phone_address_sent"] is True
+  assert "39:90:21:64:07:00" not in repr(opened)
 
 
 def test_session_leaves_car_data_alone_by_default(identity):

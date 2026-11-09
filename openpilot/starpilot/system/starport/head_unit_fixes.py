@@ -1,17 +1,11 @@
-"""Car-specific fixes: rules matched on one exact head-unit build, applied through small reusable actions.
-
-A rule names the build it was seen on, the failure it targets and an ordered ladder of actions. A trial runs one more action
-per level (see quirk_state), so the smallest change that helps is the one that stays. Rules are either
-``experimental`` (they run only when the owner switches them on) or ``validated`` (a tested sequence, applied automatically
-to the matching build). "Try experimental fixes" is the master switch: off, no rule runs, whatever has been learned.
-"""
+"""Car-specific fixes: rules for one exact head-unit build, each a ladder of small actions tried one level at a time."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-from openpilot.starpilot.system.starport.quirk_state import QuirkState
+from openpilot.starpilot.system.starport.quirk_state import MATCH_FIELDS, QuirkState
 
 EXPERIMENTAL, VALIDATED = "experimental", "validated"
 
@@ -26,10 +20,7 @@ ACTIONS = (OPEN_BLUETOOTH, OPEN_PHONE_STATUS, OPEN_SENSORS, OPEN_VENDOR, REQUEST
 # ServiceDiscoveryResponse field numbers (JSON turns them into strings).
 SDR_LABELS = {"2": "car_make", "3": "car_model", "4": "car_year", "7": "head_unit_make", "8": "head_unit_model",
               "9": "head_unit_software_build", "10": "head_unit_software_version"}
-MATCH_FIELDS = ("car_make", "car_model", "car_year", "head_unit_make", "head_unit_model", "head_unit_software_version")
 
-# Automatic experiments (an experimental rule that starts without its own toggle) are not enabled in this release.
-AUTO_EXPERIMENTS = False
 WIRELESS, WIRED = "wireless", "wired"
 
 
@@ -37,7 +28,6 @@ WIRELESS, WIRED = "wireless", "wired"
 class Evidence:
   failure: str                    # what the car does
   sessions: tuple[str, ...]       # where it was seen
-  early_shutdown_s: float | None  # the known-bad baseline: seconds of video before the car ends the session
 
 
 @dataclass(frozen=True)
@@ -60,7 +50,7 @@ RULES: tuple[Rule, ...] = (
               "head_unit_model": "myChevrolet", "head_unit_software_version": "W28E-V155.3.8-MIHS21A-107"},
        transports=(WIRELESS, WIRED), status=EXPERIMENTAL,
        evidence=Evidence("The car ends every session 10-25 s after video starts (shutdown reason 1), wired and wireless.",
-                         ("2026-10-12 sessions 5-8", "2026-11-08 sessions 1, 2, 4"), 25.0),
+                         ("2026-10-12 sessions 5-8", "2026-11-08 sessions 1, 2, 4")),
        ladder=(OPEN_BLUETOOTH, OPEN_PHONE_STATUS, OPEN_SENSORS, OPEN_VENDOR, REQUEST_BT_PAIRING),
        summary="This car's screen keeps ending after about 25 seconds."),
 )
@@ -79,7 +69,7 @@ class BootstrapFix:
 BOOTSTRAP_FIXES: tuple[BootstrapFix, ...] = (
   BootstrapFix(id="phone_ping", label="Dongle Wi-Fi setup: ping like a phone", experiment="phone_ping",
                evidence=Evidence("A Mavlou dongle never sends its Wi-Fi start request to the comma. A phone pings it once a second after its version reply.",
-                                 ("2026-11-03 phone capture", "2026-11-07 sessions 5, 19, 24"), None)),
+                                 ("2026-11-03 phone capture", "2026-11-07 sessions 5, 19, 24"))),
 )
 
 
@@ -163,7 +153,7 @@ def _enabled(config: dict, rule: Rule) -> bool:
   """Try experimental fixes is the master switch: off, no rule of either status runs, whatever has been learned."""
   if not config.get("head_unit_experiments"):
     return False
-  return rule.status == VALIDATED or AUTO_EXPERIMENTS or rule.id in (config.get("head_unit_experiment_rules") or [])
+  return rule.status == VALIDATED or rule.id in (config.get("head_unit_experiment_rules") or [])
 
 
 def eligible(car_type: str, profile: str) -> bool:

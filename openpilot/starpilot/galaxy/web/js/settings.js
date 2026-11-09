@@ -311,7 +311,7 @@ export const SettingsPage = {
       const owner = (this.state.data?.rows || []).map((row) => (row.heading ? heads.push({ title: row.label, collapsible: !!row.collapsed }) : heads.length))
       const cards = [{ title: "", entries: [], collapsible: false, open: true }, ...heads.map(({ title, collapsible }) => ({ title, entries: [], collapsible, open: !collapsible }))]
       for (const entry of this.visibleRows) if (!entry.row.heading) cards[owner[entry.index] || 0].entries.push(entry)
-      for (const card of cards) if (card.collapsible) card.open = !!this.state.query || (this.state.openCards || []).includes(card.title)
+      for (const card of cards) if (card.collapsible) card.open = !!this.state.query || this.state.openCards.includes(card.title)
       return cards.filter((card, index) => !index || card.entries.length)
     },
   },
@@ -366,7 +366,7 @@ export const SettingsPage = {
       }
     },
     toggleCard(title) {
-      const open = this.state.openCards || (this.state.openCards = [])
+      const open = this.state.openCards
       const at = open.indexOf(title)
       if (at < 0) open.push(title)
       else open.splice(at, 1)

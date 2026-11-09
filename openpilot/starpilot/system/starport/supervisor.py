@@ -2138,7 +2138,7 @@ class Supervisor:
       if selection:
         self.log("fix_outcome", rule=selection.rule.id, level=selection.level, verdict=verdict, streamed_s=round(outcome.streamed_s, 1),
                  state=after["state"] if after else "", reason=after.get("reason", "") if after else "")
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except OSError as error:
       self.log("fix_outcome_error", error=str(error)[:120])
 
   def _note_streamed(self, session: ProjectionSession) -> None:

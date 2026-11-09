@@ -230,3 +230,16 @@ def test_unofficial_dongle_turns_on_the_handshake_experiments_only_when_chosen()
   assert car_profiles.tuning(config(car_profile_override="unofficial"))["bootstrap_experiments"] is True
   for other in (config(), config(car_profile_override="default"), config(car_profile_override="aawireless")):
     assert car_profiles.tuning(other)["bootstrap_experiments"] is False
+
+
+@pytest.mark.parametrize("profile, expected", [("aawireless", "Waiting for the adapter to finish starting up"),
+                                               ("default", "Connect your paired car in Galaxy Bluetooth first")])
+def test_an_adapter_without_hands_free_yet_waits_or_asks_for_the_car(sup, profile, expected):
+  bluez = Mock()
+  bluez.device.return_value = {"address": ADAPTER, "paired": True, "starport": True, "uuids": []}
+  sup._phone = lambda: bluez
+  sup.config.update(connection="wireless", receiver_address=ADAPTER, receiver_name="AAWireless-4F2A", companion_address="",
+                    car_type="adapter", car_profile_override=profile)
+  with pytest.raises(RuntimeError, match=expected):
+    sup._attempt(None)
+  bluez.connect_device.assert_not_called()

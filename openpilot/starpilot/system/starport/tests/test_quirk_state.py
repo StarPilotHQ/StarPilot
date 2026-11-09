@@ -21,7 +21,6 @@ def test_classify_cases():
   assert qs.classify(EARLY, frozen) == qs.FAILED
   assert qs.classify(GOOD, frozen) == qs.SUCCESS
   assert qs.classify(SessionOutcome(video_seen=True, streamed_s=30, user_stopped=True), frozen) == qs.INCONCLUSIVE
-  assert qs.classify(SessionOutcome(video_seen=True, streamed_s=30, car_off=True, ended_by_car=True), frozen) == qs.INCONCLUSIVE
   assert qs.classify(SessionOutcome(waiting_for_driver=True), frozen) == qs.INCONCLUSIVE
   assert qs.classify(SessionOutcome(video_seen=True, streamed_s=30), frozen) == qs.INCONCLUSIVE
   assert qs.classify(SessionOutcome(pairing_prompt=True), frozen) == qs.REGRESSION
@@ -122,3 +121,27 @@ def test_forget_offline_removes_entry(tmp_path):
   assert qs.forget_offline("aa", tmp_path / "quirk_state.json")
   assert state(tmp_path).cars == {}
   assert not qs.forget_offline("aa", tmp_path / "quirk_state.json")
+
+
+def test_resetting_one_car_keeps_the_other_cars_trials(tmp_path):
+  q = state(tmp_path)
+  q.begin("bt:AA", FP, "r")
+  q.begin("bt:BB", FP, "r")
+  run(q, "bt:BB", EARLY)
+  run(q, "bt:BB", EARLY)
+  q.reset("bt:AA")
+  assert q.trial("bt:AA", "r") is None
+  assert q.trial("bt:BB", "r")["level"] == 2
+
+
+def test_oversized_or_linked_state_file_is_ignored(tmp_path):
+  path = tmp_path / "quirk_state.json"
+  path.write_text(json.dumps({"version": qs.STATE_VERSION, "cars": {}, "pad": "x" * qs.MAX_STATE_BYTES}))
+  assert state(tmp_path).cars == {}
+  real = tmp_path / "real.json"
+  q = QuirkState(real)
+  q.begin("bt:AA", FP, "r")
+  q.save()
+  path.unlink()
+  path.symlink_to(real)
+  assert state(tmp_path).cars == {}

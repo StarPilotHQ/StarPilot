@@ -320,7 +320,7 @@ def session_record(path: Path) -> dict:
     "setup": setup,
     "offered_modes": offered_modes(events),
     # True when the comma's address went to the car in the pairing request; None when the car never opened that channel.
-    "phone_address_sent": bool(opened.get("phone_address")) if opened is not None else None,
+    "phone_address_sent": bool(opened.get("phone_address_sent", opened.get("phone_address"))) if opened is not None else None,
     "strategy": session_strategy(events, setup),
     "ladder": session_ladder(events),
     "fixes": session_fixes(events),

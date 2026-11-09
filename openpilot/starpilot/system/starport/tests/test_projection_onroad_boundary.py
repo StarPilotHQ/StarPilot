@@ -266,7 +266,7 @@ class TestProjectionOnroad(unittest.TestCase):
       def deactivate(self): pass
       def close(self): pass
 
-    class Warning:
+    class FakeWarning:
       def sample(self, **kwargs):
         calls.append(kwargs)
         return True, False
@@ -279,7 +279,7 @@ class TestProjectionOnroad(unittest.TestCase):
                           canValid=True, gearShifter=drive)
     native.ui_state.params = object()
     native.display_message = lambda _sm, name, *_a, **_k: car if name == 'carState' else None
-    native.pip_renderer, native.pip_warning = Renderer, Warning
+    native.pip_renderer, native.pip_warning = Renderer, FakeWarning
     native.read_pip, native.read_vasm = (lambda _p: saved), (lambda _p: vasm)
     native.clock_pair_ns = lambda: (1, 2)
     native.car_schema = SimpleNamespace(CarState=SimpleNamespace(GearShifter=SimpleNamespace(drive=drive)))

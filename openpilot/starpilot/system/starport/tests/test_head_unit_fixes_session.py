@@ -27,7 +27,9 @@ def run(identity, tmp_path, config, level=None, **hu_options):
   def choose(info):
     labels = hf.head_unit_labels(info)
     if level is not None:
-      quirks.begin("bt:AA", labels, RULE.id)["level"] = level
+      trial = quirks.begin("bt:AA", labels, RULE.id)
+      assert trial is not None
+      trial["level"] = level
     selection = hf.select(config, labels, "wireless", quirks, "bt:AA", car_type="builtin", profile="default")
     return selection.actions if selection else ()
 

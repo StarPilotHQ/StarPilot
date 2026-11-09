@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -21,12 +22,12 @@ def test_shipped_rules_validate():
 
 @pytest.mark.parametrize("change", [{"head_unit_software_version": "W28E-*"}, {"car_year": ""}, {"extra": "x"}])
 def test_validate_rejects_wide_rules(change):
-  bad = hf.Rule(**{**RULE.__dict__, "match": {**RULE.match, **change}})
+  bad = replace(RULE, match={**RULE.match, **change})
   assert hf.validate_rules((bad,))
 
 
 def test_validate_rejects_missing_evidence():
-  bad = hf.Rule(**{**RULE.__dict__, "evidence": hf.Evidence("", (), None)})
+  bad = replace(RULE, evidence=hf.Evidence("", ()))
   assert hf.validate_rules((bad,))
 
 
@@ -83,7 +84,9 @@ def test_wired_selection_with_key():
 
 def test_reverted_trial_stays_off(tmp_path):
   q = QuirkState(tmp_path / "q.json")
-  q.begin("bt:AA", BOLT, RULE.id)["state"] = "off"
+  trial = q.begin("bt:AA", BOLT, RULE.id)
+  assert trial is not None
+  trial["state"] = "off"
   assert pick(CFG_ON, q=q) is None
 
 

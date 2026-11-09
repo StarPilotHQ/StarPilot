@@ -1,26 +1,21 @@
-"""What StarPort has learned about how each car reacts to car-specific fixes, kept apart from the setup ladder's state.
-
-One file, ``quirk_state.json``, keyed by the chosen car's Bluetooth address. Each car stores the head-unit fingerprint it was
-learned with (a different head unit on the same address wipes the entry), an observation-only baseline, and one trial per rule.
-A trial ends each session as ``success``, ``failed``, ``inconclusive`` or ``regression``; only a recurrence of the targeted
-failure moves the ladder up, and a regression on any measured axis reverts the trial. Wired cars have no reliable identity, so
-their entries live in memory for the drive and are never written.
-"""
+"""Per-car record of how each car-specific fix worked, kept in quirk_state.json apart from the setup ladder."""
 
 from __future__ import annotations
 
 import json
-import os
 import statistics
-import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from openpilot.common.utils import atomic_write
 from openpilot.starpilot.system.starport import identity as identity_store
+from openpilot.starpilot.system.starport.compat_report import read_log
 
 STATE_VERSION = 1
 MAX_CARS = 16
+MAX_STATE_BYTES = 256 << 10
+MATCH_FIELDS = ("car_make", "car_model", "car_year", "head_unit_make", "head_unit_model", "head_unit_software_version")
 EARLY_SECONDS = 60.0        # a car that ends the session sooner than this after video started has hung up early
 CONFIRM_SECONDS = 120.0     # streaming this long with no early shutdown is a success
 CONFIRM_SESSIONS = 2        # successes needed to confirm a trial
@@ -43,7 +38,6 @@ class SessionOutcome:
   first_frame_s: float | None = None
   ended_by_car: bool = False        # the car sent a shutdown request
   user_stopped: bool = False        # the owner stopped projection, or the car or comma went away
-  car_off: bool = False             # the car stopped answering because it powered down
   hangup: bool = False              # the link dropped with no video, or the car hung up on a reply
   pairing_prompt: bool = False      # the car reported the comma as not yet paired after a pairing request
   waiting_for_driver: bool = False  # focus was never granted and the car may be waiting for the driver to choose
@@ -55,7 +49,7 @@ class SessionOutcome:
 
 def classify(outcome: SessionOutcome, frozen: dict) -> str:
   """The verdict for one session run with a fix on, judged against the baseline frozen when the trial started."""
-  if outcome.user_stopped or outcome.car_off or outcome.waiting_for_driver:
+  if outcome.user_stopped or outcome.waiting_for_driver:
     return INCONCLUSIVE
   if outcome.pairing_prompt:
     return REGRESSION
@@ -127,7 +121,7 @@ class QuirkState:
 
   def _load(self) -> None:
     try:
-      raw = json.loads(self.path.read_text())
+      raw = json.loads(read_log(self.path, MAX_STATE_BYTES))
     except (OSError, ValueError):
       return
     if not isinstance(raw, dict) or raw.get("version") != STATE_VERSION or not isinstance(raw.get("cars"), dict):
@@ -151,17 +145,8 @@ class QuirkState:
     with self._lock:
       data = json.dumps({"version": STATE_VERSION, "generation": self.generation, "cars": self.cars}, indent=1) + "\n"
       self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-      fd, temp = tempfile.mkstemp(prefix=".quirk-", dir=self.path.parent)
-      try:
-        with os.fdopen(fd, "w") as handle:
-          handle.write(data)
-        os.chmod(temp, 0o600)
-        os.replace(temp, self.path)
-      except OSError:
-        try:
-          os.unlink(temp)
-        except OSError:
-          pass
+      with atomic_write(str(self.path), overwrite=True) as handle:
+        handle.write(data)
 
   # --------------------------------------------------------------------- keys
 
@@ -172,8 +157,7 @@ class QuirkState:
   @staticmethod
   def wired_key(fingerprint: dict) -> str:
     """A head-unit key for one drive. Only a full fingerprint identifies a build; anything less gets no key."""
-    needed = ("car_make", "car_model", "car_year", "head_unit_make", "head_unit_model", "head_unit_software_version")
-    return "usb:" + "|".join(fingerprint.get(k, "") for k in needed) if all(fingerprint.get(k) for k in needed) else ""
+    return "usb:" + "|".join(fingerprint.get(k, "") for k in MATCH_FIELDS) if all(fingerprint.get(k) for k in MATCH_FIELDS) else ""
 
   def _store(self, key: str) -> dict:
     return self.memory if key.startswith("usb:") else self.cars
@@ -297,6 +281,9 @@ class QuirkState:
       if key:
         self.cars.pop(key, None)
         self.memory.pop(key, None)
+        for entry in (*self.cars.values(), *self.memory.values()):
+          for trial in entry["trials"].values():
+            trial["generation"] = self.generation
       else:
         self.cars.clear()
         self.memory.clear()

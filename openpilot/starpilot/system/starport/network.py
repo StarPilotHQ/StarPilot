@@ -127,7 +127,7 @@ def connection_settings(credentials: WifiCredentials, interface: str, static_ip:
   }
   if credentials.bssid:
     wireless["bssid"] = ("ay", bytes.fromhex(credentials.bssid.replace(":", "")))
-  settings = {
+  settings: dict[str, dict] = {
     "connection": {
       "type": ("s", "802-11-wireless"),
       "uuid": ("s", str(uuid.uuid4())),

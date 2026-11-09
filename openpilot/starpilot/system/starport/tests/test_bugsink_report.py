@@ -482,6 +482,9 @@ def test_report_records_that_the_address_was_not_sent_and_old_logs_still_report(
   events: list = [list(item) for item in STREAMED]
   events.insert(6, (0, 10, "bluetooth_opened", {"channel": 6, "phone_address": ""}))
   assert br.drive_event([br.session_record(write_session(tmp_path, 1, events))])["tags"]["aa.phone_address_sent"] == "no"
+  current: list = [list(item) for item in STREAMED]
+  current.insert(6, (0, 10, "bluetooth_opened", {"channel": 6, "phone_address_sent": True, "has_car_address": True}))
+  assert br.session_record(write_session(tmp_path, 3, current))["phone_address_sent"] is True
   old = br.session_record(write_session(tmp_path, 2, STREAMED))  # a log written before these fields existed
   assert old["setup"] == {} and old["offered_modes"] == [] and old["phone_address_sent"] is None and old["strategy"] == {}
   tags = br.drive_event([old])["tags"]

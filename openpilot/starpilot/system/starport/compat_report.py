@@ -142,14 +142,15 @@ def summarize(events: list[dict]) -> dict:
       frames = 0
     elif name == "bootstrap_rx":
       frames += 1
-    elif name == "ladder_strategy" and record.get("rung"):
-      report["ladder"].setdefault(record["rung"], {"tries": 0, "failed": 0, "why": ""})["tries"] += 1
-    elif name == "ladder_failed" and record.get("rung"):
+    elif name in ("ladder_strategy", "ladder_failed", "ladder_worked") and record.get("rung"):
       rung = report["ladder"].setdefault(record["rung"], {"tries": 0, "failed": 0, "why": ""})
-      rung["failed"] += 1
-      rung["why"] = record.get("why") or record.get("reason", "")
-    elif name == "ladder_worked" and record.get("rung"):
-      report["ladder"].setdefault(record["rung"], {"tries": 0, "failed": 0, "why": ""})["why"] = "worked"
+      if name == "ladder_strategy":
+        rung["tries"] += 1
+      elif name == "ladder_failed":
+        rung["failed"] += 1
+        rung["why"] = record.get("why") or record.get("reason", "")
+      else:
+        rung["why"] = "worked"
     elif name == "dongle_restart_requested":
       report["restarts"].append({"t": record.get("t", ""), "hangups": record.get("hangups"), "how": ""})
     elif name == "dongle_restart_done" and report["restarts"]:
