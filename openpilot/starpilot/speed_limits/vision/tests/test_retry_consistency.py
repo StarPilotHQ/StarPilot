@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from openpilot.starpilot.speed_limits.vision import model
+from openpilot.starpilot.speed_limits.vision import model, speed_face
+from openpilot.starpilot.speed_limits.vision.tests import _identity_fixture as identity_fixture
 from openpilot.starpilot.speed_limits.vision.traffic_signs import TrafficSignModelCore
 
 
@@ -38,7 +39,7 @@ class FakeReader:
 def core_fixture(reads, regulatory, proposals=None, cls=model.VisionModelCore):
   core: Any = cls.__new__(cls)
   core.is_metric = False
-  core.net = object()
+  core.net = type("DetectorFixture", (), {"rgb256": None})()
   core.classifier_net = FakeReader(reads)
   core.classifier_logits_layer = 'original_logits'
   core.classifier_input_size = 128
@@ -50,6 +51,7 @@ def core_fixture(reads, regulatory, proposals=None, cls=model.VisionModelCore):
   core.history = deque()
   core.speed_enabled = True
   core.stop_detections = ()
+  core._stop_face_filter = speed_face.StopFaceVerifier(identity_fixture.Net("aux"))
   core._is_regulatory_speed_sign = lambda crop: regulatory[core.classifier_net.calls]
   core._collect_detector_classifier_proposals = lambda frame: proposals or [(.9, 0, (40, 20, 100, 100))]
   core._iter_school_zone_read_crops = lambda crop: []
@@ -159,6 +161,7 @@ class RetryConsistencyTests(unittest.TestCase):
   def test_stop_only_constructor_has_no_numeric_evidence_or_numeric_load(self):
     with patch.object(TrafficSignModelCore, '_load_net', return_value=FakeReader([])) as load, \
          patch.object(TrafficSignModelCore, '_verified_model_path', return_value=Path('unused')), \
+         patch('openpilot.starpilot.speed_limits.vision.traffic_signs.SpeedFaceVerifier', side_effect=lambda _: identity_fixture.fake_identity()), \
          patch.object(TrafficSignModelCore, '_validate_model_abi'):
       core = TrafficSignModelCore(is_metric=False, speed_enabled=False)
     self.assertFalse(core.last_classifier_reject_dominant)

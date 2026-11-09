@@ -669,7 +669,9 @@ class TestVisionProducer(unittest.TestCase):
   def test_disabling_speed_in_the_live_producer_clears_retained_numbers(self):
     reader = Mock()
     reader.getLayerId.return_value = 0
-    with patch.object(producer.VisionModelCore, '_load_net', side_effect=[None, reader]), \
+    detector = Mock(stops=np.zeros((1, 5, 4096), np.float32), rgb256=None)
+    detector.forward.return_value = np.zeros((1, 5, 1344), np.float32)
+    with patch.object(producer.VisionModelCore, '_load_net', side_effect=[detector, reader]), \
          patch.object(producer.VisionModelCore, '_validate_model_abi'):
       core = producer.VisionModelCore(is_metric=False)
     self.assertIsNotNone(core.classifier_net)
