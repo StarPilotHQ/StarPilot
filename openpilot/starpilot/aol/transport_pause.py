@@ -289,6 +289,7 @@ class TransportPauseFeedback:
     self.cold_park_waiting = False
     self.lateral_only_baseline = False
     self.temporary_eps_gas_override = False
+    self.hkg_eps_join_until_ns = 0
     self.lateral_source_ns = 0
     self.lateral_inventory = None
     self.lateral_native_ns = 0
@@ -1218,7 +1219,12 @@ class TransportPauseFeedback:
           all(slot.controlsAllowed for slot, config in zip(newer.pandaInventory, cp.safetyConfigs, strict=True)
               if str(config.safetyModel) not in ('silent', 'noOutput'))):
         native = newer
-    return bool(native is not None and native.pandaInventory and native.requestedLateral and
+    expired_request_off = bool(qualified(cp, marked_only=True) and self.source_retention_started_ns and not axis.lateralActive and
+      not axis.desiredLongitudinal and not axis.longitudinalActive and
+      0 < self.lateral_source_ns <= now_ns <= self.lateral_source_ns + SAFETY_MAX_AGE_NS and
+      0 < self.source_retention_started_ns <= now_ns <= self.source_retention_started_ns + SAFETY_MAX_AGE_NS)
+    return bool(native is not None and native.pandaInventory and
+      (native.requestedLateral or expired_request_off and not native.longitudinalAllowed) and
       (not native.lateralAllowed or subaru_stop and not axis.desiredLateral and not axis.lateralActive) and
       (pending_stop or not native.requestedLongitudinal and not combined_stop or
        combined_stop and native.requestedLongitudinal and native.longitudinalAllowed) and
@@ -1322,6 +1328,7 @@ class TransportPauseFeedback:
         self.ordinary_warning_retained = False
         self.ordinary_warning_pending_baseline = None
         self.temporary_eps_event_ns = 0
+        self.hkg_eps_join_until_ns = 0
         self.ccnc_main_off_source_ns = 0
         self.cold_park_waiting = False
         self.cold_main_sparse_waiting = False

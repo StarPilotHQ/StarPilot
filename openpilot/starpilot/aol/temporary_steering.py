@@ -49,8 +49,11 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     now_ns - previous[8] <= AXIS_MAX_AGE_NS and
     0 < self.lateral_source_ns <= now_ns and
     now_ns - self.lateral_source_ns <= AXIS_MAX_AGE_NS)
+  repeated_native_first = bool(signature == previous and not axis.lateralActive and
+    0 < now_ns <= self.hkg_eps_join_until_ns)
   held_original = bool(axis.desiredLateral and (axis.lateralActive or
-    cp.brand == 'hyundai' and str(cp.steerControlType) == 'angle' and fresh_active_successor) and axis.nativeAcknowledged and
+    cp.brand == 'hyundai' and str(cp.steerControlType) == 'angle' and
+    (fresh_active_successor or repeated_native_first)) and axis.nativeAcknowledged and
     (signature == previous or fresh_active_successor))
   if not withdrawn and not held_original:
     return False
@@ -160,6 +163,8 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
       native.observedMonoTime < self.lateral_native_ns or
       (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) != self.lateral_inventory):
     return False
+  if hkg_angle_eps and fresh_active_successor and axis.desiredLateral and not axis.lateralActive:
+    self.hkg_eps_join_until_ns = min(previous[4], self.lateral_source_ns + AXIS_MAX_AGE_NS)
   if stock_volkswagen_eps and matched_withdrawal:
     self.volkswagen_eps_source_ns = int(axis.sourceCarStateMonoTime)
   if cs.steerFaultTemporary and matched_withdrawal:
