@@ -199,7 +199,7 @@ static void can_rx(uint8_t can_number) {
     #ifdef STM32H7
     mpu_safety_open();
     #endif
-    int bus_fwd_num = safety_fwd_hook(bus_number, to_push.addr);
+    int bus_fwd_num = safety_fwd_packet_hook(&to_push);
     #ifdef STM32H7
     mpu_safety_close();
     #endif

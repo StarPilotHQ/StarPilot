@@ -358,6 +358,14 @@ int safety_fwd_hook(int bus_num, int addr) {
   return blocked ? -1 : destination_bus;
 }
 
+int safety_fwd_packet_hook(const CANPacket_t *msg) {
+  int destination_bus = safety_fwd_hook(msg->bus, msg->addr);
+  if ((destination_bus >= 0) && (current_hooks->fwd_packet != NULL) && current_hooks->fwd_packet(msg)) {
+    destination_bus = -1;
+  }
+  return destination_bus;
+}
+
 // 1Hz safety function called by main. Now just a check for lagging safety messages
 void safety_tick(void) {
   const uint8_t MAX_MISSED_MSGS = 10U;

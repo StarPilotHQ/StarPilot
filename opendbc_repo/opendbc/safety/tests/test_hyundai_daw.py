@@ -136,3 +136,75 @@ def test_one_genuine_counter_predecessor_cannot_hide_newer_hands_off_request():
   owner.update([(BASE + 30_000_000, [(0x11A, bytes(hands_off), 1)])])
   _, current_output, _ = advisory_candidate(owner, BASE + 30_000_000)
   assert safety.safety_tx_hook(packet(0x11A, current_output, 1))
+
+
+@pytest.mark.parametrize('mode,word', [(structs.CarParams.SafetyModel.hyundai, 0),
+  (structs.CarParams.SafetyModel.hyundai, 0xC02), (structs.CarParams.SafetyModel.hyundaiLegacy, 0)])
+@pytest.mark.parametrize('status', range(8))
+def test_classic_advisory_forwarding_uses_only_current_accepted_replacement(mode, word, status):
+  safety, _ = setup(False, word)
+  assert safety.set_safety_hooks(mode, word) == 0
+  safety.init_tests()
+  safety.set_timer(1_000_000)
+  owner = DawSource(params(False))
+  original = source(False, 0)
+  incoming = packet(0x53E, original, 2)
+  assert safety.safety_fwd_packet_hook(incoming) == 0
+  safety.safety_rx_hook(incoming)
+  owner.update([(BASE, [(0x53E, original, 2)])])
+  addr, output, bus = advisory_candidate(owner, BASE)
+  assert safety.safety_tx_hook(packet(addr, output, bus))
+  safety.set_timer(1_010_000)
+  incoming = packet(0x53E, source(False, status), 2)
+  expected = -1 if 1 <= status <= 3 else 0
+  # Both Panda drivers forward before their RX hook sees the current packet.
+  assert safety.safety_fwd_packet_hook(incoming) == expected
+  safety.safety_rx_hook(incoming)
+  assert safety.safety_fwd_packet_hook(incoming) == expected
+  assert safety.safety_fwd_packet_hook(packet(0x53E, source(False, status), 0)) == 2
+  safety.set_timer(1_100_001)
+  assert safety.safety_fwd_packet_hook(incoming) == 0
+
+
+@pytest.mark.parametrize('change', ['opaque', 'length', 'reset', 'no_replacement', 'expired_source', 'relay', 'hands_off', 'unknown'])
+def test_classic_advisory_forwarding_fails_open_without_exact_live_replacement(change):
+  safety, _ = setup(False, 0xC02)
+  owner = DawSource(params(False))
+  original = source(False, 1)
+  safety.safety_rx_hook(packet(0x53E, original, 2))
+  owner.update([(BASE, [(0x53E, original, 2)])])
+  addr, output, bus = advisory_candidate(owner, BASE)
+  if change != 'no_replacement':
+    assert safety.safety_tx_hook(packet(addr, output, bus))
+  safety.set_timer(1_010_000)
+  incoming = bytearray(source(False, 1))
+  if change == 'opaque':
+    incoming[0] ^= 1
+  elif change == 'length':
+    incoming.pop()
+  elif change == 'reset':
+    setup(False, 0xC02)
+  elif change == 'expired_source':
+    safety.set_timer(1_100_001)
+  elif change == 'relay':
+    safety.set_relay_malfunction(True)
+  elif change in ('hands_off', 'unknown'):
+    incoming = source(False, 4 if change == 'hands_off' else 7)
+  message = packet(0x53E, bytes(incoming), 2)
+  expected = -1 if change == 'relay' else 0
+  assert safety.safety_fwd_packet_hook(message) == expected
+  safety.safety_rx_hook(message)
+  assert safety.safety_fwd_packet_hook(message) == expected
+
+
+def test_packet_forwarding_preserves_existing_other_profile_rules():
+  safety, _ = setup(False, 0)
+  data = source(False, 1)
+  for mode, word in ((structs.CarParams.SafetyModel.hyundaiCanfd, 0),
+                     (structs.CarParams.SafetyModel.toyota, 0),
+                     (structs.CarParams.SafetyModel.hyundai, 0x8800)):
+    assert safety.set_safety_hooks(mode, word) == 0
+    safety.init_tests()
+    for bus in range(3):
+      for addr in (0x53E, 0x340, 0x4F1, 0x421, 0x110, 0x11A):
+        assert safety.safety_fwd_packet_hook(packet(addr, data, bus)) == safety.safety_fwd_hook(bus, addr)

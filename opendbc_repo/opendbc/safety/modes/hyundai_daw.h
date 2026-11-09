@@ -14,6 +14,7 @@ static uint32_t hyundai_daw_tx_ts;
 static bool hyundai_daw_seen;
 static bool hyundai_daw_counter_seen;
 static bool hyundai_daw_sent;
+static uint8_t hyundai_daw_last_classic_tx[6];
 
 static void hyundai_daw_init(bool canfd, bool enabled) {
   hyundai_daw_addr = enabled ? (canfd ? 0x11AU : 0x53EU) : 0U;
@@ -96,8 +97,29 @@ static bool hyundai_daw_tx(const CANPacket_t *msg) {
   if (valid) {
     hyundai_daw_sent = true;
     hyundai_daw_tx_ts = now;
+    if (!canfd) {
+      (void)memcpy(hyundai_daw_last_classic_tx, msg->data, 6U);
+    }
   }
   return valid;
+}
+
+static bool hyundai_daw_fwd(const CANPacket_t *msg) {
+  const uint32_t now = microsecond_timer_get();
+  bool blocked = (msg->bus == 2U) && (msg->addr == 0x53EU) && (GET_LEN(msg) == 6U) && (hyundai_daw_addr == 0x53EU) &&
+                 (hyundai_daw_len == 6U) && hyundai_daw_seen && hyundai_daw_sent &&
+                 !relay_malfunction && !safety_rx_checks_invalid &&
+                 (safety_get_ts_elapsed(now, hyundai_daw_rx_ts) <= 100000U) &&
+                 (safety_get_ts_elapsed(now, hyundai_daw_tx_ts) <= 100000U);
+  if (blocked) {
+    const uint8_t status = msg->data[5] & 7U;
+    blocked = (status >= 1U) && (status <= 3U);
+    for (unsigned int i = 0U; i < 6U; i++) {
+      const uint8_t mask = (i == 5U) ? 0xF8U : 0xFFU;
+      blocked &= (msg->data[i] & mask) == (hyundai_daw_last_classic_tx[i] & mask);
+    }
+  }
+  return blocked;
 }
 
 static safety_config hyundai_daw_configure(safety_config ret, bool canfd, bool enabled) {

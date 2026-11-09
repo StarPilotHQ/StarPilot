@@ -970,6 +970,7 @@ static void hyundai_optional_rx_hook(const CANPacket_t *msg) {
 }
 
 const safety_hooks hyundai_hooks = {
+  .fwd_packet = hyundai_daw_fwd,
   .fwd = blended_aol_fwd,
   .init = hyundai_init,
   .optional_rx = hyundai_optional_rx_hook,
@@ -981,6 +982,7 @@ const safety_hooks hyundai_hooks = {
 };
 
 const safety_hooks hyundai_legacy_hooks = {
+  .fwd_packet = hyundai_daw_fwd,
   .init = hyundai_legacy_init,
   .optional_rx = hyundai_optional_rx_hook,
   .rx = hyundai_rx_hook,
