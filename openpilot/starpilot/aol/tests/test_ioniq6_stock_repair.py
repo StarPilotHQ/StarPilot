@@ -75,12 +75,12 @@ def cleanup(cp):
 
 def test_actual_cleanup_preserves_request_without_enabling_long():
   cp = stock(True)
-  assert cleanup(cp) == ['ExperimentalMode']
+  assert cleanup(cp) == []
   cp.passive = True
   cp.dashcamOnly = True
   assert not qualified_ioniq6(cp) and not ioniq6_settings_capable(cp)
-  assert cleanup(cp) == ['ExperimentalMode']
+  assert cleanup(cp) == []
   cp.carFingerprint = CAR.HYUNDAI_IONIQ_5
-  assert cleanup(cp) == ['ExperimentalMode']
+  assert cleanup(cp) == []
   cp.openpilotLongitudinalControl = True
   assert cleanup(cp) == []

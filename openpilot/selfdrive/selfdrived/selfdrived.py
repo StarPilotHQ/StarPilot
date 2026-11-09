@@ -215,9 +215,8 @@ class SelfdriveD:
 
     car_recognized = self.CP.brand != 'mock'
 
-    # Capability changes affect runtime authority, never the saved Alpha Long choice.
-    if not self.CP.openpilotLongitudinalControl:
-      self.params.remove("ExperimentalMode")
+    # A stock-ACC startup can be temporary. Preserve saved driving choices;
+    # experimental_requested still gates their use on current longitudinal capability.
 
     self.CS_prev = car.CarState.new_message()
     self.AM = AlertManager()
