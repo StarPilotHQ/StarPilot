@@ -924,6 +924,23 @@ class VisionModelCore:
         if class_id == 2:
           is_regulatory = True
 
+        if (class_id == 0 and not is_small_box and raw_is_regulatory and
+            tuple(expansions) == DETECTOR_CLASSIFIER_EXPANSIONS and
+            (expand_left, expand_top, expand_right, expand_bottom, expansion_weight) == expansions[-1] and
+            len(speed_scores) == 1):
+          agreed_speed = next(iter(speed_scores))
+          if (agreed_speed not in SCHOOL_ZONE_SPEED_VALUES and
+              speed_support_counts[agreed_speed] == 2 and
+              DETECTOR_CLASSIFIER_STRONG_MODEL_CONSENSUS_ENABLED and
+              speed_strong_model_support.get(agreed_speed, 0) >= DETECTOR_CLASSIFIER_STRONG_MODEL_CONSENSUS_MIN_SUPPORT and
+              speed_direct_model_support.get(agreed_speed, 0) >= 1 and
+              speed_regulatory_support.get(agreed_speed, 0) >= 1 and
+              speed_scores[agreed_speed] + DETECTOR_CLASSIFIER_SUPPORT_BONUS >
+              expansion_weight + DETECTOR_CLASSIFIER_REGULATORY_BONUS and
+              speed_best_confidences[agreed_speed] * .72 + proposal_confidence * .24 +
+              DETECTOR_CLASSIFIER_SUPPORT_BONUS >= .95):
+            break
+
         face_filter = getattr(self, '_speed_face_filter', None)
         if face_filter is not None and face_filter.reject_once((proposal_confidence, class_id, (x1, y1, x2, y2))):
           self.latest_detector_proposal = None
