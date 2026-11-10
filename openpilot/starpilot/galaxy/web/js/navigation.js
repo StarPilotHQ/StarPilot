@@ -583,12 +583,17 @@ export const NavigationPage = {
             <button v-if="data?.hasKey" type="button" class="gx-btn gx-btn--tonal" :aria-expanded="mapboxOpen" aria-controls="navigation-mapbox" @click="mapboxOpen = !mapboxOpen">{{ mapboxOpen ? 'Hide' : 'Manage' }}</button>
           </div>
           <div id="navigation-mapbox" v-show="!data?.hasKey || mapboxOpen" class="gx-starport-step__body">
+            <details class="gx-starport-wiki gx-navigation__guide" :open="!data?.hasKey"><summary>Setup your mapbox key</summary>
+              <ol><li><strong>Create an account.</strong> Sign up free at <a href="https://account.mapbox.com/auth/signup/" target="_blank" rel="noopener noreferrer">Mapbox ↗</a>, or sign in if you already have one.</li>
+                <li><strong>Open your tokens.</strong> Go to <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener noreferrer">Access tokens ↗</a>. The <strong>Default public token</strong> is the one you need. It starts with <strong>pk.</strong></li>
+                <li><strong>Copy it.</strong> Use the public token only. A secret token (starts with sk.) isn't needed, and URL-restricted tokens may be rejected.</li>
+                <li><strong>Paste and save.</strong> Paste the token below while parked and press <strong>Save key</strong>.</li></ol>
+            </details>
             <form @submit.prevent="saveKey(false)" class="gx-navigation__search">
               <label for="navigation-token" class="gx-sr-only">Public Mapbox access token</label>
               <input id="navigation-token" class="gx-field" type="password" autocomplete="off" v-model="token" placeholder="pk.…" maxlength="2048" required :disabled="!controlsAvailable">
               <button class="gx-btn" type="submit" :disabled="!controlsAvailable || !token.trim()">{{ data?.hasKey ? 'Replace key' : 'Save key' }}</button>
             </form>
-            <div class="gx-actions"><a class="gx-btn gx-btn--tonal" href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener noreferrer">Get a Mapbox token</a></div>
             <dl v-if="usageRows.length" class="gx-navigation__usage" aria-label="Mapbox use this month">
               <template v-for="row in usageRows" :key="row.key"><dt>{{ row.label }}</dt><dd>{{ row.used.toLocaleString() }} of {{ row.limit.toLocaleString() }} free</dd></template>
             </dl>
