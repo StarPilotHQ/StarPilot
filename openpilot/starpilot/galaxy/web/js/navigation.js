@@ -102,8 +102,8 @@ export class NavigationClient {
 
   emit() { this.publish({ data: this.data, results: this.results, searched: this.searched, busy: this.busy, error: this.error, stale: this.stale,
     suggestions: this.suggestions, resultsProvider: this.resultsProvider, suggestionsProvider: this.suggestionsProvider }) }
-  stop() {
-    if (this.searchId && this.data) {
+  stop(keep = false) {
+    if (!keep && this.searchId && this.data) {
       this.fetcher("./api/navigation/action", { method: "POST", credentials: "same-origin", cache: "no-store",
         headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancelSearch",
           revision: this.data.revision, searchId: this.searchId }) }).catch(() => {})
@@ -114,15 +114,17 @@ export class NavigationClient {
     this.controller?.abort()
     if (this.timer !== null) this.cancelTimer(this.timer)
     this.controller = this.timer = null
-    this.data = null
-    this.results = []
-    this.searched = false
+    if (!keep) {
+      this.data = null
+      this.results = []
+      this.searched = false
+    }
     this.error = ""
     this.busy = this.stale = false
     this.endSuggestions(false)
     this.emit()
   }
-  start() { this.stop(); this.active = true; return this.load() }
+  start(keep = false) { this.stop(keep); this.active = true; return this.load() }
   load() { return this.run("status") }
   async search(query) {
     const text = query.trim()
@@ -318,12 +320,12 @@ export const NavigationPage = {
     googleReady() { return !!this.data?.hasGoogleKey },
     mapChoices() {
       return [{ value: "mapbox", label: "Mapbox", detail: "Road lines, drawn from saved or live Mapbox data.", limit: "Works offline once roads are saved." },
-        { value: "google", label: "Google", detail: "Google's street map with traffic colors.", disabled: !this.googleReady, badge: this.googleReady ? "" : "Needs key",
+        { value: "google", label: "Google", detail: "Google's street map with traffic colors.", disabled: !this.googleReady, badge: !this.data || this.googleReady ? "" : "Needs key",
           limit: "Needs internet and the Mapbox key. Google tiles can't be saved offline." }]
     },
     routeChoices() {
       return [{ value: "mapbox", label: "Mapbox", detail: "Turn-by-turn with lane arrows.", limit: "Counted against your Mapbox allowance." },
-        { value: "google", label: "Google", detail: "Routes that follow live traffic, and place search by Google.", disabled: !this.googleReady, badge: this.googleReady ? "" : "Needs key",
+        { value: "google", label: "Google", detail: "Routes that follow live traffic, and place search by Google.", disabled: !this.googleReady, badge: !this.data || this.googleReady ? "" : "Needs key",
           limit: "Needs the Mapbox key too. No lane arrows. Falls back to Mapbox when its limits run out." }]
     },
     gpsChoices() { return GPS_MODES.map((mode) => ({ value: mode.value, label: mode.label, detail: mode.hint })) },
@@ -411,7 +413,7 @@ export const NavigationPage = {
   created() { this.client = new NavigationClient({ publish: (state) => Object.assign(this.$data, state), unauthorized: this.unauthorized }) },
   mounted() {
     if (this.mode !== "local") return
-    this.visibilityHandler = () => document.visibilityState === "hidden" ? this.client.stop() : this.client.start()
+    this.visibilityHandler = () => document.visibilityState === "hidden" ? this.client.stop(true) : this.client.start(true)
     document.addEventListener("visibilitychange", this.visibilityHandler)
     if (document.visibilityState !== "hidden") {
       this.client.start().then(async () => {
@@ -575,7 +577,7 @@ export const NavigationPage = {
           <div class="gx-starport-step__head">
             <span class="gx-starport-step__num" aria-hidden="true"><i v-if="data?.hasKey" class="bi bi-check-lg"></i><template v-else>1</template></span>
             <div>
-              <div class="gx-navigation__step-title"><h3>Mapbox key</h3><span class="gx-starport-pill" :class="data?.hasKey ? 'gx-starport-pill--ready' : 'gx-starport-pill--soon'" role="status">{{ data?.hasKey ? 'Key saved' : 'Needs a key' }}</span></div>
+              <div class="gx-navigation__step-title"><h3>Mapbox key</h3><span class="gx-starport-pill" :class="data?.hasKey ? 'gx-starport-pill--ready' : 'gx-starport-pill--soon'" role="status">{{ !data ? 'Loading…' : data.hasKey ? 'Key saved' : 'Needs a key' }}</span></div>
               <p>Required, with or without Google. Finds places, saves offline roads, plans routes and backs up Google.</p>
             </div>
             <button v-if="data?.hasKey" type="button" class="gx-btn gx-btn--tonal" :aria-expanded="mapboxOpen" aria-controls="navigation-mapbox" @click="mapboxOpen = !mapboxOpen">{{ mapboxOpen ? 'Hide' : 'Manage' }}</button>
