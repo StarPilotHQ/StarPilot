@@ -21,7 +21,7 @@ from openpilot.starpilot.audio.preview import AlertPreview, AlertPreviewError
 from openpilot.starpilot.galaxy.access import AccessStatus, default_owner
 from openpilot.starpilot.galaxy.auth import LocalSessions
 from openpilot.starpilot.galaxy.http_server import (_LocalHTTPHandler, _LocalHTTPServer, allowed_authority,
-                                                  direct_local_connection, dns_authority_name, install_origin_allowed, static_asset)
+                                                  direct_local_connection, dns_authority_name, install_origin_allowed)
 from openpilot.starpilot.galaxy.camera_snapshot import CameraSnapshot, SnapshotDenied, SnapshotUnavailable
 from openpilot.starpilot.galaxy.remote import default_remote_pairing, gateway_cookie_valid
 from openpilot.starpilot.galaxy.crash_reports import CrashChanged, CrashMissing, CrashReports, CrashUnavailable
@@ -43,6 +43,7 @@ from openpilot.starpilot.galaxy.map_operations import MapOperationError, MapOper
 from openpilot.starpilot.galaxy.plots import Plots
 from openpilot.starpilot.galaxy.software_status import SoftwareStatus, SoftwareUnavailable
 from openpilot.starpilot.galaxy.web_manifest import web_manifest
+from openpilot.starpilot.galaxy.web_assets import WebAssets
 from openpilot.starpilot.galaxy.software_operations import SoftwareOperations, SoftwareOperationError
 from openpilot.starpilot.galaxy.settings import PAGES, SettingsGateway, SettingsChanged, SettingsUnavailable
 from openpilot.starpilot.galaxy.onroad_layout import LayoutChanged, OnroadLayoutOwner
@@ -551,6 +552,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         sessions.failed_login()
         return 401, {'error': 'Sign in failed'}, None
       return 200, {'authenticated': True}, sessions.create(generation)
+
+  browser_assets = WebAssets(WEB)
 
   class Handler(_LocalHTTPHandler):
     def camera_video(self, encoded_name: str, *, combined=False):
@@ -1553,27 +1556,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         if self.require_session():
           self.json(404, {'error': 'Capability unavailable'})
       else:
-        try:
-          target = (WEB / unquote(path).lstrip('/')).resolve()
-          if path == '/':
-            target = WEB / 'index.html'
-          if not target.is_relative_to(WEB) or not target.is_file():
-            self.json(404, {'error': 'Page unavailable'})
-            return
-          stat = target.stat()
-          body, packed, content_type = static_asset(str(target), (stat.st_ino, stat.st_mtime_ns, stat.st_size))
-        except (OSError, ValueError):
-          self.json(404, {'error': 'Page unavailable'})
-          return
-        encodings = [entry.strip() for entry in self.headers.get('Accept-Encoding', '').lower().split(',')]
-        compressed = 'gzip' in encodings and packed is not body
-        payload = packed if compressed else body
-        etag = '"' + hashlib.sha256(payload).hexdigest() + '"'
-        headers = {'ETag': etag, 'Vary': 'Accept-Encoding'}
-        if compressed:
-          headers['Content-Encoding'] = 'gzip'
-        unchanged = self.headers.get('If-None-Match') == etag
-        self.respond(304 if unchanged else 200, b'' if unchanged else payload, content_type, asset_headers=headers)
+        browser_assets.serve(self, path)
 
     def do_HEAD(self):
       self.do_GET()

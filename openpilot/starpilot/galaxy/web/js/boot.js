@@ -23,8 +23,11 @@ function failed(force = false) {
 const timer = setTimeout(failed, 10000)
 // Local pages use their local origin; public pages use the authenticated tunnel.
 // Do not intercept fetch or ask a public page to probe private network addresses.
-import("./connection-migration.js").then(module => module.retireLegacyPhone()).catch(() => {})
-import("./app.js").then(() => {
+const migration = Promise.race([
+  import("./connection-migration.js").then(module => module.retireLegacyPhone()),
+  new Promise(resolve => setTimeout(resolve, 1500)),
+]).catch(() => {})
+migration.then(() => import("./app.js")).then(() => {
     clearTimeout(timer)
     if (document.querySelector("#galaxy-app .gx-app")) {
       opened = true; clearTimeout(probe); probe = null
