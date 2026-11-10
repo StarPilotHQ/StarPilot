@@ -43,7 +43,7 @@ from openpilot.starpilot.ui.pip_owner import FORMAT_PREFIX as PIP_FORMAT_PREFIX,
 from openpilot.starpilot.ui.pip_preferences import read_pip
 from openpilot.starpilot.ui.pip_render import PiPRenderer
 from openpilot.starpilot.ui.pip_sidecam import Signals, Rect
-from openpilot.starpilot.ui.onroad_customization import CAMERA_WIDGETS, fit_to_road, placement, widget_size
+from openpilot.starpilot.ui.onroad_customization import CAMERA_WIDGETS, fit_road_snapshot, placement, widget_size
 from openpilot.starpilot.ui.layout_preview_sidebar import SIDEBAR_WIDTH
 from openpilot.starpilot.ui.pip_warning import PiPWarningSource
 from openpilot.starpilot.spot_monitor.preferences import read_preferences as read_vasm_preferences
@@ -1305,20 +1305,11 @@ class StarShellSession:
                                   compact_scroll_x=self.compact_scroll_x, sidebar_expanded=self.sidebar_expanded,
                                   menu_only=self.profile == Profile.COMPACT and mode == ShellMode.SETTINGS,
                                   onroad_view_only=mode == ShellMode.ONROAD, stopped_timer_profile=str(self.profile))
-    from openpilot.starpilot.car.ford.rear_fog import RearFogReceiver
-    if getattr(self, "rear_fog", None) is None:
-      self.rear_fog = RearFogReceiver()
-    ui = self.adapter.ui_state
-    cp = getattr(ui, "CP", None)
-    enabled = snapshot.onroad.customization.get("layouts", {}).get(str(self.profile), {}).get("rear_fog", {}).get("enabled", False)
-    fog_on, fog_stamp = self.rear_fog.sample(cp, active=mode == ShellMode.ONROAD and bool(getattr(ui, "started", False)) and cp is not None and enabled)
-    if (fog_on, fog_stamp) != (snapshot.onroad.ford_rear_fog_on, snapshot.onroad.ford_rear_fog_source_ns):
-      snapshot = replace(snapshot, onroad=replace(snapshot.onroad, ford_rear_fog_on=fog_on, ford_rear_fog_source_ns=fog_stamp))
+    from openpilot.starpilot.ui.onroad_rear_fog import update_rear_fog
+    snapshot = update_rear_fog(self, snapshot, onroad=mode == ShellMode.ONROAD)
     if mode == ShellMode.ONROAD and self.profile == Profile.LARGE:
       width = getattr(self, '_onroad_page_width', 2160.0) - (SIDEBAR_WIDTH if snapshot.onroad.appearance.show_developer_sidebar else 0)
-      fitted = fit_to_road(snapshot.onroad.customization, width)
-      if snapshot.onroad.viewport_width != width or fitted is not snapshot.onroad.customization:
-        snapshot = replace(snapshot, onroad=replace(snapshot.onroad, viewport_width=width, customization=fitted))
+      snapshot = fit_road_snapshot(snapshot, width)
     if mode == ShellMode.HOME:
       now = time.monotonic()
       previous = getattr(self, "_home_model", None)

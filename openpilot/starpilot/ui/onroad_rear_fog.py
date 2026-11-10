@@ -1,5 +1,6 @@
 """Amber rear-fog status; no fog-light control or onroad input action."""
 import math
+from dataclasses import replace
 
 from openpilot.starpilot.car.ford.rear_fog import boot_time_ns, fresh
 from openpilot.starpilot.ui.onroad_customization import placement
@@ -30,3 +31,16 @@ def render_rear_fog(state, profile):
   fog = [(77 + 4 * math.sin(n * math.pi / 16), n) for n in range(2, 67)]
   for a, b in zip(fog, fog[1:], strict=False):
     line(a, b)
+
+
+def update_rear_fog(session, snapshot, *, onroad):
+  from openpilot.starpilot.car.ford.rear_fog import RearFogReceiver
+  if getattr(session, "rear_fog", None) is None:
+    session.rear_fog = RearFogReceiver()
+  ui = session.adapter.ui_state
+  cp = getattr(ui, "CP", None)
+  enabled = snapshot.onroad.customization.get("layouts", {}).get(str(session.profile), {}).get("rear_fog", {}).get("enabled", False)
+  fog_on, fog_stamp = session.rear_fog.sample(cp, active=onroad and bool(getattr(ui, "started", False)) and cp is not None and enabled)
+  if (fog_on, fog_stamp) != (snapshot.onroad.ford_rear_fog_on, snapshot.onroad.ford_rear_fog_source_ns):
+    snapshot = replace(snapshot, onroad=replace(snapshot.onroad, ford_rear_fog_on=fog_on, ford_rear_fog_source_ns=fog_stamp))
+  return snapshot

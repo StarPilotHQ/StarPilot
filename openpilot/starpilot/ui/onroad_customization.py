@@ -1,5 +1,6 @@
 """Validated onroad colors and independent logical-pixel layouts."""
 
+from dataclasses import replace
 import copy
 import json
 import math
@@ -832,3 +833,11 @@ def rgba(document, key, profile=None, widget=None):
 @lru_cache(maxsize=256)
 def _rgba_value(color):
   return tuple(int(color[index:index + 2], 16) for index in (1, 3, 5, 7))
+
+
+def fit_road_snapshot(snapshot, width):
+  state = snapshot.onroad
+  fitted = fit_to_road(state.customization, width)
+  if state.viewport_width != width or fitted is not state.customization:
+    return replace(snapshot, onroad=replace(state, viewport_width=width, customization=fitted))
+  return snapshot
