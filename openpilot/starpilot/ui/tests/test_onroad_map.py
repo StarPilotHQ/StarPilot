@@ -172,7 +172,8 @@ def test_snap_to_route_keeps_the_car_on_the_line_ahead():
   assert snap_to_route(out_and_back, (x + 100 * meter, y + 40 * meter), 90., 22 * meter) is None
   back = snap_to_route(out_and_back, (x + 100 * meter, y - 2 * meter), 270., 22 * meter)
   assert back is not None and back[1] == 2, "heading picks the leg the car is driving"
-  assert snap_to_route(out_and_back, (x + 100 * meter, y - 2 * meter), None, 22 * meter, start=2)[1] == 2
+  resumed = snap_to_route(out_and_back, (x + 100 * meter, y - 2 * meter), None, 22 * meter, start=2)
+  assert resumed is not None and resumed[1] == 2
 
 
 def test_car_eases_onto_the_route_and_turns_with_it(tmp_path):
