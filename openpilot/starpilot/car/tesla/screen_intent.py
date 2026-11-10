@@ -7,6 +7,7 @@ from openpilot.starpilot.aol.intent import AolCardIntent, ButtonType
 class TeslaScreenCardIntent(AolCardIntent):
   def __init__(self, cp, settings):
     super().__init__(settings, explicit_latch=True)
+    self.screen_enabled = bool(cp.safetyConfigs[0].safetyParam & 512)
     self.screen_override = None
     self.brake_disengage = bool(cp.safetyConfigs[0].safetyParam & 1024)
     self.previous_enabled = False
@@ -23,7 +24,7 @@ class TeslaScreenCardIntent(AolCardIntent):
     available = bool(CS.cruiseState.available)
     # Stock cruise availability does not revoke an explicit screen selection.
     if (engaged and not self.previous_enabled) or (self.previous_available and not available and not CS.brakePressed and
-                                                  self.screen_override is not True):
+                                                  (not self.screen_enabled or self.screen_override is not True)):
       self.screen_override = None if engaged and not self.previous_enabled else False
       self.brake_blocked = False
       self.pause_lateral = False
@@ -40,7 +41,7 @@ class TeslaScreenCardIntent(AolCardIntent):
     if fault or cancel or not self.settings.enabled:
       self.screen_override = False
     for event in CS.buttonEvents:
-      if event.type != ButtonType.lkas:
+      if event.type != ButtonType.lkas or not self.screen_enabled:
         continue
       fresh_press = bool(event.pressed and not self.screen_held)
       self.screen_held = bool(event.pressed)

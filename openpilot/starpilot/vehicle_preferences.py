@@ -38,6 +38,7 @@ class VehicleStartupPreferences:
   gm_auto_hold: bool = False
   volt_one_pedal: bool = False
   tesla_cooperative: bool = field(default=False, kw_only=True)
+  tesla_aol: bool = field(default=False, kw_only=True)
   tesla_screen: bool = False
   tesla_screen_brake: bool = False
   gm_camera_pedal: bool = True
@@ -99,9 +100,9 @@ class VehicleStartupPreferences:
       assist = assist_readable and assist_raw in (None, b"1")
     except (OSError, TypeError, ValueError):
       assist = False
-    screen = bool(enabled and readable and safe in (None, b"0") and
-                  read_saved(params, 'AlwaysOnLateral', 8) == (b'1', True) and
-                  read_saved(params, 'TeslaAOLScreenTap', 8) == (b'1', True))
+    tesla_aol = bool(enabled and readable and safe in (None, b"0") and
+                     read_saved(params, 'AlwaysOnLateral', 8) == (b'1', True))
+    screen = tesla_aol and read_saved(params, 'TeslaAOLScreenTap', 8) == (b'1', True)
     cooperative = bool(enabled and readable and safe in (None, b"0") and
                        read_saved(params, "TeslaCoopSteering", 8) == (b"1", True))
     screen_brake = read_saved(params, 'TeslaAOLDisengageOnBrake', 8) == (b'1', True)
@@ -114,7 +115,7 @@ class VehicleStartupPreferences:
                subaru_sng=bool(enabled and readable and safe in (None, b"0") and read_saved(params, "SubaruSNG", 8) == (b"1", True)),
                subaru_software_cruise=bool(enabled and readable and safe in (None, b"0") and
                    read_saved(params, "SubaruRedneckCruise", 8) == (b"1", True)),
-               ford_bluepilot=tuple(ford_bluepilot(params, enabled=enabled).items()), tesla_screen=screen,
+               ford_bluepilot=tuple(ford_bluepilot(params, enabled=enabled).items()), tesla_aol=tesla_aol, tesla_screen=screen,
                tesla_screen_brake=screen_brake, tesla_cooperative=cooperative, toyota_auto_hold=toyota,
                toyota_sng=bool(enabled and readable and safe in (None, b"0") and
                                read_saved(params, "SNGHack", 8) == (b"1", True)), jeep_brake_hold=jeep_hold,
@@ -192,8 +193,8 @@ class VehicleStartupPreferences:
     from opendbc.car.gm.values import apply_gm_auto_hold, apply_volt_one_pedal
     from openpilot.starpilot.car.tesla.preap_preferences import prepare_stock
     prepare_stock(cp, self.tesla_preap_stock, self.tesla_preap_radar, self.tesla_preap_pedal)
-    from opendbc.car.tesla.screen_button import apply_screen_button
-    apply_screen_button(cp, self.tesla_screen, self.tesla_screen_brake)
+    from opendbc.car.tesla.screen_button import apply_modern_aol
+    apply_modern_aol(cp, self.tesla_aol, self.tesla_screen, self.tesla_screen_brake)
     from openpilot.starpilot.car.tesla.coop_preferences import prepare
     prepare(cp, self.tesla_cooperative)
     self._prepare_honda_radar(cp)
@@ -237,8 +238,8 @@ class VehicleStartupPreferences:
     admitted_hold = is_gm_auto_hold(cp)
     from openpilot.starpilot.car.tesla.preap_preferences import prepare_stock
     prepare_stock(cp, self.tesla_preap_stock, self.tesla_preap_radar, self.tesla_preap_pedal)
-    from opendbc.car.tesla.screen_button import apply_screen_button
-    apply_screen_button(cp, self.tesla_screen, self.tesla_screen_brake)
+    from opendbc.car.tesla.screen_button import apply_modern_aol
+    apply_modern_aol(cp, self.tesla_aol, self.tesla_screen, self.tesla_screen_brake)
     from openpilot.starpilot.car.tesla.coop_preferences import prepare
     prepare(cp, self.tesla_cooperative)
     self._prepare_honda_radar(cp)

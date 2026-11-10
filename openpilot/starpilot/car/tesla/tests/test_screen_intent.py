@@ -80,8 +80,8 @@ def test_actual_startup_preferences_preserve_off_and_freeze_brake(tmp_path):
   cp = screen_params()
   saved = VehicleStartupPreferences.read(params, enabled=True)
   saved.prepare(cp)
-  assert cp.safetyConfigs[0].safetyParam == 0
-  assert policy_for(cp).settings_supported and not policy_for(cp).runtime_supported
+  assert cp.safetyConfigs[0].safetyParam == 2048
+  assert policy_for(cp).settings_supported and policy_for(cp).runtime_supported
   params.put_bool('TeslaAOLScreenTap', True, block=True)
   params.put_bool('TeslaAOLDisengageOnBrake', True, block=True)
   saved = VehicleStartupPreferences.read(params, enabled=True)
