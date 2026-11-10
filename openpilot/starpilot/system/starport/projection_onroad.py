@@ -240,6 +240,7 @@ class ProjectionOnroad:
         self.favorites = native.favorites(lambda: native.ui_state.started)
         self.favorites.bookmark = lambda: self.bookmark()
         self.favorites.card_bounds = getattr(getattr(self.onroad, 'navigation', None), 'bounds', None)
+        self.favorites.map_rect = lambda: self._map_placement() if self.map is not None else None
         self._resources.callback(self.favorites.close)
     except BaseException:
       self._resources.close()
@@ -381,6 +382,9 @@ class ProjectionOnroad:
     if placed is not None and self.map is not None:
       self.map.draw(self.native.rl.Rectangle(placed['x'], placed['y'], placed['width'], placed['height']),
                     placed['opacity'] / 100.0)
+      if state is not None and self.favorites is not None:
+        self.onroad.navigation_favorites.render_map_end(placed['x'], placed['y'], placed['width'], placed['height'],
+                                                        state.customization['layouts']['large'])
 
   def _pip_layer(self, rect, state, *, submit=None):
     """Shared camera crops, with Android Auto's own blind-spot trigger and placements."""

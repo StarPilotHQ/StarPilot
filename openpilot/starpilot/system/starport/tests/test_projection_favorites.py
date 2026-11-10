@@ -19,6 +19,7 @@ from openpilot.starpilot.system.starport.projection_layout import (
 from openpilot.starpilot.system.starport.touch import InputConfig, TouchMapper, TouchReceiver, TouchSender
 from openpilot.starpilot.system.starport.wire import field
 from openpilot.starpilot.ui.onroad_customization import default_document
+from openpilot.starpilot.ui.navigation_favorites_state import map_end_rect
 
 VIEWPORT = (2880, 1080)
 
@@ -147,7 +148,7 @@ def test_home_work_start_hide_other_and_end_navigation(favorites, ordered, displ
   tap(favorites, view, 'nav_home')
   doc = favorites.owner.read()
   assert doc['destination']['name'] == 'My home'
-  assert favorites.action('nav_home')[0] == 'end'
+  assert favorites.action('nav_home', view)[0] == 'end'
   assert favorites.bounds('nav_work', view) is None
   assert doc['recents'][0]['name'] == 'My home'
   tap(favorites, view, 'nav_work')
@@ -159,7 +160,7 @@ def test_home_work_start_hide_other_and_end_navigation(favorites, ordered, displ
   assert favorites.bounds('nav_home', view) is None
   tap(favorites, view, 'nav_work')
   assert favorites.owner.read()['destination'] is None
-  assert favorites.action('nav_work')[0] == 'start'
+  assert favorites.action('nav_work', view)[0] == 'start'
   assert favorites.bounds('nav_home', view) is not None
 
 
@@ -201,6 +202,93 @@ def test_unconfigured_and_disabled_navigation_do_not_write(favorites):
   assert favorites.owner.read()['destination'] is None
 
 
+@pytest.mark.parametrize('temporary', [False, True])
+@pytest.mark.parametrize('display', ['words', 'icons'])
+def test_phone_sent_route_ends_from_first_favorite_slot(favorites, temporary, display):
+  view = state()
+  for key in FAVORITE_WIDGETS:
+    view.customization['layouts']['large'][key]['display'] = display
+  sent = destination({'name': 'Costco', 'latitude': 36.3, 'longitude': -115.3})
+  if temporary:
+    favorites.owner._change(lambda doc: doc.update(destination=None), 'initial', True, active_destination=sent)
+    assert favorites.owner.read()['destination'] is None
+  else:
+    favorites.owner.select(sent, 'initial', True)
+  favorites.refresh(force=True)
+  assert destination_label(favorites.document) == 'Costco'
+  assert favorites.action('nav_home', view)[0] == 'end'
+  assert favorites.bounds('nav_work', view) is None
+  tap(favorites, view, 'nav_home')
+  assert favorites.owner.read_routing()['destination'] is None
+  assert favorites.bounds('nav_work', view) is not None
+
+
+def test_phone_sent_route_x_moves_to_work_and_needs_no_saved_home(favorites):
+  view = state()
+  favorites.owner.label_favorite(favorites.document['favorites'][0]['id'], None, 'initial', True)
+  favorites.refresh(force=True)
+  sent = destination({'name': 'Costco', 'latitude': 36.3, 'longitude': -115.3})
+  favorites.owner.select(sent, favorites.document['revision'], True)
+  favorites.refresh(force=True)
+  assert favorites.action('nav_home', view)[0] == 'end', 'Home has no saved place but still ends the route'
+  view.customization['layouts']['large']['nav_home']['enabled'] = False
+  assert favorites.action('nav_work', view)[0] == 'end'
+  tap(favorites, view, 'nav_work')
+  assert favorites.owner.read()['destination'] is None
+
+
+def map_view(favorites, *, width=600, height=400, home=False, work=False):
+  view = state(ordered=True)
+  placements = view.customization['layouts']['large']
+  placements['nav_home']['enabled'], placements['nav_work']['enabled'] = home, work
+  placements['nav_map'].update(enabled=True, x=1500, y=300, width=width, height=height)
+  drawn = {'x': 1500, 'y': 300, 'width': width, 'height': height}
+  favorites.map_rect = lambda: drawn
+  return view
+
+
+def map_end_point(view):
+  placed = view.customization['layouts']['large']['nav_map']
+  x, y, size = map_end_rect(placed['x'], placed['y'], placed['width'], placed['height'])
+  return x + size / 2, y + size / 2
+
+
+@pytest.mark.parametrize('temporary', [False, True])
+@pytest.mark.parametrize('size', [(600, 400), (260, 200)])
+def test_map_end_button_ends_route_when_no_favorite_slot_is_on(favorites, temporary, size):
+  view = map_view(favorites, width=size[0], height=size[1])
+  x, y = map_end_point(view)
+  assert favorites.hit(x, y, view) is None, 'no button without a route'
+  sent = destination({'name': 'Costco', 'latitude': 36.3, 'longitude': -115.3})
+  if temporary:
+    favorites.owner._change(lambda doc: doc.update(destination=None), 'initial', True, active_destination=sent)
+  else:
+    favorites.owner.select(sent, 'initial', True)
+  favorites.refresh(force=True)
+  assert favorites.hit(x, y, view) == 'map_end'
+  assert favorites.hit(1500 + size[0] / 2, 300 + size[1] - 20, view) is None, 'the rest of the map is not a button'
+  favorites.touch('down', x, y, view, 1)
+  favorites.touch('up', x, y, view, 1)
+  assert favorites.owner.read_routing()['destination'] is None
+  assert favorites.hit(x, y, view) is None
+
+
+def test_map_end_button_hides_when_a_favorite_slot_ends_the_route_or_map_is_gone(favorites):
+  view = map_view(favorites, work=True)
+  x, y = map_end_point(view)
+  favorites.owner.select(destination({'name': 'Costco', 'latitude': 36.3, 'longitude': -115.3}), 'initial', True)
+  favorites.refresh(force=True)
+  assert favorites.hit(x, y, view) is None
+  assert favorites.action('nav_work', view)[0] == 'end'
+  view.customization['layouts']['large']['nav_work']['enabled'] = False
+  assert favorites.hit(x, y, view) == 'map_end'
+  view.alert.size = 'full'
+  assert favorites.hit(x, y, view) is None
+  view.alert.size = 'none'
+  favorites.map_rect = lambda: None
+  assert favorites.action('map_end', view) is None
+
+
 def test_overlap_uses_saved_order_and_removed_widget_cannot_intercept(favorites):
   view = state(ordered=True)
   placements = view.customization['layouts']['large']
@@ -217,6 +305,8 @@ def test_overlap_uses_saved_order_and_removed_widget_cannot_intercept(favorites)
   assert favorites.owner.read()['destination']['name'] == 'My home'
   placements['nav_home']['enabled'] = False
   placements['nav_work']['enabled'] = True
+  tap(favorites, view, 'nav_work')
+  assert favorites.owner.read()['destination'] is None, 'with Home hidden, Work ends the Home route'
   tap(favorites, view, 'nav_work')
   assert favorites.owner.read()['destination']['name'] == 'My work'
 

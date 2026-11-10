@@ -4,7 +4,7 @@ from itertools import pairwise
 from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.presentation import FontRole
-from openpilot.starpilot.ui.navigation_favorites_state import favorite_visible
+from openpilot.starpilot.ui.navigation_favorites_state import active_favorite, favorite_visible, map_end_rect, map_end_visible
 
 
 class NavigationFavorites:
@@ -18,16 +18,19 @@ class NavigationFavorites:
     if placed is None or not placed['enabled'] or state.alert.size != 'none':
       return
     bookmark = key == 'bookmark'
-    if not bookmark and not favorite_visible(key, self.document, state.customization['layouts']['large']):
+    placements = state.customization['layouts']['large']
+    if not bookmark and not favorite_visible(key, self.document, placements):
       return
     label = key.removeprefix('nav_').title()
     doc = self.document
     place = next((row for row in doc['favorites'] if row.get('label') == label.lower()), None) if doc else None
-    active = not bookmark and bool(place and doc and doc['destination'] and doc['destination']['id'] == place['id'])
+    active = not bookmark and key == active_favorite(doc, placements)
     available = bool(bookmark or active or place and doc and doc['enabled'] and doc['token'])
     action = self.error or ('End route' if active else 'Navigate' if available else 'Set in Galaxy' if place is None else 'Enable navigation')
     title = label if bookmark else action
     detail = 'Save event' if bookmark else label
+    if active and not (place and doc['destination']['id'] == place['id']):
+      detail = self.fit(doc['destination'].get('name') or 'Route', FontRole.SEMI_BOLD, 34, 290)
     icons = placed.get('display') == 'icons'
     rect = rl.Rectangle(placed['x'], placed['y'], 110 if icons else 320, 110)
     opacity = placed.get('opacity', 100) / 100
@@ -45,7 +48,7 @@ class NavigationFavorites:
                           rl.Vector2(rect.x + end[0], rect.y + end[1]), 6, ink)
       else:
         self.draw_icon(key, rect, ink)
-      badge = '' if bookmark else '!' if self.error else '+' if place is None else '!' if not available else ''
+      badge = '' if bookmark else '!' if self.error else '' if active else '+' if place is None else '!' if not available else ''
       if badge:
         if background:
           rl.draw_circle(int(rect.x + 91), int(rect.y + 19), 14, rl.Color(15, 13, 23, alpha))
@@ -58,6 +61,25 @@ class NavigationFavorites:
       measured = self.fonts.measure(text, role, size)
       self.fonts.draw(text, role, size, rect.x + (rect.width - measured.width) / 2, rect.y + offset,
                       ink)
+
+  def render_map_end(self, map_x, map_y, map_width, map_height, placements):
+    if not map_end_visible(self.document, placements):
+      return
+    x, y, size = map_end_rect(map_x, map_y, map_width, map_height)
+    center, radius, arm = rl.Vector2(x + size / 2, y + size / 2), size / 2, size * 0.18
+    tint = rl.Color(240, 150, 150, 255)
+    rl.draw_circle_v(center, radius, rl.Color(15, 13, 23, 235))
+    rl.draw_ring(center, radius - 2.5, radius, 0, 360, 48, tint)
+    for dx, dy in ((1, 1), (1, -1)):
+      rl.draw_line_ex(rl.Vector2(center.x - arm * dx, center.y - arm * dy),
+                      rl.Vector2(center.x + arm * dx, center.y + arm * dy), 5, tint)
+
+  def fit(self, text, role, size, width):
+    if self.fonts.measure(text, role, size).width <= width:
+      return text
+    while text and self.fonts.measure(text + '…', role, size).width > width:
+      text = text[:-1]
+    return text.rstrip() + '…'
 
   @staticmethod
   def draw_icon(key, rect, color):
