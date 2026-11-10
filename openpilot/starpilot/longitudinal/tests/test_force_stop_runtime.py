@@ -61,6 +61,21 @@ class ForceStopRuntimeTests(unittest.TestCase):
     self.assertTrue(output.forcing)
     return output
 
+  def test_distance_braking_requires_exact_ioniq_control_profile(self):
+    from unittest.mock import patch
+    from openpilot.starpilot.longitudinal.tests.test_ioniq6_start import candidate
+
+    stock, admitted = candidate()
+    stock.openpilotLongitudinalControl = True  # An incomplete profile must still refuse the new tune.
+    for cp, expected in [(self.cp, False), (stock, False), (admitted, True)]:
+      self.cp = cp
+      self.owner = ForceStopRuntime(self.params)
+      with patch.object(self.owner.policy, 'step', wraps=self.owner.policy.step) as step:
+        for tick in range(12):
+          self.sample(Frame(tick))
+        self.assertTrue(step.called)
+        self.assertEqual(step.call_args.args[1].distance_control, expected)
+
   def test_committed_stop_survives_valid_mode_settings_and_traffic_changes(self):
     import json
     from openpilot.starpilot.conditional_mode.policy import ModeChoice

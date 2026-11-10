@@ -131,6 +131,8 @@ class LongitudinalInputs:
 
   @property
   def optional_services(self):
+    if self.ioniq6_start_enabled:
+      return ['radarState', 'deviceState', 'starpilotLongitudinalPlan']
     if (self.toyota_sienna_replay or self.toyota_sienna_production or self.toyota_corolla_stop or
         self.ioniq6_start_enabled or self.gm_start_enabled or self.gm_volt_enabled or self.gm_euv_enabled or
         self.gm_cc_enabled or self.gm_cc_stop_enabled or self.gm_ascm_enabled or self.gm_suburban_enabled):
@@ -151,6 +153,9 @@ class LongitudinalInputs:
 
   def context(self, active):
     context = self._vehicle_context(active)
+    if active and self.ioniq6_start_enabled:
+      from openpilot.starpilot.longitudinal.force_stop_braking import current_braking
+      context = replace(context, force_stop_braking=current_braking(self.sm, time.monotonic_ns()))
     self.faster_takeoffs = bool(self.takeoff_preferences is not None and
                                self.takeoff_preferences.sample(time.monotonic_ns()))
     if not self.faster_takeoffs:
@@ -424,3 +429,4 @@ class LongitudinalInputs:
       return None
     return PedalStartEvidence(drive_id, now_ns, any(lead.present for lead in leads), traffic_mode=traffic_mode,
                               custom_acceleration=profile.custom_acceleration if profile is not None else False, profile_max_accel=ceiling)
+

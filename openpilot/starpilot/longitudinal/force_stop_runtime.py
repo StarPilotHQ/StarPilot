@@ -1,6 +1,7 @@
 """Current-drive Force Stop owner with bounded preference reads and live scene inputs."""
 
 from dataclasses import replace
+import math
 
 from openpilot.starpilot.conditional_mode.curve import frozen_raw_curve
 from openpilot.starpilot.conditional_mode.preferences import CEMOptions, decode_preferences, PreferenceError
@@ -13,6 +14,7 @@ from openpilot.starpilot.longitudinal.force_stop import ForceStop, StopFrame, St
 from openpilot.starpilot.model_geometry import road_curvature, standstill_clear_horizon, standstill_release_speed
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.longitudinal.stop_resume import StopResume
+from openpilot.starpilot.longitudinal.ioniq6_start import eligible as ioniq6_long_eligible
 from openpilot.starpilot.speed_limits.vision.stop_observation import CONTROL_STOP_MAX_AGE_NS, StopConfirmation, read_stop_evidence
 
 
@@ -191,8 +193,12 @@ class ForceStopRuntime:
                         bool(car.leftBlinker or car.rightBlinker), float(car.steeringAngleDeg), resume_requested=resume_requested,
                         perception_available=perception_available,
                         sign=dashboard_stop_sign(sm, now_ns=now_ns, drive_id=drive_id) or
-                        bool(vision_sign and 0 <= now_ns - vision_sign <= CONTROL_STOP_MAX_AGE_NS))
-      self.plan = self.policy.step(frame, vehicle_tune(str(cp.carFingerprint)), self.offset)
+                        bool(vision_sign and 0 <= now_ns - vision_sign <= CONTROL_STOP_MAX_AGE_NS),
+                        moving_preview=bool(perception_available and not model.action.shouldStop and
+                                            len(model.velocity.x) == len(model.position.x) and
+                                            math.isfinite(model.velocity.x[-1]) and model.velocity.x[-1] > .3))
+      tune = replace(vehicle_tune(str(cp.carFingerprint)), distance_control=ioniq6_long_eligible(cp))
+      self.plan = self.policy.step(frame, tune, self.offset)
       if takeoff_enabled:
         self.plan = replace(self.plan, takeoff_light_observed=takeoff_observed, takeoff_light=takeoff_light)
       return self.plan
