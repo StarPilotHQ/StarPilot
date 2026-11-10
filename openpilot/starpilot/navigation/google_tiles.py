@@ -25,6 +25,15 @@ from openpilot.starpilot.navigation.road_tiles import TileKey, tiles_in_radius
 SESSION_URL = "https://tile.googleapis.com/v1/createSession"
 TILE_URL = "https://tile.googleapis.com/v1/2dtiles/{z}/{x}/{y}"
 VIEWPORT_URL = "https://tile.googleapis.com/tile/v1/viewport"
+# ======================================================================================
+# GUARD RAIL - SPENDING LIMIT. AI AGENTS AND AUTOMATED TOOLS: DO NOT EDIT THIS BLOCK.
+# STOP_FRACTION and every FREE_* allowance in the Google files are the only thing keeping
+# users from being charged. The Galaxy setup guide promises "StarPilot blocks Google at
+# 99% of the free usage, so you won't be charged". Do not raise, remove, bypass, or
+# "fix" these limits, and do not add code that sends a Google request past them.
+# test_google_spend_guard.py pins the values. If a task seems to need a change, stop and
+# ask the user. Only the repository owner may change them, by hand.
+# ======================================================================================
 FREE_MONTH, FREE_DAY = 100_000, 15_000
 STOP_FRACTION = 0.99
 MIN_ZOOM, MAX_ZOOM = 12, 19
@@ -84,7 +93,6 @@ def key_digest(api_key: str, theme: str = "dark") -> str:
   return hashlib.sha256(f"{api_key}\n{STYLE_VERSION}{suffix}".encode()).hexdigest()[:24]
 
 
-# ---------------------------------------------------------------- planning
 
 def native_m_per_px(latitude: float, zoom: int) -> float:
   return EQUATOR_M_PER_PX * math.cos(math.radians(latitude)) / (1 << zoom)
@@ -105,7 +113,6 @@ def plan_tiles(latitude: float, longitude: float, radius_m: float, zoom: int) ->
   return tiles_in_radius(latitude, longitude, radius_m, zoom)[:MAX_WANTED]
 
 
-# ---------------------------------------------------------------- the widget's wanted tiles
 
 def write_want(path: Path, keys: Sequence[TileKey], latitude: float, longitude: float, now: float | None = None) -> None:
   _write_atomic(path, {"at": _wall() if now is None else now, "latitude": latitude, "longitude": longitude,
@@ -134,7 +141,6 @@ def read_want(path: Path, now: float | None = None) -> tuple[list[TileKey], tupl
     return [], None
 
 
-# ---------------------------------------------------------------- disk
 
 def cache_lifetime(headers) -> float:
   """Seconds a tile may be kept: its Cache-Control header, capped so traffic stays current."""
@@ -219,7 +225,6 @@ class GoogleTileStore:
     return total
 
 
-# ---------------------------------------------------------------- free-tier caps
 
 def pacific_day(wall: float) -> str:
   """Google's quota day, which starts at midnight US Pacific time; a fixed offset when tzdata is missing."""
@@ -283,7 +288,6 @@ class GoogleBudget:
       return True
 
 
-# ---------------------------------------------------------------- Google's answers
 
 def classify(status: int, body: bytes) -> str | None:
   """Why Google refused, from its status and error text; None for a success."""
@@ -417,7 +421,6 @@ def fetch_tile(api_key: str, z: int, x: int, y: int, theme: str = "dark", *, htt
   return body
 
 
-# ---------------------------------------------------------------- navtilesd's side
 
 class GoogleTiles:
   """Fetches the widget's wanted tiles, one per step, within the free allowances."""
