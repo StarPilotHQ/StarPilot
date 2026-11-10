@@ -42,6 +42,16 @@ def test_radio_change_waits_up_to_the_grace_limit(identity):
   end_session(session, hu)
 
 
+def test_grace_stops_the_other_join_once(identity):
+  hu, session, sent = stalled(identity, True)
+  stops = []
+  session.radio_stalled = lambda: stops.append(True)
+  session.check_progress(sent + session.ACK_TIMEOUT + 0.1)
+  session.check_progress(sent + session.ACK_TIMEOUT + 1.0)
+  assert stops == [True]
+  end_session(session, hu)
+
+
 def test_grace_started_by_a_change_survives_the_change_ageing_out(identity):
   hu, session, sent = stalled(identity, True)
   session.check_progress(now=sent + ProjectionSession.ACK_TIMEOUT + 0.05)
@@ -134,7 +144,8 @@ def test_watch_without_the_counter_never_reports(tmp_path):
     watch.stop()
 
 
-def test_notice_is_shown_once_and_only_while_fresh(tmp_path):
+def test_notice_is_shown_once_and_only_while_fresh(tmp_path, monkeypatch):
+  monkeypatch.setattr(reconnect_notice.identity_store, "boot_id", lambda: "current")  # no /proc off device
   path = tmp_path / "notice.json"
   reconnect_notice.write("Reconnected", path, now=1000.0)
   assert reconnect_notice.take(path, now=1010.0) == "Reconnected"

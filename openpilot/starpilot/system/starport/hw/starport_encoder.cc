@@ -299,7 +299,8 @@ void *starport_encoder_create(int width, int height, int fps, int bitrate, int m
     // that offers nothing else.
     const bool hevc = options & AA_ENCODER_HEVC;
     const int max_width = hevc ? 1920 : 1280, max_height = hevc ? 1080 : 720;
-    if (width < 2 || width > max_width || height < 2 || height > max_height || width % 2 || height % 2 ||
+    const int short_side = std::min(width, height), long_side = std::max(width, height);
+    if (short_side < 2 || short_side > max_height || long_side > max_width || width % 2 || height % 2 ||
         fps != 30 || bitrate < 1000000 || bitrate > 20000000 || margin_height < 0 ||
         margin_height >= height || margin_height % 4 || (options & ~(AA_ENCODER_CBR | AA_ENCODER_HEVC)))
       throw std::runtime_error("Unsupported encoder configuration");

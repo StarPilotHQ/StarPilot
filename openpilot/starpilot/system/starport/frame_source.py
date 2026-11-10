@@ -35,6 +35,11 @@ MAGIC = 0x53464141  # "AAFS"
 VERSION = 1
 HEADER_SIZE = 4096
 MAX_WIDTH, MAX_HEIGHT = 1920, 1080
+
+
+def supported_size(width: int, height: int) -> bool:
+  """Landscape up to 1920x1080, or the same bounds turned portrait."""
+  return 0 < min(width, height) <= MAX_HEIGHT and 0 < max(width, height) <= MAX_WIDTH
 FILE_SIZE = HEADER_SIZE + MAX_WIDTH * MAX_HEIGHT * 4
 
 FORMAT_RGBA, FORMAT_NV12 = 0, 1
@@ -137,7 +142,7 @@ class FrameConsumer:
     _SENT.pack_into(self.mm, _SENT_OFFSET, 0)
 
   def configure(self, request: FrameRequest) -> None:
-    if not (0 < request.width <= MAX_WIDTH and 0 < request.height <= MAX_HEIGHT) or request.width % 2 or request.height % 2:
+    if not supported_size(request.width, request.height) or request.width % 2 or request.height % 2:
       raise ValueError("Unsupported frame size")
     if not (0 <= request.margin_w < request.width and 0 <= request.margin_h < request.height) or request.interval_us <= 0:
       raise ValueError("Unsupported frame geometry")
@@ -254,7 +259,7 @@ class FrameProducer:
     explicit = bool(fields[12] & FLAG_CONTENT_ORIGIN)
     request = FrameRequest(fields[8], fields[9], fields[10], fields[11], fields[14], fields[12] & ~FLAG_CONTENT_ORIGIN,
                            fields[15] & 0xffff if explicit else None, fields[15] >> 16 if explicit else None)
-    if not (0 < request.width <= MAX_WIDTH and 0 < request.height <= MAX_HEIGHT) or request.interval_us <= 0 or \
+    if not supported_size(request.width, request.height) or request.interval_us <= 0 or \
        request.margin_w >= request.width or request.margin_h >= request.height or \
        not 0 <= request.left <= request.margin_w or not 0 <= request.top <= request.margin_h:
       return None

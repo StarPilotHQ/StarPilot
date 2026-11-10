@@ -208,7 +208,7 @@ class TestStarPortStartup(unittest.TestCase):
           with self.assertRaises(PlacementReached):
             run_main()
         if device != 'pc':
-          self.assertEqual(order, [('priority', (0, 0, 5)), 'start'])
+          self.assertEqual(order, [('priority', (0, 0, 0)), 'start'])
         else:
           fake_os.setpriority.assert_not_called()
         if device != 'pc':

@@ -223,7 +223,7 @@ def main() -> int:
   from openpilot.common.hardware import COMMA_HARDWARE
   placement = None
   if COMMA_HARDWARE:
-    os.setpriority(os.PRIO_PROCESS, 0, 5)
+    os.setpriority(os.PRIO_PROCESS, 0, 0)
     from openpilot.starpilot.system.starport.placement import RendererPlacement
     placement = RendererPlacement(idle=False, report=lambda event: print(json.dumps(event), flush=True))
     placement.start()

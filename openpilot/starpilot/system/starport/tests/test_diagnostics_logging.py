@@ -490,6 +490,21 @@ def test_bundle_without_a_ladder_state_has_no_setup_state_file(tmp_path):
     assert "setup_state.json" not in archive.namelist()
 
 
+def test_bundle_carries_the_saved_device_captures_without_network_names(tmp_path):
+  logs = tmp_path / "logs"
+  logs.mkdir()
+  write_log(logs, "session-000025-20260928-141351.jsonl", CIVIC_SESSION)
+  capture = {"window": {}, "sources": {"network": {"lines": ["wlan0: Trying to associate with SSID 'Home Net'"]}, "kernel": {"error": "x"}}}
+  (logs / "session-000025.system.json").write_text(json.dumps(capture))
+  (logs / "session-000025.stall.system.json").write_text(json.dumps(capture))
+  (logs / "session-000024.stall.system.json").write_text("not json")
+  with zipfile.ZipFile(io.BytesIO(compat_report.bundle(logs, tmp_path / "config.json", snapshot=None))) as archive:
+    names = [name for name in archive.namelist() if name.endswith(".system.json")]
+    stall = archive.read("logs/session-000025.stall.system.json").decode()
+  assert names == ["logs/session-000025.system.json", "logs/session-000025.stall.system.json"]
+  assert "Home Net" not in stall and "Trying to associate" in stall
+
+
 def test_setup_state_export_uses_bounded_regular_file_reads(tmp_path, monkeypatch):
   path = tmp_path / "setup_state.json"
   path.write_text(json.dumps({"version": 1, "cars": {}}))

@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import array
 import errno
+import fcntl
 import os
 import stat
 import struct
+import termios
 import threading
 import time
 from collections.abc import Callable
@@ -49,6 +51,8 @@ MIN_CHUNK = BYTES_PER_SECOND // 50          # 20 ms
 MAX_CHUNK = 32768                           # ~170 ms, so a one-packet ACK window still keeps up
 BUFFER_PLAYING = BYTES_PER_SECOND           # cap while streaming; older audio is dropped, never delayed further
 BUFFER_IDLE = BYTES_PER_SECOND // 2         # pre-roll kept while asking for focus
+PIPE_SIZE = 1048576                         # ~5.5 s, so a late read does not make the audio server drop sound
+PIPE_PAGE = 4096
 MAX_WINDOW = 16
 SILENCE_LEVEL = 16                          # peak sample magnitude treated as silence
 RELEASE_AFTER = 8.0                         # seconds of silence before giving the speakers back
@@ -77,6 +81,8 @@ class PipeSource:
     self.checked = 0.0
     self.active_value = False
     self.generation = None
+    self.capacity = 65536
+    self.overruns = 0
 
   def active(self, now: float) -> bool:
     if now - self.checked >= 1.0:
@@ -100,6 +106,9 @@ class PipeSource:
         self.fd = os.open(self.path, os.O_RDONLY | os.O_NONBLOCK)
       except OSError:
         return b''
+      self.capacity = self._grow(self.fd)
+    elif self._queued(self.fd) >= self.capacity - PIPE_PAGE:
+      self.overruns += 1  # full between reads: the audio server was discarding sound
     chunks, total = [], 0
     while total < limit:
       try:
@@ -114,6 +123,24 @@ class PipeSource:
       chunks.append(data)
       total += len(data)
     return b''.join(chunks)
+
+  @staticmethod
+  def _grow(fd: int) -> int:
+    try:
+      fcntl.fcntl(fd, fcntl.F_SETPIPE_SZ, PIPE_SIZE)
+    except (AttributeError, OSError):
+      pass
+    try:
+      return fcntl.fcntl(fd, fcntl.F_GETPIPE_SZ)
+    except (AttributeError, OSError):
+      return 65536
+
+  @staticmethod
+  def _queued(fd: int) -> int:
+    try:
+      return struct.unpack('i', fcntl.ioctl(fd, termios.FIONREAD, b'\0\0\0\0'))[0]
+    except OSError:
+      return 0
 
   def close(self) -> None:
     if self.fd is not None:
@@ -157,6 +184,8 @@ class MediaAudio:
     self.base_us = 0
     self.last_sound = -1e9
     self.car_paused = False
+    self.last_service: float | None = None
+    self.max_gap = 0.0
     self.source_generation = getattr(source, 'generation', None)
     self.stats: dict[str, Any] = {'chunks_sent': 0, 'acked': 0, 'dropped_ms': 0, 'focus': None}
     self.track_info = None  # MediaStatus for the car's own displays, when the head unit offers it
@@ -185,6 +214,9 @@ class MediaAudio:
     if self.track_info is not None:
       self.track_info.service()
     now = self.clock()
+    if self.state == 'playing' and self.last_service is not None:
+      self.max_gap = max(self.max_gap, now - self.last_service)
+    self.last_service = now
     active = self.source.active(now)
     if not active:
       self.buffer.clear()
@@ -325,7 +357,11 @@ class MediaAudio:
       self.pause()
 
   def status(self) -> dict:
-    return {'state': self.state, 'window': self.window, 'pending': self.unacked, **self.stats}
+    return {'state': self.state, 'window': self.window, 'pending': self.unacked, **self.stats,
+            'pipe_overruns': getattr(self.source, 'overruns', 0), 'max_service_gap_ms': round(self.max_gap * 1000)}
+
+  def reset_peaks(self) -> None:
+    self.max_gap = 0.0
 
   def close(self) -> None:
     self.source.close()

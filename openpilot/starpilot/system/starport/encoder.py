@@ -66,14 +66,14 @@ class H264Encoder:
   backend = "libx264"
 
   def __init__(self, width: int, height: int, fps: int = 30, bitrate_kbps: int = 4000):
-    if not (0 < width <= 1920 and 0 < height <= 1080) or width % 2 or height % 2:
+    if not (0 < min(width, height) <= 1080 and max(width, height) <= 1920) or width % 2 or height % 2:
       raise ValueError("H.264 requires even dimensions no larger than 1920x1080")
     av = import_av()
     self.av = av
     self.width, self.height, self.fps = width, height, fps
     self.frame_index = 0
     self.last_encode_ms = 0.0
-    level = "4.0" if height > 720 else "3.1"
+    level = "4.0" if width * height > 1280 * 720 else "3.1"
     codec = av.CodecContext.create("libx264", "w")
     codec.width = width
     codec.height = height

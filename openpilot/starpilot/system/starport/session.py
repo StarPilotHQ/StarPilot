@@ -89,7 +89,7 @@ FOCUS_REASON_LAUNCH_NATIVE = 2
 FOCUS_REASON_USER_SELECTION = 4
 SHUTDOWN_REASON_USER_SELECTION = 1
 
-RESOLUTIONS = {1: (800, 480), 2: (1280, 720), 3: (1920, 1080)}
+RESOLUTIONS = {1: (800, 480), 2: (1280, 720), 3: (1920, 1080), 6: (720, 1280)}
 # Named in errors and reports only: 1440p, 4K and portrait screens also offer 800x480, which is mandatory.
 RESOLUTION_NAMES = {**{index: f"{w}x{h}" for index, (w, h) in RESOLUTIONS.items()}, 4: "2560x1440", 5: "3840x2160",
                     6: "720x1280", 7: "1080x1920", 8: "1440x2560", 9: "2160x3840"}
@@ -101,7 +101,7 @@ IGNORED_LOG_EVERY = 100
 FRAME_RATES = {1: 60, 2: 30}
 # Software H.264 on the comma is the constraint: prefer 720p, then 480p. 1080p
 # is accepted only when nothing smaller is offered.
-RESOLUTION_PREFERENCE = (2, 1, 3)
+RESOLUTION_PREFERENCE = (2, 1, 3, 6)
 
 # A real phone pings periodically; answering pings is mandatory, sending them
 # is harmless and keeps impatient receivers from declaring the link idle.
@@ -236,6 +236,8 @@ def choose_video_mode(channels: list[dict], allow_hevc: bool = False) -> VideoMo
   candidates = []
   hevc_candidates = []
   for channel in channels:
+    if channel.get("display_type") not in (None, 0):
+      continue  # a cluster or auxiliary screen: the car waits on the main display
     for index, config in enumerate(channel.get("video_configs", [])):
       resolution = one(config, 1)
       codec = one(config, 10, CODEC_H264_BP)
@@ -265,6 +267,8 @@ def choose_video_mode(channels: list[dict], allow_hevc: bool = False) -> VideoMo
     candidates = hevc_candidates
   if not candidates:
     hint = "; this car offers H.265, which can be turned on in Developer > StarPort" if hevc_candidates else ""
+    if not hint and any(channel.get("display_type") not in (None, 0) and channel.get("video_configs") for channel in channels):
+      hint = "; only a secondary display offered a supported mode, which cannot carry the main projection"
     raise ValueError(f"Head unit did not advertise a supported H.264 video mode (offered {describe_video_configs(channels)}){hint}")
   return min(candidates, key=lambda item: item[:3])[3]
 
@@ -661,6 +665,8 @@ class ProjectionSession(Session):
 
   # Replaced by the supervisor: whether the comma's other Wi-Fi joined or roamed in the last few seconds.
   radio_change: Callable[..., bool] = staticmethod(lambda: False)
+  # Replaced by the supervisor: stops a join still under way on the comma's other Wi-Fi.
+  radio_stalled: Callable[..., None] = staticmethod(lambda: None)
 
   # HeadunitPad acknowledges every fragment (codec config included) rather than every frame.
   fragment_acks = False
@@ -755,7 +761,8 @@ class ProjectionSession(Session):
 
   def open_input(self) -> None:
     """Open the touch/key channel so input is acknowledged; failures are not fatal."""
-    channel = next((ch for ch in self.channels if ch.get("input")), None)
+    inputs = [ch for ch in self.channels if ch.get("input")]
+    channel = next((ch for ch in inputs if ch.get("display_id") in (None, 0)), inputs[0] if inputs else None)
     if channel is None:
       return
     try:
@@ -1078,6 +1085,7 @@ class ProjectionSession(Session):
         raise TimeoutError(f"Video acknowledgement older than {self.ACK_TIMEOUT:.1f} s")
       self.grace_frame = oldest
       self.event("ack_grace", after_ms=round((now - oldest) * 1000))
+      self.radio_stalled()
     if now - oldest > self.ACK_GRACE_TIMEOUT:
       raise SharedRadioStall(f"Video acknowledgement older than {self.ACK_GRACE_TIMEOUT:.1f} s while the comma's Wi-Fi was switching networks")
 
