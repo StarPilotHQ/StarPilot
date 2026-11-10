@@ -104,6 +104,7 @@ def test_store_serves_only_unexpired_tiles_and_trims(tmp_path):
 def test_budget_stops_at_99_percent_of_day_and_month_and_resets_on_pacific_calendar(tmp_path):
   clock = [WALL]
   budget = gt.GoogleBudget(tmp_path, lambda: clock[0])
+  assert budget.day_limit is not None
   assert budget.spend(budget.day_limit) and not budget.spend()
   assert budget.snapshot()["dayUsed"] == budget.day_limit == 14_850
   clock[0] += 24 * 3600
@@ -157,6 +158,7 @@ def test_key_test_reports_each_failure(tmp_path):
   assert gt.test_key(KEY, Down(), gt.GoogleBudget(tmp_path))["failure"] == gt.FAILURE_NETWORK
   assert gt.test_key(KEY, Http(session=(200, b"{}")), gt.GoogleBudget(tmp_path))["failure"] == gt.FAILURE_SERVER
   spent = gt.GoogleBudget(tmp_path)
+  assert spent.day_limit is not None
   spent.spend(spent.day_limit)
   assert gt.test_key(KEY, Http(), spent)["failure"] == gt.FAILURE_BUDGET
 

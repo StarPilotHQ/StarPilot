@@ -21,6 +21,7 @@ import time
 import uuid
 
 import requests
+import requests.adapters
 
 from openpilot.starpilot.storage import starpilot_storage_root
 from openpilot.starpilot.navigation.position import LastPositionStore
@@ -851,7 +852,10 @@ class NavigationOwner:
     """Google's typing suggestions; None after Google fails, and the session continues on Mapbox."""
     from openpilot.starpilot.navigation.google_places import GooglePlacesFailed, autocomplete, suggestions_budget
     from openpilot.starpilot.navigation.mapbox_budget import BudgetExhausted
-    proximity = tuple(float(value) for value in context['proximity'].split(',')) if context.get('proximity') else None
+    proximity = None
+    if context.get('proximity'):
+      longitude, latitude = (float(value) for value in context['proximity'].split(','))
+      proximity = (longitude, latitude)
     try:
       rows = autocomplete(self.session, current['googleKey'], query.strip(), entry['google_session'], suggestions_budget(self.google_root), proximity)
     except GooglePlacesFailed:

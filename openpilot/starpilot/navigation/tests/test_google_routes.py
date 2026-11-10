@@ -179,6 +179,16 @@ def test_key_test_reports_routes_plainly(tmp_path):
   assert "Routes API is off" in gr.test_routes(KEY, Http(403, b"SERVICE_DISABLED"), budget(tmp_path))["message"]
 
 
+class RecordingExecutor(Executor):
+  def __init__(self):
+    super().__init__()
+    self.calls = []
+
+  def submit(self, *args):
+    self.calls.append(args)
+    return super().submit(*args)
+
+
 def google_runtime(tmp_path, google_fetch):
   owner = configured(tmp_path)
   revision = owner.read()["revision"]
@@ -188,13 +198,7 @@ def google_runtime(tmp_path, google_fetch):
     mapbox.calls.append(args)
     return "mapbox route"
   mapbox.fetch = mapbox_fetch
-  executor = Executor()
-  executor.calls = []
-  submit = executor.submit
-  def record(*args):
-    executor.calls.append(args)
-    return submit(*args)
-  executor.submit = record
+  executor = RecordingExecutor()
   runtime = RouteRuntime(owner, engine=mapbox, executor=executor, google_engine=SimpleNamespace(fetch=google_fetch))
   return owner, runtime, executor, mapbox
 

@@ -373,7 +373,9 @@ def test_share_with_google_only_setup_still_needs_the_mapbox_token_routing_uses(
 def test_google_place_lookup_test_reports_disabled_api():
   from openpilot.starpilot.navigation.google_places import places_budget, test_places
   import tempfile
-  with tempfile.TemporaryDirectory() as root:
+  from pathlib import Path
+  with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
     assert test_places(GOOGLE_KEY, GooglePlaces(status=403), places_budget(root)) == {'ok': False, 'failure': 'disabled',
       'message': "Places API (New) is off for this key. Enable it in Google Cloud and allow it in the key's API restrictions, then test again."}
     assert test_places(GOOGLE_KEY, GooglePlaces(places=[{'location': {'latitude': 1.5, 'longitude': 2.5}}]), places_budget(root))['ok']
