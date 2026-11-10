@@ -231,7 +231,7 @@ class ForceStop:
         self.distance -= speed * dt
         if not tune.distance_control:
           self.distance = max(0.0,self.distance)
-        if (available and not frame.sign and self.distance > max(tune.handoff_m, 40) and not frame.model_should_stop and
+        if (not tune.distance_control and available and not frame.sign and self.distance > max(tune.handoff_m, 40) and not frame.model_should_stop and
             horizon > self.distance + 3 and (tune.reanchor_speed_tolerance is None or self.entry_speed is None or
                                             speed >= self.entry_speed - tune.reanchor_speed_tolerance)):
           self.distance = horizon
