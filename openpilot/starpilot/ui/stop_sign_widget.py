@@ -42,7 +42,8 @@ def draw_stop_sign(fonts, x: float, y: float, *, scale: float = 1) -> None:
   white = rl.Color(244, 247, 245, 255)
   center = rl.Vector2(x + 50 * scale, y + 50 * scale)
   radius = 50 * scale / math.cos(math.pi / 8)
-  rl.draw_poly(center, 8, radius, 22.5, rl.Color(200, 0, 0, 255))
+  if fonts.profile == Profile.LARGE:
+    rl.draw_poly(center, 8, radius, 22.5, rl.Color(10, 17, 19, 230))
   vertices = [rl.Vector2(center.x + radius * math.cos(math.radians(22.5 + i * 45)),
                          center.y + radius * math.sin(math.radians(22.5 + i * 45))) for i in range(8)]
   for i, point in enumerate(vertices):
