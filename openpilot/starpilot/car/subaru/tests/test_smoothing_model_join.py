@@ -9,6 +9,7 @@ from openpilot.cereal import log
 from openpilot.selfdrive.modeld import modeld
 from openpilot.starpilot.car.subaru.smoothing import filter_action
 from openpilot.starpilot.models.runner import CatalogModelState
+from openpilot.starpilot.models.laboratory_runner import LaboratoryPair
 
 
 def common_join():
@@ -19,10 +20,13 @@ def common_join():
     if not isinstance(body, list):
       continue
     for index, statement in enumerate(body):
-      if (isinstance(statement, ast.Assign) and ast.unparse(statement.targets[0]) == 'action' and
-          isinstance(statement.value, ast.Call) and ast.unparse(statement.value.func) == 'model.get_action_from_model'):
-        statements = body[index:index + 3]
+      if (isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call) and
+          ast.unparse(statement.value.func) == 'filter_action'):
+        assert index > 0
+        statements = body[index - 1:index + 2]
         assert len(statements) == 3
+        assert sum(isinstance(call, ast.Call) and ast.unparse(call.func) == 'model.get_action_from_model'
+                   for call in ast.walk(statements[0])) == 1
         assert ast.unparse(statements[1]) == 'filter_action(action, prev_action, v_ego, subaru_tau)'
         assert ast.unparse(statements[2]) == 'prev_action = action'
         matches.append(ast.Module(body=statements, type_ignores=[]))
@@ -30,10 +34,10 @@ def common_join():
   return compile(matches[0], modeld.__file__, 'exec')
 
 
-@pytest.mark.parametrize('owner', ['standard', 'catalog', 'jetlink'])
+@pytest.mark.parametrize('owner', ['standard', 'catalog', 'jetlink', 'laboratory'])
 @pytest.mark.parametrize('tau', [0., .4])
 def test_actual_common_join_once_and_acceleration_unchanged(owner, tau, monkeypatch):
-  if owner == 'standard':
+  if owner in ('standard', 'laboratory'):
     function = modeld.ModelState.get_action_from_model
   elif owner == 'catalog':
     catalog = CatalogModelState.__new__(CatalogModelState)
@@ -46,7 +50,10 @@ def test_actual_common_join_once_and_acceleration_unchanged(owner, tau, monkeypa
   previous = log.ModelDataV2.Action(desiredCurvature=.01, desiredAcceleration=-.2)
   outputs = {'action': np.array([[.08, .5]])}
   baseline = function(outputs, previous, .2, .2, 2.)
-  scope = {'model': SimpleNamespace(get_action_from_model=function), 'model_output': outputs, 'prev_action': previous,
+  model = (LaboratoryPair.__new__(LaboratoryPair) if owner == 'laboratory' else
+           SimpleNamespace(get_action_from_model=function))
+  paired_action = function(outputs, previous, .2, .2, 2.) if owner == 'laboratory' else None
+  scope = {'model': model, 'LaboratoryPair': LaboratoryPair, 'laboratory_action': paired_action, 'model_output': outputs, 'prev_action': previous,
            'lat_action_t': .2, 'long_action_t': .2, 'v_ego': 2., 'subaru_tau': tau, 'filter_action': filter_action}
   exec(common_join(), scope)
   action = scope['action']

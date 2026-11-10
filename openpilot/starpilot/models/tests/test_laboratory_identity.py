@@ -1,11 +1,13 @@
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import json
 import tempfile
 import unittest
 
+from openpilot.cereal import log
+from openpilot.starpilot.models.laboratory_runner import LaboratoryPair
 from openpilot.starpilot.models import receipt
 from openpilot.starpilot.models.runtime_bridge import runtime
 from openpilot.starpilot.models.status import LaboratoryLoad, ModelOutput, ModelProcess, project_laboratory_status
@@ -69,6 +71,20 @@ class TestLaboratoryIdentity(unittest.TestCase):
       self.assertEqual(runtime.frozen_laboratory_request()['roles']['lateral'], 'original')
       with self.assertRaisesRegex(ValueError, 'replace'):
         runtime.bind_laboratory_request(request)
-      runtime._protection = SimpleNamespace()
+      runtime._protection = Mock(spec_set=())
       with self.assertRaisesRegex(ValueError, 'before loading'):
         runtime.bind_laboratory_request(request)
+
+  def test_missing_completed_pair_outputs_latches_failure_and_retires_warps(self):
+    pair = LaboratoryPair.__new__(LaboratoryPair)
+    pair.failed = False
+    pair._last_outputs = None
+    pair.lateral = Mock(spec_set=['last_warp'])
+    pair.longitudinal = Mock(spec_set=['last_warp'])
+    pair.lateral.last_warp = pair.longitudinal.last_warp = object()
+    with patch.object(pair, 'run', return_value={}):
+      with self.assertRaises(AssertionError):
+        pair.run_frame({}, {}, {}, log.ModelDataV2.Action(), .2, .2, 2.)
+    self.assertTrue(pair.failed)
+    self.assertIsNone(pair.lateral.last_warp)
+    self.assertIsNone(pair.longitudinal.last_warp)

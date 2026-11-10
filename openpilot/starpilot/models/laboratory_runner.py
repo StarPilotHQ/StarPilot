@@ -31,6 +31,9 @@ class LaboratoryFrame:
 
 
 class LaboratoryPair:
+  lat_delay: float
+  frame_drop_ratio: float
+
   def __init__(self, lateral: CatalogModelState, longitudinal: CatalogModelState,
                lateral_artifact: PreparedArtifact, longitudinal_artifact: PreparedArtifact,
                source_contracts: tuple[dict, dict] | None = None):
@@ -97,6 +100,7 @@ class LaboratoryPair:
       raise RuntimeError("Model Laboratory pair failed; load a fallback before continuing")
     try:
       composed = self.run(bufs, transforms, inputs, after_enqueue)
+      assert self._last_outputs is not None
       lateral_output, longitudinal_output = self._last_outputs
       actions = [action_from_outputs(output, model.behavior_version, previous, lat_action_t, long_action_t, v_ego,
                                      lat_smooth_seconds, long_smooth_seconds)

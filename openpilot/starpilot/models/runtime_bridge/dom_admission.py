@@ -3,6 +3,10 @@ from collections import Counter
 from dataclasses import dataclass
 import hashlib
 import json
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+  from openpilot.starpilot.models.runtime_bridge.legacy_types import LegacyBufferFactory, LegacyUOpFactory
 
 DOM_ABI = 'dom_v25_protocol5'
 TARGET_REVISION = '9d0446a4ba8a532c8b674fb6ad795af015cd9dcf'
@@ -189,7 +193,8 @@ def stage_qcom_uploads(raw, *, ops):
         if (dst.dtype != src.dtype or dst.nbytes() != src.nbytes() or
             type(src.nbytes()) is not int or not 0 < src.nbytes() <= 16 << 20):
           raise ValueError('Invalid original camera upload extent')
-        staging = UOp.from_buffer(Buffer('CPU', src.max_numel(), src.dtype).ensure_allocated())
+        staging = cast('LegacyUOpFactory', UOp).from_buffer(
+          cast('LegacyBufferFactory', Buffer)('CPU', src.max_numel(), src.dtype).ensure_allocated())
         entries.extend((src.copy_to_device('CPU').call(staging, src),
                         staging.copy_to_device(dst.device).call(dst, staging)))
         continue

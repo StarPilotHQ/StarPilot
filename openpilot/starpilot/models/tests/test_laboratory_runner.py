@@ -261,6 +261,7 @@ class TestLaboratoryLoad(unittest.TestCase):
     config = self.config | {'longitudinalModel': 'new-small'}
     atomic_json(self.root / 'laboratory.json', config)
     request = laboratory.freeze_request(self.root)
+    assert request is not None
     self.assertTrue(request['roles']['lateralModel']['chestnut'])
     self.assertFalse(request['roles']['longitudinalModel']['chestnut'])
     self.assertEqual(request['roles']['longitudinalModel']['path'], str(path))
