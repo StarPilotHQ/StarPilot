@@ -99,6 +99,13 @@ class TrafficSignModelCore(model.VisionModelCore):
     speed = self.infer(frame_bgr)
     return SignDetections(speed, self.stop_detections)
 
+  def _collect_detector_classifier_proposals(self, frame_bgr):
+    proposals = super()._collect_detector_classifier_proposals(frame_bgr)
+    callback = getattr(self, '_stop_ready_callback', None)
+    if callback is not None and self.net is not None:
+      callback(tuple(self.stop_detections))
+    return proposals
+
   def _collect_detector_classifier_proposals_from_region(self, frame_bgr, origin_x, origin_y,
                                                         full_frame_width, full_frame_height, min_confidence):
     if getattr(self, 'speed_enabled', True):

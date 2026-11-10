@@ -155,6 +155,28 @@ def _send(pm, *, session: str, status: str, stream: str, observed_ns: int = 0,
   pm.send('slcVisionObservation', msg)
 
 
+def _publish_ready_stop(pm, sm, params, *, session, stream, is_metric, offset_ns,
+                        source_observed_ns, eof_boot_ns, frame_id, width, height, stops,
+                        last_result, last_result_session, last_result_observed_ns, last_result_valid_until_ns):
+  sm.update(0)
+  pair = clock_pair_ns()
+  if (params.get_bool('IsMetric') != is_metric or pair is None or
+      abs((pair[1] - pair[0]) - offset_ns) > MAX_PAIR_SKEW_NS or
+      not 0 <= pair[1] - eof_boot_ns <= MAX_RESULT_AGE_NS or
+      not 0 <= pair[0] - source_observed_ns < STOP_MAX_AGE_NS or
+      not _driving_model_ready(sm, pair[0])):
+    return
+  speed_fresh = (last_result is not None and session == last_result_session and
+                 0 < last_result_observed_ns <= pair[0] <= last_result_valid_until_ns)
+  sample = StopEvidence(session, stream, source_observed_ns, eof_boot_ns, frame_id, width, height,
+                        tuple(StopBox(box.confidence, box.bbox) for box in stops))
+  _send(pm, session=session, status='valid' if speed_fresh else 'unknown', stream=stream,
+        observed_ns=last_result_observed_ns if speed_fresh else 0, eof_boot_ns=eof_boot_ns,
+        frame_id=frame_id, result=last_result if speed_fresh else None,
+        valid_until_ns=last_result_valid_until_ns if speed_fresh else None,
+        is_metric=is_metric, stop_sample=sample)
+
+
 def main() -> None:
   import openpilot.cereal.messaging as messaging
   from openpilot.cereal.visionipc import VisionStreamType
@@ -367,7 +389,16 @@ def main() -> None:
         # The observation belongs to the original camera frame, not the end of
         # CPU inference. Completion never restamps an older camera observation.
         source_observed_ns = eof_boot_ns - offset_ns
-        result = core.observe(frame, now=source_observed_ns / 1e9)
+        core._stop_ready_callback = (lambda stops: _publish_ready_stop(
+          pm, sm, params, session=session, stream=stream, is_metric=is_metric, offset_ns=offset_ns,
+          source_observed_ns=source_observed_ns, eof_boot_ns=eof_boot_ns, frame_id=frame_id,
+          width=frame.shape[1], height=frame.shape[0], stops=stops, last_result=last_result,
+          last_result_session=last_result_session, last_result_observed_ns=last_result_observed_ns,
+          last_result_valid_until_ns=last_result_valid_until_ns)) if tasks[1] else None
+        try:
+          result = core.observe(frame, now=source_observed_ns / 1e9)
+        finally:
+          core._stop_ready_callback = None
       except Exception as error:
         cloudlog.error('vision SLC inference unavailable: %s', error)
         _send(pm, session=session, status='unavailable', stream=stream)
