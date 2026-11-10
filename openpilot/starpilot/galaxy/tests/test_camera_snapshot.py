@@ -290,11 +290,10 @@ class CameraSnapshotTest(unittest.TestCase):
             return frame
         client = Client()
         def states_factory(camera, client=client, settles_at=settles_at):
-          close = settles_at is not None
           def states():
             state = SimpleNamespace(frameId=client.frame_id, timestampSof=client.timestamp_sof, timestampEof=client.timestamp_eof,
                                     targetGreyFraction=0.125, exposureValPercent=50, integLines=1000, gain=1.0,
-                                    measuredGreyFraction=0.125 if close and client.frame_id >= settles_at else 0.02)
+                                    measuredGreyFraction=0.125 if settles_at is not None and client.frame_id >= settles_at else 0.02)
             return [SimpleNamespace(valid=True, logMonoTime=client.timestamp_eof, which=lambda: STATE_SERVICES[camera],
                                     **{STATE_SERVICES[camera]: state})]
           return states

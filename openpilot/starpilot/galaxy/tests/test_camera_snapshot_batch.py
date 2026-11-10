@@ -193,7 +193,7 @@ class CameraSnapshotBatchTest(unittest.TestCase):
     self.assert_released()
 
   def test_single_camera_spawn_failure_keeps_exception_contract(self):
-    self.readers['wide'] = OSError('spawn failed')
+    self.readers = {'wide': OSError('spawn failed')}
     with self.assertRaisesRegex(SnapshotUnavailable, 'Camera unavailable'):
       self.owner().capture('wide', permitted=lambda: True)
     self.assert_released()
@@ -232,11 +232,11 @@ class CameraSnapshotBatchTest(unittest.TestCase):
 
   def test_exit_between_poll_and_kill_still_reaps_reader(self):
     reader = Reader(self.clock)
-    self.readers['wide'] = reader
+    self.readers = {'wide': reader}
     def exit_during_kill():
       reader.returncode = 0
       raise ProcessLookupError('already exited')
-    reader.kill = exit_during_kill
+    reader.kill = Mock(side_effect=exit_during_kill)
     result = self.owner().capture_many(['wide'], permitted=lambda: True)
     self.assertIsInstance(result['wide'], SnapshotUnavailable)
     self.assertIsNotNone(reader.waited_at)
@@ -246,7 +246,7 @@ class CameraSnapshotBatchTest(unittest.TestCase):
   def test_throttled_camera_does_not_prevent_independent_capture(self):
     owner = self.owner()
     owner.last_request['wide'] = 0
-    self.readers['cabin'] = Reader(self.clock, ready=0)
+    self.readers = {'cabin': Reader(self.clock, ready=0)}
     result = owner.capture_many(['wide', 'cabin'], permitted=lambda: True)
     self.assertIsInstance(result['wide'], SnapshotUnavailable)
     self.assertEqual(result['cabin'], JPEG)

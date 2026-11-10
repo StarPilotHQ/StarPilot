@@ -1,5 +1,6 @@
 from types import SimpleNamespace as NS
 import unittest
+from unittest.mock import patch
 
 from openpilot.starpilot.galaxy.camera_exposure import CameraStates, ExposureReadiness, STATE_SERVICES
 
@@ -163,9 +164,9 @@ class ExposureReadinessTest(unittest.TestCase):
   def test_state_reader_bounds_backlog_and_closes_socket(self):
     reader = CameraStates.__new__(CameraStates)
     calls = []
-    reader.sock = NS(close=lambda: calls.append('closed'))
-    reader.messaging = NS(recv_one_or_none=lambda sock: calls.append('read') or object())
-    self.assertEqual(len(reader()), 32)
-    self.assertEqual(len(calls), 32)
-    reader.close()
-    self.assertEqual(calls[-1], 'closed')
+    with patch.object(reader, 'sock', NS(close=lambda: calls.append('closed')), create=True):
+      with patch.object(reader, 'messaging', NS(recv_one_or_none=lambda sock: calls.append('read') or object()), create=True):
+        self.assertEqual(len(reader()), 32)
+      self.assertEqual(len(calls), 32)
+      reader.close()
+      self.assertEqual(calls[-1], 'closed')

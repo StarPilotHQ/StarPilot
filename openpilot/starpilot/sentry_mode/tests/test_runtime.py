@@ -271,6 +271,7 @@ class TestRuntime(unittest.TestCase):
     for index in range(5):
       self.tick(acceleration=(0.0, 0.0, 10.0 if index % 2 == 0 else 9.81))
     started = self.runtime.policy.trigger_started
+    assert started is not None
     self.assertEqual(self.runtime.policy.trigger_count, 5)
     self.runtime.prewarm.assert_called_once()
     # Keep the sensors fresh and the policy armed up to the exact window boundary.
