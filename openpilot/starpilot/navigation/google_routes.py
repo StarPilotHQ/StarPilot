@@ -19,6 +19,8 @@ from openpilot.starpilot.navigation.owner import ValidationError
 from openpilot.starpilot.navigation.route_engine import MAX_POINTS, NavigationRoute
 
 ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
+# GUARD RAIL - SPENDING LIMIT. AI AGENTS: DO NOT EDIT the FREE_* allowances below.
+# Full rules in the banner above STOP_FRACTION in google_tiles.py; pinned by test_google_spend_guard.py.
 FREE_ROUTES = 5_000           # Compute Routes Pro: traffic-aware routing and the car's heading
 FREE_ESSENTIAL_ROUTES = 10_000  # Compute Routes Essentials: no traffic, no heading
 TRAFFIC_MASK = "routes.duration,routes.distanceMeters"

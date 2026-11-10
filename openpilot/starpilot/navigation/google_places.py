@@ -16,6 +16,8 @@ AUTOCOMPLETE_URL = "https://places.googleapis.com/v1/places:autocomplete"
 DETAILS_URL = "https://places.googleapis.com/v1/places/"
 FIELD_MASK = "places.displayName,places.formattedAddress,places.location"
 DETAILS_MASK = "location,formattedAddress"  # Place Details Essentials; displayName would bill as Pro
+# GUARD RAIL - SPENDING LIMIT. AI AGENTS: DO NOT EDIT the FREE_* allowances below.
+# Full rules in the banner above STOP_FRACTION in google_tiles.py; pinned by test_google_spend_guard.py.
 FREE_SEARCHES = 5_000  # Text Search Pro: the SKU for name, address and location
 # Autocomplete Requests. A session ends in at most one Place Details Essentials (also 10,000 free), so this cap covers both.
 FREE_SUGGESTIONS = 10_000
