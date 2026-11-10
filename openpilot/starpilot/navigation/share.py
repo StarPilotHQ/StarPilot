@@ -4,11 +4,13 @@ from urllib.parse import parse_qs, unquote_plus, urlsplit
 # Same rules as galaxy/web/js/share-destination.js: destination coordinates before Google's viewport (@lat,lng).
 NUMBER = r'(-?\d+(?:\.\d+)?)'
 COORDINATES = (re.compile(rf'!3d{NUMBER}!4d{NUMBER}'), re.compile(rf'[?&:](?:q|query|daddr|destination|ll|coordinate)={NUMBER},\s*{NUMBER}'),
-               re.compile(rf'geo:{NUMBER},\s*{NUMBER}'), re.compile(rf'@{NUMBER},\s*{NUMBER}'))
+               re.compile(rf'geo:{NUMBER},\s*{NUMBER}'), re.compile(rf'to=ll\.{NUMBER},\s*{NUMBER}'), re.compile(rf'@{NUMBER},\s*{NUMBER}'))
+WAZE_SHORT = re.compile(r'https://(?:www\.)?waze\.com/ul/h([0-9b-hjkmnp-z]{4,12})(?![0-9a-z])', re.I)
+GEOHASH = '0123456789bcdefghjkmnpqrstuvwxyz'
 QUERY = re.compile(r'[?&:](?:q|query|daddr|destination)=([^&#]+)')
 QUERY_KEYS = ('q', 'query', 'daddr', 'destination')
 LINK = re.compile(r'https://[^\s<>"]+')
-MAP_HOST = re.compile(r'(?:[a-z0-9-]+\.)*google\.com|(?:maps\.app\.)?goo\.gl|maps\.apple(?:\.com)?')
+MAP_HOST = re.compile(r'(?:[a-z0-9-]+\.)*google\.com|(?:maps\.app\.)?goo\.gl|maps\.apple(?:\.com)?|(?:[a-z0-9-]+\.)?waze\.com')
 
 
 def place(label: str, latitude: float, longitude: float, address: str | None = None) -> dict:
@@ -17,7 +19,22 @@ def place(label: str, latitude: float, longitude: float, address: str | None = N
           'address': address or rest.strip() or None}
 
 
+def waze_geohash(code: str) -> tuple[float, float]:
+  latitude, longitude, even = [-90.0, 90.0], [-180.0, 180.0], True
+  for char in code.lower():
+    bits = GEOHASH.index(char)
+    for shift in range(4, -1, -1):
+      span = longitude if even else latitude
+      middle = (span[0] + span[1]) / 2
+      span[0 if bits >> shift & 1 else 1] = middle
+      even = not even
+  return round((latitude[0] + latitude[1]) / 2, 6), round((longitude[0] + longitude[1]) / 2, 6)
+
+
 def shared_coordinates(text: str) -> dict | None:
+  waze = WAZE_SHORT.search(text)
+  if waze:
+    return place('Shared destination', *waze_geohash(waze[1]))
   decoded = unquote_plus(text.strip())
   for pattern in COORDINATES:
     match = pattern.search(decoded)
