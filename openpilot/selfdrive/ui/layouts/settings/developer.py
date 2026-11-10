@@ -1,7 +1,7 @@
 from collections.abc import Callable
 
 from openpilot.common.params import Params
-from openpilot.starpilot.car.hyundai.aol import ioniq6_settings_capable
+from openpilot.starpilot.car.hyundai.aol import ioniq6_alpha_long_available
 from openpilot.starpilot.car.ford.longitudinal_preferences import release_long_available as ford_release_long_available
 from opendbc.car.volkswagen.meb_modes import MEB_CARS, settings_capable as meb_settings_capable
 from openpilot.starpilot.car.volkswagen.preferences import stock_long_requested
@@ -144,7 +144,7 @@ class DeveloperLayout(Widget):
     # CP gating
     if ui_state.CP is not None:
       alpha_avail = (meb_settings_capable(ui_state.CP) if ui_state.CP.brand == 'volkswagen' and ui_state.CP.carFingerprint in MEB_CARS
-                     else ui_state.CP.alphaLongitudinalAvailable or ioniq6_settings_capable(ui_state.CP))
+                     else ui_state.CP.alphaLongitudinalAvailable or ioniq6_alpha_long_available(ui_state.CP))
       if not alpha_avail or (self._is_release and not (meb_settings_capable(ui_state.CP) or ford_release_long_available(ui_state.CP))):
         self._alpha_long_toggle.set_visible(False)
       else:
@@ -216,7 +216,7 @@ class DeveloperLayout(Widget):
         if result == DialogResult.CONFIRM:
           if (not ui_state.is_offroad() or ui_state.CP is None or
               not (meb_settings_capable(ui_state.CP) if ui_state.CP.brand == 'volkswagen' and ui_state.CP.carFingerprint in MEB_CARS
-                     else ui_state.CP.alphaLongitudinalAvailable or ioniq6_settings_capable(ui_state.CP)) or
+                     else ui_state.CP.alphaLongitudinalAvailable or ioniq6_alpha_long_available(ui_state.CP)) or
               self._is_release and not (meb_settings_capable(ui_state.CP) or ford_release_long_available(ui_state.CP))):
             self._alpha_long_toggle.action_item.set_state(False)
             return

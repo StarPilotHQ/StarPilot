@@ -205,12 +205,12 @@ class FeatureSettingsOwner:
     release, readable = read_saved(self.params, 'IsReleaseBranch', 8)
     try:
       from opendbc.car.values import PLATFORMS
-      from openpilot.starpilot.car.hyundai.aol import ioniq6_settings_capable
+      from openpilot.starpilot.car.hyundai.aol import ioniq6_alpha_long_available
       from openpilot.starpilot.car.ford.longitudinal_preferences import release_long_available as ford_release_long_available
       platform = PLATFORMS.get(str(cp.carFingerprint))
       if (not self._galaxy() or platform is None or platform.__class__.__module__.split('.')[-2] != str(cp.brand) or
           not readable or release not in (None, b'0', b'1') or cp.notCar or cp.passive or cp.dashcamOnly or
-          not (cp.alphaLongitudinalAvailable or ioniq6_settings_capable(cp)) or
+          not (cp.alphaLongitudinalAvailable or ioniq6_alpha_long_available(cp)) or
           (release == b'1' and not ford_release_long_available(cp))):
         return None
       return (str(cp.carFingerprint), str(cp.brand), int(cp.flags), int(cp.alternativeExperience),

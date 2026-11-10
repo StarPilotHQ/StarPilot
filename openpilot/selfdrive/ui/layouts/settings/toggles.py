@@ -1,3 +1,4 @@
+from openpilot.starpilot.car.hyundai.aol import ioniq6_alpha_long_available
 from openpilot.starpilot.car.ford.longitudinal_preferences import release_long_available as ford_release_long_available
 from openpilot.cereal import log
 from openpilot.common.params import Params, UnknownKeyName
@@ -196,7 +197,7 @@ class TogglesLayout(Widget):
         unavailable = tr("Experimental mode is currently unavailable on this car since the car's stock ACC is used for longitudinal control.")
 
         long_desc = unavailable + " " + tr("openpilot longitudinal control may come in a future update.")
-        if ui_state.CP.alphaLongitudinalAvailable:
+        if ui_state.CP.alphaLongitudinalAvailable or ioniq6_alpha_long_available(ui_state.CP):
           if self._is_release and not ford_release_long_available(ui_state.CP):
             long_desc = unavailable + " " + tr("An alpha version of openpilot longitudinal control can be tested, along with " +
                                                "Experimental mode, on non-release branches.")

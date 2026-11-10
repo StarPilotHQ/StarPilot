@@ -52,7 +52,6 @@ def _base_word(cp, *, experiences=(0,)):
     return None
   if (
     cp.brand != 'hyundai'
-    or factory == CAR.HYUNDAI_IONIQ_6
     or not factory.config.flags & HyundaiFlags.CANFD
     or factory.config.flags & (HyundaiFlags.CANFD_ANGLE_STEERING | HyundaiFlags.NON_SCC)
     or cp.passive
@@ -85,6 +84,8 @@ def _base_word(cp, *, experiences=(0,)):
     word |= 0x0400
   if factory in CARNIVAL_CARS and alt_buttons:
     word |= 0x2000
+  if factory == CAR.HYUNDAI_IONIQ_6 and word != 0x09:
+    return None
   return word if word | STOCK_AOL_MARKER in STOCK_AOL_WORDS else None
 
 
@@ -100,7 +101,7 @@ CARNIVAL_LONG_AOL_WORD = 0x28B4
 LONG_AOL_WORDS = frozenset((CARNIVAL_LONG_AOL_WORD, 0x080D, 0x0815, 0x0895, 0x2815, 0x2895)) | SPORTAGE_LONG_AOL_WORDS
 LONG_EV_CARS = frozenset((CAR.HYUNDAI_IONIQ_5, CAR.HYUNDAI_KONA_EV_2ND_GEN))
 INDEPENDENT_LONG_BUTTON_CARS = LONG_EV_CARS | {
-  CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN, CAR.GENESIS_GV60_EV_1ST_GEN, CAR.KIA_SPORTAGE_5TH_GEN, CAR.KIA_CARNIVAL_2025,
+  CAR.HYUNDAI_IONIQ_6, CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN, CAR.GENESIS_GV60_EV_1ST_GEN, CAR.KIA_SPORTAGE_5TH_GEN, CAR.KIA_CARNIVAL_2025,
 }
 
 
@@ -115,7 +116,7 @@ def qualified_long(cp, *, marked_only=False):
     if not eligible(cp):
       return False
   word = _base_word(cp, experiences=(0, 32))
-  if cp.carFingerprint == CAR.GENESIS_GV60_EV_1ST_GEN:
+  if cp.carFingerprint in (CAR.GENESIS_GV60_EV_1ST_GEN, CAR.HYUNDAI_IONIQ_6):
     if word != 0x09:
       return False
   elif cp.carFingerprint == CAR.KIA_SPORTAGE_5TH_GEN:

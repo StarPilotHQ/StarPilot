@@ -685,17 +685,19 @@ class CarState(CarStateBase):
       if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
         cam_msgs.append(("CAM_0x362" if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "CAM_0x2a4", 20))
     elif CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and CP.openpilotLongitudinalControl:
-      # The acknowledged ADAS takeover removes stock SCC from E-CAN. Require
-      # every independent native input and the matching camera source instead.
+      # Both topologies require genuine chassis inputs; only HDA-II uses
+      # the camera template after acknowledged ADAS takeover.
       msgs.extend((("ACCELERATOR", 100), ("TCS", 50), ("WHEEL_SPEEDS", 100), ("MDPS", 100)))
       msgs.extend((("CRUISE_BUTTONS_ALT", math.nan), ("DOORS_SEATBELTS", math.nan),
                    ("STEERING_SENSORS", math.nan), ("BLINKERS", math.nan)))
-      cam_msgs.append(("CAM_0x362" if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "CAM_0x2a4", 20))
+      if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
+        cam_msgs.append(("CAM_0x362" if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "CAM_0x2a4", 20))
     elif CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and not CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS:
       # Stock standard-button Ioniq 6 reads alternate DISTANCE_UNIT too, but
       # that frame may be absent. Subscribe before the lazy lookup makes it
       # required; existing native and CarState safety inputs remain required.
-      msgs.append(("CRUISE_BUTTONS_ALT", math.nan))
+      if not any(name == "CRUISE_BUTTONS_ALT" for name, _ in msgs):
+        msgs.append(("CRUISE_BUTTONS_ALT", math.nan))
     from opendbc.car.hyundai.ev6_startup import eligible as ev6_eligible
     from opendbc.car.hyundai.gv70_startup import eligible as gv70_eligible
     if ev6_eligible(CP) or gv70_eligible(CP):

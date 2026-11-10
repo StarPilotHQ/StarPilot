@@ -138,7 +138,8 @@ class CarController(CarControllerBase):
     self.last_ccnc_now_ns = 0
     self.ccnc_baselined = False
     self.ioniq6_longitudinal = (Ioniq6LongitudinalPolicy()
-                                if CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and CP.openpilotLongitudinalControl else None)
+                                if CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and CP.openpilotLongitudinalControl and
+                                   int(CP.safetyConfigs[-1].safetyParam) in (0x8015, 0x8095, 0x8815, 0x8895) else None)
     self.pe_longitudinal = PELongitudinalPolicy() if pe_long_qualified(CP) else None
     self.pe_startup = None
     self.ev9_longitudinal = EV9LongitudinalPolicy() if ev9_long_qualified(CP) else None
