@@ -314,10 +314,13 @@ class ForceStop:
             not self.sign_confirmed and not frame.model_should_stop):
           # A moving model preview is not a fixed world endpoint to count down.
           self.distance = self.distance_cap = horizon
+        terminal_distance = self.distance
         if sign_estimate is not None and (self.sign_confirmed or frame.sign and available and horizon < SIGN_MODEL_AGREE_M):
           self.distance = min(sign_estimate, cap)
         if self.queue_line is not None and self.sign_confirmed:
           self.distance = self.queue_line
+        if tune.distance_control and self.stop_requested:
+          self.distance = min(self.distance, terminal_distance)
         effective = self.distance + offset + tune.distance_bias_m
         decel = SIGN_APPROACH_DECEL if frame.sign else MODEL_APPROACH_DECEL
         ceiling = math.sqrt(2 * decel * max(0, effective - tune.handoff_m))
@@ -346,7 +349,7 @@ class ForceStop:
     # The MPC obstacle includes its standing-distance term; adding it at the
     # native boundary avoids moving the actual stop line by that buffer.
     obstacle = (stop_length * .93 + offset + tune.distance_bias_m
-                if stop_length > 0 and stop_length + offset > tune.handoff_m else None)
+                if stop_length > 0 and stop_length + max(0.0, offset) > tune.handoff_m else None)
     if tune.distance_control and self.forcing:
       obstacle = max(0.0,min(self.distance * .93 + offset + tune.distance_bias_m,
                              (self.distance + offset + tune.distance_bias_m) * .93))

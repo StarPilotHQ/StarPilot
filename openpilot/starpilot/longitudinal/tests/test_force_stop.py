@@ -528,15 +528,28 @@ class MovingPreviewTests(unittest.TestCase):
     after = owner.step(preview_frame(15, horizon_m=None, road_curvature=None, perception_available=False, moving_preview=True), vehicle_tune('HYUNDAI_IONIQ_6'))
     self.assertAlmostEqual(after.tracked_distance_m, before.tracked_distance_m - 0.2)
 
-  def test_confirmed_stop_and_sign_cannot_extend(self):
+  def test_confirmed_stop_and_sign_cannot_resume_preview_tracking(self):
     for kw in [{'model_should_stop': True}, {'sign': True}]:
       owner = ForceStop()
       owner.last_model_ns = BASE
       owner.distance = owner.distance_cap = 8.0
       owner.forcing = True
       owner.timer = 1.0
-      after = owner.step(preview_frame(1, horizon_m=35.0, moving_preview=True, **kw), vehicle_tune('HYUNDAI_IONIQ_6'))
-      self.assertLess(after.tracked_distance_m, 8.0)
+      owner.entry_speed = 4.0
+      owner.preview_tracking = True
+      fixed = owner.step(preview_frame(1, horizon_m=35.0, moving_preview=True, **kw), vehicle_tune('HYUNDAI_IONIQ_6'))
+      after = owner.step(preview_frame(2, horizon_m=50.0, moving_preview=True), vehicle_tune('HYUNDAI_IONIQ_6'))
+      self.assertFalse(owner.preview_tracking)
+      self.assertLess(after.tracked_distance_m, fixed.tracked_distance_m)
+
+  def test_terminal_stop_distance_cannot_reopen_on_new_sign_range(self):
+    owner = ForceStop()
+    for tick in range(15):
+      before = owner.step(preview_frame(tick, horizon_m=5.0), vehicle_tune('HYUNDAI_IONIQ_6'))
+    self.assertTrue(before.should_stop)
+    after = owner.step(preview_frame(15, horizon_m=35.0, sign=True, vision_distance_m=30.), vehicle_tune('HYUNDAI_IONIQ_6'))
+    self.assertTrue(after.should_stop)
+    self.assertLess(after.tracked_distance_m, before.tracked_distance_m)
 
   def test_once_stationary_endpoint_seen_it_cannot_become_a_moving_preview_again(self):
     owner = ForceStop()
