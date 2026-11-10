@@ -114,6 +114,19 @@ const imperial = driveSummary({ status: "ready", data: { ...drives, isMetric: fa
 assert.equal(imperial.last.distance, "7.5 mi")
 assert.equal(imperial.week.days[6].distance, "7.5 mi")
 assert.equal(imperial.records[0].display, "7.5 mi")
+const modelHistory = ["ResFit", "Train Track", "Mountain Dew v3", "Light Speed 2", "Polaris Vega",
+  ...Array.from({ length: 12 }, (_, index) => `Recorded model ${index + 6}`)]
+  .map((name, index) => ({ name, distanceMeters: (17 - index) * 1000, durationSeconds: 60, drives: 1 }))
+const allModels = driveSummary({ status: "ready", data: { ...drives, models: modelHistory } })
+assert.deepEqual(allModels.models.map(model => model.name), modelHistory.map(model => model.name),
+  "Recorded Models must include the full history, including lower-mileage recent models")
+assert.equal(new Set(allModels.models.map(model => model.color)).size, modelHistory.length)
+assert.ok(allModels.models.every(model => model.color && model.distance && model.drives === 1))
+assert.ok(allModels.models.every(model => allModels.modelStyle.includes(model.color)))
+assert.doesNotMatch(allModels.modelStyle, /undefined|NaN/)
+assert.ok(Math.abs(Number(/([\d.]+)%\)$/.exec(allModels.modelStyle)[1]) - 100) < 1e-9)
+assert.equal(driveSummary({ status: "ready", data: { ...drives,
+  models: modelHistory.map(model => ({ ...model, distanceMeters: 0 })) } }).modelStyle, "")
 const previousTZ = process.env.TZ
 process.env.TZ = "America/Chicago"
 const midnightDrive = { ...route, startTime: Date.parse("2026-09-27T04:30:00Z") / 1000,

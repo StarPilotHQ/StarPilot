@@ -55,13 +55,14 @@ export function driveSummary(feed) {
   const last = data.lastDrive
   const analysisStatus = () => ({ analysisLabel: "Incomplete recording" })
   const maximum = Math.max(1, ...data.week.days.map((day) => day.distanceMeters ?? 0))
-  const models = data.models.slice(0, 3)
+  const models = data.models
   const modelTotal = models.reduce((sum, model) => sum + (model.distanceMeters ?? 0), 0)
   const colors = ["#5ec8c8", "#8b6cc5", "#d4a060"]
+  const modelColor = (index) => colors[index] || `hsl(${(index * 137.508) % 360} 55% 65%)`
   let offset = 0
   const stops = models.map((model, index) => {
     const next = offset + (modelTotal > 0 ? (model.distanceMeters ?? 0) / modelTotal * 100 : 0)
-    const stop = `${colors[index]} ${offset}% ${next}%`
+    const stop = `${modelColor(index)} ${offset}% ${next}%`
     offset = next
     return stop
   })
@@ -86,7 +87,7 @@ export function driveSummary(feed) {
       duration: duration(drive.durationSeconds), engaged: percent(drive.engagedPercent), aol: percent(drive.aolPercent), model: shown(drive.model) })),
     records: data.records.map((record) => ({ id: record.id, label: record.label, display: recordDisplay(record, isMetric) })),
     models: models.map((model, index) => ({ name: model.name, distance: distance(model.distanceMeters, isMetric),
-      drives: model.drives, color: colors[index] })),
+      drives: model.drives, color: modelColor(index) })),
     modelStyle: modelTotal > 0 ? `background:conic-gradient(${stops.join(",")})` : "",
   }
 }
