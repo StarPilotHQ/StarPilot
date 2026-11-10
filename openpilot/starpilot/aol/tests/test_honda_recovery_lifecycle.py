@@ -52,6 +52,12 @@ class TestHondaCurrentCaller(unittest.TestCase):
   def test_nidec_civic_temporary_eps_reverse_return(self):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC, word=0)
 
+  def test_radarless_alpha_civic_eps_2_with_brake_override(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True, eps_pedal='brake')
+
+  def test_radarless_alpha_civic_eps_2_with_gas_override(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True, eps_pedal='gas')
+
   def test_diagnostic_during_recovered_reverse(self):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, fault='diagnostic')
 
@@ -59,7 +65,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, fault='relay')
 
   def run_current_caller(self, *, candidate, word, fault=None, alternate_brake=False, alpha=False, speed_mps=12.5,
-                         pedal=False, host_scenario=None, serialized=False):
+                         pedal=False, host_scenario=None, serialized=False, eps_pedal=None, hybrid=False):
     safety = libsafety_py.libsafety
     with (
       OpenpilotPrefix(),
@@ -84,6 +90,8 @@ class TestHondaCurrentCaller(unittest.TestCase):
       pt_bus = 0 if nidec or candidate.config.flags & (HondaFlags.BOSCH_RADARLESS | HondaFlags.BOSCH_CANFD) else 1
       gear_msg = CANDBC(DBC[candidate][Bus.pt]).name_to_msg['GEARBOX_AUTO']
       fp[pt_bus][gear_msg.address] = gear_msg.size
+      if hybrid:
+        fp[pt_bus][0x184] = 8
       if pedal:
         fp[pt_bus][0x201] = 6
       if alternate_brake:
@@ -113,6 +121,8 @@ class TestHondaCurrentCaller(unittest.TestCase):
       self.assertEqual(cp.carVin, vin)
       self.assertEqual([record.to_dict() for record in cp.carFw], [record.to_dict() for record in fw])
       self.assertEqual(cp.carFingerprint, candidate)
+      if hybrid:
+        self.assertTrue(cp.flags & HondaFlags.HYBRID)
       self.assertEqual((cp.safetyConfigs[0].safetyParam, cp.alternativeExperience), (word, 32))
       self.assertEqual(cp.pcmCruise, not (alpha or pedal))
       self.assertEqual(cp.openpilotLongitudinalControl, nidec or alpha)
@@ -159,8 +169,10 @@ class TestHondaCurrentCaller(unittest.TestCase):
           incoming = stream.frames(
             cruise_button=3 if tick == 20 or host_scenario == 'long_reengage' and tick == 130 else 0,
             cruise=int(21 <= tick < 50 or reengage),
-            brake=50 <= tick < 55,
-            eps=6 if 80 <= tick < 95 else 0,
+            brake=50 <= tick < 55 or eps_pedal == 'brake' and 80 <= tick < 95,
+            eps=(2 if eps_pedal else 6) if 80 <= tick < 95 else 0,
+            gas=20 if eps_pedal == 'gas' and 80 <= tick < 95 else 0,
+            steering_torque=1301 if eps_pedal and 80 <= tick < 95 else 0,
             gear=2 if 110 <= tick < 125 else None,
             lkas=0, speed_kph=speed_mps * 3.6,
           )
@@ -255,7 +267,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
           self.assertFalse(cs.steerFaultPermanent)
           self.assertEqual(cs.steerFaultTemporary, 80 <= tick < 95)
           self.assertEqual(cs.gearShifter, structs.CarState.GearShifter.reverse if 110 <= tick < 125 else structs.CarState.GearShifter.drive)
-          self.assertEqual(cs.brakePressed, 50 <= tick < 55)
+          self.assertEqual(cs.brakePressed, 50 <= tick < 55 or eps_pedal == 'brake' and 80 <= tick < 95)
           self.assertTrue(cs.cruiseState.available)
           self.assertEqual(cs.cruiseState.enabled, 21 <= tick < 50 or reengage)
           intent = decode_intent(published['aolIntentWire'].aolIntentWire)
@@ -382,6 +394,11 @@ class TestHondaCurrentCaller(unittest.TestCase):
             self.assertTrue(command.latActive, row)
             self.assertTrue(any(t.get('accepted') and t.get('request') and t.get('torque') for t in row['TX']), row)
             self.assertTrue(intent.allowedLatch, row)
+          if eps_pedal and 82 <= tick < 95:
+            self.assertTrue(cs.steerFaultTemporary and cs.steeringPressed, row)
+            self.assertTrue(cs.brakePressed if eps_pedal == 'brake' else cs.gasPressed, row)
+            self.assertTrue(card.aol_card_intent.allowed_latch, row)
+            self.assertFalse(command.latActive or command.longActive or row['permission'] & 1, row)
           if tick == 90 or tick == 120 and fault != "relay":
             self.assertTrue(card.aol_card_intent.allowed_latch, row)
             self.assertTrue(intent.lateralArmed, row)

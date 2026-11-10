@@ -40,7 +40,8 @@ class HondaCan:
       assert 'BRAKE_PRESSED' in brake_msg.sigs
       assert brake_msg.address in pt.addresses
 
-  def frames(self, *, cruise_button=0, lkas=0, cruise=0, brake=False, main=True, eps=0, gear=None, gas=0, omit=(), speed_kph=45.):
+  def frames(self, *, cruise_button=0, lkas=0, cruise=0, brake=False, main=True, eps=0, gear=None, gas=0,
+             omit=(), speed_kph=45., steering_torque=0):
     intended: dict[str, dict[str, float]] = {
       'SCM_BUTTONS': {'CRUISE_BUTTONS': cruise_button, 'CRUISE_SETTING': lkas},
       'ENGINE_DATA': {'XMISSION_SPEED': speed_kph},
@@ -51,7 +52,7 @@ class HondaCan:
         'BRAKE_SWITCH': 0 if self.alt_brake else int(brake),
         'PEDAL_GAS': gas,
       },
-      'STEER_STATUS': {'STEER_STATUS': eps, 'STEER_TORQUE_SENSOR': 0},
+      'STEER_STATUS': {'STEER_STATUS': eps, 'STEER_TORQUE_SENSOR': steering_torque},
       self.gear_msg: {'GEAR_SHIFTER': self.drive if gear is None else gear},
       'SEATBELT_STATUS': {'SEATBELT_DRIVER_LATCHED': 1, 'SEATBELT_DRIVER_LAMP': 0},
       'BRAKE_MODULE': {'BRAKE_PRESSED': int(brake)},

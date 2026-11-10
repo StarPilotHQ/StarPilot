@@ -995,6 +995,8 @@ class Car:
       try:
         axis = current_axis(self.sm, now_ns=now_ns)
         feedback = self.aol_transport_feedback
+        # A pre-publication OFF cannot revoke this newer host request.
+        # Unmatched denial still uses the existing bounded pending timeout.
         host_requested = bool(axis is not None and axis.sessionId == native.axisSessionId and
           axis.observedMonoTime == self.sm.logMonoTime['aolAxisState'] and
           axis.validUntilMonoTime == axis.observedMonoTime + AXIS_MAX_AGE_NS and
@@ -1005,7 +1007,7 @@ class Car:
           not any(event.immediateDisable or event.softDisable for event in self.sm['onroadEvents']) and
           axis.sequence > 0 and axis.nativeAcknowledged and axis.desiredLateral and axis.lateralActive and
           axis.intentProducerSessionId == self.slc_producer_session and
-          0 < axis.sourceCarStateMonoTime <= native.observedMonoTime <= now_ns and
+          0 < axis.sourceCarStateMonoTime <= axis.observedMonoTime <= native.observedMonoTime <= now_ns and
           now_ns - axis.sourceCarStateMonoTime <= AXIS_MAX_AGE_NS and
           not feedback.qualified and not feedback.retention_qualified and not feedback.paused and
           not feedback.awaiting and not feedback.retention_pending)
