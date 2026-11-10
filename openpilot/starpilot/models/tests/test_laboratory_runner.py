@@ -269,6 +269,13 @@ class TestLaboratoryLoad(unittest.TestCase):
     with self.assertRaisesRegex(ValueError, 'at least one.*Chestnut'):
       laboratory.validate_configuration(config | {'lateralModel': 'new-small-two'}, self.root)
 
+  def test_big_pair_is_refused_before_either_artifact_load(self):
+    config = {'enabled': True, 'lateralModel': 'cinquev3', 'longitudinalModel': 'resfit'}
+    with patch('openpilot.starpilot.models.runner.CatalogModelState') as loader:
+      with self.assertRaisesRegex(ValueError, 'Two Big models cannot'):
+        load_laboratory_pair(8, 8, config, root=self.root)
+      loader.assert_not_called()
+
   def test_both_variants_must_be_declared_before_either_load(self):
     del self.rows["sc23"]["accelerator_artifacts"]
     atomic_json(self.root / "catalog.json", self.manifest)

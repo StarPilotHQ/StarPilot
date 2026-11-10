@@ -57,10 +57,22 @@ def freeze_request(root: Path) -> dict | None:
 
 
 
+BIG_PAIR_UNAVAILABLE = 'Two Big models cannot run together at the required speed. Choose a Small model for one role.'
+
+
+def _big_pair(value: dict, entries: dict) -> bool:
+  return all(value[key] in entries and entries[value[key]].uses_external_gpu for key in ('lateralModel', 'longitudinalModel'))
+
+
 def configuration(root: Path) -> dict:
   default = {"enabled": False, "lateralModel": "", "longitudinalModel": ""}
   try:
     saved = read_json(root / "laboratory.json", 4096)
+    if isinstance(saved, dict) and saved.get('enabled') is True:
+      disabled = saved | {'enabled': False}
+      validate_configuration(disabled, root)
+      if _big_pair(disabled, model_entries(root)):
+        return disabled
     validate_configuration(saved, root)
     return saved
   except (OSError, ValueError, TypeError):
@@ -80,6 +92,8 @@ def validate_configuration(value: dict, root: Path | None = None) -> None:
                            value["lateralModel"] == value["longitudinalModel"]):
     raise ModelError("Choose two different models")
   if value['enabled']:
+    if _big_pair(value, entries):
+      raise ModelError(BIG_PAIR_UNAVAILABLE)
     rows = catalog(root) if root is not None else catalog()
     if not any(rows[value[key]].get('uses_external_gpu') or laboratory_variant(value[key], rows) == 'amd'
                for key in ('lateralModel', 'longitudinalModel')):
@@ -135,7 +149,8 @@ class ModelLaboratory:
                        "modelLabStatus": state, "modelLabReason": reason,
                        "artifactSize": artifact.get("artifact_size", 0)})
       return {"schemaVersion": 1, "chestnutReady": gpu, "isOnroad": not parked, "configuration": config,
-              "configurationError": self.runtime_unavailable_reason if config["enabled"] else "",
+              "configurationError": (BIG_PAIR_UNAVAILABLE if _big_pair(config, model_entries(owner.root)) else
+                                     self.runtime_unavailable_reason if config["enabled"] else ""),
               "runtimeSupported": self.runtime_supported, "runtimeUnavailableReason": self.runtime_unavailable_reason,
               "runtime": (self.runtime_status(config) if self.runtime_status is not None else
                           {"requested": config["enabled"], "active": False, "lateralModel": "", "longitudinalModel": "",

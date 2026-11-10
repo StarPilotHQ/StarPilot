@@ -27,6 +27,10 @@ const mixed = {...p, models:[model('a'), {...model('b','v16'),small:false}]}
 assert.equal(laboratoryReady(mixed).length,2)
 assert.equal(laboratorySelectionError(mixed,mixed.configuration),'')
 assert.equal(laboratoryActionAllowed(mixed,'delete',mixed.models[1]),false)
+const twoBig = {...p, models:p.models.map(m => ({...m,small:false,modelLabChestnut:true}))}
+assert.match(laboratorySelectionError(twoBig,twoBig.configuration), /Two Big models cannot/)
+assert.equal(laboratoryActionAllowed(twoBig,'enable',null,twoBig.configuration),false)
+assert.equal(laboratorySelectionError(mixed,mixed.configuration),'')
 const nativeOnly = {...p, models:p.models.map(m => ({...m,modelLabChestnut:false}))}
 assert.match(laboratorySelectionError(nativeOnly,nativeOnly.configuration), /at least one.*Chestnut/)
 assert.equal(laboratoryActionAllowed(nativeOnly,'enable',null,nativeOnly.configuration),false)
@@ -74,7 +78,7 @@ assert.match(LaboratoryPage.template,/Catalog models/)
 assert.match(LaboratoryPage.template,/modelLabReason/)
 assert.equal(laboratoryStatusLabel({modelLabStatus:"runtime-unavailable"}), "Downloaded")
 assert.equal(laboratoryStatusLabel({modelLabStatus:"unsupported"}), "Not supported")
-const performanceNotice = 'Some Big model combinations run below 20 Hz and can cause model lag warnings.'
+const performanceNotice = 'Two Big models cannot run together at the required speed. Choose a Small model for one role. Other combinations can also cause model lag warnings.'
 assert.ok(LaboratoryPage.template.includes(performanceNotice))
 assert.doesNotMatch(LaboratoryPage.template.replace(performanceNotice,''),/20 Hz/)
 console.log('Model Laboratory contracts passed')

@@ -112,6 +112,26 @@ class LaboratoryTest(unittest.TestCase):
     self.lab.snapshot()
     self.assertIs(self.manager.worker, worker)
 
+  def test_two_big_models_are_rejected_before_configuration_is_written(self):
+    self.gpu = True
+    lab = ModelLaboratory(self.manager, runtime_supported=True)
+    pair = {'enabled': True, 'lateralModel': 'cinquev3', 'longitudinalModel': 'resfit'}
+    with self.assertRaisesRegex(ModelError, 'Two Big models cannot'):
+      lab.action('configure', pair)
+    self.assertFalse((self.root / 'laboratory.json').exists())
+
+  def test_previous_big_pair_is_suspended_without_destroying_saved_choices(self):
+    from openpilot.starpilot.models.laboratory import freeze_request
+    pair = {'enabled': True, 'lateralModel': 'cinquev3', 'longitudinalModel': 'resfit'}
+    atomic_json(self.root / 'laboratory.json', pair)
+    original = (self.root / 'laboratory.json').read_bytes()
+    self.assertEqual(configuration(self.root), pair | {'enabled': False})
+    self.assertIsNone(freeze_request(self.root))
+    self.assertEqual((self.root / 'laboratory.json').read_bytes(), original)
+    snapshot = self.lab.snapshot()
+    self.assertFalse(snapshot['configuration']['enabled'])
+    self.assertIn('Two Big models cannot', snapshot['configurationError'])
+
   def test_amd_download_and_delete_preserve_normal_small_artifact(self):
     self.download(variant='standard')
     normal = artifact_path('gwm8223', self.root)
