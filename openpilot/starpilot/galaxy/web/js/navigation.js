@@ -610,6 +610,13 @@ export const NavigationPage = {
           </div>
           <GxNotice v-if="data?.hasGoogleKey && !data?.hasKey" tone="warn">Google isn't used until the Mapbox key above is added too.</GxNotice>
           <div id="navigation-google" v-show="googleOpen" class="gx-starport-step__body">
+            <details class="gx-starport-wiki gx-navigation__guide" :open="!data?.hasGoogleKey"><summary>Setup your google key</summary>
+              <ol><li><strong>Create a project.</strong> Sign in to <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener noreferrer">Google Cloud ↗</a> and create a project.</li>
+                <li><strong>Turn on billing.</strong> Open <a href="https://console.cloud.google.com/billing" target="_blank" rel="noopener noreferrer">Google Cloud Billing ↗</a>. Google asks for a card even though the comma stays inside the free allowance.</li>
+                <li><strong>Enable three APIs.</strong> Press Enable on each: <a href="https://console.cloud.google.com/apis/library/tile.googleapis.com" target="_blank" rel="noopener noreferrer">Map Tiles API ↗</a> for the map, <a href="https://console.cloud.google.com/apis/library/routes.googleapis.com" target="_blank" rel="noopener noreferrer">Routes API ↗</a> for routes and <a href="https://console.cloud.google.com/apis/library/places.googleapis.com" target="_blank" rel="noopener noreferrer">Places API (New) ↗</a> for place search.</li>
+                <li><strong>Create the key.</strong> Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Credentials ↗</a>, create an API key and limit it to those three APIs. Leave application restrictions off; the comma's address changes on cellular.</li>
+                <li><strong>Paste and test.</strong> Keep your Mapbox key; Google works alongside it. Paste the Google key below while parked, press <strong>Save key</strong>, then <strong>Test key</strong>. It checks all three APIs.</li></ol>
+            </details>
             <form @submit.prevent="saveGoogleKey" class="gx-navigation__search">
               <label for="navigation-google-key" class="gx-sr-only">Google Maps Platform API key</label>
               <input id="navigation-google-key" class="gx-field" type="password" autocomplete="off" v-model="googleKey" placeholder="AIza…" maxlength="128" required :disabled="!controlsAvailable">
@@ -629,13 +636,6 @@ export const NavigationPage = {
               <template v-if="googlePlaceUsage"><dt>Place searches this month</dt><dd>{{ googlePlaceUsage.monthUsed.toLocaleString() }} of {{ googlePlaceUsage.monthLimit.toLocaleString() }} free</dd></template>
               <template v-if="googleSuggestionUsage"><dt>Typing suggestions this month</dt><dd>{{ googleSuggestionUsage.monthUsed.toLocaleString() }} of {{ googleSuggestionUsage.monthLimit.toLocaleString() }} free</dd></template>
             </dl>
-            <details class="gx-starport-wiki"><summary>Get a Google key (about 10 minutes, once)</summary>
-              <ol><li>Sign in to <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener noreferrer">Google Cloud</a> and create a project.</li>
-                <li><a href="https://console.cloud.google.com/billing" target="_blank" rel="noopener noreferrer">Turn on billing</a>. Google asks for a card even though the comma stays inside the free allowance.</li>
-                <li>Enable the <a href="https://console.cloud.google.com/apis/library/tile.googleapis.com" target="_blank" rel="noopener noreferrer">Map Tiles API</a> for the map, the <a href="https://console.cloud.google.com/apis/library/routes.googleapis.com" target="_blank" rel="noopener noreferrer">Routes API</a> for routes and <a href="https://console.cloud.google.com/apis/library/places.googleapis.com" target="_blank" rel="noopener noreferrer">Places API (New)</a> for place search.</li>
-                <li><a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Create an API key</a> and limit it to those three APIs. Leave application restrictions off; the comma's address changes on cellular.</li>
-                <li>Keep your Mapbox key; Google works alongside it. Paste the Google key here while parked, then press <strong>Test key</strong>. It checks all three APIs.</li></ol>
-            </details>
             <details class="gx-starport-wiki"><summary>How the Google limits work</summary>
               <p>The comma stops at 99% of Google's free allowance: 100,000 map tiles a month (15,000 a day), 10,000 routes, 5,000 traffic routes, 5,000 place searches (shared places included) and 10,000 typing suggestions. Every route and reroute uses live traffic, and one more request every 7½ minutes corrects the arrival time.</p>
               <p>Past 20 reroutes in an hour, or when traffic routes run out, routes ignore traffic. Past both limits the comma uses Mapbox until they reset. Google routes have no lane arrows. Place search uses Google when Google gives directions, and Mapbox if Google can't answer.</p>

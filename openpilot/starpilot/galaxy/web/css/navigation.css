@@ -186,3 +186,8 @@
 .gx-navigation .gx-starport-step__body { padding-left: 0; }
 @media (min-width: 640px) { .gx-navigation .gx-starport-step__body { padding-left: calc(36px + var(--sp-4)); } }
 @media (max-width: 540px) { .gx-compare__row { grid-template-columns: 1fr; gap: 2px; } .gx-compare__row--head { display: none; } .gx-compare__row > :nth-child(2)::before { content: "Mapbox: "; } .gx-compare__row > :nth-child(3)::before { content: "Google: "; } }
+
+.gx-navigation__guide { border: 1px solid var(--outline); border-radius: var(--radius-sm); padding: var(--sp-3); }
+.gx-navigation__guide > summary { font-weight: var(--fw-bold, 700); }
+.gx-navigation__guide a { color: var(--primary); font-weight: var(--fw-bold, 700); text-decoration: underline; text-underline-offset: 3px; }
+.gx-navigation__guide li strong { color: var(--on-surface); }
