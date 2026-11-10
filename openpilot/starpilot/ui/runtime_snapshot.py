@@ -47,7 +47,7 @@ from openpilot.starpilot.ui.onroad_state import (AlertSize, BorderSignals, Obser
 from openpilot.starpilot.ui.unified_speed_presentation import (displayed_adjusted_limit_mps, displayed_limit_mps,
                                                               displayed_limit_source, positive, retaining_limit)
 from openpilot.starpilot.ui.onroad_stopped_timer import StoppedTimer
-from openpilot.starpilot.speed_limits.vision.stop_observation import StopConfirmation, read_stop_evidence
+from openpilot.starpilot.speed_limits.vision.stop_observation import StopConfirmation
 from openpilot.starpilot.ui.onroad_lane_alerts import lateral_lane_alert
 from openpilot.starpilot.ui.onroad_camera import ReverseDriverCamera
 from openpilot.starpilot.ui.navigation_state import navigation_display, official_navigation_display
@@ -702,9 +702,9 @@ class RuntimeSnapshotAdapter:
       torque=current_message(sm, 'lateralTorqueParameters', now_ns, after_frame=after) if started else None,
       parameters=display_message(sm, 'vehicleParameters', now_ns, after_frame=after) if started else None,
       metric=bool(ui.is_metric), cp=cp)
-    stop_evidence = (read_stop_evidence(sm, now_ns=now_ns, now_boot_ns=now_ns + pair[2],
-                                      drive_id=drive_id, after_frame=after) if started and pair is not None else None)
-    stop_observed_ns = self._vision_stop.observe(stop_evidence, now_ns=now_ns)
+    stop_observed_ns = (self._vision_stop.observe_message(
+      sm, now_ns=now_ns, now_boot_ns=now_ns + pair[2], drive_id=drive_id, after_frame=after)
+      if started and pair is not None else self._vision_stop.observe(None, now_ns=now_ns))
     weather_location = None
     if (started and getattr(ui, 'replay_clock', None) is None and
         any(layout.get('weather', {}).get('enabled', False) for layout in self._customization_value['layouts'].values())):

@@ -15,7 +15,7 @@ from openpilot.starpilot.model_geometry import road_curvature, standstill_clear_
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.longitudinal.stop_resume import StopResume
 from openpilot.starpilot.longitudinal.ioniq6_start import eligible as ioniq6_long_eligible
-from openpilot.starpilot.speed_limits.vision.stop_observation import CONTROL_STOP_MAX_AGE_NS, StopConfirmation, read_stop_evidence
+from openpilot.starpilot.speed_limits.vision.stop_observation import CONTROL_STOP_MAX_AGE_NS, StopConfirmation
 
 
 KEY = 'ForceStops'
@@ -186,8 +186,8 @@ class ForceStopRuntime:
         self.policy.reset()
         self.plan = StopPlan()
         return self.plan
-      vision_sign = self.vision_stop.observe(
-        read_stop_evidence(sm, now_ns=now_ns, now_boot_ns=now_boot_ns, drive_id=drive_id), now_ns=now_ns)
+      vision_sign = self.vision_stop.observe_message(
+        sm, now_ns=now_ns, now_boot_ns=now_boot_ns, drive_id=drive_id)
       vision_fresh = bool(vision_sign and 0 <= now_ns - vision_sign <= CONTROL_STOP_MAX_AGE_NS)
       vision_distance = None
       if vision_fresh and vision_sign != self.vision_ranged_ns and self.vision_stop.distance_m is not None:

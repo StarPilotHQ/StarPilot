@@ -6,6 +6,8 @@ from openpilot.common.transformations.camera import DEVICE_CAMERAS
 from openpilot.starpilot.speed_limits.vision.observation import MODEL_ID, MAX_PAIR_SKEW_NS
 
 STOP_MAX_AGE_NS = 1_500_000_000
+# One maximum source gap plus the next sample's fresh arrival window.
+STOP_HISTORY_MAX_AGE_NS = 2 * STOP_MAX_AGE_NS
 CONTROL_STOP_MAX_AGE_NS = 750_000_000
 RECEIPT_MAX_AGE_NS = 1_000_000_000
 STOP_CONFIRM_CONFIDENCE = .7
@@ -33,42 +35,52 @@ class StopEvidence:
   boxes: tuple[StopBox, ...]
 
 
-def read_stop_evidence(sm, *, now_ns: int, now_boot_ns: int, drive_id: int,
-                       after_frame: int = -1) -> StopEvidence | None:
+def _read_stop_evidence(sm, *, now_ns: int, now_boot_ns: int, drive_id: int,
+                        after_frame: int = -1) -> tuple[StopEvidence | None, bool, int | None]:
   try:
     service = 'slcVisionObservation'
     if (drive_id <= 0 or not sm.seen[service] or not sm.valid[service] or not sm.alive[service] or
         int(sm.recv_frame[service]) <= after_frame):
-      return None
+      return None, False, None
     published = int(sm.logMonoTime[service])
     receipt = int(sm.recv_time[service] * 1e9)
     if not (drive_id < published <= now_ns and now_ns - published <= RECEIPT_MAX_AGE_NS and
             drive_id < receipt <= now_ns and now_ns - receipt <= RECEIPT_MAX_AGE_NS):
-      return None
+      return None, False, None
     event = sm[service].vision
     sample = event.stopSigns
     session, stream = str(event.producerSessionId), str(event.stream)
     observed, eof = int(sample.observedMonoTime), int(sample.cameraFrameEofBootTime)
     expiry = int(sample.validUntilMonoTime)
     width, height, frame = int(sample.imageWidth), int(sample.imageHeight), int(sample.frameId)
-    if (str(event.modelId) != MODEL_ID or not session or len(session) > 64 or stream not in ('road', 'wideRoad') or
+    if (str(event.modelId) != MODEL_ID or str(event.status) not in ('valid', 'unknown') or
+        not session or len(session) > 64 or stream not in ('road', 'wideRoad') or
         str(sample.status) != 'valid' or not drive_id < observed <= published or
-        not 0 <= now_ns - observed < STOP_MAX_AGE_NS or not observed < expiry <= observed + STOP_MAX_AGE_NS or
-        now_ns >= expiry or eof <= 0 or not 0 <= now_boot_ns - eof < STOP_MAX_AGE_NS or
+        not 0 <= now_ns - observed < STOP_HISTORY_MAX_AGE_NS or not observed < expiry <= observed + STOP_MAX_AGE_NS or
+        eof <= 0 or not 0 <= now_boot_ns - eof < STOP_HISTORY_MAX_AGE_NS or
         abs((now_boot_ns - eof) - (now_ns - observed)) > MAX_PAIR_SKEW_NS or
         not 1 <= width <= 8192 or not 1 <= height <= 8192 or not 0 <= frame <= 0xffffffff or
         len(sample.detections) > 4):
-      return None
+      return None, False, None
     boxes = []
     for item in sample.detections:
       confidence = float(item.confidence)
       box = (int(item.x1Pixels), int(item.y1Pixels), int(item.x2Pixels), int(item.y2Pixels))
       if not math.isfinite(confidence) or not .6 <= confidence <= 1 or not (0 <= box[0] < box[2] <= width and 0 <= box[1] < box[3] <= height):
-        return None
+        return None, False, None
       boxes.append(StopBox(confidence, box))
-    return StopEvidence(session, stream, observed, eof, frame, width, height, tuple(boxes))
+    expired = (now_ns >= expiry or now_ns - observed >= STOP_MAX_AGE_NS or
+               now_boot_ns - eof >= STOP_MAX_AGE_NS)
+    return StopEvidence(session, stream, observed, eof, frame, width, height, tuple(boxes)), expired, expiry
   except (AttributeError, KeyError, TypeError, ValueError, OverflowError, RuntimeError):
-    return None
+    return None, False, None
+
+
+def read_stop_evidence(sm, *, now_ns: int, now_boot_ns: int, drive_id: int,
+                       after_frame: int = -1) -> StopEvidence | None:
+  sample, expired, _ = _read_stop_evidence(sm, now_ns=now_ns, now_boot_ns=now_boot_ns,
+                                         drive_id=drive_id, after_frame=after_frame)
+  return None if expired else sample
 
 
 def stop_distance(sample: StopEvidence, box: StopBox) -> float | None:
@@ -99,8 +111,36 @@ class StopConfirmation:
     self.confirmed_ns = 0
     self.first_seen_ns = 0
     self.distance_m: float | None = None
+    self._drive_id: int | None = None
+    self._previous_expiry_ns: int | None = None
 
-  def observe(self, sample: StopEvidence | None, *, now_ns: int) -> int:
+  def observe_message(self, sm, *, now_ns: int, now_boot_ns: int, drive_id: int,
+                      after_frame: int = -1) -> int:
+    if self._drive_id != drive_id:
+      self.reset()
+    sample, expired, expiry = _read_stop_evidence(
+      sm, now_ns=now_ns, now_boot_ns=now_boot_ns, drive_id=drive_id, after_frame=after_frame)
+    previous = self.previous
+    if (sample is not None and previous is not None and
+        (sample.session, sample.stream, sample.observed_ns, sample.frame_id) ==
+        (previous.session, previous.stream, previous.observed_ns, previous.frame_id) and
+        self._previous_expiry_ns is not None and expiry != self._previous_expiry_ns):
+      self.reset()
+      return 0
+    confirmed = self.observe(sample, now_ns=now_ns, expiry_only=expired)
+    if self.previous is not None:
+      self._drive_id = drive_id
+      self._previous_expiry_ns = expiry
+    return confirmed
+
+  def observe(self, sample: StopEvidence | None, *, now_ns: int, expiry_only: bool = False) -> int:
+    if expiry_only:
+      if sample is not None and sample == self.previous and 0 <= now_ns - sample.observed_ns < STOP_HISTORY_MAX_AGE_NS:
+        self.confirmed_ns = 0
+        self.distance_m = None
+        return 0
+      self.reset()
+      return 0
     if sample is None or not 0 <= now_ns - sample.observed_ns < STOP_MAX_AGE_NS:
       self.reset()
       return 0

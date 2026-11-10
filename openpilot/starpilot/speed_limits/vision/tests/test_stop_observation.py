@@ -6,7 +6,7 @@ from openpilot.cereal import messaging
 from openpilot.starpilot.speed_limits.vision.observation import MODEL_ID
 from openpilot.starpilot.speed_limits.vision.producer import _send
 from openpilot.starpilot.speed_limits.vision.stop_observation import (
-  StopBox, StopConfirmation, StopEvidence, STOP_MAX_AGE_NS, read_stop_evidence,
+  StopBox, StopConfirmation, StopEvidence, STOP_HISTORY_MAX_AGE_NS, STOP_MAX_AGE_NS, read_stop_evidence,
 )
 
 BASE = 100_000_000_000
@@ -147,3 +147,131 @@ class TestStopObservation(unittest.TestCase):
       sample = evidence(BASE + 1_000_000_000 + i * 200_000_000, frame=21 + i * 4)
       output = owner.observe(sample, now_ns=sample.observed_ns)
     self.assertEqual(output, sample.observed_ns)
+
+  def observe_message(self, owner, sm, now, *, drive=DRIVE, after_frame=-1):
+    return owner.observe_message(sm, now_ns=now, now_boot_ns=now + OFFSET,
+                                 drive_id=drive, after_frame=after_frame)
+
+  def test_expiry_gap_keeps_history_but_never_publishes_expired_evidence(self):
+    for gap in (20_000_000, 80_000_000, 150_000_000, 300_000_000):
+      with self.subTest(gap=gap):
+        owner = StopConfirmation()
+        first = evidence()
+        self.assertEqual(self.observe_message(owner, Input(message(first)), BASE + 400_000_000), 0)
+        held = Input(message(first, now=BASE + 1_100_000_000))
+        now = BASE + STOP_MAX_AGE_NS + gap
+        self.assertIsNone(self.read(held, now))
+        self.assertEqual(self.observe_message(owner, held, now), 0)
+        self.assertEqual(owner.previous, first)
+        self.assertIsNone(owner.distance_m)
+        second = evidence(BASE + 1_100_000_000, frame=23)
+        self.assertEqual(self.observe_message(owner, Input(message(second, now=now)), now), second.observed_ns)
+
+  def test_expired_confirmed_output_and_distance_clear_until_a_new_source(self):
+    owner = StopConfirmation()
+    first = evidence(width=1928, height=1208)
+    second = evidence(BASE + 600_000_000, frame=13, width=1928, height=1208)
+    self.observe_message(owner, Input(message(first)), BASE + 400_000_000)
+    self.assertEqual(self.observe_message(owner, Input(message(second)), BASE + 1_000_000_000), second.observed_ns)
+    self.assertIsNotNone(owner.distance_m)
+    held = Input(message(second, now=BASE + 1_700_000_000))
+    for now in (BASE + 2_150_000_000, BASE + 2_200_000_000):
+      self.assertEqual(self.observe_message(owner, held, now), 0)
+      self.assertEqual(owner.confirmed_ns, 0)
+      self.assertIsNone(owner.distance_m)
+    third = evidence(BASE + 1_700_000_000, frame=35, width=1928, height=1208)
+    self.assertEqual(self.observe_message(owner, Input(message(third, now=BASE + 2_250_000_000)), BASE + 2_250_000_000), third.observed_ns)
+
+  def test_expired_sources_cannot_seed_or_extend_unbounded_history(self):
+    owner = StopConfirmation()
+    first = evidence()
+    now = BASE + STOP_MAX_AGE_NS + 50_000_000
+    expired = Input(message(first, now=now))
+    self.assertEqual(self.observe_message(owner, expired, now), 0)
+    self.assertIsNone(owner.previous)
+    self.observe_message(owner, Input(message(first)), BASE + 400_000_000)
+    now = BASE + STOP_HISTORY_MAX_AGE_NS
+    self.assertEqual(self.observe_message(owner, Input(message(first, now=now)), now), 0)
+    self.assertIsNone(owner.previous)
+    next_source = evidence(BASE + STOP_HISTORY_MAX_AGE_NS, frame=61)
+    self.assertEqual(self.observe_message(owner, Input(message(next_source)), now + 400_000_000), 0)
+
+  def test_invalid_expired_payloads_still_clear_all_history(self):
+    defects = ('unseen', 'invalid', 'dead', 'receipt', 'publication', 'model', 'outer_status',
+               'status', 'session', 'stream', 'dimensions', 'eof', 'future_eof', 'payload', 'expiry', 'drive', 'old_frame')
+    for defect in defects:
+      with self.subTest(defect=defect):
+        owner = StopConfirmation()
+        first = evidence()
+        self.observe_message(owner, Input(message(first)), BASE + 400_000_000)
+        held = message(first, now=BASE + 1_100_000_000).as_builder()
+        event = held.slcVisionObservation.vision
+        if defect == 'model':
+          event.modelId = 'wrong'
+        elif defect == 'outer_status':
+          event.status = 'unavailable'
+        elif defect == 'status':
+          event.stopSigns.status = 'unavailable'
+        elif defect == 'session':
+          event.producerSessionId = 'new'
+        elif defect == 'stream':
+          event.stream = 'wideRoad'
+        elif defect == 'dimensions':
+          event.stopSigns.imageWidth = 1400
+        elif defect == 'eof':
+          event.stopSigns.cameraFrameEofBootTime += 10_000_000
+        elif defect == 'future_eof':
+          event.stopSigns.cameraFrameEofBootTime = BASE + OFFSET + 9_000_000_000
+        elif defect == 'payload':
+          event.stopSigns.detections[0].confidence = .9
+        elif defect == 'expiry':
+          event.stopSigns.validUntilMonoTime -= 1
+        sm = Input(held)
+        now = BASE + STOP_MAX_AGE_NS + 50_000_000
+        if defect == 'unseen':
+          sm.seen['slcVisionObservation'] = False
+        elif defect == 'invalid':
+          sm.valid['slcVisionObservation'] = False
+        elif defect == 'dead':
+          sm.alive['slcVisionObservation'] = False
+        elif defect == 'receipt':
+          sm.recv_time['slcVisionObservation'] = (now - 1_000_000_001) / 1e9
+        elif defect == 'publication':
+          sm.logMonoTime['slcVisionObservation'] = now + 1
+        self.assertEqual(self.observe_message(owner, sm, now, drive=DRIVE + (defect == 'drive'),
+                                             after_frame=2 if defect == 'old_frame' else -1), 0)
+        self.assertIsNone(owner.previous)
+        next_source = evidence(BASE + 1_100_000_000, frame=23)
+        self.assertEqual(self.observe_message(owner, Input(message(next_source, now=now)), now), 0)
+
+  def test_fresh_negative_and_context_changes_do_not_bridge_expiry_history(self):
+    for change in ('negative', 'session', 'stream', 'dimensions', 'reorder'):
+      with self.subTest(change=change):
+        owner = StopConfirmation()
+        first = evidence()
+        self.observe_message(owner, Input(message(first)), BASE + 400_000_000)
+        held = Input(message(first, now=BASE + 1_100_000_000))
+        self.observe_message(owner, held, BASE + 1_550_000_000)
+        second = evidence(BASE + 1_100_000_000, frame=23)
+        if change == 'negative':
+          second = replace(second, boxes=())
+        elif change == 'session':
+          second = replace(second, session='new')
+        elif change == 'stream':
+          second = replace(second, stream='wideRoad')
+        elif change == 'dimensions':
+          second = replace(second, width=1400)
+        else:
+          second = replace(second, frame_id=0)
+        self.assertEqual(self.observe_message(owner, Input(message(second, now=BASE + 1_600_000_000)), BASE + 1_600_000_000), 0)
+
+  def test_heartbeat_low_confidence_and_short_source_gap_never_create_confirmation(self):
+    for confidence, source_gap in ((.69, 1_100_000_000), (.875, 400_000_000)):
+      with self.subTest(confidence=confidence, source_gap=source_gap):
+        owner = StopConfirmation()
+        first = evidence(boxes=(replace(BOX, confidence=confidence),))
+        self.observe_message(owner, Input(message(first)), BASE + 400_000_000)
+        self.assertEqual(self.observe_message(owner, Input(message(first, now=BASE + 800_000_000)),
+                                              BASE + 800_000_000), 0)
+        second = evidence(BASE + source_gap, frame=23, boxes=(replace(BOX, confidence=confidence),))
+        self.assertEqual(self.observe_message(owner, Input(message(second)), second.observed_ns + 400_000_000), 0)

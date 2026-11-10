@@ -62,6 +62,39 @@ class ForceStopRuntimeTests(unittest.TestCase):
     self.assertTrue(output.forcing)
     return output
 
+  def test_vision_expiry_gap_preserves_confirmation_but_not_control_authority(self):
+    from unittest.mock import patch
+    from openpilot.starpilot.speed_limits.vision.tests.test_stop_observation import evidence, message
+
+    def vision_frame(tick, sample, *, published=None):
+      sm = Frame(tick)
+      event = message(sample, now=sm.stamp if published is None else published)
+      service = 'slcVisionObservation'
+      sm[service] = event.slcVisionObservation
+      sm.seen = {service: True}
+      sm.recv_frame = {service: tick}
+      sm.valid[service] = sm.alive[service] = True
+      sm.logMonoTime[service] = int(event.logMonoTime)
+      sm.recv_time[service] = sm.stamp / 1e9
+      return sm
+
+    self.sample(Frame(0))
+    first = evidence(BASE + 100_000_000, frame=3)
+    second = evidence(BASE + 1_200_000_000, frame=25)
+    with patch.object(self.owner.policy, 'step', wraps=self.owner.policy.step) as step:
+      self.sample(vision_frame(10, first))
+      self.assertFalse(step.call_args.args[0].sign)
+      self.sample(vision_frame(33, first, published=BASE + 1_200_000_000))
+      self.assertFalse(step.call_args.args[0].sign)
+      self.assertEqual(self.owner.vision_stop.previous.observed_ns, first.observed_ns)
+      self.assertIsNone(self.owner.vision_stop.distance_m)
+      self.sample(vision_frame(34, second))
+      self.assertTrue(step.call_args.args[0].sign)
+      self.assertEqual(self.owner.vision_stop.confirmed_ns, second.observed_ns)
+      self.sample(vision_frame(41, second))
+      self.assertEqual(self.owner.vision_stop.confirmed_ns, second.observed_ns)
+      self.assertFalse(step.call_args.args[0].sign)  # The unchanged 750 ms control age is stricter.
+
   def test_wheel_priority_requires_a_stop_cap_or_possible_commit_next_frame(self):
     tune = vehicle_tune(str(self.cp.carFingerprint))
     sign = {'light': False, 'sign': True, 'horizon_m': 40.}
