@@ -9,7 +9,8 @@ def supported(cp):
         cp.flags & ~int(TeslaFlags.MISSING_DAS_SETTINGS | TeslaFlags.HAS_VEHICLE_BUS | TeslaFlags.AOL_SCREEN_BUTTON)):
       return False
     word = int(cp.safetyConfigs[0].safetyParam)
-    return word in (0, 1, 256, 257, 512, 513, 768, 769, 1536, 1537, 1792, 1793) and bool(word & 1) == bool(cp.openpilotLongitudinalControl)
+    return (word in (0, 1, 256, 257, 512, 513, 768, 769, 1536, 1537, 1792, 1793, 2048, 2049, 2304, 2305, 3072, 3073, 3328, 3329) and
+            bool(word & 1) == bool(cp.openpilotLongitudinalControl))
   except (AttributeError, TypeError, ValueError, IndexError):
     return False
 

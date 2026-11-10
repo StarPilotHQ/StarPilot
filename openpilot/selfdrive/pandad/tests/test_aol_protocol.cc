@@ -260,7 +260,8 @@ int main() {
     ford.safety_param = static_cast<uint16_t>(word);
     assert(aol_capable(ford, 6U, VEHICLE_REGISTRY) == expected);
   }
-  constexpr uint16_t tesla_screen_words[] = {512U, 513U, 768U, 769U, 1536U, 1537U, 1792U, 1793U};
+  constexpr uint16_t tesla_screen_words[] = {512U, 513U, 768U, 769U, 1536U, 1537U, 1792U, 1793U,
+                                             2048U, 2049U, 2304U, 2305U, 3072U, 3073U, 3328U, 3329U};
   for (uint32_t word = 0U; word <= 65535U; ++word) {
     bool expected = false;
     for (const auto exact : tesla_screen_words) expected |= word == exact;

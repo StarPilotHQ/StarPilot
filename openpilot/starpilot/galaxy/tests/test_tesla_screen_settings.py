@@ -66,7 +66,9 @@ class TestTeslaScreenSettings(unittest.TestCase):
       with self.subTest(options=options):
         cp = vehicle(**options)
         self.context = AuthorityContext(True, cp, cp.to_bytes())
-        self.assertFalse(any('AOL' in row['label'] for row in self.page()['rows']))
+        labels = {row['label'] for row in self.page()['rows']}
+        self.assertNotIn('Three-Finger AOL Tap', labels)
+        self.assertEqual('Disengage AOL on Brake' in labels, options != {'marker': False})
 
   def test_stale_vehicle_or_onroad_change_rejects_saved_intent(self):
     intent = self.intent()

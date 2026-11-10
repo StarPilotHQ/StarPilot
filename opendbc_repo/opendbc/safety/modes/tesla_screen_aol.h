@@ -1,6 +1,7 @@
 #pragma once
 
 static bool tesla_screen_enabled = false;
+static bool tesla_screen_tap_enabled = false;
 static bool tesla_screen_brake_disengage = false;
 static bool tesla_screen_longitudinal = false;
 static bool tesla_screen_initialized = false;
@@ -75,7 +76,7 @@ static uint8_t tesla_screen_permission(void) {
 }
 
 static void tesla_screen_optional_rx(const CANPacket_t *msg) {
-  if (tesla_screen_enabled && msg_matches(msg, 0x3DFU, 1U, 8U)) {
+  if (tesla_screen_tap_enabled && msg_matches(msg, 0x3DFU, 1U, 8U)) {
     const bool pressed = msg->data[3] == 3U;
     if (tesla_screen_initialized && pressed && !tesla_screen_pressed && aol_rx_healthy() &&
         tesla_screen_physical_ready() && !(tesla_screen_brake_disengage && brake_pressed)) {
@@ -132,9 +133,11 @@ static void tesla_screen_rx(const CANPacket_t *msg, bool autopark) {
 
 static bool tesla_screen_param_valid(uint16_t param) {
   const uint16_t screen_param = (uint16_t)(param & ~256U);
-  bool valid = (screen_param == 512U) || (screen_param == 1536U);
+  bool valid = (screen_param == 512U) || (screen_param == 1536U) ||
+               (screen_param == 2048U) || (screen_param == 3072U);
 #ifdef ALLOW_DEBUG
-  valid = valid || (screen_param == 513U) || (screen_param == 1537U);
+  valid = valid || (screen_param == 513U) || (screen_param == 1537U) ||
+          (screen_param == 2049U) || (screen_param == 3073U);
 #endif
   return valid;
 }
@@ -144,8 +147,9 @@ static void tesla_screen_configure(uint16_t param) {
   tesla_screen_reset();
   tesla_screen_enabled = tesla_screen_param_valid(screen_param);
   tesla_screen_enabled = tesla_screen_enabled && ((unsigned int)alternative_experience == 32U);
-  tesla_screen_brake_disengage = (screen_param == 1536U) || (screen_param == 1537U);
-  tesla_screen_longitudinal = (screen_param == 513U) || (screen_param == 1537U);
+  tesla_screen_tap_enabled = tesla_screen_enabled && GET_FLAG(screen_param, 512U);
+  tesla_screen_brake_disengage = tesla_screen_enabled && GET_FLAG(screen_param, 1024U);
+  tesla_screen_longitudinal = tesla_screen_enabled && GET_FLAG(screen_param, 1U);
   if (tesla_screen_enabled) {
     static const AolSafetyPolicy policy = {
       .reset = tesla_screen_reset,
