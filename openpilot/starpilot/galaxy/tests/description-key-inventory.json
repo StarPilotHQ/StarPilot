@@ -18,6 +18,8 @@
   "CustomCruiseLong",
   "CustomPersonalities",
   "DeveloperSidebar",
+  "DimStaticPixels",
+  "DimStaticPixelsStrength",
   "DisableOpenpilotLongitudinal",
   "DisengageOnAccelerator",
   "DisengageVolume",

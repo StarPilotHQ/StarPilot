@@ -14,6 +14,7 @@ from openpilot.common.params import Params
 from openpilot.starpilot.schema_cache import get_cache, prewarm_cache_contracts
 from openpilot.starpilot.feature_runtime import enabled as feature_enabled
 from openpilot.starpilot.ui.display_preferences import AUTO, DisplayPreferences, read_preferences
+from openpilot.starpilot.ui.static_dim_screen import static_dimmer
 from openpilot.common.realtime import drop_realtime
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.lib.prime_state import PrimeState
@@ -546,6 +547,12 @@ class Device:
     self._display_refresh_time = now
     if previous != self._display_preferences and self._interaction_time > 0:
       self._reset_interactive_timeout()
+    # Burn In Protection (dims pixels that stop changing) draws over every finished frame; the switch takes effect within a second.
+    # Comma 4 only for now: never on the big screen, whatever is saved.
+    burn_in = self._display_preferences.static_dim and not gui_app.big_ui()
+    static_dimmer.configure(burn_in, self._display_preferences.static_dim_strength)
+    if burn_in:
+      gui_app.add_frame_overlay(static_dimmer.draw)
 
   @property
   def awake(self) -> bool:
@@ -664,6 +671,9 @@ class Device:
     self._screen_off_started = ui_state.started
     critical = (ui_state.sm.valid.get('selfdriveState', False) and ui_state.sm.alive.get('selfdriveState', False) and
                 ui_state.sm['selfdriveState'].alertStatus == log.SelfdriveState.AlertStatus.critical)
+    # A touch, or an alert the driver has to act on, puts every dimmed pixel back to full brightness.
+    if touched or critical or self._needs_driver():
+      static_dimmer.wake()
     if not ui_state.started or road_changed or touched or critical:
       self._screen_off = False
     if critical:
@@ -685,6 +695,18 @@ class Device:
       if any(ev.left_released for ev in gui_app.mouse_events):
         self._wake_touch_active = False
       gui_app.mouse_events.clear()
+
+  @staticmethod
+  def _needs_driver() -> bool:
+    """An alert above plain information is showing (a prompt or a warning)."""
+    try:
+      sm = ui_state.sm
+      if not (sm.valid.get('selfdriveState', False) and sm.alive.get('selfdriveState', False)):
+        return False
+      state = sm['selfdriveState']
+      return state.alertSize != log.SelfdriveState.AlertSize.none and state.alertStatus != log.SelfdriveState.AlertStatus.normal
+    except (AttributeError, KeyError, TypeError):
+      return False
 
   def _set_awake(self, on: bool):
     if on != self._awake:
