@@ -8,13 +8,14 @@ from PIL import Image
 
 from msgq.visionipc import VisionIpcClient
 from openpilot.cereal.visionipc import VisionStreamType
-from openpilot.starpilot.galaxy.camera_snapshot import MAX_JPEG_BYTES
+from openpilot.starpilot.galaxy.camera_snapshot import CAPTURE_TIMEOUT_SECONDS, MAX_JPEG_BYTES
 from openpilot.system.camerad.snapshot import extract_image
 
 
 STREAMS = {"cabin": VisionStreamType.VISION_STREAM_CABIN, "wide": VisionStreamType.VISION_STREAM_WIDE_ROAD,
            "narrow": VisionStreamType.VISION_STREAM_NARROW_ROAD}
 CABIN_SETTLE_NS = 10_000_000_000
+WIDE_SETTLE_NS = 5_000_000_000
 
 
 def boot_ns():
@@ -29,7 +30,9 @@ def capture(camera, *, client_factory=VisionIpcClient, clock=boot_ns):
       return None
     time.sleep(.1)
   connected = clock()
-  while clock() - started < (22_000_000_000 if camera == "cabin" else 10_000_000_000):
+  deadline = started + (CAPTURE_TIMEOUT_SECONDS[camera] - 2) * 1_000_000_000
+  wide_ready_after = None
+  while clock() < deadline:
     frame = client.recv(timeout_ms=100)
     now = clock()
     if camera == "cabin" and now - connected < CABIN_SETTLE_NS:
@@ -39,6 +42,13 @@ def capture(camera, *, client_factory=VisionIpcClient, clock=boot_ns):
       continue
     if now - client.timestamp_sof > 500_000_000:
       continue
+    if camera == "wide":
+      # A live IPC connection can precede camera frames. Count warm-up from the
+      # first fresh frame, then require an exposure captured after that interval.
+      if wide_ready_after is None:
+        wide_ready_after = client.timestamp_sof + WIDE_SETTLE_NS
+      if client.timestamp_sof < wide_ready_after:
+        continue
     width, height, stride, uv_offset = frame.width, frame.height, frame.stride, frame.uv_offset
     uv_height = ((height // 2 + 15) // 16) * 16
     if (not 0 < width <= 4096 or not 0 < height <= 4096 or width % 2 or height % 2 or

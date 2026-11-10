@@ -35,7 +35,7 @@ export class CameraSnapshotFeed {
     this.timer = this.later(() => {
       if (this.request !== request) return
       expire(new Error("Snapshot timed out. Try taking a new snapshot."))
-    }, camera === "cabin" ? 26000 : 13500)
+    }, camera === "cabin" ? 26000 : camera === "wide" ? 20500 : 13500)
     try {
       const response = await Promise.race([this.fetcher("./api/cameras/snapshot", { method: "POST", credentials: "same-origin",
         cache: "no-store", signal: request.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ camera }) }), deadline])

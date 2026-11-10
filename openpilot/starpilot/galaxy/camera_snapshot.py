@@ -8,6 +8,8 @@ import time
 
 CAMERAS = frozenset(("cabin", "wide", "narrow"))
 MAX_JPEG_BYTES = 1_000_000
+# Worker budgets leave two seconds for process startup, encoding and cleanup.
+CAPTURE_TIMEOUT_SECONDS = {"cabin": 24, "wide": 19, "narrow": 12}
 _CAPTURE_LOCK = threading.Lock()
 
 
@@ -39,7 +41,7 @@ class CameraSnapshot:
       from openpilot.starpilot.galaxy.camera_request import request, boot_ns
       request()
       frame_after = boot_ns()
-      deadline = self.clock() + (24 if camera == "cabin" else 12)
+      deadline = self.clock() + CAPTURE_TIMEOUT_SECONDS[camera]
       process = self.spawn([sys.executable, '-m', 'openpilot.starpilot.galaxy.camera_snapshot_worker', camera],
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True)
       while self.clock() < deadline:

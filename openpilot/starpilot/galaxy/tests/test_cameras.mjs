@@ -42,12 +42,13 @@ assert.match(app, /SentryEventsPage[^>]*\/cameras\/events[^>]*\/cameras\/sentry-
 assert.match(app, /CamerasPage v-else-if="route\.path === '\/cameras'"/)
 
 const captures = [], snapshots = [], revoked = []
-let timer
+let timer, delay
 const camera = new CameraSnapshotFeed({ publish: (value) => snapshots.push(value), unauthorized: () => snapshots.push("unauthorized"),
   fetcher: (url, options) => new Promise((resolve) => captures.push({ url, options, resolve })),
   createURL: () => "blob:camera", revokeURL: (url) => revoked.push(url),
-  later: (fn) => { timer = fn; return 1 }, cancelTimer: () => {} })
+  later: (fn, ms) => { timer = fn; delay = ms; return 1 }, cancelTimer: () => {} })
 const pending = camera.capture("cabin")
+assert.equal(delay, 26000)
 assert.equal(captures[0].url, "./api/cameras/snapshot")
 assert.deepEqual(JSON.parse(captures[0].options.body), { camera: "cabin" })
 captures[0].resolve({ ok: true, status: 200, headers: new Map([["Content-Type", "image/jpeg; charset=binary"]]), blob: async () => ({ size: 100 }) })
@@ -56,6 +57,7 @@ assert.equal(snapshots.at(-1).image, "blob:camera")
 camera.stop()
 assert.deepEqual(revoked, ["blob:camera"])
 const late = camera.capture("wide")
+assert.equal(delay, 20500) // Leave room for startup, five seconds of fresh frames, and the 19s owner deadline.
 camera.stop()
 assert.equal(captures[1].options.signal.aborted, true)
 captures[1].resolve({ ok: true, status: 200, headers: new Map([["Content-Type", "image/jpeg"]]), blob: async () => ({ size: 100 }) })
@@ -66,6 +68,10 @@ timer()
 captures[2].resolve({ status: 401 })
 await timed
 assert.match(snapshots.at(-1).error, /timed out/)
+const narrow = camera.capture("narrow")
+assert.equal(delay, 13500)
+camera.stop()
+await narrow
 
 // Browsers throw "Illegal invocation" when setTimeout/clearTimeout run with a `this`
 // other than the global object; Node does not, so mimic the browser check here.
