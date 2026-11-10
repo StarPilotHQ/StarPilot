@@ -87,6 +87,23 @@
 "segment":"regenAFB9780D823|2025-04-08--23-00-34--0",
 "process":"card",
 "file":"regenAFB9780D823_2025-04-08--23-00-34--0_card.zst",
+"bytes":479871,
+"sha256":"5d4a787c2233d913f9c320dbb0aebe277b14959306f3b4bfd2167350ab1e8386",
+"input_sha256":"4cc51a77bf8d128d5720fd692e5a0994c887ee35fdd949cc0ce54d4215e2b7a2",
+"input_bytes":12527194,
+"official_baseline_commit":"ec95db3f1fa19f76940497fedfdb62e09ea19912",
+"official_artifact_commit":"9ae451c262c7402c9623f3baa1580c6242d6777b",
+"official_baseline_url":"https://raw.githubusercontent.com/commaai/ci-artifacts/9ae451c262c7402c9623f3baa1580c6242d6777b/regenAFB9780D823_2025-04-08--23-00-34--0_card_ec95db3f1fa19f76940497fedfdb62e09ea19912.zst",
+"official_baseline_bytes":282094,
+"official_baseline_sha256":"e3ac4fc1ce239d1bb864e32d1acf6b33ad134a1bf898ef739a0cc3faf3b18d58",
+"config_sha256":"560c1060f4d2e43810e7bbd55d5f361a828bdb027d60f308b2e1d614222a2078",
+"car_fingerprint":"KIA_EV6",
+"contract":"CAN-FD torque cap 409 with speed-dependent slew limits; torque, normalized torque output and dependent LKAS checksum reflect that contract. Counters, enables and remaining compared fields are unchanged. Initial CarState consumes the first recorded CAN batch; its speed-filter seed and subsequent acceleration transient follow that batch. Camera LKAS damping is 0 as in Dom; all 5902 changed payloads match the hosted HYUNDAI2 replay byte-for-byte. Only damping byte 8 and its CRC differ; all other compared fields and messages are retained. External-Panda radar discovery and parsing use the selected CAN-FD bus offset. This EV6 has a quiet first Panda and selected owner on index 1: radarUnavailable changes from true to false and all 1200 existing radarTracks messages contain received MRR35 points. Message counts and all carOutput/sendcan payloads are identical to the previous reviewed expectation; no additional ignored fields or messages.",
+"producing_source_snapshot":"c8e629571b0305eb998bbf9f4a8a7e24c6c7485e",
+"previous_reviewed_expectation":{
+"segment":"regenAFB9780D823|2025-04-08--23-00-34--0",
+"process":"card",
+"file":"regenAFB9780D823_2025-04-08--23-00-34--0_card.zst",
 "bytes":301448,
 "sha256":"8a4ad9101c3a26776b1fe8339e8575b50442c4264f102aa0027d441d176091ca",
 "input_sha256":"4cc51a77bf8d128d5720fd692e5a0994c887ee35fdd949cc0ce54d4215e2b7a2",
@@ -100,6 +117,14 @@
 "car_fingerprint":"KIA_EV6",
 "contract":"CAN-FD torque cap 409 with speed-dependent slew limits; torque, normalized torque output and dependent LKAS checksum reflect that contract. Counters, enables and remaining compared fields are unchanged. Initial CarState consumes the first recorded CAN batch; its speed-filter seed and subsequent acceleration transient follow that batch. Camera LKAS damping is 0 as in Dom; all 5902 changed payloads match the hosted HYUNDAI2 replay byte-for-byte. Only damping byte 8 and its CRC differ; all other compared fields and messages are retained.",
 "producing_source_snapshot":"d41159e65b399ff3b5ef5fd339822b6c628c7096"
+},
+"intentional_change_commit":"3edb88f68cae7d160dacf75cd1edcacb8c9654d2",
+"hosted_evidence_run":42882033585,
+"review_evidence":{
+"ci_run":42882033585,
+"ci_artifact":13797188172,
+"review_status":"Compared every decoded output payload against the previous reviewed reference. Only radar points, two radarUnavailable values, and existing ignored cumLagMs differ. Causal source change is the selected CAN-FD radar bus offset; native safety and command output are unchanged."
+}
 },
 {
 "segment":"regen1455E3B4BDF|2025-04-09--03-26-06--0",
