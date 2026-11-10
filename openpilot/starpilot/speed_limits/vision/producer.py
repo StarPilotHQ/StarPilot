@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import partial
+
 import math
 import os
 import time
@@ -155,8 +157,8 @@ def _send(pm, *, session: str, status: str, stream: str, observed_ns: int = 0,
   pm.send('slcVisionObservation', msg)
 
 
-def _publish_ready_stop(pm, sm, params, *, session, stream, is_metric, offset_ns,
-                        source_observed_ns, eof_boot_ns, frame_id, width, height, stops,
+def _publish_ready_stop(pm, sm, params, stops, *, session, stream, is_metric, offset_ns,
+                        source_observed_ns, eof_boot_ns, frame_id, width, height,
                         last_result, last_result_session, last_result_observed_ns, last_result_valid_until_ns):
   sm.update(0)
   pair = clock_pair_ns()
@@ -389,12 +391,12 @@ def main() -> None:
         # The observation belongs to the original camera frame, not the end of
         # CPU inference. Completion never restamps an older camera observation.
         source_observed_ns = eof_boot_ns - offset_ns
-        core._stop_ready_callback = (lambda stops: _publish_ready_stop(
+        core._stop_ready_callback = partial(_publish_ready_stop,
           pm, sm, params, session=session, stream=stream, is_metric=is_metric, offset_ns=offset_ns,
           source_observed_ns=source_observed_ns, eof_boot_ns=eof_boot_ns, frame_id=frame_id,
-          width=frame.shape[1], height=frame.shape[0], stops=stops, last_result=last_result,
+          width=frame.shape[1], height=frame.shape[0], last_result=last_result,
           last_result_session=last_result_session, last_result_observed_ns=last_result_observed_ns,
-          last_result_valid_until_ns=last_result_valid_until_ns)) if tasks[1] else None
+          last_result_valid_until_ns=last_result_valid_until_ns) if tasks[1] else None
         try:
           result = core.observe(frame, now=source_observed_ns / 1e9)
         finally:

@@ -83,6 +83,7 @@ class ManualSavedJoinTests(unittest.TestCase):
     self.assertEqual(self.owner.manual_state.intent, ManualIntent.NONE)  # Honda cannot consume Ioniq media.
     self.assertEqual(self.owner.card_last_sequence, 0)
     self.cp.carFingerprint = HYUNDAI_CAR.HYUNDAI_IONIQ_6
+    self.cp.safetyConfigs = [{'safetyModel': 'hyundaiCanfd'}]
     self.cp.flags = int(HyundaiFlags.CANFD_LKA_STEER_MSG)
     self.sample(stamp + 50_000_000, self.receipt(stamp + 50_000_000, 2, button='mode'))
     self.assertEqual(self.owner.card_last_sequence, 2)

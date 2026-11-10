@@ -5,6 +5,7 @@ import inspect
 import textwrap
 import types
 import unittest
+from unittest.mock import Mock
 
 import numpy as np
 
@@ -42,8 +43,8 @@ def fixture(frame, proposals, mode='counted_reject', uncached=False, after_read=
   core.speed_enabled = True
   core.last_classifier_advisory_rejected = False
   core.last_classifier_reject_dominant = False
-  core._collect_detector_classifier_proposals = lambda _: proposals
-  core._is_regulatory_speed_sign = lambda crop: mode == 'counted_reject' or bool(int(crop.sum()) % 3)
+  core._collect_detector_classifier_proposals = Mock(side_effect=lambda _: proposals)
+  core._is_regulatory_speed_sign = Mock(side_effect=lambda crop: mode == 'counted_reject' or bool(int(crop.sum()) % 3))
   def reader(crop):
     import hashlib
     digest = hashlib.sha256(crop.tobytes()).hexdigest()
@@ -65,9 +66,9 @@ def fixture(frame, proposals, mode='counted_reject', uncached=False, after_read=
     if value % 4 == 0:
       return None
     return [20, 25, 35, 45][value % 4], .6 + (value % 39) / 100
-  core._classify_speed_limit_from_model = reader
+  core._classify_speed_limit_from_model = Mock(side_effect=reader)
   if uncached:
-    core._detect_sign_from_detector_classifier = types.MethodType(uncached_reference(), core)
+    core._detect_sign_from_detector_classifier = Mock(side_effect=types.MethodType(uncached_reference(), core))
   return core
 
 
@@ -120,7 +121,7 @@ class TestClassifierReuse(unittest.TestCase):
                'CLASSIFIER_SHA256': '0' * 64}
     for key, value in changes.items():
       with self.subTest(key=key):
-        def change(core, count):
+        def change(core, count, key=key, value=value):
           if count == 3:
             setattr(core, key, value)
         core = fixture(frame, proposals, after_read=change)

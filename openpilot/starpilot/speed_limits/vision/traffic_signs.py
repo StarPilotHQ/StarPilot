@@ -21,7 +21,8 @@ class TrafficSignModelCore(model.VisionModelCore):
   DETECTOR_SHA256 = '52bb30f73bf0d166342f33d1b32b29b726bf036004e0359fef10ef7bf1f5556f'
   STOP_PROJECTION_SHA256 = "a744df1b585bfd80a2a983229509f52bf2f09714d9df011109ad1b8b875aaecc"
   ASSET_MANIFEST = (DETECTOR_SHA256, model.VisionModelCore.CLASSIFIER_SHA256, MODEL_SHA256, STOP_PROJECTION_SHA256)
-  MODEL_ID = hashlib.sha256(("vision_joint_stop_projection_identity_v1\n" + "\n".join(ASSET_MANIFEST) + "\n").encode()).hexdigest() + ":" + model.VisionModelCore.CLASSIFIER_SHA256
+  MODEL_ID = (hashlib.sha256(("vision_joint_stop_projection_identity_v1\n" + "\n".join(ASSET_MANIFEST) + "\n").encode()).hexdigest() +
+              ":" + model.VisionModelCore.CLASSIFIER_SHA256)
   STOP_THRESHOLD = .6
   _speed_face_filter: SpeedFaceVerifier | None = None
   _stop_face_filter: StopFaceVerifier | None = None

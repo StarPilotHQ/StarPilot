@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock
 
 import numpy as np
 
@@ -24,9 +25,9 @@ class TestReaderSaturation(unittest.TestCase):
         core.temporal_tracking_enabled = True
         core.last_classifier_advisory_rejected = False
         core.last_classifier_reject_dominant = False
-        core._collect_detector_classifier_proposals = lambda frame, proposal=proposal: [(proposal, 0, (110, 10, 170, 70))]
+        core._collect_detector_classifier_proposals = Mock(side_effect=lambda frame, proposal=proposal: [(proposal, 0, (110, 10, 170, 70))])
         regions = iter(regulatory)
-        core._is_regulatory_speed_sign = lambda crop, regions=regions: next(regions)
+        core._is_regulatory_speed_sign = Mock(side_effect=lambda crop, regions=regions: next(regions))
         calls = []
 
         def classify(crop, calls=calls, core=core, reads=reads):
@@ -36,7 +37,7 @@ class TestReaderSaturation(unittest.TestCase):
           core.last_classifier_reject_dominant = core.last_classifier_advisory_rejected
           return reads[index]
 
-        core._classify_speed_limit_from_model = classify
+        core._classify_speed_limit_from_model = Mock(side_effect=classify)
         result = core._detect_sign_from_detector_classifier(np.zeros((100, 200, 3), dtype=np.uint8))
         self.assertEqual(len(calls), expected_calls)
         if speed is None:

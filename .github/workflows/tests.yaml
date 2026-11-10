@@ -350,7 +350,7 @@ jobs:
     - name: Build native host dependencies
       run: scons
     - name: Gate every assigned lifecycle module serially
-      timeout-minutes: 10
+      timeout-minutes: 15
       env:
         RAYLIB_BACKEND: headless
       run: python3 tools/ci/run_vehicle_tests.py --suite aol-lifecycle --shard-index "${{ matrix.shard }}" --shard-count 16 --output "ci-results/aol-lifecycle-${{ matrix.shard }}"

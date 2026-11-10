@@ -11,7 +11,7 @@ from openpilot.starpilot.speed_limits.vision.tests import _identity_fixture as i
 from openpilot.starpilot.speed_limits.vision.traffic_signs import TrafficSignModelCore
 
 
-def probabilities(value=None, confidence=.8):
+def probabilities(value=None, confidence=0.8):
   scores = np.full(19, (1 - confidence) / 18, dtype=np.float32)
   scores[18 if value is None else model.US_CLASSIFIER_SPEED_VALUES.index(value)] = confidence
   return scores
@@ -44,7 +44,7 @@ def core_fixture(reads, regulatory, proposals=None, cls=model.VisionModelCore):
   core.classifier_logits_layer = 'original_logits'
   core.classifier_input_size = 128
   core.last_classifier_forward_count = 0
-  core.last_classifier_forward_duration_s = 0.
+  core.last_classifier_forward_duration_s = 0.0
   core.last_classifier_advisory_rejected = False
   core.last_classifier_reject_dominant = False
   core.temporal_tracking_enabled = False
@@ -53,7 +53,7 @@ def core_fixture(reads, regulatory, proposals=None, cls=model.VisionModelCore):
   core.stop_detections = ()
   core._stop_face_filter = speed_face.StopFaceVerifier(identity_fixture.Net("aux"))
   core._is_regulatory_speed_sign = lambda crop: regulatory[core.classifier_net.calls]
-  core._collect_detector_classifier_proposals = lambda frame: proposals or [(.9, 0, (40, 20, 100, 100))]
+  core._collect_detector_classifier_proposals = lambda frame: proposals or [(0.9, 0, (40, 20, 100, 100))]
   core._iter_school_zone_read_crops = lambda crop: []
   return core
 
@@ -65,14 +65,14 @@ class RetryConsistencyTests(unittest.TestCase):
     self.addCleanup(self.no_model_loads.stop)
     self.frame = np.zeros((200, 200, 3), dtype=np.uint8)
     self.reject = probabilities()
-    self.numeric = probabilities(25, .75)
+    self.numeric = probabilities(25, 0.75)
 
   def pair(self, scores):
     return scores, scores
 
   def test_conflicting_single_context_read_stops_at_original_short_circuit(self):
     reads = [self.pair(self.reject), self.pair(self.reject), self.pair(self.numeric)]
-    proposals = [(.9, 0, (40, 20, 100, 100)), (.8, 0, (105, 20, 165, 100))]
+    proposals = [(0.9, 0, (40, 20, 100, 100)), (0.8, 0, (105, 20, 165, 100))]
     core = core_fixture(reads, [False, True, True], proposals)
     self.assertIsNone(core.infer(self.frame))
     self.assertEqual(core.classifier_net.calls, 3)
@@ -98,18 +98,18 @@ class RetryConsistencyTests(unittest.TestCase):
     self.assertEqual(core.infer(self.frame).speed_limit_mph, 25)
 
   def test_school_fallback_is_unchanged(self):
-    core = core_fixture([self.pair(self.reject), self.pair(self.reject), self.pair(self.numeric)],
-                        [False, True, True], [(.9, 2, (40, 20, 100, 100))])
+    core = core_fixture([self.pair(self.reject), self.pair(self.reject), self.pair(self.numeric)], [False, True, True], [(0.9, 2, (40, 20, 100, 100))])
     self.assertEqual(core.infer(self.frame).speed_limit_mph, 25)
     self.assertEqual(core.classifier_net.calls, 3)
 
   def test_new_winner_does_not_inherit_previous_proposal_conflict(self):
-    low = probabilities(25, .6001)
-    high = probabilities(25, .9)
+    low = probabilities(25, 0.6001)
+    high = probabilities(25, 0.9)
     reads = [self.pair(self.reject), self.pair(self.reject), self.pair(low)] + [self.pair(high)] * 3
-    proposals = [(.9, 0, (40, 20, 100, 100)), (.8, 0, (105, 20, 165, 100))]
+    proposals = [(0.9, 0, (40, 20, 100, 100)), (0.8, 0, (105, 20, 165, 100))]
     core = core_fixture(reads, [False, True, True, True, True, True], proposals)
-    self.assertEqual(core.infer(self.frame).speed_limit_mph, 25)
+    frame = np.random.default_rng(0).integers(0, 256, self.frame.shape, dtype=np.uint8)
+    self.assertEqual(core.infer(frame).speed_limit_mph, 25)
     self.assertEqual(core.classifier_net.calls, 6)
 
   def test_missing_original_logits_does_not_invent_primary_reject_evidence(self):
@@ -153,7 +153,11 @@ class RetryConsistencyTests(unittest.TestCase):
     self.assertFalse(core.last_classifier_reject_dominant)
     core.last_classifier_reject_dominant = True
     from openpilot.starpilot.speed_limits.vision.stop_signs import CapturedStopDetectorOutputs
-    with patch.object(core, '_detector_for_mode', return_value=CapturedStopDetectorOutputs(identity_fixture.Net('stop'))), patch.object(core, '_verified_model_path', return_value=Path('unused')):
+
+    with (
+      patch.object(core, '_detector_for_mode', return_value=CapturedStopDetectorOutputs(identity_fixture.Net('stop'))),
+      patch.object(core, '_verified_model_path', return_value=Path('unused')),
+    ):
       core.set_speed_enabled(False)
     self.assertFalse(core.last_classifier_reject_dominant)
     self.assertIsNone(core.classifier_net)
@@ -161,10 +165,12 @@ class RetryConsistencyTests(unittest.TestCase):
     self.assertEqual(core.last_classifier_forward_count, 0)
 
   def test_stop_only_constructor_has_no_numeric_evidence_or_numeric_load(self):
-    with patch.object(model.VisionModelCore, '_load_net', return_value=identity_fixture.Net('stop')) as load, \
-         patch.object(TrafficSignModelCore, '_verified_model_path', return_value=Path('unused')), \
-         patch('openpilot.starpilot.speed_limits.vision.traffic_signs.SpeedFaceVerifier', side_effect=lambda _: identity_fixture.fake_identity()), \
-         patch.object(TrafficSignModelCore, '_validate_model_abi'):
+    with (
+      patch.object(model.VisionModelCore, '_load_net', return_value=identity_fixture.Net('stop')) as load,
+      patch.object(TrafficSignModelCore, '_verified_model_path', return_value=Path('unused')),
+      patch('openpilot.starpilot.speed_limits.vision.traffic_signs.SpeedFaceVerifier', side_effect=lambda _: identity_fixture.fake_identity()),
+      patch.object(TrafficSignModelCore, '_validate_model_abi'),
+    ):
       core = TrafficSignModelCore(is_metric=False, speed_enabled=False)
     self.assertFalse(core.last_classifier_reject_dominant)
     self.assertIsNone(core.classifier_net)

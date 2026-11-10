@@ -27,10 +27,17 @@ class TestStopProjection(unittest.TestCase):
     owner = self
 
     class Identity:
-      def __init__(self, _): self.net = object()
-      def begin_frame(self): pass
-      def end_frame(self): pass
-      def close(self): self.net = None
+      def __init__(self, _):
+        self.net = object()
+
+      def begin_frame(self):
+        pass
+
+      def end_frame(self):
+        pass
+
+      def close(self):
+        self.net = None
 
     def load(cls, name, expected):
       owner.loads.append(name)
@@ -48,22 +55,24 @@ class TestStopProjection(unittest.TestCase):
     wrapped.setInput(np.zeros((1, 3, 256, 256), np.float32))
     self.assertEqual(wrapped.forward_stops().shape, (1, 5, 4096))
     self.assertEqual(raw.calls, [['stop/output0']])
-    with self.assertRaises(ValueError): wrapped.forward()
+    with self.assertRaises(ValueError):
+      wrapped.forward()
 
   def test_stop_output_rejects_invalid_shape_dtype_or_nonfinite_values(self):
-    values = [np.zeros((1, 5, 1344), np.float32), np.zeros((1, 5, 4096), np.float64),
-              np.full((1, 5, 4096), np.nan, np.float32)]
+    values = [np.zeros((1, 5, 1344), np.float32), np.zeros((1, 5, 4096), np.float64), np.full((1, 5, 4096), np.nan, np.float32)]
     for value in values:
       with self.subTest(shape=value.shape, dtype=value.dtype):
-        wrapped = CapturedStopDetectorOutputs(SimpleNamespace(forward=lambda _: [value]))
+        wrapped = CapturedStopDetectorOutputs(SimpleNamespace(forward=lambda _, value=value: [value]))
         wrapped.stops = 'previous'
-        with self.assertRaises(ValueError): wrapped.forward_stops()
+        with self.assertRaises(ValueError):
+          wrapped.forward_stops()
         self.assertIsNone(wrapped.stops)
 
   def test_stop_output_requires_exactly_one_result(self):
     for outputs in ([], [None, None], None):
       wrapped = CapturedStopDetectorOutputs(SimpleNamespace(forward=lambda _, value=outputs: value))
-      with self.assertRaises(ValueError): wrapped.forward_stops()
+      with self.assertRaises(ValueError):
+        wrapped.forward_stops()
 
   def test_stop_capture_is_owned_and_cleared_by_new_input(self):
     wrapped = CapturedStopDetectorOutputs(self.raw_net('traffic_signs_us_stop_detector.onnx'))
@@ -108,7 +117,8 @@ class TestStopProjection(unittest.TestCase):
     original = core.net
     core.stop_detections = ('previous',)
     with patch.object(core, '_validate_candidate', side_effect=ValueError('Invalid candidate')):
-      with self.assertRaises(ValueError): core.set_speed_enabled(False)
+      with self.assertRaises(ValueError):
+        core.set_speed_enabled(False)
     self.assertIs(core.net, original)
     self.assertTrue(core.speed_enabled)
     self.assertEqual(core.stop_detections, ())
@@ -119,6 +129,7 @@ class TestStopProjection(unittest.TestCase):
     self.assertEqual(core.MODEL_ID, observation.MODEL_ID)
     with patch.object(core, '_verified_model_path') as verify, patch.object(core, '_detector_for_mode'):
       core._load_detector_net()
-    self.assertEqual([call.args[0] for call in verify.call_args_list],
-                     ['traffic_signs_us_detector.onnx', 'traffic_signs_us_stop_detector.onnx', 'traffic_sign_identity.onnx'])
+    self.assertEqual(
+      [call.args[0] for call in verify.call_args_list], ['traffic_signs_us_detector.onnx', 'traffic_signs_us_stop_detector.onnx', 'traffic_sign_identity.onnx']
+    )
     self.assertEqual(verify.call_args_list[1].args[1], core.STOP_PROJECTION_SHA256)

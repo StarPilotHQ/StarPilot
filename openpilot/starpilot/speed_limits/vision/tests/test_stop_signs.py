@@ -13,14 +13,25 @@ from openpilot.starpilot.speed_limits.vision.tests import _identity_fixture as i
 
 class TestStopSigns(unittest.TestCase):
   def decode(self, raw):
-    return decode_stop_signs(raw, ratio=1, pad_width=0, pad_height=0, region_width=256, region_height=256,
-                             origin_x=100, origin_y=20, full_frame_width=600, full_frame_height=400, threshold=.5)
+    return decode_stop_signs(
+      raw,
+      ratio=1,
+      pad_width=0,
+      pad_height=0,
+      region_width=256,
+      region_height=256,
+      origin_x=100,
+      origin_y=20,
+      full_frame_width=600,
+      full_frame_height=400,
+      threshold=0.5,
+    )
 
   def test_stop_output_is_independent_of_speed_and_uses_one_forward(self):
     speed = np.zeros((1, 5, 1344), np.float32)
-    speed[0, 4, 0] = .3
+    speed[0, 4, 0] = 0.3
     stops = np.zeros((1, 5, 4096), np.float32)
-    stops[0, :, 0] = [128, 128, 40, 40, .99]
+    stops[0, :, 0] = [128, 128, 40, 40, 0.99]
     calls = []
     net = SignDetectorOutputs(SimpleNamespace(forward=lambda names: calls.append(names) or (speed, stops), setInput=lambda _: None))
     self.assertIs(net.forward(), speed)
@@ -41,7 +52,7 @@ class TestStopSigns(unittest.TestCase):
   def test_stop_work_is_bounded_before_nms(self):
     raw = np.zeros((1, 5, 4096), np.float32)
     raw[0, :4] = np.array([128, 128, 20, 20])[:, None]
-    raw[0, 4] = np.linspace(.6, .99, 4096)
+    raw[0, 4] = np.linspace(0.6, 0.99, 4096)
     with patch('openpilot.starpilot.speed_limits.vision.stop_signs.cv2.dnn.NMSBoxes', return_value=[]) as nms:
       self.decode(raw)
     self.assertEqual(len(nms.call_args.args[0]), 32)
@@ -52,17 +63,17 @@ class TestStopSigns(unittest.TestCase):
     core.history = deque()
     core.net = SimpleNamespace(rgb256=None)
     core._stop_face_filter = StopFaceVerifier(identity_fixture.Net('aux'))
-    core.stop_detections = (StopDetection(.9, (10, 10, 30, 30)),)
+    core.stop_detections = (StopDetection(0.9, (10, 10, 30, 30)),)
     core.reset()
     self.assertEqual(core.stop_detections, ())
-    core.stop_detections = (StopDetection(.9, (10, 10, 30, 30)),)
+    core.stop_detections = (StopDetection(0.9, (10, 10, 30, 30)),)
     with self.assertRaises(ValueError):
       core.infer(np.zeros((0, 0, 3), np.uint8))
     self.assertEqual(core.stop_detections, ())
 
   def test_sign_api_returns_both_outputs_without_an_extra_inference(self):
     core = VisionModelCore.__new__(VisionModelCore)
-    stop = StopDetection(.9, (100, 20, 140, 60))
+    stop = StopDetection(0.9, (100, 20, 140, 60))
     core.stop_detections = (stop,)
     with patch.object(core, 'infer', return_value=None) as infer:
       result = core.infer_signs(np.zeros((256, 256, 3), np.uint8))
@@ -72,6 +83,7 @@ class TestStopSigns(unittest.TestCase):
 
   def test_shipped_joint_model_runs_and_preserves_speed_output(self):
     from openpilot.starpilot.speed_limits.vision.model import VisionModelCore as SpeedCore
+
     frame = np.zeros((760, 1344, 3), np.uint8)
     joint = VisionModelCore(is_metric=False)
     speed = SpeedCore(is_metric=False)
@@ -83,6 +95,7 @@ class TestStopSigns(unittest.TestCase):
 
   def test_stop_only_does_not_load_or_run_the_numeric_classifier(self):
     from openpilot.starpilot.speed_limits.vision import model as vision_model
+
     calls = []
 
     class StopNet(identity_fixture.Net):
@@ -97,10 +110,17 @@ class TestStopSigns(unittest.TestCase):
       self.assertEqual(expected, VisionModelCore.STOP_PROJECTION_SHA256)
       return StopNet('joint')
 
-    with patch.object(vision_model.VisionModelCore, '_load_net', classmethod(checked)), patch.object(VisionModelCore, '_verified_model_path'), patch('openpilot.starpilot.speed_limits.vision.traffic_signs.SpeedFaceVerifier', side_effect=lambda _: identity_fixture.fake_identity()):
+    with (
+      patch.object(vision_model.VisionModelCore, '_load_net', classmethod(checked)),
+      patch.object(VisionModelCore, '_verified_model_path'),
+      patch('openpilot.starpilot.speed_limits.vision.traffic_signs.SpeedFaceVerifier', side_effect=lambda _: identity_fixture.fake_identity()),
+    ):
       core = VisionModelCore(is_metric=False, speed_enabled=False)
       frame = np.zeros((760, 1344, 3), np.uint8)
-      with patch.object(core, '_classify_speed_limit_from_model', side_effect=AssertionError('Unused speed classifier')), patch.object(core._stop_face_filter.net, 'forward', side_effect=AssertionError('Unexpected identity work')):
+      with (
+        patch.object(core, '_classify_speed_limit_from_model', side_effect=AssertionError('Unused speed classifier')),
+        patch.object(core._stop_face_filter.net, 'forward', side_effect=AssertionError('Unexpected identity work')),
+      ):
         self.assertIsNone(core.observe(frame, now=1.0))
     self.assertIsNone(core.classifier_net)
     self.assertIsNone(core._speed_face_filter)

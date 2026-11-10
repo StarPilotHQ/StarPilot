@@ -1,3 +1,4 @@
+import os
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -16,7 +17,8 @@ from opendbc.safety.tests.libsafety import libsafety_py
 from opendbc.safety.tests import test_hyundai_gv60_hda1_long_aol as native_fixture
 from openpilot.common.params import Params
 from openpilot.starpilot.car.hyundai.aol import policy_for, native_accepts_cp
-from openpilot.selfdrive.ui.layouts.settings import toggles
+with patch.dict(os.environ, {"SCALE": "1"}):
+  from openpilot.selfdrive.ui.layouts.settings import toggles
 
 
 def camera_params(offset=0, alpha=False):

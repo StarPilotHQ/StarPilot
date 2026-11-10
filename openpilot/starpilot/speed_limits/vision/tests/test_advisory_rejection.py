@@ -56,6 +56,7 @@ class TestAdvisoryRejection(unittest.TestCase):
     core = VisionModelCore.__new__(VisionModelCore)
     core._collect_detector_classifier_proposals = Mock(return_value=proposals)
     core._remember_detector_proposal = Mock()
+    core.last_classifier_reject_dominant = False
     return core
 
   def test_confident_nonregulatory_rejection_stops_only_that_proposal(self):
@@ -67,14 +68,15 @@ class TestAdvisoryRejection(unittest.TestCase):
       nonlocal calls
       calls += 1
       core.last_classifier_advisory_rejected = calls == 2
+      core.last_classifier_reject_dominant = core.last_classifier_advisory_rejected
       return None if calls == 2 else (35 if calls == 1 else 55, .99)
 
     with patch.object(core, '_classify_speed_limit_from_model', side_effect=classify), \
          patch.object(core, '_is_regulatory_speed_sign', side_effect=lambda _crop: calls >= 2):
-      result = core._detect_sign_from_detector_classifier(np.zeros((200, 400, 3), np.uint8))
+      result = core._detect_sign_from_detector_classifier(np.random.default_rng(0).integers(0, 256, (200, 400, 3), dtype=np.uint8))
     assert result is not None
     self.assertEqual(result.speed_limit_mph, 55)
-    self.assertEqual(calls, 2 + len(model.DETECTOR_CLASSIFIER_EXPANSIONS))
+    self.assertEqual(calls, 4)  # Two advisory reads, then the existing two-read strong consensus.
 
   def test_white_regulatory_crop_keeps_its_expansion_fallback(self):
     core = self.detector([(.99, 0, (240, 30, 280, 90))])
@@ -84,11 +86,12 @@ class TestAdvisoryRejection(unittest.TestCase):
       nonlocal calls
       calls += 1
       core.last_classifier_advisory_rejected = calls == 1
+      core.last_classifier_reject_dominant = core.last_classifier_advisory_rejected
       return None if calls == 1 else (55, .99)
 
     with patch.object(core, '_classify_speed_limit_from_model', side_effect=classify), \
          patch.object(core, '_is_regulatory_speed_sign', return_value=True):
-      result = core._detect_sign_from_detector_classifier(np.zeros((200, 400, 3), np.uint8))
+      result = core._detect_sign_from_detector_classifier(np.random.default_rng(0).integers(0, 256, (200, 400, 3), dtype=np.uint8))
     assert result is not None
     self.assertEqual(result.speed_limit_mph, 55)
     self.assertEqual(calls, len(model.DETECTOR_CLASSIFIER_EXPANSIONS))

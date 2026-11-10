@@ -692,6 +692,7 @@ class TestVisionProducer(unittest.TestCase):
       messages.append(messaging.log_from_bytes(event.to_bytes()).slcVisionObservation.vision)
 
     clocks = [(1_000_000_000, 5_000_000_000), (1_000_000_000, 5_000_000_000),
+              (1_010_000_000, 5_010_000_000), (1_010_000_000, 5_010_000_000),
               (1_010_000_000, 5_010_000_000)]
     from openpilot.starpilot.speed_limits.vision.stop_signs import CapturedStopDetectorOutputs
     with patch.object(core, '_detector_for_mode', return_value=CapturedStopDetectorOutputs(projection_fixture.Net('stop'))), \
