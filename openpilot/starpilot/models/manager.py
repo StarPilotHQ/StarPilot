@@ -34,6 +34,8 @@ MODEL_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}\Z")
 SUPPORTED_VERSIONS = {f"v{version}" for version in range(8, 17)}
 SHA = re.compile(r"[0-9a-f]{64}\Z")
 SHIPPED_MODELS = Path(__file__).resolve().parents[2] / "selfdrive/modeld/models"
+DOM_CATALOG_PATH = Path(__file__).with_name("catalog-dom-v25.json")
+DOM_CATALOG_SHA256 = "363dd6d29182186bdaf6a32f0cd6f0bbf7d7720ee77cfd1538e3b82b874d2821"
 MODEL_RUNNER_REVISION = 2
 RUNTIME_ARTIFACT_KEYS = {"min_runner_revision", "artifact_format", "artifact_sha256", "artifact_size",
                          "artifact_chunk_count", "conversion_provenance", "validation"}
@@ -141,12 +143,57 @@ def validate_manifest(data: object) -> dict[str, dict]:
   return rows
 
 
+def dom_laboratory_catalog() -> dict[str, dict]:
+  # This is the authenticated original Dom publication, not a rebuilt v26 bank.
+  if DOM_CATALOG_PATH.is_symlink() or not DOM_CATALOG_PATH.is_file():
+    raise ModelError('Missing original Dom laboratory catalog')
+  raw = DOM_CATALOG_PATH.read_bytes()
+  if len(raw) > MAX_MANIFEST or hashlib.sha256(raw).hexdigest() != DOM_CATALOG_SHA256:
+    raise ModelError('Original Dom laboratory catalog changed')
+  document = json.loads(raw)
+  if not isinstance(document, dict) or not isinstance(document.get('models'), list):
+    raise ModelError('Invalid original Dom catalog')
+  rows = {}
+  seen = set()
+  for row in document['models']:
+    if not isinstance(row, dict):
+      raise ModelError('Invalid original Dom row')
+    mid = row.get('id')
+    if not isinstance(mid, str) or not MODEL_ID.fullmatch(mid) or mid in seen:
+      raise ModelError('Duplicate or invalid original Dom identity')
+    seen.add(mid)
+    artifact = row.get('accelerator_artifacts', {}).get('chestnut')
+    if artifact is None:
+      continue
+    known = BY_ID.get(mid)
+    if (known is None or known.uses_external_gpu or row.get('model_size') != 'small' or
+        row.get('model_lab_eligible') is not True or row.get('version') != known.version or
+        not isinstance(artifact, dict) or artifact.get('execution_device') != 'AMD' or
+        artifact.get('artifact_format') != 'tinygrad_single_v1' or
+        artifact.get('artifact_filename') != f'{mid}_driving_chestnut_tinygrad.pkl' or
+        'compiler_revision' in artifact or not isinstance(artifact.get('artifact_sha256'), str) or
+        not SHA.fullmatch(artifact['artifact_sha256']) or type(artifact.get('artifact_size')) is not int or
+        not 0 < artifact['artifact_size'] <= MAX_ARTIFACT or type(artifact.get('artifact_chunk_count')) is not int or
+        not 0 <= artifact['artifact_chunk_count'] <= 99):
+      raise ModelError('Invalid original Dom AMD Small artifact')
+    rows[mid] = {**artifact, 'artifact_format': 'dom_v25_protocol5', 'source_format': 'tinygrad_single_v1',
+                 'source_compiler_revision': None, 'target_runtime_revision': COMPILER_REVISION,
+                 'source_manifest_sha256': DOM_CATALOG_SHA256, '_generation': 'v25',
+                 '_runtime_family': 'legacy9d', '_source_contract': 'dom_v25_protocol5'}
+  return rows
+
+
+
 def catalog(root: Path = ROOT) -> dict[str, dict]:
   base = validate_manifest(read_json(CATALOG_PATH))
   try:
     base.update(validate_manifest(read_json(root / "catalog.json")))
   except (OSError, ValueError, TypeError):
     pass
+  for mid, artifact in dom_laboratory_catalog().items():
+    if mid in base and 'amd' not in base[mid].get('accelerator_artifacts', {}):
+      base[mid] = {**base[mid], 'model_lab_eligible': True,
+                   'accelerator_artifacts': {**base[mid].get('accelerator_artifacts', {}), 'amd': artifact}}
   return base
 
 
@@ -179,6 +226,10 @@ def artifact_path(model_id: str, root: Path = ROOT, variant: str = "standard") -
     raise ModelError("Unknown downloadable model")
   if variant not in ("standard", "amd") or (variant == "amd" and entries[model_id].uses_external_gpu):
     raise ModelError("Unknown model artifact variant")
+  if variant == 'amd':
+    artifact = artifact_entry(model_id, catalog(root), variant)
+    if artifact.get('_source_contract') == 'dom_v25_protocol5':
+      return root / 'dom-v25' / model_id / artifact['artifact_filename']
   suffix = "amd_" if variant == "amd" else ""
   return root / model_id / f"{model_id}_driving_{suffix}tinygrad.pkl"
 
@@ -739,9 +790,11 @@ class ModelManager:
       if action != "refresh_manifest":
         for mid in ids:
           self._check_cancelled()
-          if not self._installed(mid, entries, variant):
-            self._publish_job(model=mid)
-            self._download(mid, artifact_entry(mid, entries, variant), variant)
+          variants = ('standard', 'amd') if variant == 'amd' and 'artifact_sha256' in entries[mid] else (variant,)
+          for current in variants:
+            if not self._installed(mid, entries, current):
+              self._publish_job(model=mid)
+              self._download(mid, artifact_entry(mid, entries, current), current)
       self._check_cancelled()
       self.progress = "Catalog updated" if action == "refresh_manifest" else "Downloaded!"
       failed = False
@@ -767,7 +820,8 @@ class ModelManager:
       digest, received = hashlib.sha256(), 0
       with os.fdopen(fd, "wb") as out:
         for piece in pieces:
-          with self.opener(f"{RESOURCE_URL}/models/{GENERATION}/{mid}/{piece}", timeout=30) as response:
+          generation = 'v25' if entry.get('_source_contract') == 'dom_v25_protocol5' else GENERATION
+          with self.opener(f"{RESOURCE_URL}/models/{generation}/{mid}/{piece}", timeout=30) as response:
             while data := response.read(1024 * 1024):
               self._check_cancelled()
               received += len(data)

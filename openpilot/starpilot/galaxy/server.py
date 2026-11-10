@@ -535,7 +535,10 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
 
   def model_laboratory():
     from openpilot.starpilot.models.laboratory import ModelLaboratory
-    return ModelLaboratory(model_owner())
+    def runtime_status(config):
+      model_status()
+      return model_source.laboratory_json(config)
+    return ModelLaboratory(model_owner(), runtime_status=runtime_status)
 
   def login(password):
     # Keep throttling, verifier work and session creation in one transaction.

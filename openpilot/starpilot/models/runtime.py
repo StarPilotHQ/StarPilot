@@ -7,8 +7,8 @@ from typing import Any
 
 from openpilot.cereal.services import SERVICE_LIST
 from openpilot.starpilot.models.catalog import model_entries
-from openpilot.starpilot.models.receipt import process_start_ticks, read_receipt
-from openpilot.starpilot.models.status import ModelLoad, ModelOutput, ModelProcess, ModelStatus, project_status
+from openpilot.starpilot.models.receipt import process_start_ticks, read_receipt, read_pair_receipt
+from openpilot.starpilot.models.status import ModelLoad, ModelOutput, ModelProcess, ModelStatus, project_status, project_laboratory_status
 
 
 MODEL_SERVICES = ("managerState", "modelV2", "drivingModelData")
@@ -90,6 +90,23 @@ class ModelStatusSource:
             "variant": status.variant.value if status.variant is not None else None,
             "health": status.health.value, "fallbackReason": status.fallback_reason,
             "artifactSha256": status.artifact_sha256, "pendingNextStart": status.pending_next_start}
+
+  def laboratory_json(self, config: dict) -> dict:
+    self.sm.update(0)
+    now = self.clock()
+    process = _process(self.sm, now, process_start_ticks)
+    output = _output(self.sm, self.params, now) if process is not None else None
+    load = read_pair_receipt() if process is not None else None
+    status = project_laboratory_status(config, process, load, output, now)
+    if load is None and config['enabled']:
+      normal = read_receipt() if process is not None else None
+      if (normal is not None and (normal.pid, normal.process_start_ticks) == (process.pid, process.start_ticks) and
+          output is not None and output.model_v2_valid and output.driving_data_valid and
+          all(normal.loaded_mono_ns <= stamp <= now and now - stamp <= 250_000_000
+              for stamp in (output.model_v2_mono_ns, output.driving_data_mono_ns))):
+        status.update(health='fallback', error=f'Pair unavailable; using {normal.model_id}.')
+    return status
+
 
   def close(self) -> None:
     self.sm = None

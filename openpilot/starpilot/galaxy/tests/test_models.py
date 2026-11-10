@@ -106,7 +106,9 @@ class LocalModelManagerHttpTest(unittest.TestCase):
           return {"message": "Saved"}
 
       link = LinkSettings()
-      manager = ModelManager(root=root / 'models', parked=lambda: parked[0], gpu_present=lambda: False, jetlink=link)
+      def offline(url, timeout):
+        raise OSError('HTTP fixture disables network')
+      manager = ModelManager(root=root / 'models', parked=lambda: parked[0], gpu_present=lambda: False, jetlink=link, opener=offline)
       server = make_server(port=0, owner=GalaxyAccessOwner(root / 'access'), model_manager=manager)
       thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
       thread.start()
@@ -142,13 +144,16 @@ class LocalModelManagerHttpTest(unittest.TestCase):
         self.assertEqual(snapshot['activeBigModel'], '')
         status, laboratory = request('/api/models/laboratory')
         self.assertEqual(status, 200)
-        self.assertFalse(laboratory['runtimeSupported'])
+        self.assertTrue(laboratory['runtimeSupported'])
         self.assertFalse(laboratory['runtime']['active'])
-        self.assertEqual(laboratory['summary']['published'], 0)
+        self.assertEqual(laboratory['summary']['published'], 91)
         pair = {'enabled': False, 'lateralModel': 'gwm8223', 'longitudinalModel': 'sc23'}
         self.assertEqual(request('/api/models/laboratory', pair)[0], 200)
         self.assertEqual(request('/api/models/laboratory', {**pair, 'enabled': True})[0], 409)
-        self.assertEqual(request('/api/models/laboratory/download', {'model': 'gwm8223'})[0], 409)
+        self.assertEqual(request('/api/models/laboratory/download', {'model': 'gwm8223'})[0], 200)
+        manager.worker.join(3)
+        self.assertFalse(manager.worker.is_alive())
+        self.assertEqual(manager.snapshot()['progress'], 'HTTP fixture disables network')
         self.assertEqual(request('/api/models/laboratory/delete', {'model': 'gwm8223'})[0], 200)
         self.assertEqual(request('/api/models/preferences', {'randomizer': True, 'blacklistedModels': ['gwm8223']})[0], 200)
         self.assertEqual(preferences(manager.root)['blacklistedModels'], ['gwm8223'])

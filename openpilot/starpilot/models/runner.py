@@ -67,8 +67,17 @@ def load_verified_model(cam_w: int, cam_h: int, artifact_path: Path, behavior_ve
 
 
 def validate_artifact(artifact: dict, version: str, camera_size: tuple[int, int]) -> None:
-  if (not isinstance(artifact, dict) or artifact.get("artifact_abi") != ARTIFACT_ABI or
-      artifact.get("compiler_revision") != COMPILER_REVISION or artifact.get("format_version") != 1):
+  if isinstance(artifact, dict) and artifact.get("artifact_abi") == "dom_v25_protocol5":
+    from openpilot.starpilot.models.runtime_bridge.runtime import frozen_laboratory_request
+    from openpilot.starpilot.models.runtime_bridge.dom_admission import require_admitted_dom
+    request = frozen_laboratory_request()
+    matches = [role for role in request['roles'].values()
+               if role['sha256'] == artifact.get('migration', {}).get('source_sha256')] if request is not None else []
+    if len(matches) != 1:
+      raise ValueError("Original laboratory artifact lacks its frozen source identity")
+    require_admitted_dom(artifact, expected_contract=matches[0])
+  elif (not isinstance(artifact, dict) or artifact.get("artifact_abi") != ARTIFACT_ABI or
+        artifact.get("compiler_revision") != COMPILER_REVISION or artifact.get("format_version") != 1):
     raise ValueError("catalog model compiler/ABI mismatch")
   if version not in SUPPORTED_VERSIONS or artifact.get("behavior_version") != version:
     raise ValueError("catalog model behavior version mismatch")
@@ -223,6 +232,7 @@ class CatalogModelState:
     self.prev_desire = np.zeros(ModelConstants.DESIRE_LEN, dtype=np.float32)
     self._blob_cache: dict[tuple[str, int], Tensor] = {}
     self.last_warp: SharedCameraWarp | None = None
+    self._pending_frame: tuple | None = None
     self._last_shared_warp: SharedCameraWarp | None = None
 
   def _validate_shared_warp(self, shared: SharedCameraWarp, pointers: tuple[int, int], transforms: tuple[bytes, bytes]) -> None:
@@ -290,8 +300,10 @@ class CatalogModelState:
     return self.warp_enqueue(**{key: self.input_queues[key] for key in self.warp_input_keys},
                              frame=frames["img"], big_frame=frames["big_img"])
 
-  def run(self, bufs: dict, transforms: dict[str, np.ndarray], inputs: dict[str, np.ndarray],
-          after_enqueue: Callable[[], None] | None = None, *, shared_warp: SharedCameraWarp | None = None) -> dict[str, np.ndarray]:
+  def enqueue(self, bufs: dict, transforms: dict[str, np.ndarray], inputs: dict[str, np.ndarray],
+          after_enqueue: Callable[[], None] | None = None, *, shared_warp: SharedCameraWarp | None = None) -> tuple:
+    if self._pending_frame is not None:
+      raise RuntimeError("Finish the current model frame before enqueueing another")
     self.last_warp = None
     road_pointer, wide_pointer = (np.frombuffer(bufs[name].data, dtype=np.uint8).ctypes.data for name in self.vision_input_names)
     pointers = (road_pointer, wide_pointer)
@@ -316,15 +328,36 @@ class CatalogModelState:
                       self.run_policy(**policy_inputs, img=warped[0], big_img=warped[1]))
     if after_enqueue is not None:
       after_enqueue()
-    outputs = [output.numpy().flatten() for output in output_tensors]
-    if not all(np.isfinite(output).all() for output in outputs):
-      raise ValueError("catalog model output not finite")
-    parsed = self._parse(outputs)
-    if not REQUIRED_OUTPUTS <= parsed.keys() or not all(np.isfinite(value).all() for value in parsed.values()):
-      raise ValueError("catalog model parsed outputs invalid")
-    if os.getenv("SEND_RAW_PRED"):
-      parsed["raw_pred"] = np.concatenate(outputs)
     if self.camera_warp_descriptor is not None:
       self.last_warp = (shared_warp if shared_warp is not None else
                         SharedCameraWarp(warped, self.camera_warp_descriptor, pointers, transform_signature, weakref.ref(self)))
-    return parsed
+    self._pending_frame = (output_tensors, self.last_warp)
+    return self._pending_frame
+
+  def finish(self, queued: tuple) -> dict[str, np.ndarray]:
+    if queued is not self._pending_frame:
+      raise ValueError("Model frame belongs to a different or completed enqueue")
+    self._pending_frame = None
+    output_tensors = queued[0]
+    try:
+      outputs = [output.numpy().flatten() for output in output_tensors]
+      if not all(np.isfinite(output).all() for output in outputs):
+        raise ValueError("catalog model output not finite")
+      parsed = self._parse(outputs)
+      if not REQUIRED_OUTPUTS <= parsed.keys() or not all(np.isfinite(value).all() for value in parsed.values()):
+        raise ValueError("catalog model parsed outputs invalid")
+      if os.getenv("SEND_RAW_PRED"):
+        parsed["raw_pred"] = np.concatenate(outputs)
+      return parsed
+    except Exception:
+      self.last_warp = None
+      raise
+
+  def run(self, bufs: dict, transforms: dict[str, np.ndarray], inputs: dict[str, np.ndarray],
+          after_enqueue: Callable[[], None] | None = None, *, shared_warp: SharedCameraWarp | None = None) -> dict[str, np.ndarray]:
+    try:
+      return self.finish(self.enqueue(bufs, transforms, inputs, after_enqueue, shared_warp=shared_warp))
+    except Exception:
+      self._pending_frame = None
+      self.last_warp = None
+      raise

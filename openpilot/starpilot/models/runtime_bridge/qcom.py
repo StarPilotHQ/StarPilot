@@ -33,13 +33,18 @@ class Protection:
                           initial_value=address.to_bytes(8, 'little'))
     self.records = []
 
-  def protect_call(self, call):
+  def protect_call(self, call, *, fresh_source=False):
     info, program = call.arg.aux, call.body
     if not isinstance(info, HCQInfo) or info.device != ('QCOM',):
       raise ValueError('Only the explicit QCOM compatibility path is supported')
-    if program.op is not Ops.PROGRAM or program.arg.target.device != 'CPU' or len(program.src) != 4:
-      raise ValueError('Expected a stored CPU host submission')
-    sink = program.src[0]
+    if fresh_source:
+      if program.op is not Ops.SINK:
+        raise ValueError('Expected an explicit fresh QCOM CPU host source')
+      sink = program
+    else:
+      if program.op is not Ops.PROGRAM or program.arg.target.device != 'CPU' or len(program.src) != 4:
+        raise ValueError('Expected a stored CPU host submission')
+      sink = program.src[0]
     if sink.op is not Ops.SINK or sink.arg.name != 'hcq_submit':
       raise ValueError('Expected the exact host submission source')
     if info.nargs != len(call.src) - 1:

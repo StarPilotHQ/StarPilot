@@ -25,7 +25,7 @@ def test_realtime_starts_after_model_load_and_receipt():
     return [lineno for lineno, function in calls if function == name]
   assert len(line("gc.disable")) == len(line("config_realtime_process")) == 1
   assert line("gc.disable")[0] < min(line("load_small") + line("loader.join"))
-  startup_receipt = next(statement for statement in main_body() if isinstance(statement, ast.Expr)
+  startup_receipt = next(statement for statement in ast.walk(ast.Module(body=main_body(), type_ignores=[])) if isinstance(statement, ast.Expr)
                          and isinstance(statement.value, ast.Call) and ast.unparse(statement.value.func) == "receipt_owner.loaded")
   assert max(line("load_small") + line("loader.join")) < startup_receipt.lineno < line("config_realtime_process")[0] < line("PubMaster")[0]
 
@@ -118,6 +118,9 @@ def execute(statements, env):
   env.setdefault("os", SimpleNamespace(getenv=lambda key: None, _exit=exit_process))
   env.setdefault("recovery_small_only", False)
   env.setdefault("coherent_warp", None)
+  env.setdefault("laboratory_request", None)
+  from openpilot.starpilot.models.laboratory_runner import LaboratoryPair
+  env.setdefault("LaboratoryPair", LaboratoryPair)
   env.setdefault("set_core_affinity", Mock())
   from openpilot.starpilot.models.recovery import STARTUP_FALLBACK_EXIT
   env.setdefault("STARTUP_FALLBACK_EXIT", STARTUP_FALLBACK_EXIT)
@@ -140,6 +143,7 @@ def test_observed_availability_and_big_eligibility(monkeypatch, present, cable, 
   import sys
 
   manager = ModuleType("openpilot.starpilot.models.manager")
+  manager.ROOT = Path("/test-models")
   manager.resolve_runtime = Mock(side_effect=lambda chestnut_available, randomize:
                                  SimpleNamespace(allow_big=allow_big and chestnut_available, big_path=big_path))
   manager.requested_runtime_id = Mock(return_value="selected")
@@ -167,7 +171,8 @@ def test_observed_availability_and_big_eligibility(monkeypatch, present, cable, 
 
 @pytest.mark.parametrize("timeout,worker_alive", [(False, False), (True, False), (True, True)])
 @pytest.mark.parametrize("custom", [False, True])
-def test_big_worker_waits_before_load_and_failure_requests_fresh_small_process(custom, timeout, worker_alive, monkeypatch):
+@pytest.mark.parametrize("laboratory", [False, True])
+def test_big_worker_waits_before_load_and_failure_requests_fresh_small_process(custom, timeout, worker_alive, laboratory, monkeypatch):
   from openpilot.starpilot.models import manager
   monkeypatch.setattr(manager, "shipped_default", lambda: Path("bundled-small"))
   body = main_body()
@@ -227,6 +232,17 @@ def test_big_worker_waits_before_load_and_failure_requests_fresh_small_process(c
          "wait_for_chestnut_power": lambda CP, timeout: events.append("power"),
          "jetlink_adapter": SimpleNamespace(hooks=lambda: hooks, coherent_warp=lambda: None), "drop_chestnut": Mock(),
          "release_compile_pool": Mock(), "gc": Mock()}
+  if laboratory:
+    from openpilot.starpilot.models.laboratory_runner import LaboratoryPair
+    pair = object.__new__(LaboratoryPair)
+    pair.chestnut, pair.model_id = True, 'lateral+longitudinal'
+    def load_pair(width, height, config, *, root):
+      assert config == {'enabled': True, 'lateralModel': 'lateral', 'longitudinalModel': 'longitudinal'}
+      assert root == Path('/test-models')
+      events.append('big')
+      return pair
+    env.update(laboratory_request={'enabled': True, 'lateralModel': 'lateral', 'longitudinalModel': 'longitudinal'},
+               load_laboratory_pair=load_pair, MODEL_ROOT=Path('/test-models'), LaboratoryPair=LaboratoryPair)
   wrapper = ast.parse("def startup():\n  pass").body[0]
   wrapper.body = body[start:end] + [ast.Return(value=ast.Call(func=ast.Name(id="locals", ctx=ast.Load()), args=[], keywords=[]))]
   env["cam_w"], env["cam_h"] = env["vipc_client_main"].width, env["vipc_client_main"].height
@@ -240,13 +256,13 @@ def test_big_worker_waits_before_load_and_failure_requests_fresh_small_process(c
     receipt.loaded.assert_not_called()
     env["release_compile_pool"].assert_not_called()
     bind.assert_not_called()
-    assert events.count("small") == int(custom)
+    assert events.count("small") == int(custom or laboratory)
     params.put_bool.assert_called_once_with("ChestnutActive", False)
     return
   env.update(env["startup"]())
   bind.assert_not_called()
   assert env["jetlink_model"] is None
-  assert events[0] == ("small" if custom else "wait")
+  assert events[0] == ("small" if custom or laboratory else "wait")
   assert events.count("small") == 1
   assert ("big" in events) is not timeout
   assert env["model"].chestnut is not timeout
@@ -259,8 +275,14 @@ def test_big_worker_waits_before_load_and_failure_requests_fresh_small_process(c
   env["gc"].collect.assert_called_once_with()
   params.put_bool.assert_any_call("ChestnutActive", not timeout)
   params.put_bool.assert_any_call("ChestnutLoading", False)
-  assert receipt.loaded.call_args.args[1] == (ModelVariant.SMALL if timeout else ModelVariant.CHESTNUT)
-  assert receipt.loaded.call_args.args[2] == ("chestnut-load-failed" if timeout else None)
+  if laboratory:
+    receipt.loaded_pair.assert_called_once()
+    assert receipt.loaded_pair.call_args.args[0] is pair
+    assert len(receipt.loaded_pair.call_args.args[1]) == 64
+    receipt.loaded.assert_not_called()
+  else:
+    assert receipt.loaded.call_args.args[1] == (ModelVariant.SMALL if timeout else ModelVariant.CHESTNUT)
+    assert receipt.loaded.call_args.args[2] == ("chestnut-load-failed" if timeout else None)
 
 
 def test_wait_for_enumeration_succeeds_without_real_sleep(monkeypatch):
@@ -329,6 +351,7 @@ def test_recovery_child_resolves_small_without_randomizer_or_amd(monkeypatch):
   from types import ModuleType
   import sys
   manager = ModuleType("openpilot.starpilot.models.manager")
+  manager.ROOT = Path("/test-models")
   manager.resolve_runtime = Mock(return_value=SimpleNamespace(allow_big=False, big_path=None))
   manager.requested_runtime_id = Mock(return_value="requested-big")
   monkeypatch.setitem(sys.modules, manager.__name__, manager)
@@ -348,7 +371,7 @@ def test_recovery_child_resolves_small_without_randomizer_or_amd(monkeypatch):
 
 
 def test_recovery_small_receipt_reports_runtime_stall_not_load_failure():
-  statement = next(node for node in main_body() if isinstance(node, ast.Expr) and
+  statement = next(node for node in ast.walk(ast.Module(body=main_body(), type_ignores=[])) if isinstance(node, ast.Expr) and
                    isinstance(node.value, ast.Call) and ast.unparse(node.value.func) == 'receipt_owner.loaded')
   receipt = Mock()
   env: dict = {'model': SimpleNamespace(chestnut=False, model_id='bundled-current'), 'small_prepared': object(),

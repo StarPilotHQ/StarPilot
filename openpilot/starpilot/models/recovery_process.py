@@ -5,7 +5,7 @@ import time
 from multiprocessing import Process
 
 from openpilot.common.swaglog import cloudlog
-from openpilot.starpilot.models.receipt import process_start_ticks, read_receipt
+from openpilot.starpilot.models.receipt import process_start_ticks, read_receipt, read_pair_receipt
 from openpilot.starpilot.models.recovery import KILL_GRACE_NS, STARTUP_FALLBACK_EXIT, ModelRecoveryOwner, RecoveryEvidence
 from openpilot.starpilot.models.status import ModelVariant
 from openpilot.system.manager.process import PythonProcess, join_process, launcher
@@ -36,6 +36,8 @@ class ModeldProcess(PythonProcess):
     ticks = process_start_ticks(pid or 0) if alive else 0
     identity = (pid, ticks) if pid and ticks else None
     load = read_receipt() if alive else None
+    pair = read_pair_receipt() if alive else None
+    pair_matches = pair is not None and identity == (pair.pid, pair.process_start_ticks)
     matches = load is not None and identity == (load.pid, load.process_start_ticks)
     cameras = []
     for service in ('narrowRoadCameraState', 'wideRoadCameraState'):
@@ -43,7 +45,7 @@ class ModeldProcess(PythonProcess):
         cameras.append((int(sm.logMonoTime[service]), int(sm[service].frameId)))
     evidence = RecoveryEvidence(
       now, int(sm['deviceState'].startedMonoTime) if started else 0, identity, alive,
-      bool(matches and load.variant == ModelVariant.CHESTNUT), load.loaded_mono_ns if matches else 0,
+      bool(pair_matches or (matches and load.variant == ModelVariant.CHESTNUT)), pair.loaded_mono_ns if pair_matches else load.loaded_mono_ns if matches else 0,
       int(sm.logMonoTime['modelV2']), int(sm.logMonoTime['drivingModelData']),
       bool(sm.seen['modelV2'] and sm.seen['drivingModelData'] and sm.valid['modelV2'] and sm.valid['drivingModelData']),
       bool(sm['modelV2'].big), tuple(cameras),

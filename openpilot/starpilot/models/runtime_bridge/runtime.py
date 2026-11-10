@@ -17,9 +17,10 @@ _GUARD_HASHES = {
   'libbounded_wait.so': '24ed559861c8636c1026cad9a244854bb2236b5ee8b91bf21c5efbf688fa4a69',
   'libusb_guards.so': '66a3dfe48ac17899862ab80160cf6dac2c9b9707234527ba0d808f3b68404114',
 }
-_POLICY_SHA256 = 'ff9a762b130207dcf9919714bccd7aabc6d3f6e9d707e0b3a0dbd7fce5858aed'
+_POLICY_SHA256 = '2eec2cf23b56e46e25adea32dd500cd37da53905ad9391dc6b020cb905b65f42'
 _selection = None
 _protection = None
+_laboratory_request_json = None
 
 
 def _inference_cache_root(role):
@@ -54,6 +55,23 @@ def _inference_cache_root(role):
         raise ValueError('Invalid per-user runtime cache root')
       return sibling
   return root
+
+
+def bind_laboratory_request(request):
+  global _laboratory_request_json
+  import json
+  if (_selection is None or _selection.get('role') != 'driving' or _selection.get('purpose') == 'compiler' or
+      _protection is not None or request.get('target_runtime_revision') != LEGACY_REVISION):
+    raise ValueError('Laboratory must bind its source identities before loading models')
+  raw = json.dumps(request, sort_keys=True, separators=(',', ':'), allow_nan=False)
+  if _laboratory_request_json is not None and _laboratory_request_json != raw:
+    raise ValueError('A model process cannot replace its Laboratory sources')
+  _laboratory_request_json = raw
+
+
+def frozen_laboratory_request():
+  import json
+  return json.loads(_laboratory_request_json) if _laboratory_request_json is not None else None
 
 
 def prepare(role):
@@ -104,7 +122,8 @@ def _verify_policy():
   if (policy['compiler_revision'] != LEGACY_REVISION or policy['runtime_manifest_sha256'] != MANIFEST_SHA256 or
       policy['native_abi'] != 'linux-aarch64-64bit' or set(policy['files']) !=
       {'bootstrap.py', 'qcom.py', 'usb.py', 'capture.py', 'bounded_wait.c', 'usb_guards.c',
-       'libbounded_wait.so', 'libusb_guards.so'}):
+       'libbounded_wait.so', 'libusb_guards.so', 'adapter.py', 'ops-mapping.json', 'dom_admission.py',
+       'dom_loader.py', 'dom_usb.py'}):
     raise RuntimeError('Model submission guard identity mismatch')
   for name, expected in policy['files'].items():
     path = root / name
@@ -136,7 +155,13 @@ def _guard(chestnut):
     # Driving can load its verified QCOM fallback before attempting Chestnut.
     if _selection['role'] == 'driving':
       from openpilot.starpilot.models.runtime_bridge.usb import USBProtection
-      candidate = USBProtection(_library('libbounded_wait.so'), _library('libusb_guards.so'))
+      cls = USBProtection
+      request = frozen_laboratory_request()
+      if request is not None and any(role['source_contract'].get('_source_contract') == 'dom_v25_protocol5'
+                                     for role in request['roles'].values()):
+        from openpilot.starpilot.models.runtime_bridge.dom_usb import DomUSBProtection
+        cls = DomUSBProtection
+      candidate = cls(_library('libbounded_wait.so'), _library('libusb_guards.so'))
       candidate.install_fresh_guard()
     else:
       from openpilot.starpilot.models.runtime_bridge.qcom import Protection
@@ -237,6 +262,15 @@ def load_oob(path, chestnut=False):
     raise RuntimeError('A device model loader requires the selected runtime')
   if _selection.get('purpose') == 'compiler':
     raise RuntimeError('A model compiler cannot load inference artifacts')
+  request = frozen_laboratory_request()
+  if chestnut and request is not None:
+    matches = [role for role in request['roles'].values() if role['path'] == str(Path(path)) and
+               role['source_contract'].get('_source_contract') == 'dom_v25_protocol5']
+    if matches:
+      if len(matches) != 1 or _selection['role'] != 'driving':
+        raise ValueError('Ambiguous or wrong-role Laboratory artifact')
+      from openpilot.starpilot.models.runtime_bridge.dom_loader import load_admitted_dom
+      return load_admitted_dom(Path(path), expected_contract=matches[0], protection=_guard(True))
   monitoring = _selection['role'] == 'monitoring'
   authenticated = _stock_bytes(path) if monitoring else None
   from tinygrad import Context, Device

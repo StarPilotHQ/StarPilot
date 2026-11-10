@@ -16,13 +16,21 @@ assert.match(laboratorySelectionError(p,{lateralModel:'a',longitudinalModel:'a'}
 assert.match(laboratorySelectionError(p,{lateralModel:'a',longitudinalModel:'unknown'}), /downloaded/)
 assert.equal(laboratorySelectionError(null,p.configuration), 'Waiting for parked device status')
 const incompatible = [model('big'), model('qcom'), model('old')]
-incompatible[0].small=false; incompatible[1].modelLabArtifactAvailable=false; incompatible[2].modelLabEligible=false
+incompatible[0].small=false; incompatible[0].modelLabEligible=false; incompatible[1].modelLabArtifactAvailable=false; incompatible[2].modelLabEligible=false
 assert.equal(laboratoryModels({...p,models:incompatible}).length,3)
 assert.equal(laboratoryReady({...p,models:incompatible}).length,0)
 for (const row of incompatible) assert.equal(laboratoryActionAllowed(p,'download',row),false)
 assert.equal(laboratoryReady({...p,models:[{...model('a'),modelLabArtifactInstalled:false}]}).length,0)
 assert.equal(laboratoryActionAllowed({...p,configuration:{...p.configuration,enabled:true}},'delete',p.models[0]),false)
 assert.equal(laboratoryActionAllowed(p,'delete',p.models[0]),true)
+const mixed = {...p, models:[model('a'), {...model('b','v16'),small:false}]}
+assert.equal(laboratoryReady(mixed).length,2)
+assert.equal(laboratorySelectionError(mixed,mixed.configuration),'')
+assert.equal(laboratoryActionAllowed(mixed,'delete',mixed.models[1]),false)
+const nativeOnly = {...p, models:p.models.map(m => ({...m,modelLabChestnut:false}))}
+assert.match(laboratorySelectionError(nativeOnly,nativeOnly.configuration), /at least one.*Chestnut/)
+assert.equal(laboratoryActionAllowed(nativeOnly,'enable',null,nativeOnly.configuration),false)
+assert.equal(laboratoryActionAllowed(nativeOnly,'delete',nativeOnly.models[0]),false)
 const missing = {...model('c'),modelLabArtifactInstalled:false}
 assert.equal(laboratoryActionAllowed({...p,chestnutReady:false,models:[missing]},'download',missing),true)
 assert.equal(laboratoryActionAllowed({...p,download:{downloading:true,jobId:'job'}},'cancel'),true)
@@ -66,5 +74,7 @@ assert.match(LaboratoryPage.template,/Catalog models/)
 assert.match(LaboratoryPage.template,/modelLabReason/)
 assert.equal(laboratoryStatusLabel({modelLabStatus:"runtime-unavailable"}), "Downloaded")
 assert.equal(laboratoryStatusLabel({modelLabStatus:"unsupported"}), "Not supported")
-assert.doesNotMatch(LaboratoryPage.template,/20 Hz/)
+const performanceNotice = 'Some Big model combinations run below 20 Hz and can cause model lag warnings.'
+assert.ok(LaboratoryPage.template.includes(performanceNotice))
+assert.doesNotMatch(LaboratoryPage.template.replace(performanceNotice,''),/20 Hz/)
 console.log('Model Laboratory contracts passed')
