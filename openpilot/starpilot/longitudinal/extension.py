@@ -24,6 +24,7 @@ class LongitudinalContext:
   custom_acceleration: bool | None = None
   profile_max_accel: float | None = None
   faster_takeoffs: bool = False
+  force_stop_braking: bool = False
 
 
 class LongitudinalExtension:
@@ -164,3 +165,4 @@ def create_extension(cp, startup_preferences=None):
       not extension.ignore_cruise_standstill):
     return None
   return extension
+

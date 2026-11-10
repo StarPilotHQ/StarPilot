@@ -729,7 +729,7 @@ struct StarPilotLongitudinalPlan {
   class Pipeline;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(da96579883444c35, 4, 0)
+    CAPNP_DECLARE_STRUCT_HEADER(da96579883444c35, 5, 0)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -4298,6 +4298,10 @@ public:
 
   inline bool getForceStopHolding() const;
 
+  inline bool getForceStopBraking() const;
+
+  inline  ::uint64_t getForceStopEpisodeMonoTime() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -4340,6 +4344,12 @@ public:
 
   inline bool getForceStopHolding();
   inline void setForceStopHolding(bool value);
+
+  inline bool getForceStopBraking();
+  inline void setForceStopBraking(bool value);
+
+  inline  ::uint64_t getForceStopEpisodeMonoTime();
+  inline void setForceStopEpisodeMonoTime( ::uint64_t value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -18956,6 +18966,34 @@ inline bool StarPilotLongitudinalPlan::Builder::getForceStopHolding() {
 inline void StarPilotLongitudinalPlan::Builder::setForceStopHolding(bool value) {
   _builder.setDataField<bool>(
       ::capnp::bounded<16>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotLongitudinalPlan::Reader::getForceStopBraking() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<17>() * ::capnp::ELEMENTS);
+}
+
+inline bool StarPilotLongitudinalPlan::Builder::getForceStopBraking() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<17>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLongitudinalPlan::Builder::setForceStopBraking(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<17>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t StarPilotLongitudinalPlan::Reader::getForceStopEpisodeMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t StarPilotLongitudinalPlan::Builder::getForceStopEpisodeMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLongitudinalPlan::Builder::setForceStopEpisodeMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
 }
 
 inline bool SlcState::Reader::hasSlotId() const {
