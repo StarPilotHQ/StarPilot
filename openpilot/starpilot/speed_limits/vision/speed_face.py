@@ -11,7 +11,7 @@ except ImportError:
   cv2 = None
 
 MODEL_FILE = 'traffic_sign_identity.onnx'
-MODEL_SHA256 = 'f18654fabe73c097782b39133b33fa95bb94effdcac5964ffabe4f241368a7c4'
+MODEL_SHA256 = '4d6aba6ad2e6531752f838572e613d34a07dbc9c395ec5d23509ca17dcfb125d'
 SIZE = 64
 MIN_RESOLVED_EXTENT = 4.
 KEEP_SCORE = .05
