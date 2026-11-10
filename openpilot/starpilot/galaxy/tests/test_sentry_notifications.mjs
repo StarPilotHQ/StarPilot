@@ -1,14 +1,20 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
-import { NotificationClient, SentryNotifications, validNotifications, channels } from '../web/js/sentry-notifications.js'
+import { NotificationClient, SentryNotifications, validNotifications, channels, alertTypes } from '../web/js/sentry-notifications.js'
 const fixture = () => ({ schemaVersion: 1, queueFull: false, subscriptionCount: 0, subscriptions: [],
+  alerts: { motion: true, battery: true },
   deliverySemantics: 'Retries may repeat delivery after an interrupted remote response.',
   channels: Object.fromEntries(channels.map(name => [name, { enabled: false, configured: false, pending: 0, lastState: 'idle', lastError: '' }])) })
 const status = fixture()
 assert.equal(validNotifications(status), true)
 assert.equal(validNotifications({ ...status, subscriptionCount: 17 }), false)
+assert.equal(validNotifications({ ...status, alerts: { motion: 'yes', battery: true } }), false)
+assert.equal(validNotifications({ ...status, alerts: { motion: true } }), false)
 assert.equal(validNotifications({ ...status, channels: { ...status.channels, ntfy: { ...status.channels.ntfy, lastError: 'secret-url' } } }), false)
+assert.deepEqual(alertTypes.map(item => item.key), ['motion', 'battery'])
+assert.match(SentryNotifications.template, /Notifications only/)
+assert.match(SentryNotifications.template, /toggleAlert\(alert\.key\)/)
 assert.match(SentryNotifications.template, /Send test/)
 assert.match(SentryNotifications.template, /Forget configuration/)
 assert.match(SentryNotifications.template, /type="password"/)

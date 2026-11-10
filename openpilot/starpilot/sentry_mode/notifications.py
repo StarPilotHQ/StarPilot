@@ -26,6 +26,7 @@ from openpilot.starpilot.sentry_mode import web_push, relay_enrollment
 from openpilot.starpilot.sentry_mode.relay_config import DEFAULT_RELAY_URL
 
 CHANNELS = ('webPush', 'discord', 'webhook', 'ntfy', 'appPush')
+ALERT_TYPES = ('motion', 'battery')
 APP_PUSH_RELAY_URL = ''
 APP_IDS = ('com.starpilot.galaxy', 'link.firestar.companion', 'link.galaxy.bluetooth.natehuby76')
 MAX_STATE_BYTES = 1024 * 1024
@@ -35,6 +36,14 @@ MAX_ATTEMPTS = 4
 RETRY_SECONDS = (30, 120, 600, 600)
 ID = re.compile(r'[0-9a-f]{32}\Z')
 JOB_FIELDS = {'eventId', 'kind', 'channel', 'generation', 'subscriptionId', 'created', 'next', 'attempts', 'state', 'error'}
+
+
+def alert_kind(kind: str) -> str | None:
+  if kind in ('warning', 'alarm'):
+    return 'motion'
+  if kind == 'battery':
+    return 'battery'
+  return None
 
 
 def message_text(job: dict) -> str:
@@ -65,6 +74,7 @@ def endpoint(value: object, *, allow_http: bool = False) -> str:
 def fresh_state() -> dict:
   return {'version': 1, 'channels': {channel: {'enabled': False, 'url': '', 'token': '', 'generation': uuid.uuid4().hex,
                                               'since': 0} for channel in CHANNELS},
+          'alerts': {alert: {'enabled': True, 'since': 0} for alert in ALERT_TYPES},
           'relayEnrollment': relay_enrollment.fresh(), 'appSubscriptions': [], 'subscriptions': [], 'vapid': '', 'jobs': {}, 'queueFull': False}
 
 
@@ -154,6 +164,7 @@ class NotificationOwner:
         if type(state.get('channels')) is dict:
           state['channels']['appPush'] = fresh_state()['channels']['appPush']
       if type(state) is dict:
+        state.setdefault('alerts', copy.deepcopy(fresh_state()['alerts']))
         state.setdefault('relayEnrollment', relay_enrollment.fresh())
         if type(state['relayEnrollment']) is dict:
           state['relayEnrollment'].setdefault('rejected', {})
@@ -167,9 +178,14 @@ class NotificationOwner:
     relay_enrollment.validate(state.get('relayEnrollment') if isinstance(state, dict) else None)
     if (type(state) is not dict or set(state) != set(fresh_state()) or type(state['version']) is not int or state['version'] != 1 or
         type(state['channels']) is not dict or set(state['channels']) != set(CHANNELS) or
+        type(state['alerts']) is not dict or set(state['alerts']) != set(ALERT_TYPES) or
         type(state['subscriptions']) is not list or len(state['subscriptions']) > 16 or
         type(state['jobs']) is not dict or len(state['jobs']) > MAX_JOBS or type(state['queueFull']) is not bool):
       raise ValueError('Invalid notification state')
+    for alert in state['alerts'].values():
+      if (type(alert) is not dict or set(alert) != {'enabled', 'since'} or type(alert['enabled']) is not bool or
+          type(alert['since']) not in (int, float) or not 0 <= alert['since'] < 2**63):
+        raise ValueError('Invalid notification alert')
     if type(state['vapid']) is not str or len(state['vapid']) > 4096:
       raise ValueError('Invalid notification push key')
     if state['vapid']:
@@ -248,7 +264,8 @@ class NotificationOwner:
       if not self.available:
         raise NotificationUnavailable('Notification storage is unavailable')
       jobs = self.state['jobs']
-      result = {'schemaVersion': 1, 'channels': {}, 'queueFull': self.state['queueFull'],
+      result = {'schemaVersion': 1, 'channels': {}, 'alerts': {name: cfg['enabled'] for name, cfg in self.state['alerts'].items()},
+                'queueFull': self.state['queueFull'],
                 'subscriptionCount': len(self.state['subscriptions']),
                 'subscriptions': [{'id': sub['id']} for sub in self.state['subscriptions']],
                 'deliverySemantics': 'Retries may repeat delivery after an interrupted remote response.'}
@@ -401,6 +418,16 @@ class NotificationOwner:
         if type(payload[key]) is not str:
           raise ValueError('Choose a phone subscription')
         self.state['appSubscriptions'] = [sub for sub in self.state['appSubscriptions'] if sub[key] != payload[key]]
+      elif action == 'setAlert':
+        if (set(payload) != {'action', 'alert', 'enabled'} or
+            payload['alert'] not in ALERT_TYPES or type(payload['enabled']) is not bool):
+          raise ValueError('Choose a notification alert type')
+        alert = payload['alert']
+        self.state['alerts'][alert] = {'enabled': payload['enabled'], 'since': now}
+        if not payload['enabled']:
+          for job in self.state['jobs'].values():
+            if alert_kind(job['kind']) == alert and job['state'] in ('queued', 'sending'):
+              job['state'] = 'cancelled'
       elif action == 'test' and 'channel' not in payload:
         if set(payload) - {'action', 'target', 'id'} or payload.get('target', 'all') not in ('all', 'app'):
           raise ValueError('Choose a test target')
@@ -433,6 +460,10 @@ class NotificationOwner:
   def _enqueue(self, event: dict, *, only: str | None = None, target_id: str | None = None) -> None:
     if event['kind'] == 'selfie':
       return
+    alert = alert_kind(event['kind'])
+    if alert is not None and not self.state['alerts'][alert]['enabled']:
+      return
+    alert_since = self.state['alerts'][alert]['since'] if alert is not None else 0
     now = self.clock()
     for name, cfg in self.state['channels'].items():
       if not cfg['enabled'] or (only is not None and only != name):
@@ -442,7 +473,7 @@ class NotificationOwner:
       for target in targets:
         if target_id is not None and target['id'] != target_id:
           continue
-        if event['kind'] != 'test' and event['wallTimeNs'] / 1e9 <= max(cfg['since'], target['since']):
+        if event['kind'] != 'test' and event['wallTimeNs'] / 1e9 <= max(cfg['since'], target['since'], alert_since):
           continue
         key = hashlib.sha256((event['eventId'] + name + cfg['generation'] + target['id']).encode()).hexdigest()
         if key in self.state['jobs']:
@@ -508,7 +539,10 @@ class NotificationOwner:
           if enrollment['state'] != 'unenrolled' and (enrollment['state'] != 'enrolled' or job['subscriptionId'] not in enrollment['registered']):
             continue
           sub = next((s for s in self.state['appSubscriptions'] if s['id'] == job['subscriptionId']), None)
-        if not cfg['enabled'] or cfg['generation'] != job['generation'] or (job['channel'] in ('webPush', 'appPush') and sub is None):
+        alert = alert_kind(job['kind'])
+        if (not cfg['enabled'] or cfg['generation'] != job['generation'] or
+            (alert is not None and not self.state['alerts'][alert]['enabled']) or
+            (job['channel'] in ('webPush', 'appPush') and sub is None)):
           job['state'] = 'cancelled'
           continue
         if now < job['created'] or now - job['created'] > MAX_AGE:

@@ -423,3 +423,45 @@ def test_battery_job_survives_restart_and_reaches_every_channel_with_voltage(tmp
     assert 'detail' not in posts[4]['json']
   finally:
     owner.close()
+
+
+def test_alert_type_toggles_filter_notifications_only_and_cancel_pending_jobs(tmp_path):
+  clock = [100.]
+  calls = []
+  events = []
+  root = tmp_path / 'notifications'
+  owner = NotificationOwner(root, store(events), clock=lambda: clock[0], transport=lambda *args: calls.append(args) or 200)
+  try:
+    configure(owner, 'ntfy')
+    assert owner.snapshot()['alerts'] == {'motion': True, 'battery': True}
+    snapshot = owner.action({'action': 'setAlert', 'alert': 'motion', 'enabled': False})
+    assert snapshot['alerts'] == {'motion': False, 'battery': True}
+
+    # While motion notifications are off, warning and alarm events do not notify, but battery still does.
+    events.extend([
+      {'eventId': '1' * 32, 'kind': 'warning', 'wallTimeNs': int(101e9)},
+      {'eventId': '2' * 32, 'kind': 'alarm', 'wallTimeNs': int(102e9)},
+      {'eventId': '3' * 32, 'kind': 'battery', 'wallTimeNs': int(103e9), 'voltage': 120, 'cutoff': 118},
+    ])
+    clock[0] = 104.
+    owner.tick()
+    assert len(calls) == 1 and calls[0][3]['kind'] == 'battery'
+
+    # Re-enabling motion notifications later does not retroactively send old motion events recorded while muted.
+    clock[0] = 110.
+    owner.action({'action': 'setAlert', 'alert': 'motion', 'enabled': True})
+    owner.tick()
+    assert len(calls) == 1
+
+    # New motion events after re-enabling are queued, and toggling motion off cancels queued jobs before delivery.
+    events.append({'eventId': '4' * 32, 'kind': 'warning', 'wallTimeNs': int(111e9)})
+    clock[0] = 112.
+    owner._enqueue(events[-1])
+    assert owner.snapshot()['channels']['ntfy']['pending'] == 1
+    owner.action({'action': 'setAlert', 'alert': 'motion', 'enabled': False})
+    assert owner.snapshot()['channels']['ntfy']['pending'] == 0
+    owner.tick()
+    assert len(calls) == 1
+  finally:
+    owner.close()
+

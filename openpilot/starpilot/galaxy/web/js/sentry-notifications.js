@@ -2,9 +2,18 @@ import { GxNotice } from "./notice.js"
 import { reportSave } from "./save-feedback.js"
 export const channels = ["webPush", "discord", "webhook", "ntfy"]
 export const labels = { webPush: "Browser push", discord: "Discord", webhook: "General webhook", ntfy: "ntfy" }
+export const alertTypes = [
+  { key: "motion", label: "Motion & alarm notifications", icon: "bi-exclamation-triangle",
+    description: "Send a notification when parked motion or an alarm is triggered. Motion events and camera photos are still saved locally when off." },
+  { key: "battery", label: "Low battery notifications", icon: "bi-battery-half",
+    description: "Send a notification before the car battery reaches the power cutoff. Low-battery events are still saved locally when off." },
+]
 
 export function validNotifications(value) {
   return value?.schemaVersion === 1 && typeof value.queueFull === "boolean" &&
+    (value.alerts === undefined || (value.alerts !== null && typeof value.alerts === "object" &&
+      Object.keys(value.alerts).length === alertTypes.length &&
+      alertTypes.every(({ key }) => typeof value.alerts[key] === "boolean"))) &&
     Number.isInteger(value.subscriptionCount) && value.subscriptionCount >= 0 && value.subscriptionCount <= 16 &&
     Array.isArray(value.subscriptions) && value.subscriptions.length === value.subscriptionCount &&
     value.subscriptions.every(s => typeof s?.id === "string" && /^[0-9a-f]{32}$/.test(s.id) && Object.keys(s).length === 1) &&
@@ -61,7 +70,7 @@ export const SentryNotifications = {
   components: { GxNotice },
   name: "SentryNotifications",
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
-  data: () => ({ nativePush: !!window.StarPilotApp?.sentryPush, pushState: {}, testingId: '', testPoll: null, relayUrl: '', enrollmentCode: '', relayConfirmed: false, channels, labels, notifications: null, notificationBusy: false, notificationTesting: false, notificationError: "",
+  data: () => ({ nativePush: !!window.StarPilotApp?.sentryPush, pushState: {}, testingId: '', testPoll: null, relayUrl: '', enrollmentCode: '', relayConfirmed: false, channels, labels, alertTypes, notifications: null, notificationBusy: false, notificationTesting: false, notificationError: "",
     channelSetup: {},
     drafts: Object.fromEntries(channels.map(name => [name, { url: "", token: "" }])) }),
   created() { this.client = new NotificationClient({ publish: update => Object.assign(this.$data, update), unauthorized: this.unauthorized }) },
@@ -122,6 +131,10 @@ export const SentryNotifications = {
       this.poll = setInterval(() => { this.refreshPush(); if (!this.notificationBusy && !this.client.pending) this.client.run() }, 5000)
     },
     channelExpanded(name) { return this.notifications.channels[name].enabled || !!this.channelSetup[name] },
+    alertEnabled(alert) { return this.notifications?.alerts?.[alert] !== false },
+    toggleAlert(alert) {
+      return this.reportSave(() => this.client.run({ action: "setAlert", alert, enabled: !this.alertEnabled(alert) }))
+    },
     toggleChannel(name) {
       if (!this.notifications.channels[name].configured) {
         this.channelSetup[name] = !this.channelSetup[name]
@@ -164,7 +177,7 @@ export const SentryNotifications = {
   template: `
     <section class="gx-card" aria-label="Sentry notifications" :inert="notificationBusy" :aria-busy="notificationBusy || undefined">
       <div class="gx-section__header"><i class="bi bi-bell" aria-hidden="true"></i><span class="gx-section__title">Notifications</span></div><div class="gx-panel gx-stack">
-      <p class="gx-note">Receive new locally recorded motion events. Notification channels work independently.</p>
+      <p class="gx-note">Receive new locally recorded Sentry events. Notification channels and alert toggles control notifications only — events and snapshots are always recorded locally.</p>
       <p v-if="mode !== 'local'">Notification configuration is available on your connected device.</p>
       <template v-else>
         <GxNotice tone="danger" v-if="notificationError">{{ notificationError }}</GxNotice>
@@ -172,6 +185,21 @@ export const SentryNotifications = {
         <GxNotice tone="danger" v-if="notifications?.queueFull">The notification queue is full. Some events could not be queued.</GxNotice>
         <template v-if="notifications">
           <p class="gx-note">{{ notifications.deliverySemantics }}</p>
+          <section class="gx-card" aria-label="Notification alert types">
+            <div class="gx-section__header"><i class="bi bi-sliders" aria-hidden="true"></i><span class="gx-section__title">Alert types</span><span class="gx-chip">Notifications only</span></div>
+            <div class="gx-panel gx-stack">
+              <p class="gx-note">Choose which Sentry events send notifications. Turning an alert off here only mutes notifications — local events and camera photos are still recorded on this device.</p>
+              <div v-for="(alert, index) in alertTypes" :key="alert.key" class="gx-row" :class="{'gx-row--borderless': index === 0}">
+                <div class="gx-row__info gx-row__info--wide">
+                  <span class="gx-row__label"><i class="bi" :class="alert.icon" aria-hidden="true"></i> {{ alert.label }}</span>
+                  <span class="gx-row__desc">{{ alert.description }}</span>
+                </div>
+                <label class="gx-switch"><input type="checkbox" role="switch" :aria-label="alert.label" :checked="alertEnabled(alert.key)"
+                  :disabled="notificationBusy"
+                  @change="$event.target.checked=alertEnabled(alert.key); toggleAlert(alert.key)"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label>
+              </div>
+            </div>
+          </section>
           <section class="gx-card" aria-label="Galaxy App Alerts">
             <div class="gx-section__header"><i class="bi bi-phone" aria-hidden="true"></i><span class="gx-section__title">Galaxy App Alerts</span><span v-if="relay" class="gx-chip">{{ relayChip() }}</span></div>
             <div class="gx-panel gx-stack">
