@@ -356,7 +356,7 @@ class Runtime:
     ego_speeds = (car_state.vEgo, car_state.vEgoCluster)
     ego_valid = car_fresh and all(type(speed) in (int, float) and math.isfinite(speed) and
                                   (car_state.standstill or speed >= 0.) for speed in ego_speeds)
-    ego = (sd.SpeedPair(sd.DomainStatus.VALID, *(max(0., speed) for speed in ego_speeds), self.session_id, now_ns)
+    ego = (sd.SpeedPair(sd.DomainStatus.VALID, max(0., ego_speeds[0]), max(0., ego_speeds[1]), self.session_id, now_ns)
            if ego_valid else sd.SpeedPair(sd.DomainStatus.STALE if sm.logMonoTime.get("carState", 0) else sd.DomainStatus.UNKNOWN))
     host = comp.HostState(bool(CP.openpilotLongitudinalControl), host_long, bool(selfdrive.enabled and selfdrive_fresh),
                           bool(controls.forceDecel) if controls_fresh else True, selected, selected_cluster)

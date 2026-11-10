@@ -132,6 +132,7 @@ class TestStopObservation(unittest.TestCase):
       if expected is None:
         self.assertIsNone(owner.distance_m)
       else:
+        assert owner.distance_m is not None
         self.assertAlmostEqual(owner.distance_m, expected, places=2)
       owner.observe(None, now_ns=BASE + 900_000_000)
       self.assertIsNone(owner.distance_m)

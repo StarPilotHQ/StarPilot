@@ -17,7 +17,7 @@ _GUARD_HASHES = {
   'libbounded_wait.so': '24ed559861c8636c1026cad9a244854bb2236b5ee8b91bf21c5efbf688fa4a69',
   'libusb_guards.so': '66a3dfe48ac17899862ab80160cf6dac2c9b9707234527ba0d808f3b68404114',
 }
-_POLICY_SHA256 = '2eec2cf23b56e46e25adea32dd500cd37da53905ad9391dc6b020cb905b65f42'
+_POLICY_SHA256 = '06b6304d889166a448c4e48bb737933cbdeeedfe49a4c629af11ba06bd30e46b'
 _selection = None
 _protection = None
 _laboratory_request_json = None

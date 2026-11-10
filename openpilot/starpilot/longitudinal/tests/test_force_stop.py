@@ -374,6 +374,7 @@ class ForceStopTests(unittest.TestCase):
 
   def test_sign_behind_stopped_lead_stops_at_line_after_lead_leaves(self):
     self.queue_behind_lead()
+    assert self.owner.queue_line is not None
     self.assertAlmostEqual(self.owner.queue_line, 9.5)
     for tick in range(30, 35):
       plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=12., light=False, standstill=True, lead_present=True,
@@ -408,6 +409,7 @@ class ForceStopTests(unittest.TestCase):
     plan = self.owner.step(frame(60, speed_mps=0., horizon_m=5., light=False, standstill=True, lead_present=True,
                                  lead_distance_m=4., lead_speed_mps=0.), self.tune)
     self.assertFalse(plan.forcing)
+    assert self.owner.queue_line is not None
     self.assertAlmostEqual(self.owner.queue_line, 8.5)
 
   def test_driver_gas_while_queued_forgets_the_sign(self):
