@@ -27,8 +27,10 @@ class AudioFixture:
   def publish(self, armed=False, lateral=False, longitudinal=False, native=AudibleAlert.none,
               *, age_ns=0, valid=True, session='card', sequence=None, acknowledged=True, payload=None,
               intent_message=None, enabled=None, pause_longitudinal=False, pause_lateral=False,
-              active=False, state_age_ns=0, state_valid=True, alert_type=''):
-    self.now += 50_000_000
+              active=False, state_age_ns=0, state_valid=True, alert_type='', axis_age_ns=0,
+              axis_valid=True, axis_qualified=True, desired_lateral=None, axis_sequence=None,
+              axis_session='selfdrived', axis_source_ns=None, axis_producer=None, step_ns=50_000_000):
+    self.now += step_ns
     self.sequence += 1
     stamp = self.now - age_ns
     if intent_message is None:
@@ -40,17 +42,20 @@ class AudioFixture:
     else:
       self.now = intent_message.logMonoTime + 1_000_000
       stamp = self.now
-    message = messaging.new_message('aolAxisState', valid=True)
-    message.logMonoTime = stamp
+    message = messaging.new_message('aolAxisState', valid=axis_valid)
+    message.logMonoTime = stamp - axis_age_ns
     axis = message.aolAxisState
-    axis.sessionId = 'selfdrived'
-    axis.sequence = self.sequence
-    axis.qualified = True
+    axis.sessionId = axis_session
+    axis.sequence = self.sequence if axis_sequence is None else axis_sequence
+    axis.sourceCarStateMonoTime = stamp if axis_source_ns is None else axis_source_ns
+    axis.intentProducerSessionId = session if axis_producer is None else axis_producer
+    axis.qualified = axis_qualified
     axis.nativeAcknowledged = acknowledged
     axis.lateralActive, axis.longitudinalActive = lateral, longitudinal
-    axis.desiredLateral, axis.desiredLongitudinal = lateral, longitudinal
-    axis.observedMonoTime = stamp
-    axis.validUntilMonoTime = stamp + 30_000_000
+    axis.desiredLateral = lateral if desired_lateral is None else desired_lateral
+    axis.desiredLongitudinal = longitudinal
+    axis.observedMonoTime = message.logMonoTime
+    axis.validUntilMonoTime = message.logMonoTime + 30_000_000
     state = messaging.new_message('selfdriveState', valid=state_valid)
     state.logMonoTime = self.now - state_age_ns
     state.selfdriveState.alertSound = native
@@ -83,9 +88,9 @@ def test_park_lkas_producer_wire_and_sound(audio):
   card.__dict__.update(vars(fields))
   initialize_publication_sources(card)
   cs = car.CarState.new_message(canValid=True, gearShifter=car.CarState.GearShifter.park, standstill=True)
-  for pressed, gear, expected in ((None, 'park', AudibleAlert.none), (True, 'park', AudibleAlert.engage),
+  for pressed, gear, expected in ((None, 'park', AudibleAlert.none), (True, 'park', AudibleAlert.none),
                                   (True, 'park', AudibleAlert.none), (False, 'park', AudibleAlert.none),
-                                  (None, 'drive', AudibleAlert.none), (None, 'park', AudibleAlert.none),
+                                  (None, 'drive', AudibleAlert.engage), (None, 'park', AudibleAlert.none),
                                   (True, 'park', AudibleAlert.disengage)):
     cs.gearShifter = gear
     cs.buttonEvents = [] if pressed is None else [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.lkas, pressed=pressed)]
@@ -95,15 +100,113 @@ def test_park_lkas_producer_wire_and_sound(audio):
     assert decoded is not None
     assert decoded.lateralArmed == owner.allowed_latch
     assert decoded.allowedLatch == (owner.allowed_latch and gear == 'drive')
-    assert audio.publish(intent_message=published[INTENT_SERVICE]) == expected
+    assert audio.publish(intent_message=published[INTENT_SERVICE], lateral=owner.allowed_latch and gear == 'drive') == expected
 
 
-def test_lateral_activation_without_latch_change_is_silent(audio):
+def test_delayed_activation_chimes_once_and_temporary_suppression_is_silent(audio):
   assert audio.publish() == AudibleAlert.none
-  assert audio.publish(armed=True) == AudibleAlert.engage
+  assert audio.publish(armed=True) == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True) == AudibleAlert.engage
   for lateral in (True, False, True, False):
     assert audio.publish(armed=True, lateral=lateral) == AudibleAlert.none
   assert audio.publish() == AudibleAlert.disengage
+
+
+def test_disabled_aol_main_button_is_silent(audio):
+  owner = AolCardIntent(AolSettings(False, 0, 0, AOL_TOGGLE, (0, 0, 0), (0, 0, 0)), explicit_latch=True)
+  state = car.CarState.new_message(canValid=True, gearShifter=car.CarState.GearShifter.drive)
+  audio.publish()
+  for pressed in (True, False) * 9:
+    state.buttonEvents = [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.mainCruise, pressed=pressed)]
+    owner.update(state)
+    assert not owner.allowed_latch
+    assert audio.publish(armed=owner.allowed_latch) == AudibleAlert.none
+
+
+@pytest.mark.parametrize('blocked', [
+  {}, {'lateral': True, 'acknowledged': False}, {'lateral': True, 'desired_lateral': False},
+  {'lateral': True, 'axis_valid': False}, {'lateral': True, 'axis_qualified': False},
+  {'lateral': True, 'axis_age_ns': 31_000_000}, {'lateral': True, 'axis_age_ns': -1},
+  {'lateral': True, 'axis_producer': 'old-card'}, {'lateral': True, 'axis_producer': ''},
+  {'lateral': True, 'axis_source_ns': 0}, {'lateral': True, 'axis_source_ns': 99_000_000_000},
+])
+def test_never_activated_request_and_withdrawal_are_silent(audio, blocked):
+  audio.publish()
+  for _ in range(4):
+    assert audio.publish(armed=True, **blocked) == AudibleAlert.none
+  assert audio.publish() == AudibleAlert.none
+
+
+def test_old_axis_cannot_activate_a_new_intent_episode(audio):
+  audio.publish()
+  old_source = audio.now
+  assert audio.publish(armed=True, lateral=True, axis_source_ns=old_source, step_ns=5_000_000) == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True, step_ns=5_000_000) == AudibleAlert.engage
+
+
+@pytest.mark.parametrize('sequence', [1, 2])
+def test_duplicate_or_reordered_axis_cannot_confirm_activation(audio, sequence):
+  audio.publish()
+  audio.publish(armed=True)
+  assert audio.publish(armed=True, lateral=True, axis_sequence=sequence) == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True) == AudibleAlert.engage
+
+
+def test_axis_source_regression_cannot_confirm_activation(audio):
+  audio.publish()
+  audio.publish(armed=True, step_ns=5_000_000)
+  first_source = audio.now
+  audio.publish(armed=True, step_ns=5_000_000)
+  assert audio.publish(armed=True, lateral=True, axis_source_ns=first_source, step_ns=5_000_000) == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True, step_ns=5_000_000) == AudibleAlert.engage
+
+
+@pytest.mark.parametrize('invalid', [{'axis_source_ns': 99_000_000_000}, {'axis_producer': 'old-card'}])
+def test_rejected_axis_source_does_not_poison_valid_activation(audio, invalid):
+  audio.publish()
+  assert audio.publish(armed=True, lateral=True, **invalid) == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True) == AudibleAlert.engage
+
+
+def test_fresh_publication_with_expired_car_source_cannot_activate(audio):
+  audio.publish()
+  audio.publish(armed=True)
+  assert audio.publish(armed=True, lateral=True, axis_source_ns=audio.now) == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True) == AudibleAlert.engage
+
+
+def test_new_axis_waits_for_next_advancing_intent(audio):
+  audio.publish()
+  audio.publish(armed=True)
+  assert audio.publish(armed=True, lateral=True, sequence=2) == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True) == AudibleAlert.engage
+
+
+def test_active_episode_survives_stale_axis_without_replaying(audio):
+  audio.publish()
+  assert audio.publish(armed=True, lateral=True) == AudibleAlert.engage
+  assert audio.publish(armed=True, lateral=True, axis_age_ns=31_000_000) == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True) == AudibleAlert.none
+  assert audio.publish() == AudibleAlert.disengage
+
+
+def test_axis_restart_seeds_active_episode_without_replaying_chime(audio):
+  audio.publish()
+  audio.publish(armed=True)
+  assert audio.publish(armed=True, lateral=True, axis_session='restarted') == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True, axis_session='restarted') == AudibleAlert.none
+  assert audio.publish(axis_session='restarted') == AudibleAlert.disengage
+  for _ in range(5):
+    audio.publish(axis_session='restarted')
+  assert audio.publish(armed=True, lateral=True, axis_session='restarted') == AudibleAlert.engage
+
+
+def test_explicit_pause_and_resume_require_new_effective_activation(audio):
+  audio.publish()
+  assert audio.publish(armed=True, lateral=True) == AudibleAlert.engage
+  assert audio.publish(armed=True, pause_lateral=True) == AudibleAlert.disengage
+  assert audio.publish(armed=True) == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True) == AudibleAlert.engage
 
 
 def test_native_latch_revocation_and_one_lkas_rearm_sound(audio):
@@ -113,7 +216,7 @@ def test_native_latch_revocation_and_one_lkas_rearm_sound(audio):
   assert audio.publish(armed=owner.allowed_latch) == AudibleAlert.none
   state.buttonEvents = [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.lkas, pressed=True)]
   owner.update(state, now_ns=200)
-  assert audio.publish(armed=owner.allowed_latch) == AudibleAlert.engage
+  assert audio.publish(armed=owner.allowed_latch, lateral=True) == AudibleAlert.engage
   state.buttonEvents = [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.lkas, pressed=False)]
   owner.update(state, now_ns=300)
   audio.publish(armed=owner.allowed_latch)
@@ -123,7 +226,7 @@ def test_native_latch_revocation_and_one_lkas_rearm_sound(audio):
   state.buttonEvents = [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.lkas, pressed=True)]
   owner.update(state, now_ns=500, native_rejection_ns=350)
   assert owner.allowed_latch
-  assert audio.publish(armed=owner.allowed_latch) == AudibleAlert.engage
+  assert audio.publish(armed=owner.allowed_latch, lateral=True) == AudibleAlert.engage
 
 
 def test_longitudinal_transitions_without_aol(audio):
@@ -137,7 +240,7 @@ def test_longitudinal_transitions_without_aol(audio):
                                    AudibleAlert.prompt, AudibleAlert.engage, AudibleAlert.disengage])
 def test_native_alert_wins_without_queued_chime(audio, native):
   audio.publish()
-  assert audio.publish(armed=True, native=native) == native
+  assert audio.publish(armed=True, lateral=True, native=native) == native
   assert audio.publish(armed=True) == AudibleAlert.none
 
 
@@ -145,14 +248,14 @@ def test_native_then_axis_ack_is_one_engagement(audio):
   audio.publish()
   assert audio.publish(native=AudibleAlert.engage) == AudibleAlert.engage
   assert audio.publish(longitudinal=True) == AudibleAlert.none
-  assert audio.publish(armed=True, longitudinal=True) == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True, longitudinal=True) == AudibleAlert.none
 
 
 @pytest.mark.parametrize('invalid', [{'age_ns': 31_000_000}, {'age_ns': -1}, {'valid': False}, {'payload': b'invalid'}])
 def test_invalid_latch_is_silent_and_recovery_does_not_replay(audio, invalid):
   audio.publish()
-  assert audio.publish(armed=True, **invalid) == AudibleAlert.none
-  assert audio.publish(armed=True) == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True, **invalid) == AudibleAlert.none
+  assert audio.publish(armed=True, lateral=True) == AudibleAlert.none
   assert audio.publish() == AudibleAlert.disengage
 
 
@@ -160,7 +263,7 @@ def test_startup_new_session_and_old_sequence_do_not_chime(audio):
   assert audio.publish(armed=True) == AudibleAlert.none
   assert audio.publish(armed=False, session='new-card') == AudibleAlert.none
   assert audio.publish(armed=True, session='new-card', sequence=1) == AudibleAlert.none
-  assert audio.publish(armed=True, session='new-card') == AudibleAlert.engage
+  assert audio.publish(armed=True, lateral=True, session='new-card') == AudibleAlert.engage
 
 
 def test_runtime_native_pending_permission_and_loss(audio):
@@ -217,14 +320,14 @@ def test_explicit_longitudinal_pause_and_resume_sound_once(audio):
 
 @pytest.mark.parametrize('invalid', [{'state_age_ns': 101_000_000}, {'state_age_ns': -1}, {'state_valid': False}])
 def test_standard_lateral_stale_state_and_recovery_do_not_replay(audio, invalid):
-  audio.publish(active=True, enabled=True)
+  audio.publish(active=True, lateral=True, enabled=True)
   assert audio.publish(active=True, enabled=True, **invalid) == AudibleAlert.none
-  assert audio.publish(active=True, enabled=True) == AudibleAlert.none
+  assert audio.publish(active=True, lateral=True, enabled=True) == AudibleAlert.none
   assert audio.publish(active=True, enabled=True, pause_lateral=True) == AudibleAlert.disengage
 
 
 def test_explicit_lateral_pause_remains_known_without_standard_state(audio):
-  audio.publish(active=True, enabled=True)
+  audio.publish(active=True, lateral=True, enabled=True)
   assert audio.publish(active=True, enabled=True, pause_lateral=True, state_valid=False) == AudibleAlert.disengage
   assert audio.publish(active=True, enabled=True, pause_lateral=True) == AudibleAlert.none
 
