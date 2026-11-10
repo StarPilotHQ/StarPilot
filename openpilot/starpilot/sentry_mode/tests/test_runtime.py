@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 from openpilot.cereal import log, messaging
 from openpilot.common.params import Params
 from openpilot.starpilot.power.offroad_preferences import read_saved as read_power, effective as effective_power
+from openpilot.starpilot.sentry_mode.policy import RESET_TIME_SECONDS, Settings
 from openpilot.starpilot.sentry_mode.preferences import KEY, Preferences, encode
 from openpilot.starpilot.sentry_mode.runtime import SentryRuntime
 from openpilot.starpilot.sentry_mode import runtime as runtime_module
@@ -255,14 +256,85 @@ class TestRuntime(unittest.TestCase):
     self.assertEqual(prewarms, [])
     self.tick(acceleration=(0.0, 0.0, 10.0))
     self.assertEqual(prewarms, [0])  # before any event is recorded
+    for index in range(40):
+      self.tick(acceleration=(0.0, 0.0, 9.81 if index % 2 == 0 else 10.0))
+    self.assertEqual(prewarms, [0])
+    self.assertEqual([event[0] for event in self.events], ["warning"])
     self.params.put_bool("DoShutdown", True, block=True)
     self.tick(acceleration=(0.0, 0.0, 9.81))
     self.assertEqual(prewarms, [0])
 
+  def test_new_motion_window_prewarms_even_when_trigger_count_decreases(self):
+    self.runtime.prewarm = Mock()
+    for _ in range(902):
+      self.tick()
+    for index in range(5):
+      self.tick(acceleration=(0.0, 0.0, 10.0 if index % 2 == 0 else 9.81))
+    started = self.runtime.policy.trigger_started
+    self.assertEqual(self.runtime.policy.trigger_count, 5)
+    self.runtime.prewarm.assert_called_once()
+    # Keep the sensors fresh and the policy armed up to the exact window boundary.
+    while (self.clock.mono + 100_000_000) / 1e9 < started + RESET_TIME_SECONDS:
+      self.tick(acceleration=(0.0, 0.0, 10.0))
+    self.tick(acceleration=(0.0, 0.0, 9.81))
+    self.assertEqual(self.runtime.policy.trigger_count, 1)
+    self.assertNotEqual(self.runtime.policy.trigger_started, started)
+    self.assertEqual(self.runtime.prewarm.call_count, 2)
+    self.tick(acceleration=(0.0, 0.0, 10.0))
+    self.assertEqual(self.runtime.prewarm.call_count, 2)
+
+  def test_prewarm_rechecks_authority_after_first_jolt(self):
+    self.runtime.prewarm = Mock()
+    def revoke():
+      Path(self.params.get_param_path(KEY)).write_bytes(encode(Preferences(False)))
+    def ignition():
+      self.messages.messages["pandaStates"][0].ignitionCan = True
+    def low_voltage():
+      self.messages.messages["peripheralState"].voltage = self.cutoff * 100
+    def stale():
+      self.messages.valid["deviceState"] = False
+    for change in (revoke, ignition, low_voltage, stale):
+      with self.subTest(change=change.__name__):
+        Path(self.params.get_param_path(KEY)).write_bytes(encode(Preferences(True)))
+        self.messages.valid["deviceState"] = True
+        # Disarm between cases so each first jolt starts its own episode.
+        self.params.put_bool("DoShutdown", True, block=True)
+        self.tick()
+        self.params.put_bool("DoShutdown", False, block=True)
+        for _ in range(902):
+          self.tick()
+        # The first update supplies policy evidence, the final check sees revocation.
+        updates = iter((lambda: None, change))
+        with patch.object(self.messages, "update", side_effect=lambda _timeout, updates=updates: next(updates)()):
+          self.tick(acceleration=(0.0, 0.0, 10.0))
+        self.runtime.prewarm.assert_not_called()
+
+  def test_prewarm_restarts_after_settings_change_disarm_and_resume(self):
+    self.runtime.prewarm = Mock()
+    for _ in range(902):
+      self.tick()
+    self.tick(acceleration=(0.0, 0.0, 10.0))
+    self.runtime.prewarm.assert_called_once()
+    for index, reset in enumerate(("settings", "disarm", "resume"), start=2):
+      with self.subTest(reset=reset):
+        if reset == "settings":
+          Path(self.params.get_param_path(KEY)).write_bytes(encode(Preferences(True, Settings(0.05, 1.0))))
+        elif reset == "disarm":
+          self.params.put_bool("DoShutdown", True, block=True)
+          self.tick()
+          self.params.put_bool("DoShutdown", False, block=True)
+        else:
+          self.clock.offset += 100_000_000
+        for _ in range(903):
+          self.tick()
+        self.assertIsNone(self.runtime.policy.trigger_started)
+        self.tick(acceleration=(0.0, 0.0, 10.0))
+        self.assertEqual(self.runtime.prewarm.call_count, index)
+
   def test_camera_prewarm_failure_shows_unavailable_and_keeps_watching(self):
     def prewarm():
       raise OSError("lease unavailable")
-    self.runtime.prewarm = prewarm
+    self.runtime.prewarm = Mock(side_effect=prewarm)
     for _ in range(902):
       self.tick()
     with patch.object(runtime_module.cloudlog, "warning") as warning:
@@ -270,6 +342,7 @@ class TestRuntime(unittest.TestCase):
       self.assertEqual(self.tick(acceleration=(0.0, 0.0, 9.81)).state, "armed")
     self.assertEqual(self.runtime.recording_state, "unavailable")
     warning.assert_called_once()
+    self.runtime.prewarm.assert_called_once()
 
   def test_store_callback_rechecks_saved_revision_and_sample_age(self):
     self.tick()

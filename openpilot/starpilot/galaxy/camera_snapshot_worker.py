@@ -8,6 +8,7 @@ from PIL import Image
 
 from msgq.visionipc import VisionIpcClient
 from openpilot.cereal.visionipc import VisionStreamType
+from openpilot.starpilot.galaxy.camera_exposure import CameraStates, ExposureReadiness
 from openpilot.starpilot.galaxy.camera_snapshot import CAPTURE_TIMEOUT_SECONDS, MAX_JPEG_BYTES
 from openpilot.system.camerad.snapshot import extract_image
 
@@ -16,38 +17,33 @@ STREAMS = {"cabin": VisionStreamType.VISION_STREAM_CABIN, "wide": VisionStreamTy
            "narrow": VisionStreamType.VISION_STREAM_NARROW_ROAD}
 CABIN_SETTLE_NS = 10_000_000_000
 WIDE_SETTLE_NS = 5_000_000_000
-SETTLE_MIN_FRAME = 3  # the first reports carry no measurement yet
-STATE_SERVICES = {"cabin": "cabinCameraState", "wide": "wideRoadCameraState", "narrow": "narrowRoadCameraState"}
 
 
 def boot_ns():
   return time.clock_gettime_ns(getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC))
 
 
-def settled(state, recent_ev, *, extremes=True):
-  # Reported grey is from the previous frame; exposure percent is this frame's.
-  grey, target, percent = state.measuredGreyFraction, state.targetGreyFraction, state.exposureValPercent
-  if state.frameId < SETTLE_MIN_FRAME:
-    return False
-  # Cabin IR keeps brightening after exposure maxes out.
-  if extremes and ((percent >= 99 and grey < target) or (percent <= 1 and grey > target)):
-    return True
-  # A black frame also reads near target, so exposure must be steady too.
-  return abs(grey - target) <= 0.25 * target and len(recent_ev) == 3 and max(recent_ev) <= 1.05 * min(recent_ev)
-
-
-def camera_states(camera):
-  from openpilot.cereal import messaging
-  service = STATE_SERVICES[camera]
-  sock = messaging.sub_sock(service)
-  return lambda: [getattr(event, service) for event in messaging.drain_sock(sock)]
-
-
-def capture(camera, *, parked=False, client_factory=VisionIpcClient, clock=boot_ns, states_factory=camera_states):
+def capture(camera, *, parked=False, client_factory=VisionIpcClient, clock=boot_ns, states_factory=CameraStates):
   started = clock()
-  states = states_factory(camera) if parked else None
-  settled_from = None
-  recent_ev = []
+  states = None
+  try:
+    if parked and camera in ("wide", "cabin"):
+      try:
+        states = states_factory(camera)
+      except Exception:
+        pass  # Exposure telemetry is optional; keep the bounded timed fallback.
+    return _capture(camera, started, states=states, client_factory=client_factory, clock=clock)
+  finally:
+    close = getattr(states, "close", None)
+    if close is not None:
+      try:
+        close()
+      except Exception:
+        pass
+
+
+def _capture(camera, started, *, states, client_factory, clock):
+  readiness = ExposureReadiness(camera, started)
   client = client_factory("camerad", STREAMS[camera], True)
   while not client.connect(False):
     if clock() - started > 9_000_000_000:
@@ -59,18 +55,32 @@ def capture(camera, *, parked=False, client_factory=VisionIpcClient, clock=boot_
   while clock() < deadline:
     frame = client.recv(timeout_ms=100)
     now = clock()
-    if states is not None and settled_from is None:
-      for state in states():
-        recent_ev = (recent_ev + [state.integLines * state.gain])[-3:]
-        if settled_from is None and settled(state, recent_ev, extremes=camera != "cabin"):
-          settled_from = state.frameId - 1
-    early = settled_from is not None and client.frame_id >= settled_from
-    if camera == "cabin" and not early and now - connected < CABIN_SETTLE_NS:
-      continue
+    if now >= deadline:
+      return None
     # Native camerad does not populate VIPC extra.valid; use capture freshness.
     if frame is None or not started < client.timestamp_sof <= client.timestamp_eof <= now:
       continue
     if now - client.timestamp_sof > 500_000_000:
+      continue
+    early = False
+    if states is not None:
+      frame_id = client.frame_id
+      readiness.observe_frame(frame_id, client.timestamp_sof, client.timestamp_eof)
+      try:
+        events = states()
+        # camerad publishes VIPC before constructing/publishing cameraState.
+        # Metadata received here can legitimately be newer than the recv clock.
+        now = clock()
+        readiness.observe(events, now)
+        early = readiness.ready(frame_id, client.timestamp_sof, client.timestamp_eof, now)
+      except Exception:
+        states = None
+      now = clock()
+      if now >= deadline:
+        return None
+      if now - client.timestamp_sof > 500_000_000:
+        continue
+    if camera == "cabin" and not early and now - connected < CABIN_SETTLE_NS:
       continue
     if camera == "wide" and not early:
       # A live IPC connection can precede camera frames. Count warm-up from the

@@ -12,7 +12,8 @@ import numpy as np
 
 from openpilot.starpilot.galaxy.camera_request import TTL_NS
 from openpilot.starpilot.galaxy.camera_snapshot import CAPTURE_TIMEOUT_SECONDS, CameraSnapshot, SnapshotDenied, SnapshotUnavailable
-from openpilot.starpilot.galaxy.camera_snapshot_worker import capture, settled
+from openpilot.starpilot.galaxy.camera_exposure import STATE_SERVICES
+from openpilot.starpilot.galaxy.camera_snapshot_worker import capture
 
 
 class CameraSnapshotTest(unittest.TestCase):
@@ -271,21 +272,9 @@ class CameraSnapshotTest(unittest.TestCase):
     CameraSnapshot(spawn=spawn).capture('wide', permitted=lambda: True)
     self.assertEqual(seen, [['wide', 'parked'], ['wide']])
 
-  def test_settled_reports(self):
-    def state(frame_id=10, grey=0.125, target=0.125, percent=50.0):
-      return SimpleNamespace(frameId=frame_id, measuredGreyFraction=grey, targetGreyFraction=target, exposureValPercent=percent)
-    steady, climbing = [100, 100, 101], [66, 76, 87]
-    self.assertTrue(settled(state(), steady))
-    self.assertFalse(settled(state(grey=0.098), climbing))  # black frame from a cold start reads near target
-    self.assertTrue(settled(state(grey=0.098, target=0.145, percent=100), climbing))  # dark scene at full exposure
-    self.assertTrue(settled(state(grey=0.9, target=0.3, percent=0), climbing))  # bright scene at minimum exposure
-    self.assertFalse(settled(state(grey=0.9, target=0.3, percent=60), steady))  # still dimming
-    self.assertFalse(settled(state(frame_id=2), steady))  # no measurement yet
-    self.assertFalse(settled(state(grey=0.098, target=0.145, percent=100), climbing, extremes=False))  # cabin waits for IR
-
   def test_parked_capture_takes_first_settled_frame_capped_by_old_waits(self):
     frame = SimpleNamespace(width=4, height=4, stride=4, uv_offset=16, data=np.full(80, 128, dtype=np.uint8))
-    cases = (('wide', True, 10, 10), ('cabin', True, 10, 10), ('wide', True, None, 50), ('cabin', True, None, 99),
+    cases = (('wide', True, 10, 32), ('cabin', True, 10, 32), ('wide', True, None, 50), ('cabin', True, None, 99),
              ('wide', False, 10, 50), ('cabin', False, 10, 99))
     for camera, parked, settles_at, accepted in cases:
       with self.subTest(camera=camera, parked=parked, settles_at=settles_at):
@@ -302,9 +291,13 @@ class CameraSnapshotTest(unittest.TestCase):
         client = Client()
         def states_factory(camera, client=client, settles_at=settles_at):
           close = settles_at is not None
-          return lambda: [SimpleNamespace(frameId=client.frame_id, targetGreyFraction=0.125, exposureValPercent=50,
-                                          integLines=1000, gain=1.0,
-                                          measuredGreyFraction=0.125 if close and client.frame_id >= settles_at else 0.02)]
+          def states():
+            state = SimpleNamespace(frameId=client.frame_id, timestampSof=client.timestamp_sof, timestampEof=client.timestamp_eof,
+                                    targetGreyFraction=0.125, exposureValPercent=50, integLines=1000, gain=1.0,
+                                    measuredGreyFraction=0.125 if close and client.frame_id >= settles_at else 0.02)
+            return [SimpleNamespace(valid=True, logMonoTime=client.timestamp_eof, which=lambda: STATE_SERVICES[camera],
+                                    **{STATE_SERVICES[camera]: state})]
+          return states
         with patch('openpilot.starpilot.galaxy.camera_snapshot_worker.extract_image', return_value=np.zeros((4, 4, 3), dtype=np.uint8)):
           self.assertIsNotNone(capture(camera, parked=parked, client_factory=lambda *args, client=client: client,
                                        clock=lambda now=now: now[0], states_factory=states_factory))
@@ -328,3 +321,58 @@ class CameraSnapshotTest(unittest.TestCase):
     self.assertIsInstance(results['cabin'], SnapshotUnavailable)
     self.assertEqual(self.request_mock.call_count, 1)
     self.mark_frame_mock.assert_not_called()
+
+  def test_optional_metadata_failure_keeps_timed_fallback_and_closes_reader(self):
+    for camera, expected in (('wide', 51), ('cabin', 100)):
+      for failure in ('open', 'read', 'close'):
+        with self.subTest(camera=camera, failure=failure):
+          now = [1_000_000_000]
+          frame = SimpleNamespace(width=4, height=4, stride=4, uv_offset=16, data=np.full(80, 128, dtype=np.uint8))
+          class Client:
+            frame_id = 0
+            def connect(self, blocking): return True
+            def recv(self, timeout_ms, *, now=now, frame=frame):
+              self.frame_id += 1
+              now[0] += 100_000_000
+              self.timestamp_sof, self.timestamp_eof = now[0] - 20_000_000, now[0] - 10_000_000
+              return frame
+          class States:
+            closed = False
+            def __call__(self, *, failure=failure):
+              if failure == 'read':
+                raise RuntimeError('metadata unavailable')
+              return []
+            def close(self, *, failure=failure):
+              self.closed = True
+              if failure == 'close':
+                raise OSError('metadata close failed')
+          states, client = States(), Client()
+          def factory(camera, *, failure=failure, states=states):
+            if failure == 'open':
+              raise OSError('metadata unavailable')
+            return states
+          self.assertIsNotNone(capture(camera, parked=True, client_factory=lambda *args, client=client: client,
+                                       clock=lambda now=now: now[0], states_factory=factory))
+          self.assertEqual(client.frame_id, expected)
+          self.assertEqual(states.closed, failure != 'open')
+
+  def test_metadata_published_after_vipc_recv_uses_post_read_clock(self):
+    now = [1_000_000_000]
+    frame = SimpleNamespace(width=4, height=4, stride=4, uv_offset=16, data=np.full(80, 128, dtype=np.uint8))
+    class Client:
+      frame_id = 0
+      def connect(self, blocking): return True
+      def recv(self, timeout_ms):
+        self.frame_id += 1
+        now[0] += 100_000_000
+        self.timestamp_sof, self.timestamp_eof = now[0] - 20_000_000, now[0] - 10_000_000
+        return frame
+    client = Client()
+    def states():
+      now[0] += 10_000_000
+      state = SimpleNamespace(frameId=client.frame_id, timestampSof=client.timestamp_sof, timestampEof=client.timestamp_eof,
+                              targetGreyFraction=.125, measuredGreyFraction=.125, exposureValPercent=50., integLines=1000, gain=1.)
+      return [SimpleNamespace(valid=True, logMonoTime=now[0], which=lambda: 'wideRoadCameraState', wideRoadCameraState=state)]
+    self.assertIsNotNone(capture('wide', parked=True, client_factory=lambda *args: client,
+                                 clock=lambda: now[0], states_factory=lambda camera: states))
+    self.assertEqual(client.frame_id, 25)

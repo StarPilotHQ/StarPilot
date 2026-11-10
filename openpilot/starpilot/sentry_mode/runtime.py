@@ -176,14 +176,15 @@ class SentryRuntime:
       self.saved_raw = saved.raw
     offroad, ignition_off, voltage_ok, fresh, now_ns = self._authority()
     sample = self._sample(now_ns) if active else None
-    triggers = self.policy.trigger_count
+    trigger_started = self.policy.trigger_started
     sm = self.messages
     sample_pending = bool(not sm.updated["accelerometer"] and sm.seen["accelerometer"] and
                           sm.alive["accelerometer"] and sm.valid["accelerometer"])
     decision = self.policy.update(now_ns / 1e9, Inputs(active, offroad, voltage_ok, fresh, ignition_off, sample, sample_pending))
     expected_raw = saved.raw
-    # Warm the cameras up at the first jolt.
-    if (self.prewarm is not None and self.policy.trigger_count > triggers and expected_raw is not None and
+    # Warm once per motion window, including a new window that resets the count.
+    if (self.prewarm is not None and self.policy.trigger_started is not None and
+        self.policy.trigger_started != trigger_started and expected_raw is not None and
         self._permitted(expected_raw)):
       try:
         self.prewarm()

@@ -34,8 +34,11 @@ class CameraSnapshot:
 
   def capture_many(self, cameras, *, permitted, parked: bool = False) -> dict:
     """Read several cameras from one camera start; each result is JPEG bytes or SnapshotUnavailable."""
-    if any(camera not in CAMERAS for camera in cameras):
-      raise ValueError("Unknown camera")
+    cameras = tuple(cameras)
+    if not cameras or any(not isinstance(camera, str) or camera not in CAMERAS for camera in cameras):
+      raise ValueError("Expected one or more known cameras")
+    if len(set(cameras)) != len(cameras):
+      raise ValueError("Duplicate camera")
     if not permitted():
       raise SnapshotDenied
     if not _CAPTURE_LOCK.acquire(blocking=False):
@@ -48,25 +51,47 @@ class CameraSnapshot:
         else:
           self.last_request[camera] = self.clock()
       from openpilot.starpilot.galaxy.camera_request import request, boot_ns
+      capture_started = self.clock()
       request()
       frame_after = boot_ns()
-      for camera in cameras:
-        if camera not in results:
-          deadlines[camera] = self.clock() + CAPTURE_TIMEOUT_SECONDS[camera]
-          processes[camera] = self.spawn([sys.executable, '-m', 'openpilot.starpilot.galaxy.camera_snapshot_worker', camera] +
-                                         (['parked'] if parked else []),
-                                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True)
-      while len(results) < len(cameras):
-        if not permitted():
+      for index, camera in enumerate(cameras):
+        if index and not permitted():
           raise SnapshotDenied
-        for camera, process in processes.items():
-          if camera in results:
-            continue
-          if self.clock() >= deadlines[camera]:
+        now = self.clock()
+        for expired in tuple(processes):
+          if now >= deadlines[expired]:
+            results[expired] = SnapshotUnavailable("Camera timed out")
+            self._close_reader(processes[expired])
+            del processes[expired]
+        if camera not in results:
+          deadlines[camera] = capture_started + CAPTURE_TIMEOUT_SECONDS[camera]
+          if now >= deadlines[camera]:
             results[camera] = SnapshotUnavailable("Camera timed out")
             continue
           try:
-            body, _ = process.communicate(timeout=min(.1 / len(processes), max(.001, deadlines[camera] - self.clock())))
+            processes[camera] = self.spawn([sys.executable, '-m', 'openpilot.starpilot.galaxy.camera_snapshot_worker', camera] +
+                                           (['parked'] if parked else []),
+                                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True)
+          except OSError:
+            results[camera] = SnapshotUnavailable("Camera unavailable")
+      while len(results) < len(cameras):
+        if not permitted():
+          raise SnapshotDenied
+        for camera in tuple(processes):
+          # Reap expired readers before waiting on any other camera. Bound every
+          # poll by the earliest deadline, not just the selected reader's budget.
+          now = self.clock()
+          for expired in tuple(processes):
+            if now >= deadlines[expired]:
+              results[expired] = SnapshotUnavailable("Camera timed out")
+              self._close_reader(processes[expired])
+              del processes[expired]
+          if camera not in processes:
+            continue
+          process = processes[camera]
+          timeout = min(.1 / len(processes), min(deadlines[name] for name in processes) - now)
+          try:
+            body, _ = process.communicate(timeout=timeout)
           except subprocess.TimeoutExpired:
             continue
           if (process.returncode != 0 or not 4 <= len(body) <= MAX_JPEG_BYTES or
@@ -74,6 +99,8 @@ class CameraSnapshot:
             results[camera] = SnapshotUnavailable("No fresh camera frame")
           else:
             results[camera] = body
+          self._close_reader(processes[camera])
+          del processes[camera]
       if not permitted():
         raise SnapshotDenied
       if isinstance(results.get("cabin"), bytes):
@@ -83,10 +110,24 @@ class CameraSnapshot:
     except OSError as error:
       raise SnapshotUnavailable("Camera unavailable") from error
     finally:
-      for process in processes.values():
-        if process.poll() is None:
+      try:
+        for process in processes.values():
+          try:
+            self._close_reader(process)
+          except OSError:
+            pass  # Still clean up the other reader and release ownership.
+      finally:
+        _CAPTURE_LOCK.release()
+
+  @staticmethod
+  def _close_reader(process):
+    try:
+      if process.poll() is None:
+        try:
           process.kill()
-        process.wait()
-        if process.stdout is not None:
-          process.stdout.close()
-      _CAPTURE_LOCK.release()
+        except ProcessLookupError:
+          pass  # It exited after poll(); wait must still reap it.
+      process.wait()
+    finally:
+      if process.stdout is not None:
+        process.stdout.close()
