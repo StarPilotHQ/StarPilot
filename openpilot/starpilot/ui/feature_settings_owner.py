@@ -56,6 +56,7 @@ from openpilot.starpilot.ui.tesla_coop_feature import TeslaCoopFeature
 from openpilot.starpilot.ui.tesla_screen_feature import TeslaScreenFeature, KEYS as TESLA_SCREEN_KEYS
 from openpilot.starpilot.ui.ford_bluepilot_feature import FordBluePilotFeature, KEYS as FORD_BLUEPILOT_KEYS
 from openpilot.starpilot.ui.ford_cluster_feature import FordClusterFeature
+from openpilot.starpilot.ui.ford_rear_fog_feature import FordRearFogFeature
 from openpilot.starpilot.ui.preap_radar_feature import PreAPRadarFeature, KEYS as PREAP_RADAR_KEYS, capability as preap_radar_capability
 from openpilot.starpilot.ui.gm_tune_feature import GmTuneFeature, GmTruckFeature, GmEvPresetFeature
 from openpilot.starpilot.car.gm.tune_preferences import KEY as GM_TUNE_KEY
@@ -834,7 +835,8 @@ class FeatureSettingsOwner:
           self._gm_stop_capability("GMAutoHold") is not None or self.tesla_screen.capability() is not None or self.tesla_coop.capability() is not None or
           self.gm_tune.capability() is not None or self.gm_truck.capability() is not None or
           self.gm_ev_preset.capability() is not None or self.volt_radar.capability() is not None or
-          self.panda_wake.capability() is not None or preap_radar_capability(self.vehicle_params()) is not None):
+          self.panda_wake.capability() is not None or FordRearFogFeature(self).capability() is not None or
+          preap_radar_capability(self.vehicle_params()) is not None):
         rows.append(FeatureRow("", "Vehicle Settings", "Configure features supported by your vehicle", page=FeaturePage.VEHICLE, available=True))
       rows.append(FeatureRow("", "Driving Personalities", "Adjust Aggressive, Standard, Relaxed and Traffic profiles",
                              page=FeaturePage.PERSONALITIES, available=True))
@@ -845,6 +847,7 @@ class FeatureSettingsOwner:
     elif page == FeaturePage.VEHICLE:
       title = "Vehicle Settings"
       rows = list(self._alpha_long_rows(parked))
+      rows.extend(FordRearFogFeature(self).rows(parked))
       capability = self._auto_hold_capability()
       allowed = configurable and capability is not None and self.authority("vehicle")
       row = self._bool_row("ToyotaAutoHold", "Automatic Brake Hold", allowed,
@@ -1345,6 +1348,8 @@ class FeatureSettingsOwner:
       return self._apply_reverse_cruise(request)
     if key in LATERAL_PAUSE_KEYS:
       return self._apply_lateral_pause(request)
+    if key == "FordRearFogIndicator":
+      return FordRearFogFeature(self).apply(request)
     if key == "FordHandsFreeCluster":
       return FordClusterFeature(self).apply(request)
     if key in FORD_BLUEPILOT_KEYS:

@@ -1305,6 +1305,13 @@ class StarShellSession:
                                   compact_scroll_x=self.compact_scroll_x, sidebar_expanded=self.sidebar_expanded,
                                   menu_only=self.profile == Profile.COMPACT and mode == ShellMode.SETTINGS,
                                   onroad_view_only=mode == ShellMode.ONROAD, stopped_timer_profile=str(self.profile))
+    from openpilot.starpilot.car.ford.rear_fog import RearFogReceiver
+    if getattr(self, "rear_fog", None) is None:
+      self.rear_fog = RearFogReceiver()
+    ui = self.adapter.ui_state
+    enabled = snapshot.onroad.customization["layouts"][str(self.profile)]["rear_fog"]["enabled"]
+    fog_on, fog_stamp = self.rear_fog.sample(ui.CP, active=mode == ShellMode.ONROAD and bool(ui.started) and enabled)
+    snapshot = replace(snapshot, onroad=replace(snapshot.onroad, ford_rear_fog_on=fog_on, ford_rear_fog_source_ns=fog_stamp))
     if mode == ShellMode.ONROAD and self.profile == Profile.LARGE:
       width = getattr(self, '_onroad_page_width', 2160.0) - (SIDEBAR_WIDTH if snapshot.onroad.appearance.show_developer_sidebar else 0)
       fitted = fit_to_road(snapshot.onroad.customization, width)
@@ -1722,6 +1729,8 @@ class StarShellSession:
     self._favorite_claimed = False
 
   def close(self) -> None:
+    if receiver := getattr(self, "rear_fog", None):
+      receiver.close()
     if layer := getattr(self, 'onroad_jetlink', None):
       layer.close()
       self.onroad_jetlink = None

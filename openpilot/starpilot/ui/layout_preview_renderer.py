@@ -384,6 +384,9 @@ class _Canvas:
             # remains engaged. Driving scenes always use their unmodified state.
             sample = {'cem_gauge': 'cem_curve', 'speed_limit_actions': 'slc_pending'}.get(key) if general else None
             widget_state = sample_state(sample, state.customization) if sample is not None else state
+            if key == "rear_fog":
+              from openpilot.starpilot.car.ford.rear_fog import boot_time_ns
+              widget_state = replace(widget_state, ford_rear_fog_on=True, ford_rear_fog_source_ns=boot_time_ns())
             self._settle(widget_state)
             self.view._ordered_widgets(content, widget_state, only_widget=key)
         finally:

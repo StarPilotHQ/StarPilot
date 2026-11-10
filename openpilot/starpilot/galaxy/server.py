@@ -351,7 +351,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         params = Params()
         authority = context_source(params)
         server.layout_authority = authority
-        layout_source = OnroadLayoutOwner(params, authority.parked)
+        layout_source = OnroadLayoutOwner(params, authority.parked, lambda: authority.sample().cp)
       return layout_source
 
   def projection_layout_owner():

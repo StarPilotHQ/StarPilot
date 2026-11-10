@@ -15,6 +15,7 @@ import json
 
 from openpilot.starpilot.ui.raylib import rl
 
+from openpilot.starpilot.ui.onroad_rear_fog import render_rear_fog
 from openpilot.starpilot.ui import clip
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.starpilot.ui.onroad_customization import (CLOCK_WIDGET, MODE_WIDGET, RAIL_WIDGETS, STOPPED_TIMER_WIDGET, placement, rgba,
@@ -365,6 +366,8 @@ class OnroadView:
     submit(MODE_WIDGET, lambda: self._driving_mode(state, (width - 1860) / 2 if large else 0))
     submit(CLOCK_WIDGET, lambda: self._clock(state, (width - 1860) / 2 if large else 0))
     submit("weather", lambda: self._weather(state, (width - 1860) / 2 if large else 0))
+    if state.alert.size != AlertSize.FULL:
+      submit("rear_fog", lambda: render_rear_fog(state, profile))
     pending = manual_slc_confirmation(self.fonts.profile, state)
     for key in widget_order(state.customization, profile):
       if only_widget is not None and key != only_widget:
@@ -452,6 +455,8 @@ class OnroadView:
         self._slc_actions(state)
       if not self.projection_viewport and (quick_select := getattr(self, 'quick_select_layer', None)) is not None:
         quick_select(content, state)
+      if not ordered and state.alert.size != AlertSize.FULL:
+        render_rear_fog(state, "large")
       self.alert.render(content, state.alert)
     finally:
       clip.end_scissor_mode()
@@ -546,6 +551,8 @@ class OnroadView:
         self._slc_actions(state)
       signals = state.border_signals
       direction = (-1 if signals.left_blinker else 1 if signals.right_blinker else 0) if signals else 0
+      if not ordered and state.alert.size != AlertSize.FULL:
+        render_rear_fog(state, "compact")
       self.alert.render(frame, state.alert, signal_direction=direction)
     finally:
       clip.end_scissor_mode()
