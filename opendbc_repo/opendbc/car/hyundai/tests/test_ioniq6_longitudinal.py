@@ -61,6 +61,36 @@ class TestIoniq6Longitudinal(unittest.TestCase):
       for value, previous in zip(actual, expected, strict=True):
         self.assertAlmostEqual(value, previous, places=12)
 
+  def test_saturated_stopping_brake_survives_low_speed_comfort_cap(self):
+    for speed in (.1, .5, 1., 2.):
+      with self.subTest(speed=speed):
+        policy = Ioniq6LongitudinalPolicy()
+        last_sent = 0.
+        for frame in range(600):
+          result = policy.update(frame, active=True, override=False, accel=-3.5, speed=speed,
+                                  measured_accel=last_sent, control_state=LongState.stopping,
+                                  last_sent_accel=last_sent)
+          self.assertTrue(result.stopping)
+          self.assertGreaterEqual(result.accel, -3.5)
+          if frame % 2 == 0:
+            self.assertLessEqual(result.accel, last_sent)
+            self.assertGreaterEqual(result.accel + 1e-12, last_sent - .36)
+            last_sent = result.accel
+        self.assertAlmostEqual(last_sent, -3.5)
+        refused = policy.update(601, active=True, override=True, accel=-3.5, speed=speed,
+                                 measured_accel=last_sent, control_state=LongState.stopping,
+                                 last_sent_accel=last_sent)
+        self.assertEqual(refused.accel, 0.)
+        self.assertFalse(refused.stopping)
+        self.assertEqual(policy.state, Ioniq6LongitudinalState())
+
+  def test_saturated_request_returns_to_soft_hold_at_standstill(self):
+    state = Ioniq6LongitudinalState(accel_last=-3.5)
+    update_calibration(state, -3.5, 0., 0., LongState.stopping)
+    self.assertAlmostEqual(state.desired_accel, -.15)
+    self.assertTrue(state.stopping)
+    self.assertGreater(state.actual_accel, -3.5)
+
   def test_soft_target_revokes_launch_on_offcycle_and_scheduled_ticks(self):
     for drop_frame in (31, 35):
       with self.subTest(drop_frame=drop_frame):
@@ -322,6 +352,20 @@ class TestIoniq6Longitudinal(unittest.TestCase):
           self.assertEqual(frame[1][22], int(cs.out.gasPressed))
           counters.append(frame[1][2])
       self.assertEqual(counters, [counter & 0xff for counter in range(260)])
+
+  def test_already_gentler_request_uses_bounded_stop_release(self):
+    state = Ioniq6LongitudinalState(accel_last=-1.5)
+    update_calibration(state, -.5, 3., -1.5, LongState.stopping)
+    self.assertGreater(state.actual_accel, -1.47)
+    self.assertLessEqual(state.actual_accel, -.5)
+    self.assertLessEqual(state.jerk_upper, 1.32)
+    self.assertTrue(state.stopping)
+
+  def test_stop_release_does_not_weaken_independent_braking_above_soft_cap(self):
+    state = Ioniq6LongitudinalState(accel_last=-3.2)
+    update_calibration(state, -3.2, 2.5, -3.2, LongState.stopping)
+    self.assertEqual(state.desired_accel, -3.2)
+    self.assertEqual(state.actual_accel, -3.2)
 
   def test_stock_ioniq_and_other_cars_do_not_install_this_policy(self):
     for car in (CAR.HYUNDAI_IONIQ_6, CAR.HYUNDAI_IONIQ_5, CAR.KIA_EV6):
