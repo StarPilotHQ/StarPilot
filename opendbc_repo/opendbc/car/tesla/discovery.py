@@ -1,12 +1,29 @@
-"""Passive AP1 query-wiring selection; live firmware still owns vehicle identity."""
+"""Passive Tesla query-wiring selection; live firmware still owns vehicle identity."""
 
 HW1_NORMAL_BUS0_LAYOUT = {(0, 0x108): 8, (0, 0x155): 8, (0, 0x20A): 8,
                          (0, 0x368): 8, (0, 0x370): 8, (2, 0x488): 4, (2, 0x2B9): 8}
+
+# Modern party-bus driver/chassis state and stock Autopilot messages are already
+# visible without switching CAN2 to OBD wiring. This only scopes live queries;
+# it does not distinguish Model 3/Y, establish firmware support or grant control.
+MODERN_NORMAL_BUS0_LAYOUT = {(0, 0x118): 8, (0, 0x145): 8, (0, 0x155): 8,
+                            (0, 0x257): 8, (0, 0x311): 7, (0, 0x370): 8,
+                            (2, 0x488): 4, (2, 0x2B9): 8}
 
 
 def hw1_normal_bus0_topology(fingerprint):
   try:
     return all(fingerprint.get(bus, {}).get(address) == length
                for (bus, address), length in HW1_NORMAL_BUS0_LAYOUT.items())
+  except (AttributeError, TypeError, ValueError):
+    return False
+
+
+def normal_bus0_topology(fingerprint):
+  if hw1_normal_bus0_topology(fingerprint):
+    return True
+  try:
+    return all(fingerprint.get(bus, {}).get(address) == length
+               for (bus, address), length in MODERN_NORMAL_BUS0_LAYOUT.items())
   except (AttributeError, TypeError, ValueError):
     return False

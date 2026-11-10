@@ -15,7 +15,7 @@ from opendbc.car.ford.discovery import (normal_bus0_selection as ford_normal_bus
                                        normal_bus0_queries as ford_normal_bus0_queries, normal_bus_query_brand)
 from opendbc.car.volvo.discovery import normal_bus_topology as volvo_normal_bus_topology
 from opendbc.car.hyundai.discovery import normal_bus_topology
-from opendbc.car.tesla.discovery import hw1_normal_bus0_topology
+from opendbc.car.tesla.discovery import normal_bus0_topology as tesla_normal_bus0_topology
 from opendbc.car.values import BRANDS
 from opendbc.car.vin import get_vin, is_valid_vin, VIN_UNKNOWN
 
@@ -171,7 +171,7 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
           can_recv, normal_bus_topology,
           gm_probe=gm_normal_bus0_topology if _gm_fw_uses_normal_bus0() else None,
           volvo_probe=volvo_normal_bus_topology if not fw_versions.FW_QUERY_CONFIGS['volvo'].requests else None,
-          tesla_probe=hw1_normal_bus0_topology if _tesla_fw_uses_normal_bus0() else None)) is not None:
+          tesla_probe=tesla_normal_bus0_topology if _tesla_fw_uses_normal_bus0() else None)) is not None:
 
         set_obd_multiplexing(False)
         warmup_remaining = 0.1 - (time.monotonic() - start_time)

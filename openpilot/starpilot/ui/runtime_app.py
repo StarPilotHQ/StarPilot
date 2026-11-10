@@ -76,6 +76,7 @@ from openpilot.starpilot.ui.onroad_dm import DriverMonitorLayer
 from openpilot.starpilot.favorites.owner import FavoritesOwner
 from openpilot.starpilot.controllers.cruise_action import CruiseActionPublisher, ui_authority as cruise_action_authority
 from openpilot.starpilot.controllers.wheel_actions import WheelConsumer
+from openpilot.starpilot.ui.wheel_input import onroad_action_context
 from openpilot.starpilot.system.starport.projection_bookmark import BookmarkReceiver
 from openpilot.starpilot.system.starport.projection_slc_action import SlcActionReceiver
 from openpilot.starpilot.controllers.mode_actions import ModeActionPublisher, producer_available, authority as mode_action_authority
@@ -319,17 +320,17 @@ class StarShellSession:
     if getattr(self, "_projection_tap", False):
       return bool(ui_state.started and display_message(ui_state.sm, 'carState', time.monotonic_ns(),
                                                        after_frame=ui_state.started_frame) is not None)
-    if self._mode != ShellMode.ONROAD:
+    if not onroad_action_context(self, native_device, ui_state):
       return False
     state = self.snapshot(ShellMode.ONROAD).onroad
     camera_allowed = (self.profile != Profile.COMPACT or not state.reversing or
                       state.appearance.camera_view in (CameraViewChoice.NONE, CameraViewChoice.DRIVER))
     alert_allowed = state.alert.size == AlertSize.NONE or allow_personality_notice and is_personality_notice(state.alert)
-    return bool(self._mode == ShellMode.ONROAD and state.camera_available and alert_allowed and camera_allowed)
+    return bool(state.camera_available and alert_allowed and camera_allowed)
 
   def _bookmark_authority(self) -> bool:
     if (getattr(ui_state, "replay_clock", None) is not None or
-        self._mode != ShellMode.ONROAD or not ui_state.started):
+        not onroad_action_context(self, native_device, ui_state) or not ui_state.started):
       return False
     car_state = display_message(ui_state.sm, 'carState', time.monotonic_ns(), after_frame=ui_state.started_frame)
     return bool(car_state is not None and car_state.canValid and not car_state.canTimeout)

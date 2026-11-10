@@ -162,15 +162,18 @@ def test_ui_poll_precedes_every_frame_including_wake(frame, monkeypatch, awake):
   monkeypatch.setattr(application.time, "sleep", lambda _: None)
   monkeypatch.setattr(ui, "gui_app", app)
   monkeypatch.setattr(ui, "ui_state", SimpleNamespace(update=lambda: events.append("messages")))
+  monkeypatch.setattr(ui, "device", SimpleNamespace(awake=awake))
   controllers = SimpleNamespace(poll=lambda: events.append("controls"))
   preview = SimpleNamespace(poll=lambda: events.append("preview"))
   star = SimpleNamespace(_poll_projection_bookmark=lambda now: events.append("bookmark"),
-                         _poll_projection_slc=lambda now: events.append("slc"))
+                         _poll_projection_slc=lambda now: events.append("slc"),
+                         _poll_wheel=lambda now: events.append("wheel"))
   app._nav_stack_ticks = [lambda: events.append("transition")]
   app._nav_stack[0].render.side_effect = lambda _: events.append("draw")
   loop = app.render(before_frame=lambda: ui.update_frame(preview, controllers, star))
   assert next(loop)[0] is awake
-  assert events == ["messages", "bookmark", "slc", "controls", "preview"] + (["transition", "draw"] if awake else [])
+  assert events == ["messages", "bookmark", "slc"] + ([] if awake else ["wheel"]) + ["controls", "preview"] + (
+    ["transition", "draw"] if awake else [])
   with pytest.raises(StopIteration):
     next(loop)
 
@@ -207,7 +210,7 @@ def test_projection_bookmark_is_saved_once_without_rendering_starpilot(frame, mo
     path = Path(directory) / 'bookmark.sock'
     receiver, sender = BookmarkReceiver(path), BookmarkSender(path)
     publish = Mock()
-    star = SimpleNamespace(_projection_bookmarks=receiver, _publish_bookmark=publish, _poll_projection_slc=Mock())
+    star = SimpleNamespace(_projection_bookmarks=receiver, _publish_bookmark=publish, _poll_projection_slc=Mock(), _poll_wheel=Mock())
     star._poll_projection_bookmark = lambda now: namespace['_poll_projection_bookmark'](star, now)
     loop = app.render(before_frame=lambda: ui.update_frame(star=star))
     try:

@@ -9,9 +9,10 @@ from openpilot.common.realtime import Priority, config_realtime_process, drop_re
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.selfdrive.ui.layouts.main import MainLayout
 from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout
-from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.startup import select_ui
+from openpilot.starpilot.ui.wheel_input import poll_screen_off_wheel
 
 BIG_UI = gui_app.big_ui()
 
@@ -25,6 +26,7 @@ def update_frame(preview=None, controllers=None, star=None, game_mode=None, arab
     # or another widget covers the StarPilot page.
     star._poll_projection_bookmark(time.monotonic_ns())
     star._poll_projection_slc(time.monotonic_ns())
+    poll_screen_off_wheel(star, device.awake, time.monotonic_ns())
   if game_mode is not None:
     game_mode()
   if controllers is not None:
