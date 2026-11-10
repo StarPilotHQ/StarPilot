@@ -370,7 +370,7 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_RAV4H,
       )
     try:
       duration = {
-        'hold': 501, 'nominal': 251, 'physical': 601, 'faults': 801, 'bad_dlc': 801,
+        'gas_steering': 401, 'hold': 501, 'nominal': 251, 'physical': 601, 'faults': 801, 'bad_dlc': 801,
         'off': 401, 'cold_low': 251, 'hybrid_stop': 251, 'main_lease': 501, 'identity_refusal': 501,
       }[scenario]
       for tick in range(1, duration):
@@ -557,6 +557,8 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_RAV4H,
           }
         )
         nominal = tick >= 220 and (
+          scenario == 'gas_steering' and (tick < 301 or tick >= 360)
+          or
           scenario in ('nominal', 'cold_low', 'hybrid_stop') or scenario == 'hold' and tick < 250
           or scenario == 'identity_refusal' and tick < 250
           or scenario == 'main_lease' and (tick < 250 or tick >= 480)

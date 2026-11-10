@@ -1885,7 +1885,10 @@ class SelfdriveD:
       ford_native_accepts_cp(self.CP, int(car.CarParams.SafetyModel.ford), self.CP.safetyConfigs[-1].safetyParam))
     # Driver steering does not invalidate a still-current native LAT grant.
     from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
-    steering_override_allowed = (ordinary_ford or self.CP.brand == 'hyundai' or
+    from openpilot.starpilot.car.toyota.aol import qualified as toyota_aol_qualified
+    toyota_longitudinal = bool(self.CP.brand == 'toyota' and self.CP.openpilotLongitudinalControl and
+                              toyota_aol_qualified(self.CP, marked_only=True))
+    steering_override_allowed = (ordinary_ford or toyota_longitudinal or self.CP.brand == 'hyundai' or
                                  volkswagen_long_qualified(self.CP, marked_only=True))
     proof = getattr(self, 'aol_published_input_proof', None)
     prior = getattr(self, 'aol_published_input_native', None)
@@ -1923,7 +1926,6 @@ class SelfdriveD:
     if len(owners) != 1:
       return False
     from openpilot.starpilot.car.gm.aol import native_accepts_cp as gm_native_accepts_cp
-    from openpilot.starpilot.car.toyota.aol import qualified as toyota_aol_qualified
     from openpilot.starpilot.car.hyundai.aol import early_native_long_withdrawal_supported
     # Pandad reads health before its final native permission read. A GM driver
     # withdrawal between those reads legitimately leaves the earlier health
@@ -1938,7 +1940,7 @@ class SelfdriveD:
     # The exact vehicle policies and all proof/health checks above remain required.
     return bool(ordinary_ford or gm_native_accepts_cp(self.CP, native.safetyModel, native.safetyParam) or
                 early_native_long_withdrawal_supported(self.CP) or
-                toyota_aol_qualified(self.CP, marked_only=True) or
+                toyota_longitudinal or
                 not native.pandaInventory[owners[0]].controlsAllowed and
                 not self.sm['pandaStates'][owners[0]].controlsAllowed)
 
