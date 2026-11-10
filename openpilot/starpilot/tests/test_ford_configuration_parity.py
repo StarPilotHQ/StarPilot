@@ -175,3 +175,101 @@ def test_native_rejected_ui_cannot_replace_stock_cluster(ford_joined, monkeypatc
   assert ford_joined.rejected_ui_packets
   assert all(address in (0x18A, 0x3D8) for _, address in ford_joined.rejected_ui_packets)
 
+
+
+@pytest.fixture
+def conventional_ford_joined(request, monkeypatch, mode, identity, alpha, hands_free):
+  monkeypatch.ford_non_adaptive = True
+  monkeypatch.ford_bluepilot = True
+  monkeypatch.ford_angle = mode == 'angle'
+  monkeypatch.ford_starpilot = mode == 'starpilot'
+  monkeypatch.ford_pinion = True
+  monkeypatch.ford_nonzero = True
+  monkeypatch.ford_native_first_pedal = True
+  monkeypatch.ford_native_10hz = True
+  return request.getfixturevalue('ford_joined')
+
+
+@pytest.mark.parametrize('identity', [FORD_FACTORIES[11]])
+@pytest.mark.parametrize('alpha', [False])
+@pytest.mark.parametrize('hands_free', [False, True])
+@pytest.mark.parametrize('topology', ['automatic', 'manual-multi'])
+@pytest.mark.parametrize('mode', ['curvature', 'angle', 'starpilot'])
+@pytest.mark.parametrize('scenario', ['configuration-parity', 'cancel-native-cadence'])
+def test_conventional_cruise_keeps_actual_aol_without_longitudinal(conventional_ford_joined, monkeypatch, scenario):
+  joined = conventional_ford_joined
+  assert not joined.host.CP.openpilotLongitudinalControl
+  run_actual_producer(joined, monkeypatch, scenario=scenario)
+  assert joined.stock_cruise_active_samples > 0
+  if scenario == 'configuration-parity':
+    assert joined.nonzero_after_brake > 0
+
+
+@pytest.mark.parametrize('identity', FORD_FACTORIES)
+@pytest.mark.parametrize('alpha', [False, True])
+@pytest.mark.parametrize('marked', [False, True])
+@pytest.mark.parametrize('topology', ['automatic'])
+def test_conventional_cruise_event_requires_stock_marked_ford(identity, alpha, marked):
+  from opendbc.car import gen_empty_fingerprint, structs
+  from opendbc.car.ford.interface import CarInterface
+  from openpilot.cereal import log
+  from openpilot.selfdrive.car.car_events import CarEvents
+  fp = gen_empty_fingerprint()
+  fp[0].update({0x5A: 8, 0x3A6: 8, 0x3A7: 8})
+  fp[2].update({0x3D6: 8, 0x186: 8})
+  cp = CarInterface.get_params(identity[0], fp, [], alpha, False, False)
+  cp.alternativeExperience = 32 if marked else 0
+  state = structs.CarState.new_message(canValid=True, gearShifter='drive',
+      cruiseState={'available': True, 'enabled': True, 'nonAdaptive': True})
+  events = CarEvents(cp).create_common_events(state, structs.CarState.new_message())
+  assert (log.OnroadEvent.EventName.wrongCruiseMode in events.names) == (alpha or not marked)
+  state.steerFaultPermanent = state.accFaulted = True
+  faults = CarEvents(cp).create_common_events(state, state)
+  assert log.OnroadEvent.EventName.steerUnavailable in faults.names
+  assert log.OnroadEvent.EventName.accFaulted in faults.names
+
+
+@pytest.mark.parametrize('topology', ['automatic'])
+@pytest.mark.parametrize('invalid', ['passive', 'dashcam', 'not-car', 'missing-panda', 'extra-owner', 'wrong-word', 'wrong-brand'])
+def test_conventional_cruise_never_admits_an_unsupported_profile(invalid):
+  from opendbc.car import gen_empty_fingerprint
+  from opendbc.car.ford.interface import CarInterface
+  from openpilot.starpilot.car.ford.aol import stock_conventional_cruise_supported
+  fp = gen_empty_fingerprint()
+  fp[0][0x5A] = 8
+  fp[2].update({0x3D6: 8, 0x186: 8})
+  cp = CarInterface.get_params(FORD_FACTORIES[11][0], fp, [], False, False, False)
+  cp.alternativeExperience = 32
+  if invalid == 'passive':
+    cp.passive = True
+  elif invalid == 'dashcam':
+    cp.dashcamOnly = True
+  elif invalid == 'not-car':
+    cp.notCar = True
+  elif invalid == 'missing-panda':
+    cp.safetyConfigs = []
+  elif invalid == 'extra-owner':
+    cp.safetyConfigs = [cp.safetyConfigs[0].to_dict()] * 2
+  elif invalid == 'wrong-word':
+    cp.safetyConfigs[0].safetyParam = 3
+  else:
+    cp.brand = 'toyota'
+  assert not stock_conventional_cruise_supported(cp)
+
+
+@pytest.mark.parametrize('identity', [FORD_FACTORIES[11]])
+@pytest.mark.parametrize('alpha', [True])
+@pytest.mark.parametrize('hands_free', [True])
+@pytest.mark.parametrize('topology', ['automatic'])
+@pytest.mark.parametrize('mode', ['curvature', 'angle', 'starpilot'])
+def test_conventional_cruise_keeps_alpha_long_guard(conventional_ford_joined, monkeypatch):
+  run_actual_producer(conventional_ford_joined, monkeypatch, scenario='conventional-long-refusal')
+
+
+@pytest.mark.parametrize('identity', [FORD_FACTORIES[11]])
+@pytest.mark.parametrize('alpha', [False])
+@pytest.mark.parametrize('hands_free', [True])
+@pytest.mark.parametrize('topology', ['automatic'])
+@pytest.mark.parametrize('mode', ['starpilot'])
+def test_conventional_cruise_stops_for_lost_model(conventional_ford_joined, monkeypatch):
+  run_actual_producer(conventional_ford_joined, monkeypatch, scenario='conventional-model-loss')

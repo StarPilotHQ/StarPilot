@@ -167,7 +167,7 @@ def ford_joined(identity, alpha, hands_free, monkeypatch, record_property):
           native.pump(1, main=0 if getattr(monkeypatch, 'ford_first_main', False) else 3, mask=0, heartbeat=False, speed=15.0)
         extras: list[tuple[str, int, dict[str, float]]] = [
           ('SteeringPinion_Data', 0, {'StePinComp_An_Est': 0., 'StePinCompAnEst_D_Qf': 3}),
-          ('Cluster_Info1_FD1', 0, {'AccEnbl_B_RqDrv': 1}),
+          ('Cluster_Info1_FD1', 0, {'AccEnbl_B_RqDrv': int(not getattr(monkeypatch, 'ford_non_adaptive', False))}),
           ('BodyInfo_3_FD1', 0, {}),
           ('RCMStatusMessage2_FD1', 0, {'FirstRowBuckleDriver': 1}),
           ('INSTRUMENT_PANEL', 0, {}),
@@ -219,6 +219,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
   long_parser = CANParser(DBC[host.CP.carFingerprint][Bus.pt], [('ACCDATA', 50)], 0)
   lateral_name = 'LateralMotionControl2' if host.CP.flags & FordFlags.CANFD else 'LateralMotionControl'
   lateral_parser = CANParser(DBC[host.CP.carFingerprint][Bus.pt], [(lateral_name, 20)], 0)
+  joined.stock_cruise_active_samples = 0
   joined.nonzero_after_brake = 0
   joined.path_angle_after_brake = 0
   joined.active_ui_frames = 0
@@ -261,7 +262,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
         return None if source_gap_active[0] and service == 'aolIntentWire' else send(service, raw)
 
       local.setattr(host.pm, 'send', capture)
-      if scenario == 'model-loss':
+      if scenario in ('model-loss', 'conventional-model-loss'):
         model_update = sd.sm.update_msgs
         def drop_model(timestamp, messages):
           return model_update(timestamp, [m for m in messages if not (model_lost[0] and m.which() == 'modelV2')])
@@ -392,7 +393,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
         assert permission & 1 == 0 or heartbeat and request & 1 and native_request & 1
         extras = [
           ('SteeringPinion_Data', 0, {'StePinComp_An_Est': 0., 'StePinCompAnEst_D_Qf': 3}),
-          ('Cluster_Info1_FD1', 0, {'AccEnbl_B_RqDrv': 1}),
+          ('Cluster_Info1_FD1', 0, {'AccEnbl_B_RqDrv': int(not getattr(monkeypatch, 'ford_non_adaptive', False))}),
           ('BodyInfo_3_FD1', 0, {}),
           ('RCMStatusMessage2_FD1', 0, {'FirstRowBuckleDriver': 1}),
           ('INSTRUMENT_PANEL', 0, {}),
@@ -496,6 +497,8 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
         state, _ = host.state_update()
         host.state_publish(state, None)
         assert 'aolIntentWire' in published
+        if getattr(monkeypatch, 'ford_non_adaptive', False):
+          assert state.cruiseState.nonAdaptive
         parser_ready = bool(
           state.canValid and not state.canTimeout and (state.cruiseState.available or scenario == 'route49' or warmup and main_off) and
           str(state.gearShifter) == 'drive' and safety.safety_config_valid()
@@ -624,6 +627,8 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
                   joined.nonzero_after_brake = nonzero_after_brake
                   joined.path_angle_after_brake += int(abs(decoded['LatCtlPath_An_Actl']) > 1e-7)
             elif address == 0x186:
+              if getattr(monkeypatch, 'ford_non_adaptive', False):
+                assert host.CP.openpilotLongitudinalControl, 'Stock cruise received a comma acceleration message'
               long_parser.update([(source_ns, [(address, bytes(data), frame.src - joined.offset)])])
               active = bool(long_parser.vl['ACCDATA']['Cmbb_B_Enbl'])
               assert active == bool(command.longActive)
@@ -678,6 +683,12 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
                                  tuple(str(event.name) for event in host.sm['onroadEvents']),
                                  host.aol_card_intent.latch_clear_reason,
                                  str(axis.mode)))
+        if getattr(monkeypatch, 'ford_non_adaptive', False) and not host.CP.openpilotLongitudinalControl:
+          assert not axis.desiredLongitudinal and not command.longActive and not permission & 2
+          assert safety.safety_fwd_hook(2, 0x186) == 0, 'Stock cruise acceleration forwarding was blocked'
+          if state.cruiseState.enabled and command.latActive and not cancel and not brake and fault is None:
+            assert not command.cruiseControl.cancel, 'AOL cancelled the driver-owned conventional cruise'
+            joined.stock_cruise_active_samples += 1
         return state, axis, sd_state, command
 
       def joined_packet(frame):
@@ -1136,6 +1147,24 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
         assert not sd.sm.alive['modelV2'] and not controls.sm.alive['modelV2']
         assert not command.latActive and not command.longActive
         assert not native.safety.aol_get_permission_mask()
+        return
+      if scenario == 'conventional-long-refusal':
+        for _ in range(40):
+          state, axis, sd_state, command = step(engaged=True)
+        assert host.CP.openpilotLongitudinalControl and state.cruiseState.nonAdaptive
+        assert sd_state.alertType == 'wrongCruiseMode/noEntry'
+        assert command.cruiseControl.cancel and not command.latActive and not command.longActive
+        assert not axis.desiredLateral and not axis.desiredLongitudinal
+        assert not safety.aol_get_permission_mask() and active_lat_frames == active_long_frames == 0
+        return
+      if scenario == 'conventional-model-loss':
+        for _ in range(40):
+          state, axis, sd_state, command = step(engaged=True)
+        assert command.latActive and not command.longActive
+        for _ in range(450):
+          state, axis, sd_state, command = step(engaged=True, fault='model-loss')
+        assert not sd.sm.alive['modelV2'] and not controls.sm.alive['modelV2']
+        assert not command.latActive and not command.longActive and not safety.aol_get_permission_mask()
         return
       if scenario == 'configuration-parity':
         for _ in range(40):

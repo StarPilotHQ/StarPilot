@@ -15,6 +15,12 @@ def policy_for(cp):
   return AolVehiclePolicy()
 
 
+
+def stock_conventional_cruise_supported(cp):
+  """The marked stock-cruise AOL profile does not require adaptive speed control."""
+  return not cp.openpilotLongitudinalControl and qualified(cp, marked_only=True)
+
+
 def native_profile_supported(model, param):
   return model == int(structs.CarParams.SafetyModel.ford) and profile_word(param) in AOL_WORDS
 

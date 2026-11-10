@@ -1309,9 +1309,11 @@ class StarShellSession:
     if getattr(self, "rear_fog", None) is None:
       self.rear_fog = RearFogReceiver()
     ui = self.adapter.ui_state
-    enabled = snapshot.onroad.customization["layouts"][str(self.profile)]["rear_fog"]["enabled"]
-    fog_on, fog_stamp = self.rear_fog.sample(ui.CP, active=mode == ShellMode.ONROAD and bool(ui.started) and enabled)
-    snapshot = replace(snapshot, onroad=replace(snapshot.onroad, ford_rear_fog_on=fog_on, ford_rear_fog_source_ns=fog_stamp))
+    cp = getattr(ui, "CP", None)
+    enabled = snapshot.onroad.customization.get("layouts", {}).get(str(self.profile), {}).get("rear_fog", {}).get("enabled", False)
+    fog_on, fog_stamp = self.rear_fog.sample(cp, active=mode == ShellMode.ONROAD and bool(getattr(ui, "started", False)) and cp is not None and enabled)
+    if (fog_on, fog_stamp) != (snapshot.onroad.ford_rear_fog_on, snapshot.onroad.ford_rear_fog_source_ns):
+      snapshot = replace(snapshot, onroad=replace(snapshot.onroad, ford_rear_fog_on=fog_on, ford_rear_fog_source_ns=fog_stamp))
     if mode == ShellMode.ONROAD and self.profile == Profile.LARGE:
       width = getattr(self, '_onroad_page_width', 2160.0) - (SIDEBAR_WIDTH if snapshot.onroad.appearance.show_developer_sidebar else 0)
       fitted = fit_to_road(snapshot.onroad.customization, width)

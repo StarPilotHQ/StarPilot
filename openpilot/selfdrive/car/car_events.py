@@ -7,6 +7,7 @@ from opendbc.car.toyota.values import ToyotaFlags
 
 from openpilot.selfdrive.selfdrived.events import Events
 from openpilot.starpilot.car.events import event_rules, unsupported_gear
+from openpilot.starpilot.car.ford.aol import stock_conventional_cruise_supported
 
 ButtonType = structs.CarState.ButtonEvent.Type
 GearShifter = structs.CarState.GearShifter
@@ -138,7 +139,7 @@ class CarEvents:
       events.add(EventName.stockLkas)
     if CS.vEgo > MAX_CTRL_SPEED:
       events.add(EventName.speedTooHigh)
-    if CS.cruiseState.nonAdaptive:
+    if CS.cruiseState.nonAdaptive and not stock_conventional_cruise_supported(self.CP):
       events.add(EventName.wrongCruiseMode)
     if CS.brakeHoldActive and self.CP.openpilotLongitudinalControl:
       events.add(EventName.brakeHold)

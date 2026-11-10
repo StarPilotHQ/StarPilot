@@ -183,8 +183,6 @@ class OnroadState:
   speed_mps: float | None
   cruise_kph: float | None
   speed_limit: SpeedLimitObservation
-  ford_rear_fog_on: bool = False
-  ford_rear_fog_source_ns: int = 0
   appearance: OnroadAppearance = field(default_factory=OnroadAppearance)
   alert: OnroadAlert = OnroadAlert()
   metric: bool = False
@@ -248,6 +246,8 @@ class OnroadState:
   stop_sign_observed_ns: int = 0
   weather_location: tuple[float, float] | None = None
   weather: WeatherReading | None = None
+  ford_rear_fog_on: bool = False
+  ford_rear_fog_source_ns: int = 0
 
   def __post_init__(self) -> None:
     if self.speed_mps is not None and (not math.isfinite(self.speed_mps) or self.speed_mps < 0):
@@ -265,6 +265,7 @@ class OnroadState:
     if self.model_confidence is not None and (not math.isfinite(self.model_confidence) or
                                                not 0 <= self.model_confidence <= 1):
       raise ValueError("Model confidence must be normalized")
+
 
 
 @dataclass(frozen=True)

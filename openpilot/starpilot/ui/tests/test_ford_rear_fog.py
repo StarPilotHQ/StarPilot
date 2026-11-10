@@ -232,3 +232,30 @@ def test_boot_clock_matches_native_mac_fallback(monkeypatch):
   monkeypatch.setattr(rear_fog.time, "clock_gettime_ns", clock)
   assert rear_fog.boot_time_ns() == 10_000_000_000
   clock.assert_called_once_with(rear_fog.time.CLOCK_MONOTONIC)
+
+
+@pytest.mark.parametrize('missing', ['CP', 'started', 'layout'])
+def test_runtime_fog_is_off_without_vehicle_or_drive_context(missing):
+  from openpilot.starpilot.ui.runtime_app import StarShellSession
+  from openpilot.starpilot.ui.shell import ShellSnapshot, ShellMode
+  from openpilot.starpilot.ui.presentation import Profile
+  from openpilot.starpilot.ui.settings_state import Destination
+  from openpilot.starpilot.ui.onroad_state import OnroadState, SpeedLimitObservation
+  state = OnroadState(False, True, 0, None, SpeedLimitObservation(), customization=default_document())
+  session = StarShellSession.__new__(StarShellSession)
+  session.adapter = Mock()
+  session.adapter.ui_state = NS(sm=NS(frame=1), CP=cp(), started=True)
+  if missing == 'layout':
+    state = replace(state, customization={})
+  else:
+    delattr(session.adapter.ui_state, missing)
+  session.adapter.build.return_value = ShellSnapshot(ShellMode.ONROAD, Mock(), Mock(), state)
+  session.selected = Destination.STAR
+  session.compact_y = session.compact_scroll_x = 0
+  session.sidebar_expanded = True
+  session.profile = Profile.COMPACT
+  session._snapshot_cache = None
+  session.rear_fog = Mock()
+  session.rear_fog.sample.return_value = (False, 0)
+  assert not session.snapshot(ShellMode.ONROAD).onroad.ford_rear_fog_on
+  assert session.rear_fog.sample.call_args.kwargs == {'active': False}
