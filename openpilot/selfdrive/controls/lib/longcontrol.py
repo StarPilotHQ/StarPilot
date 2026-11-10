@@ -1,4 +1,5 @@
 import numpy as np
+import math
 from opendbc.car.structs import car
 from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N
@@ -96,6 +97,9 @@ class LongControl:
         output_accel -= self.stopping_decel_rate * DT_CTRL  # m/s^2/s while trying to stop
       if self.extension is not None:
         output_accel = self.extension.stopping_output(output_accel, a_target, should_stop, CS)
+      if (context.force_stop_braking and self.extension is not None and self.extension.ioniq6_start is not None and
+          should_stop and not CS.standstill and CS.vEgo > .3 and math.isfinite(a_target)):
+        output_accel = min(a_target, 0.0)
       self.reset(reset_start=False)
 
     elif self.long_control_state == LongCtrlState.starting and self.extension is not None and self.extension.starting:
@@ -119,3 +123,4 @@ class LongControl:
       output_accel = min(output_accel, planner_target)
     self.last_output_accel = np.clip(output_accel, accel_limits[0], accel_limits[1])
     return self.last_output_accel
+

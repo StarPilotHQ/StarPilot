@@ -27,7 +27,8 @@
     "FordLearningEvidence": "15123011525280866286",
     "FordLearningEvent": "12859710833724959940",
     "CentreApplicationWitness": "12325001751236334142",
-    "LearningTorqueProjection": "17327869370982877613"
+    "LearningTorqueProjection": "17327869370982877613",
+    "StarPilotLongitudinalPlan": "15750873059323825205"
   },
   "nodes": {
     "14441422469354927087": {
@@ -13430,6 +13431,128 @@
           "discriminantValue": 65535,
           "ordinal": {
             "explicit": 15
+          }
+        }
+      }
+    },
+    "15750873059323825205": {
+      "kind": "struct",
+      "data_words": 5,
+      "pointers": 0,
+      "is_group": false,
+      "union_count": 0,
+      "union_offset": 0,
+      "fields": {
+        "0": {
+          "slot": {
+            "offset": 0,
+            "type": {
+              "uint16": null
+            },
+            "defaultValue": {
+              "uint16": 0
+            }
+          },
+          "name": "version",
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 0
+          }
+        },
+        "1": {
+          "slot": {
+            "offset": 1,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            }
+          },
+          "name": "sourcePlanMonoTime",
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 1
+          }
+        },
+        "2": {
+          "slot": {
+            "offset": 2,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            }
+          },
+          "name": "modelMonoTime",
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 2
+          }
+        },
+        "3": {
+          "slot": {
+            "offset": 3,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            }
+          },
+          "name": "driveStartMonoTime",
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 3
+          }
+        },
+        "4": {
+          "slot": {
+            "offset": 16,
+            "type": {
+              "bool": null
+            },
+            "defaultValue": {
+              "bool": false
+            }
+          },
+          "name": "forceStopHolding",
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 4
+          }
+        },
+        "5": {
+          "slot": {
+            "offset": 17,
+            "type": {
+              "bool": null
+            },
+            "defaultValue": {
+              "bool": false
+            }
+          },
+          "name": "forceStopBraking",
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 5
+          }
+        },
+        "6": {
+          "slot": {
+            "offset": 4,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            }
+          },
+          "name": "forceStopEpisodeMonoTime",
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 6
           }
         }
       }

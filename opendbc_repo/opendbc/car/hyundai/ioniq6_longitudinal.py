@@ -60,7 +60,11 @@ def update_calibration(state: Ioniq6LongitudinalState, accel: float, speed: floa
   elif starting or state.launch_active or (state.long_control_state_last == LongState.starting and control_state == LongState.pid):
     state.launch_active = True
 
+  hold_jerk = float(np.interp(speed, (0.0, 0.15, 0.6, 1.2, 2.0, 3.0), (0.35, 0.40, 0.48, 0.65, 0.85, 1.10))) * RESPONSE if state.stopping else 0.0
   upper_limit = float(np.interp(speed, (0.0, 5.0, 20.0), (2.0, 3.0, 2.0))) * RESPONSE if control_state == LongState.pid else MIN_JERK
+  if state.stopping and accel > state.accel_last:
+    # Follow an already gentler planner request without weakening stronger braking.
+    upper_limit = hold_jerk
   lower_limit = float(np.interp(speed, (0.0, 5.0, 20.0), (5.0, 3.5, 3.0))) * RESPONSE
   horizon = float(np.interp(speed, LOOKAHEAD_SPEEDS, LOOKAHEAD_TIMES))
   desired_jerk = float(np.clip((accel - state.accel_last) / horizon, -MAX_JERK, MAX_JERK))
@@ -70,10 +74,10 @@ def update_calibration(state: Ioniq6LongitudinalState, accel: float, speed: floa
   state.jerk_lower = min(lower_jerk, lower_limit)
 
   if state.stopping:
-    if speed <= 2.0:
+    # A saturated braking request must survive the comfort soft-stop cap.
+    if speed <= 2.0 and (speed <= .01 or accel > CarControllerParams.ACCEL_MIN):
       brake_cap = float(np.interp(speed, (0.0, 0.08, 0.25, 0.6, 1.2, 2.0, 3.0), (-0.15, -0.16, -0.22, -0.42, -0.78, -1.15, -1.40)))
       state.desired_accel = min(0.0, max(accel, brake_cap))
-      hold_jerk = float(np.interp(speed, (0.0, 0.15, 0.6, 1.2, 2.0, 3.0), (0.35, 0.40, 0.48, 0.65, 0.85, 1.10))) * RESPONSE
       state.jerk_upper = min(state.jerk_upper, hold_jerk)
     else:
       state.desired_accel = float(np.clip(accel, CarControllerParams.ACCEL_MIN, 0.0))

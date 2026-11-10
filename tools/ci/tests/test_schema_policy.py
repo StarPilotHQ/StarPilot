@@ -270,7 +270,7 @@ class SchemaPolicyTest(unittest.TestCase):
     original = b'forceStopHolding @4 :Bool;'
     self.assertIn(original, self.schemas[path])
     appended = self.schemas.copy()
-    appended[path] = appended[path].replace(original, original + b'\n  futureStatus @5 :UInt32;')
+    appended[path] = appended[path].replace(original, original + b'\n  futureStatus @7 :UInt32;')
     self.assertEqual(validate(appended, self.policy, self.sync), [])
     for replacement in (b'', b'forceStopHolding @5 :Bool;', b'forceStopHolding @4 :UInt32;',
                         b'changedHold @4 :Bool;'):
@@ -474,3 +474,4 @@ class SchemaPolicyTest(unittest.TestCase):
     changed = self.schemas.copy()
     changed[path] = changed[path].replace(original, original + b'\n  duplicate @12 :Text;', 1)
     self.assertTrue(any('Duplicate member name or ordinal' in error for error in validate(changed, self.policy, self.sync)))
+
