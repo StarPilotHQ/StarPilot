@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 import math
 
+from openpilot.starpilot.navigation.wire import is_phone_navigation
+
 
 @dataclass(frozen=True)
 class NavigationDisplay:
@@ -16,16 +18,23 @@ class NavigationDisplay:
   then_modifier: str = ''
   then_distance_m: float | None = None
   lanes: tuple = ()
+  distance_known: bool = True
+  totals_known: bool = True
 
 
 def navigation_display(message, *, now_ns: int, drive_id: int) -> NavigationDisplay | None:
   if message is None or drive_id <= 0:
     return None
   try:
+    phone = is_phone_navigation(message)
+    if phone:
+      from openpilot.starpilot.navigation.phone import OBSERVATION_NS
+      if not 0 < message.observationMonoTime <= now_ns <= message.observationMonoTime + OBSERVATION_NS:
+        return None
     if (not message.enabled or message.status not in ('guiding', 'arrived') or
         message.startedMonoTime != drive_id or not message.sessionId or
         not drive_id <= message.frameMonoTime <= now_ns <= message.frameMonoTime + 3_000_000_000 or
-        not drive_id <= message.locationMonoTime <= now_ns <= message.locationMonoTime + 3_000_000_000):
+        (not phone and not drive_id <= message.locationMonoTime <= now_ns <= message.locationMonoTime + 3_000_000_000)):
       return None
     instruction = message.instruction
     distances = (instruction.distanceMeters, instruction.remainingDistanceMeters, instruction.remainingDurationSeconds)
@@ -41,7 +50,8 @@ def navigation_display(message, *, now_ns: int, drive_id: int) -> NavigationDisp
     return NavigationDisplay((message.sessionId, drive_id), text, instruction.maneuverType,
                              instruction.maneuverModifier, *distances, message.status == 'arrived',
                              then_type, then.maneuverModifier if then_type else '', then_distance,
-                             () if message.status == 'arrived' else lanes)
+                             () if message.status == 'arrived' else lanes,
+                             not phone or message.distanceKnown, not phone or message.totalsKnown)
   except (AttributeError, TypeError, ValueError, OverflowError):
     return None
 

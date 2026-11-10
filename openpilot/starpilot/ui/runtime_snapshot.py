@@ -500,14 +500,15 @@ class RuntimeSnapshotAdapter:
     curve = self._curve_curvature.update(curve_observation(curve_envelope, now_ns) if curve_envelope is not None else None, now_ns)
     conditional_envelope = display_message(sm, 'starpilotSelfdriveState', now_ns, after_frame=after) if started else None
 
-    from openpilot.starpilot.navigation.wire import navigation_state
+    from openpilot.starpilot.navigation.wire import is_phone_navigation, navigation_state
     navigation = navigation_state(_message_at_age(sm, "starpilotNavigation", now_ns, after, 3_000_000_000)) if started else None
     displayed_navigation = navigation_display(navigation, now_ns=now_ns, drive_id=drive_id)
-    if displayed_navigation is None and started and self._navigation_enabled:
-      displayed_navigation = official_navigation_display(
+    if (displayed_navigation is None or is_phone_navigation(navigation)) and started and self._navigation_enabled:
+      official_navigation = official_navigation_display(
         _message_at_age(sm, "navInstruction", now_ns, after, 3_000_000_000),
         _message_at_age(sm, "navRoute", now_ns, after, 30_000_000_000),
         destination=params.get("NavDestination"), drive_id=drive_id)
+      displayed_navigation = official_navigation if params.get('NavDestination') else displayed_navigation
 
 
     long_active = bool(control.longActive) if control is not None else False

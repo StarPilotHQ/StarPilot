@@ -95,6 +95,10 @@ struct StarPilotCarControl @0x81c2f05a394cf4af {
       activeDirection @2 :Text;
     }
     version @12 :UInt16;
+    source @13 :Text;
+    observationMonoTime @14 :UInt64;
+    distanceKnown @15 :Bool;
+    totalsKnown @16 :Bool;
   }
 
   phoneGps @3 :StarPilotCarState.Gps;  # sourceMonoTime is comma receive time minus the phone's fix age
@@ -1203,6 +1207,20 @@ struct MapdOut @0xa4f1eb3323f5f582 {
   previewDistance @35 :Float32;
   previewBoundaryId @36 :Text;
   previewWayId @37 :Int64;
+
+  # Optional local junction geometry from the matched road and the same GPS fix.
+  # Corroboration only: not a route, turn legality, or control authority.
+  navigationBranches @38 :List(NavigationBranch);
+
+  struct NavigationBranch {
+    wayId @0 :Int64;
+    junctionLatitude @1 :Float64;
+    junctionLongitude @2 :Float64;
+    distanceMeters @3 :Float32;
+    angleDegrees @4 :Float32;  # Negative left, positive right, zero straight.
+    roadName @5 :Text;
+    highwayClass @6 :HighwayClass;
+  }
 
   enum SampleStatus {
     unknown @0;

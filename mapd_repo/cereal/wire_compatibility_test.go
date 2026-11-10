@@ -115,3 +115,44 @@ func TestPreviewHostWireFixture(t *testing.T) {
 		t.Fatal("provider preview differs from shared host fixture")
 	}
 }
+
+func TestNavigationBranchesHostWireFixture(t *testing.T) {
+	data, err := os.ReadFile("testdata/mapd_navigation_wire.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		EventBase64 string `json:"event_base64"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(fixture.EventBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := capnp.Unmarshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := log.ReadRootEvent(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := event.MapdOut()
+	if err != nil {
+		t.Fatal(err)
+	}
+	branches, err := out.NavigationBranches()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !event.Valid() || out.WayId() != 42 || branches.Len() != 1 {
+		t.Fatal("invalid navigation fixture")
+	}
+	b := branches.At(0)
+	name, err := b.RoadName()
+	if err != nil || name != "Main St" || b.WayId() != 77 || b.AngleDegrees() != 90 || b.DistanceMeters() != 120 || b.HighwayClass() != custom.HighwayClass_residential {
+		t.Fatal("local navigation geometry changed wire meaning")
+	}
+}

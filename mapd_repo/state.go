@@ -47,6 +47,7 @@ type State struct {
 	ProducerSession           uint64
 	MatchedLimitMps           float32
 	LimitPreview              LimitPreview
+	NavigationBranches        []navigationBranch
 	lastMapLoadAttempt        time.Time
 	bootNow                   func() uint64
 	// The fix the current road result was computed from. The loop runs at
@@ -92,6 +93,7 @@ func (s *State) clearRoadDerived() {
 	s.MapCurveSpeed = 0
 	s.MatchedLimitMps = 0
 	s.LimitPreview = LimitPreview{}
+	s.NavigationBranches = nil
 	s.NextHazard.Reset()
 	s.NextAdvisorySpeed.Reset()
 	s.clearSpeedLimitEvidence()
@@ -224,6 +226,7 @@ func (s *State) ProcessGps(sample cereal.GpsSample, success bool, load MapLoader
 		return
 	}
 	s.CurrentWay = way
+	s.NavigationBranches = s.localNavigationBranches()
 	if !s.ShadowOnly {
 		s.NextWays, err = NextWays(location, way, &s.Data, way.OnWay.IsForward)
 		if err != nil {
@@ -351,6 +354,9 @@ func (s *State) buildMessageAt(now uint64) (*capnp.Message, error) {
 	output.SetProducerSession(s.ProducerSession)
 	if !s.RoadMatched() {
 		return msg, nil
+	}
+	if err := s.setNavigationBranches(output); err != nil {
+		return nil, err
 	}
 	id := s.CurrentWay.Way.Id()
 	output.SetWayId(id)

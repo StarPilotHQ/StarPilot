@@ -130,7 +130,10 @@ class NavigationCard:
     compact = self.fonts.profile == Profile.COMPACT
     rl.draw_rectangle_rounded(rect, .2, 8, rl.Color(15, 13, 23, 255 if compact else 245))
     rl.draw_rectangle_rounded_lines_ex(rect, .2, 8, 2, rl.Color(160, 126, 220, 190))
-    icon = self._icon(icon_name('arrive' if nav.arrived else nav.maneuver_type, nav.modifier))
+    kind = 'arrive' if nav.arrived else nav.maneuver_type
+    if not nav.totals_known and (not kind or not nav.modifier and kind in ('turn', 'fork', 'off ramp')):
+      kind = 'invalid'
+    icon = self._icon(icon_name(kind, nav.modifier))
     if self.collapsed:
       size = 64 if compact else 100
       rl.draw_texture_pro(icon, rl.Rectangle(0, 0, icon.width, icon.height),
@@ -148,7 +151,7 @@ class NavigationCard:
     x = rect.x + padding * (1 if lanes else 2) + (0 if lanes else size)
     width = rect.x + rect.width - padding - x
     distance_size, text_size = (32, 20) if compact else (54, 30 if lanes else 28)
-    distance = 'Arrived' if nav.arrived else distance_text(nav.distance_m, state.metric)
+    distance = 'Arrived' if nav.arrived else distance_text(nav.distance_m, state.metric) if nav.distance_known else 'Phone navigation'
     far = not nav.arrived and nav.distance_m > FAR_TURN_M
     y = rect.y + (8 if compact else 12)
     self.fonts.draw(distance, FontRole.BOLD, distance_size, x, y, rl.WHITE)
@@ -159,7 +162,7 @@ class NavigationCard:
     if nav.arrived:
       return
     top = rect.y + header
-    now = self.clock()
+    now = self.clock() if nav.totals_known else None
     eta = f'ETA {arrival_time(nav.remaining_seconds, now)}' if now is not None else ''
     right = rect.x + rect.width - padding
     bar_center = rect.y + rect.height - (11 if compact else 21)
@@ -175,12 +178,12 @@ class NavigationCard:
     else:
       chip = 20 if compact else 24
       self._then(nav, rect.x + padding, top + 7, chip)
-      if not compact:
+      if not compact and nav.totals_known:
         trip = f'{distance_text(nav.remaining_distance_m, state.metric)} | {max(1, round(nav.remaining_seconds / 60))} min'
         trip_size = 27
         trip_width = self.fonts.measure(trip, FontRole.MEDIUM, trip_size).width
         self.fonts.draw(trip, FontRole.MEDIUM, trip_size, right - trip_width, top, rl.Color(214, 210, 226, 255))
-    if self._total > 0:
+    if nav.totals_known and self._total > 0:
       thick = 5 if compact else 6
       bar = rl.Rectangle(rect.x + padding, bar_center - thick / 2, bar_right - (rect.x + padding), thick)
       rl.draw_rectangle_rounded(bar, 1., 4, rl.Color(160, 126, 220, 60))

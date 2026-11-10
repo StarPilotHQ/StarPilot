@@ -43,9 +43,11 @@ def test_navigation_forwards_new_phone_fixes_without_waiting_for_heartbeat(monke
         raise Finished
 
   owner, runtime = Mock(), Mock()
+  runtime.update.return_value = {'status': 'noDestination'}
   # Only device-state validity is relevant to this loop; source selection is tested separately.
   class Master:
-    valid, logMonoTime = {'deviceState': False}, {'deviceState': 0}
+    valid, logMonoTime = {'deviceState': False, 'mapdOut': False}, {'deviceState': 0, 'mapdOut': 0}
+    updated, alive = {'mapdOut': False}, {'mapdOut': False}
     def update(self, _timeout):
       pass
     def __getitem__(self, _service):

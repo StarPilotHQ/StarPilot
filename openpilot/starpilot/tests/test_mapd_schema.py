@@ -103,6 +103,20 @@ class MapdSchemaTests(unittest.TestCase):
       self.assertAlmostEqual(road.speedLimit, 13.4112, places=4)
       self.assertEqual(road.wayId, 1_234_567_890_123)
 
+  def test_actual_go_navigation_geometry_fixture(self):
+    fixture = json.loads((ROOT / 'mapd_repo/cereal/testdata/mapd_navigation_wire.json').read_text())
+    with log.Event.from_bytes(base64.b64decode(fixture['event_base64'])) as event:
+      self.assertTrue(event.valid)
+      self.assertEqual(event.mapdOut.wayId, 42)
+      self.assertEqual(len(event.mapdOut.navigationBranches), 1)
+      branch = event.mapdOut.navigationBranches[0]
+      self.assertEqual((branch.wayId, branch.roadName, str(branch.highwayClass)), (77, 'Main St', 'residential'))
+      self.assertEqual((branch.angleDegrees, branch.distanceMeters), (90, 120))
+      self.assertAlmostEqual(branch.junctionLatitude, 35.151)
+      self.assertAlmostEqual(branch.junctionLongitude, -97.9)
+    with log.Event.from_bytes(base64.b64decode(FIXTURES['historical']['event_base64'])) as event:
+      self.assertEqual(len(event.mapdOut.navigationBranches), 0)
+
   def test_provider_pin_and_enum_identities(self):
     pin = next(row for row in json.loads((ROOT / 'upstream-sync.json').read_text())['dependencies'] if row['path'] == 'mapd_repo')
     self.assertEqual(pin['commit'], FIXTURES['provider']['source_revision'])

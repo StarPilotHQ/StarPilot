@@ -5,7 +5,7 @@ import math
 from openpilot.cereal import log
 from openpilot.common.constants import CV
 
-from openpilot.starpilot.navigation.wire import navigation_state
+from openpilot.starpilot.navigation.wire import is_phone_navigation, navigation_state
 
 SERVICE = 'starpilotNavigation'
 MAX_AGE_NS = 2_500_000_000
@@ -18,7 +18,7 @@ def current_instruction(sm, now_ns: int):
     nav, device = navigation_state(sm[SERVICE]), sm['deviceState']
     stamp = sm.logMonoTime[SERVICE]
     device_stamp = sm.logMonoTime['deviceState']
-    if (not sm.valid[SERVICE] or not sm.alive[SERVICE] or not nav.enabled or not nav.controlValid or
+    if (not sm.valid[SERVICE] or not sm.alive[SERVICE] or is_phone_navigation(nav) or not nav.enabled or not nav.controlValid or
         nav.status != 'guiding' or not nav.sessionId or not nav.revision or
         not 0 < nav.frameMonoTime <= stamp <= now_ns <= nav.frameMonoTime + MAX_AGE_NS or
         not sm.valid['deviceState'] or not sm.alive['deviceState'] or not device.started or

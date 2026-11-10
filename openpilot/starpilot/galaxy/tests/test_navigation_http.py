@@ -27,8 +27,10 @@ class NavigationHttpTest(unittest.TestCase):
     self.pairing = RemotePairing(root / 'pairing')
     self.navigation = NavigationOwner(root / 'navigation', runtime_source=lambda: None, transient_root=root/'boot-navigation')
     self.parked = True
+    from openpilot.starpilot.navigation.phone import PhoneNavigationPublisher
+    self.phone_navigation = PhoneNavigationPublisher(root / "phone-navigation.json")
     self.local = make_server(port=0, owner=self.access, remote_pairing=self.pairing, navigation=self.navigation,
-                             parked=lambda: self.parked)
+                             parked=lambda: self.parked, phone_navigation=self.phone_navigation)
     self.remote = make_remote_server(self.local, port=0)
     self.servers = []
     for server in (self.local, self.remote):
@@ -65,6 +67,27 @@ class NavigationHttpTest(unittest.TestCase):
       return response.status, json.loads(response.read()), dict(response.getheaders())
     finally:
       connection.close()
+
+  def test_phone_navigation_local_only_and_validated(self):
+    from openpilot.starpilot.navigation.phone import read_phone_navigation
+    import time
+    payload = {'session': 'phone', 'sequence': 1, 'active': True, 'ageMs': 0,
+               'instruction': 'Turn right onto Main St', 'distanceMeters': 200,
+               'maneuverType': 'turn', 'maneuverModifier': 'right'}
+    path = '/api/companion/navigation'
+    status, body, _ = self.request(path, payload=payload, cookie=self.local_cookie)
+    self.assertEqual(status, 200)
+    self.assertTrue(body['accepted'])
+    self.assertFalse(body['forwardingEnabled'])
+    self.assertEqual(self.action('configure', patch={'phoneNavigation': True})[0], 200)
+    enabled_response = self.request(path, payload={**payload, 'sequence': 2}, cookie=self.local_cookie)
+    self.assertTrue(enabled_response[1]['forwardingEnabled'])
+    self.assertEqual(read_phone_navigation(time.monotonic_ns(), self.phone_navigation.path)['instruction'], payload['instruction'])
+    self.assertEqual(self.request(path, payload=payload, remote=True, cookie=self.remote_cookie)[0], 403)
+    self.assertEqual(self.request(path, payload={**payload, 'ageMs': 90001}, cookie=self.local_cookie)[0], 400)
+    self.assertEqual(self.request(path, payload={'session': 'phone', 'sequence': 3, 'active': False, 'ageMs': 0},
+                                  cookie=self.local_cookie)[0], 200)
+    self.assertIsNone(read_phone_navigation(time.monotonic_ns(), self.phone_navigation.path))
 
   def test_map_tiles_recheck_authentication_after_provider(self):
     def tile(*args):

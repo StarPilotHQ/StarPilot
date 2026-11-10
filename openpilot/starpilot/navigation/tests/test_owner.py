@@ -379,3 +379,20 @@ def test_google_place_lookup_test_reports_disabled_api():
     assert test_places(GOOGLE_KEY, GooglePlaces(status=403), places_budget(root)) == {'ok': False, 'failure': 'disabled',
       'message': "Places API (New) is off for this key. Enable it in Google Cloud and allow it in the key's API restrictions, then test again."}
     assert test_places(GOOGLE_KEY, GooglePlaces(places=[{'location': {'latitude': 1.5, 'longitude': 2.5}}]), places_budget(root))['ok']
+
+def test_phone_navigation_setting_is_independent_of_mapbox_and_preserves_destination(owner):
+  assert owner.snapshot()['phoneNavigation'] is False
+  enabled = owner.configure({'phoneNavigation': True}, '0', True)
+  assert enabled['phoneNavigation'] and not enabled['enabled'] and not enabled['hasKey']
+  configured = owner.configure({'enabled': True, 'token': 'pk.test'}, enabled['revision'], True)
+  selected = owner.select(PLACE, configured['revision'], True)
+  disabled = owner.configure({'phoneNavigation': False}, selected['revision'], True)
+  assert not disabled['phoneNavigation']
+  assert disabled['destination']['name'] == PLACE['name']
+  assert disabled['enabled'] and disabled['hasKey']
+
+
+@pytest.mark.parametrize('value', ['true', 1, None, []])
+def test_phone_navigation_setting_rejects_non_boolean(owner, value):
+  with pytest.raises(ValidationError):
+    owner.configure({'phoneNavigation': value}, '0', True)

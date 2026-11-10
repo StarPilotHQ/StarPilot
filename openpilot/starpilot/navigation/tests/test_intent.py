@@ -187,3 +187,13 @@ def test_approaching_turn_does_not_start_or_replace_lane_change(sm):
   helper.update(cs, True, 1., navigation_turn=turn)
   assert helper.lane_change_state == log.LaneChangeState.laneChangeStarting
   assert helper.desire == log.Desire.laneChangeRight
+
+
+@pytest.mark.parametrize('source', ['phone:googleMaps', 'phone:waze'])
+def test_notification_guidance_never_grants_vehicle_control_even_if_flag_is_forged(sm, source):
+  sm['starpilotNavigation'].navigation.source = source
+  sm['starpilotNavigation'].navigation.controlValid = True
+  assert current_instruction(sm, NOW) is None
+  assert turn_desire(sm, NOW, log.Desire.none, supported=True) == log.Desire.none
+  cp = NS(openpilotLongitudinalControl=True, passive=False, dashcamOnly=False, minSteerSpeed=0.)
+  assert cruise_ceiling(sm, cp, NOW, 20.) is None

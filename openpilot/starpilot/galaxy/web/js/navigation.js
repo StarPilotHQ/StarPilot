@@ -47,6 +47,7 @@ export function validNavigation(value) {
         Number.isFinite(row.distanceMeters) && row.distanceMeters >= 0 && Array.isArray(row.geometry) && row.geometry.length <= 512 && row.geometry.every(coordinate)) ||
       !Number.isInteger(value.selectedRoute) || value.selectedRoute < 0 || value.selectedRoute > 2)) return false
   return !!value && typeof value.enabled === "boolean" && typeof value.isMetric === "boolean" && typeof value.hasKey === "boolean" && STATUS.has(value.status) &&
+    (value.phoneNavigation === undefined || typeof value.phoneNavigation === "boolean") &&
     ROUTE_AVOIDANCES.every(({ key }) => value[key] === undefined || typeof value[key] === "boolean") &&
     (value.gpsSource === undefined || GPS_MODES.some((mode) => mode.value === value.gpsSource)) &&
     (value.network === undefined || ["online", "offline", "unknown"].includes(value.network)) &&
@@ -326,8 +327,11 @@ export const NavigationPage = {
     routeChoices() {
       return [{ value: "mapbox", label: "Mapbox", detail: "Turn-by-turn with lane arrows.", limit: "Counted against your Mapbox allowance." },
         { value: "google", label: "Google", detail: "Routes that follow live traffic, and place search by Google.", disabled: !this.googleReady, badge: !this.data || this.googleReady ? "" : "Needs key",
-          limit: "Needs the Mapbox key too. No lane arrows. Falls back to Mapbox when its limits run out." }]
+          limit: "Needs the Mapbox key too. No lane arrows. Falls back to Mapbox when its limits run out." },
+        { value: "phone", label: "Use navigation from phone", detail: "Follow turns forwarded from Google Maps or supported Waze guidance on Android.",
+          limit: "Needs the Galaxy Android app and notification access. Turn card only; an active comma route takes priority." }]
     },
+    directionChoice() { return this.data?.phoneNavigation ? "phone" : this.data?.routeProvider || "mapbox" },
     gpsChoices() { return GPS_MODES.map((mode) => ({ value: mode.value, label: mode.label, detail: mode.hint })) },
     destinationWays() {
       return [{ icon: "bi-search", title: "Search here", detail: "Type an address or place on the Destination page." },
@@ -373,7 +377,7 @@ export const NavigationPage = {
       if (!this.data) return []
       const google = (value) => value === "google" && !!this.data.hasGoogleKey ? "Google" : "Mapbox"
       return [{ label: "Map", value: google(this.data.mapProvider), icon: "bi-map" },
-        { label: "Directions", value: google(this.data.routeProvider), icon: "bi-signpost-split" },
+        { label: "Directions", value: this.data.phoneNavigation ? "Phone" : google(this.data.routeProvider), icon: "bi-signpost-split" },
         { label: "Places", value: google(this.data.routeProvider), icon: "bi-geo-alt" },
         { label: "Position", value: this.gpsLabel.replace("GPS: ", ""), icon: "bi-crosshair" }]
     },
@@ -429,6 +433,10 @@ export const NavigationPage = {
   beforeUnmount() { document.removeEventListener("visibilitychange", this.visibilityHandler); clearTimeout(this.suggestTimer); this.client.stop(); this.token = ""; this.googleKey = "" },
   methods: {
     reportSave,
+    saveDirectionSource(value) {
+      const patch = value === "phone" ? { phoneNavigation: true } : { routeProvider: value, phoneNavigation: false }
+      return this.reportSave(() => this.client.action('configure', { patch }))
+    },
     async openGpsSetup() {
       this.selectTab('setup')
       await this.$nextTick()
@@ -651,13 +659,31 @@ export const NavigationPage = {
         <section class="gx-card gx-starport-step">
           <div class="gx-starport-step__head">
             <span class="gx-starport-step__num" aria-hidden="true">3</span>
-            <div><h3>Choose your sources</h3><p>Google choices need both keys. Each one falls back to Mapbox if it can't work.</p></div>
+            <div><h3>Choose your sources</h3><p>Google maps and routes need both keys. Phone guidance needs the Galaxy Android app.</p></div>
           </div>
           <div class="gx-starport-step__body">
             <ChoiceGroup label="Map picture" :model-value="data?.mapProvider || 'mapbox'" :options="mapChoices" :disabled="!available || !data"
               @update:model-value="reportSave(() => client.action('configure', {patch: {mapProvider: $event}}))" />
-            <ChoiceGroup label="Directions" :model-value="data?.routeProvider || 'mapbox'" :options="routeChoices" :disabled="!available || !data"
-              @update:model-value="reportSave(() => client.action('configure', {patch: {routeProvider: $event}}))" />
+            <ChoiceGroup label="Directions" :model-value="directionChoice" :options="routeChoices" :disabled="!available || !data"
+              @update:model-value="saveDirectionSource($event)" />
+            <section v-if="data?.phoneNavigation" class="gx-card gx-navigation__section" aria-labelledby="phone-navigation-heading">
+              <h3 id="phone-navigation-heading">Use navigation from phone</h3>
+              <p>Phone guidance needs no Mapbox key. An active comma route takes priority.</p>
+              <ol><li>In the Galaxy Android app, open Connections → Phone sharing → Share navigation with StarPilot.</li>
+            <li>Allow Galaxy notification access in Android settings, connect over local Wi-Fi or Bluetooth, and start Google Maps or supported English Waze text guidance.</li></ol>
+          <p>Open Connections → Debugging options → Notification details in the phone app to see detected text, parsed turns, permission state and delivery results.</p>
+          <p>Phone guidance uses the instruction and distance provided by the notification. Downloaded maps can cross-check upcoming turns when available; missing or uncertain map data does not hide guidance. Missing distance and ETA stay unknown. No automatic steering or speed changes.</p>
+          <template v-if="data?.phoneNavigationStatus">
+            <p class="gx-note">Phone updates: {{data.phoneNavigationStatus.state}} · last received {{Math.round(data.phoneNavigationStatus.receivedAgeMs / 1000)}} seconds ago.
+              <span v-if="!data.phoneNavigation">Phone navigation is off on the comma.</span>
+              <span v-else-if="data.enabled && data.hasKey && data.destination">An active comma route overrides these updates.</span>
+            </p>
+            <p v-if="data.phoneNavigationStatus.instruction" class="gx-navigation__instruction">{{data.phoneNavigationStatus.instruction}}
+              <span v-if="data.phoneNavigationStatus.distanceMeters != null"> · {{distance(data.phoneNavigationStatus.distanceMeters)}}</span>
+            </p>
+          </template>
+          <p v-else class="gx-note">No phone navigation update received yet. Enable forwarding and notification access in Galaxy on your Android phone.</p>
+            </section>
             <div ref="gpsSetup" tabindex="-1" class="gx-navigation__gps">
               <ChoiceGroup label="Position" :model-value="data?.gpsSource || 'backup'" :options="gpsChoices" :disabled="!available || !data"
                 @update:model-value="reportSave(() => client.action('configure', {patch: {gpsSource: $event}}))" />

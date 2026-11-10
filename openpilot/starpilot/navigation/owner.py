@@ -58,7 +58,7 @@ def valid_google_key(key: str) -> bool:
 
 
 def default_settings() -> dict:
-  return {'version': 1, 'revision': '0', 'enabled': False, 'token': '', 'destination': None, 'favorites': [], 'recents': [], 'gpsSource': 'backup',
+  return {'version': 1, 'revision': '0', 'enabled': False, 'token': '', 'destination': None, 'favorites': [], 'recents': [], 'gpsSource': 'backup', 'phoneNavigation': False,
           'mapProvider': 'mapbox', 'routeProvider': 'mapbox', 'googleKey': '', **dict.fromkeys(ROUTE_AVOIDANCES, False)}
 
 
@@ -215,6 +215,8 @@ class NavigationOwner:
       for setting in ROUTE_AVOIDANCES:
         if type(value.setdefault(setting, False)) is not bool:
           raise ValueError
+      if type(value.setdefault('phoneNavigation', False)) is not bool:
+        raise ValueError
       if value.setdefault('gpsSource', 'backup') not in GPS_MODES:
         raise ValueError
       if value.setdefault('mapProvider', 'mapbox') not in MAP_PROVIDERS or value.setdefault('routeProvider', 'mapbox') not in MAP_PROVIDERS:
@@ -375,6 +377,9 @@ class NavigationOwner:
     result = {key: document[key] for key in ('enabled', 'destination', 'recents', 'revision')}
     result.update({key: document[key] for key in ROUTE_AVOIDANCES})
     result['gpsSource'] = document['gpsSource']
+    result['phoneNavigation'] = document['phoneNavigation']
+    from openpilot.starpilot.navigation.phone import phone_navigation_status
+    result['phoneNavigationStatus'] = phone_navigation_status()
     from openpilot.starpilot.gps.phone import phone_gps_status
     result['phoneGps'] = phone_gps_status()
     # Home and Work lead, then places in the order they were saved.
@@ -558,7 +563,7 @@ class NavigationOwner:
         self._tile_bytes -= len(tile)
 
   def configure(self, patch: dict, expected_revision: str, authorized) -> dict:
-    if not isinstance(patch, dict) or not patch or set(patch) - (CONFIGURABLE | ROUTE_AVOIDANCES.keys()):
+    if not isinstance(patch, dict) or not patch or set(patch) - (CONFIGURABLE | {'phoneNavigation'} | ROUTE_AVOIDANCES.keys()):
       raise ValidationError('Unknown navigation setting')
     if 'mapProvider' in patch and patch['mapProvider'] not in MAP_PROVIDERS:
       raise ValidationError('Choose a map style')
@@ -568,6 +573,8 @@ class NavigationOwner:
       raise ValidationError('Enter a valid Google Maps API key')
     if 'gpsSource' in patch and patch['gpsSource'] not in GPS_MODES:
       raise ValidationError('Choose a GPS source')
+    if 'phoneNavigation' in patch and type(patch['phoneNavigation']) is not bool:
+      raise ValidationError('Phone navigation must be on or off')
     if 'enabled' in patch and type(patch['enabled']) is not bool:
       raise ValidationError('Navigation enabled must be on or off')
     if any(type(patch[key]) is not bool for key in ROUTE_AVOIDANCES if key in patch):
@@ -581,7 +588,7 @@ class NavigationOwner:
       if any(key in patch and patch[key] != value[key] for key in ROUTE_AVOIDANCES):
         value['routeChoice'] = 0
       value.update(patch)
-    result = self._change(update, expected_revision, authorized, preserve_active=set(patch) <= ROUTE_AVOIDANCES.keys() | KEEPS_ACTIVE)
+    result = self._change(update, expected_revision, authorized, preserve_active=set(patch) <= ROUTE_AVOIDANCES.keys() | KEEPS_ACTIVE | {'phoneNavigation'})
     if 'token' in patch:
       with self._tile_lock:
         self._tiles.clear()

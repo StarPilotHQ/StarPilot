@@ -1,4 +1,9 @@
 VERSION = 2
+PHONE_SOURCE_PREFIX = 'phone:'
+
+
+def is_phone_navigation(state):
+  return getattr(state, 'source', '').startswith(PHONE_SOURCE_PREFIX)
 
 
 def navigation_state(envelope):

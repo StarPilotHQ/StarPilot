@@ -114,6 +114,14 @@ class ProxyTest(unittest.TestCase):
     self.assertNotEqual(self.proxy.cookie, second.cookie)
     self.assertEqual(self.server.auths, 2)
 
+  def test_navigation_uses_authenticated_bluetooth_post(self):
+    result = self.request('/api/companion/navigation', 'POST', '{"active":false}')
+    self.assertEqual(result['status'], 200)
+    path, headers = self.server.seen[-1]
+    self.assertEqual(path, '/api/companion/navigation')
+    self.assertEqual(headers['Content-Type'], 'application/json')
+    self.assertEqual(headers['Origin'], self.proxy.base)
+
   def test_rejects_path_traversal(self):
     for path in ('https://evil/api/x', '//evil/api/x', '/api/../x', '/api/%252e%252e/x', '/api/%2e%2e/x', '/index.html',
                  '/data/catalog.json', '/api/x#secret', '/api/%0a'):

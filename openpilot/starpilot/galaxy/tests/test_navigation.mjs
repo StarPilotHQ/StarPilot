@@ -303,3 +303,16 @@ console.log("Local HTTP search UUID fallback passed")
   console.log("Shared places: comma lookup, 400 query search, navigation turned on, Google source and key test summary passed")
 }
 await import("./test_navigation_map.mjs")
+
+for (const phoneNavigation of [true, false]) assert(validNavigation({ ...snapshot(), phoneNavigation }))
+for (const phoneNavigation of ['true', 1, null]) assert(!validNavigation({ ...snapshot(), phoneNavigation }))
+assert.match(NavigationPage.template, /Use navigation from phone/)
+assert.match(NavigationPage.template, /saveDirectionSource\(\$event\)/)
+assert.match(NavigationPage.template, /Notification details/)
+assert.equal(NavigationPage.computed.directionChoice.call({ data: { routeProvider: "google", phoneNavigation: true } }), "phone")
+const directionPatches = []
+const directionPage = { client: { action: async (_, { patch }) => directionPatches.push(patch) }, reportSave: (save) => save() }
+await NavigationPage.methods.saveDirectionSource.call(directionPage, "phone")
+await NavigationPage.methods.saveDirectionSource.call(directionPage, "google")
+assert.deepEqual(directionPatches, [{ phoneNavigation: true }, { routeProvider: "google", phoneNavigation: false }])
+console.log("Phone navigation: explicit enablement, Android permission guidance and live receipt preview passed")

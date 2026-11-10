@@ -185,7 +185,7 @@ class NavFeed:
     self._thread.start()
 
   def _read_cereal(self) -> dict | None:
-    from openpilot.starpilot.navigation.wire import navigation_state
+    from openpilot.starpilot.navigation.wire import is_phone_navigation, navigation_state
     if self._sm is None:
       from openpilot.cereal import messaging
       self._sm = messaging.SubMaster(['starpilotNavigation'])
@@ -194,7 +194,9 @@ class NavFeed:
     if not self._sm.valid['starpilotNavigation'] or not 0 < stamp <= time.monotonic_ns() <= stamp + int(STALE_AFTER * 1e9):
       return None
     state = navigation_state(self._sm['starpilotNavigation'])
-    if state is None or state.status not in ('guiding', 'routing'):
+    # Notification guidance has no trip ETA or projected turn timing. Maps already
+    # supplies the head unit's own navigation; keep this projection Mapbox-only.
+    if state is None or is_phone_navigation(state) or state.status not in ('guiding', 'routing'):
       return None
     from openpilot.common.params import Params
     snapshot = {'state': state.status, 'metric': Params().get_bool('IsMetric')}

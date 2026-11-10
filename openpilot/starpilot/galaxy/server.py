@@ -101,7 +101,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                 starport_client=None, navigation=None, offline_maps=None, drive_state=None, cloud_provider=None, cloud_offroad=None, projection_layout=None,
                 local_access=None, tmux_live=None, starport_logs=None, starport_log_sender=None, hotspot=None, toyota_tools=None,
                 replay_client=None, replay_root=None,
-                spotify_setup=None, companion=None, phone_location=None, reverse_proxy=None, local_hostnames=None, sound_preview=None):
+                spotify_setup=None, companion=None, phone_location=None, reverse_proxy=None, local_hostnames=None, sound_preview=None, phone_navigation=None):
   from openpilot.starpilot.galaxy.local_hostnames import LocalHostnames
   hostname_source = local_hostnames if local_hostnames is not None else LocalHostnames(clock=clock)
   from openpilot.starpilot.galaxy.companion import CompanionRegistry, APK_PATH
@@ -111,6 +111,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
     from openpilot.common.params import Params
     training_results = FlmTrainingResults(params=Params())
   training_results_source = training_results
+  from openpilot.starpilot.navigation.phone import PhoneNavigationPublisher
+  phone_navigation_source = phone_navigation if phone_navigation is not None else PhoneNavigationPublisher()
   phone_location_source = phone_location if phone_location is not None else PhoneGpsPublisher()
   cloud = cloud_provider
   hotspot_source = hotspot
@@ -1655,7 +1657,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         if self.require_session():
           self.json(404, {'error': 'Not found'})
         return
-      if path not in ('/api/companion/uplink', '/api/companion/settings', '/api/companion/location',
+      if path not in ('/api/companion/uplink', '/api/companion/settings', '/api/companion/location', '/api/companion/navigation',
                       '/api/connect/proxy', '/api/connect/provider', '/api/auth/login', '/api/auth/logout', '/api/settings/preview', '/api/settings/confirm',
                       '/api/settings/recovery/preview', '/api/settings/recovery/confirm',
                       '/api/settings/reset-default', '/api/settings/restore', '/api/recordings/action',
@@ -1713,6 +1715,16 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         return
       if path.startswith('/api/replay/'):
         replay_api.post(self, path, payload)
+        return
+      if path == '/api/companion/navigation':
+        if getattr(self.server, 'remote_transport', False) or not self.direct_local():
+          self.json(403, {'error': 'Phone navigation requires a direct local connection'})
+          return
+        try:
+          result = phone_navigation_source.publish(payload)
+          self.json(200, {**result, 'forwardingEnabled': navigation_owner().read().get('phoneNavigation', False)})
+        except ValueError as error:
+          self.json(400, {'error': str(error)})
         return
       if path == '/api/companion/location':
         if getattr(self.server, 'remote_transport', False) or not self.direct_local():
