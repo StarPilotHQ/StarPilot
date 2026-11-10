@@ -83,10 +83,21 @@ def gen2_configuration(cp, *, marked_only=False):
           not cp.passive and not cp.notCar and not cp.dashcamOnly and
           cp.transmissionType == structs.CarParams.TransmissionType.automatic and
           cp.fingerprintSource != structs.CarParams.FingerprintSource.fixed and
-          cp.pcmCruise and len(cp.safetyConfigs) == 1 and
-          cp.safetyConfigs[0].safetyModel == structs.CarParams.SafetyModel.mazda and
-          cp.safetyConfigs[0].safetyParam == GEN2_AOL_SAFETY_PARAM and
+          cp.pcmCruise and _only_safety_config_is(cp, GEN2_AOL_SAFETY_PARAM) and
           cp.alternativeExperience in ((32,) if marked_only else (0, 32)))
+
+
+def _only_safety_config_is(cp, param):
+  """Exactly one safety config, and it is Mazda with this param.
+
+  One read of the list and one of its element, not three of each: every CarParams
+  read costs about 5 us on the device and this runs several times per card frame.
+  """
+  configs = cp.safetyConfigs
+  if len(configs) != 1:
+    return False
+  config = configs[0]
+  return config.safetyModel == structs.CarParams.SafetyModel.mazda and config.safetyParam == param
 
 
 def gen2_qualified(cp, gates=GEN2_EVIDENCE_GATES, *, marked_only=False):
@@ -133,9 +144,14 @@ def within_restriction_grace(restricted_ns, now_ns):
 
 
 def temporary_restriction(cp, state):
-  return bool(state is not None and admitted(cp, marked_only=True) and state.canValid and not state.canTimeout and
+  # Same conjunction as before; every term is a side-effect-free read, so the order
+  # cannot change the result. Admission goes last because it is the expensive term
+  # (about 100 us of CarParams reads on the device) and the state terms are false in
+  # ordinary driving. The brand check keeps other brands from reading Mazda-only state.
+  return bool(state is not None and cp.brand == "mazda" and state.canValid and not state.canTimeout and
               not state.steerFaultPermanent and (state.gearShifter != structs.CarState.GearShifter.drive or
-                                                 state.steerFaultTemporary or state.standstill or (cp.minSteerSpeed > 0 and state.vEgo < cp.minSteerSpeed)))
+                                                 state.steerFaultTemporary or state.standstill or (cp.minSteerSpeed > 0 and state.vEgo < cp.minSteerSpeed)) and
+              admitted(cp, marked_only=True))
 
 
 def native_observation(native, *, latched, panda_ready, restricted, now_ns, pending_since_ns):
