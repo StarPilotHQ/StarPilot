@@ -642,7 +642,8 @@ class Car:
         brake_source_ns=brake_source_ns,
         gm_withdrawal_source_ns=gm_withdrawal_source_ns,
         intent_producer_session=getattr(self, 'slc_producer_session', ''),
-        main_arm_ns=getattr(self.aol_card_intent, 'main_arm_ns', 0),
+        main_arm_ns=(getattr(self.aol_card_intent, 'main_arm_ns', 0) or
+          getattr(self.aol_card_intent, 'physical_arm_ns', 0)),
         startup_calibration_pending=getattr(self.aol_card_intent, 'startup_calibration_pending', False),
         intent_paused=(getattr(self.aol_card_intent, 'pause_lateral', False) or
           ford_brake_pause_active(self.CP, CS, self.aol_settings)))
@@ -952,7 +953,8 @@ class Car:
         cancel_source_ns=self.aol_cancel_source(CS, now_ns), brake_source_ns=self.aol_honda_brake_source(CS, now_ns),
         gm_withdrawal_source_ns=self.aol_gm_withdrawal_source(CS, now_ns),
         intent_producer_session=getattr(self, 'slc_producer_session', ''),
-        main_arm_ns=getattr(self.aol_card_intent, 'main_arm_ns', 0),
+        main_arm_ns=(getattr(self.aol_card_intent, 'main_arm_ns', 0) or
+          getattr(self.aol_card_intent, 'physical_arm_ns', 0)),
         startup_calibration_pending=getattr(self.aol_card_intent, 'startup_calibration_pending', False),
         intent_paused=(getattr(self.aol_card_intent, 'pause_lateral', False) or
           ford_brake_pause_active(self.CP, CS, self.aol_settings))):

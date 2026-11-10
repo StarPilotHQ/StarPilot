@@ -1395,6 +1395,13 @@ class TransportPauseFeedback:
           self.session = str(axis.sessionId)
           self.sequence, self.signature = int(axis.sequence), signature
           return False
+      if cp.brand == 'hyundai' and current and continuity:
+        from openpilot.starpilot.car.hyundai.aol import retain_stopped_eps_arm
+        if retain_stopped_eps_arm(self, sm, cp, cs, axis, now_ns, latched=latched,
+            arm_ns=main_arm_ns, producer=intent_producer_session):
+          self.session = str(axis.sessionId)
+          self.sequence, self.signature = int(axis.sequence), signature
+          return False
       if current and continuity and 0 < main_arm_ns <= now_ns <= main_arm_ns + AXIS_MAX_AGE_NS:
         from openpilot.starpilot.car.gm.aol import prior_main_off_intent_current
         if prior_main_off_intent_current(self, sm, cp, cs, axis, now_ns,
