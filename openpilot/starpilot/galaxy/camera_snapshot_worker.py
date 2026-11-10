@@ -1,6 +1,7 @@
 """CPU-only frame reader. Does not start or stop camerad or change Params."""
 
 from io import BytesIO
+import os
 import sys
 import time
 
@@ -16,14 +17,18 @@ STREAMS = {"cabin": VisionStreamType.VISION_STREAM_CABIN, "wide": VisionStreamTy
            "narrow": VisionStreamType.VISION_STREAM_NARROW_ROAD}
 CABIN_SETTLE_NS = 10_000_000_000
 WIDE_SETTLE_NS = 5_000_000_000
+PARKED_CABIN_FRAMES = 20
+EXPOSURE_PATH = "/dev/shm/camerad_exposure_{}"  # written by camerad; parked starts resume it
+CAMERA_NUMS = {"wide": 0, "narrow": 1, "cabin": 2}
 
 
 def boot_ns():
   return time.clock_gettime_ns(getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC))
 
 
-def capture(camera, *, client_factory=VisionIpcClient, clock=boot_ns):
+def capture(camera, *, parked=False, client_factory=VisionIpcClient, clock=boot_ns):
   started = clock()
+  resumed = parked and os.path.exists(EXPOSURE_PATH.format(CAMERA_NUMS[camera]))
   client = client_factory("camerad", STREAMS[camera], True)
   while not client.connect(False):
     if clock() - started > 9_000_000_000:
@@ -35,14 +40,14 @@ def capture(camera, *, client_factory=VisionIpcClient, clock=boot_ns):
   while clock() < deadline:
     frame = client.recv(timeout_ms=100)
     now = clock()
-    if camera == "cabin" and now - connected < CABIN_SETTLE_NS:
+    if camera == "cabin" and (client.frame_id < PARKED_CABIN_FRAMES if resumed else now - connected < CABIN_SETTLE_NS):
       continue
     # Native camerad does not populate VIPC extra.valid; use capture freshness.
     if frame is None or not started < client.timestamp_sof <= client.timestamp_eof <= now:
       continue
     if now - client.timestamp_sof > 500_000_000:
       continue
-    if camera == "wide":
+    if camera == "wide" and not resumed:
       # A live IPC connection can precede camera frames. Count warm-up from the
       # first fresh frame, then require an exposure captured after that interval.
       if wide_ready_after is None:
@@ -66,7 +71,8 @@ def capture(camera, *, client_factory=VisionIpcClient, clock=boot_ns):
 
 if __name__ == '__main__':
   try:
-    result = capture(sys.argv[1]) if len(sys.argv) == 2 and sys.argv[1] in STREAMS else None
+    valid = len(sys.argv) in (2, 3) and sys.argv[1] in STREAMS and sys.argv[2:] in ([], ['parked'])
+    result = capture(sys.argv[1], parked=len(sys.argv) == 3) if valid else None
     if result is not None:
       sys.stdout.buffer.write(result)
     else:

@@ -236,7 +236,7 @@ def main() -> None:
     images = {}
     for name in ("wide", "cabin"):
       try:
-        images[name] = camera.capture(name, permitted=permitted)
+        images[name] = camera.capture(name, permitted=permitted, parked=True)
       except SnapshotUnavailable:
         if not permitted():
           raise

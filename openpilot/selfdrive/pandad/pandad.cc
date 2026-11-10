@@ -399,8 +399,10 @@ void process_peripheral_state(Panda *panda, PubMaster *pm, bool no_fan_control, 
 
       // reset the filter when camerad restarts
       if (event.getCabinCameraState().getFrameId() < prev_frame_id) {
-        integ_lines_filter.reset(0);
-        integ_lines_filter_driver_view.reset(0);
+        // A parked camerad resumes its last exposure, so IR can start from it too.
+        float start = is_onroad ? 0 : cur_integ_lines;
+        integ_lines_filter.reset(start);
+        integ_lines_filter_driver_view.reset(start);
         driver_view = params.getBool("IsDriverViewEnabled");
       }
       prev_frame_id = event.getCabinCameraState().getFrameId();

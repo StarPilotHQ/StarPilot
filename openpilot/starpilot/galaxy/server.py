@@ -1976,7 +1976,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             return False
           return identity is not None and self.settings_session() == identity and parked()
         try:
-          body = snapshots.capture(payload['camera'], permitted=permitted)
+          body = snapshots.capture(payload['camera'], permitted=permitted, parked=True)
           if not permitted():
             raise SnapshotDenied
         except ValueError:

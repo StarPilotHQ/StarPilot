@@ -1,6 +1,7 @@
 #include "system/camerad/cameras/camera_common.h"
 #include "system/camerad/cameras/spectra.h"
 
+#include <fcntl.h>
 #include <poll.h>
 #include <sched.h>
 #include <sys/ioctl.h>
@@ -9,6 +10,7 @@
 #include <cassert>
 #include <cerrno>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -70,6 +72,8 @@ public:
   void set_camera_exposure(float grey_frac);
   void set_exposure_rect();
   void sendState();
+  void load_parked_exposure();
+  void save_exposure();
 
   float get_gain_factor() const {
     return (1 + dc_gain_weight * (camera.sensor->dc_gain_factor-1) / camera.sensor->dc_gain_max_weight);
@@ -87,11 +91,44 @@ void CameraState::init(VisionIpcServer *v) {
   dc_gain_weight = camera.sensor->dc_gain_min_weight;
   gain_idx = camera.sensor->analog_gain_rec_idx;
   cur_ev[0] = cur_ev[1] = cur_ev[2] = get_gain_factor() * camera.sensor->sensor_analog_gains[gain_idx] * exposure_time;
+  if (Params().getBool("IsOffroad")) load_parked_exposure();
 
   pm = std::make_unique<PubMaster>(std::vector{camera.cc.publish_name});
 }
 
 CameraState::~CameraState() {}
+
+static std::string exposure_path(int camera_num) {
+  return util::string_format("/dev/shm/camerad_exposure_%d", camera_num);
+}
+
+// Parked starts resume the last exposure; driving starts keep the defaults.
+void CameraState::load_parked_exposure() {
+  const auto &sensor = camera.sensor;
+  int t, g, dc, w;
+  if (sscanf(util::read_file(exposure_path(camera.cc.camera_num)).c_str(), "%d %d %d %d", &t, &g, &dc, &w) != 4 ||
+      t < sensor->exposure_time_min || t > sensor->exposure_time_max ||
+      g < sensor->analog_gain_min_idx || g > sensor->analog_gain_max_idx ||
+      w < sensor->dc_gain_min_weight || w > sensor->dc_gain_max_weight) {
+    return;
+  }
+  exposure_time = t;
+  gain_idx = g;
+  dc_gain_enabled = dc != 0;
+  dc_gain_weight = w;
+  cur_ev[0] = cur_ev[1] = cur_ev[2] = get_gain_factor() * sensor->sensor_analog_gains[gain_idx] * exposure_time;
+  auto regs = sensor->getExposureRegisters(exposure_time, gain_idx, dc_gain_enabled);
+  camera.sensors_i2c(regs.data(), regs.size(), CAM_SENSOR_PACKET_OPCODE_SENSOR_CONFIG, sensor->data_word);
+}
+
+void CameraState::save_exposure() {
+  if (!camera.enabled) return;
+  std::string path = exposure_path(camera.cc.camera_num);
+  std::string data = util::string_format("%d %d %d %d", exposure_time, gain_idx, (int)dc_gain_enabled, dc_gain_weight);
+  if (util::write_file((path + ".tmp").c_str(), data.data(), data.size(), O_WRONLY | O_CREAT | O_TRUNC) == 0) {
+    rename((path + ".tmp").c_str(), path.c_str());
+  }
+}
 
 void CameraState::set_exposure_rect() {
   // set areas for each camera, shouldn't be changed
@@ -325,4 +362,6 @@ void camerad_thread() {
       LOGE("VIDIOC_DQEVENT failed, errno=%d", errno);
     }
   }
+
+  for (auto &cam : cams) cam->save_exposure();
 }

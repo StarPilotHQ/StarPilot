@@ -258,3 +258,52 @@ class CameraSnapshotTest(unittest.TestCase):
         self.assertAlmostEqual(now[0], 19 if revoke_at is None else revoke_at)
         self.assertTrue(process.killed and process.waited and process.stdout.closed)
         self.assertEqual(CAPTURE_TIMEOUT_SECONDS, {'cabin': 24, 'wide': 19, 'narrow': 12})
+
+  def test_parked_cabin_waits_frames_only_when_camerad_resumed_exposure(self):
+    frame = SimpleNamespace(width=4, height=4, stride=4, uv_offset=16, data=np.full(80, 128, dtype=np.uint8))
+    for parked, resumed, frames in ((True, True, 20), (True, False, 99), (False, True, 99)):
+      with self.subTest(parked=parked, resumed=resumed):
+        now = [1_000_000_000]
+        class Client:
+          timestamp_sof = timestamp_eof = 0
+          frame_id = -1
+          def connect(self, blocking): return True
+          def recv(self, timeout_ms, *, now=now):
+            now[0] += 100_000_000
+            self.frame_id += 1
+            self.timestamp_sof, self.timestamp_eof = now[0] - 20_000_000, now[0] - 10_000_000
+            return frame
+        client = Client()
+        with patch('openpilot.starpilot.galaxy.camera_snapshot_worker.os.path.exists', return_value=resumed), \
+             patch('openpilot.starpilot.galaxy.camera_snapshot_worker.extract_image', return_value=np.zeros((4, 4, 3), dtype=np.uint8)):
+          self.assertIsNotNone(capture('cabin', parked=parked, client_factory=lambda *args, client=client: client,
+                                       clock=lambda now=now: now[0]))
+        self.assertEqual(client.frame_id, frames)
+
+  def test_parked_flag_reaches_reader(self):
+    seen = []
+    def spawn(args, **kwargs):
+      seen.append(args[3:])
+      return subprocess.Popen([sys.executable, '-c', "import sys; sys.stdout.buffer.write(bytes([255,216,255,217]))"], **kwargs)
+    CameraSnapshot(spawn=spawn).capture('wide', permitted=lambda: True, parked=True)
+    CameraSnapshot(spawn=spawn).capture('wide', permitted=lambda: True)
+    self.assertEqual(seen, [['wide', 'parked'], ['wide']])
+
+  def test_parked_wide_skips_warm_up_only_when_camerad_resumed_exposure(self):
+    frame = SimpleNamespace(width=4, height=4, stride=4, uv_offset=16, data=np.full(80, 128, dtype=np.uint8))
+    for parked, resumed, frames in ((True, True, 1), (True, False, 51), (False, True, 51)):
+      with self.subTest(parked=parked, resumed=resumed):
+        now = [1_000_000_000]
+        class Client:
+          frames = 0
+          def connect(self, blocking): return True
+          def recv(self, timeout_ms, *, now=now):
+            now[0] += 100_000_000
+            self.frames += 1
+            self.timestamp_sof, self.timestamp_eof = now[0] - 20_000_000, now[0] - 10_000_000
+            return frame
+        client = Client()
+        with patch('openpilot.starpilot.galaxy.camera_snapshot_worker.os.path.exists', return_value=resumed):
+          self.assertIsNotNone(capture('wide', parked=parked, client_factory=lambda *args, client=client: client,
+                                       clock=lambda now=now: now[0]))
+        self.assertEqual(client.frames, frames)

@@ -26,7 +26,7 @@ class CameraSnapshot:
     self.spawn, self.clock = spawn, clock
     self.last_request = {}
 
-  def capture(self, camera: str, *, permitted) -> bytes:
+  def capture(self, camera: str, *, permitted, parked: bool = False) -> bytes:
     if camera not in CAMERAS:
       raise ValueError("Unknown camera")
     if not permitted():
@@ -42,7 +42,7 @@ class CameraSnapshot:
       request()
       frame_after = boot_ns()
       deadline = self.clock() + CAPTURE_TIMEOUT_SECONDS[camera]
-      process = self.spawn([sys.executable, '-m', 'openpilot.starpilot.galaxy.camera_snapshot_worker', camera],
+      process = self.spawn([sys.executable, '-m', 'openpilot.starpilot.galaxy.camera_snapshot_worker', camera] + (['parked'] if parked else []),
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True)
       while self.clock() < deadline:
         if not permitted():
