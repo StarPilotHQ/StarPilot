@@ -1,4 +1,4 @@
-"""Mapbox turn-by-turn for the car's own displays (instrument cluster, HUD), as a phone sends it.
+"""Turn-by-turn (Mapbox route or forwarded phone guidance) for the car's own displays (instrument cluster, HUD), as a phone sends it.
 
 Only head units that advertise the navigation status service receive it, and only while a route is
 guiding. The route is polled on its own thread; the session loop just compares and sends.
@@ -188,15 +188,16 @@ class NavFeed:
     from openpilot.starpilot.navigation.wire import is_phone_navigation, navigation_state
     if self._sm is None:
       from openpilot.cereal import messaging
-      self._sm = messaging.SubMaster(['starpilotNavigation'])
+      self._sm = messaging.SubMaster(['starpilotNavigation', 'carState'])
     self._sm.update(0)
     stamp = self._sm.logMonoTime['starpilotNavigation']
     if not self._sm.valid['starpilotNavigation'] or not 0 < stamp <= time.monotonic_ns() <= stamp + int(STALE_AFTER * 1e9):
       return None
     state = navigation_state(self._sm['starpilotNavigation'])
-    # Notification guidance has no trip ETA or projected turn timing. Maps already
-    # supplies the head unit's own navigation; keep this projection Mapbox-only.
-    if state is None or is_phone_navigation(state) or state.status not in ('guiding', 'routing'):
+    if state is None or state.status not in ('guiding', 'routing'):
+      return None
+    phone = is_phone_navigation(state)
+    if phone and (state.status != 'guiding' or not state.distanceKnown):
       return None
     from openpilot.common.params import Params
     snapshot = {'state': state.status, 'metric': Params().get_bool('IsMetric')}
@@ -205,6 +206,14 @@ class NavFeed:
       snapshot.update(road=instruction.text, type=instruction.maneuverType, modifier=instruction.maneuverModifier,
                       distance=float(instruction.distanceMeters), remaining=float(instruction.remainingDistanceMeters),
                       duration=float(instruction.remainingDurationSeconds))
+      if phone:
+        # Phone distances only change when the notification does, so count down between updates.
+        speed = float(self._sm['carState'].vEgo) if self._sm.alive['carState'] else 0.
+        age = max(0., (time.monotonic_ns() - state.observationMonoTime) * 1e-9)
+        driven = max(0., speed) * age
+        if driven > snapshot['distance'] + 50.:
+          return None
+        snapshot['distance'] = max(0., snapshot['distance'] - driven)
     return snapshot
 
   def _run(self) -> None:

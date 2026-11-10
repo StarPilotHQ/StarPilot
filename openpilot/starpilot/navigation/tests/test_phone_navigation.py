@@ -203,3 +203,28 @@ def test_phone_status_explains_receipt_end_and_expiry(stream):
   assert expired['state'] == 'expired' and expired['instruction'] == '' and expired['distanceMeters'] is None
   publisher.publish({'session': 'test', 'sequence': 2, 'active': False, 'ageMs': 0})
   assert phone_navigation_status(NOW, path)['state'] == 'ended'
+
+
+class Aligned:
+  def __init__(self, status='mapAligned'):
+    self.value = status
+
+  def status(self, phone):
+    return self.value
+
+
+def selected_for_control(stream, local_map, **values):
+  publisher, path, clock = stream
+  publisher.publish({**payload(), 'session': f'control{len(values)}{id(local_map)}{values.get("distanceMeters", "")}',
+                     'maneuverType': 'turn', 'maneuverModifier': 'right', **values})
+  return select_navigation(base(), read_phone_navigation(NOW, path), now_ns=NOW, drive_id=DRIVE, local_map=local_map)
+
+
+def test_control_needs_map_agreement_known_distance_and_fresh_observation(stream):
+  granted = selected_for_control(stream, Aligned())
+  assert granted['controlValid'] and granted['locationMonoTime'] == NOW
+  for status in ('mapUnavailable', 'mapAmbiguous', 'mapDifferentDirection', 'mapNoNearbyJunction', 'mapUnverifiable'):
+    assert not selected_for_control(stream, Aligned(status))['controlValid']
+  assert not selected_for_control(stream, None)['controlValid']
+  assert not selected_for_control(stream, Aligned(), distanceMeters=None)['controlValid']
+  assert not selected_for_control(stream, Aligned(), distanceMeters=0)['controlValid']

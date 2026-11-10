@@ -189,11 +189,53 @@ def test_approaching_turn_does_not_start_or_replace_lane_change(sm):
   assert helper.desire == log.Desire.laneChangeRight
 
 
+CP = NS(openpilotLongitudinalControl=True, passive=False, dashcamOnly=False, minSteerSpeed=0., brand='toyota', carFingerprint='X')
+
+
+def phone(sm, source='phone:googleMaps', observed=NOW - 1_000_000_000, distance=30.):
+  nav = sm['starpilotNavigation'].navigation
+  nav.source, nav.locationMonoTime = source, observed
+  nav.instruction.distanceMeters = distance
+  nav.nextManeuver = NS(maneuverType='', maneuverModifier='', distanceMeters=0.)
+  return nav
+
+
 @pytest.mark.parametrize('source', ['phone:googleMaps', 'phone:waze'])
-def test_notification_guidance_never_grants_vehicle_control_even_if_flag_is_forged(sm, source):
-  sm['starpilotNavigation'].navigation.source = source
-  sm['starpilotNavigation'].navigation.controlValid = True
-  assert current_instruction(sm, NOW) is None
+def test_verified_phone_guidance_slows_and_assists_the_turn(sm, source):
+  phone(sm, source)
+  assert current_instruction(sm, NOW) is not None
+  assert turn_desire(sm, NOW, log.Desire.none, supported=True) == log.Desire.turnRight
+  assert cruise_ceiling(sm, CP, NOW, 20.) is not None
+
+
+def test_phone_distance_is_advanced_by_distance_driven(sm):
+  phone(sm, distance=60.)
+  sm['carState'].vEgo = 8.
+  sm['starpilotNavigation'].navigation.instruction.maneuverModifier = 'left'
+  sm['carState'].leftBlinker, sm['carState'].rightBlinker = True, False
+  # 60 m minus 8 m/s over 5 s leaves 20 m, inside the assist window; 60 m alone would not be.
+  phone(sm, observed=NOW - 5_000_000_000, distance=60.)
+  assert turn_desire(sm, NOW, log.Desire.none, supported=True) == log.Desire.turnLeft
+  phone(sm, observed=NOW - 1_000_000_000, distance=200.)
   assert turn_desire(sm, NOW, log.Desire.none, supported=True) == log.Desire.none
-  cp = NS(openpilotLongitudinalControl=True, passive=False, dashcamOnly=False, minSteerSpeed=0.)
-  assert cruise_ceiling(sm, cp, NOW, 20.) is None
+
+
+def test_stale_or_unverified_phone_guidance_is_inert(sm):
+  nav = phone(sm, observed=NOW - 26_000_000_000)
+  assert current_instruction(sm, NOW) is None
+  assert cruise_ceiling(sm, CP, NOW, 20.) is None
+  phone(sm)
+  nav.controlValid = False
+  assert current_instruction(sm, NOW) is None
+  phone(sm, observed=5_000_000_000)
+  nav.controlValid = True
+  assert current_instruction(sm, NOW) is None
+
+
+
+def test_phone_guidance_ends_once_the_reported_turn_is_passed(sm):
+  sm['carState'].vEgo = 15.
+  phone(sm, observed=NOW - 10_000_000_000, distance=30.)
+  # 150 m driven against a 30 m turn with no newer notification.
+  assert turn_desire(sm, NOW, log.Desire.none, supported=True) == log.Desire.none
+  assert cruise_ceiling(sm, CP, NOW, 20.) is None

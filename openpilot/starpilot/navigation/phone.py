@@ -144,13 +144,18 @@ def select_navigation(mapbox, phone, *, now_ns, drive_id, official_active=False,
     diagnostics['reason'] = reason
   if instruction is None:
     return mapbox
+  map_status = local_map.status(phone) if local_map is not None else 'mapUnavailable'
   if diagnostics is not None:
-    diagnostics['mapStatus'] = local_map.status(phone) if local_map is not None else 'mapUnavailable'
-  from openpilot.starpilot.navigation.wire import PHONE_SOURCE_PREFIX
+    diagnostics['mapStatus'] = map_status
+  from openpilot.starpilot.navigation.wire import PHONE_CONTROL_AGE_NS, PHONE_SOURCE_PREFIX
+  # Turn speed and turn assist need a known distance, a fresh observation and map agreement.
+  distance = phone.get('distanceMeters')
+  controlled = bool(map_status == 'mapAligned' and distance is not None and distance > 0 and drive_id > 0 and
+                    drive_id <= phone['observed'] <= now_ns <= phone['observed'] + PHONE_CONTROL_AGE_NS)
   source = PHONE_SOURCE_PREFIX + phone.get('source', 'googleMaps')
   return {**mapbox, 'sessionId': source + ':' + phone['session'], 'revision': str(phone['sequence']),
           'enabled': True, 'status': 'guiding', 'source': source, 'frameMonoTime': now_ns,
-          'startedMonoTime': drive_id, 'locationMonoTime': 0, 'observationMonoTime': phone['observed'],
+          'startedMonoTime': drive_id, 'locationMonoTime': phone['observed'] if controlled else 0, 'observationMonoTime': phone['observed'],
           'distanceKnown': phone.get('distanceMeters') is not None, 'totalsKnown': False,
-          'destinationName': '', 'route': [], 'nextManeuver': {}, 'controlValid': False,
+          'destinationName': '', 'route': [], 'nextManeuver': {}, 'controlValid': controlled,
           'instruction': instruction}

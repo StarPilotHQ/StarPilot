@@ -315,3 +315,37 @@ def test_honda_descriptor_uses_next_turn_image_without_dimensions():
   session = Session(navigation=options)
   stream = ns.NavStatus.create(session, lambda *a, **k: None, feed=Feed())
   assert stream.image_size is None  # no invented size; semantic guidance is still sent
+
+
+def phone_feed(monkeypatch, *, observed_age_s, speed, distance=200., known=True):
+  import time
+  from types import SimpleNamespace as NS
+  now = time.monotonic_ns()
+  instruction = NS(text='Turn right onto Main St', maneuverType='turn', maneuverModifier='right', distanceMeters=distance,
+                   remainingDistanceMeters=0., remainingDurationSeconds=0.)
+  nav = NS(version=2, status='guiding', source='phone:googleMaps', distanceKnown=known, instruction=instruction,
+           observationMonoTime=now - int(observed_age_s * 1e9))
+
+  class SM(dict):
+    valid = {'starpilotNavigation': True, 'carState': True}
+    alive = {'starpilotNavigation': True, 'carState': True}
+    logMonoTime = {'starpilotNavigation': now}
+
+    def update(self, _):
+      pass
+
+  feed = ns.NavFeed.__new__(ns.NavFeed)
+  feed._sm = SM(starpilotNavigation=NS(navigation=nav), carState=NS(vEgo=speed))
+  monkeypatch.setattr('openpilot.common.params.Params', lambda: NS(get_bool=lambda key: False))
+  return feed
+
+
+def test_phone_guidance_reaches_the_car_display_and_counts_down(monkeypatch):
+  snapshot = phone_feed(monkeypatch, observed_age_s=4., speed=10.)._read_cereal()
+  assert snapshot['road'] == 'Turn right onto Main St' and snapshot['type'] == 'turn'
+  assert 155 < snapshot['distance'] < 165
+
+
+def test_phone_guidance_without_distance_or_past_the_turn_is_not_shown(monkeypatch):
+  assert phone_feed(monkeypatch, observed_age_s=1., speed=10., known=False)._read_cereal() is None
+  assert phone_feed(monkeypatch, observed_age_s=20., speed=15., distance=30.)._read_cereal() is None

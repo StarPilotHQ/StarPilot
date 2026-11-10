@@ -78,7 +78,7 @@ def test_incomplete_or_disagreeing_maps_do_not_suppress_phone_guidance(rows, pat
   assert selected['source'] == 'phone:googleMaps'
   assert selected['instruction']['text'] == phone()['instruction']
   assert diagnostics['mapStatus'] == status
-  assert not selected['controlValid'] and selected['route'] == []
+  assert selected['controlValid'] == (status == 'mapAligned') and selected['route'] == []
 
 
 @pytest.mark.parametrize('patch,valid,alive', [({'sampleVersion': 1}, True, True),
