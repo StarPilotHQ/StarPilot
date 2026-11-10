@@ -5,7 +5,7 @@ MAX_AGE_NS = 1_500_000_000
 
 
 def boot_time_ns():
-  return time.clock_gettime_ns(time.CLOCK_BOOTTIME)
+  return time.clock_gettime_ns(getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC))
 
 
 def main_bus(cp):

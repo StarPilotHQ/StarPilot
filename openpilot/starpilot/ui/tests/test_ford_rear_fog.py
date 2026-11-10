@@ -223,3 +223,12 @@ def test_runtime_snapshot_wires_receive_only_status():
   session.adapter.ui_state.started = False
   session.snapshot(ShellMode.ONROAD)
   assert session.rear_fog.sample.call_args.kwargs == {"active": False}
+
+
+
+def test_boot_clock_matches_native_mac_fallback(monkeypatch):
+  monkeypatch.delattr(rear_fog.time, "CLOCK_BOOTTIME", raising=False)
+  clock = Mock(return_value=10_000_000_000)
+  monkeypatch.setattr(rear_fog.time, "clock_gettime_ns", clock)
+  assert rear_fog.boot_time_ns() == 10_000_000_000
+  clock.assert_called_once_with(rear_fog.time.CLOCK_MONOTONIC)
