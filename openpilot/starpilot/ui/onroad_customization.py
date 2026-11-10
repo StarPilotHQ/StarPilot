@@ -65,6 +65,7 @@ class Widget(TypedDict):
   opacity: NotRequired[dict[str, int]]
   anchorShift: NotRequired[float]
   expandable: NotRequired[bool]
+  hidden: NotRequired[bool]
 
 
 class LayoutProfile(TypedDict):
@@ -220,6 +221,9 @@ CEM_GAUGE_INSET = (44, 24)
 CEM_GAUGE_SIZE = (256, 276)
 PROFILES['large']['widgets'][CEM_GAUGE_WIDGET] = _widget('CEM road gauge', CEM_GAUGE_WIDGET, *CEM_GAUGE_SIZE,
                                                          56, 536)
+for _profile, _geometry in {"large": (112, 70, 165, 294), "compact": (45, 28, 220, 12)}.items():
+  PROFILES[_profile]["widgets"]["rear_fog"] = _widget("Rear fog indicator", "rear_fog", *_geometry)
+
 ROAD_BASE_WIDTH = 1860
 SIDEBAR_EXTRA = 300
 ANCHOR_SHIFT = {"steering_wheel": 1.0, NAV_CARD_WIDGET: 1.0, NAV_MAP_WIDGET: 1.0,
@@ -232,7 +236,7 @@ for _key, _widget_data in PROFILES["large"]["widgets"].items():
   _widget_data["expandable"] = True
 # Older documents retain every saved placement and gain this independent widget.
 OPTIONAL_WIDGETS = frozenset({WEATHER_WIDGET, MODE_WIDGET, CLOCK_WIDGET, STOPPED_TIMER_WIDGET, CEM_GAUGE_WIDGET,
-                              NAV_CARD_WIDGET, NAV_MAP_WIDGET, JETLINK_WIDGET})
+                              NAV_CARD_WIDGET, NAV_MAP_WIDGET, JETLINK_WIDGET, "rear_fog"})
 
 # The torque arc grows when the developer sidebar closes; protect both road widths.
 _torque = PROFILES['large']['widgets']['torque_bar']
@@ -247,9 +251,9 @@ _torque['confirmationObstacle'] = {
 # These editor sprites use the runtime components and their canonical assets/fonts.
 RUNTIME_PREVIEW_WIDGETS = {
   "large": (WEATHER_WIDGET, "current_speed", "cruise_limits", CEM_GAUGE_WIDGET, "steering_wheel", "following_distance",
-            "driver_monitor", "speed_limit_actions"),
+            "driver_monitor", "speed_limit_actions", "rear_fog"),
   "compact": (WEATHER_WIDGET, "max_speed", "speed_limit", "steering_wheel", "conditional_mode", "following_distance",
-              "model_confidence", "driver_monitor", "speed_limit_actions"),
+              "model_confidence", "driver_monitor", "speed_limit_actions", "rear_fog"),
 }
 
 _FRAME_COLORS = {"cardFill": "#00000000", "cardBorder": "#00000000"}
@@ -285,9 +289,9 @@ WIDGET_COLORS = {
 DEFAULT_WIDGET_ORDER = {
   "large": (NAV_MAP_WIDGET, "pip_left", "pip_right", "cruise_limits", "speed_limit_actions", CEM_GAUGE_WIDGET, "current_speed",
             "steering_wheel", "torque_bar", "following_distance", "driver_monitor", MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
-            STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET),
+            STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET, "rear_fog"),
   "compact": ("pip_left", "pip_right", "speed_limit", "max_speed", "steering_wheel", "torque_bar",
-              "speed_limit_actions", "driver_monitor", *RAIL_WIDGETS, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET, STOPPED_TIMER_WIDGET),
+              "speed_limit_actions", "driver_monitor", *RAIL_WIDGETS, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET, STOPPED_TIMER_WIDGET, "rear_fog"),
 }
 
 

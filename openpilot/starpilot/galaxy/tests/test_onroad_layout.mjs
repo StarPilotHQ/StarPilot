@@ -1220,3 +1220,26 @@ console.log('Display options, target switching and reload during polling passed'
   profile.widgets.cruise_limits.height = 276
   assert.equal(documentHelpers.overlapsReserved(profile, 'cruise_limits', 88, 500, sample.document.layouts.large), true)
 }
+
+
+// Ford-only catalog visibility keeps the saved placement available after switching cars.
+const fog = snapshot()
+for (const [profile, x, y, width, height] of [["large", 165, 294, 112, 70], ["compact", 220, 12, 45, 28]]) {
+  const definition = { ...widget("Rear fog indicator", "rear_fog", width, height, x, y), colors: {}, hidden: false }
+  fog.metadata.profiles[profile].widgets.rear_fog = definition
+  fog.document.layouts[profile].rear_fog = { ...definition.default }
+}
+fog.defaults = copy(fog.document)
+assert.equal(validSnapshot(fog), true)
+const context = { profile: fog.metadata.profiles.compact, layout: fog.document.layouts.compact }
+assert.ok(OnroadLayoutPage.computed.widgets.call(context).some(widget => widget.id === "rear_fog"))
+context.profile.widgets.rear_fog.hidden = true
+assert.ok(!OnroadLayoutPage.computed.widgets.call(context).some(widget => widget.id === "rear_fog"))
+assert.equal(context.layout.rear_fog.enabled, true)
+assert.equal(validSnapshot(fog), true)
+context.profile.widgets.rear_fog.hidden = "yes"
+assert.equal(validSnapshot(fog), false)
+context.profile.widgets.rear_fog.hidden = false
+context.profile.widgets.max_speed.hidden = true
+assert.equal(validSnapshot(fog), false)
+console.log("Ford rear fog: make visibility, saved placement and strict metadata passed")

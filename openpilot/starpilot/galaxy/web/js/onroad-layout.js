@@ -371,7 +371,8 @@ export const OnroadLayoutPage = {
       if (update.data) {
         if (!state.data && update.data.activeProfile) state.profile = update.data.activeProfile
         if (!update.data.metadata.profiles[state.profile]) state.profile = Object.keys(update.data.metadata.profiles)[0]
-        if (!Object.hasOwn(update.data.metadata.profiles[state.profile].widgets, state.selected))
+        if (!Object.hasOwn(update.data.metadata.profiles[state.profile].widgets, state.selected) ||
+            update.data.metadata.profiles[state.profile].widgets[state.selected]?.hidden === true)
           state.selected = Object.keys(update.data.metadata.profiles[state.profile].widgets)[0] || null
         state.colorError = ""
         state.placementError = ""
@@ -481,7 +482,7 @@ export const OnroadLayoutPage = {
       return ["pip_left", "pip_right"].some(id => this.state.draft?.layouts?.large?.[id]?.enabled === true)
     },
     widgets() { return Object.entries(this.profile?.widgets || {})
-      .filter(([id, widget]) => widget.available !== false || this.layout?.[id]?.enabled)
+      .filter(([id, widget]) => widget.hidden !== true && (widget.available !== false || this.layout?.[id]?.enabled))
       .map(([id, widget]) => ({ id, ...widget })) },
     layerWidgets() {
       return orderedWidgetIds(this.state.draft, this.state.data.metadata, this.state.profile)

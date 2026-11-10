@@ -36,9 +36,10 @@ def _revision(raw: bytes | None, rows=()) -> str:
 
 
 class OnroadLayoutOwner:
-  def __init__(self, params, parked: Callable[[], bool]):
+  def __init__(self, params, parked: Callable[[], bool], vehicle_params=lambda: None):
     self.params = params
     self.parked = parked
+    self.vehicle_params = vehicle_params
 
   def _display_rows(self):
     rows = AppearanceOwner(self.params, self.parked).snapshot(Profile.COMPACT, include_large=True).rows
@@ -66,8 +67,12 @@ class OnroadLayoutOwner:
       "values": {row.key: row.value for row in rows},
       "defaults": {row.key: row.default_value for row in rows if row.default_value is not None},
     }
+    from openpilot.starpilot.car.ford.rear_fog import main_bus
+    metadata = customization_metadata()
+    for profile in metadata["profiles"].values():
+      profile["widgets"]["rear_fog"]["hidden"] = main_bus(self.vehicle_params()) is None
     return {"document": document, "defaults": default_document(), "revision": _revision(raw, rows),
-            "metadata": customization_metadata(), "editable": readable and parked, "valid": valid,
+            "metadata": metadata, "editable": readable and parked, "valid": valid,
             "activeProfile": None, "display": display, "failed": []}
 
   def save(self, payload: dict, *, session_valid: Callable[[], bool]) -> dict:

@@ -183,6 +183,8 @@ class OnroadState:
   speed_mps: float | None
   cruise_kph: float | None
   speed_limit: SpeedLimitObservation
+  ford_rear_fog_on: bool = False
+  ford_rear_fog_source_ns: int = 0
   appearance: OnroadAppearance = field(default_factory=OnroadAppearance)
   alert: OnroadAlert = OnroadAlert()
   metric: bool = False
