@@ -373,9 +373,9 @@ class TestHondaCurrentCaller(unittest.TestCase):
               if not previous.latActive:
                 self.assertEqual((tx['torque'], tx['request']), (0, False), row)
             else:
-              if (alpha and address == 0x1DF or pedal and address == 0x200) and tick == 50:
+              if (alpha and address in (0x1DF, 0x1C8) or pedal and address == 0x200) and tick == 50:
                 # Card applies the prior Controls envelope. Physical brake has
-                # already revoked LONG; the native hook must reject this one
+                # already revoked LONG; the native hook must reject this
                 # in-flight positive command before the new envelope arrives.
                 self.assertFalse(accepted, row)
                 self.assertTrue(previous.longActive, row)
@@ -387,6 +387,8 @@ class TestHondaCurrentCaller(unittest.TestCase):
                 accel = (data[3] << 3) | (data[4] >> 5)
                 accel = accel - 0x800 if accel & 0x400 else accel
                 self.assertEqual((gas, accel), (-30000, 0), row)
+              if alpha and address == 0x1C8 and tick >= 52 and not reengage:
+                self.assertEqual(int.from_bytes(data[:2], 'big') >> 4, 0, row)
             row['TX'].append(tx)
           row['events'] = [str(e.name) for e in driven['onroadEvents'].onroadEvents]
           row['fault_reason'] = str(driven['aolAxisState'].aolAxisState.faultReason)

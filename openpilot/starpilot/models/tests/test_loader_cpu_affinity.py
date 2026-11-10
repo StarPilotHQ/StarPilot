@@ -25,7 +25,7 @@ def loader(source, *, demo=False, bundled=False, failure=None):
     return run
 
   model = SimpleNamespace(warmup=record('warmup'))
-  namespace = {'demo': demo, 'CP': object(), 'BIG_MODEL_TIMEOUT': 120, 'wait_for_chestnut': record('usb'),
+  namespace = {'laboratory_request': None, 'demo': demo, 'CP': object(), 'BIG_MODEL_TIMEOUT': 120, 'wait_for_chestnut': record('usb'),
                    'wait_for_chestnut_power': record('power'), 'set_core_affinity': record('affinity'),
                    'selection': SimpleNamespace(big_path=None if bundled else Path('/verified.pkl'), big_version='v16',
                                              big_id='mountaindewv3', big_sha256='a' * 64),
