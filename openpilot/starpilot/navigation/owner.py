@@ -291,13 +291,11 @@ class NavigationOwner:
       os.close(directory)
 
   def read_routing(self):
-    with self._exclusive():
-      current = self.read()
-      self._sweep_active(current)
-      active = self._read_active(current)
-      if active is not None:
-        current['destination'] = dict(active['destination'], temporary=True)
-      return current
+    current = self.read()
+    active = self._read_active(current)
+    if active is not None:
+      current['destination'] = dict(active['destination'], temporary=True)
+    return current
 
   @contextmanager
   def _exclusive(self):
