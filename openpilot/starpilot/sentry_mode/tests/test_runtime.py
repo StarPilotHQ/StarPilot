@@ -246,6 +246,31 @@ class TestRuntime(unittest.TestCase):
     self.assertNotEqual(self.tick().state, "armed")
     self.assertEqual(len(self.events), 1)
 
+  def test_first_jolt_prewarms_cameras_before_the_warning(self):
+    prewarms = []
+    self.runtime.prewarm = lambda: prewarms.append(len(self.events))
+    for _ in range(901):
+      self.tick()
+    self.tick()  # first armed sample only sets the baseline
+    self.assertEqual(prewarms, [])
+    self.tick(acceleration=(0.0, 0.0, 10.0))
+    self.assertEqual(prewarms, [0])  # before any event is recorded
+    self.params.put_bool("DoShutdown", True, block=True)
+    self.tick(acceleration=(0.0, 0.0, 9.81))
+    self.assertEqual(prewarms, [0])
+
+  def test_camera_prewarm_failure_shows_unavailable_and_keeps_watching(self):
+    def prewarm():
+      raise OSError("lease unavailable")
+    self.runtime.prewarm = prewarm
+    for _ in range(902):
+      self.tick()
+    with patch.object(runtime_module.cloudlog, "warning") as warning:
+      self.assertEqual(self.tick(acceleration=(0.0, 0.0, 10.0)).state, "armed")
+      self.assertEqual(self.tick(acceleration=(0.0, 0.0, 9.81)).state, "armed")
+    self.assertEqual(self.runtime.recording_state, "unavailable")
+    warning.assert_called_once()
+
   def test_store_callback_rechecks_saved_revision_and_sample_age(self):
     self.tick()
     self.runtime.policy.arm_started = self.clock.mono / 1e9 - 90

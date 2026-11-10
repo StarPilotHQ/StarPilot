@@ -19,7 +19,7 @@ class CameraSnapshotHTTPTest(unittest.TestCase):
       calls = []
       revoke = False
       class Reader:
-        def capture(self, camera, *, permitted):
+        def capture(self, camera, *, permitted, **_):
           nonlocal parked
           if not permitted():
             raise SnapshotDenied

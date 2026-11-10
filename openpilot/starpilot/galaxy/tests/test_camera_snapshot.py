@@ -1,6 +1,8 @@
 from io import BytesIO
+import os
 import subprocess
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -10,7 +12,7 @@ import numpy as np
 
 from openpilot.starpilot.galaxy.camera_request import TTL_NS
 from openpilot.starpilot.galaxy.camera_snapshot import CAPTURE_TIMEOUT_SECONDS, CameraSnapshot, SnapshotDenied, SnapshotUnavailable
-from openpilot.starpilot.galaxy.camera_snapshot_worker import capture
+from openpilot.starpilot.galaxy.camera_snapshot_worker import capture, settled
 
 
 class CameraSnapshotTest(unittest.TestCase):
@@ -258,3 +260,71 @@ class CameraSnapshotTest(unittest.TestCase):
         self.assertAlmostEqual(now[0], 19 if revoke_at is None else revoke_at)
         self.assertTrue(process.killed and process.waited and process.stdout.closed)
         self.assertEqual(CAPTURE_TIMEOUT_SECONDS, {'cabin': 24, 'wide': 19, 'narrow': 12})
+
+
+  def test_parked_flag_reaches_reader(self):
+    seen = []
+    def spawn(args, **kwargs):
+      seen.append(args[3:])
+      return subprocess.Popen([sys.executable, '-c', "import sys; sys.stdout.buffer.write(bytes([255,216,255,217]))"], **kwargs)
+    CameraSnapshot(spawn=spawn).capture('wide', permitted=lambda: True, parked=True)
+    CameraSnapshot(spawn=spawn).capture('wide', permitted=lambda: True)
+    self.assertEqual(seen, [['wide', 'parked'], ['wide']])
+
+  def test_settled_reports(self):
+    def state(frame_id=10, grey=0.125, target=0.125, percent=50.0):
+      return SimpleNamespace(frameId=frame_id, measuredGreyFraction=grey, targetGreyFraction=target, exposureValPercent=percent)
+    steady, climbing = [100, 100, 101], [66, 76, 87]
+    self.assertTrue(settled(state(), steady))
+    self.assertFalse(settled(state(grey=0.098), climbing))  # black frame from a cold start reads near target
+    self.assertTrue(settled(state(grey=0.098, target=0.145, percent=100), climbing))  # dark scene at full exposure
+    self.assertTrue(settled(state(grey=0.9, target=0.3, percent=0), climbing))  # bright scene at minimum exposure
+    self.assertFalse(settled(state(grey=0.9, target=0.3, percent=60), steady))  # still dimming
+    self.assertFalse(settled(state(frame_id=2), steady))  # no measurement yet
+    self.assertFalse(settled(state(grey=0.098, target=0.145, percent=100), climbing, extremes=False))  # cabin waits for IR
+
+  def test_parked_capture_takes_first_settled_frame_capped_by_old_waits(self):
+    frame = SimpleNamespace(width=4, height=4, stride=4, uv_offset=16, data=np.full(80, 128, dtype=np.uint8))
+    cases = (('wide', True, 10, 10), ('cabin', True, 10, 10), ('wide', True, None, 50), ('cabin', True, None, 99),
+             ('wide', False, 10, 50), ('cabin', False, 10, 99))
+    for camera, parked, settles_at, accepted in cases:
+      with self.subTest(camera=camera, parked=parked, settles_at=settles_at):
+        now = [1_000_000_000]
+        class Client:
+          timestamp_sof = timestamp_eof = 0
+          frame_id = -1
+          def connect(self, blocking): return True
+          def recv(self, timeout_ms, *, now=now):
+            now[0] += 100_000_000
+            self.frame_id += 1
+            self.timestamp_sof, self.timestamp_eof = now[0] - 20_000_000, now[0] - 10_000_000
+            return frame
+        client = Client()
+        def states_factory(camera, client=client, settles_at=settles_at):
+          close = settles_at is not None
+          return lambda: [SimpleNamespace(frameId=client.frame_id, targetGreyFraction=0.125, exposureValPercent=50,
+                                          integLines=1000, gain=1.0,
+                                          measuredGreyFraction=0.125 if close and client.frame_id >= settles_at else 0.02)]
+        with patch('openpilot.starpilot.galaxy.camera_snapshot_worker.extract_image', return_value=np.zeros((4, 4, 3), dtype=np.uint8)):
+          self.assertIsNotNone(capture(camera, parked=parked, client_factory=lambda *args, client=client: client,
+                                       clock=lambda now=now: now[0], states_factory=states_factory))
+        self.assertEqual(client.frame_id, accepted)
+
+  def test_capture_many_runs_cameras_side_by_side(self):
+    started = []
+    def spawn(args, **kwargs):
+      started.append(args[3])
+      # Each reader waits until both have started, so a one-at-a-time capture would time out.
+      script = "\n".join(("import os, sys, time",
+                           "deadline = time.time() + 5",
+                           "while len(os.listdir(sys.argv[1])) < 2 and time.time() < deadline: time.sleep(.01)",
+                           "sys.exit(1) if sys.argv[2] == 'cabin' else sys.stdout.buffer.write(bytes([255,216,255,217]))"))
+      open(os.path.join(directory, args[3]), 'w').close()
+      return subprocess.Popen([sys.executable, '-c', script, directory, args[3]], **kwargs)
+    with tempfile.TemporaryDirectory() as directory:
+      results = CameraSnapshot(spawn=spawn).capture_many(('wide', 'cabin'), permitted=lambda: True, parked=True)
+    self.assertEqual(started, ['wide', 'cabin'])
+    self.assertEqual(results['wide'], b'\xff\xd8\xff\xd9')
+    self.assertIsInstance(results['cabin'], SnapshotUnavailable)
+    self.assertEqual(self.request_mock.call_count, 1)
+    self.mark_frame_mock.assert_not_called()

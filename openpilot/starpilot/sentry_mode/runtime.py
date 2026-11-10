@@ -40,12 +40,13 @@ class SentryRuntime:
   def __init__(self, params: Params, messages: Any, *, mono_clock: Callable[[], int] = time.monotonic_ns,
                boot_clock: Callable[[], int] = boot_time_ns,
                record: Callable[[str, int, Callable[[], bool]], Any] | None = None, status: RuntimeStatus | None = None,
-               battery: Callable[[int, int], Any] | None = None):
+               battery: Callable[[int, int], Any] | None = None, prewarm: Callable[[], Any] | None = None):
     self.params, self.messages = params, messages
     self.mono_clock, self.boot_clock = mono_clock, boot_clock
     self.record = record
     self.status = status
     self.battery = battery
+    self.prewarm = prewarm
     self.battery_low_since: int | None = None
     self.battery_warned = False
     self.policy = SentryPolicy()
@@ -175,11 +176,19 @@ class SentryRuntime:
       self.saved_raw = saved.raw
     offroad, ignition_off, voltage_ok, fresh, now_ns = self._authority()
     sample = self._sample(now_ns) if active else None
+    triggers = self.policy.trigger_count
     sm = self.messages
     sample_pending = bool(not sm.updated["accelerometer"] and sm.seen["accelerometer"] and
                           sm.alive["accelerometer"] and sm.valid["accelerometer"])
     decision = self.policy.update(now_ns / 1e9, Inputs(active, offroad, voltage_ok, fresh, ignition_off, sample, sample_pending))
     expected_raw = saved.raw
+    # Warm the cameras up at the first jolt.
+    if (self.prewarm is not None and self.policy.trigger_count > triggers and expected_raw is not None and
+        self._permitted(expected_raw)):
+      try:
+        self.prewarm()
+      except OSError:
+        self._recording_state("unavailable")
     if decision.event is not None and self.record is not None and expected_raw is not None and self._permitted(expected_raw):
       try:
         receipt = self.record(decision.event, now_ns, lambda: self._permitted(expected_raw))
@@ -230,22 +239,23 @@ def main() -> None:
     signal.signal(number, lambda _signal, _frame: stop.set())
   messages = messaging.SubMaster(["accelerometer", "deviceState", "pandaStates", "peripheralState"])
   store = EventStore()
-  from openpilot.starpilot.galaxy.camera_snapshot import CameraSnapshot, SnapshotUnavailable
+  from openpilot.starpilot.galaxy.camera_request import request as prewarm_camera
+  from openpilot.starpilot.galaxy.camera_snapshot import CameraSnapshot, SnapshotDenied, SnapshotUnavailable
   camera = CameraSnapshot()
   def record(kind, stamp, permitted):
-    images = {}
-    for name in ("wide", "cabin"):
-      try:
-        images[name] = camera.capture(name, permitted=permitted)
-      except SnapshotUnavailable:
-        if not permitted():
-          raise
+    try:
+      results = camera.capture_many(("wide", "cabin"), permitted=permitted, parked=True)
+    except SnapshotDenied:
+      raise
+    except SnapshotUnavailable:
+      results = {}
+    images = {name: body for name, body in results.items() if isinstance(body, bytes)}
     return store.record(kind, stamp, permitted=permitted, images=images)
   def battery(voltage, cutoff):
     if recent_battery_warning(store.snapshot()["events"], time.time_ns()):
       return
     store.record("battery", time.monotonic_ns(), permitted=lambda: True, details={"voltage": voltage, "cutoff": cutoff})
-  runtime = SentryRuntime(Params(), messages, record=record, status=RuntimeStatus(), battery=battery)
+  runtime = SentryRuntime(Params(), messages, record=record, status=RuntimeStatus(), battery=battery, prewarm=prewarm_camera)
   try:
     while not stop.is_set():
       started = time.monotonic()
