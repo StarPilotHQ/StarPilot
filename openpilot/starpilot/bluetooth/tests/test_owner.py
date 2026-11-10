@@ -855,3 +855,13 @@ class BluetoothHeadUnitDiscoveryTest(unittest.TestCase):
     self.assertEqual({d['address'] for d in found}, {f'11:22:33:44:55:{i:02X}' for i in range(5)})
     self.assertTrue(all(d['name'] for d in found))
     self.assertTrue(all(not d['paired'] for d in found))
+
+
+class BluetoothAudioOutputTest(unittest.TestCase):
+  def test_only_audio_sink_profile_can_receive_music(self):
+    profiles = ['0000110B-0000-1000-8000-00805F9B34FB', '0000110a-0000-1000-8000-00805f9b34fb',
+                '4de17a00-52cb-11e6-bdf4-0800200c9a66', None]
+    objects = {f'/org/bluez/hci0/dev_{i}': {'org.bluez.Device1': {
+      'Address': f'11:22:33:44:55:0{i}', 'Paired': True, 'UUIDs': [profile] if profile else [],
+    }} for i, profile in enumerate(profiles)}
+    self.assertEqual([device['audioSink'] for device in BlueZ._devices(objects)], [True, False, False, False])

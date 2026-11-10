@@ -374,6 +374,7 @@ class VASMRuntime:
 
 
 def main() -> None:
+  os.nice(max(0, 10 - os.getpriority(os.PRIO_PROCESS, 0)))
   from openpilot.cereal import messaging
   from openpilot.cereal.visionipc import VisionStreamType
   from msgq.visionipc import VisionIpcClient

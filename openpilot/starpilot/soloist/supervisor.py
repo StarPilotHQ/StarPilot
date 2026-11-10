@@ -602,7 +602,7 @@ def parked() -> bool:
 
 
 def main() -> None:
-  os.nice(10)  # music yields to everything driving-related; children inherit this
+  os.nice(5)  # music yields to driving-related work; the audio server sets its own priority
   supervisor = Supervisor()
   reap_orphans(supervisor.layout)
   legacy_profile = Path('/run/systemd/system/bluealsa.service.d/90-starpilot-phone.conf')

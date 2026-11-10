@@ -253,7 +253,8 @@ class BlueZ:
                       f"Bluetooth Device · {address[-5:]}" if relevant else address)
       devices.append({'path': path, 'address': address, 'name': str(name)[:80],
                       'paired': props.get('Paired') is True, 'connected': props.get('Connected') is True,
-                      'trusted': props.get('Trusted') is True})
+                      'trusted': props.get('Trusted') is True,
+                      'audioSink': '0000110b-0000-1000-8000-00805f9b34fb' in profiles})
     return devices
 
   def snapshot(self) -> dict:

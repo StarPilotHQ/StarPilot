@@ -346,8 +346,11 @@ export const SpotifyPage = {
     keyValid() { return /^[A-Za-z0-9._~+/=-]{16,256}$/.test(this.keyValue.trim()) },
     nameValid() { return /^[^\x00-\x1f\x7f]{1,40}$/.test(this.nameValue.trim()) },
     outputChoices() {
+      return this.deviceChoices.filter((choice) => choice.audioSink)
+    },
+    deviceChoices() {
       const devices = this.setup?.devices || []
-      return devices.map((device) => ({ value: device.address, label: device.name + (device.connected ? "" : " (Not Connected)") }))
+      return devices.map((device) => ({ value: device.address, audioSink: device.audioSink === true, label: device.name + (device.connected ? "" : " (Not Connected)") }))
     },
   },
   methods: {
@@ -441,12 +444,13 @@ export const SpotifyPage = {
             <option value="phone">Phone over Bluetooth</option>
           </select>
         </label>
+        <p v-if="!phoneSource" class="gx-note">Spotify streams on the comma. Your phone controls playback in Spotify; the comma sends the music to the audio output you choose below.</p>
         <template v-if="phoneSource">
           <p class="gx-note">Pair your phone in the companion app, or tap <strong>Pair phone</strong> on the <a class="gx-link" href="#/bluetooth">Bluetooth page</a>. Then choose it below and turn on phone audio. On your phone, select the comma as the media audio output. No Spotify install or API key is needed.</p>
           <label class="gx-stack"><span>Phone</span>
             <select class="gx-field" :value="setup.preferences.phoneAddress" :disabled="busy || !setup.parked" @change="choosePhone">
               <option value="">Choose your paired phone…</option>
-              <option v-for="choice in outputChoices" :key="choice.value" :value="choice.value">{{ choice.label }}</option>
+              <option v-for="choice in deviceChoices" :key="choice.value" :value="choice.value">{{ choice.label }}</option>
             </select>
           </label>
           <GalaxySettingRow :row="switchRow('Phone Audio', setup.enabled, 'Forward music from the selected phone. Playback and volume stay on your phone.')"
@@ -462,15 +466,17 @@ export const SpotifyPage = {
           <p class="gx-note">Music only. Calls and microphone audio are not forwarded.</p>
         </template>
         <template v-if="setupDone && !phoneSource && !showSetup">
-        <label class="gx-stack"><span>Play on</span>
+        <label class="gx-stack"><span>Send audio to</span>
           <select class="gx-field" :value="setup.preferences.output === 'bluetooth' ? setup.preferences.outputAddress : setup.preferences.output" :disabled="busy || !setup.parked" @change="chooseOutput">
-            <option value="" disabled>Choose…</option>
-            <option value="starport">StarPort (car audio)</option>
-            <optgroup label="Bluetooth">
+            <option value="" disabled>Choose an audio output…</option>
+            <option value="starport">Car speakers via StarPort (Android Auto)</option>
+            <optgroup label="Bluetooth car stereos and speakers">
               <option v-for="choice in outputChoices" :key="choice.value" :value="choice.value">{{ choice.label }}</option>
             </optgroup>
             <option value="test">Silent test (no speaker)</option>
           </select></label>
+        <p class="gx-note">Choose your car speakers through StarPort, or a Bluetooth car stereo or speaker paired with the comma. Only Bluetooth devices that support receiving music appear here.</p>
+        <p v-if="!outputChoices.length" class="gx-note">No paired Bluetooth audio outputs found. Pair your car stereo or speaker on the <a class="gx-link" href="#/bluetooth">Bluetooth page</a>, or use StarPort.</p>
         </template>
         <small v-if="phoneSource && !setup.parked" class="gx-note">Put the car in Park or use offroad mode to change the phone.</small>
       </section>
@@ -562,21 +568,22 @@ export const SpotifyPage = {
         <li class="gx-card gx-starport-step" :class="{ 'gx-starport-step--done': outputChosen }">
           <div class="gx-starport-step__head">
             <span class="gx-starport-step__num" aria-hidden="true"><i v-if="outputChosen" class="bi bi-check-lg"></i><template v-else>3</template></span>
-            <div><h3>Where Music Plays</h3><p>Through Android Auto, or your car or a speaker over Bluetooth. Alerts keep playing from the comma itself.</p></div>
+            <div><h3>Where Music Plays</h3><p>Send music from the comma to your car speakers through StarPort (Android Auto), or to a Bluetooth car stereo or speaker. Alerts keep playing from the comma itself.</p></div>
           </div>
           <div class="gx-starport-step__body">
-            <label class="gx-stack"><span>Play on</span>
+            <label class="gx-stack"><span>Send audio to</span>
               <select class="gx-field" :value="setup.preferences.output === 'bluetooth' ? setup.preferences.outputAddress : setup.preferences.output" :disabled="busy || !setup.parked" @change="chooseOutput">
-                <option value="" disabled>Choose…</option>
-                <option value="starport">StarPort (car audio)</option>
-                <optgroup label="Bluetooth">
+                <option value="" disabled>Choose an audio output…</option>
+                <option value="starport">Car speakers via StarPort (Android Auto)</option>
+                <optgroup label="Bluetooth car stereos and speakers">
                   <option v-for="choice in outputChoices" :key="choice.value" :value="choice.value">{{ choice.label }}</option>
                 </optgroup>
                 <option value="test">Silent test (no speaker)</option>
               </select></label>
+            <p class="gx-note">Only Bluetooth devices that support receiving music appear here. Pairing a phone or radar detector does not make it an audio output.</p>
             <small v-if="!setup.parked" class="gx-note">Put the car in Park or use offroad mode to change this.</small>
             <p v-if="setup.preferences.output === 'starport'" class="gx-note">Music plays through the car while <a class="gx-link" href="#/starport">StarPort</a> is connected, and the car shows it as Android Auto audio. If you switch the car to the radio, playback is paused when the source supports it.</p>
-            <p v-else-if="!outputChoices.length" class="gx-note">No paired devices yet. Pair your car or speaker on the <a class="gx-link" href="#/bluetooth">Bluetooth</a> page first.</p>
+            <p v-else-if="!outputChoices.length" class="gx-note">No paired Bluetooth audio outputs found. Pair your car stereo or speaker on the <a class="gx-link" href="#/bluetooth">Bluetooth</a> page first.</p>
             <p v-else-if="setup.preferences.output === 'bluetooth'" class="gx-note">Don’t see it? Pair it on the <a class="gx-link" href="#/bluetooth">Bluetooth</a> page. In your car, choose <strong>Bluetooth Audio</strong> as the source.</p>
           </div>
         </li>
@@ -638,7 +645,7 @@ export const SpotifyPage = {
           <p>Music plays through your car or speaker; alerts keep playing from the comma’s own speaker. Keep the music at a level where you can still hear the comma.</p>
         </details>
         <details class="gx-starport-wiki"><summary>Can I use it with Android Auto?</summary>
-          <p>Yes. In step 3 choose <strong>Android Auto</strong>, and music plays through the car as Android Auto audio alongside the StarPilot screen. It needs Android Auto to be connected, so if it isn’t, music has nowhere to play.</p>
+          <p>Yes. Under <strong>Send audio to</strong>, choose <strong>Car speakers via StarPort (Android Auto)</strong>, and music plays through the car as Android Auto audio alongside the StarPilot screen. It needs Android Auto to be connected, so if it isn’t, music has nowhere to play.</p>
         </details>
         <details class="gx-starport-wiki"><summary>More help from Spotify</summary>
           <p><a class="gx-link" :href="setup?.links.help || '#'" target="_blank" rel="noopener noreferrer">Spotify’s Soloist getting-started guide</a></p>
