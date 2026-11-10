@@ -179,6 +179,10 @@ export const SURFACE_GROUPS = Object.freeze([
 ])
 
 const REASONS = {
+  trial_started_waiting_for_comparable_drive: "The trial ran, but this drive lacked matching comparison windows. The same bounded trial will be checked on another drive.",
+  trial_measurement_inconclusive: "The comparison did not establish improvement or worsening. The same bounded trial will be checked on another drive.",
+  trial_inconclusive_drive_limit: "Three trial drives did not establish an improvement. The prior tune was restored.",
+  next_drive_observed_tracking_worse: "Comparable driving showed a steering regression, so the prior tune was restored.",
   analyzing_last_completed_drive: "Analyzing the last completed drive while parked.",
   checking_recorded_steering_recommendations: "Checking the recorded-drive recommendations against the original controller and steering outputs.",
   recorded_tracking_suggestion_not_yet_qualified_for_automatic_application: "Recommendations were found, but none has passed the controller and steering-output checks required for automatic saving.",
@@ -280,7 +284,9 @@ export function tunerStatus(report, live = false, choiceLive = false, error = ""
   const route = reportFresh && (!preference || preference.parked) ? offroadView(report) : null
   if (route) {
     if (route.configurationState === 'ready_for_next_drive')
-      return { key: 'next-drive', tone: 'ready', title: 'Tune saved for the next drive', description: learningReason('bounded_trial_configured_for_next_drive') }
+      return { key: 'next-drive', tone: 'ready', title: 'Tune saved for the next drive', description: learningReason(
+        ['trial_started_waiting_for_comparable_drive', 'trial_measurement_inconclusive'].includes(route.reason)
+          ? route.reason : 'bounded_trial_configured_for_next_drive') }
     return { key: 'analyzed', tone: route.suggestions.length ? 'warning' : 'ready', title: 'Completed drive analyzed', description: learningReason(route.reason) }
   }
   if (preference?.valid && preference.enabled && preference.parked)

@@ -212,10 +212,10 @@ class RouteStorage:
     return result.committed and result.verified
 
   def resolve(self, *, scope, expected, outcome, route_sha256, completed_wall_ns, analysis_sha256, authorized):
-    """One distinct completed drive resolves a provisional map exactly once."""
+    """A distinct drive resolves a trial or records one bounded retry."""
     from openpilot.starpilot.flm.learned_lifecycle import decode, encode
 
-    if outcome not in ('accepted_after_drive', 'rolled_back') or not _hash(route_sha256) or not _hash(analysis_sha256):
+    if outcome not in ('accepted_after_drive', 'rolled_back', 'pending') or not _hash(route_sha256) or not _hash(analysis_sha256):
       raise ValueError('Explicit assessed next-drive outcome required')
     doc = decode(expected)
     row = doc.get(NAMESPACE, {}).get(scope.key())
@@ -233,7 +233,12 @@ class RouteStorage:
     if outcome == 'rolled_back':
       row['values'] = dict(row['previous'])
       row['previous'] = dict(row['previous'])
-    row.update(state=outcome, route_sha256s=(row['route_sha256s'] + [route_sha256])[-8:], completed_wall_ns=completed_wall_ns, analysis_sha256=analysis_sha256)
+    row.update(
+      state='ready_for_next_drive' if outcome == 'pending' else outcome,
+      route_sha256s=(row['route_sha256s'] + [route_sha256])[-8:],
+      completed_wall_ns=completed_wall_ns,
+      analysis_sha256=analysis_sha256,
+    )
     validate_row(row)
     desired = encode(doc)
 

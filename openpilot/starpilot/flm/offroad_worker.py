@@ -24,6 +24,7 @@ from openpilot.starpilot.flm.offroad_tracking import TrackingEstimate, compare_o
 from openpilot.starpilot.saved_source import read_saved
 
 POLICY = 'bounded_provisional_next_drive_v1'
+MAX_INCONCLUSIVE_DRIVES = 3
 ZERO = dict.fromkeys(NAMES, 0.0)
 from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, LEGACY_KEYS
 
@@ -169,8 +170,16 @@ def assess_next_drive(trial, assessment, scope, *, trial_started=True):
     if (
       metadata['route_scope'] != scope.key()
       or _recorded_values(metadata) != trial['values']
-      or _digest([metadata[key] for key in ('cp_sha256', 'controller_mode', 'domain', 'baseline_values', 'vehicle_model_anchor')])
-      != _digest([before[key] for key in ('cp_sha256', 'controller_mode', 'domain', 'baseline_values', 'vehicle_model_anchor')])
+      # Live vehicle-model estimates are evidence, not fixed vehicle identity.
+      or _digest([metadata[key] for key in ('cp_sha256', 'controller_mode', 'domain', 'baseline_values')])
+      != _digest([before[key] for key in ('cp_sha256', 'controller_mode', 'domain', 'baseline_values')])
+    ):
+      continue
+    anchors = (before['vehicle_model_anchor'], metadata['vehicle_model_anchor'])
+    if (
+      any(type(a) not in (list, tuple) or len(a) not in (0, 3) for a in anchors)
+      or len(anchors[0]) != len(anchors[1])
+      or any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for a in anchors for v in a)
     ):
       continue
     # The actual original bindings remain in both immutable assessments.
@@ -184,6 +193,7 @@ def assess_next_drive(trial, assessment, scope, *, trial_started=True):
         metadata['controller_revision'],
         before['baseline_values'],
         before['vehicle_model_anchor'],
+        metadata['vehicle_model_anchor'],
         trial['cohort'],
       )
     )
@@ -201,18 +211,20 @@ def assess_next_drive(trial, assessment, scope, *, trial_started=True):
         else:
           results.append(compare_observed(old, new))
       comparisons.append({'original_context_sha256': group['original_context_sha256'], 'comparison_contract_sha256': contract, 'independent': results})
-  if not comparisons and not trial_started:
-    return {
-      'outcome': 'pending',
-      'reason': 'trial_not_applied_waiting_for_eligible_drive',
-      'observed_only': True,
-      'causal_road_benefit_proven': False,
-      'comparisons': [],
-    }
   improved = bool(comparisons and all(all(r['improved'] for r in c['independent']) for c in comparisons))
+  worse = any(r['worse'] for c in comparisons for r in c['independent'])
+  if worse:
+    outcome, reason = 'rolled_back', 'next_drive_observed_tracking_worse'
+  elif improved:
+    outcome, reason = 'accepted_after_drive', 'independent_actual_tracking_improved'
+  else:
+    outcome = 'pending'
+    reason = 'trial_measurement_inconclusive' if comparisons else (
+      'trial_started_waiting_for_comparable_drive' if trial_started else 'trial_not_applied_waiting_for_eligible_drive'
+    )
   return {
-    'outcome': 'accepted_after_drive' if improved else 'rolled_back',
-    'reason': 'independent_actual_tracking_improved' if improved else 'next_drive_worsened_or_did_not_establish_improvement',
+    'outcome': outcome,
+    'reason': reason,
     'observed_only': True,
     'causal_road_benefit_proven': False,
     'comparisons': comparisons,
@@ -401,7 +413,15 @@ class OffroadWorker:
               observed_checks.append(
                 {'qualified': actual['qualified'] and contribution['qualified'], 'actual_recorded_map': actual, 'compared_with_prior_map': contribution}
               )
-      outcome = assess_next_drive(trial, assessment, scope, trial_started=os.path.lexists(self.cache.directory / ('trial-' + row['analysis_sha256'] + '.json')))
+      started = os.path.lexists(self.cache.directory / ('trial-' + row['analysis_sha256'] + '.json'))
+      attempts = self.cache.get(row['analysis_sha256']).get('inconclusive_drives', 0)
+      if type(attempts) is not int or not 0 <= attempts < MAX_INCONCLUSIVE_DRIVES:
+        raise ValueError('Bounded inconclusive trial history required')
+      outcome = assess_next_drive(trial, assessment, scope, trial_started=started)
+      if outcome['outcome'] == 'pending' and started:
+        attempts += 1
+        if attempts >= MAX_INCONCLUSIVE_DRIVES:
+          outcome = dict(outcome, outcome='rolled_back', reason='trial_inconclusive_drive_limit')
       if outcome['outcome'] == 'accepted_after_drive' and (not observed_checks or not all(r['qualified'] for r in observed_checks)):
         outcome = {
           'outcome': 'rolled_back',
@@ -410,7 +430,7 @@ class OffroadWorker:
           'causal_road_benefit_proven': False,
           'comparisons': outcome['comparisons'],
         }
-      if outcome['outcome'] == 'pending':
+      if outcome['outcome'] == 'pending' and not started:
         status, reason = 'ready_for_next_drive', outcome['reason']
         report['unused_recording_review'] = outcome
         report['recorded_tracking'] = trial.get('assessment', {}).get('recorded_tracking')
@@ -421,6 +441,7 @@ class OffroadWorker:
           'trial_analysis_sha256': row['analysis_sha256'],
           'assessment': report,
           'all_actual_next_drive_checks': observed_checks,
+          'inconclusive_drives': attempts,
           **outcome,
         }
         digest = self.cache.put(record)
@@ -435,7 +456,7 @@ class OffroadWorker:
         )
         if not saved:
           raise ValueError('Next-drive outcome compare-and-swap refused')
-        status = outcome['outcome']
+        status = 'ready_for_next_drive' if outcome['outcome'] == 'pending' else outcome['outcome']
         reason = outcome['reason']
     else:
       current = dict(ZERO) if row is None else dict(row['values'])

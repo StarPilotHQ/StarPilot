@@ -340,3 +340,20 @@ for (const state of [{ parked: true }, { parked: false }, { parked: true }, { pa
   } else assert.deepEqual(calls, [[0, 1]])
 }
 console.log('Actual FLM and setting-row Vue renders preserve parked/driving descriptions and reject locked saves')
+
+
+// A retry remains provisional; neither its saved state nor its text asserts application.
+ctx.now = 1000
+ctx.report.observedMonoTime = ctx.now * 1_000_000
+ctx.report.current.details['Saved route configuration state'] = 'ready_for_next_drive'
+for (const reason of ['trial_started_waiting_for_comparable_drive', 'trial_measurement_inconclusive']) {
+  ctx.report.current.reason = reason
+  ctx.report.current.details['Analysis decision'] = reason
+  const state = tunerStatus(ctx.report, false, false, '', true)
+  assert.equal(state.key, 'next-drive')
+  assert(state.description.includes('trial'))
+  assert.notEqual(state.description, tunerStatus({ ...ctx.report, current: { ...ctx.report.current,
+    details: { ...ctx.report.current.details, 'Analysis decision': 'bounded_trial_configured_for_next_drive' } } }, false, false, '', true).description)
+  assert.equal(ctx.currentApplied, false, 'A pending retry cannot fabricate applied or accepted steering')
+}
+console.log('Inconclusive next-drive trials remain visibly provisional without fabricated application')

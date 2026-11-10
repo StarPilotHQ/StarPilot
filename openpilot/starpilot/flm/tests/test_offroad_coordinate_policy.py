@@ -283,3 +283,298 @@ class TestRecordedProposalScoreUnits(unittest.TestCase):
 
 if __name__ == '__main__':
   unittest.main()
+
+
+class TestComparableNextDriveOutcomes(unittest.TestCase):
+  """Declared numerical fixtures reproduce the captured missing-cohort/model-drift case."""
+
+  @staticmethod
+  def residual(ids, *, improved=False, **changes):
+    from dataclasses import asdict
+    from openpilot.starpilot.flm.offroad_residual import ResidualEstimate
+
+    result = asdict(ResidualEstimate(
+      context='d' * 64, domain='lateral_acceleration', cohort='2:left:steady',
+      windows=tuple(ids), source_sha256='e' * 64, reference_rms=0.8, reference_variability=0.3,
+      mean_reference=-0.6, residual_rms=0.05 if improved else 0.1,
+      residual_interval=(0.04, 0.06) if improved else (0.09, 0.11),
+      normalized_residual_interval=(0.05, 0.075) if improved else (0.1125, 0.1375),
+      error_reversal_hz=0.4, overshoot_rms=0.01, peak_error=0.2, error_slew_rms=0.3,
+    ))
+    result.update(changes)
+    return result
+
+  @classmethod
+  def documents(cls):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_worker import POLICY
+
+    proposed = values()
+    proposed.update(friction_threshold_mid=0.002775, friction_threshold_fast=0.0037125, friction_threshold_highway=0.0037125)
+    metadata = {
+      'cp_sha256': scope().cp_sha256, 'controller_mode': 'starpilot', 'domain': 'lateral_acceleration',
+      'controller_revision': scope().controller_revision, 'baseline_revision': scope().baseline_revision,
+      'baseline_values': [1.0, 3.66, 0.09],
+      'vehicle_model_anchor': [14.656122207641602, 178034.5324200876, 187624.19209961593],
+      'route_scope': scope().key(), 'route_revision': REVISION, 'route_values': list(values().items()),
+    }
+    original = dict(trial(), policy=POLICY, cohort='2:left:steady', previous=values(), values=proposed,
+      original_metadata=metadata, assessment={'current_scope': scope().document()},
+      all_original_window_checks={'qualified': True, 'policy': 'every_preselected_window_controller_and_registered_encoder_v1',
+        'windows': [{'qualified': True} for _ in range(6)]})
+    original['before'] = {
+      'training': cls.residual([c * 64 for c in '123']),
+      'heldout': cls.residual([c * 64 for c in '456']),
+    }
+    observed = dict(metadata, route_values=list(proposed.items()),
+      vehicle_model_anchor=[14.709903717041016, 181913.73862427846, 191712.34803293645])
+    cohort = {'cohort': original['cohort'], 'whole_windows': 6,
+      'training': cls.residual([c * 64 for c in '789'], improved=True),
+      'heldout': cls.residual([c * 64 for c in 'abc'], improved=True)}
+    group = {'original_context_sha256': 'f' * 64, 'original_metadata': observed, 'cohorts': [cohort]}
+    assessment = SimpleNamespace(groups=(), stable_groups=(group,), quality_stop_markers=())
+    original = json.loads(json.dumps(original))
+    return original, assessment
+
+  def test_changed_model_estimates_do_not_change_fixed_vehicle_identity(self):
+    import copy
+    from openpilot.starpilot.flm.offroad_worker import assess_next_drive
+
+    original, assessment = self.documents()
+    frozen = copy.deepcopy((original, assessment.stable_groups))
+    result = assess_next_drive(original, assessment, scope())
+    self.assertEqual(result['outcome'], 'accepted_after_drive')
+    self.assertEqual(len(result['comparisons']), 1)
+    self.assertTrue(all(r['improved'] for r in result['comparisons'][0]['independent']))
+    self.assertEqual((original, assessment.stable_groups), frozen, 'Original source/model contexts must never be rewritten')
+    self.assertFalse(result['causal_road_benefit_proven'])
+
+  def test_started_trial_with_captured_missing_turn_shape_waits_for_evidence(self):
+    from openpilot.starpilot.flm.offroad_worker import assess_next_drive
+
+    original, assessment = self.documents()
+    # Captured estimate values; identifiers are anonymized and no raw driving logs are included.
+    original['before'] = {'heldout': {'cohort': '2:left:steady',
+                 'context': 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+                 'domain': 'lateral_acceleration',
+                 'error_reversal_hz': 1.3359018276085968,
+                 'error_slew_rms': 1.0287518347929518,
+                 'kind': 'uncommanded_residual_v1',
+                 'mean_reference': 0.5766378949508849,
+                 'normalized_residual_interval': [0.0, 0.38579609024647626],
+                 'overshoot_rms': 0.039950583376129625,
+                 'peak_error': 0.22540056705474854,
+                 'reference_rms': 0.6731862627921118,
+                 'reference_variability': 1.3793414489457103,
+                 'residual_interval': [0.0, 0.13742212284197303],
+                 'residual_rms': 0.05405658825978766,
+                 'source_sha256': '2222222222222222222222222222222222222222222222222222222222222222',
+                 'windows': ['0000000000000000000000000000000000000000000000000000000000000011',
+                             '0000000000000000000000000000000000000000000000000000000000000012',
+                             '0000000000000000000000000000000000000000000000000000000000000013',
+                             '0000000000000000000000000000000000000000000000000000000000000014',
+                             '0000000000000000000000000000000000000000000000000000000000000015',
+                             '0000000000000000000000000000000000000000000000000000000000000016',
+                             '0000000000000000000000000000000000000000000000000000000000000017']},
+     'training': {'cohort': '2:left:steady',
+                  'context': 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+                  'domain': 'lateral_acceleration',
+                  'error_reversal_hz': 1.1206295109082092,
+                  'error_slew_rms': 0.9809542236167832,
+                  'kind': 'uncommanded_residual_v1',
+                  'mean_reference': 0.45779800231957724,
+                  'normalized_residual_interval': [0.0, 0.5260785168657509],
+                  'overshoot_rms': 0.04482235257882055,
+                  'peak_error': 0.23435038328170776,
+                  'reference_rms': 0.5203595961412223,
+                  'reference_variability': 1.5713898010832872,
+                  'residual_interval': [0.0, 0.11580012586272131],
+                  'residual_rms': 0.05241822844153545,
+                  'source_sha256': '1111111111111111111111111111111111111111111111111111111111111111',
+                  'windows': ['0000000000000000000000000000000000000000000000000000000000000001',
+                              '0000000000000000000000000000000000000000000000000000000000000002',
+                              '0000000000000000000000000000000000000000000000000000000000000003',
+                              '0000000000000000000000000000000000000000000000000000000000000004',
+                              '0000000000000000000000000000000000000000000000000000000000000005',
+                              '0000000000000000000000000000000000000000000000000000000000000006',
+                              '0000000000000000000000000000000000000000000000000000000000000007']}}
+    assessment.stable_groups[0]['cohorts'] = [
+      {'cohort': '1:both:center', 'whole_windows': 2, 'reason': 'more_independent_stable_windows_required'},
+      {'cohort': '2:both:center', 'whole_windows': 3, 'reason': 'more_independent_stable_windows_required'},
+    ]
+    result = assess_next_drive(original, assessment, scope(), trial_started=True)
+    self.assertEqual(result['outcome'], 'pending', 'The captured five windows cannot establish a failed left-turn trial')
+    self.assertEqual(result['comparisons'], [])
+    self.assertEqual(result['reason'], 'trial_started_waiting_for_comparable_drive')
+
+  def test_vehicle_baseline_domain_and_actual_map_must_still_match(self):
+    from openpilot.starpilot.flm.offroad_worker import assess_next_drive
+
+    for changed in (
+      {'cp_sha256': 'b' * 64}, {'controller_mode': 'stock'}, {'domain': 'steering_angle'},
+      {'baseline_values': [1.0, 4.0, 0.09]}, {'route_scope': 'c' * 64},
+      {'route_values': list(values().items())}, {'vehicle_model_anchor': [14.0, 1.0]},
+      {'vehicle_model_anchor': [14.0, float('nan'), 1.0]},
+    ):
+      with self.subTest(changed=changed):
+        original, assessment = self.documents()
+        assessment.stable_groups[0]['original_metadata'].update(changed)
+        result = assess_next_drive(original, assessment, scope())
+        self.assertEqual(result['outcome'], 'pending')
+        self.assertEqual(result['comparisons'], [])
+
+  def test_both_independent_roles_must_improve(self):
+    from openpilot.starpilot.flm.offroad_worker import assess_next_drive
+
+    original, assessment = self.documents()
+    assessment.stable_groups[0]['cohorts'][0]['heldout'] = self.residual([c * 64 for c in 'abc'])
+    result = assess_next_drive(original, assessment, scope())
+    self.assertEqual(result['outcome'], 'pending')
+    self.assertEqual(result['reason'], 'trial_measurement_inconclusive')
+    self.assertEqual(len(result['comparisons']), 1)
+
+  def test_easier_inputs_do_not_confirm_an_improvement(self):
+    from openpilot.starpilot.flm.offroad_worker import assess_next_drive
+
+    original, assessment = self.documents()
+    for role in ('training', 'heldout'):
+      assessment.stable_groups[0]['cohorts'][0][role]['reference_rms'] = 1.2
+    self.assertEqual(assess_next_drive(original, assessment, scope())['outcome'], 'pending')
+
+  def test_measured_smoothness_regression_still_rolls_back(self):
+    from openpilot.starpilot.flm.offroad_worker import assess_next_drive
+
+    original, assessment = self.documents()
+    assessment.stable_groups[0]['cohorts'][0]['heldout']['error_reversal_hz'] = 2.0
+    result = assess_next_drive(original, assessment, scope())
+    self.assertEqual(result['outcome'], 'rolled_back')
+    self.assertEqual(result['reason'], 'next_drive_observed_tracking_worse')
+
+  def test_gross_quality_withdrawal_still_wins_without_comparisons(self):
+    from openpilot.starpilot.flm.offroad_worker import assess_next_drive
+    from openpilot.starpilot.flm.offroad_surface import stop_marker
+
+    original, assessment = self.documents()
+    assessment.quality_stop_markers = ({'reason': stop_marker(scope().key(), original['values'], 'gross_tracking_or_oscillation_worse')},)
+    result = assess_next_drive(original, assessment, scope())
+    self.assertEqual(result['outcome'], 'rolled_back')
+    self.assertEqual(result['reason'], 'onroad_quality_guard_withdrew_map')
+
+  def test_reused_source_windows_cannot_confirm_an_improvement(self):
+    from openpilot.starpilot.flm.offroad_worker import assess_next_drive
+
+    original, assessment = self.documents()
+    assessment.stable_groups[0]['cohorts'][0]['training']['windows'] = original['before']['training']['windows']
+    with self.assertRaisesRegex(ValueError, 'Independent actual residual'):
+      assess_next_drive(original, assessment, scope())
+
+
+class TestBoundedInconclusiveTrialLifecycle(unittest.TestCase):
+  """Declared lifecycle fixtures; these do not grant native or road authority."""
+
+  def saved_trial(self, directory):
+    from openpilot.starpilot.flm.offroad_cache import AssessmentCache, directory_for_params
+
+    params = Params(directory)
+    cache = AssessmentCache(directory_for_params(params))
+    original, _ = TestComparableNextDriveOutcomes.documents()
+    digest = cache.put(original)
+    row = {'scope': scope().document(), 'values': original['values'], 'previous': values(),
+      'route_sha256s': ['1' * 64], 'source_start_ns': 1, 'source_end_ns': 2,
+      'analysis_sha256': digest, 'completed_wall_ns': 3, 'sequence': 1, 'state': 'ready_for_next_drive'}
+    self.assertTrue(RouteStorage(params).save(row, expected=None, authorized=lambda: True))
+    return params, cache, original, digest
+
+  def worker(self, params, cache, directory, digit):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_worker as module
+    from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+
+    receipt = RouteReceipt('declared-inconclusive-' + digit, digit * 64, (), 'a' * 64, 1, 2, 100 + int(digit), ())
+    inventory = {'routeId': receipt.route_id}
+    assessment = CompletedAssessment(receipt, (), {}, SimpleNamespace(carFingerprint='declared-unit-car'), (), inventory)
+
+    def assessed(params, root, previous, *, permitted):
+      previous(assessment.cp)
+      return assessment
+
+    def checker(*args, **kwargs):
+      self.fail('Missing cohort evidence cannot fabricate a controller/encoder acceptance')
+
+    worker = module.OffroadWorker(params, directory, cache, permitted=lambda: True, assessor=assessed,
+      checker=checker, scope_for=lambda cp, params: scope())
+    return worker, inventory
+
+  def test_bounded_retries_keep_single_session_and_atomic_source_guards(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_worker as module
+    from openpilot.starpilot.flm.learned_lifecycle import decode
+    from openpilot.starpilot.flm.offroad_runtime import configure
+    from openpilot.starpilot.flm.offroad_quality import from_configuration
+
+    with tempfile.TemporaryDirectory() as directory:
+      params, cache, original, first_digest = self.saved_trial(directory)
+      digests = []
+      for attempt, digit in enumerate('234', 1):
+        raw = read_saved(params, KEY, MAX_BYTES)[0]
+        row = decode(raw)['routeSurfaces'][scope().key()]
+        digest = row['analysis_sha256']
+        digests.append(digest)
+        with patch('openpilot.starpilot.flm.offroad_runtime.configuration_data', return_value=(scope(), (), ())):
+          owner, status = configure(None, None, SimpleNamespace(), params, manual_status='not_configured')
+          self.assertIsNotNone(owner)
+          assert owner is not None
+          self.assertFalse(owner.frame_allowed, 'A saved retry cannot supply a frame permission')
+          self.assertEqual(status, 'configured_pending_actual_stage')
+          self.assertTrue(cache.claim_trial(digest, digit * 32))
+          blocked, status = configure(None, None, SimpleNamespace(), params, manual_status='not_configured')
+          self.assertIsNone(blocked, 'Every trial attempt stays one-use until parked assessment')
+          self.assertEqual(status, 'provisional_trial_already_started')
+        worker, inventory = self.worker(params, cache, directory, digit)
+        with patch.object(module, 'latest_route', return_value=inventory):
+          result = worker.run_once()
+          saved_raw = read_saved(params, KEY, MAX_BYTES)[0]
+          self.assertEqual(worker.run_once(), result)
+          self.assertEqual(read_saved(params, KEY, MAX_BYTES)[0], saved_raw, 'Polling the same drive cannot consume another retry')
+        saved = decode(saved_raw)['routeSurfaces'][scope().key()]
+        record = cache.get(saved['analysis_sha256'])
+        self.assertEqual(record['inconclusive_drives'], attempt)
+        self.assertFalse(record['causal_road_benefit_proven'])
+        self.assertEqual(cache.get(first_digest), original, 'Original qualification stays immutable')
+        if attempt < 3:
+          self.assertEqual(saved['state'], 'ready_for_next_drive')
+          self.assertEqual(saved['values'], original['values'])
+          self.assertEqual(saved['previous'], values())
+          self.assertNotEqual(saved['analysis_sha256'], digest)
+          self.assertFalse((cache.directory / ('trial-' + saved['analysis_sha256'] + '.json')).exists())
+          with patch.object(module, '_current_scope', return_value=scope()):
+            guard = from_configuration(None, params, cache.directory, vehicle_session='f' * 32)
+          self.assertIsNotNone(guard)
+          assert guard is not None
+          self.assertIsNone(guard.stopped, 'The unchanged onroad guard must load the original baseline through retry lineage')
+        else:
+          self.assertEqual(saved['state'], 'rolled_back')
+          self.assertEqual(saved['values'], values())
+          self.assertEqual(result['reason'], 'trial_inconclusive_drive_limit')
+      self.assertEqual(len(set(digests)), 3)
+
+  def test_pending_store_rejects_stale_bytes_unauthorized_and_repeated_drives(self):
+    from openpilot.starpilot.flm.learned_lifecycle import decode
+
+    with tempfile.TemporaryDirectory() as directory:
+      params, cache, original, digest = self.saved_trial(directory)
+      raw = read_saved(params, KEY, MAX_BYTES)[0]
+      store = RouteStorage(params)
+      args = {'scope': scope(), 'outcome': 'pending', 'route_sha256': '2' * 64, 'completed_wall_ns': 102, 'analysis_sha256': digest}
+      self.assertFalse(store.resolve(expected=None, authorized=lambda: True, **args))
+      self.assertFalse(store.resolve(expected=raw, authorized=lambda: False, **args))
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES)[0], raw)
+      self.assertTrue(store.resolve(expected=raw, authorized=lambda: True, **args))
+      pending = read_saved(params, KEY, MAX_BYTES)[0]
+      self.assertFalse(store.resolve(expected=pending, authorized=lambda: True, **args))
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES)[0], pending)
+      row = decode(pending)['routeSurfaces'][scope().key()]
+      self.assertEqual(row['values'], original['values'])
+      self.assertEqual(row['previous'], values())
+      self.assertEqual(cache.get(digest), original)
