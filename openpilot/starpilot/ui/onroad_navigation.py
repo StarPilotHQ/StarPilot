@@ -133,8 +133,11 @@ class NavigationCard:
     kind = 'arrive' if nav.arrived else nav.maneuver_type
     if not nav.totals_known and (not kind or not nav.modifier and kind in ('turn', 'fork', 'off ramp')):
       kind = 'invalid'
-    icon = self._icon(icon_name(kind, nav.modifier))
+    name = icon_name(kind, nav.modifier)
+    icon = self._icon(name) if name else None
     if self.collapsed:
+      if icon is None:
+        return
       size = 64 if compact else 100
       rl.draw_texture_pro(icon, rl.Rectangle(0, 0, icon.width, icon.height),
                           rl.Rectangle(rect.x + (rect.width - size) / 2, rect.y + (rect.height - size) / 2, size, size),
@@ -145,10 +148,11 @@ class NavigationCard:
     lanes = () if nav.arrived or nav.distance_m > LANES_SHOW_M else nav.lanes
     header = rect.height * ((.52 if lanes else .64) if compact else (.55 if lanes else .66))
     size = min(84 if compact else 122, header - 6)
-    if not lanes:
+    if not lanes and icon is not None:
       rl.draw_texture_pro(icon, rl.Rectangle(0, 0, icon.width, icon.height),
                           rl.Rectangle(rect.x + padding, rect.y + (header - size) / 2, size, size), rl.Vector2(0, 0), 0, rl.WHITE)
-    x = rect.x + padding * (1 if lanes else 2) + (0 if lanes else size)
+    beside = not lanes and icon is not None
+    x = rect.x + padding * (2 if beside else 1) + (size if beside else 0)
     width = rect.x + rect.width - padding - x
     distance_size, text_size = (32, 20) if compact else (54, 30 if lanes else 28)
     distance = 'Arrived' if nav.arrived else distance_text(nav.distance_m, state.metric) if nav.distance_known else 'Phone navigation'
@@ -218,7 +222,10 @@ class NavigationCard:
     chip = rl.Rectangle(x, y - 4, label_width + size + 28, size + 8)
     rl.draw_rectangle_rounded(chip, .5, 8, rl.Color(44, 37, 70, 255))
     self.fonts.draw(label, FontRole.SEMI_BOLD, size - 4, x + 12, y + 1, rl.Color(199, 174, 247, 255))
-    icon = self._icon(icon_name(nav.then_type, nav.then_modifier))
+    name = icon_name(nav.then_type, nav.then_modifier)
+    if not name:
+      return
+    icon = self._icon(name)
     rl.draw_texture_pro(icon, rl.Rectangle(0, 0, icon.width, icon.height),
                         rl.Rectangle(x + label_width + 18, y - 1, size, size), rl.Vector2(0, 0), 0, rl.WHITE)
 

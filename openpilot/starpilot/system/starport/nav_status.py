@@ -34,7 +34,7 @@ SIDE_LEFT, SIDE_RIGHT, SIDE_UNSPECIFIED = 1, 2, 0
 (EVENT_DEPART, EVENT_NAME_CHANGE, EVENT_SLIGHT_TURN, EVENT_TURN, EVENT_SHARP_TURN, EVENT_U_TURN, EVENT_ON_RAMP,
  EVENT_OFF_RAMP, EVENT_FORK, EVENT_MERGE, EVENT_ROUNDABOUT_ENTER, EVENT_ROUNDABOUT_EXIT,
  EVENT_ROUNDABOUT_ENTER_AND_EXIT, EVENT_STRAIGHT) = range(1, 15)
-EVENT_DESTINATION = 19
+EVENT_UNKNOWN, EVENT_DESTINATION = 0, 19
 UNIT_METERS, UNIT_KILOMETERS, UNIT_KILOMETERS_P1, UNIT_MILES, UNIT_MILES_P1, UNIT_FEET = 1, 2, 3, 4, 5, 6
 
 STEP_TIMEOUT = 3.0
@@ -64,6 +64,8 @@ def _normal(value: str) -> str:
 def maneuver_event(maneuver_type: str, modifier: str) -> tuple[int, int]:
   """Mapbox maneuver -> (event, turn side)."""
   kind, mod = _normal(maneuver_type), _normal(modifier)
+  if not kind:
+    return EVENT_UNKNOWN, SIDE_UNSPECIFIED
   side = SIDE_LEFT if 'left' in mod else SIDE_RIGHT if 'right' in mod else SIDE_UNSPECIFIED
   if kind in ('roundabout', 'rotary', 'roundaboutturn'):
     return EVENT_ROUNDABOUT_ENTER_AND_EXIT, side
@@ -107,7 +109,10 @@ def turn_image(maneuver_type: str, modifier: str, width: int, height: int) -> by
     import io
     from PIL import Image
     from openpilot.starpilot.ui.navigation_icons import ASSETS, icon_name
-    with Image.open(ASSETS / icon_name(maneuver_type, modifier)) as icon:
+    name = icon_name(maneuver_type, modifier)
+    if not name:
+      return None
+    with Image.open(ASSETS / name) as icon:
       icon = icon.convert('RGBA')
       icon.thumbnail((width, height))
       canvas = Image.new('RGBA', (width, height), (0, 0, 0, 0))
@@ -137,6 +142,8 @@ def modern_maneuver(maneuver_type: str, modifier: str) -> int:
   kind, mod = _normal(maneuver_type), _normal(modifier)
   right = 'right' in mod
   directional = right or 'left' in mod
+  if not kind:
+    return 0  # Phone guidance without a parsed maneuver: no arrow rather than straight.
   if kind == 'depart':
     return 1
   if kind == 'arrive':

@@ -63,6 +63,7 @@ def tick(stream, now, seconds=1.0):
   ('exit roundabout', 'left', (ns.EVENT_ROUNDABOUT_EXIT, ns.SIDE_LEFT)),
   ('depart', 'none', (ns.EVENT_DEPART, ns.SIDE_UNSPECIFIED)),
   ('arrive', 'right', (ns.EVENT_DESTINATION, ns.SIDE_RIGHT)),
+  ('', '', (ns.EVENT_UNKNOWN, ns.SIDE_UNSPECIFIED)),
 ])
 def test_mapbox_maneuvers_map_to_the_cars_events(kind, modifier, expected):
   assert ns.maneuver_event(kind, modifier) == expected
@@ -279,7 +280,7 @@ def test_projection_session_dispatches_navigation_focus(nav):
   ('turn', 'sharpLeft', 9), ('arrive', 'right', 42), ('arrive', '', 39),
   ('merge', '', 29), ('fork', 'left', 25), ('continue', 'straight', 36),
   ('on ramp', 'slight right', 14), ('off ramp', 'left', 23),
-  ('roundabout', 'right', 0), ('turn', 'uturn', 0),
+  ('roundabout', 'right', 0), ('turn', 'uturn', 0), ('', '', 0),
 ])
 def test_modern_maneuver_wire_values(kind, modifier, wire_value):
   assert ns.modern_maneuver(kind, modifier) == wire_value

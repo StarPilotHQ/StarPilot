@@ -7,7 +7,10 @@ MANIFEST = {row['file']: row for row in json.loads(Path(__file__).with_name('nav
 
 
 def icon_name(maneuver_type: str, modifier: str) -> str:
-  kind = {'rotary': 'roundabout', 'new name': 'turn', 'continue': 'turn'}.get(maneuver_type, maneuver_type).replace(' ', '_')
+  # Phone guidance often names only the road; any arrow would claim a direction.
+  if maneuver_type in ('', 'invalid') and not modifier:
+    return ''
+  kind ={'rotary': 'roundabout', 'new name': 'turn', 'continue': 'turn'}.get(maneuver_type, maneuver_type).replace(' ', '_')
   suffix = {'slightLeft': 'slight_left', 'slightRight': 'slight_right', 'sharpLeft': 'sharp_left',
             'sharpRight': 'sharp_right'}.get(modifier, modifier).replace(' ', '_')
   candidate = 'direction_uturn.png' if suffix == 'uturn' else f'direction_{kind}{"_" + suffix if suffix else ""}.png'

@@ -150,6 +150,7 @@ def test_original_maneuver_assets_and_fallback_are_bounded():
   assert icon_name('turn', 'slightRight') == 'direction_turn_slight_right.png'
   assert icon_name('roundabout', 'left') == 'direction_roundabout_left.png'
   assert icon_name('unknown/../../', 'anything') == 'direction_turn_straight.png'
+  assert icon_name('', '') == icon_name('invalid', '') == ''
   for name, row in MANIFEST.items():
     data = (ASSETS / name).read_bytes()
     assert len(data) == row['bytes']
