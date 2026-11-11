@@ -29,7 +29,9 @@ RETAIN = frozenset(
 )
 MAX_SEGMENTS = 180
 MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
-MAX_ANALYSIS_SECONDS = 1800.0
+# A 103-segment, 1.34 GB drive takes over 30 minutes on parked low-power cores.
+# Keep the full-drive checks and a finite one-hour ceiling; do not accept a prefix.
+MAX_ANALYSIS_SECONDS = 3600.0
 LOCAL_ID = re.compile(r'[0-9a-f]{8}--[0-9a-f]{10}')
 
 
