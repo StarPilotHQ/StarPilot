@@ -1359,3 +1359,9 @@ def get_kia_carnival_hev_center_weight(v_ego: float, setpoint: float, measuremen
   tracking_weight = np.interp(abs(setpoint - measurement), KIA_CARNIVAL_HEV_CENTER_ERROR_BP, [1.0, 0.0])
   calm_weight = np.interp(abs(jerk), KIA_CARNIVAL_HEV_CENTER_JERK_BP, [1.0, 0.0])
   return float(speed_weight * center_weight * tracking_weight * calm_weight)
+
+
+def get_kia_carnival_crawl_center_weight(v_ego: float, setpoint: float, future_lateral_accel: float) -> float:
+  speed_weight = np.interp(v_ego, [0.3, 1.0, 3.0, 5.0], [0.0, 1.0, 1.0, 0.0])
+  center_weight = np.interp(max(abs(setpoint), abs(future_lateral_accel)), [0.10, 0.30], [1.0, 0.0])
+  return float(speed_weight * center_weight)

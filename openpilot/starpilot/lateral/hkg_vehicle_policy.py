@@ -125,6 +125,9 @@ class HKGVehicleTorquePolicy(HKGShapedTorquePolicy):
       self.hev_center_weight = (shaping.get_kia_carnival_hev_center_weight(
         speed, setpoint, measurement, jerk, self.future_lateral_accel)
         if self.carnival_hev and not self.steering_pressed and not self.previous_pressed else 0.0)
+      if not self.steering_pressed and not self.previous_pressed:
+        self.hev_center_weight = max(self.hev_center_weight,
+          shaping.get_kia_carnival_crawl_center_weight(speed, setpoint, self.future_lateral_accel))
       threshold = shaping.get_kia_carnival_friction_threshold(speed, setpoint, jerk)
       return (threshold + shaping.KIA_CARNIVAL_HEV_CENTER_FRICTION_INCREMENT * self.hev_center_weight,
               shaping.get_kia_carnival_friction_center_fade_scale(setpoint, speed))

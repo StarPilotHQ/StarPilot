@@ -207,3 +207,58 @@ def test_vehicle_tune_defaults_are_independent_of_longitudinal_choice(vehicle, p
   assert selected.mode == ControllerMode.STANDARD
   assert selected.source == 'saved'
   assert selected.policy == profile
+
+
+@pytest.mark.parametrize('vehicle', [CAR.KIA_CARNIVAL_2025, CAR.KIA_CARNIVAL_HEV_4TH_GEN])
+@pytest.mark.parametrize('alpha', [False, True])
+def test_carnival_crawl_center_tune_reaches_selected_controller(monkeypatch, vehicle, alpha):
+  from types import SimpleNamespace
+  from openpilot.cereal import log
+  from opendbc.car.vehicle_model import VehicleModel
+  from opendbc.car import structs
+  from openpilot.starpilot.lateral import hkg_vehicle_shaping as shaping
+
+  cp = interfaces[vehicle].get_non_essential_params(vehicle)
+  cp.openpilotLongitudinalControl, cp.pcmCruise = alpha, not alpha
+  cs = SimpleNamespace(vEgo=2., steeringAngleDeg=8., steeringPressed=False, standstill=False,
+                       steerFaultTemporary=False, steerFaultPermanent=False,
+                       gearShifter=structs.CarState.GearShifter.drive)
+  params = log.VehicleParameters.new_message(angleOffsetDeg=0., roll=0.)
+
+  def run(enabled):
+    controller = LatControlTorque(cp.as_reader(), interfaces[vehicle](cp), .01,
+                                  controller_mode=ControllerMode.STARPILOT)
+    with monkeypatch.context() as patch:
+      if not enabled:
+        patch.setattr(shaping, 'get_kia_carnival_crawl_center_weight', lambda *args: 0., raising=False)
+      output, _, state = controller.update(True, cs, VehicleModel(cp), params, False, .001, False, .3)
+    return controller, output, state
+
+  baseline, old_output, old_state = run(False)
+  candidate, new_output, new_state = run(True)
+  policy = candidate.starpilot_extension.policy
+  assert policy.hev_center_weight == pytest.approx(1.)
+  assert abs(new_state.p) < abs(old_state.p)
+  assert abs(new_output) < abs(old_output)
+  assert candidate.pid.pos_limit == baseline.pid.pos_limit
+  assert candidate.pid.neg_limit == baseline.pid.neg_limit
+  assert candidate.torque_params.to_dict() == baseline.torque_params.to_dict()
+  cs.steeringPressed = True
+  controller, _, _ = run(True)
+  assert controller.starpilot_extension.policy.hev_center_weight == 0.
+  cs.steeringPressed = False
+  cs.vEgo = 6.
+  candidate, output, state = run(True)
+  baseline, old_output, old_state = run(False)
+  assert output == old_output and state.to_dict() == old_state.to_dict()
+
+
+@pytest.mark.parametrize('speed,setpoint,future,expected', [
+  (0., 0., 0., 0.), (.3, 0., 0., 0.), (1., 0., 0., 1.), (2., .1, -.1, 1.),
+  (3., -.1, .1, 1.), (4., 0., 0., .5), (5., 0., 0., 0.), (30., 0., 0., 0.),
+  (2., .3, 0., 0.), (2., 0., -.3, 0.), (2., -.2, .1, .5),
+])
+def test_carnival_crawl_center_tune_boundaries(speed, setpoint, future, expected):
+  from openpilot.starpilot.lateral import hkg_vehicle_shaping as shaping
+  assert shaping.get_kia_carnival_crawl_center_weight(speed, setpoint, future) == pytest.approx(expected)
+  assert shaping.get_kia_carnival_crawl_center_weight(speed, -setpoint, -future) == pytest.approx(expected)
