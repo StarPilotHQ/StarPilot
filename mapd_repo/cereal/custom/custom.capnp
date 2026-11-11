@@ -325,5 +325,6 @@ struct MapdOut @0xa4f1eb3323f5f582 {
     internal @1;
     external @2;
     car @3;
+    phone @4;  # Galaxy companion app fix, sparse and late
   }
 }

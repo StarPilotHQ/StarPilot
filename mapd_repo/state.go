@@ -54,6 +54,8 @@ type State struct {
 	// 20 Hz and GPS arrives at 1-10 Hz; a repeated fix has the same answer.
 	roadFixMonoTime   uint64
 	roadFixGeneration uint64
+	// Road the navigation junctions came from; held while nearly stopped.
+	navigationWayID int64
 }
 
 func (s *State) Init() {
@@ -101,6 +103,7 @@ func (s *State) clearRoadDerived() {
 
 func (s *State) ResetRoadEvidence() {
 	s.clearRoadDerived()
+	s.navigationWayID = 0
 	s.roadFixMonoTime = 0
 	s.Data = maps.Offline{}
 	s.Position = m.Position{}
@@ -115,6 +118,7 @@ func (s *State) ResetRoadEvidence() {
 // Tile currency is still checked every loop by invalidateChangedTile.
 func (s *State) expireRoadEvidence() {
 	s.clearRoadDerived()
+	s.navigationWayID = 0
 	s.roadFixMonoTime = 0
 	s.Position = m.Position{}
 	s.DistanceSinceLastPosition = 0
@@ -215,17 +219,24 @@ func (s *State) ProcessGps(sample cereal.GpsSample, success bool, load MapLoader
 	}
 
 	s.roadFixMonoTime, s.roadFixGeneration = sample.FixMonoTime, sample.SourceGeneration
+	held := s.navigationWayID
 	way, err := GetCurrentWay(s.CurrentWay, s.NextWays, &s.Data, location)
 	if err != nil || way.Way.Nodes.Len() < 2 {
 		s.clearRoadDerived()
 		if errors.Is(err, ErrAmbiguousWay) {
 			s.RoadStatus = custom.MapdOut_SampleStatus_unknown
+			s.navigationWayID = 0
+			if way, ok := navigationWay(&s.Data, location, held); ok {
+				s.navigationWayID = way.Way.Id()
+				s.NavigationBranches = s.navigationBranchesFrom(way)
+			}
 		} else {
 			s.RoadStatus = custom.MapdOut_SampleStatus_noMatch
 		}
 		return
 	}
 	s.CurrentWay = way
+	s.navigationWayID = way.Way.Id()
 	s.NavigationBranches = s.localNavigationBranches()
 	if !s.ShadowOnly {
 		s.NextWays, err = NextWays(location, way, &s.Data, way.OnWay.IsForward)
@@ -352,11 +363,12 @@ func (s *State) buildMessageAt(now uint64) (*capnp.Message, error) {
 	output.SetComputedMonoTime(s.ComputedMonoTime)
 	output.SetSourceGeneration(s.SourceGeneration)
 	output.SetProducerSession(s.ProducerSession)
-	if !s.RoadMatched() {
-		return msg, nil
-	}
 	if err := s.setNavigationBranches(output); err != nil {
 		return nil, err
+	}
+	if !s.RoadMatched() {
+		// An ambiguous fix may carry navigation-only junctions; the event stays invalid.
+		return msg, nil
 	}
 	id := s.CurrentWay.Way.Id()
 	output.SetWayId(id)
