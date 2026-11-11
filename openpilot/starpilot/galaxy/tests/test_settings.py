@@ -1263,7 +1263,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.context.value = AuthorityContext(False, cp, b"verified-cp")
     self.params.put_bool("ForceStops", True, block=True)
     page = self.page("profiles")
-    index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Force Stop")
+    index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Enhanced Stops")
     self.assertTrue(page["rows"][index]["available"])
     intent = self.gateway.preview(page["view"], index, 0, self.session, self.generation, value="Off")
     with self.assertRaises(SettingsChanged):
@@ -1509,7 +1509,7 @@ class SettingsHttpTest(SettingsHttpFixture):
     cookie = self.login()
     status, page, _ = self.request("/api/settings/pages/profiles", cookie=cookie)
     self.assertEqual(status, 200)
-    index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Force Stop")
+    index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Enhanced Stops")
     self.assertTrue(page["rows"][index]["available"])
     status, intent, _ = self.request("/api/settings/preview", cookie=cookie,
       payload={"view": page["view"], "row": index, "value": "Off"})

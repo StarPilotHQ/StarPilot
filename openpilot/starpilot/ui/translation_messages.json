@@ -3132,9 +3132,10 @@
       ]
     },
     {
-      "source": "Commits to stops detected by the driving model. Press the accelerator to continue.",
+      "source": "Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue.",
       "refs": [
-        "openpilot/starpilot/galaxy/setting_descriptions.py"
+        "openpilot/starpilot/galaxy/setting_descriptions.py",
+        "openpilot/starpilot/ui/feature_settings_owner.py"
       ]
     },
     {
@@ -5710,7 +5711,7 @@
       ]
     },
     {
-      "source": "Force Stop",
+      "source": "Enhanced Stops",
       "refs": [
         "openpilot/starpilot/ui/feature_settings_owner.py"
       ]
@@ -30476,12 +30477,6 @@
       "source": "Comfort/Normal/Sport (m/s²): global 0.6/1.2/2.4; explicit personality 0.5/1.0/2.0. Selected Profile inherits global values. These separate scales preserve existing tuning. StarPilot Default keeps native cruise braking. Lead and stop braking retain priority.",
       "refs": [
         "openpilot/starpilot/ui/long_profile_feature.py"
-      ]
-    },
-    {
-      "source": "Commit to detected model stops; press the accelerator to continue",
-      "refs": [
-        "openpilot/starpilot/ui/feature_settings_owner.py"
       ]
     },
     {
