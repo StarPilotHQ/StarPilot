@@ -472,7 +472,8 @@ class TransportPauseFeedback:
     axis_first = bool(str(axis.faultReason) == 'availabilityPause' and
       not (axis.lateralActive or axis.longitudinalActive or axis.desiredLateral or
            axis.desiredLongitudinal or axis.nativeAcknowledged) and
-      prior is not None and prior[5] == 'none' and prior[9] and prior[11] and prior[13] and
+      prior is not None and prior[5] == 'none' and prior[11] and prior[13] and
+      (prior[9] or self.ordinary_warning_retained and not prior[10] and not prior[12]) and
       prior[14:16] == (producer, self.availability_epoch) and
       0 < prior[8] <= now_ns and (pending or now_ns <= prior[4] and now_ns - prior[8] <= AXIS_MAX_AGE_NS) and
       event_ns < axis.faultEventMonoTime <= stamp and now_ns - axis.faultEventMonoTime <= AXIS_MAX_AGE_NS)
@@ -483,16 +484,26 @@ class TransportPauseFeedback:
       prior[9] and prior[11] and prior[13] and prior[14:16] == (producer, self.availability_epoch) and
       0 < prior[8] <= now_ns <= prior[4] and now_ns - prior[8] <= AXIS_MAX_AGE_NS and
       0 < axis.faultEventMonoTime < event_ns and now_ns - event_ns <= AXIS_MAX_AGE_NS)
+    recovery_join = bool(warning and self.ordinary_warning_retained and not pending and prior is not None and
+      prior[5] == 'none' and not any((prior[9], prior[10], prior[12])) and prior[11] and prior[13] and
+      prior[14:16] == (producer, self.availability_epoch) and str(axis.faultReason) == 'none' and
+      str(axis.mode) == 'off' and not axis.lateralActive and not axis.longitudinalActive and
+      axis.desiredLateral and not axis.desiredLongitudinal and axis.nativeAcknowledged and
+      axis.sequence == self.sequence and axis.sourceCarStateMonoTime == prior[8] and
+      stamp == prior[2] == prior[3] and axis.validUntilMonoTime == prior[4] and
+      axis.faultEventMonoTime == prior[6] and 0 < prior[8] <= stamp <= now_ns <= prior[4] and
+      now_ns - prior[8] <= AXIS_MAX_AGE_NS and
+      0 < axis.faultEventMonoTime < event_ns <= now_ns and now_ns - event_ns <= AXIS_MAX_AGE_NS)
     withdrawn = bool(not axis.lateralActive and not axis.longitudinalActive and
       not axis.desiredLongitudinal and
       (warning and str(axis.faultReason) == 'availabilityPause' and axis.faultEventMonoTime == event_ns <= stamp or
        recovering and str(axis.faultReason) == 'none'))
-    if not active_join and not withdrawn and not axis_first and not repeated_join:
+    if not active_join and not recovery_join and not withdrawn and not axis_first and not repeated_join:
       return False
     if pending and not axis_first and not repeated_join and not (withdrawn and warning and event_ns == self.pending_event):
       return False
     native = _configured_transport_native(sm, cp, self.session, now_ns,
-      allow_restricted_lateral=withdrawn or axis_first or repeated_join or bool(cs.steerFaultTemporary),
+      allow_restricted_lateral=withdrawn or recovery_join or axis_first or repeated_join or bool(cs.steerFaultTemporary),
       require_longitudinal=not (withdrawn or axis_first or repeated_join))
     if native is None and active_join and cp.brand == 'ford':
       from openpilot.starpilot.car.ford.gas_override import healthy_gas_transport_native
