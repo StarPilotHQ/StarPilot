@@ -312,12 +312,17 @@ class SpeedLimitWidget:
       return
 
     color = white
+    # Clamping the controller target does not configure an offset for this sign.
+    offset_text = shown.offset_text if vienna or shown.offset_configured else None
     if vienna:
       x, top = x + 5 * scale, top + 5 * scale
       center_x = 59
       self.shapes.circle(x + 59 * scale, top + sign_center_y * scale, self.pulse.color(rl.Color(201, 34, 49, 255), now))
     else:
-      self.shapes.outline(x + center_x * scale, top + sign_center_y * scale, IN_USE if shown.limit_in_use else white)
+      # Keep 4:5 proportions and the original text sizes inside the existing tap area.
+      sign_scale = (160 if offset_text else 150) / SIGN_HEIGHT
+      self.shapes.outline(x + center_x * scale, top + (SIGN_HEIGHT * sign_scale / 2 - 9) * scale, IN_USE if shown.limit_in_use else white,
+                          scale=scale * sign_scale, width_scale=SIGN_HEIGHT * 4 / 5 / SIGN_WIDTH)
 
     heading_size = HEADING_SIZE if not vienna else 18
     if vienna and self.profile == Profile.LARGE and not shown.pending:
@@ -327,8 +332,8 @@ class SpeedLimitWidget:
       heading_size *= 108 / (right - left)
       left, right, a, b = ink(heading, FontRole.SEMI_BOLD, heading_size)
     # Lift the Vienna stack to keep the offset clear of the bottom rim.
-    lift = (12 if shown.limit_in_use else 7 if shown.offset_text else 2) if vienna else 0
-    header_y = 47 - lift if vienna else HEADING_ROW
+    lift = (12 if shown.limit_in_use else 7 if offset_text else 2) if vienna else 0
+    header_y = 47 - lift if vienna else 21 if offset_text else 26
     arrow_scale = 1.
     if vienna:
       # Fit the heading and arrow inside the circle at the top of their ink.
@@ -352,15 +357,15 @@ class SpeedLimitWidget:
     role = FontRole.BOLD if vienna else FontRole.SET_SPEED
     size = 58 if vienna else NUMBER_SIZE
     offset_size = 30 if vienna else 27
-    number_center = (73 if shown.offset_text else 80) - lift if vienna else NUMBER_ROW
+    number_center = (73 if offset_text else 80) - lift if vienna else 76 if offset_text else 90
     while True:
       left, right, a, b = ink(shown.posted_text, role, size)
       width, height = right - left, b - a
       number_top = number_center - height / 2
       if vienna:
         fits = number_top >= 57 - lift and circle_fits(59 - width / 2, 59 + width / 2, number_top, number_top + height)
-        if shown.offset_text:
-          left, right, a, b = ink(shown.offset_text, FontRole.MEDIUM, offset_size)
+        if offset_text:
+          left, right, a, b = ink(offset_text, FontRole.MEDIUM, offset_size)
           offset_top = number_top + height + 4
           fits = fits and circle_fits(59 - (right - left) / 2, 59 + (right - left) / 2, offset_top, offset_top + b - a)
       else:
@@ -374,12 +379,12 @@ class SpeedLimitWidget:
       centered(shown.posted_text, role, size, number_top, color)
     else:
       draw_speed_row(self.fonts, shown.posted_text, role, size * self.text_scale, x + center_x * scale,
-                     top + NUMBER_ROW * scale, color, '0123456789')
-    if shown.offset_text:
+                     top + number_center * scale, color, '0123456789')
+    if offset_text:
       if not vienna:
-        left, right, a, b = ink(shown.offset_text, FontRole.MEDIUM, offset_size)
+        left, right, a, b = ink(offset_text, FontRole.MEDIUM, offset_size)
         offset_size *= min(1, 108 / (right - left), 24 / (b - a))
-        offset_top = 105
-      centered(shown.offset_text, FontRole.MEDIUM, offset_size, offset_top, color if vienna else secondary)
+        offset_top = 120
+      centered(offset_text, FontRole.MEDIUM, offset_size, offset_top, color if vienna else secondary)
     if shown.limit_in_use:
       centered('IN USE', FontRole.SEMI_BOLD, 15 if vienna else 22, 98 if vienna else 117, IN_USE)

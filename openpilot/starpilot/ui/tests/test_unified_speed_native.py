@@ -33,12 +33,14 @@ def drawing(monkeypatch):
 
 
 def state(**changes):
+  from openpilot.starpilot.speed_limits.speed_domain import OffsetBand, OffsetSchedule
   observation = SpeedLimitObservation(ObservationKind.VALID, 'map', 50 / 3.6,
     accepted_speed_limit_mps=40 / 3.6, accepted_adjusted_limit_mps=45 / 3.6,
     pending_speed_limit_mps=50 / 3.6, pending_adjusted_limit_mps=55 / 3.6,
     presentation_adjusted_limit_mps=55 / 3.6, accepted_source='dashboard', action_enabled=True,
     session_id='drive', presentation_id=2, decision_id=1, pending_since_ns=10_000_000_000)
   return replace(OnroadState(True, False, 45 / 3.6, 100., observation, metric=True, longitudinal_active=True,
+                              slc_offset_schedule=OffsetSchedule((OffsetBand(0., None, 5 / 3.6),)),
                               observed_ns=10_000_000_000), **changes)
 
 

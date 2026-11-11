@@ -78,6 +78,21 @@ def test_bad_atlas_dimensions_release_image_without_uploading(gpu):
   gpu['load_texture_from_image'].assert_not_called()
 
 
+@pytest.mark.parametrize('scale', (1., 8 / 9))
+def test_narrow_outline_reuses_the_atlas_and_keeps_its_center(gpu, scale):
+  owner = shapes.SpeedLimitShapes()
+  owner.outline(64, 65, shapes.rl.WHITE, scale=scale, width_scale=.9)
+  assert gpu['draw_texture_pro'].call_count == 5
+  _, source, destination, origin, _, _ = gpu['draw_texture_pro'].call_args.args
+  assert (source.width, source.height) == (136, 152)
+  assert (destination.width, destination.height) == pytest.approx((136 * scale * .9, 152 * scale))
+  assert (origin.x, origin.y) == pytest.approx((destination.width / 2, destination.height / 2))
+  owner.outline(64, 65, shapes.rl.WHITE)
+  assert gpu['draw_texture_pro'].call_args.args[3].x == 68
+  gpu['load_texture_from_image'].assert_called_once()
+  owner.close()
+
+
 def test_large_sign_scale_changes_destination_and_rotation_origin_only(gpu):
   owner = shapes.SpeedLimitShapes(1.25)
   owner.arrow('compact', 345.75, 111.25, -1, shapes.rl.BLACK)

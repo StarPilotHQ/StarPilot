@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 import math
 
+from openpilot.starpilot.speed_limits.speed_domain import offset_for_limit
+
 
 @dataclass(frozen=True)
 class UnifiedSpeedPresentation:
@@ -23,6 +25,7 @@ class UnifiedSpeedPresentation:
   limit_in_use: bool = False
   set_limited: bool = False
   show_last: bool = False
+  offset_configured: bool = False
 
   @property
   def max_status(self) -> str:
@@ -159,4 +162,6 @@ def resolve_unified_speed(state, *, confirmation=False) -> UnifiedSpeedPresentat
                                   obs.override_basis != 'pedal' and
                                   positive(obs.effective_cluster_target_mps) else None,
                                   speed(active_target) if slc_limiting and positive(active_target) else None,
-                                  posted_retained, limit_in_use, set_limited, show_last)
+                                  posted_retained, limit_in_use, set_limited, show_last,
+                                  offset_configured=state.slc_offset_schedule is not None and
+                                  offset_for_limit(posted, state.slc_offset_schedule) not in (None, 0.))

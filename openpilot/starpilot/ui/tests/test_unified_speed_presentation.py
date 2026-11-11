@@ -105,6 +105,21 @@ def test_hidden_max_and_offset_preferences_keep_the_latest_sign():
   assert (shown.mode, shown.posted_text, shown.offset_text) == ('limit_only', '108', None)
 
 
+@pytest.mark.parametrize('stage,expected', [('live', True), ('confirmation', False), ('retained', False), ('last_received', True)])
+def test_configured_offset_follows_the_resolved_posted_limit(stage, expected):
+  from openpilot.starpilot.speed_limits.speed_domain import OffsetBand, OffsetSchedule
+  current = state(slc_offset_schedule=OffsetSchedule((OffsetBand(0., 25., 0.), OffsetBand(25., None, 2.))))
+  if stage == 'confirmation':
+    current = replace(current, speed_limit=replace(current.speed_limit, pending_speed_limit_mps=20., pending_adjusted_limit_mps=20.))
+  elif stage in ('retained', 'last_received'):
+    current = replace(current, speed_limit=replace(current.speed_limit, kind=ObservationKind.STALE, speed_limit_mps=None,
+      accepted_adjusted_limit_mps=20., last_received_speed_limit_mps=30., last_received_adjusted_limit_mps=32.,
+      effective_cluster_target_mps=20. if stage == 'retained' else None, effective_cap_mps=20.))
+  shown = resolve_unified_speed(current, confirmation=stage == 'confirmation')
+  assert shown.posted_text == ('108' if expected else '72')
+  assert shown.offset_configured == expected
+
+
 @pytest.mark.parametrize('pending,adjusted,presentation,offset,expected', [
   (30., 33., 32., 2., '119'),
   (30., None, 32., 2., '115'),

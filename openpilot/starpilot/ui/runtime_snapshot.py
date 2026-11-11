@@ -55,6 +55,8 @@ from openpilot.starpilot.ui.settings_state import Destination, DestinationAvaila
 from openpilot.starpilot.ui.shell import ShellMode, ShellSnapshot
 from openpilot.starpilot.ui.software_state import DownloadLabel, SoftwareRequest, SoftwareState
 from openpilot.starpilot.ui.toggles_state import Personality, ToggleKey, TogglesState
+from openpilot.starpilot.saved_source import read_saved
+from openpilot.starpilot.speed_limits import offset_document
 
 
 SLC_SIGN_HOLD_NS = 150_000_000
@@ -314,6 +316,7 @@ class RuntimeSnapshotAdapter:
     self._customization_value = default_document()
     self._appearance_value = OnroadAppearance()
     self._appearance_read_ns: int | None = None
+    self._slc_offset_schedule = None
     # A second screen (Android Auto) swaps in its own display choices before anything uses them.
     self.appearance_override: Callable[[OnroadAppearance], OnroadAppearance] | None = None
     self._last_mode: ShellMode | None = None
@@ -442,6 +445,12 @@ class RuntimeSnapshotAdapter:
       self._appearance_value = onroad_appearance(self.ui_state.params)
       self._navigation_enabled = _flag(self.ui_state.params, "NavigationEnabled")
       self._show_curve_status = _flag(self.ui_state.params, "ShowCSCStatus")
+      try:
+        raw, readable = read_saved(self.ui_state.params, "SLCOffsetSchedule", offset_document.MAX_DOCUMENT_BYTES)
+        offsets = offset_document.decode(raw) if readable and raw is not None else None
+        self._slc_offset_schedule = offsets.schedule() if isinstance(offsets, offset_document.OffsetDocument) else None
+      except (AttributeError, OSError, TypeError, ValueError, OverflowError):
+        self._slc_offset_schedule = None
       if self.appearance_override is not None:
         self._appearance_value = self.appearance_override(self._appearance_value)
       self._appearance_read_ns = now_ns
@@ -720,7 +729,7 @@ class RuntimeSnapshotAdapter:
                          engaged=display_lat_active or display_long_active or longitudinal_overridden, camera_available=started,
                          speed_mps=raw_speed, cruise_kph=cruise, speed_limit=observation,
                          appearance=self._appearance_value, customization=self._customization_value,
-                         alert=alert, metric=bool(ui.is_metric),
+                         alert=alert, metric=bool(ui.is_metric), slc_offset_schedule=self._slc_offset_schedule,
                          experimental_available=bool(ui.has_longitudinal_control),
                          experimental_enabled=observed_experimental,
                          personality=list(Personality).index(persona),

@@ -23,6 +23,7 @@ from openpilot.starpilot.ui.traffic_status import TrafficDisplay
 from openpilot.starpilot.ui.developer_preview import OnroadVisualPreview
 from openpilot.starpilot.ui.navigation_state import NavigationDisplay
 from openpilot.starpilot.ui.live_developer_sidebar import DeveloperMetric
+from openpilot.starpilot.speed_limits.speed_domain import OffsetSchedule
 
 
 
@@ -244,6 +245,7 @@ class OnroadState:
   weather: WeatherReading | None = None
   ford_rear_fog_on: bool = False
   ford_rear_fog_source_ns: int = 0
+  slc_offset_schedule: OffsetSchedule | None = None
 
   def __post_init__(self) -> None:
     if self.speed_mps is not None and (not math.isfinite(self.speed_mps) or self.speed_mps < 0):

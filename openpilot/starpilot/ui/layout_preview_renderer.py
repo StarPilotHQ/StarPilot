@@ -28,6 +28,7 @@ from openpilot.starpilot.ui.onroad_dm import draw_monitor_art, monitor_bounds, m
 from openpilot.starpilot.ui.onroad_stopped_timer import PREVIEW_DURATION_S
 from openpilot.starpilot.ui.layout_preview_sidebar import SIDEBAR_WIDTH, render_sidebar
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile, default_font_directory
+from openpilot.starpilot.speed_limits.speed_domain import OffsetBand, OffsetSchedule
 from openpilot.starpilot.ui.rainbow_path import RainbowPath
 from openpilot.starpilot.ui.road_colors import edge_gradient, lane_color, path_mode, solid_gradient
 from openpilot.starpilot.ui.onroad_customization import ROAD_COLORS
@@ -78,6 +79,7 @@ def sample_state(scene: str, document: dict) -> OnroadState:
   from openpilot.starpilot.ui.weather import WeatherReading
   state = OnroadState(weather=WeatherReading(21, 2, True), engaged=lateral or longitudinal, camera_available=False,
                      speed_mps=0.0 if scene in ("cem_lead", "stopped") else 22.0, cruise_kph=88.0,
+                     slc_offset_schedule=OffsetSchedule((OffsetBand(0., None, 2.),)),
                      stopped_duration_s=PREVIEW_DURATION_S if scene == "stopped" else None,
                      speed_limit=SpeedLimitObservation(kind=ObservationKind.VALID, source="dashboard",
                                                        speed_limit_mps=22.0 if pending else 20.0,

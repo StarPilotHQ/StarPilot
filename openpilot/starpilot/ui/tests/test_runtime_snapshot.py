@@ -100,6 +100,43 @@ def ui_fake():
             has_longitudinal_control=True, CP=None, recording_audio=False)
 
 
+def test_slc_offset_schedule_uses_cached_validated_settings(tmp_path):
+  from pathlib import Path
+  from openpilot.common.params import Params
+  from openpilot.starpilot.saved_source import read_saved
+  from openpilot.starpilot.speed_limits import offset_document as od
+  from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_speed
+  ui = ui_fake()
+  ui.params = Params(str(tmp_path))
+  document = od.OffsetDocument((0., 10., 15., 20., 25., 30., 35., 40.), (7., 7., 7., 0., 7., 7., 7.))
+  ui.params.put('SLCOffsetSchedule', od.to_value(document), block=True)
+  adapter = RuntimeSnapshotAdapter(ui)
+  with patch('openpilot.starpilot.ui.runtime_snapshot.read_saved', wraps=read_saved) as reads:
+    first = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad
+    assert first.slc_offset_schedule == document.schedule()
+    assert not resolve_unified_speed(first).offset_configured
+    document = od.OffsetDocument(document.bounds_mps, (7.,) * 7)
+    ui.params.put('SLCOffsetSchedule', od.to_value(document), block=True)
+    cached = adapter.build(ShellMode.ONROAD, now_ns=NOW + 50_000_000).onroad
+    assert cached.slc_offset_schedule is first.slc_offset_schedule
+    reads.assert_called_once()
+    adapter.invalidate_appearance()
+    updated = adapter.build(ShellMode.ONROAD, now_ns=NOW + 100_000_000).onroad
+    assert updated.slc_offset_schedule == document.schedule()
+    assert resolve_unified_speed(updated).offset_configured
+    assert reads.call_count == 2
+  path = Path(ui.params.get_param_path('SLCOffsetSchedule'))
+  for raw in (b'{bad', od.encode(od.NEEDS_REVIEW), b'x' * (od.MAX_DOCUMENT_BYTES + 1), None):
+    if raw is None:
+      path.unlink()
+    else:
+      path.write_bytes(raw)
+    adapter.invalidate_appearance()
+    invalid = adapter.build(ShellMode.ONROAD, now_ns=NOW + 100_000_000).onroad
+    assert invalid.slc_offset_schedule is None
+    assert not resolve_unified_speed(invalid).offset_configured
+
+
 class TestRuntimeSnapshot(unittest.TestCase):
 
   def test_home_uses_shared_statistics_source_without_onroad_polling(self):
