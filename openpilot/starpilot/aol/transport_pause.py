@@ -446,9 +446,14 @@ class TransportPauseFeedback:
     warning = any(event.softDisable for event in events)
     recovering = bool(getattr(self, 'ordinary_warning_retained', False) and not warning)
     stock_user = stock_lateral_user_event(cp)
+    pedal = any(event.name == log.OnroadEvent.EventName.pedalPressed and event.userDisable for event in events)
+    brake_proof = getattr(self, 'ordinary_brake_proof', None)
+    released_brake = bool(self.ordinary_warning_retained and not cs.brakePressed and not cs.regenBraking and
+      brake_proof is not None and brake_proof[0] == event_ns and
+      brake_proof[2:] == (self.session, producer, self.availability_epoch) and now_ns <= brake_proof[1])
     # Family button/pedal latch clear: no rearm.
     if any(event.userDisable and event.name != stock_user and not (
-        event.name == log.OnroadEvent.EventName.pedalPressed and (cs.brakePressed or cs.regenBraking) or
+        event.name == log.OnroadEvent.EventName.pedalPressed and (cs.brakePressed or cs.regenBraking or released_brake) or
         event.name == log.OnroadEvent.EventName.buttonCancel and (physical_cancel(cs, cp) or
           cp.brand == 'gm' and 0 < self.gm_withdrawal_ns == event_ns <= now_ns and
           now_ns - event_ns <= SAFETY_MAX_AGE_NS)) for event in events):
@@ -522,6 +527,10 @@ class TransportPauseFeedback:
     if pending:
       self.pending_event = 0
       self.ordinary_warning_pending_baseline = None
+    if pedal and (cs.brakePressed or cs.regenBraking):
+      self.ordinary_brake_proof = (event_ns, int(axis.validUntilMonoTime), self.session, producer, self.availability_epoch)
+    elif not pedal:
+      self.ordinary_brake_proof = None
     self.ordinary_warning_retained = True
     return True
 
@@ -1342,6 +1351,7 @@ class TransportPauseFeedback:
       axis = sm['aolAxisState']
       if not latched or cp_identity(cp) != self.cp or self.session and str(axis.sessionId) != self.session:
         self.ordinary_warning_retained = False
+        self.ordinary_brake_proof = None
         self.ordinary_warning_pending_baseline = None
         self.temporary_eps_event_ns = 0
         self.hkg_eps_join_until_ns = 0
