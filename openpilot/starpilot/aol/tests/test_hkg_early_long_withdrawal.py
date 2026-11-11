@@ -246,3 +246,65 @@ def test_actual_classic_card_keeps_latch_through_steering_brake_and_cancel(monke
     assert receive(BASE + 130_000_000, state=sd.CS_prev.as_builder(),
       axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
     assert card.aol_card_intent.allowed_latch
+
+
+@pytest.mark.parametrize('fault', ('none', 'lat_denied', 'lat_request_off', 'long_denied', 'long_request_off',
+                                 'old_health', 'raw_enabled', 'native_disabled', 'expired', 'session', 'native_invalid',
+                                 'raw_unseen', 'raw_invalid', 'rx', 'heartbeat', 'hardware', 'native_hardware',
+                                 'wrong_word', 'stock', 'can_invalid', 'eps_fault'))
+def test_raw_long_health_handoff_preserves_every_authority_veto(fault):
+  from dataclasses import asdict
+  from openpilot.starpilot.aol.tests.test_hkg_shared_cancel_guard import captured_context
+  from openpilot.starpilot.car.hyundai.aol import raw_longitudinal_withdrawal
+
+  cp, cs, sm, feedback, _, native, now = captured_context()
+  native = replace(native, observedMonoTime=now - 10_000_000, validUntilMonoTime=now + 190_000_000,
+                   longitudinalAllowed=True, sourcePandaStatesMonoTime=now - 10_000_000,
+                   pandaInventory=(replace(native.pandaInventory[0], controlsAllowed=True),))
+  session = feedback.session
+  if fault in ('lat_denied', 'lat_request_off', 'long_denied', 'long_request_off'):
+    name = {'lat_denied': 'lateralAllowed', 'lat_request_off': 'requestedLateral',
+            'long_denied': 'longitudinalAllowed', 'long_request_off': 'requestedLongitudinal'}[fault]
+    native = replace(native, **{name: False})
+  elif fault == 'old_health':
+    sm.logMonoTime['pandaStates'] = native.sourcePandaStatesMonoTime
+  elif fault == 'native_disabled':
+    native = replace(native, pandaInventory=(replace(native.pandaInventory[0], controlsAllowed=False),))
+  elif fault == 'expired':
+    now += 201_000_000
+  elif fault == 'session':
+    session = 'another-owner'
+  elif fault == 'native_invalid':
+    sm.valid['aolSafetyWire'] = False
+  elif fault == 'raw_unseen':
+    sm.seen['pandaStates'] = False
+  elif fault == 'raw_invalid':
+    sm.valid['pandaStates'] = False
+  elif fault == 'native_hardware':
+    native = replace(native, pandaInventory=(replace(native.pandaInventory[0], faults=4),))
+  elif fault == 'wrong_word':
+    cp.safetyConfigs[0].safetyParam ^= 0x80
+  elif fault == 'stock':
+    cp.openpilotLongitudinalControl = False
+  elif fault == 'can_invalid':
+    cs.canValid = False
+  elif fault == 'eps_fault':
+    cs.steerFaultTemporary = True
+  if fault in ('raw_enabled', 'rx', 'heartbeat', 'hardware'):
+    raw = messaging.new_message('pandaStates', 1, valid=True, logMonoTime=sm.logMonoTime['pandaStates'])
+    raw.pandaStates[0] = sm['pandaStates'][0]
+    if fault == 'raw_enabled':
+      raw.pandaStates[0].controlsAllowed = True
+    elif fault == 'rx':
+      raw.pandaStates[0].safetyRxChecksInvalid = True
+    elif fault == 'heartbeat':
+      raw.pandaStates[0].heartbeatLost = True
+    else:
+      raw.pandaStates[0].faults = ['interruptRateCan1']
+    sm['pandaStates'] = raw.as_reader().pandaStates
+  sm['aolSafetyWire'] = encode_safety(native)
+  sm.logMonoTime['aolSafetyWire'] = native.observedMonoTime
+  before = asdict(native)
+  encoded = sm['aolSafetyWire']
+  assert raw_longitudinal_withdrawal(cp, cs, sm, native, session=session, now_ns=now) == (fault == 'none')
+  assert asdict(native) == before and sm['aolSafetyWire'] == encoded

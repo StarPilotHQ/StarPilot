@@ -1804,6 +1804,7 @@ class SelfdriveD:
                                                          below_engage_lateral_allowed as volkswagen_below_engage_lateral_allowed)
     from openpilot.starpilot.aol.dm import lateral_event_context
     from openpilot.starpilot.car.toyota.legacy_lateral import below_engage_lateral_allowed as toyota_below_engage_lateral_allowed
+    from openpilot.starpilot.car.hyundai.aol import raw_longitudinal_withdrawal
     retained_dm_lateral, lateral_events = lateral_event_context(self, CS, intent, native, now_ns, ordinary_lag)
     reverse_pause = known_reverse_pause(CS, getattr(self, 'car_state_samples', ()))
     pause_brake_mps = self.aol_settings.pause_brake_mps if self.aol_settings is not None else 0.0
@@ -1811,6 +1812,7 @@ class SelfdriveD:
       lateral_events = [event for event in lateral_events if event not in (EventName.wrongGear, EventName.reverseGear)]
     return decide_axes(
       standard_lateral=self.active, standard_longitudinal=bool(self.enabled and self.CP.openpilotLongitudinalControl and
+        not raw_longitudinal_withdrawal(self.CP, CS, self.sm, native, session=self.aol_session_id, now_ns=now_ns) and
         not any(event in LONGITUDINAL_ONLY_EVENTS for event in self.events.names) and
         not any(sample.seatbeltUnlatched or sample.doorOpen for sample, _ in getattr(self, 'car_state_samples', ()))),
       intent=intent, native=native, car_state=CS, initialized=self.initialized,
