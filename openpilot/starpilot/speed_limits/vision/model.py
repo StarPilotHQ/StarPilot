@@ -946,6 +946,33 @@ class VisionModelCore:
         if face_filter is not None and face_filter.reject_once((proposal_confidence, class_id, (x1, y1, x2, y2))):
           self.latest_detector_proposal = None
           return None
+        if (frame_bgr.dtype == np.uint8 and type(proposals) is list and proposal_index == len(proposals) - 1 and
+            expansions is DETECTOR_CLASSIFIER_EXPANSIONS and
+            (expand_left, expand_top, expand_right, expand_bottom, expansion_weight) == expansions[0] and
+            class_id == 0 and not speed_scores and not raw_is_regulatory and
+            getattr(self, 'classifier_net', None) is not None and
+            proposal_confidence < DETECTOR_CLASSIFIER_STRONG_MODEL_MIN_PROPOSAL_CONFIDENCE and
+            not (x1 >= frame_width * DETECTOR_CLASSIFIER_TRUSTED_MODEL_MIN_X_RATIO and
+                 box_height <= DETECTOR_CLASSIFIER_TRUSTED_MODEL_MAX_HEIGHT and
+                 proposal_area_ratio <= DETECTOR_CLASSIFIER_TRUSTED_MODEL_MAX_AREA_RATIO and
+                 proposal_confidence >= DETECTOR_CLASSIFIER_TRUSTED_MODEL_MIN_PROPOSAL_CONFIDENCE)):
+          from openpilot.starpilot.speed_limits.vision.speed_face import SpeedFaceVerifier, SharedSpeedFaceVerifier
+          if (type(face_filter) in (SpeedFaceVerifier, SharedSpeedFaceVerifier) and
+              getattr(face_filter.reject_once, '__func__', None) is SpeedFaceVerifier.reject_once and
+              face_filter._checked is True and
+              getattr(self._is_regulatory_speed_sign, '__func__', None) is
+              VisionModelCore._is_regulatory_speed_sign and
+              getattr(self._classify_speed_limit_from_model, '__func__', None) is
+              VisionModelCore._classify_speed_limit_from_model):
+            for left, top, right, bottom, _ in expansions[1:]:
+              remaining_crop = frame_bgr[
+                max(int(y1 - box_height * top), 0):min(int(y2 + box_height * bottom), frame_height),
+                max(int(x1 - box_width * left), 0):min(int(x2 + box_width * right), frame_width),
+              ]
+              if remaining_crop.size and self._is_regulatory_speed_sign(remaining_crop):
+                break
+            else:
+              break
         if (type(proposals) is list and proposal_index == len(proposals) - 1 and
             expansions is DETECTOR_CLASSIFIER_EXPANSIONS and
             (expand_left, expand_top, expand_right, expand_bottom, expansion_weight) == expansions[-1] and
