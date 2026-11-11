@@ -84,7 +84,8 @@ def test_duplicate_does_not_rejuvenate_old_distance(stream):
 
 
 @pytest.mark.parametrize('patch', [{'instruction': 'Turn left'}, {'distanceMeters': 1}, {'source': 'waze'},
-                                  {'maneuverModifier': 'left'}, {'roadName': 'Other road'}])
+                                  {'maneuverModifier': 'left'}, {'roadName': 'Other road'}, {'remainingMeters': 10},
+                                  {'remainingSeconds': 10}])
 def test_duplicate_sequence_cannot_change_maneuver(stream, patch):
   publisher, path, _ = stream
   publisher.publish(payload())
@@ -106,7 +107,9 @@ def test_stop_and_out_of_order_updates_do_not_resurrect(stream):
 @pytest.mark.parametrize('patch', [{'active': 1}, {'sequence': True}, {'ageMs': -1}, {'ageMs': 90001},
                                   {'distanceMeters': float('nan')}, {'distanceMeters': -1}, {'ageMs': float('inf')},
                                   {'instruction': ''}, {'maneuverType': []}, {'maneuverModifier': 'guess'},
-                                  {'exitNumber': 1}, {'unknown': True}, {'session': ''}])
+                                  {'exitNumber': 1}, {'unknown': True}, {'session': ''},
+                                  {'remainingMeters': -1}, {'remainingMeters': 20_000_001}, {'remainingMeters': float('inf')},
+                                  {'remainingSeconds': 604_801}, {'remainingSeconds': '60'}, {'remainingSeconds': True}])
 def test_rejects_malformed_updates_without_overwriting(stream, patch):
   publisher, path, _ = stream
   publisher.publish(payload())
@@ -201,8 +204,37 @@ def test_phone_status_explains_receipt_end_and_expiry(stream):
   assert status['distanceMeters'] == 120
   expired = phone_navigation_status(NOW + LEASE_NS + 1, path)
   assert expired['state'] == 'expired' and expired['instruction'] == '' and expired['distanceMeters'] is None
-  publisher.publish({'session': 'test', 'sequence': 2, 'active': False, 'ageMs': 0})
+  assert status['remainingMeters'] is None and status['remainingSeconds'] is None
+  publisher.publish({**payload(), 'sequence': 2, 'remainingMeters': 8000, 'remainingSeconds': 600})
+  status = phone_navigation_status(NOW, path)
+  assert (status['remainingMeters'], status['remainingSeconds']) == (8000, 600)
+  assert phone_navigation_status(NOW + LEASE_NS + 1, path)['remainingMeters'] is None
+  publisher.publish({'session': 'test', 'sequence': 3, 'active': False, 'ageMs': 0})
   assert phone_navigation_status(NOW, path)['state'] == 'ended'
+
+
+def test_trip_totals_reach_the_display_only_when_both_known(stream):
+  publisher, path, _ = stream
+  publisher.publish(payload(remainingMeters=8046.7, remainingSeconds=540))
+  selected = select_navigation(base(), read_phone_navigation(NOW, path), now_ns=NOW, drive_id=DRIVE)
+  display = navigation_display(state(selected), now_ns=NOW, drive_id=DRIVE)
+  assert display is not None and display.totals_known
+  assert display.remaining_distance_m == pytest.approx(8046.7, rel=1e-6) and display.remaining_seconds == 540
+  publisher.publish({**payload(), 'sequence': 2, 'remainingSeconds': 540})
+  selected = select_navigation(base(), read_phone_navigation(NOW, path), now_ns=NOW, drive_id=DRIVE)
+  display = navigation_display(state(selected), now_ns=NOW, drive_id=DRIVE)
+  assert display is not None and not display.totals_known
+
+
+def test_arrive_flows_to_the_card(stream):
+  from openpilot.starpilot.ui.navigation_icons import icon_name
+  publisher, path, _ = stream
+  publisher.publish({**payload(), 'maneuverType': 'arrive', 'maneuverModifier': '', 'instruction': 'Arrive at Library', 'distanceMeters': 40})
+  selected = select_navigation(base(), read_phone_navigation(NOW, path), now_ns=NOW, drive_id=DRIVE)
+  display = navigation_display(state(selected), now_ns=NOW, drive_id=DRIVE)
+  assert display is not None and display.maneuver_type == 'arrive' and display.text == 'Arrive at Library'
+  assert icon_name('arrive', '') == icon_name(display.maneuver_type, display.modifier)
+  assert 'arrive' in icon_name('arrive', '')
 
 
 class Aligned:

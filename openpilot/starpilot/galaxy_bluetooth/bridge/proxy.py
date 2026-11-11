@@ -105,7 +105,8 @@ class GalaxyProxy:
     request_id = str(request.get('id', ''))
     try:
       if request.get('path') == '/_bridge/health' and request.get('method') == 'GET':
-        health = {'protocol': 1, 'transport': 'bluetooth', 'readStream': True, 'notificationStream': True, 'galaxy': 'secretgood'}
+        health = {'protocol': 1, 'transport': 'bluetooth', 'readStream': True, 'notificationStream': True, 'notificationBond': True,
+                  'galaxy': 'secretgood'}
         return {'id': request_id, 'status': 200, 'headers': {'content-type': 'application/json'},
                 'body': base64.b64encode(json.dumps(health).encode()).decode()}
       target = validate_target(request.get('path'))

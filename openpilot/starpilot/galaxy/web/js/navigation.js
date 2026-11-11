@@ -680,6 +680,7 @@ export const NavigationPage = {
             </p>
             <p v-if="data.phoneNavigationStatus.instruction" class="gx-navigation__instruction">{{data.phoneNavigationStatus.instruction}}
               <span v-if="data.phoneNavigationStatus.distanceMeters != null"> · {{distance(data.phoneNavigationStatus.distanceMeters)}}</span>
+              <span v-if="data.phoneNavigationStatus.remainingMeters != null && data.phoneNavigationStatus.remainingSeconds != null"> · {{distance(data.phoneNavigationStatus.remainingMeters)}} | {{Math.max(1, Math.round(data.phoneNavigationStatus.remainingSeconds / 60))}} min left</span>
             </p>
           </template>
           <p v-else class="gx-note">No phone navigation update received yet. Enable forwarding and notification access in Galaxy on your Android phone.</p>

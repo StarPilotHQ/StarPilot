@@ -12,6 +12,7 @@ Comma side of the Android and iPhone companion apps (`openpilot/starpilot/compan
 - `bridge/lan_discovery.py` — advertises `_sp-galaxy._tcp` on local Wi-Fi/Ethernet.
 - `bridge/pairing.py` — the shared pairing key, `/data/galaxy-ble/pairing.json`.
 - `bridge/claim.py` — the one-shot pairing window that hands a phone its own key.
+- `bridge/ancs.py`, `bridge/ancs_dbus.py`, `bridge/bond.py` — iPhone notifications (below).
 - `phone_ui.py` — the Pair phone button and screen in comma Settings → Bluetooth.
 
 ## Per-phone keys
@@ -51,6 +52,46 @@ one app claim its key. Nothing else is accepted without a key.
 7. For music, the app then bonds with `adapterAddress` (Android: `createBond`), or on iPhone
    asks the person to tap `adapterName` in Settings → Bluetooth. The same window accepts it.
 
+## iPhone notifications (ANCS)
+
+The iPhone app can let comma read the phone's notifications through Apple's ANCS. iOS
+only offers ANCS on a bonded (encrypted) LE link, so the app first asks for a short bond window.
+
+1. With a normal authenticated request, the app sends `POST /_bridge/notification-bond`
+   (empty body). The bridge answers it itself (it never reaches Galaxy):
+   - `200 {"ok": true, "seconds": 60}`: for 60 seconds comma accepts LE pairing from this
+     phone's Bluetooth connection only (`"seconds": 0` when it is already bonded; a repeat
+     request from the same phone returns the seconds left).
+   - `409 {"error": <message to show>, "code": ...}`, where `code` is:
+     - `pairing_window`: comma's Pair phone window is open; finish it first (until its two
+       minutes are up).
+     - `busy`: another phone holds the bond window.
+     - `disconnected`: the phone isn't connected.
+     - a code from Galaxy's `GET /api/companion/bluetooth-ready` (`park_required`,
+       `bluetooth_off`, `bluetooth_unavailable`, `starting`, `bridge_starting`), or
+       `not_ready` when that check can't be read. Like the Pair phone window, a bond window
+       only opens while parked. An already bonded phone skips this check because no window opens.
+   - `503 {"error": ..., "code": "unavailable"}`: Bluetooth refused the agent or the pairable change.
+2. The app then reads the bond characteristic `bd490006-6dc1-4de7-a7d0-6cdb441f7650`
+   (`encrypt-read`, value `0x01`). On an unbonded link iOS starts pairing and shows its own
+   pairing prompt. comma registers a `NoInputNoOutput` agent that approves only that
+   phone, sets the adapter pairable, and puts everything back when the phone bonds,
+   disconnects or the minute runs out. If the Pair phone window opens meanwhile, comma
+   steps aside immediately.
+3. Once bonded, iOS asks the person to allow notifications for comma (Settings →
+   Bluetooth → comma → Share System Notifications). The bridge looks for the phone's
+   ANCS service every few seconds, subscribes, and posts each new, non-silent
+   notification to Galaxy's `POST /api/companion/notification`. Notification text is
+   never logged.
+
+`/_bridge/health` reports `"notificationBond": true` when this is supported.
+
+Known limitation: Android Auto's car pairing (`system/starport/bluetooth_bridge.py`) registers
+its own default BlueZ agent. While a bond window holds the default agent, a car pairing started
+in that minute may be rejected; retry it once the minute is over. The bridge can't detect this
+reliably: Galaxy's `/api/starport/pairing/status` only reports pairing that the asking session
+started itself.
+
 ## Troubleshooting on comma
 
 ```sh
@@ -58,6 +99,13 @@ cat /data/galaxy-ble/setup-status.json
 journalctl -u galaxy-ble-fork.service -n 100 --no-pager
 journalctl -u galaxy-lan-discovery.service -n 100 --no-pager
 ```
+
+To check that an iPhone has an LE bond for notifications, look for `[LongTermKey]` or
+`[PeripheralLongTermKey]` and `[IdentityResolvingKey]` in
+`/var/lib/bluetooth/<adapter address>/<phone address>/info`. The journal logs
+`Notification bond window closed: paired` and `ANCS client attached`. A close reported as
+`disconnected` right after the iOS prompt can still be a good bond, because BlueZ may fold the
+phone's random-address object into its existing music device. Check the `info` file.
 
 Pairing or forgetting a phone doesn't restart the bridge; it reloads the phone
 list within a second, and forgetting one phone disconnects only that phone.

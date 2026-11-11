@@ -11,7 +11,8 @@ OBSERVATION_NS = 90_000_000_000
 LEASE_NS = 15_000_000_000
 PATH = '/api/companion/navigation'
 FIELDS = {'session', 'sequence', 'active', 'ageMs', 'instruction', 'maneuverType', 'maneuverModifier', 'distanceMeters',
-          'roadName', 'exitNumber', 'destination', 'source'}
+          'roadName', 'exitNumber', 'destination', 'source', 'remainingMeters', 'remainingSeconds'}
+TOTAL_LIMITS = {'remainingMeters': 20_000_000, 'remainingSeconds': 604_800}
 TYPES = {'', 'turn', 'continue', 'on ramp', 'off ramp', 'fork', 'merge', 'roundabout', 'arrive'}
 MODIFIERS = {'', 'left', 'right', 'straight', 'slightLeft', 'slightRight', 'sharpLeft', 'sharpRight', 'uturn'}
 
@@ -64,6 +65,10 @@ def validate_payload(payload):
       not isinstance(kind, str) or kind not in TYPES or not isinstance(modifier, str) or modifier not in MODIFIERS or
       (distance is not None and (type(distance) not in (int, float) or not math.isfinite(distance) or not 0 <= distance <= 1_000_000))):
     raise ValueError('Invalid navigation instruction')
+  for key, limit in TOTAL_LIMITS.items():
+    value = payload.get(key)
+    if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= limit):
+      raise ValueError('Invalid navigation totals')
   return session, sequence, age
 
 
@@ -124,7 +129,9 @@ def phone_navigation_status(now_ns=None, path=None):
           'instruction': value.get('instruction', '') if usable else '',
           'maneuverType': value.get('maneuverType', '') if usable else '',
           'maneuverModifier': value.get('maneuverModifier', '') if usable else '',
-          'distanceMeters': value.get('distanceMeters') if usable else None}
+          'distanceMeters': value.get('distanceMeters') if usable else None,
+          'remainingMeters': value.get('remainingMeters') if usable else None,
+          'remainingSeconds': value.get('remainingSeconds') if usable else None}
 
 
 def select_navigation(mapbox, phone, *, now_ns, drive_id, official_active=False, phone_enabled=True,
@@ -156,6 +163,7 @@ def select_navigation(mapbox, phone, *, now_ns, drive_id, official_active=False,
   return {**mapbox, 'sessionId': source + ':' + phone['session'], 'revision': str(phone['sequence']),
           'enabled': True, 'status': 'guiding', 'source': source, 'frameMonoTime': now_ns,
           'startedMonoTime': drive_id, 'locationMonoTime': phone['observed'] if controlled else 0, 'observationMonoTime': phone['observed'],
-          'distanceKnown': phone.get('distanceMeters') is not None, 'totalsKnown': False,
+          'distanceKnown': phone.get('distanceMeters') is not None,
+          'totalsKnown': phone.get('remainingMeters') is not None and phone.get('remainingSeconds') is not None,
           'destinationName': '', 'route': [], 'nextManeuver': {}, 'controlValid': controlled,
           'instruction': instruction}

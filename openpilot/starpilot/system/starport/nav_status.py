@@ -213,6 +213,8 @@ class NavFeed:
       snapshot.update(road=instruction.text, type=instruction.maneuverType, modifier=instruction.maneuverModifier,
                       distance=float(instruction.distanceMeters), remaining=float(instruction.remainingDistanceMeters),
                       duration=float(instruction.remainingDurationSeconds))
+      if phone and not state.totalsKnown:
+        snapshot.update(remaining=0., duration=0.)
       if phone:
         # Phone distances only change when the notification does, so count down between updates.
         speed = float(self._sm['carState'].vEgo) if self._sm.alive['carState'] else 0.

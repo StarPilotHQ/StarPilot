@@ -5,7 +5,7 @@ const release = { version: "17.7.663654-release", url: "https://download.pureapk
 const setup = { enabled: true, installReady: true, identity: { installed: false }, import: { state: "idle" }, maxUploadBytes: 256 * 1048576,
   download: release }
 function page(data = setup) {
-  const vm = { ...StarPortPage.data(), setup: structuredClone(data) }
+  const vm = { ...StarPortPage.data(), setup: structuredClone(data), mode: "sample", unauthorized() {} }
   for (const [key, getter] of Object.entries(StarPortPage.computed)) Object.defineProperty(vm, key, { get: () => getter.call(vm) })
   for (const [key, method] of Object.entries(StarPortPage.methods)) vm[key] = method.bind(vm)
   return vm

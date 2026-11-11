@@ -4,6 +4,7 @@ import hashlib
 
 from openpilot.starpilot.ui.raylib import rl
 
+from openpilot.starpilot.navigation.wire import PHONE_SOURCE_PREFIX
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
 from openpilot.starpilot.ui.navigation_icons import ASSETS, MANIFEST, icon_name
 from openpilot.starpilot.ui.navigation_state import distance_text
@@ -131,7 +132,7 @@ class NavigationCard:
     rl.draw_rectangle_rounded(rect, .2, 8, rl.Color(15, 13, 23, 255 if compact else 245))
     rl.draw_rectangle_rounded_lines_ex(rect, .2, 8, 2, rl.Color(160, 126, 220, 190))
     kind = 'arrive' if nav.arrived else nav.maneuver_type
-    if not nav.totals_known and (not kind or not nav.modifier and kind in ('turn', 'fork', 'off ramp')):
+    if nav.key[0].startswith(PHONE_SOURCE_PREFIX) and (not kind or not nav.modifier and kind in ('turn', 'fork', 'off ramp')):
       kind = 'invalid'
     name = icon_name(kind, nav.modifier)
     icon = self._icon(name) if name else None

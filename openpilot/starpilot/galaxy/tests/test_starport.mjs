@@ -158,7 +158,7 @@ assert.equal(await parked.upload(packageFile), false, "inactive sessions cannot 
 assert.equal(await parked.setEnabled(true), false, "inactive sessions cannot enable Android Auto")
 
 function page(selectedSetup = setup) {
-  const vm = { ...StarPortPage.data(), setup: structuredClone(selectedSetup) }
+  const vm = { ...StarPortPage.data(), setup: structuredClone(selectedSetup), mode: "sample", unauthorized() {} }
   for (const [key, getter] of Object.entries(StarPortPage.computed)) Object.defineProperty(vm, key, { get: () => getter.call(vm) })
   for (const [key, method] of Object.entries(StarPortPage.methods)) vm[key] = method.bind(vm)
   return vm

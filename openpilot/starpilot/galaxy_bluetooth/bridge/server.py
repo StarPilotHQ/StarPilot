@@ -2,6 +2,7 @@
 """Add a GATT peripheral beside StarPilot's existing Bluetooth service."""
 import argparse
 import asyncio
+import base64
 import json
 import hashlib
 import logging
@@ -18,7 +19,9 @@ from dbus_next.constants import PropertyAccess
 from dbus_next.service import ServiceInterface, dbus_property, method
 
 import claim
-from protocol import (Assembler, INFO_UUID, RX_UUID, SERVICE_UUID, TX_UUID, NOTIFY_UUID,
+from ancs_dbus import BluezBond, BluezGatt, Poster, Watcher, supervise
+from bond import BOND_PATH, READY_PATH, BondAcceptance, readiness_error
+from protocol import (Assembler, BOND_UUID, INFO_UUID, RX_UUID, SERVICE_UUID, TX_UUID, NOTIFY_UUID,
                       NOTIFICATION_WINDOW, open_message, packets, seal, stream_tag, notification_packets)
 from proxy import GalaxyProxy
 from pairing import add_phone, introduce, link_address, load_keys, mark_used, remove_phone
@@ -54,6 +57,7 @@ class Session:
     self.phone = None  # (id, key) of the phone whose key opened this session
     self.introduced = False
     self.claiming = False
+    self.device = None
 
   def close(self):
     self.closed = True
@@ -75,6 +79,7 @@ class Gateway:
     self.sessions = {}
     self.notifier = None
     self.notification_lock = asyncio.Lock()
+    self.bonder = None
 
   def refresh_key(self):
     if self.key_path is None:
@@ -174,6 +179,7 @@ class Gateway:
         raise DBusError("org.bluez.Error.InProgress", "Too many sessions")
       LOG.info("Galaxy BLE handshake challenge requested; active sessions=%d", len(self.sessions) + 1)
       self.sessions[path] = Session()
+      self.sessions[path].device = path
       self.sessions[path].proxy = self.proxy.new_session() if hasattr(self.proxy, "new_session") else self.proxy
     state = self.sessions[path]
     state.last_seen = time.monotonic()
@@ -279,7 +285,10 @@ class Gateway:
           await asyncio.to_thread(mark_used, state.phone[0], self.key_path)
         except (OSError, ValueError):
           LOG.warning("Could not record phone use")
-      response = await asyncio.to_thread(state.proxy.handle, request)
+      if request.get("path") == BOND_PATH and request.get("method") == "POST":
+        response = await self.bond(state, request["id"])
+      else:
+        response = await asyncio.to_thread(state.proxy.handle, request)
       self.refresh_key()
       if state.closed:
         return
@@ -306,6 +315,22 @@ class Gateway:
       state.busy = False
     finally:
       state.task = None
+
+  async def bond(self, state, request_id):
+    async def ready():
+      request = {"id": request_id, "method": "GET", "path": READY_PATH, "headers": {"accept": "application/json"}, "body": ""}
+      try:
+        reply = await asyncio.to_thread(state.proxy.handle, request)
+      except Exception:
+        reply = None
+      return readiness_error(reply if isinstance(reply, dict) else {})
+
+    if self.bonder is None:
+      status, body = 503, {"error": "Notification pairing is unavailable", "code": "unavailable"}
+    else:
+      status, body = await self.bonder.open(state.device, ready)
+    return {"id": request_id, "status": status, "headers": {"content-type": "application/json"},
+            "body": base64.b64encode(json.dumps(body).encode()).decode()}
 
   async def push_response(self, state):
     response = state.response
@@ -380,6 +405,9 @@ class Characteristic(ServiceInterface):
       return b"\x01" + self.gateway.session(options, fresh=True).challenge
     if self.kind == "tx":
       return self.gateway.read(options)
+    if self.kind == "bond":
+      # encrypt-read: BlueZ only calls this on an encrypted link, so a read on an unbonded link makes iOS pair.
+      return b"\x01"
     raise DBusError("org.bluez.Error.NotSupported", "Write-only characteristic")
 
   @method()
@@ -431,6 +459,53 @@ class NotificationCharacteristic(Characteristic):
 
   def props(self):
     return {**super().props(), "Value": Variant("ay", self.value), "Notifying": Variant("b", self.notifying)}
+
+
+class BondAgent(ServiceInterface):
+  """org.bluez.Agent1 that approves only the device the bond window is scoped to."""
+  def __init__(self, allows):
+    super().__init__("org.bluez.Agent1")
+    self.allows = allows
+
+  def _check(self, device):
+    if not self.allows(device):
+      raise DBusError("org.bluez.Error.Rejected", "Not the phone this window is for")
+
+  @method()
+  def Release(self):
+    pass
+
+  @method()
+  def RequestPinCode(self, device: 'o') -> 's':
+    raise DBusError("org.bluez.Error.Rejected", "PIN pairing is not used")
+
+  @method()
+  def DisplayPinCode(self, device: 'o', pincode: 's'):
+    raise DBusError("org.bluez.Error.Rejected", "PIN pairing is not used")
+
+  @method()
+  def RequestPasskey(self, device: 'o') -> 'u':
+    raise DBusError("org.bluez.Error.Rejected", "Passkey pairing is not used")
+
+  @method()
+  def DisplayPasskey(self, device: 'o', passkey: 'u', entered: 'q'):
+    raise DBusError("org.bluez.Error.Rejected", "Passkey pairing is not used")
+
+  @method()
+  def RequestConfirmation(self, device: 'o', passkey: 'u'):
+    self._check(device)
+
+  @method()
+  def RequestAuthorization(self, device: 'o'):
+    self._check(device)
+
+  @method()
+  def AuthorizeService(self, device: 'o', uuid: 's'):
+    self._check(device)
+
+  @method()
+  def Cancel(self):
+    pass
 
 
 class Application(ServiceInterface):
@@ -495,6 +570,7 @@ async def serve(args):
       SERVICE_PATH + "/tx": Characteristic(TX_UUID, ["read"], gateway, "tx"),
       SERVICE_PATH + "/info": Characteristic(INFO_UUID, ["read"], gateway, "info"),
       SERVICE_PATH + "/notify": NotificationCharacteristic(gateway),
+      SERVICE_PATH + "/bond": Characteristic(BOND_UUID, ["encrypt-read"], gateway, "bond"),
   }
   bus.export(ROOT, Application(objects))
   for path, interface in objects.items():
@@ -521,6 +597,13 @@ async def serve(args):
   LOG.info("Registering Galaxy GATT application on %s", adapter_path)
   await gatt.call_register_application(ROOT, {})
   watcher = asyncio.create_task(gateway.watch_key())
+  agent_path = ROOT + "/agent"
+  bonder = BondAcceptance(BluezBond(bus, adapter_path, agent_path), claim.CLAIM_PATH)
+  bus.export(agent_path, BondAgent(bonder.allows))
+  gateway.bonder = bonder
+  poster = Poster(GalaxyProxy(args.galaxy_port))
+  gatt_client = BluezGatt(bus)
+  notifications = asyncio.create_task(supervise(lambda: Watcher(gatt_client, adapter_path, poster.post)))
   try:
     LOG.info("Registering Galaxy BLE advertisement")
     await advertising.call_register_advertisement(ad_path, {})
@@ -552,9 +635,15 @@ async def serve(args):
     LOG.info("Stopping Galaxy bridge; clearing ready status and Bluetooth sessions")
     clear_ready(key_path.parent)
     watcher.cancel()
+    notifications.cancel()
+    for task in (watcher, notifications):
+      try:
+        await task
+      except (asyncio.CancelledError, Exception):
+        pass
     try:
-      await watcher
-    except asyncio.CancelledError:
+      await asyncio.wait_for(bonder.close(), timeout=15)
+    except Exception:
       pass
     for state in gateway.sessions.values():
       state.close()

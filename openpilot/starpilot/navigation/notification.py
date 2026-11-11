@@ -14,7 +14,9 @@ def notification_instruction(phone, *, now_ns):
     return None, 'expiredLease'
   return {'text': phone['instruction'], 'maneuverType': phone.get('maneuverType', ''),
           'maneuverModifier': phone.get('maneuverModifier', ''),
-          'distanceMeters': phone.get('distanceMeters') or 0}, 'notificationGuidance'
+          'distanceMeters': phone.get('distanceMeters') or 0,
+          'remainingDistanceMeters': phone.get('remainingMeters') or 0,
+          'remainingDurationSeconds': phone.get('remainingSeconds') or 0}, 'notificationGuidance'
 
 
 MATCHED = ('matched_limit_unqualified', 'matched_no_limit_unqualified')

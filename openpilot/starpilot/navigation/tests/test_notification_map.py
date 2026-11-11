@@ -202,3 +202,14 @@ def test_unreadable_provider_logs_once():
   finally:
     swaglog.cloudlog.exception = original
   assert len(logged) == 1 and local_map.status(phone()) == 'mapUnavailable'
+
+
+def test_trip_totals_do_not_affect_map_corroboration():
+  local_map = LocalMapCorroborator()
+  update(local_map, packet())
+  plain = select_navigation({'status': 'noDestination'}, phone(), now_ns=NOW, drive_id=NOW - 1, local_map=local_map)
+  totals = select_navigation({'status': 'noDestination'}, phone(remainingMeters=3000, remainingSeconds=240), now_ns=NOW,
+                             drive_id=NOW - 1, local_map=local_map)
+  assert plain['controlValid'] == totals['controlValid']
+  assert not plain['totalsKnown'] and totals['totalsKnown']
+  assert totals['instruction']['remainingDistanceMeters'] == 3000 and totals['instruction']['remainingDurationSeconds'] == 240

@@ -101,7 +101,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                 starport_client=None, navigation=None, offline_maps=None, drive_state=None, cloud_provider=None, cloud_offroad=None, projection_layout=None,
                 local_access=None, tmux_live=None, starport_logs=None, starport_log_sender=None, hotspot=None, toyota_tools=None,
                 replay_client=None, replay_root=None,
-                spotify_setup=None, companion=None, phone_location=None, reverse_proxy=None, local_hostnames=None, sound_preview=None, phone_navigation=None):
+                spotify_setup=None, companion=None, phone_location=None, reverse_proxy=None, local_hostnames=None, sound_preview=None, phone_navigation=None,
+                phone_notifications=None):
   from openpilot.starpilot.galaxy.local_hostnames import LocalHostnames
   hostname_source = local_hostnames if local_hostnames is not None else LocalHostnames(clock=clock)
   from openpilot.starpilot.galaxy.companion import CompanionRegistry, APK_PATH
@@ -113,6 +114,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
   training_results_source = training_results
   from openpilot.starpilot.navigation.phone import PhoneNavigationPublisher
   phone_navigation_source = phone_navigation if phone_navigation is not None else PhoneNavigationPublisher()
+  from openpilot.starpilot.system.starport.phone_notifications import PhoneNotifications
+  phone_notifications_source = phone_notifications if phone_notifications is not None else PhoneNotifications()
   phone_location_source = phone_location if phone_location is not None else PhoneGpsPublisher()
   cloud = cloud_provider
   hotspot_source = hotspot
@@ -1109,6 +1112,22 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             self.json(200, result)
           else:
             self.json(401, {'error': 'Sign in to Galaxy'})
+      elif path == '/api/starport/notifications':
+        if not self.require_session():
+          return
+        identity = self.settings_session()
+        if identity is None:
+          self.json(401, {'error': 'Sign in to Galaxy'})
+          return
+        try:
+          result = phone_notifications_source.snapshot()
+        except OSError:
+          self.json(503, {'error': 'Phone notification settings are unavailable'})
+        else:
+          if self.settings_session() == identity:
+            self.json(200, result)
+          else:
+            self.json(401, {'error': 'Sign in to Galaxy'})
       elif path == '/api/spotify/setup':
         if not self.require_session():
           return
@@ -1658,6 +1677,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(404, {'error': 'Not found'})
         return
       if path not in ('/api/companion/uplink', '/api/companion/settings', '/api/companion/location', '/api/companion/navigation',
+                      '/api/companion/notification', '/api/starport/notifications',
                       '/api/connect/proxy', '/api/connect/provider', '/api/auth/login', '/api/auth/logout', '/api/settings/preview', '/api/settings/confirm',
                       '/api/settings/recovery/preview', '/api/settings/recovery/confirm',
                       '/api/settings/reset-default', '/api/settings/restore', '/api/recordings/action',
@@ -1696,7 +1716,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         size = int(self.headers.get('Content-Length', ''))
       except ValueError:
         size = -1
-      max_size = 256 * 1024 if path == '/api/settings/restore' else 17408 if path in ('/api/ui/layout', '/api/ui/layout/preview') else 4096
+      max_size = 256 * 1024 if path == '/api/settings/restore' else 17408 if path in ('/api/ui/layout', '/api/ui/layout/preview') else \
+        16384 if path == '/api/companion/notification' else 4096
       if not 0 < size <= max_size:
         self.json(413, {'error': 'Invalid request size'})
         return
@@ -1725,6 +1746,17 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(200, {**result, 'forwardingEnabled': navigation_owner().read().get('phoneNavigation', False)})
         except ValueError as error:
           self.json(400, {'error': str(error)})
+        return
+      if path == '/api/companion/notification':
+        if getattr(self.server, 'remote_transport', False) or not self.direct_local():
+          self.json(403, {'error': 'Phone notifications require a direct local connection'})
+          return
+        try:
+          self.json(200, phone_notifications_source.publish(payload))
+        except ValueError as error:
+          self.json(400, {'error': str(error)})
+        except OSError:
+          self.json(503, {'error': 'Phone notifications are unavailable'})
         return
       if path == '/api/companion/location':
         if getattr(self.server, 'remote_transport', False) or not self.direct_local():
@@ -2404,6 +2436,23 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         else:
           if self.settings_session() == identity:
             self.json(202, result)
+          else:
+            self.json(401, {'error': 'Sign in to Galaxy'})
+        return
+      if path == '/api/starport/notifications':
+        identity = self.settings_session()
+        if identity is None:
+          self.json(401, {'error': 'Sign in to Galaxy'})
+          return
+        try:
+          result = phone_notifications_source.update(payload)
+        except ValueError as error:
+          self.json(400, {'error': str(error)})
+        except OSError:
+          self.json(503, {'error': 'Phone notification settings are unavailable'})
+        else:
+          if self.settings_session() == identity:
+            self.json(200, result)
           else:
             self.json(401, {'error': 'Sign in to Galaxy'})
         return
