@@ -450,3 +450,27 @@ assert.equal(sentryMonitorStatus({ subtitle: "Waiting for monitor: The monitor h
 assert.equal(sentryMonitorStatus({ subtitle: "Motion monitor status is unavailable. Reconnecting automatically…" }).label, "Status unavailable")
 assert.equal(sentryMonitorStatus(null).label, "Status unavailable")
 assert.equal(sentryMonitorStatus({ subtitle: 42 }).label, "Status unavailable")
+
+// Vehicle-specific controls must remain reachable from the actual section filter.
+const vehicleHub = {
+  initialPage: "hub",
+  activeSection: SETTINGS_SECTIONS.find(section => section.id === "lateral"),
+  state: { query: "", data: { page: "hub", rows: [
+    { label: "Always On Lateral", page: "aol", available: true },
+    { label: "Vehicle Settings", page: "vehicle", available: true },
+  ] } },
+}
+const vehicleLinks = SettingsPage.computed.visibleRows.call(vehicleHub)
+assert.deepEqual(vehicleLinks.map(entry => entry.row.page), ["aol", "vehicle"])
+assert.equal(vehicleLinks[1].index, 1, "navigation must retain the server row index")
+const vehicleSection = SettingsPage.computed.activeSection.call({
+  sections: SETTINGS_SECTIONS, state: { developerOpen: false, data: { page: "vehicle" } },
+})
+assert.equal(vehicleSection.id, "lateral", "a saved Vehicle Settings page must map back to its section")
+const brakeRows = SettingsPage.computed.visibleRows.call({
+  initialPage: "hub", activeSection: vehicleSection,
+  state: { query: "", data: { page: "vehicle", rows: [
+    { label: "Disengage AOL on Brake", choices: ["Off", "On"], value: "Off", available: true },
+  ] } },
+})
+assert.equal(brakeRows[0].row.label, "Disengage AOL on Brake")

@@ -52,7 +52,7 @@ TTL = 60.0
 
 # Android Auto lists binary controls only.
 CAR_CONTROL_SECTIONS = (
-  ("lateral", "Lateral (Steering)", ("aol", "lane_change", "torque", "lane")),
+  ("lateral", "Lateral (Steering)", ("aol", "lane_change", "torque", "lane", "vehicle")),
   ("longitudinal", "Longitudinal (Speed & Following)",
    ("profiles", "conditional", "curve", "slc", "aggressive", "standard", "relaxed", "traffic")),
   ("wheel", "Wheel Controls", ("wheel",)),
