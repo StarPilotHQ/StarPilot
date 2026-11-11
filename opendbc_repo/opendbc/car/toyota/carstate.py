@@ -239,7 +239,9 @@ class CarState(CarStateBase):
     buttonEvents = create_button_events(int(pcm_acc_status) if pcm_acc_status in (9, 10) else 0,
                                        int(previous_pcm_acc_status) if previous_pcm_acc_status in (9, 10) else 0,
                                        {9: ButtonType.accelCruise, 10: ButtonType.decelCruise})
-    if (self.CP.flags & (ToyotaFlags.TSS2 | ToyotaFlags.LONG_FILTER | ToyotaFlags.FILTER_BUTTONS) or self.CP.carFingerprint == CAR.TOYOTA_PRIUS_RETROFIT or
+    if self.CP.carFingerprint != CAR.TOYOTA_CAMRY and (
+        self.CP.flags & (ToyotaFlags.TSS2 | ToyotaFlags.LONG_FILTER | ToyotaFlags.FILTER_BUTTONS) or
+        self.CP.carFingerprint == CAR.TOYOTA_PRIUS_RETROFIT or
         self.CP.flags & ToyotaFlags.RADAR_CAN_FILTER and legacy_advert_filter.configured(self.CP)):
       # lkas button is wired to the camera
       prev_lkas_button = self.lkas_button

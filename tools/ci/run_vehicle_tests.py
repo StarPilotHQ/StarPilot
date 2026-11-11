@@ -170,6 +170,7 @@ AOL_LIFECYCLE_TARGETS = (
   "openpilot/starpilot/car/toyota/tests/test_sng_resume.py",
   "openpilot/starpilot/car/toyota/tests/test_auto_sdsu_resume.py",
   "openpilot/starpilot/car/toyota/tests/test_gas_steering_withdrawal.py",
+  "openpilot/starpilot/car/toyota/tests/test_radar_filter_buttons.py",
   "openpilot/starpilot/car/toyota/tests/test_resume_alert.py",
   "openpilot/starpilot/car/toyota/tests/test_sng.py",
   "openpilot/starpilot/car/toyota/tests/test_sng_callers.py",
@@ -269,6 +270,7 @@ DEBUG_SAFETY_CLASS_TARGETS = {
 
 
 RELEASE_TARGETS = (
+  "openpilot/starpilot/car/toyota/tests/test_radar_filter_buttons.py",
   "openpilot/starpilot/aol/tests/test_ford_long_only_withdrawal.py",
   "opendbc_repo/opendbc/safety/tests/test_hyundai_gv60_hda1_long_aol.py",
   'openpilot/starpilot/car/toyota/tests/test_prius_retrofit_stock.py',

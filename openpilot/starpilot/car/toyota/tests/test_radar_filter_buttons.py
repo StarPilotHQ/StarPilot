@@ -1,6 +1,6 @@
 """Four-byte radar filter button evidence reaches existing mapping/personality owners."""
 import pytest
-from opendbc.car import Bus
+from opendbc.car import Bus, structs
 from opendbc.car.toyota import radar_filter
 from opendbc.car.toyota.carstate import CarState
 from opendbc.car.toyota.interface import CarInterface
@@ -52,8 +52,9 @@ def test_factory_exposes_only_discovered_four_byte_buttons(tmp_path, identity, s
   assert radar_filter.configured(cp) and policy_for(cp).runtime_supported
   assert cp.safetyConfigs[0].safetyParam == (0x1249 if stock else 0x1049)
   rows = {r.key: r for r in feature(Params(str(tmp_path)), cp).rows()}
-  assert {'wheel:LKASButtonControl', 'wheel:DistanceButtonControl', 'wheel:LongDistanceButtonControl',
+  assert {'wheel:DistanceButtonControl', 'wheel:LongDistanceButtonControl',
           'wheel:VeryLongDistanceButtonControl'} <= rows.keys()
+  assert ('wheel:LKASButtonControl' in rows) == (identity != CAR.TOYOTA_CAMRY)
   assert 'wheel:CancelButtonControl' not in rows
   main = rows['wheel:MainCruiseButtonControl']
   assert main.value == 'Factory cruise / AOL' and not main.available and not main.choices
@@ -101,3 +102,27 @@ def test_recorded_camry_button_shape_reaches_saved_personality_once(native_sessi
   assert ui.params.get('LongitudinalPersonality') == 0
   session._poll_wheel(NOW)
   assert ui.params.get('LongitudinalPersonality') == 0
+
+
+@pytest.mark.parametrize('stock', (False, True))
+def test_camry_stock_lda_does_not_press_lkas(tmp_path, stock):
+  from opendbc.can import CANPacker
+  from opendbc.car.toyota.values import DBC
+  from openpilot.common.params import Params
+  from openpilot.starpilot.controllers.wheel_actions import button_reported
+  cp = factory(stock=stock)
+  bench = Buttons(cp)
+  camera = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+  for index, lda in enumerate((0, 1, 2, 0, 1, 0)):
+    now = NOW + index * 10_000_000
+    bench.parsers[Bus.cam].update([(now, [camera.make_can_msg('LKAS_HUD', 2, {'LDA_ON_MESSAGE': lda})])])
+    state = bench.sample(index == 2, now=now)
+    assert not any(event.type == structs.CarState.ButtonEvent.Type.lkas for event in state.buttonEvents), 'CAMRY_LDA_IS_NOT_LKAS_BUTTON'
+    if index in (2, 3):
+      assert any(event.type == structs.CarState.ButtonEvent.Type.gapAdjustCruise and event.pressed == (index == 2) for event in state.buttonEvents)
+  assert not button_reported(cp, 'LKASButtonControl')
+  rows = {row.key for row in feature(Params(str(tmp_path)), cp).rows()}
+  assert 'wheel:LKASButtonControl' not in rows
+  assert 'wheel:DistanceButtonControl' in rows
+  assert radar_filter.configured(cp) and policy_for(cp).runtime_supported
+  assert cp.safetyConfigs[0].safetyParam == (0x1249 if stock else 0x1049)
