@@ -578,3 +578,208 @@ class TestBoundedInconclusiveTrialLifecycle(unittest.TestCase):
       self.assertEqual(row['values'], original['values'])
       self.assertEqual(row['previous'], values())
       self.assertEqual(cache.get(digest), original)
+
+
+class TestRecordedAdvisoryVisibility(unittest.TestCase):
+  """The advisory survives a refused automatic save; no hardware acceptance fixture."""
+
+  @staticmethod
+  def worker(directory):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_cache import AssessmentCache, directory_for_params
+    from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+    from openpilot.starpilot.flm.offroad_worker import OffroadWorker
+
+    params = Params(directory)
+    cache = AssessmentCache(directory_for_params(params))
+    _, observed = TestComparableNextDriveOutcomes.documents()
+    group = observed.stable_groups[0]
+    group['original_metadata']['route_values'] = list(values().items())
+    group['cohorts'][0]['proposal'] = {'parameter': 'highway_center_taper_max', 'delta': 0.005, 'values': dict(values(), highway_center_taper_max=0.005)}
+    inventory = {'routeId': 'declared-advisory-route'}
+    receipt = RouteReceipt(inventory['routeId'], 'd' * 64, (), 'a' * 64, 1, 2, 100, ())
+    assessment = CompletedAssessment(receipt, (group,), {}, SimpleNamespace(carFingerprint='declared-unit-car'), (), inventory)
+
+    def assessed(params, root, prior, *, permitted):
+      prior(assessment.cp)
+      return assessment
+
+    def refused(*args, **kwargs):
+      return {'qualified': False, 'windows': [], 'policy': 'declared-unit-refusal'}
+
+    worker = OffroadWorker(params, directory, cache, permitted=lambda: True, assessor=assessed,
+      checker=refused, scope_for=lambda cp, params: scope())
+    return worker, params, inventory
+
+  def test_refused_automatic_change_retains_its_per_dial_recommendation(self):
+    from openpilot.starpilot.flm import offroad_worker as module
+
+    with tempfile.TemporaryDirectory() as directory:
+      worker, params, inventory = self.worker(directory)
+      with patch.object(module, 'latest_route', return_value=inventory):
+        result = worker.run_once()
+      rows = result.get('recommendations', [])
+      self.assertEqual([r['parameter'] for r in rows], ['highway_center_taper_max'])
+      self.assertEqual(rows[0]['baseline'], 0)
+      self.assertEqual(rows[0]['target'], 0.005)
+      self.assertFalse(result['configuration_changed'])
+      self.assertFalse(result['actual_application_proven'])
+      self.assertIsNone(read_saved(params, KEY, MAX_BYTES)[0], 'An advisory must not save the refused tune')
+
+
+class TestRecordedRecommendationMetadata(unittest.TestCase):
+  @staticmethod
+  def assessment(proposals=()):
+    from types import SimpleNamespace
+
+    cohorts = [{'whole_windows': 6, 'proposal': proposal} for proposal in proposals]
+    return SimpleNamespace(groups=({'cohorts': cohorts},), diagnostic_groups=())
+
+  def test_captured_unconfirmed_profile_is_visible_without_promoting_it(self):
+    from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
+
+    # Exact four targets from the retained last-drive assessment; no original
+    # route/window/VIN identifiers or invented controller qualification.
+    targets = dict(values(), friction_threshold_low=0.002, friction_threshold_mid=0.004,
+      friction_threshold_fast=0.005, friction_threshold_highway=0.006)
+    proof = {'reason': 'heldout_profile_does_not_support_training_step', 'frozen_training_profile': {'values': targets},
+      'roles': {role: {'original_windows': list(range(8)), 'coordinate_candidates': []} for role in ('training', 'heldout')}}
+    result = recorded_recommendations(self.assessment(), values(), {'stable_profile_reports': [proof]})
+    self.assertEqual({r['parameter']: r['target'] for r in result}, {n: v for n, v in targets.items() if v})
+    self.assertEqual(len(result), 4)
+    self.assertTrue(all(r['whole_windows'] == 16 and r['reason'] == proof['reason'] for r in result))
+    self.assertEqual(proof['frozen_training_profile']['values'], targets)
+
+  def test_all_thirty_five_coordinates_survive_without_a_sixteen_row_limit(self):
+    from openpilot.starpilot.flm.offroad_surface import route_bounds
+    from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
+
+    targets = {name: 0.005 if route_bounds(name)[1] >= 0.005 else -0.005 for name in ROUTE_NAMES}
+    result = recorded_recommendations(self.assessment([{'values': targets}]), values(), {})
+    self.assertEqual([r['parameter'] for r in result], list(ROUTE_NAMES))
+    self.assertEqual(len(result), 35)
+    self.assertTrue(all(r['baseline'] == 0 for r in result))
+
+  def test_conflicting_candidates_do_not_invent_a_best_setting(self):
+    from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
+
+    proposals = [{'values': {'center_taper_max': v}} for v in (0.005, 0.006)]
+    result = recorded_recommendations(self.assessment(proposals), values(), {})
+    self.assertEqual(len(result), 1)
+    self.assertIsNone(result[0]['target'])
+    self.assertEqual(result[0]['reason'], 'conflicting_recorded_candidates')
+    self.assertEqual(result[0]['whole_windows'], 6, 'Shared windows cannot be double-counted')
+
+  def test_invalid_or_out_of_envelope_candidates_are_not_suggestions(self):
+    from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
+
+    proposals = [{'values': {'center_taper_max': v}} for v in (True, float('nan'), 0.25)]
+    self.assertEqual(recorded_recommendations(self.assessment(proposals), values(), {}), [])
+
+  def test_training_recipe_without_a_repeated_full_map_is_reported(self):
+    from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
+
+    proof = {'roles': {'training': {'original_windows': ['a', 'b', 'c'],
+      'coordinate_candidates': [{'parameter': 'stable:turn_in_boost_left', 'delta': 0.005}]},
+      'heldout': {'original_windows': ['d', 'e', 'f']}}}
+    result = recorded_recommendations(self.assessment(), values(), {'short_turn_profile_reports': [proof]})
+    self.assertEqual(result[0]['parameter'], 'turn_in_boost_left')
+    self.assertEqual(result[0]['target'], 0.005)
+    self.assertEqual(result[0]['reason'], 'training_candidate_not_independently_confirmed')
+
+  def test_failed_checker_keeps_already_published_candidates(self):
+    from openpilot.starpilot.flm import offroad_worker as module
+
+    with tempfile.TemporaryDirectory() as directory:
+      worker, params, inventory = TestRecordedAdvisoryVisibility.worker(directory)
+      snapshots = []
+      worker.on_recommendations = snapshots.append
+
+      def failed(*args, **kwargs):
+        raise ValueError('declared controller-check failure')
+
+      worker.checker = failed
+      with patch.object(module, 'latest_route', return_value=inventory):
+        with self.assertRaisesRegex(ValueError, 'declared controller-check failure') as error:
+          worker.run_once()
+        result = worker.record_failure(error.exception)
+      self.assertIsNotNone(result)
+      assert result is not None
+      self.assertEqual(result['recommendations'][0]['target'], 0.005)
+      self.assertEqual(snapshots[0]['recommendations'][0]['parameter'], 'highway_center_taper_max')
+      self.assertIsNone(read_saved(params, KEY, MAX_BYTES)[0])
+
+
+class TestRetainedDriveRecommendationReport(unittest.TestCase):
+  def test_another_analysis_keeps_historical_findings_but_never_current_permissions(self):
+    from openpilot.starpilot.flm.offroad_daemon import StatusReport
+
+    with tempfile.TemporaryDirectory() as directory:
+      path = Path(directory) / 'report.json'
+      status = StatusReport(path=path, clock_ns=lambda: 1_000_000_000)
+      status.set({'status': 'collecting', 'reason': 'previous', 'completed_route': 'declared-last-drive', 'vehicle': 'declared-car',
+        'analysis_counts': {'recorded_tracking': 120}, 'configuration_state': 'ready_for_next_drive', 'configured_values': values(0.01),
+        'enabled': True, 'actual_coordinates': list(values(0.01).items()), 'actual_control_ns': 1_000_000_000,
+        'recommendations': [{'parameter': 'ff_gain_left', 'baseline': 0, 'target': 0.005, 'whole_windows': 6, 'reason': 'unconfirmed'}]})
+      status.analyzing({'reason': 'analyzing_last_completed_drive'})
+      status.publish()
+      report = json.loads(path.read_bytes())
+      details = report['current']['details']
+      self.assertTrue(details['Earlier analysis shown while updating'])
+      self.assertEqual(details['Completed drive analyzed'], 'declared-last-drive')
+      self.assertEqual(details['Analysis decision'], 'previous')
+      self.assertEqual(details['Recorded coordinate recommendations'][0][2], 0.005)
+      self.assertNotIn('Saved route configuration state', details)
+      self.assertNotIn('Actual full surface coordinates', details)
+      self.assertFalse(report['current']['application']['applied'])
+      self.assertIsNone(report['current']['enabled'])
+
+  def test_full_recommendation_wire_is_bounded_and_backward_compatible(self):
+    from openpilot.starpilot.flm.offroad_daemon import StatusReport
+    from openpilot.starpilot.flm.training_report import READ_MAX_BYTES, read_report
+
+    with tempfile.TemporaryDirectory() as directory:
+      path = Path(directory) / 'report.json'
+      status = StatusReport(path=path, clock_ns=lambda: 1_000_000_000)
+      status.set({'status': 'collecting', 'reason': 'declared', 'completed_route': 'declared-last-drive',
+        'recommendations': [{'parameter': n, 'baseline': 0, 'target': 0.005, 'whole_windows': 6, 'reason': 'unconfirmed'} for n in ROUTE_NAMES]})
+      status.publish()
+      report = read_report(path, now_ns=1_000_000_000)
+      self.assertIsNotNone(report['current'])
+      assert report['current'] is not None
+      details = report['current']['details']
+      self.assertEqual(len(details['Recorded coordinate recommendations']), 35)
+      self.assertEqual(len(details['Recorded route suggestions']), 16)
+      self.assertEqual(details['Recorded suggestion count'], 35)
+      self.assertFalse(details['More recorded suggestions omitted'])
+      self.assertLess(path.stat().st_size, READ_MAX_BYTES)
+      self.assertFalse(report['current']['application']['applied'])
+
+  def test_startup_recovers_existing_candidates_without_rewriting_the_cache(self):
+    from openpilot.starpilot.flm.offroad_cache import AssessmentCache
+    from openpilot.starpilot.flm.offroad_daemon import StatusReport
+
+    with tempfile.TemporaryDirectory() as directory:
+      cache = AssessmentCache(Path(directory) / 'cache')
+      assessment = {'route': {'route_id': 'declared-old-drive', 'source_sha256': 'c' * 64, 'cp_sha256': 'a' * 64},
+        'groups': [{'original_metadata': {'cp_sha256': 'a' * 64, 'route_revision': REVISION, 'route_values': list(values().items())},
+          'cohorts': [{'whole_windows': 148, 'proposal': {'values': dict(values(), highway_center_taper_max=0.005)}}]}]}
+      digest = cache.put({'kind': 'completed_assessment', 'assessment': assessment})
+      cache.checkpoint({'input_fingerprint': 'f' * 64, 'result': {'status': 'collecting', 'completed_route': 'declared-old-drive',
+        'source_sha256': 'c' * 64, 'assessment_sha256': digest, 'reason': 'no_new_native_feasible_training_step'}})
+      before = {p.name: p.read_bytes() for p in cache.directory.iterdir() if p.is_file()}
+      path = Path(directory) / 'report.json'
+      status = StatusReport(path=path, clock_ns=lambda: 1_000_000_000)
+      status.restore(cache)
+      status.analyzing({'reason': 'analyzing_last_completed_drive'})
+      status.publish()
+      report = json.loads(path.read_bytes())
+      self.assertEqual(report['current']['details']['Recorded coordinate recommendations'][0][2], 0.005)
+      self.assertFalse(report['current']['application']['applied'])
+      self.assertEqual({p.name: p.read_bytes() for p in cache.directory.iterdir() if p.is_file()}, before)
+      wrong = StatusReport(path=path, clock_ns=lambda: 1_000_000_000)
+      cache.checkpoint({'input_fingerprint': 'f' * 64, 'result': {'status': 'collecting', 'completed_route': 'wrong-route',
+        'source_sha256': 'c' * 64, 'assessment_sha256': digest, 'reason': 'declared'}})
+      wrong.restore(cache)
+      self.assertEqual(wrong.previous, {}, 'Historical candidate inputs must match their exact completed source')

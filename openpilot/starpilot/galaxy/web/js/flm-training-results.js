@@ -53,7 +53,8 @@ export function validTrainingResults(value) {
         key === 'Applied correction coordinates' && Array.isArray(item) && item.length === 30 ?
           item.every(number => typeof number === 'number' && Number.isFinite(number) && Math.abs(number) <= .25) :
         key === 'GLOBAL source observation refusals' ? validSourceRefusals(item) :
-        key === 'Recorded steering response' ? item === null || recordedSteeringView(item) !== null : detailValue(item)))
+        key === 'Recorded steering response' ? item === null || recordedSteeringView(item) !== null :
+        key === 'Recorded coordinate recommendations' ? validCoordinateRecommendations(item) : detailValue(item)))
 }
 const labels = { collecting: "Gathering driving examples", unavailable: "Waiting for usable driving data",
   qualifiedFit: "Fit passed validation", qualified: "Fit passed validation", rejected: "Fit did not pass validation",
@@ -149,16 +150,27 @@ const frictionCoordinates = rows => Array.isArray(rows) && rows.length === 5 && 
   Array.isArray(row) && row.length === 2 && row[0] === FRICTION_NAMES[i] && typeof row[1] === 'number' &&
   Number.isFinite(row[1]) && Math.abs(row[1]) <= .25) ? Object.fromEntries(rows) : null
 
-export function offroadCoordinateEvidence(report, name, live = false) {
+export function recommendationText(row, unit = null) {
+  if (row.target === null) return 'Conflicting recorded candidates; no single suggested setting'
+  if (row.target === undefined) return `change ${coordinateText(row.delta)}`
+  // The setting owner displays every canonical coordinate as percent, including window edges.
+  const suffix = unit ?? '%'
+  const display = value => `${coordinateText(suffix === '%' ? value * 100 : value)}${suffix === 'm/s' ? ' ' : ''}${suffix}`
+  return `suggested ${display(row.target)} (from ${display(row.baseline)}; change ${display(row.delta)})`
+}
+
+export function offroadCoordinateEvidence(report, name, live = false, unit = null) {
   const route = offroadView(report), row = surfaceRows(report, live).find(row => row.name === name)
   const statements = []
+  const display = value => unit === '%' ? `${coordinateText(value * 100)}%` : coordinateText(value) + (unit || '')
   if (row?.applied !== null && row?.applied !== undefined && row.applied !== 0)
-    statements.push(`Auto Learn applied now: ${coordinateText(row.applied)}.`)
+    statements.push(`Auto Learn applied now: ${display(row.applied)}.`)
   const saved = route?.savedValues?.[name]
   if (saved !== undefined && saved !== 0)
-    statements.push(`Auto Learn saved: ${coordinateText(saved)}${route.configurationState === 'ready_for_next_drive' ? ' for the next drive' : ''}.`)
+    statements.push(`Auto Learn saved: ${display(saved)}${route.configurationState === 'ready_for_next_drive' ? ' for the next drive' : ''}.`)
   for (const suggestion of route?.suggestions || []) if (suggestion.parameter === name)
-    statements.push(`Previous-drive recommendation: change ${coordinateText(suggestion.delta)}; not saved.`)
+    statements.push(`${route.retained ? 'Earlier analyzed drive' : 'Previous-drive recommendation'}: ${recommendationText(suggestion, unit)}; not saved.${suggestion.reason ? ` ${learningReason(suggestion.reason)}` : ''}`)
+  if (route && !statements.length) statements.push('No recommendation from this analyzed drive for this dial.')
   return statements.join(' ')
 }
 
@@ -179,6 +191,11 @@ export const SURFACE_GROUPS = Object.freeze([
 ])
 
 const REASONS = {
+  heldout_profile_does_not_support_training_step: "Part of the drive suggested this setting; separate windows did not confirm it.",
+  independent_support_for_frozen_training_profile: "Separate recorded windows support this starting point. Automatic approval is separate.",
+  training_candidate_not_independently_confirmed: "Training windows suggested this setting; it is not independently confirmed.",
+  recorded_candidate_requires_automatic_checks: "A recorded-drive starting point, not approved for automatic saving.",
+  conflicting_recorded_candidates: "Different windows suggested different settings. No single setting is recommended.",
   trial_started_waiting_for_comparable_drive: "The trial ran, but this drive lacked matching comparison windows. The same bounded trial will be checked on another drive.",
   trial_measurement_inconclusive: "The comparison did not establish improvement or worsening. The same bounded trial will be checked on another drive.",
   trial_inconclusive_drive_limit: "Three trial drives did not establish an improvement. The prior tune was restored.",
@@ -230,15 +247,29 @@ const HISTORY_LABELS = { collecting: 'Collecting samples', calibrating: 'Measuri
   trial_active: 'Evaluating a trial', confirmed: 'Correction confirmed', rollback: 'Returning to baseline', paused: 'Learning paused' }
 export const historyTitle = status => Object.hasOwn(HISTORY_LABELS, status) ? HISTORY_LABELS[status] : readable(status)
 
+export function validCoordinateRecommendations(rows) {
+  const names = [...SURFACE_NAMES, ...FRICTION_NAMES]
+  return Array.isArray(rows) && rows.length <= names.length && new Set(rows.map(row => row?.[0])).size === rows.length &&
+    rows.every(row => Array.isArray(row) && row.length === 5 && names.includes(row[0]) &&
+      typeof row[1] === 'number' && Number.isFinite(row[1]) && Math.abs(row[1]) <= 1000 &&
+      (row[2] === null && row[4] === 'conflicting_recorded_candidates' ||
+        typeof row[2] === 'number' && Number.isFinite(row[2]) && Math.abs(row[2]) <= 1000 &&
+        Math.abs(row[2] - row[1]) > 1e-12 && Math.abs(row[2] - row[1]) <= .01 + 1e-12) &&
+      stamp(row[3]) && row[3] > 0 && text(row[4], 240))
+}
+
 export function offroadView(report) {
   const details = report?.current?.details
   if (!record(details) || !text(details['Completed drive analyzed'], 180) || !details['Completed drive analyzed'] ||
       !stamp(details['Recorded steering observations']) || !text(details['Analysis decision'])) return null
+  if (report.preference?.valid && report.vehicle && report.preference.vehicle !== report.vehicle) return null
   const rows = details['Recorded route suggestions'] ?? []
   if (!Array.isArray(rows) || rows.length > 16 || rows.some(row => !Array.isArray(row) || row.length !== 4 ||
       !text(row[0], 500) || typeof row[1] !== 'number' || !Number.isFinite(row[1]) || Math.abs(row[1]) > .25 ||
       !stamp(row[2]) || row[3] !== 'controller_native_checks_not_passed')) return null
   const observed = recordedSteeringView(details['Recorded steering response'])
+  const recommendations = details['Recorded coordinate recommendations']
+  if (recommendations !== undefined && !validCoordinateRecommendations(recommendations)) return null
   const savedCount = details['Saved route adjustment count']
   const checked = details['Controller and encoder check windows'], refused = details['Automatic tune refusal reasons']
   const checks = Array.isArray(checked) && checked.length === 2 && checked.every(stamp) && checked[0] <= checked[1] && checked[1] <= 36 &&
@@ -252,7 +283,11 @@ export function offroadView(report) {
     reason: details['Analysis decision'], saved: details['Automatic configuration changed'] === true,
     configurationState, savedValues: savedSurface ? { ...savedSurface, ...(savedFriction || {}) } : null,
     observed, checks, savedCount: stamp(savedCount) && savedCount <= 35 ? savedCount : null,
-    suggestions: rows.map(([parameter, delta, windows, qualification]) => ({ parameter, delta, windows, qualification })),
+    retained: details['Earlier analysis shown while updating'] === true,
+    suggestions: recommendations === undefined ? rows.map(([parameter, delta, windows, qualification]) => ({ parameter, delta, windows, qualification })) :
+      recommendations.map(([parameter, baseline, target, windows, reason]) => ({ parameter, baseline, target,
+        delta: target === null ? null : target - baseline, windows, reason, qualification: 'controller_native_checks_not_passed' }))
+        .filter(row => row.target === null || row.target !== { ...savedSurface, ...savedFriction }[row.parameter]),
     moreSuggestions: details['More recorded suggestions omitted'] === true }
 }
 
@@ -280,7 +315,7 @@ export function tunerStatus(report, live = false, choiceLive = false, error = ""
   if (preference?.valid && preference.enabled === false || !preference && live && current?.enabled === false)
     return { key: "off", tone: "muted", title: "Auto Learn is off", description: "No driving samples are being collected by the learner. Turn it on in steering settings to begin." }
   if (reportFresh && current?.status === 'fitting' && ['analyzing_last_completed_drive', 'checking_recorded_steering_recommendations'].includes(current.reason))
-    return { key: 'fitting', tone: 'active', title: 'Analyzing your completed drive', description: learningReason(current.reason) }
+    return { key: 'fitting', tone: 'active', title: 'Analyzing your completed drive', description: learningReason(current.reason) + (offroadView(report)?.retained ? ' Earlier completed-drive findings remain below while this analysis runs.' : '') }
   const route = reportFresh && (!preference || preference.parked) ? offroadView(report) : null
   if (route) {
     if (route.configurationState === 'ready_for_next_drive')

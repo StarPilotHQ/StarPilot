@@ -21,13 +21,55 @@ class StatusReport:
     self.clock_ns = clock_ns
     self.started = self.clock_ns()
     self.current: dict[str, Any] = {'status': 'collecting', 'reason': 'waiting_for_completed_drive', 'vehicle': ''}
+    self.previous: dict[str, Any] = {}
     self.next_ns = 0
 
   def set(self, value):
     changed = (self.current.get('status'), self.current.get('reason')) != (value.get('status'), value.get('reason'))
     self.current = dict(value)
+    if value.get('completed_route') and value.get('status') != 'fitting':
+      self.previous = dict(value)
     if changed:
       self.next_ns = 0
+
+  def analyzing(self, value):
+    # Historical findings survive a new fit. Never carry a saved/current map,
+    # enabled flag or application evidence forward from a previous report.
+    fields = ('completed_route', 'vehicle', 'analysis_counts', 'recorded_tracking', 'source_sha256', 'assessment_sha256',
+              'recommendations', 'suggestions', 'suggestion_count')
+    previous = {key: self.previous[key] for key in fields if key in self.previous}
+    if previous:
+      previous['retained_decision'] = self.previous.get('reason', 'waiting_for_completed_drive')
+    self.set({**(previous or value), 'status': 'fitting', 'reason': value['reason'], 'retained_analysis': bool(previous)})
+
+  def restore(self, cache):
+    """Recover historical display data, never a current tune or permission."""
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_worker import _recorded_values, recorded_recommendations
+    from openpilot.starpilot.flm.offroad_surface import route_values
+
+    try:
+      latest = cache.latest()
+      if latest is None or type(latest.get('result')) is not dict:
+        return
+      result = dict(latest['result'])
+      if result.get('completed_route') and 'recommendations' not in result:
+        saved = cache.get(result['assessment_sha256'])
+        assessment = saved['assessment']
+        route = assessment['route']
+        if (saved['kind'] != 'completed_assessment' or route['route_id'] != result['completed_route']
+            or route['source_sha256'] != result['source_sha256']):
+          return
+        groups = assessment.get('groups', ())
+        if not groups or any(g['original_metadata']['cp_sha256'] != route['cp_sha256'] for g in groups):
+          return
+        baselines = [route_values(_recorded_values(g['original_metadata'])) for g in groups]
+        if baselines and all(values == baselines[0] for values in baselines):
+          inputs = SimpleNamespace(groups=groups, diagnostic_groups=assessment.get('diagnostic_groups', ()))
+          result['recommendations'] = recorded_recommendations(inputs, baselines[0], assessment)
+      self.previous = result
+    except (OSError, KeyError, ValueError, TypeError, AttributeError):
+      pass  # The normal worker reports unreadable inputs; historical display is optional.
 
   def publish(self):
     now = self.clock_ns()
@@ -51,6 +93,7 @@ class StatusReport:
     from openpilot.starpilot.flm.offroad_surface import CURVE_NAMES, route_values
 
     if 'completed_route' in value:
+      details['Earlier analysis shown while updating'] = value.get('retained_analysis') is True
       details['Completed drive analyzed'] = value['completed_route']
       details['Recorded steering observations'] = count('recorded_tracking')
       details['Joined steering observations'] = count('joined_tracking')
@@ -59,7 +102,7 @@ class StatusReport:
       details['Original controller observations'] = count('original_control_metadata_rows')
       details['Controller eligibility refusals'] = count('controller_fit_refusals')
       details['Automatic configuration changed'] = bool(value.get('configuration_changed', False))
-      details['Analysis decision'] = value['reason']
+      details['Analysis decision'] = value.get('retained_decision', value['reason'])
       details['Saved route adjustment count'] = value.get('saved_adjustments')
       details['Recorded steering response'] = value.get('recorded_tracking')
       checks = value.get('qualification_summary')
@@ -70,6 +113,18 @@ class StatusReport:
       details['Recorded route suggestions'] = [[s['parameter'], s['delta'], s['whole_windows'], s['qualification']] for s in suggestions[:16]]
       details['Recorded suggestion count'] = value.get('suggestion_count', len(suggestions))
       details['More recorded suggestions omitted'] = value.get('suggestion_count', len(suggestions)) > len(suggestions)
+      if 'recommendations' in value:
+        recommendations = value['recommendations'][:35]
+        details['Recorded coordinate recommendations'] = [
+          [s['parameter'], s['baseline'], s['target'], s['whole_windows'], s['reason']]
+          for s in recommendations
+        ]
+        details['Recorded route suggestions'] = [
+          [s['parameter'], s['target'] - s['baseline'], s['whole_windows'], 'controller_native_checks_not_passed']
+          for s in recommendations if s['target'] is not None
+        ][:16]
+        details['Recorded suggestion count'] = len(recommendations)
+        details['More recorded suggestions omitted'] = False
     proposal = value.get('suggestion')
     if proposal is not None:
       details['Full surface coordinates'] = [[n, proposal['values'][n]] for n in NAMES]
@@ -222,8 +277,8 @@ def main():
       Paths.log_root(),
       cache,
       permitted=permitted,
-      on_analysis=lambda: report.set({'status': 'fitting', 'reason': 'analyzing_last_completed_drive'}),
-      on_assessment=lambda a: report.set(
+      on_analysis=lambda: report.analyzing({'status': 'fitting', 'reason': 'analyzing_last_completed_drive'}),
+      on_assessment=lambda a: report.analyzing(
         {
           'status': 'fitting',
           'reason': 'checking_recorded_steering_recommendations',
@@ -233,7 +288,9 @@ def main():
           'recorded_tracking': a.recorded_tracking,
         }
       ),
+      on_recommendations=lambda value: report.set({**value, 'status': 'fitting', 'reason': 'checking_recorded_steering_recommendations'}),
     )
+    report.restore(worker.cache)
     next_analysis = 0.0
     while not stopped:
       if not params.get_bool('IsOffroad'):

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { compile } from '../web/vendor/vue/vue.esm-browser.js'
 import { FlmPage } from '../web/js/flm.js'
 import { GalaxySettingRow } from '../web/js/galaxy-setting-row.js'
-import { SURFACE_NAMES, PID_UNSUPPORTED, validTrainingResults, validTrackingResults, trackingView, surfaceRows, measurementText, validTrackingValues, trackingCoordinates, validTrackingPlot, trackingPlotView, sourceSeconds, tunerStatus } from '../web/js/flm-training-results.js'
+import { SURFACE_NAMES, FRICTION_NAMES, offroadView, offroadCoordinateEvidence, recommendationText, PID_UNSUPPORTED, validTrainingResults, validTrackingResults, trackingView, surfaceRows, measurementText, validTrackingValues, trackingCoordinates, validTrackingPlot, trackingPlotView, sourceSeconds, tunerStatus } from '../web/js/flm-training-results.js'
 
 const coordinates = amount => SURFACE_NAMES.map((name, i) => [name, i === 0 ? amount : 0])
 const tracking = () => ({ version: 1, status: 'trial_active', reason: 'scoring_future_tracking', group: 'feedforward',
@@ -357,3 +357,70 @@ for (const reason of ['trial_started_waiting_for_comparable_drive', 'trial_measu
   assert.equal(ctx.currentApplied, false, 'A pending retry cannot fabricate applied or accepted steering')
 }
 console.log('Inconclusive next-drive trials remain visibly provisional without fabricated application')
+
+// Complete, read-only dial advice is independent of automatic-tune approval.
+const advisoryNames = [...SURFACE_NAMES, ...FRICTION_NAMES]
+const advisoryReport = { version: 1, vehicle: 'DECLARED_CAR', history: [], current: { fresh: true, ageSeconds: 0,
+  enabled: null, status: 'collecting', reason: 'no_new_native_feasible_training_step', progress: { samples: 100, blocks: 6, requiredBlocks: 6 },
+  fit: null, application: { applied: false, reason: 'not_applied' }, details: {
+    'Completed drive analyzed': 'declared-last-drive', 'Recorded steering observations': 100,
+    'Analysis decision': 'no_new_native_feasible_training_step', 'Recorded route suggestions': [],
+    'Recorded coordinate recommendations': advisoryNames.map(name => [name, 0, .005, 6, 'training_candidate_not_independently_confirmed']),
+  } } }
+assert(validTrainingResults(advisoryReport))
+assert.equal(offroadView(advisoryReport).suggestions.length, 35, 'All thirty dials and five curve points survive the public wire')
+assert.equal(surfaceRows(advisoryReport).filter(row => row.recommendations.length).length, 30)
+assert(offroadCoordinateEvidence(advisoryReport, 'ff_gain_left', false, '%').includes('suggested +0.5% (from 0%; change +0.5%)'))
+assert.equal(advisoryReport.current.application.applied, false)
+manualContext.report = advisoryReport
+manualContext.now = 0
+manualContext.receivedAt = 0
+manualContext.manualState = { status: 'ready', pending: null, error: '', data: { rows: [{
+  coordinate: 'ff_gain_left', label: 'Steering gain', reason: manualHelp, available: true, action: true,
+  value: 0, defaultValue: 0, resetAvailable: true, minimum: -25, maximum: 25, step: .25, unit: '%',
+}] } }
+const advisoryTree = render.call(manualContext, manualContext, [])
+assert(text(advisoryTree).includes('suggested +0.5%'), 'The suggested slider-scale value must appear beside the actual manual dial')
+assert(text(advisoryTree).includes('not saved'))
+const untouchedManual = vnodeRows(advisoryTree).find(node => node.props?.row?.coordinate === 'ff_gain_left')
+assert.equal(untouchedManual.props.row.value, 0, 'Showing advice cannot move a manual slider or enable an override')
+const singleAdvisory = structuredClone(advisoryReport)
+singleAdvisory.current.details['Recorded coordinate recommendations'] = singleAdvisory.current.details['Recorded coordinate recommendations'].slice(0, 1)
+assert(offroadCoordinateEvidence(singleAdvisory, 'unwind_taper_right').includes('No recommendation from this analyzed drive'))
+const conflictingAdvisory = structuredClone(singleAdvisory)
+conflictingAdvisory.current.details['Recorded coordinate recommendations'][0][2] = null
+conflictingAdvisory.current.details['Recorded coordinate recommendations'][0][4] = 'conflicting_recorded_candidates'
+assert(validTrainingResults(conflictingAdvisory))
+assert(recommendationText(offroadView(conflictingAdvisory).suggestions[0]).includes('no single suggested setting'))
+for (const row of [ ['unknown', 0, .005, 6, 'unconfirmed'], ['ff_gain_left', 0, NaN, 6, 'unconfirmed'],
+  ['ff_gain_left', 0, .02, 6, 'unconfirmed'], ['ff_gain_left', true, .005, 6, 'unconfirmed'],
+  ['ff_gain_left', 0, .005, -1, 'unconfirmed'], ['ff_gain_left', 0, null, 6, 'unconfirmed'] ]) {
+  const invalid = structuredClone(singleAdvisory)
+  invalid.current.details['Recorded coordinate recommendations'] = [row]
+  assert(!validTrainingResults(invalid), 'Invalid advice cannot pass the public report boundary')
+  assert.equal(offroadView(invalid), null)
+}
+const duplicateAdvisory = structuredClone(singleAdvisory)
+duplicateAdvisory.current.details['Recorded coordinate recommendations'].push(...duplicateAdvisory.current.details['Recorded coordinate recommendations'])
+assert(!validTrainingResults(duplicateAdvisory))
+const arbitraryList = structuredClone(advisoryReport)
+arbitraryList.current.details['Unknown detail'] = Array(17).fill(1)
+assert(!validTrainingResults(arbitraryList), 'The dedicated recommendation wire must not loosen unrelated telemetry bounds')
+const historicalAdvisory = structuredClone(singleAdvisory)
+historicalAdvisory.current.status = 'fitting'
+historicalAdvisory.current.reason = 'analyzing_last_completed_drive'
+historicalAdvisory.current.details['Earlier analysis shown while updating'] = true
+assert(tunerStatus(historicalAdvisory, false, false, '', true).description.includes('Earlier completed-drive findings'))
+assert(offroadCoordinateEvidence(historicalAdvisory, 'ff_gain_left').startsWith('Earlier analyzed drive'))
+historicalAdvisory.preference = { version: 1, valid: true, enabled: true, parked: true, vehicle: 'OTHER_CAR' }
+assert.equal(offroadView(historicalAdvisory), null, 'Earlier advice must not be relabeled for another reported vehicle')
+console.log('All thirty dial targets, five curve points, honest conflicts and retained findings render without automatic approval or manual writes')
+
+for (const name of SURFACE_NAMES) assert(recommendationText({ parameter: name, baseline: 0, target: .005, delta: .005 }).includes('+0.5%'), 'Advice must use the same percent scale as TorqueFeature.manual_rows for every dial')
+const nowSavedAdvisory = structuredClone(advisoryReport)
+nowSavedAdvisory.current.details['Saved route configuration state'] = 'ready_for_next_drive'
+nowSavedAdvisory.current.details['Full surface coordinates'] = coordinates(.005)
+assert.equal(offroadView(nowSavedAdvisory).suggestions.filter(row => row.parameter === 'ff_gain_left').length, 0)
+assert(offroadCoordinateEvidence(nowSavedAdvisory, 'ff_gain_left', false, '%').includes('Auto Learn saved: +0.5% for the next drive'))
+assert(!offroadCoordinateEvidence(nowSavedAdvisory, 'ff_gain_left', false, '%').includes('Previous-drive recommendation'))
+assert.equal(nowSavedAdvisory.current.application.applied, false, 'A saved recommendation is still not current application')
