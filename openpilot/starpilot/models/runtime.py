@@ -89,7 +89,19 @@ class ModelStatusSource:
             "requestedId": status.requested_id, "loadedId": status.loaded_id,
             "variant": status.variant.value if status.variant is not None else None,
             "health": status.health.value, "fallbackReason": status.fallback_reason,
-            "artifactSha256": status.artifact_sha256, "pendingNextStart": status.pending_next_start}
+            "artifactSha256": status.artifact_sha256, "pendingNextStart": status.pending_next_start,
+            "laboratory": self.laboratory_json(self.laboratory_configuration())}
+
+  @staticmethod
+  def laboratory_configuration() -> dict:
+    from openpilot.starpilot.models.laboratory import configuration
+    from openpilot.starpilot.models.manager import ROOT
+    return configuration(ROOT)
+
+  def home_label(self, commit: str = "") -> str:
+    from openpilot.starpilot.ui.models_state import home_model_label
+    status = self.snapshot()
+    return home_model_label(status, commit, self.laboratory_json(self.laboratory_configuration()))
 
   def laboratory_json(self, config: dict) -> dict:
     self.sm.update(0)

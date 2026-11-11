@@ -573,6 +573,7 @@ class ModelManager:
   def snapshot(self) -> dict:
     with self.lock:
       self._refresh_if_needed()
+      from openpilot.starpilot.models.laboratory import configuration
       entries, prefs = catalog(self.root), preferences(self.root)
       parked, gpu = self.parked(), self.gpu_present()
       job = self._job_status()
@@ -599,7 +600,7 @@ class ModelManager:
                        "Download required" if published else f"{GENERATION} download not published"})
       count = sum(bool(row["installed"]) for row in models)
       return {"schemaVersion": 1, "models": models, "activeSmallModel": prefs["small"], "activeBigModel": active_big,
-              "jetlinkBig": jetlink_big, "bigNoneLabel": big_none,
+              "jetlinkBig": jetlink_big, "bigNoneLabel": big_none, "laboratory": configuration(self.root),
               "currentModel": prefs["big"] if gpu and prefs["big"] else prefs["small"], "userFavorites": prefs["userFavorites"],
               "sortMode": prefs["sortMode"], "randomizer": prefs["randomizer"], "blacklistedModels": prefs["blacklistedModels"],
               "summary": {"total": len(models), "installed": count, "missing": len(models)-count},
@@ -608,7 +609,8 @@ class ModelManager:
               "modelToDownload": job.get("model", ""), "downloadAll": job.get("downloadAll", False),
               "downloading": job["downloading"], "refreshing": job["refreshing"], "progress": job.get("progress", ""),
               "isOnroad": not parked, "gpuAvailable": gpu, "jetlink": jetlink,
-              "capabilities": {"select": True, "download": parked, "downloadAll": parked, "cancel": True,
+              "capabilities": {"configureLaboratory": parked and not job["downloading"], "select": True, "download": parked,
+                               "downloadAll": parked, "cancel": True,
                                "jetlink": parked, "refresh": parked, "favorites": True, "delete": parked, "randomizer": parked, "exclusions": parked}}
 
   def _require_parked(self) -> None:

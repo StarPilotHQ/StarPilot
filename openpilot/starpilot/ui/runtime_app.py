@@ -57,7 +57,7 @@ from openpilot.starpilot.ui.feature_settings_state import (
 from openpilot.starpilot.ui.lane_change_feature import KEYS as LANE_CHANGE_KEYS, RESET as LANE_CHANGE_RESET
 from openpilot.starpilot.models.runtime import ModelStatusSource
 from openpilot.starpilot.models.status import project_status
-from openpilot.starpilot.ui.models_state import model_page, model_profile_choices, model_profile_request, home_model_label
+from openpilot.starpilot.ui.models_state import model_page, model_profile_choices, model_profile_request
 from openpilot.starpilot.ui.maps_state import MapStatusSource
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner, default_owner
 from openpilot.starpilot.ui.galaxy_access import GalaxyAccessFlow
@@ -1319,7 +1319,7 @@ class StarShellSession:
         try:
           if self.model_source is None:
             self.model_source = ModelStatusSource(self.adapter.ui_state.params)
-          label = home_model_label(self.model_source.snapshot(), snapshot.home.commit if self.profile == Profile.COMPACT else "")
+          label = self.model_source.home_label(snapshot.home.commit if self.profile == Profile.COMPACT else "")
         except (OSError, RuntimeError, ValueError):
           label = "Driving model unavailable"
         self._home_model = (now, label)

@@ -136,7 +136,17 @@ def model_display_text(value: str) -> str:
                           unicodedata.category(char) != "So" and char not in "\ufe0e\ufe0f\u200d").split())
 
 
-def home_model_label(status: ModelStatus, commit: str = "") -> str:
+def home_model_label(status: ModelStatus, commit: str = "", laboratory: dict | None = None) -> str:
+  if laboratory:
+    if laboratory.get("active") is True:
+      entries = model_entries()
+      names = [entries[mid].name if mid in entries else mid
+               for mid in (laboratory["lateralModel"], laboratory["longitudinalModel"])]
+      return model_display_text(" / ".join(names))
+    if laboratory.get("lateralModel"):
+      return "Laboratory output unavailable"
+    if laboratory.get("requested") and laboratory.get("health") != "fallback":
+      return "Model Laboratory · next start" if laboratory.get("health") == "unavailable" else "Model Laboratory · starting"
   entry = model_entries().get(status.loaded_id or status.requested_id)
   if entry is None:
     return "Driving model unavailable"

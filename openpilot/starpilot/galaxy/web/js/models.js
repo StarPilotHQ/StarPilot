@@ -151,10 +151,10 @@ function fileSizeText(model) {
 
 const actionPaths = { "select-small": "active", "select-big": "active", favorite: "preferences", unfavorite: "preferences",
   "enable-randomizer": "preferences", "disable-randomizer": "preferences", exclude: "preferences", include: "preferences",
-  download: "download", downloadAll: "download_all", cancel: "cancel", delete: "delete", refresh: "refresh_manifest", jetlink: "jetlink" }
+  download: "download", downloadAll: "download_all", cancel: "cancel", delete: "delete", refresh: "refresh_manifest", jetlink: "jetlink", "disable-laboratory": "laboratory" }
 const actionCapabilities = { "select-small": "select", "select-big": "select", favorite: "favorites", unfavorite: "favorites",
   "enable-randomizer": "randomizer", "disable-randomizer": "randomizer", exclude: "exclusions", include: "exclusions",
-  download: "download", downloadAll: "downloadAll", cancel: "cancel", delete: "delete", refresh: "refresh", jetlink: "jetlink" }
+  download: "download", downloadAll: "downloadAll", cancel: "cancel", delete: "delete", refresh: "refresh", jetlink: "jetlink", "disable-laboratory": "configureLaboratory" }
 
 export function fitsModelProfile(model, profile) {
   return Array.isArray(model?.profiles) ? model.profiles.includes(profile) : profile === "big" ? model?.requiresGpu === true : model?.requiresGpu === false
@@ -163,6 +163,7 @@ export function fitsModelProfile(model, profile) {
 export function modelActionAllowed(data, action, model = null) {
   if (!data || data.capabilities?.[actionCapabilities[action]] !== true) return false
   if (data.isOnroad !== false && !["favorite", "unfavorite", "cancel", "select-small", "select-big"].includes(action)) return false
+  if (action === "disable-laboratory") return data.laboratory?.enabled === true && !data.downloading
   if (action === "jetlink") return data.jetlink !== undefined
   if (["select-small", "select-big"].includes(action)) {
     if (action === "select-big" && data.jetlinkBig && data.isOnroad !== false) return false
@@ -294,6 +295,7 @@ export class ModelManagerFeed {
     const data = this.data
     const key = model?.value || ""
     let payload = action === "jetlink" ? extra : {}
+    if (action === "disable-laboratory") payload = { ...data.laboratory, enabled: false }
     if (action.startsWith("select-")) payload = { profile: action === "select-big" ? "big" : "small", model: key }
     else if (["favorite", "unfavorite"].includes(action)) {
       const userFavorites = data.models.filter(m => m.userFavorite && m.value !== key).map(m => m.value)
@@ -306,7 +308,7 @@ export class ModelManagerFeed {
     } else if (["enable-randomizer", "disable-randomizer"].includes(action)) payload = { randomizer: action === "enable-randomizer" }
     else if (["download", "delete"].includes(action)) payload = { model: key }
     if (["download", "downloadAll"].includes(action)) payload.allowGpuWithoutGpu = extra.allowGpuWithoutGpu === true
-    if (typeof data.view === "string") payload.view = data.view
+    if (typeof data.view === "string" && action !== "disable-laboratory") payload.view = data.view
     this.saving = true
     this.data = null
     const result = await this.requestJson(actionPaths[action], payload)
@@ -337,10 +339,15 @@ export const ModelsPage = {
       if (this.runtime.status === "unavailable" || this.runtime.status === "stale") return "Status unavailable"
       if (this.runtime.status !== "ready" || !this.runtime.data) return "Checking…"
       const model = this.runtime.data
+      const pair = model.laboratory
+      if (pair?.active) return [pair.lateralModel, pair.longitudinalModel].map(id => model.catalog.find(m => m.id === id)?.name || id).join("/")
+      if (pair?.lateralModel) return "Laboratory output unavailable"
       if (model.health === "unavailable") return "No running model"
       if (!model.loadedId) return model.health === "loading" ? "Loading…" : "Identity unverified"
       return model.catalog.find(item => item.id === model.loadedId)?.name || model.loadedId
     },
+    laboratoryEnabled() { return !this.selectionUncertain && this.status.laboratory?.enabled === true },
+    laboratoryRunning() { return this.runtime.status === "ready" && !!this.runtime.data?.laboratory?.lateralModel },
     installedSmallModels() { return this.models.filter(m => (m.value === this.activeSmallModel || m.selectable) && fitsModelProfile(m, "small")) },
     installedBigModels() { return this.models.filter(m => (m.value === this.activeBigModel || m.selectable) && fitsModelProfile(m, "big")) },
     // the manager words it: under Jetlink, the Jetlink app's choice
@@ -469,8 +476,8 @@ export const ModelsPage = {
         const result = await (["enable-randomizer", "disable-randomizer", "include", "exclude"].includes(action) ? reportSave(perform) : perform())
         if (!this.disposed && result) {
           this.trackingProgress = ["download", "downloadAll", "refresh"].includes(action)
-          this.message = (this.trackingProgress && this.status.progress) || result.message ||
-            (action.startsWith("select-") ? "Selection saved for the next onroad cycle." : "Saved.")
+          this.message = (action === "disable-laboratory" ? "Laboratory is off for the next start. Choose your Small and Big models below." : "") || (this.trackingProgress && this.status.progress) || result.message ||
+            (action === "disable-laboratory" ? "Laboratory is off for the next start. Choose your Small and Big models below." : action.startsWith("select-") ? "Selection saved for the next onroad cycle." : "Saved.")
         }
       } finally { if (!this.disposed) { this.pendingChoice = null; this.busy = "" } }
     },
@@ -488,11 +495,25 @@ export const ModelsPage = {
         <GxNotice v-if="error" tone="danger" title="Model Manager">{{ error }}</GxNotice>
         <GxNotice v-if="status.isOnroad" tone="warn">Selections apply next onroad cycle. Park before downloading models or changing Jetlink.</GxNotice>
         <GxNotice v-if="status.downloading" :title="'Downloading ' + downloadTargetLabel">{{ status.progress || 'Keep the device connected until the download finishes.' }}</GxNotice>
+        <section v-if="laboratoryEnabled || laboratoryRunning" class="gx-card">
+          <div class="gx-section__header"><i aria-hidden="true" class="bi bi-bezier2"></i><span class="gx-section__title">Model Laboratory</span></div>
+          <div class="gx-panel gx-stack">
+            <p v-if="laboratoryEnabled">Laboratory is on. Its lateral/longitudinal pair overrides the Small/Big selections below at the next model start.</p>
+            <p v-else>Laboratory is off for the next start. The currently loaded pair stays in use until then.</p>
+            <p v-if="laboratoryRunning">Loaded pair: {{ runningModelLabel }}<span v-if="runtime.data.laboratory.pendingNextStart"> · saved changes pending next start</span></p>
+            <p v-else-if="laboratoryEnabled">{{ runtime.status === 'ready' && runtime.data?.laboratory?.health === 'fallback' ? runtime.data.laboratory.error : 'The pair is not currently verified as running.' }}</p>
+            <div class="gx-actions">
+              <a class="gx-btn gx-btn--tonal" href="#/model_laboratory">Open Laboratory</a>
+              <button v-if="laboratoryEnabled" type="button" class="gx-btn" :disabled="!actionAvailable('disable-laboratory')" @click="runAction('disable-laboratory')">Turn off Laboratory</button>
+            </div>
+            <p v-if="laboratoryEnabled && status.isOnroad" class="gx-note">Park to turn off Laboratory. Changes apply at the next model start.</p>
+          </div>
+        </section>
         <section class="gx-card gx-model-overview">
           <div class="gx-section__header">
             <i aria-hidden="true" class="bi bi-cpu"></i>
             <span class="gx-section__title">Models</span>
-            <span v-if="currentLabel" class="gx-section__count">Selected: {{ currentLabel }}</span>
+            <span v-if="currentLabel" class="gx-section__count">{{ laboratoryEnabled ? 'Normal selection:' : 'Selected:' }} {{ currentLabel }}</span>
           </div>
           <GxSummary :items="[{label: 'Installed', value: summary.installed}, {label: 'Missing', value: summary.missing}, {label: 'Total', value: summary.total}, {label: 'Running model', value: runningModelLabel}]" />
         </section>
@@ -528,7 +549,7 @@ export const ModelsPage = {
             <span class="gx-section__title">Controls</span>
           </div>
           <div class="gx-panel gx-stack">
-            <p class="gx-note">Selections take effect the next time the driving model starts.</p>
+            <p class="gx-note">{{ laboratoryEnabled ? 'Small/Big selections are saved as fallback choices. Turn off Laboratory to use them normally at the next start.' : 'Selections take effect the next time the driving model starts.' }}</p>
             <div class="gx-actions">
               <button v-if="status.downloading" type="button" class="gx-btn gx-btn--danger" :disabled="!actionAvailable('cancel')" @click="runAction('cancel')"><i aria-hidden="true" class="bi bi-stop-circle"></i> Cancel Download</button>
               <button v-else type="button" class="gx-btn" :disabled="!actionAvailable('downloadAll')" @click="runAction('downloadAll')"><i aria-hidden="true" class="bi bi-download"></i> Download Missing Models</button>
