@@ -85,20 +85,37 @@ def test_ford_long_only_health_and_proof_refusals_remain_immediate(fault):
     assert not axis.lateralActive and not axis.longitudinalActive
 
 
-def test_late_publication_fault_starts_real_soft_disable_timer():
+def test_late_publication_fault_preserves_timer_and_uses_initial_soft_warning():
   with ExitStack() as cleanup:
     sd, _, drive = callers(cleanup)
     # The last valid axis proof expires at +30ms; output must still withdraw.
     now = sd.aol_car_state_log_ns + 30_000_001
     with patch('openpilot.selfdrive.selfdrived.selfdrived.time.monotonic_ns', return_value=now):
-      assert sd.retain_ordinary_source_state(sd.CS_prev, now)
-      assert sd.state_machine.state == log.SelfdriveState.OpenpilotState.softDisabling, 'LATE_SOURCE_FAULT_TIMER'
-      assert 0 < sd.state_machine.soft_disable_timer <= 300
+      with patch.object(sd.state_machine, 'update', wraps=sd.state_machine.update) as updates:
+        assert sd.retain_ordinary_source_state(sd.CS_prev, now)
+      assert updates.call_count == 0
+      assert sd.state_machine.state == log.SelfdriveState.OpenpilotState.enabled, 'LATE_SOURCE_SINGLE_TRANSITION'
+      assert sd.state_machine.soft_disable_timer == 0
       sd.update_alerts(sd.CS_prev)
     assert log.OnroadEvent.EventName.commIssue in sd.events.names
     assert not sd.aol_axis_decision.lateral_active and not sd.aol_axis_decision.longitudinal_active
     assert sd.AM.current_alert.alert_text_1 == 'TAKE CONTROL IMMEDIATELY'
-    assert sd.AM.current_alert.alert_status == log.SelfdriveState.AlertStatus.userPrompt
+    assert sd.AM.current_alert.alert_status == log.SelfdriveState.AlertStatus.userPrompt, 'LATE_SOURCE_WARNING_SEVERITY'
     assert sd.AM.current_alert.audible_alert == log.SelfdriveState.AudibleAlert.warningSoft
     assert sd.AM.current_alert.duration == int(2. / DT_CTRL)
     assert sd.AM.current_alert.alert_text_2 == 'Communication Issue Between Processes'
+
+
+@pytest.mark.parametrize('timer', (40, 0))
+def test_started_or_expired_countdown_keeps_immediate_takeover(timer):
+  with ExitStack() as cleanup:
+    sd, _, _ = callers(cleanup)
+    now = sd.aol_car_state_log_ns + 30_000_001
+    with patch('openpilot.selfdrive.selfdrived.selfdrived.time.monotonic_ns', return_value=now):
+      assert sd.retain_ordinary_source_state(sd.CS_prev, now)
+      sd.state_machine.state = log.SelfdriveState.OpenpilotState.softDisabling
+      sd.state_machine.soft_disable_timer = timer
+      sd.update_alerts(sd.CS_prev)
+    assert sd.state_machine.soft_disable_timer == timer
+    assert sd.AM.current_alert.alert_status == log.SelfdriveState.AlertStatus.critical
+    assert sd.AM.current_alert.audible_alert == log.SelfdriveState.AudibleAlert.warningImmediate

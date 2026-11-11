@@ -1138,8 +1138,16 @@ class SelfdriveD:
       clear_event_types.add(ET.NO_ENTRY)
 
     pers = LONGITUDINAL_PERSONALITY_MAP[self.personality]
+    soft_disable_time = self.state_machine.soft_disable_timer
+    if (getattr(self, 'aol_ordinary_source_pause', False) and self.enabled and
+        self.state_machine.state in (log.SelfdriveState.OpenpilotState.enabled, log.SelfdriveState.OpenpilotState.overriding) and
+        availability_only(self.events.to_msg())):
+      # A publication-time fault precedes the next ordinary timer transition.
+      # Present its initial soft warning without ticking or resetting that timer.
+      from openpilot.selfdrive.selfdrived.state import SOFT_DISABLE_TIME
+      soft_disable_time = int(SOFT_DISABLE_TIME / DT_CTRL)
     alerts = self.events.create_alerts(self.state_machine.current_alert_types, [self.CP, CS, self.sm, self.is_metric,
-                                                                                self.state_machine.soft_disable_timer, pers])
+                                                                                soft_disable_time, pers])
     if getattr(self, 'aol_lag_takeover_alert', False) and not self.events.contains(ET.IMMEDIATE_DISABLE):
       lag = Events(self.events.event_rules)
       lag.add(EventName.selfdrivedLagging)
@@ -1306,10 +1314,10 @@ class SelfdriveD:
     self.aol_fault_reason = 'availabilityPause'
     self.aol_car_state_log_ns = 0
     self.conditional_car_state_valid = False
-    # A late source fault still enters the real state machine before alerts
-    # consume its timer; appending SOFT_DISABLE alone leaves an expired timer.
+    # If publication crosses the cutoff after StateMachine ran, emit the fault
+    # now; its existing next-cycle transition owns the timer and driver state.
     if self.enabled and ET.SOFT_DISABLE not in self.state_machine.current_alert_types:
-      self.enabled, self.active = self.state_machine.update(self.events)
+      self.state_machine.current_alert_types.append(ET.SOFT_DISABLE)
     return True
 
   def _expire_axis_source(self, CS, now_ns):
