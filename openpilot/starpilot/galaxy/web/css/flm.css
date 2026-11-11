@@ -1,0 +1,196 @@
+/* A driving report first; exact tuning evidence remains available on demand. */
+.gx-tuner { --tuner-panel: #151426;--tuner-raised: #1d1b32;--tuner-review: #ffd08a;--tuner-review-bg: #2c251f;--tuner-saved: #79e4d9;--tuner-border: #3a374e;gap: 16px;padding-bottom: max(32px, env(safe-area-inset-bottom)); }
+[data-theme="light"] .gx-tuner { --tuner-panel: #fff;--tuner-raised: #f4f2fa;--tuner-review: #865000;--tuner-review-bg: #fff5e3;--tuner-saved: #076c63;--tuner-border: #d9d5e4; }
+.gx-tuner .gx-card { background: var(--tuner-panel);box-shadow: none;border-color: var(--tuner-border); }
+.gx-tuner .gx-tuner__heading h2 { font-size: clamp(26px, 4vw, 34px);letter-spacing: -.035em; }
+.gx-tuner .gx-tuner__eyebrow { font-size: 11px;letter-spacing: .11em; }
+.gx-tuner .gx-tuner__section-heading h3 { font-size: 21px;line-height: 1.3; }
+.gx-tuner .gx-tuner__section > p, .gx-tuner__graph-explainer { font-size: 15px;line-height: 1.65; }
+.gx-tuner .gx-tuner__caption { font-size: 13px;line-height: 1.65; }
+.gx-tuner button, .gx-tuner summary { min-height: 44px; }
+.gx-tuner .gx-btn { display: inline-flex;align-items: center;justify-content: center;gap: 12px;white-space: normal;font-size: 14px;line-height: 1.4; }
+.gx-tuner__drive { display: grid;grid-template-columns: 40px minmax(0, 1fr) auto;align-items: center;gap: 16px;padding: 20px;border-top: 3px solid var(--tuner-border); }
+.gx-tuner__drive[data-tone="review"] { border-top-color: var(--tuner-review); }
+.gx-tuner__drive[data-tone="saved"] { border-top-color: var(--tuner-saved); }
+.gx-tuner__drive-mark { display: grid;place-items: center;width: 48px;height: 48px;border-radius: 16px;background: var(--tuner-raised);color: var(--tuner-review);font-size: 24px; }
+.gx-tuner__drive[data-tone="saved"] .gx-tuner__drive-mark { color: var(--tuner-saved); }
+.gx-tuner__drive-copy { display: grid;gap: 8px;min-width: 0; }
+.gx-tuner__drive-copy h3 { font-size: clamp(23px, 3vw, 30px);line-height: 1.25;letter-spacing: -.025em; }
+.gx-tuner__drive-copy > p:not(.gx-tuner__eyebrow) { max-width: 65ch;color: var(--on-surface-variant);font-size: 15px;line-height: 1.65; }
+.gx-tuner__area-tags { display: flex;flex-wrap: wrap;gap: 8px;margin-top: 6px; }
+.gx-tuner__area-tags span { padding: 5px 10px;border: 1px solid var(--tuner-border);border-radius: 8px;font-size: 12px;line-height: 1.5;color: var(--on-surface); }
+.gx-tuner .gx-tuner__overview-grid { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+.gx-tuner .gx-tuner__response { align-self: start; }
+.gx-tuner .gx-tuner__legend { gap: 12px 20px;font-size: 13px; }
+.gx-tuner .gx-tuner__pill { font-size: 11px;white-space: normal;line-height: 1.5; }
+.gx-tuner__findings { padding: 28px;display: grid;gap: 20px; }
+.gx-tuner__findings > .gx-tuner__section-heading { margin: 0; }
+.gx-tuner__badge { display: inline-flex;align-items: center;align-self: start;gap: 6px;max-width: 100%;padding: 5px 9px;border-radius: 7px;background: var(--tuner-raised);color: var(--on-surface-variant);font-size: 12px;font-weight: 500;line-height: 1.5; }
+.gx-tuner__badge[data-tone="review"] { background: var(--tuner-review-bg);color: var(--tuner-review); }
+.gx-tuner__badge[data-tone="saved"] { background: color-mix(in srgb, var(--tuner-saved) 12%, var(--tuner-panel));color: var(--tuner-saved); }
+.gx-tuner__idea-grid { display: grid;grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));gap: 16px; }
+.gx-tuner__idea { display: grid;align-content: start;justify-items: start;gap: 12px;padding: 22px;background: var(--tuner-raised);border: 1px solid var(--tuner-border);border-left: 3px solid var(--tuner-review);border-radius: 16px;min-width: 0; }
+.gx-tuner__idea h4 { font-size: 18px;line-height: 1.4;letter-spacing: -.015em; }
+.gx-tuner__idea > p { font-size: 14px;line-height: 1.65;color: var(--on-surface-variant);max-width: 70ch; }
+.gx-tuner__idea .gx-tuner__idea-value { font-size: 25px;line-height: 1.2;color: var(--on-surface);font-variant-numeric: tabular-nums;letter-spacing: -.025em; }
+.gx-tuner__idea .gx-tuner__disclosure { width: 100%;margin: 0; }
+.gx-tuner__curve-summary { grid-template-columns: minmax(0, 1fr) auto; }
+.gx-tuner__curve-summary > :not(.gx-btn) { grid-column: 1 / -1; }
+.gx-tuner__saved-list { display: grid;gap: 12px;border-radius: 14px;padding: 20px;background: color-mix(in srgb, var(--tuner-saved) 7%, var(--tuner-panel));border: 1px solid color-mix(in srgb, var(--tuner-saved) 35%, var(--tuner-border)); }
+.gx-tuner__saved-list h4 { color: var(--tuner-saved);font-size: 16px; }
+.gx-tuner__saved-list > div { display: flex;justify-content: space-between;gap: 16px;font-size: 14px; }
+.gx-tuner__saved-list p { font-size: 13px;color: var(--on-surface-variant);line-height: 1.6; }
+.gx-tuner .gx-tuner__tune-layout { grid-template-columns: minmax(0, 1fr);gap: 24px; }
+.gx-tuner .gx-tuner__groups { grid-template-columns: repeat(3, minmax(0, 1fr));gap: 12px; }
+.gx-tuner .gx-tuner__groups > button { position: relative;min-height: 100px;gap: 14px;padding: 20px;background: var(--tuner-panel);border-color: var(--tuner-border);font-size: 15px;line-height: 1.45; }
+.gx-tuner .gx-tuner__groups > button > span { min-width: 0; }
+.gx-tuner .gx-tuner__groups > button[aria-pressed="true"] { background: color-mix(in srgb, var(--primary) 17%, var(--tuner-panel));border-color: var(--primary); }
+.gx-tuner .gx-tuner__groups > button.has-ideas::before { content: '';position: absolute;left: 0;top: 22px;bottom: 22px;width: 3px;background: var(--tuner-review);border-radius: 0 4px 4px 0; }
+.gx-tuner .gx-tuner__groups > button.has-ideas small { color: var(--tuner-review); }
+.gx-tuner .gx-tuner__groups > button > i:last-child { display: inline;font-size: 14px; }
+.gx-tuner .gx-tuner__groups small { font-size: 12px;line-height: 1.5; }
+.gx-tuner .gx-tuner__groups > .gx-tuner__curve-tile { grid-column: 1 / -1;min-height: 84px; }
+.gx-tuner__parameters { scroll-margin-top: 100px; }
+.gx-tuner__manual-note { display: flex;gap: 12px;padding: 16px;border-radius: 12px;background: var(--tuner-raised);font-size: 14px;line-height: 1.65;color: var(--on-surface-variant); }
+.gx-tuner__manual-note > i { padding-top: 3px;color: var(--primary); }
+.gx-tuner__dial { padding: 24px 0;border-bottom: 1px solid var(--tuner-border);scroll-margin: 120px 0;outline-offset: 5px; }
+.gx-tuner__dial.has-ideas { margin: 20px 0;padding: 20px;border: 1px solid var(--tuner-review);border-radius: 16px;background: color-mix(in srgb, var(--tuner-review-bg) 35%, var(--tuner-panel)); }
+.gx-tuner__dial-status { display: flex;flex-wrap: wrap;gap: 8px;margin-bottom: 12px; }
+.gx-tuner__dial-idea { display: grid;gap: 6px;margin: 12px 0 20px; }
+.gx-tuner__dial-idea strong { font-size: 23px;font-variant-numeric: tabular-nums; }
+.gx-tuner__dial-idea span { color: var(--tuner-review);font-size: 13px;line-height: 1.6; }
+.gx-tuner__dial .gx-row { padding: 0;border: 0;background: transparent; }
+.gx-tuner__dial .gx-row__label { font-size: 18px;font-weight: 600; }
+.gx-tuner__dial .gx-row__desc { font-size: 15px;line-height: 1.65; }
+.gx-tuner__dial .gx-row__value { font-size: 24px; }
+.gx-tuner__dial .gx-slider-meta { font-size: 12px;gap: 16px;flex-wrap: wrap; }
+.gx-tuner .gx-row__help, .gx-tuner .gx-tuner__disclosure { font-size: 14px;line-height: 1.65;min-width: 0; }
+.gx-tuner .gx-row__help { margin-top: 8px; }
+.gx-tuner .gx-row__help > summary, .gx-tuner .gx-tuner__disclosure > summary { cursor: pointer;padding: 12px 0;color: var(--on-surface); }
+.gx-tuner .gx-row__help p, .gx-tuner .gx-tuner__disclosure p { font-size: 14px;line-height: 1.7;color: var(--on-surface-variant);overflow-wrap: anywhere;margin-bottom: 12px; }
+.gx-tuner .gx-tuner__all-values { margin-top: 24px; }
+.gx-tuner__curve { display: grid;gap: 16px;scroll-margin-top: 120px; }
+.gx-tuner__curve-point { display: grid;gap: 9px;min-width: 0;padding: 18px 0;border-bottom: 1px solid var(--tuner-border); }
+.gx-tuner__curve-point.has-ideas { border-left: 3px solid var(--tuner-review);padding-left: 18px; }
+.gx-tuner__curve-point > h4 { font-size: 17px; }
+.gx-tuner__curve-point > strong { font-size: 21px;font-variant-numeric: tabular-nums; }
+.gx-tuner__curve-point p, .gx-tuner__curve-point small { font-size: 14px;line-height: 1.65;color: var(--on-surface-variant); }
+.gx-tuner .gx-tuner__timeline { margin-top: 24px; }
+.gx-tuner .gx-tuner__timeline strong { font-size: 16px; }
+.gx-tuner .gx-tuner__timeline p { font-size: 14px;line-height: 1.65; }
+.gx-tuner :focus-visible { outline: 2px solid var(--primary);outline-offset: 4px; }
+@media (max-width: 900px) {
+  .gx-tuner .gx-tuner__overview-grid { grid-template-columns: minmax(0, 1fr); }
+  .gx-tuner__drive { grid-template-columns: 40px minmax(0, 1fr);padding: 24px;gap: 16px; }
+  .gx-tuner__drive-mark { width: 40px;height: 40px; }
+}
+@media (max-width: 680px) {
+  .gx-tuner .gx-tuner__groups { grid-template-columns: repeat(2, minmax(0, 1fr));gap: 10px; }
+  .gx-tuner .gx-tuner__groups > button { padding: 16px 12px;gap: 10px;font-size: 14px;min-height: 104px; }
+  .gx-tuner .gx-tuner__groups > button > i:last-child { display: none; }
+  .gx-tuner__findings { padding: 20px; }
+  .gx-tuner__findings > .gx-tuner__section-heading { flex-wrap: wrap; }
+  .gx-tuner .gx-tuner__response > .gx-tuner__section-heading { flex-wrap: wrap; }
+}
+@media (max-width: 440px) {
+  .gx-tuner__drive { grid-template-columns: minmax(0, 1fr);padding: 22px; }
+  .gx-tuner__drive-mark { display: none; }
+  .gx-tuner__idea { padding: 18px; }
+  .gx-tuner .gx-tuner__parameters { padding: 20px; }
+  .gx-tuner__dial.has-ideas { padding: 16px; }
+  .gx-tuner .gx-tuner__groups > button { flex-wrap: wrap;align-content: center; }
+}
+@media (max-width: 359px) { .gx-tuner .gx-tuner__groups { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .gx-tuner *, .gx-tuner *::before, .gx-tuner *::after { scroll-behavior: auto;transition: none;animation: none; } }
+
+.gx-tuner__grouped-idea { display: grid;gap: 10px;padding: 20px 0;border-bottom: 1px solid var(--tuner-border); }
+.gx-tuner__grouped-idea p { font-size: 14px;line-height: 1.65;color: var(--on-surface-variant); }
+.gx-tuner__grouped-idea > strong { font-size: 21px; }
+
+.gx-tuner__panel, .gx-tuner__tune-layout { container-type: inline-size; }
+.gx-tuner__tabs, .gx-tuner__tabs > button { scroll-margin-top: 120px; }
+.gx-tuner__dial .gx-row.disabled { opacity: 1; }
+.gx-tuner__dial .gx-row.disabled input { opacity: .45; }
+@container (max-width: 340px) {
+  .gx-tuner__groups { grid-template-columns: minmax(0, 1fr) !important; }
+}
+
+
+.gx-tuner__idea, .gx-tuner__dial, .gx-tuner__curve-point { overflow-wrap: anywhere; }
+@media (max-width: 680px) { .gx-tuner__response svg { overflow: visible; } .gx-tuner .gx-plot-label { font-size: 24px; } }
+@media (max-width: 359px) { .gx-tuner .gx-plot-label { font-size: 28px; } }
+
+.gx-dialog:has(#manual-tune-confirm-title) { background: var(--background);font-size: 16px; }
+
+.gx-tuner .gx-tuner__tabs { position: sticky;top: var(--tuner-header-offset, 88px);z-index: 20;background: var(--tuner-panel);border: 1px solid var(--tuner-border);border-radius: 14px;padding: 6px 4px 0;align-self: start; }
+.gx-tuner .gx-tuner__tabs > button[aria-selected="true"]::after { bottom: 0; }
+.gx-tuner__groups > button { scroll-margin-top: calc(var(--tuner-header-offset, 88px) + 72px); }
+.gx-tuner__dial .gx-row.disabled .gx-row__label, .gx-tuner__dial .gx-row.disabled .gx-row__desc, .gx-tuner__dial .gx-row.disabled .gx-slider-row, .gx-tuner__dial .gx-row.disabled .gx-row__value { opacity: 1; }
+.gx-tuner__badge[data-tone="manual"] { color: var(--primary);background: var(--primary-container); }
+
+/* Keep every view reachable with enlarged text, without a clipped tab strip. */
+.gx-tuner { container-type: inline-size; }
+.gx-tuner .gx-tuner__tabs { display: grid;grid-template-columns: repeat(4, minmax(0, 1fr));overflow: visible; }
+.gx-tuner .gx-tuner__tabs > button { white-space: normal;padding: 10px 6px 12px;line-height: 1.4;min-width: 0; }
+.gx-tuner__manual-error { scroll-margin-top: 200px;outline-offset: 5px; }
+@container (max-width: 340px) { .gx-tuner .gx-tuner__tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+@container (min-width: 760px) {
+  .gx-tuner__findings--paired { grid-template-columns: repeat(2, minmax(0, 1fr));align-items: start; }
+  .gx-tuner__findings--paired > * { grid-column: 1 / -1; }
+  .gx-tuner__findings--paired > .gx-tuner__idea-grid { grid-column: 1;align-self: stretch; }
+  .gx-tuner__findings--paired > .gx-tuner__curve-summary { grid-column: 2;align-self: stretch; }
+}
+
+/* One compact status, one outcome, then the recorded steering graph. */
+.gx-tuner__connection { display: flex;align-items: center;flex-wrap: wrap;gap: 8px;min-height: 44px;padding: 8px 12px;border: 1px solid var(--tuner-border);border-radius: 12px;background: var(--tuner-panel);font-size: 13px;line-height: 1.5; }
+.gx-tuner__connection-state { margin-left: auto;color: var(--on-surface-variant); }
+.gx-tuner__connection .gx-tuner__status-dot { background: var(--primary);box-shadow: none;flex: 0 0 6px; }
+.gx-tuner__connection .gx-tuner__status-dot[data-tone="success"], .gx-tuner__connection .gx-tuner__status-dot[data-tone="ready"] { background: var(--tuner-saved); }
+.gx-tuner .gx-tuner__drive-copy > .gx-tuner__summary { font-size: 13px;color: var(--on-surface-variant); }
+.gx-tuner__drive-actions { display: flex;flex-wrap: wrap;align-items: center;gap: 10px; }
+.gx-tuner__drive-actions .gx-btn { box-shadow: none; }
+.gx-tuner__exact-values { display: grid;grid-template-columns: minmax(0, 1fr) auto;gap: 8px 16px;width: 100%;margin: 10px 0;font-size: 14px;line-height: 1.5; }
+.gx-tuner__exact-values dt { color: var(--on-surface-variant); }
+.gx-tuner__exact-values dd { margin: 0;font-variant-numeric: tabular-nums;text-align: right; }
+.gx-tuner__dial-idea > strong { font-size: 16px; }
+.gx-tuner__dial-idea > p { font-size: 14px;line-height: 1.6;color: var(--on-surface-variant); }
+.gx-tuner__manual-readback { outline-offset: 5px; }
+@media (max-width: 900px) { .gx-tuner__drive-actions { grid-column: 2; } }
+@media (max-width: 440px) { .gx-tuner__drive-actions { grid-column: 1; } }
+
+/* Theme-specific strokes have >=3:1 contrast; dash style carries the distinction too. */
+.gx-tuner { --tuner-requested: #63baff;--tuner-measured: #ffb366; }
+[data-theme="light"] .gx-tuner { --tuner-requested: #0063a8;--tuner-measured: #a84900; }
+.gx-tuner .gx-plot-desired { stroke: var(--tuner-requested);stroke-dasharray: none; }
+.gx-tuner .gx-plot-actual { stroke: var(--tuner-measured);stroke-dasharray: 7 4; }
+.gx-tuner__legend .gx-tuner__requested::before { background: none;border-top: 3px solid var(--tuner-requested);height: 0;border-radius: 0; }
+.gx-tuner__legend .gx-tuner__measured::before { background: none;border-top: 3px dashed var(--tuner-measured);height: 0;border-radius: 0; }
+
+/* Full-page zoom: all global controls reflow; the footer never masks short viewports. */
+@media (max-width: 300px), (max-height: 340px) {
+  .gx-app:has(.gx-tuner) .blur-nav { position: relative;left: auto;bottom: auto;transform: none;margin: 16px auto;flex-shrink: 0; }
+  .gx-app:has(.gx-tuner) .gx-content { padding-bottom: 16px; }
+}
+@media (max-width: 300px) {
+  .gx-app:has(.gx-tuner) .gx-appbar { flex-wrap: wrap;gap: 4px;padding: 6px 8px; }
+  .gx-app:has(.gx-tuner) .gx-appbar__pill { flex-basis: 100%;order: 2; }
+  .gx-app:has(.gx-tuner) .gx-theme-toggle { margin-left: auto; }
+  .gx-app:has(.gx-tuner) .blur-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gx-app:has(.gx-tuner) .gx-nav-indicator { display: none; }
+  .gx-app:has(.gx-tuner) .blur-nav .nav-item.active { background: var(--glass-active-bg); }
+}
+
+.gx-tuner .gx-tuner__heading p, .gx-tuner .gx-tuner__section-heading p { font-size: 15px;line-height: 1.6; }
+.gx-tuner__drive-mark { width: 40px;height: 40px;border-radius: 14px; }
+
+@container (max-width: 260px) {
+  .gx-tuner__exact-values { grid-template-columns: minmax(0, 1fr);gap: 4px; }
+  .gx-tuner__exact-values dd { text-align: left;margin-bottom: 8px; }
+}
+@media (max-height: 340px) { .gx-tuner .gx-tuner__tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+.gx-tuner__drive[data-tone="saved"] .gx-tuner__drive-actions > button:first-child { background: var(--tuner-saved);color: #102724; }
+[data-theme="light"] .gx-tuner__drive[data-tone="saved"] .gx-tuner__drive-actions > button:first-child { color: #fff; }
+
+@media (max-width: 300px), (max-height: 340px) { .gx-app:has(.gx-tuner) .gx-appbar__menu { display: inline-flex; } }

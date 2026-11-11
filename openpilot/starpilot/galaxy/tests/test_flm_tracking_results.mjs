@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { compile } from '../web/vendor/vue/vue.esm-browser.js'
 import { FlmPage } from '../web/js/flm.js'
 import { GalaxySettingRow } from '../web/js/galaxy-setting-row.js'
 import { SURFACE_NAMES, FRICTION_NAMES, offroadView, offroadCoordinateEvidence, recommendationText, PID_UNSUPPORTED, validTrainingResults, validTrackingResults, trackingView, surfaceRows, measurementText, validTrackingValues, trackingCoordinates, validTrackingPlot, trackingPlotView, sourceSeconds, tunerStatus } from '../web/js/flm-training-results.js'
+
+if (process.env.CI && process.platform === 'linux') execFileSync('python3', ['tools/ci/check_prebuilt_receipt.py', '--revision', 'HEAD'], { stdio: 'inherit' })
 
 const coordinates = amount => SURFACE_NAMES.map((name, i) => [name, i === 0 ? amount : 0])
 const tracking = () => ({ version: 1, status: 'trial_active', reason: 'scoring_future_tracking', group: 'feedforward',
@@ -195,7 +198,7 @@ for (const mutate of [value => value.version = 'unknown', value => value.binding
 assert.match(FlmPage.template, /measured delay/)
 assert.match(FlmPage.template, /Completed window/)
 assert.match(FlmPage.template, /Applied now/)
-assert.match(FlmPage.template, /saving is separate/)
+assert.match(FlmPage.template, /saving not confirmed/)
 assert.match(FlmPage.template, /No interpolation/)
 compile(FlmPage.template, { onError: error => { throw error }, decodeEntities: value => value.replaceAll('&amp;', '&') })
 assert.match(FlmPage.template, /Comparable trial windows/)
@@ -209,6 +212,12 @@ const ctx = { ...FlmPage.data(), ...FlmPage.methods, mode:'local', embedded:true
 for (const [name,get] of Object.entries(FlmPage.computed)) Object.defineProperty(ctx,name,{get:()=>get.call(ctx)})
 const text = vnode => typeof vnode === 'string' ? vnode : Array.isArray(vnode) ? vnode.map(text).join(' ') : vnode && typeof vnode === 'object' ? text(vnode.children) : ''
 const liveText = text(render.call(ctx,ctx,[]))
+ctx.report.current.trackingValues = structuredClone(valuesReport.current.trackingValues)
+const acceptedOnlyText = text(render.call(ctx,ctx,[]))
+assert.match(acceptedOnlyText, /accepted.*saving not confirmed/s)
+assert(!acceptedOnlyText.includes('Saved adjustments'), 'A live accepted map is not proof of persistence')
+delete ctx.report.current.trackingValues
+
 assert(!liveText.toLowerCase().includes('invalid applied output'), 'Live learner must not display the independent legacy collector failure as its current state')
 assert(!liveText.includes('Collection & fitting'), 'Legacy fitter cards must not describe the live empirical learner')
 delete ctx.report.current.tracking
@@ -237,11 +246,13 @@ ctx.report = {version:1,history:[],preference:{version:1,valid:true,enabled:true
 assert.equal(ctx.live,false,'Parked report is never a live application acknowledgement')
 assert.equal(ctx.reportFresh,true)
 assert.equal(ctx.state.title,'Completed drive analyzed')
+ctx.view = 'tune'
 const offroadText=text(render.call(ctx,ctx,[]))
 for(const label of ['Highway center taper','Left turn-in boost','Left unwind taper','Right turn-in boost','Right unwind taper'])assert(offroadText.includes(label))
 assert(!offroadText.includes('Waiting for driving samples'))
 assert(!offroadText.includes('Real measurements go here'))
 assert.equal(ctx.currentApplied,false)
+ctx.view = 'overview'
 const measuredWindow={version:1,domain:'lateral_acceleration',samples:2000,windows:10,error_rms:.12,route:'declared-drive',segment:0,
  source_start_ns:1e9,source_end_ns:2.9e9,points:Array.from({length:20},(_,i)=>[1e9+i*1e8,.2,.08]),
  sampling:'input_ordered_original_endpoints_no_interpolation'}
@@ -264,7 +275,8 @@ assert.equal(ctx.recordedTrackingChart.valid,true)
 assert(ctx.recordedTrackingChart.paths.every(path=>path.length===1),'Both original series render')
 const measuredText=text(render.call(ctx,ctx,[]))
 assert(measuredText.includes('Recorded baseline') && measuredText.includes(measurementText(.12)))
-assert(measuredText.includes('Saved adjustments') && measuredText.includes('No pending trial reported'))
+assert.match(measuredText, /0\s+saved/)
+assert(measuredText.includes('No pending trial reported'))
 assert(!measuredText.includes('Awaiting next-drive measurement'), 'Recorded analysis without a saved trial must not invent a pending trial')
 assert(measuredText.includes('No interpolation or delay alignment'))
 assert(measuredText.includes('22 / 24 original controller and encoder windows passed'))
@@ -424,3 +436,8 @@ assert.equal(offroadView(nowSavedAdvisory).suggestions.filter(row => row.paramet
 assert(offroadCoordinateEvidence(nowSavedAdvisory, 'ff_gain_left', false, '%').includes('Auto Learn saved: +0.5% for the next drive'))
 assert(!offroadCoordinateEvidence(nowSavedAdvisory, 'ff_gain_left', false, '%').includes('Previous-drive recommendation'))
 assert.equal(nowSavedAdvisory.current.application.applied, false, 'A saved recommendation is still not current application')
+
+await import('./test_plots.mjs')
+await import('./test_settings_controls.mjs')
+await import('./test_flm_review.mjs')
+if (process.env.CI && process.platform === 'linux') await import('./test_flm_ux_browser.mjs')

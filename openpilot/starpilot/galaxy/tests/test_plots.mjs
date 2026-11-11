@@ -232,7 +232,7 @@ assert.match(rendered, /Longitudinal acceleration/)
 assert.match(rendered, /Good/)
 assert.match(rendered, /−1.5 s/)
 const graphRender = compile(PlotGraph.template)
-const graph = JSON.stringify(graphRender({ chart, title: 'Lateral acceleration history', terms: false }, []))
+const graph = JSON.stringify(graphRender({ chart, title: 'Lateral acceleration history', terms: false, startLabel: null, endLabel: 'Latest' }, []))
 assert.match(graph, /0.30/)
 assert.match(graph, /0.00/)
 assert.match(graph, /−1.5 s/)
@@ -240,3 +240,9 @@ assert.match(graph, /Latest/)
 assert.match(graph, /48.0,/) // Plot geometry stays inside the labeled axes.
 globalThis.document = prior
 console.log('Galaxy Plots browser lifecycle and rendering contracts passed')
+
+
+const recordedGraph = JSON.stringify(graphRender({ chart, title: 'Recorded section', terms: false, startLabel: 'Start · 0s', endLabel: 'End · 1.5s' }, []))
+assert.match(recordedGraph, /Start · 0s/)
+assert.match(recordedGraph, /End · 1.5s/)
+assert.doesNotMatch(recordedGraph, /Latest/)

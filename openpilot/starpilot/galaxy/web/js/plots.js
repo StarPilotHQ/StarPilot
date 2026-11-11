@@ -173,7 +173,8 @@ export class PlotsFeed {
 
 export const PlotGraph = {
   name: 'PlotGraph',
-  props: { chart: { type: Object, required: true }, title: { type: String, required: true }, terms: { type: Boolean, default: false } },
+  props: { chart: { type: Object, required: true }, title: { type: String, required: true }, terms: { type: Boolean, default: false },
+    startLabel: { type: String, default: null }, endLabel: { type: String, default: 'Latest' } },
   template: `<svg viewBox="0 0 640 170" role="img" :aria-label="title">
     <line class="gx-plot-axis" x1="48" y1="18" x2="48" y2="132" />
     <line class="gx-plot-axis" x1="48" y1="132" x2="624" y2="132" />
@@ -181,8 +182,8 @@ export const PlotGraph = {
       <line class="gx-plot-zero" x1="48" :y1="chart.zeroY" x2="624" :y2="chart.zeroY" />
       <text class="gx-plot-label" x="42" y="21" text-anchor="end">{{ chart.top }}</text>
       <text class="gx-plot-label" x="42" y="135" text-anchor="end">{{ chart.bottom }}</text>
-      <text class="gx-plot-label" x="52" y="160">{{ chart.from }}</text>
-      <text class="gx-plot-label" x="624" y="160" text-anchor="end">Latest</text>
+      <text class="gx-plot-label" x="52" y="160">{{ startLabel ?? chart.from }}</text>
+      <text class="gx-plot-label" x="624" y="160" text-anchor="end">{{ endLabel ?? 'Latest' }}</text>
     </template>
     <g v-for="(paths, series) in chart.paths" :key="series"><polyline v-for="(points, i) in paths" :key="i" :points="points"
       :class="terms ? 'gx-plot-term-' + series : series === 0 ? 'gx-plot-desired' : 'gx-plot-actual'" /></g>

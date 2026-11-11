@@ -62,6 +62,7 @@ export const GalaxySettingRow = {
   components: { GalaxySelect },
   props: {
     row: { type: Object, required: true },
+    compact: { type: Boolean, default: false },
     index: { type: Number, required: true },
     disabled: { type: Boolean, default: false },
     busy: { type: Boolean, default: false },
@@ -91,7 +92,7 @@ export const GalaxySettingRow = {
     sliderValue() { return this.currentValue === "Auto" && this.bounds?.auto ? this.bounds.max : this.currentValue },
     displayValue() {
       return this.currentValue === "Auto" || (this.bounds?.auto && Number(this.currentValue) === this.bounds.max)
-        ? "Auto" : `${this.currentValue}${this.presentedRow.unit ? " " + this.presentedRow.unit : ""}`
+        ? "Auto" : `${this.compact && this.currentValue !== "" && Number.isFinite(Number(this.currentValue)) ? Number(this.currentValue) : this.currentValue}${this.presentedRow.unit ? (this.compact && this.presentedRow.unit === "%" ? "%" : " " + this.presentedRow.unit) : ""}`
     },
   },
   methods: {
@@ -227,7 +228,8 @@ export const GalaxySettingRow = {
     <div class="gx-row" :class="{ disabled: dimmed, 'gx-row--stack': control === 'slider', 'gx-row--heading': row.heading }" :role="row.heading ? 'heading' : undefined" :aria-level="row.heading ? 3 : undefined" :inert="busy || updating" :aria-busy="busy || updating || undefined">
       <div class="gx-row__info">
         <span class="gx-row__label">{{ row.label }}</span>
-        <span v-if="presentedRow.reason && !row.heading" class="gx-row__desc">{{ ' ' + presentedRow.reason.replace('https://firestar.link/discord', '') }}</span>
+        <span v-if="presentedRow.reason && !row.heading && !compact" class="gx-row__desc">{{ ' ' + presentedRow.reason.replace('https://firestar.link/discord', '') }}</span>
+        <template v-if="compact && presentedRow.reason && !row.heading"><span class="gx-row__desc">{{ presentedRow.reason.split('. ')[0] + (presentedRow.reason.includes('. ') ? '.' : '') }}</span><details class="gx-row__help"><summary>What this changes</summary><p>{{ presentedRow.reason }}</p></details></template>
         <a v-if="presentedRow.reason?.includes('https://firestar.link/discord')" class="gx-btn gx-btn--tonal" href="https://firestar.link/discord" target="_blank" rel="noopener">StarPilot Discord</a>
         <span v-if="control === 'group' || control === 'action'" class="gx-row__desc">{{ presentedRow.value }}</span>
       </div>
