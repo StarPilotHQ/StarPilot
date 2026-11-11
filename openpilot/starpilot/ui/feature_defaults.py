@@ -15,7 +15,7 @@ AGGRESSIVE_COOLING_DESCRIPTION = ("Runs the fan sooner and harder to keep the co
                                   "at the cost of more fan noise. Applies next drive.")
 BOOL_DEFAULTS = {
   "GMPedalLongitudinal": False,
-  "TorqueInterceptorEnabled": True, "RadarInterceptorEnabled": False, "NoMRCC": False,
+  "TorqueInterceptorEnabled": False, "RadarInterceptorEnabled": False, "NoMRCC": False,
   "NoFSC": False, "BlendedACC": True, "ManualTransmission": False, "ForceStops": True, "AlwaysAllowUploads": False, "TurnAssist": True,
   "DriveModeProfiles": False, "DriveModeAcceleration": True, "DriveModeDeceleration": True,
   "SubaruAvhStartup": False,
