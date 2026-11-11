@@ -696,12 +696,14 @@ class RuntimeSnapshotAdapter:
       cruise_state is not None and getattr(cruise_state, 'available', False) and
       not (cp is not None and getattr(cp, 'brand', '') == 'toyota' and
            (car.standstill or cruise_state.standstill or not cruise_state.enabled)))
-    developer_metrics = self._developer_metrics.observe(
-      drive=after if started else None, car=display_car if display_car_valid else None,
-      delay=current_message(sm, 'lateralDelay', now_ns, after_frame=after) if started else None,
-      torque=current_message(sm, 'lateralTorqueParameters', now_ns, after_frame=after) if started else None,
-      parameters=display_message(sm, 'vehicleParameters', now_ns, after_frame=after) if started else None,
-      metric=bool(ui.is_metric), cp=cp)
+    developer_metrics = ()
+    if not (onroad_view_only and stopped_timer_profile == "compact"):
+      developer_metrics = self._developer_metrics.observe(
+        drive=after if started else None, car=display_car if display_car_valid else None,
+        delay=current_message(sm, 'lateralDelay', now_ns, after_frame=after) if started else None,
+        torque=current_message(sm, 'lateralTorqueParameters', now_ns, after_frame=after) if started else None,
+        parameters=display_message(sm, 'vehicleParameters', now_ns, after_frame=after) if started else None,
+        metric=bool(ui.is_metric), cp=cp)
     stop_observed_ns = (self._vision_stop.observe_message(
       sm, now_ns=now_ns, now_boot_ns=now_ns + pair[2], drive_id=drive_id, after_frame=after)
       if started and pair is not None else self._vision_stop.observe(None, now_ns=now_ns))

@@ -227,6 +227,8 @@ def draw_polygon(origin_rect: rl.Rectangle, points: np.ndarray,
   assert (color is not None) != (gradient is not None), "Either color or gradient must be provided"
   pts = np.asarray(points)
   assert pts.ndim == 2 and pts.shape[1] == 2, "points must be (N,2)"
+  if color is not None and color.a == 0:
+    return
 
   # Triangulate via interleaving
   tri_strip = triangulate(pts)
