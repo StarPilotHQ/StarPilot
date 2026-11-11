@@ -39,6 +39,7 @@ class CarControllerCMA(CarControllerBase):
     self.lca_5_angle_last = 0.0
 
     self.last_lat_active = False  # Track state
+    self.lat_active = False
 
     self.lca_7_acc = 0  # Bresenham accumulator for 29 Hz
     self.lca_7_last_steer = 0 # used to calculate change in steer from last update
@@ -81,6 +82,7 @@ class CarControllerCMA(CarControllerBase):
     lat_active = bool(CC.latActive and CS.out.canValid and not CS.out.canTimeout and
                       CS.out.gearShifter == structs.CarState.GearShifter.drive and
                       not CS.out.steerFaultTemporary and not CS.out.steerFaultPermanent)
+    self.lat_active = lat_active
     if not lat_active:
       self.lca_5_primed = False
       self.lca_5_angle_last = CS.out.steeringAngleDeg
