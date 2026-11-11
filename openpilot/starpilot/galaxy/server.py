@@ -1677,7 +1677,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(404, {'error': 'Not found'})
         return
       if path not in ('/api/companion/uplink', '/api/companion/settings', '/api/companion/location', '/api/companion/navigation',
-                      '/api/companion/notification', '/api/starport/notifications',
+                      '/api/companion/notification', '/api/starport/notifications', '/api/starport/notifications/test',
                       '/api/connect/proxy', '/api/connect/provider', '/api/auth/login', '/api/auth/logout', '/api/settings/preview', '/api/settings/confirm',
                       '/api/settings/recovery/preview', '/api/settings/recovery/confirm',
                       '/api/settings/reset-default', '/api/settings/restore', '/api/recordings/action',
@@ -2436,6 +2436,24 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         else:
           if self.settings_session() == identity:
             self.json(202, result)
+          else:
+            self.json(401, {'error': 'Sign in to Galaxy'})
+        return
+      if path == '/api/starport/notifications/test':
+        identity = self.settings_session()
+        if identity is None:
+          self.json(401, {'error': 'Sign in to Galaxy'})
+          return
+        if payload != {}:
+          self.json(400, {'error': 'Invalid request'})
+          return
+        try:
+          result = phone_notifications_source.publish_test('galaxy')
+        except OSError:
+          self.json(503, {'error': 'Phone notifications are unavailable'})
+        else:
+          if self.settings_session() == identity:
+            self.json(200, result)
           else:
             self.json(401, {'error': 'Sign in to Galaxy'})
         return

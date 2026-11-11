@@ -191,5 +191,50 @@ class TestRendererToast(unittest.TestCase):
     self.assertEqual(self.feed.closed, 1)
 
 
+
+class TestComma3XScreen(unittest.TestCase):
+  def setUp(self):
+    from openpilot.starpilot.ui import runtime_app
+    self.app = runtime_app
+    self.session = runtime_app.StarShellSession.__new__(runtime_app.StarShellSession)
+    self.session.fonts = None
+    self.drawn = []
+    self.session._toast_painter = SimpleNamespace(draw=lambda rl, fonts, roles, value, w, h: self.drawn.append((value.sender, w, h)))
+    self.session.notification_feed = SimpleNamespace(snapshot=lambda: self.toast)
+    self.toast = toast()
+    self.ui = SimpleNamespace(started=False)
+    for name, value in (('ui_state', self.ui), ('time', SimpleNamespace(monotonic_ns=lambda: NOW + 1))):
+      original = getattr(runtime_app, name)
+      setattr(runtime_app, name, value)
+      self.addCleanup(setattr, runtime_app, name, original)
+    self.rect = SimpleNamespace(width=2160, height=1080)
+
+  def onroad(self, size='none', speed=0.):
+    from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadAlert
+    return OnroadState(False, True, speed, None, SpeedLimitObservation(), alert=OnroadAlert(AlertSize(size)))
+
+  def test_draws_on_home_and_onroad_at_screen_size(self):
+    self.session._notification_toast(None, self.rect)
+    self.ui.started = True
+    self.session._notification_toast(self.onroad(), self.rect)
+    self.assertEqual(self.drawn, [('Alice', 2160, 1080)] * 2)
+
+  def test_real_alert_and_moving_hide_it(self):
+    self.ui.started = True
+    self.session._notification_toast(self.onroad('mid'), self.rect)
+    self.toast = toast(hide_while_moving=True)
+    self.session._notification_toast(self.onroad(speed=12.), self.rect)
+    self.assertEqual(self.drawn, [])
+    self.session._notification_toast(self.onroad(speed=0.), self.rect)
+    self.assertEqual(len(self.drawn), 1)
+
+  def test_no_feed_or_no_toast_draws_nothing(self):
+    self.toast = None
+    self.session._notification_toast(None, self.rect)
+    del self.session.notification_feed
+    self.session._notification_toast(None, self.rect)
+    self.assertEqual(self.drawn, [])
+
+
 if __name__ == '__main__':
   unittest.main()

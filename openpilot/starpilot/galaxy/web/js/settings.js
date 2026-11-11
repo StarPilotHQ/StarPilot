@@ -10,6 +10,7 @@ import { FavoritesPage } from "./favorites.js"
 import { SoundPacks } from "./sound-packs.js"
 import { CloudProviderPage } from "./cloud-provider.js"
 import { GxNotice } from "./notice.js"
+import { PhoneNotifications } from "./phone-notifications.js"
 import { route } from "./route-state.js"
 
 const VehicleControlsPage = defineAsyncComponent(() => import("./vehicle-controls.js").then(module => module.VehicleControlsPage))
@@ -28,6 +29,7 @@ export const SETTINGS_SECTIONS = Object.freeze([
   { id: "device", label: "Device & Data", icon: "bi-hdd", pages: ["power", "display", "data"] },
   { id: "localization", label: "Localization", icon: "bi-globe", pages: ["localization"] },
   { id: "vehicle", label: "Vehicle", icon: "bi-car-front", pages: ["vehicle"] },
+  { id: "phone", label: "Phone", icon: "bi-phone", pages: [] },
   { id: "developer", label: "Developer", icon: "bi-code-slash", pages: ["developer"] },
 ])
 
@@ -273,7 +275,7 @@ export class SettingsFeed {
 
 export const SettingsPage = {
   emits: ["nested"],
-  components: { GxDialog, GxState, GalaxySettingRow, OnroadLayoutPage, FavoritesPage, SoundPacks, CloudProviderPage, ReverseProxySettings, GxNotice, VehicleControlsPage },
+  components: { GxDialog, GxState, GalaxySettingRow, OnroadLayoutPage, FavoritesPage, SoundPacks, CloudProviderPage, ReverseProxySettings, GxNotice, VehicleControlsPage, PhoneNotifications },
   props: {
     mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     initialPage: { type: String, default: "hub" }, title: { type: String, default: "Toggles" },
@@ -296,6 +298,7 @@ export const SettingsPage = {
       const page = (this.state.data?.page || "hub").split("/")[0]
       return this.sections.find((section) => page === "hub" ? section.id === this.state.section : section.pages.includes(page)) || this.sections[0]
     },
+    phoneOpen() { return this.initialPage === "hub" && this.activeSection.id === "phone" },
     atSectionRoot() {
       if (this.state.developerOpen || (!this.state.data && this.initialPage === "hub" && !this.state.parents?.length)) return true
       return this.state.data?.page === "hub" ||
@@ -485,12 +488,13 @@ export const SettingsPage = {
         <GxNotice v-if="state.data && state.data.vehicleIdentified === false" tone="info">Vehicle not identified yet. Turn on the car and wait for fingerprinting; vehicle-specific settings will then appear here.</GxNotice>
         <CloudProviderPage ref="cloudProvider" v-if="state.developerOpen" :mode="mode" :unauthorized="unauthorized" />
         <ReverseProxySettings v-if="state.developerOpen" :mode="mode" :unauthorized="unauthorized" />
+        <PhoneNotifications v-if="phoneOpen" :mode="mode" :unauthorized="unauthorized" />
         <GxState v-if="state.status === 'loading'" loading>Reading your device’s saved preferences…</GxState>
         <GxNotice tone="danger" v-else-if="state.status === 'unavailable' && !state.error">The device could not read these preferences. Reconnecting automatically…</GxNotice>
         <GxNotice tone="danger" v-if="state.error">{{ state.error }}
           </GxNotice>
         <VehicleControlsPage ref="vehicleEditor" v-if="initialPage === 'hub' && activeSection.id === 'vehicle'" :mode="mode" :unauthorized="unauthorized" />
-        <div v-else-if="!state.developerOpen || state.data?.page === 'developer'" class="gx-panel-stage" :style="{'--panel-direction': state.panelDirection}">
+        <div v-else-if="!phoneOpen && (!state.developerOpen || state.data?.page === 'developer')" class="gx-panel-stage" :style="{'--panel-direction': state.panelDirection}">
           <Transition name="gx-panel">
           <div v-if="state.data" :key="state.data.page + activeSection.id" class="gx-settings__body">
             <div v-if="state.data.page === 'pip'" class="gx-settings__actions gx-actions">

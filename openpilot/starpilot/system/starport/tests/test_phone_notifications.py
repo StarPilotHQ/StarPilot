@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from openpilot.starpilot.system.starport.phone_notifications import (MAX_APPS, TOAST_NS, PhoneNotifications, current, read_settings,
-                                                                     validate_payload)
+from openpilot.starpilot.system.starport.phone_notifications import (MAX_APPS, TEST_TEXT, TEST_TITLE, TOAST_NS, PhoneNotifications, current,
+                                                                     read_settings, validate_payload)
 
 NOW = 500_000_000_000
 SECRET_SENDER, SECRET_TEXT = 'Alice Secret', 'meet at the hidden place'
@@ -205,3 +205,28 @@ def test_corrupt_settings_fall_back_to_defaults(tmp_path):
   assert read_settings(path) == {'enabled': True, 'hideWhileMoving': False, 'apps': {}}
   path.write_text('not json')
   assert read_settings(path)['enabled'] is True
+
+
+@pytest.mark.parametrize('source,app', [('ios', 'link.galaxy.bluetooth.dannyirwin'), ('ios', 'link.galaxy.bluetooth.natehuby76'),
+                                        ('android', 'link.firestar.companion'), ('android', 'com.starpilot.galaxy')])
+def test_companion_test_notification_shows_fixed_text_and_skips_the_app_list(owner, source, app):
+  result = owner.publish(note(source=source, app=app, sender=TEST_TITLE, text=SECRET_TEXT, category='other'))
+  assert result == {'ok': True, 'accepted': True, 'enabled': True, 'test': True}
+  shown = read_current(owner)
+  assert (shown['sender'], shown['text']) == (TEST_TITLE, TEST_TEXT[source])
+  assert read_settings(owner.settings_path)['apps'] == {}
+
+
+def test_test_title_from_another_app_is_an_ordinary_notification(owner):
+  assert owner.publish(note(app='com.example.spam', sender=TEST_TITLE, category='other'))['accepted'] is False
+
+
+def test_test_notification_respects_the_main_switch_and_age(owner):
+  owner.update({'enabled': False})
+  assert owner.publish_test('galaxy') == {'ok': True, 'accepted': False, 'enabled': False, 'test': True}
+  assert read_current(owner) is None
+  owner.update({'enabled': True})
+  assert owner.publish_test('android', age_ms=TOAST_NS / 1e6)['accepted'] is False
+  assert owner.publish_test('galaxy')['accepted'] and read_current(owner)['text'] == TEST_TEXT['galaxy']
+  with pytest.raises(ValueError):
+    owner.publish_test('web')

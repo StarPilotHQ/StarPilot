@@ -128,3 +128,38 @@ def toast_visible(toast, now_ns, *, started, speed):
   if toast.hide_while_moving and started and (speed is None or speed > 0.5):
     return False
   return True
+
+
+class ToastPainter:
+  """Draws the toast centered at the top of a screen, measuring text once per toast."""
+  def __init__(self):
+    self._layout = None
+
+  def draw(self, rl, fonts, roles, toast, screen_width, screen_height):
+    scale = min(screen_width / 1920, screen_height / 1080)
+    # Between the default speed-limit card (ends x=576) and the steering wheel.
+    width = max(560 * scale, min(screen_width * 0.6, 1200 * scale, screen_width - 1200))
+    pad = 26 * scale
+    app_size, sender_size, text_size = 24 * scale, 36 * scale, 30 * scale
+    key = toast.sequence, toast.observed, round(width)
+    if self._layout is None or self._layout[0] != key:
+      inner = width - 2 * pad
+      self._layout = (key, fit(fonts, roles.MEDIUM, app_size, toast.app, inner),
+                      fit(fonts, roles.BOLD, sender_size, toast.sender, inner) if toast.sender else '',
+                      wrap(fonts, roles.MEDIUM, text_size, toast.text, inner) if toast.text else ())
+    _, app, sender, lines = self._layout
+    step = 1.35
+    height = 2 * pad + app_size * step + (sender_size * step if sender else 0) + len(lines) * text_size * step
+    x, y = (screen_width - width) / 2, 24 * scale
+    panel = rl.Rectangle(x, y, width, height)
+    rl.draw_rectangle_rounded(panel, 0.25, 12, rl.Color(14, 12, 24, 238))
+    rl.draw_rectangle_rounded_lines_ex(panel, 0.25, 12, max(2, 3 * scale), rl.Color(160, 126, 220, 200))
+    y += pad
+    fonts.draw(app, roles.MEDIUM, app_size, x + pad, y, rl.Color(178, 170, 200, 255))
+    y += app_size * step
+    if sender:
+      fonts.draw(sender, roles.BOLD, sender_size, x + pad, y, rl.Color(255, 255, 255, 255))
+      y += sender_size * step
+    for line in lines:
+      fonts.draw(line, roles.MEDIUM, text_size, x + pad, y, rl.Color(226, 220, 244, 255))
+      y += text_size * step

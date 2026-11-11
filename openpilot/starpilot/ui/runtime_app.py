@@ -198,6 +198,10 @@ class StarShellSession:
       raise
     from openpilot.starpilot.ui.home_stats_source import HomeStatsSource
     self.home_stats_source = HomeStatsSource() if profile == Profile.LARGE else None
+    self.notification_feed = None
+    if profile == Profile.LARGE:
+      from openpilot.starpilot.system.starport.projection_notifications import ProjectionNotificationFeed, ToastPainter
+      self.notification_feed, self._toast_painter = ProjectionNotificationFeed(), ToastPainter()
     self.galaxy_access = _galaxy_access_owner()
     self.bluetooth_source = BluetoothStatusSource() if profile == Profile.COMPACT else None
     self.adapter = RuntimeSnapshotAdapter(ui_state, self.galaxy_access,
@@ -1431,6 +1435,8 @@ class StarShellSession:
         getattr(self.view, pane[0]).pressed_action = getattr(self.input, pane[2]).pressed_action
       drag_x = getattr(self.input, pane[2]).drag_x if pane else 0.0
       self.view.render(replace(snapshot, selected=Destination.NETWORK) if external else snapshot, drag_x=drag_x)
+      if mode in (ShellMode.ONROAD, ShellMode.HOME):
+        self._notification_toast(snapshot.onroad if mode == ShellMode.ONROAD else None, rect)
       self._pip_signals_cache = None
       if mode == ShellMode.ONROAD and self.profile == Profile.COMPACT:
         self.favorites.render(time.monotonic())
@@ -1723,7 +1729,23 @@ class StarShellSession:
     self._navigation_claimed = False
     self._favorite_claimed = False
 
+  def _notification_toast(self, onroad: OnroadState | None, rect: rl.Rectangle) -> None:
+    feed = getattr(self, "notification_feed", None)
+    toast = feed.snapshot() if feed is not None else None
+    if toast is None:
+      return
+    from openpilot.starpilot.system.starport.projection_notifications import toast_visible
+    started = bool(ui_state.started)
+    if started and onroad is not None and onroad.alert.size != AlertSize.NONE:
+      return
+    speed = onroad.speed_mps if onroad is not None else None
+    if toast_visible(toast, time.monotonic_ns(), started=started, speed=speed):
+      self._toast_painter.draw(rl, self.fonts, FontRole, toast, rect.width, rect.height)
+
   def close(self) -> None:
+    if feed := getattr(self, "notification_feed", None):
+      feed.close()
+      self.notification_feed = None
     if receiver := getattr(self, "rear_fog", None):
       receiver.close()
     if layer := getattr(self, 'onroad_jetlink', None):

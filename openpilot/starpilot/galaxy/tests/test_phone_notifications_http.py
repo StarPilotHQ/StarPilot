@@ -108,5 +108,17 @@ class PhoneNotificationsHttpTest(unittest.TestCase):
     self.assertEqual(body, {'ok': True, 'accepted': False, 'enabled': False})
 
 
+  def test_galaxy_test_button_needs_a_session_and_shows_a_toast(self):
+    path = '/api/starport/notifications/test'
+    self.assertEqual(self.request(path, payload={})[0], 401)
+    self.assertEqual(self.request(path, payload={'text': 'x'}, cookie=self.local_cookie)[0], 400)
+    for remote in (False, True):
+      with self.subTest(remote=remote):
+        status, body, _ = self.request(path, payload={}, remote=remote, cookie=self.remote_cookie if remote else self.local_cookie)
+        self.assertEqual((status, body['accepted'], body['test']), (200, True, True))
+        self.assertEqual(self.shown()['sender'], 'StarPilot test notification')
+    self.assertEqual(self.notifications.snapshot()['apps'], [])
+
+
 if __name__ == '__main__':
   unittest.main()

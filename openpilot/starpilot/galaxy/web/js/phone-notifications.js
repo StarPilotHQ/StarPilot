@@ -15,7 +15,7 @@ export function validPhoneNotifications(value) {
 export const PhoneNotifications = {
   components: { GxNotice, GxState, GalaxySettingRow },
   props: { mode: String, unauthorized: Function },
-  data: () => ({ snapshot: null, busy: false, error: '', timer: null, controller: null, generation: 0, active: false }),
+  data: () => ({ snapshot: null, busy: false, error: '', testResult: '', timer: null, controller: null, generation: 0, active: false }),
   mounted() {
     this.visibility = () => { this.stop(); this.start() }
     document.addEventListener('visibilitychange', this.visibility)
@@ -48,6 +48,25 @@ export const PhoneNotifications = {
         if (this.active && generation === this.generation) this.timer = setTimeout(() => this.refresh(), 5000)
       }
     },
+    async sendTest() {
+      if (!this.active || this.busy) return false
+      this.busy = true; this.error = ''; this.testResult = ''
+      try {
+        const value = await requestJson('./api/starport/notifications/test', { request: {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' } })
+        if (!this.active) return false
+        this.testResult = value?.accepted ? 'Test sent. Look at the top of the comma screen or Android Auto; it shows for 8 seconds.'
+          : value?.enabled === false ? 'Turn on Show phone notifications first.' : 'The test was not shown. Try again.'
+        return !!value?.accepted
+      } catch (error) {
+        if (!this.active) return false
+        if (error.status === 401) { this.stop(); this.unauthorized(); return false }
+        this.error = error.message
+        return false
+      } finally {
+        if (this.active) this.busy = false
+      }
+    },
     async save(patch) {
       if (!this.active || this.busy) return false
       clearTimeout(this.timer); this.controller?.abort()
@@ -72,19 +91,23 @@ export const PhoneNotifications = {
   template: `<section class="gx-card gx-starport-step" aria-labelledby="gx-phone-notifications-title">
     <div class="gx-starport-step__head">
       <span class="gx-starport-step__num" aria-hidden="true"><i class="bi bi-chat-dots"></i></span>
-      <div><h3 id="gx-phone-notifications-title">Phone Notifications</h3><p>Show messages from your phone on the car screen. Each one shows for a few seconds and is never stored.</p></div>
+      <div><h3 id="gx-phone-notifications-title">Phone Notifications</h3><p>Show messages from your phone on the comma screen and on Android Auto. Each one shows for a few seconds and is never stored.</p></div>
     </div>
     <div class="gx-starport-step__body">
       <GxState v-if="!snapshot && !error" loading>Loading phone notification settings…</GxState>
       <template v-if="snapshot">
-        <GalaxySettingRow :row="switchRow('Show phone notifications on the car screen', snapshot.enabled)" :index="0" :busy="busy"
+        <GalaxySettingRow :row="switchRow('Show phone notifications', snapshot.enabled)" :index="0" :busy="busy"
           :save-value="(index, value) => save({ enabled: value === 'On' })" />
         <GalaxySettingRow :row="switchRow('Hide while moving', snapshot.hideWhileMoving)" :index="1" :busy="busy" :disabled="!snapshot.enabled"
           :save-value="(index, value) => save({ hideWhileMoving: value === 'On' })" />
       </template>
+      <div v-if="snapshot" class="gx-actions">
+        <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy || !snapshot.enabled" @click="sendTest"><i class="bi bi-bell" aria-hidden="true"></i> Send test notification</button>
+      </div>
+      <p v-if="testResult" class="gx-note" role="status">{{ testResult }}</p>
       <ol>
-        <li><strong>Android:</strong> in the StarPilot app, open Connections → Phone sharing → Share notifications.</li>
-        <li><strong>iPhone:</strong> in the app, open Connection settings → Phone notifications, then allow notification sharing when iOS asks.</li>
+        <li><strong>Android:</strong> in the StarPilot app, open Connections → Phone sharing → Share notifications. Tap Send test notification there to check the whole path from your phone.</li>
+        <li><strong>iPhone:</strong> in the app, open Connection settings → Phone notifications, then allow notification sharing when iOS asks. Tap Send test notification there to check the whole path from your phone.</li>
       </ol>
       <template v-if="snapshot">
         <p v-if="!snapshot.apps.length" class="gx-note">Apps appear here after they send a notification. Messaging apps are on by default; others start off.</p>

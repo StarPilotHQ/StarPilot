@@ -21,6 +21,17 @@ CATEGORIES = ('message', 'call', 'email', 'social', 'other')
 APP_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}')
 SETTINGS_PATH = identity_store.DATA_DIR / 'phone_notifications.json'
 DEFAULTS = {'enabled': True, 'hideWhileMoving': False}
+TEST_TITLE = 'StarPilot test notification'
+COMPANION_APPS = ('link.firestar.companion', 'com.starpilot.galaxy')
+COMPANION_PREFIXES = ('link.galaxy.bluetooth.',)
+TEST_TEXT = {'galaxy': 'Test from Galaxy. Phone messages will show here.',
+             'android': 'Test from your Android phone. Notifications are working.',
+             'ios': 'Test from your iPhone. Notifications are working.'}
+
+
+def is_test(payload):
+  app = payload['app']
+  return payload.get('sender', '').strip() == TEST_TITLE and (app in COMPANION_APPS or app.startswith(COMPANION_PREFIXES))
 
 
 def handoff_path():
@@ -137,6 +148,8 @@ class PhoneNotifications:
 
   def publish(self, payload):
     validate_payload(payload)
+    if is_test(payload):
+      return self.publish_test(payload['source'], payload['ageMs'])
     with self.lock:
       settings = read_settings(self.settings_path)
       if not settings['enabled']:
@@ -147,17 +160,31 @@ class PhoneNotifications:
       accepted = allowed if allowed is not None else payload['category'] == 'message'
       age_ns = int(payload['ageMs'] * 1e6)
       if accepted and age_ns < TOAST_NS:
-        self.sequence += 1
-        value = {'app': payload['app'], 'appName': payload.get('appName', ''), 'sender': payload.get('sender', ''),
-                 'text': payload.get('text', ''), 'sequence': self.sequence, 'observed': self.clock() - age_ns,
-                 'boot': self.boot_id(), 'bootOffset': self.boot_offset()}
-        self._write_handoff(value)
-        expiry = self.timer(TOAST_NS / 1e9 + 1, self._clear, args=(self.sequence,))
-        expiry.daemon = True
-        expiry.start()
+        self._show(payload['app'], payload.get('appName', ''), payload.get('sender', ''), payload.get('text', ''), age_ns)
       else:
         accepted = False
     return {'ok': True, 'accepted': bool(accepted), 'enabled': True}
+
+  def publish_test(self, source, age_ms=0):
+    """A fixed toast that skips the app list and filter, so a test proves the path without changing choices."""
+    if source not in TEST_TEXT:
+      raise ValueError('Invalid notification source')
+    with self.lock:
+      if not read_settings(self.settings_path)['enabled']:
+        return {'ok': True, 'accepted': False, 'enabled': False, 'test': True}
+      age_ns = int(age_ms * 1e6)
+      if age_ns >= TOAST_NS:
+        return {'ok': True, 'accepted': False, 'enabled': True, 'test': True}
+      self._show('starpilot.test', 'StarPilot', TEST_TITLE, TEST_TEXT[source], age_ns)
+    return {'ok': True, 'accepted': True, 'enabled': True, 'test': True}
+
+  def _show(self, app, app_name, sender, text, age_ns):
+    self.sequence += 1
+    self._write_handoff({'app': app, 'appName': app_name, 'sender': sender, 'text': text, 'sequence': self.sequence,
+                         'observed': self.clock() - age_ns, 'boot': self.boot_id(), 'bootOffset': self.boot_offset()})
+    expiry = self.timer(TOAST_NS / 1e9 + 1, self._clear, args=(self.sequence,))
+    expiry.daemon = True
+    expiry.start()
 
   def snapshot(self):
     with self.lock:

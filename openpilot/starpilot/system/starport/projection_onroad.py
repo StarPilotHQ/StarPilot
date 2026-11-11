@@ -10,7 +10,7 @@ from openpilot.starpilot.system.starport.identity import EXPIRY_WARNING_DAYS
 from openpilot.starpilot.system.starport.projection_exit import ProjectionExit
 from openpilot.starpilot.system.starport.projection_geometry import FALLBACK_VIEWPORT
 from openpilot.starpilot.system.starport.projection_map_lease import MapLeaseWriter
-from openpilot.starpilot.system.starport.projection_notifications import ProjectionNotificationFeed, fit, toast_visible, wrap
+from openpilot.starpilot.system.starport.projection_notifications import ProjectionNotificationFeed, ToastPainter, toast_visible
 
 CERTIFICATE_NOTICE_NS = 10_000_000_000  # how long the expiry heads-up stays at the start of a drive
 BOOKMARK_NOTICE_NS = 2_000_000_000  # how long "Bookmark Saved" stays after the drive is bookmarked
@@ -205,7 +205,7 @@ class ProjectionOnroad:
         self.jetlink_feed = native.jetlink_feed()
         self._resources.callback(self.jetlink_feed.close)
       self.notification_feed = None
-      self._toast_layout = None
+      self._toast_painter = ToastPainter()
       if getattr(native, 'notification_feed', None) is not None:
         self.notification_feed = native.notification_feed()
         self._resources.callback(self.notification_feed.close)
@@ -596,34 +596,7 @@ class ProjectionOnroad:
       self._draw_toast(toast)
 
   def _draw_toast(self, toast):
-    rl, fonts, roles = self.native.rl, self.fonts, self.native.font_role
-    scale = min(self.width / 1920, self.height / 1080)
-    # Between the default speed-limit card (ends x=576) and the steering wheel.
-    width = max(560 * scale, min(self.width * 0.6, 1200 * scale, self.width - 1200))
-    pad = 26 * scale
-    app_size, sender_size, text_size = 24 * scale, 36 * scale, 30 * scale
-    key = toast.sequence, toast.observed, round(width)
-    if self._toast_layout is None or self._toast_layout[0] != key:
-      inner = width - 2 * pad
-      self._toast_layout = (key, fit(fonts, roles.MEDIUM, app_size, toast.app, inner),
-                            fit(fonts, roles.BOLD, sender_size, toast.sender, inner) if toast.sender else '',
-                            wrap(fonts, roles.MEDIUM, text_size, toast.text, inner) if toast.text else ())
-    _, app, sender, lines = self._toast_layout
-    step = 1.35
-    height = 2 * pad + app_size * step + (sender_size * step if sender else 0) + len(lines) * text_size * step
-    x, y = (self.width - width) / 2, 24 * scale
-    panel = rl.Rectangle(x, y, width, height)
-    rl.draw_rectangle_rounded(panel, 0.25, 12, rl.Color(14, 12, 24, 238))
-    rl.draw_rectangle_rounded_lines_ex(panel, 0.25, 12, max(2, 3 * scale), rl.Color(160, 126, 220, 200))
-    y += pad
-    fonts.draw(app, roles.MEDIUM, app_size, x + pad, y, rl.Color(178, 170, 200, 255))
-    y += app_size * step
-    if sender:
-      fonts.draw(sender, roles.BOLD, sender_size, x + pad, y, rl.Color(255, 255, 255, 255))
-      y += sender_size * step
-    for line in lines:
-      fonts.draw(line, roles.MEDIUM, text_size, x + pad, y, rl.Color(226, 220, 244, 255))
-      y += text_size * step
+    self._toast_painter.draw(self.native.rl, self.fonts, self.native.font_role, toast, self.width, self.height)
 
   def handle_touches(self, events):
     placed = self.exit.document_placement(self.customization)
