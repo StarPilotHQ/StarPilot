@@ -28,6 +28,15 @@ class CarControllerParams:
       self.TI_STEER_DRIVER_MULTIPLIER = 40     # weight driver torque
       self.TI_STEER_DRIVER_FACTOR = 1         # from dbc
       self.TI_STEER_ERROR_MAX = 350           # max delta between torque cmd and torque motor
+
+      # GEN1 TI1 only (torque_interceptor.py). The EPS stops answering the TI above about 650 counts and the TI
+      # faults (0x11) on a command held unchanged, so the command is clamped at TI_CEILING, and a command held
+      # above TI_CEILING_DIP for TI_CEILING_HOLD_FRAMES is dipped to it for TI_CEILING_DIP_FRAMES.
+      # TI_CEILING - TI_CEILING_DIP stays within STEER_DELTA_DOWN, so a dip is never a rate violation.
+      self.TI_CEILING = 700
+      self.TI_CEILING_DIP = 680
+      self.TI_CEILING_HOLD_FRAMES = 120       # 1.2 s, well before the 1.84 s the TI allows
+      self.TI_CEILING_DIP_FRAMES = 20         # 0.2 s
     if CP.flags & (MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.GEN3):
       self.STEER_MAX = 8000
       self.STEER_DELTA_UP = 45              # torque increase per refresh

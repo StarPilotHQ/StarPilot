@@ -5,6 +5,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
 from opendbc.car.mazda.values import CAR, DBC, LKAS_LIMITS, MazdaSafetyFlags, TI_STATE, TI2_HEALTH, CarControllerParams
 from opendbc.car.mazda.stock_aol import admitted as aol_admitted
+from opendbc.car.mazda.torque_interceptor import violation_is_permanent
 
 ButtonType = structs.CarState.ButtonEvent.Type
 
@@ -114,7 +115,8 @@ class CarState(CarStateBase):
         self.ti_ramp_down = (cp_body.vl["TI_FEEDBACK"]["RAMP_DOWN"] == 1)
 
       ret.steeringPressed = abs(ret.steeringTorque) > LKAS_LIMITS.TI_STEER_THRESHOLD
-      self.ti_lkas_allowed = not self.ti_ramp_down and self.ti_state == TI_STATE.RUN
+      # Same rule as panda's mazda_ti1_healthy(): nonzero 0x249 only in RUN, with no violation, not ramping down.
+      self.ti_lkas_allowed = not self.ti_ramp_down and self.ti_state == TI_STATE.RUN and self.ti_violation == 0
     else:
       ret.steeringTorque = cp.vl["STEER_TORQUE"]["STEER_TORQUE_SENSOR"]
       ret.steeringPressed = abs(ret.steeringTorque) > LKAS_LIMITS.STEER_THRESHOLD
@@ -185,11 +187,23 @@ class CarState(CarStateBase):
 
     # camera signals
     if not self.CP.flags & MazdaSafetyFlags.NO_FSC:
-      ret.invalidLkasSetting = cp_cam.vl["CAM_LANEINFO"]["LANE_LINES"] == 0
-      self.lkas_disabled = cp_cam.vl["CAM_LANEINFO"]["LANE_LINES"] == 0 if not self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else False
+      # The camera's lane-keep state. With a Torque Interceptor the stock lane keep plays no part in steering,
+      # and the dash lane-keep button flips it with every press, so it is ignored there.
+      stock_lkas_off = cp_cam.vl["CAM_LANEINFO"]["LANE_LINES"] == 0 and not self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR
+      ret.invalidLkasSetting = stock_lkas_off
+      self.lkas_disabled = stock_lkas_off
       self.cam_lkas = cp_cam.vl["CAM_LKAS"]
       self.cam_laneinfo = cp_cam.vl["CAM_LANEINFO"]
       ret.steerFaultPermanent = cp_cam.vl["CAM_LKAS"]["ERR_BIT_1"] == 1 if not self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else False
+
+    if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR:
+      # TI1 faults. Class 2/3 violations clear by themselves after about 30 s, so they are a temporary fault;
+      # class 1 needs a power cycle. DRIVER_OVER is the driver steering and RAMP_DOWN a hand-back, neither
+      # is a fault. DISCOVER/OFF without a code (start-up) is temporary.
+      ti_permanent = violation_is_permanent(self.ti_violation)
+      ti_unavailable = self.ti_violation != 0 or self.ti_state not in (TI_STATE.RUN, TI_STATE.DRIVER_OVER)
+      ret.steerFaultPermanent = ret.steerFaultPermanent or ti_permanent
+      ret.steerFaultTemporary = ret.steerFaultTemporary or (ti_unavailable and not ti_permanent)
     self.cp_cam = cp_cam
     self.cp = cp
 

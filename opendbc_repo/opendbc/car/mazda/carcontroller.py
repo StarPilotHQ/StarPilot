@@ -4,6 +4,7 @@ from opendbc.car.lateral import apply_driver_steer_torque_limits
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.mazda import mazdacan
 from opendbc.car.mazda.stock_aol import gen2_qualified
+from opendbc.car.mazda.torque_interceptor import TiCeilingGuard
 from opendbc.car.mazda.values import CarControllerParams, Buttons, MazdaSafetyFlags
 from openpilot.common.realtime import DT_CTRL
 from openpilot.common.filter_simple import FirstOrderFilter
@@ -20,6 +21,12 @@ class CarController(CarControllerBase):
     self.packer = CANPacker(dbc_names[Bus.pt])
     self.brake_counter = 0
     self.ccp = CarControllerParams(CP)
+    # GEN1 Torque Interceptor (TI1) only. TORQUE_INTERCEPTOR is only ever set together with GEN1, but both
+    # are required so a GEN2/GEN3 TI2 can never take this path.
+    self.ti1_guard = None
+    if CP.flags & MazdaSafetyFlags.GEN1 and CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR:
+      self.ti1_guard = TiCeilingGuard(self.ccp.TI_CEILING_DIP, self.ccp.TI_CEILING_HOLD_FRAMES,
+                                      self.ccp.TI_CEILING_DIP_FRAMES, self.ccp.TI_CEILING - self.ccp.TI_CEILING_DIP)
     self.hold_timer_frame = 0
     self.hold_delay_frame = 0
     self.resume_timer_frame = 0
@@ -50,16 +57,28 @@ class CarController(CarControllerBase):
     if CC.latActive:
       # calculate steer and also set limits due to driver torque
       new_torque = int(round(CC.actuators.torque * self.ccp.STEER_MAX))
+      if self.ti1_guard is not None:
+        # The TI1's authority ends at TI_CEILING; clamp before the limits so both channels ramp to it.
+        new_torque = max(-self.ccp.TI_CEILING, min(self.ccp.TI_CEILING, new_torque))
       if _projection is not None:
         _projection.input(new_torque, self.ccp.STEER_MAX, self.apply_torque_last, CS.out.steeringTorque, self.ccp, limiter='driver')
       if steer_requested:
         apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
                                                         CS.out.steeringTorque, self.ccp)
-      if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR:
-        if CS.ti_lkas_allowed:
-          ti_new_torque = int(round(CC.actuators.torque * self.ccp.STEER_MAX))
-          ti_apply_torque = apply_driver_steer_torque_limits(ti_new_torque, self.apply_torque_last,
-                                                    CS.out.steeringTorque, self.ccp)
+
+    if self.ti1_guard is not None:
+      # GEN1 TI1: the TI is sent the stock command itself, or zero while it cannot steer. Panda enforces
+      # exactly that pairing on 0x249 (safety/modes/mazda.h).
+      ti_apply_torque = apply_torque if CS.ti_lkas_allowed else 0
+      if self.CP.flags & MazdaSafetyFlags.NO_FSC and not CS.ti_lkas_allowed:
+        # Without the camera 0x249 is the only steering frame, and panda rate-limits it from what was last
+        # sent: restart the ramp from zero instead of jumping back to a command the TI never received.
+        apply_torque = 0
+      ti_cap = self.ti1_guard.update(ti_apply_torque)
+      if ti_cap is not None:
+        # Both channels, so they stay one command and the next frame's ramp starts from what was sent.
+        apply_torque = max(-ti_cap, min(ti_cap, apply_torque))
+        ti_apply_torque = max(-ti_cap, min(ti_cap, ti_apply_torque))
 
     self.apply_torque_last = apply_torque
     self.ti_apply_torque_last = ti_apply_torque

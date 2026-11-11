@@ -140,6 +140,38 @@ static void mazda_ti_end_pause(void) {
   mazda_ti_pause_clean_frames = MAZDA_TI_RECOVERY_FRAMES;
 }
 
+// GEN1 Torque Interceptor (TI1). Separate from the TI2 state above, which is
+// GEN2/GEN3 only. TI_FEEDBACK (0x24A, bus 1): byte 2 VERSION_NUMBER, byte 3
+// STATE (TI_STATE), byte 4 VIOL, byte 6 RAMP_DOWN (firmware version > 1).
+// A TI1 violation or a state other than RUN withholds nonzero 0x249 torque; it
+// does not touch controls_allowed. Class 2/3 violations clear by themselves, and
+// the stock 0x243 path keeps its own checks. Host: CarState.ti_lkas_allowed.
+static bool mazda_ti1_feedback_seen = false;
+static uint32_t mazda_ti1_feedback_ts = 0U;
+static uint8_t mazda_ti1_state = 0U;
+static uint8_t mazda_ti1_viol = 0U;
+static bool mazda_ti1_ramp_down = false;
+
+// CAM_LKAS2 (0x249, bus 1) for the TI1: LKAS_REQUEST and its copy CHKSUM are
+// 12-bit (torque + 2048) in bytes 0-1 and 2-3; bytes 4-7 carry a fixed KEY.
+static const uint8_t MAZDA_TI1_KEY[4] = {0xC4U, 0x61U, 0xCEU, 0x60U};
+
+// With the camera present the host sends 0x243 and then 0x249 in the same frame,
+// and the TI1 is given the stock command itself (or zero). The tx hook records
+// the 0x243 torque it accepted, and a nonzero 0x249 must equal it, so the TI1 is
+// bounded by every 0x243 check (max, rate, driver torque, controls). Each 0x243
+// pairs with at most one 0x249, within a short window.
+#define MAZDA_TI1_PAIR_WINDOW_US 20000U
+static bool mazda_ti1_pair_pending = false;
+static int mazda_ti1_pair_torque = 0;
+static uint32_t mazda_ti1_pair_ts = 0U;
+
+static bool mazda_ti1_healthy(void) {
+  return mazda_ti1_feedback_seen && (mazda_ti1_state == MAZDA_TI_STATE_RUN) && (mazda_ti1_viol == 0U) &&
+    !mazda_ti1_ramp_down &&
+    (safety_get_ts_elapsed(microsecond_timer_get(), mazda_ti1_feedback_ts) <= MAZDA_TI_FEEDBACK_TIMEOUT_US);
+}
+
 // ACC integrity: 0x220 carries a checksum in byte 7 (seed 0x2a over bytes 0..6).
 static bool mazda_acc_checksum_valid(const uint8_t *data) {
   uint8_t sum = 0x2AU;
@@ -257,6 +289,12 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
     if (msg->addr == TI_STEER_TORQUE && mazda_gen1 && mazda_torque_interceptor) {
       int torque_driver_new = msg->data[0] - 127;
       update_sample(&torque_driver, torque_driver_new);
+
+      mazda_ti1_feedback_seen = true;
+      mazda_ti1_feedback_ts = microsecond_timer_get();
+      mazda_ti1_state = msg->data[3];
+      mazda_ti1_viol = msg->data[4];
+      mazda_ti1_ramp_down = (msg->data[2] > 1U) && (msg->data[6] != 0U);
     }
 
     // enter controls on rising edge of ACC, exit controls on ACC off
@@ -418,6 +456,12 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
       if (steer_torque_cmd_checks(desired_torque, -1, MAZDA_STEERING_LIMITS)) {
         tx = false;
       }
+
+      if (mazda_gen1 && mazda_torque_interceptor) {
+        mazda_ti1_pair_pending = true;
+        mazda_ti1_pair_torque = tx ? desired_torque : 0;
+        mazda_ti1_pair_ts = microsecond_timer_get();
+      }
     }
 
     // cruise buttons check
@@ -496,6 +540,40 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
     }
   }
 
+  if (mazda_gen1 && mazda_torque_interceptor && (msg->bus == (unsigned char)MAZDA_AUX) && (msg->addr == MAZDA_TI_LKAS)) {
+    const int desired_torque = (int)((((uint32_t)msg->data[0] & 0x0FU) << 8) | (uint32_t)msg->data[1]) - 2048;
+
+    // Only the frame layout the TI1 accepts: no stray high bits, CHKSUM equal to
+    // LKAS_REQUEST, and the fixed KEY.
+    bool well_formed = ((msg->data[0] & 0xF0U) == 0U) && (msg->data[2] == msg->data[0]) && (msg->data[3] == msg->data[1]);
+    for (int i = 0; i < 4; i++) {
+      well_formed = well_formed && (msg->data[4 + i] == MAZDA_TI1_KEY[i]);
+    }
+    if (!well_formed) {
+      tx = false;
+    }
+
+    if (mazda_no_fsc) {
+      // No camera, no 0x243: 0x249 is the only steering command and gets the
+      // standard checks itself.
+      if (steer_torque_cmd_checks(desired_torque, -1, MAZDA_STEERING_LIMITS)) {
+        tx = false;
+      }
+    } else {
+      const bool paired = mazda_ti1_pair_pending && (desired_torque == mazda_ti1_pair_torque) &&
+        (safety_get_ts_elapsed(microsecond_timer_get(), mazda_ti1_pair_ts) <= MAZDA_TI1_PAIR_WINDOW_US);
+      if ((desired_torque != 0) && (!paired || !lateral_controls_allowed())) {
+        tx = false;
+      }
+      mazda_ti1_pair_pending = false;
+    }
+
+    // Releasing torque (zero) stays allowed so the TI1 is never left holding a command.
+    if ((desired_torque != 0) && !mazda_ti1_healthy()) {
+      tx = false;
+    }
+  }
+
   mazda_aol_tx_commit(msg, tx && !relay_malfunction);
   return tx;
 }
@@ -562,6 +640,14 @@ static safety_config mazda_init(uint16_t param) {
   mazda_ti_clean_frames = 0U;
   mazda_ti_pause_ts = 0U;
   mazda_ti_end_pause();
+  mazda_ti1_feedback_seen = false;
+  mazda_ti1_feedback_ts = 0U;
+  mazda_ti1_state = 0U;
+  mazda_ti1_viol = 0U;
+  mazda_ti1_ramp_down = false;
+  mazda_ti1_pair_pending = false;
+  mazda_ti1_pair_torque = 0;
+  mazda_ti1_pair_ts = 0U;
 
   // MoreTore param flags select the generation and interceptors. Pure-stock
   // GEN1 keeps param 0 (Dom's stock-AOL configuration); the GEN1 bit is set
