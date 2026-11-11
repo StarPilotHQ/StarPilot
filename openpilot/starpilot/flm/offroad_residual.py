@@ -196,7 +196,11 @@ def analyze_stable_windows(windows, *, permitted=lambda: True):
     if not permitted():
       raise ValueError('Parked tracking analysis cancelled')
     chosen = _spread(sorted(rows, key=lambda w: (w.points[0].segment, w.points[0].mono_ns)), MAX_COHORT_WINDOWS)
-    training, heldout = tuple(chosen[::2]), tuple(chosen[1::2])
+    # Keep source-contiguous evidence within each role. Interleaving every
+    # six-second slice makes the recovered four-second detector blind at each
+    # artificial boundary. The two roles still share no original samples.
+    split = len(chosen) // 2
+    training, heldout = tuple(chosen[:split]), tuple(chosen[split:])
     if len(training) < 3 or len(heldout) < 3:
       results.append({'cohort': key, 'whole_windows': len(rows), 'reason': 'more_independent_stable_windows_required'})
       continue

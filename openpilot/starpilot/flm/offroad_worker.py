@@ -278,6 +278,7 @@ def recorded_recommendations(assessment, previous, report):
     roles = proof.get('roles', {})
     windows = sum(len(roles.get(role, {}).get('original_windows', ())) for role in ('training', 'heldout'))
     add(proof.get('frozen_training_profile'), windows, proof.get('reason', 'recorded_candidate_requires_automatic_checks'))
+    add(proof.get('observed_candidate'), windows, 'recorded_candidate_not_independently_confirmed')
     for proposal in roles.get('training', {}).get('coordinate_candidates', ()):
       add(proposal, windows, 'training_candidate_not_independently_confirmed')
   return [found[name] for name in NAMES if name in found]

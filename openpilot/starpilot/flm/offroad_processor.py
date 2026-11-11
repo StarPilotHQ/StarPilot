@@ -68,13 +68,33 @@ def window_demand(window):
   }
 
 
-def _separate_qualification(report, continuous):
+def _separate_qualification(report, continuous, *, proposal_windows=None):
   qualification = {}
+  spans = {} if proposal_windows is None else {w.identity: w for w in proposal_windows}
   for c in report['cohorts']:
     native = [w for w in continuous if cohort(w) == c['cohort']]
-    chosen = _spread(sorted(native, key=lambda w: (w.points[0].segment, w.points[0].mono_ns)), MAX_COHORT_WINDOWS)
-    c['qualification_roles'] = {role: {'windows': tuple(w.identity for w in chosen[offset::2])} for role, offset in (('training', 0), ('heldout', 1))}
-    qualification.update((w.identity, w) for w in chosen)
+    ordered = sorted(native, key=lambda w: (w.points[0].segment, w.points[0].mono_ns))
+    if proposal_windows is None:
+      chosen = _spread(ordered, MAX_COHORT_WINDOWS)
+      c['qualification_roles'] = {role: {'windows': tuple(w.identity for w in chosen[offset::2])} for role, offset in (('training', 0), ('heldout', 1))}
+      qualification.update((w.identity, w) for w in chosen)
+    elif all(role in c for role in ('training', 'heldout')):
+      # A native check must stay in the SAME original data role as the
+      # corresponding profile. Joining observations never joins holdout data.
+      c['qualification_roles'] = {}
+      training_end = max((spans[key].points[-1].segment, spans[key].points[-1].mono_ns) for key in c['training']['windows'])
+      heldout_start = min((spans[key].points[0].segment, spans[key].points[0].mono_ns) for key in c['heldout']['windows'])
+      if training_end >= heldout_start:
+        raise ValueError('Original Stable profile roles must not overlap')
+      for role in ('training', 'heldout'):
+        chosen = _spread([
+          w for w in ordered if (
+            (w.points[-1].segment, w.points[-1].mono_ns) <= training_end if role == 'training'
+            else (w.points[0].segment, w.points[0].mono_ns) >= heldout_start
+          )
+        ], MAX_COHORT_WINDOWS // 2)
+        c['qualification_roles'][role] = {'windows': tuple(w.identity for w in chosen)}
+        qualification.update((w.identity, w) for w in chosen)
   report['qualification_original_windows'] = [
     {
       'identity': w.identity,
@@ -490,7 +510,7 @@ def analyze_latest(params, root, previous, *, permitted):
     grade = stable_grades.get(key, 'continuous_original_control_metadata')
     report['tracking_source_grade'] = grade
     if grade == 'bookended_zero_route_tracking':
-      _separate_qualification(report, windows.get(key, ()))
+      _separate_qualification(report, windows.get(key, ()), proposal_windows=values)
     selected = {wid for c in report['cohorts'] for role in ('training', 'heldout') for wid in c.get(role, {}).get('windows', ())}
     report.update(
       original_context_sha256=key,
