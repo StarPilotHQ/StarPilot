@@ -128,7 +128,7 @@ def action_from_outputs(outputs: dict[str, np.ndarray], version: str, previous: 
     raise ValueError("invalid catalog model action contract")
   if version in ("v14", "v15", "v16"):
     curvature, acceleration = outputs["action"][0]
-    curvature = curvature / (100.0 if version == "v14" else max(1.0, v_ego) ** 2)
+    curvature = curvature / (100.0 if version == "v14" else max(2.5, v_ego) ** 2)
     stop = v_ego < 0.3 and acceleration < 0.1
   else:
     plan = outputs["plan"][0]
