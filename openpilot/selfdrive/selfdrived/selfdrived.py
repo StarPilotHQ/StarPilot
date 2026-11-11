@@ -1487,6 +1487,12 @@ class SelfdriveD:
       # An already-off PCM is not a new cruise cancellation. Only a fresh,
       # independently checked LAT source may replace the expired LAT-only proof.
       user_disable = any(event.userDisable and event.name != EventName.pcmDisable for event in self.events.to_msg())
+    if user_disable and fresh_successor and self.CP.brand == 'hyundai':
+      from openpilot.starpilot.car.hyundai.aol import physical_cancel_lateral_allowed
+      native = current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
+      if physical_cancel_lateral_allowed(self.CP, CS, intent, native, settings=self.aol_settings,
+          previous=decision, source_ns=source_ns, now_ns=now_ns, axis_session_id=self.aol_session_id):
+        user_disable = any(event.userDisable and event.name != EventName.buttonCancel for event in self.events.to_msg())
     if user_disable and fresh_successor and self.ford_source_deadline_supported():
       from openpilot.starpilot.car.ford.aol import physical_cancel_lateral_allowed
       native = current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
