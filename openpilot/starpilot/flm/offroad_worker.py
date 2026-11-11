@@ -14,7 +14,7 @@ from typing import Any
 
 from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES as NAMES
 from openpilot.starpilot.flm.learned_lifecycle import decode
-from openpilot.starpilot.flm.offroad_cache import AssessmentCache
+from openpilot.starpilot.flm.offroad_cache import AssessmentCache, MAX_CHECKPOINTS
 from openpilot.starpilot.flm.offroad_checks import qualify
 from openpilot.starpilot.flm.offroad_processor import analyze_latest, CompletedAssessment
 from openpilot.starpilot.flm.offroad_route import latest_route, LOCAL_ID, MAX_SEGMENTS
@@ -152,7 +152,7 @@ def quality_withdrawn(assessment, scope, values):
 
 
 def pending_routes(root, latest):
-  """Newest first, then two preceding logger inputs, oldest first; no fit selection."""
+  """Review the eight most recent logger inputs, newest first; no fit selection."""
   if not LOCAL_ID.fullmatch(latest['routeId']):
     return [latest]
   from openpilot.starpilot.galaxy.drive_history import DriveHistory
@@ -166,11 +166,11 @@ def pending_routes(root, latest):
     if not LOCAL_ID.fullmatch(route['routeId']):
       continue
     distance = (counter - int(route['routeId'].split('--')[0], 16)) % 2**32
-    if 1 <= distance <= 2 and route.get('segments') and all(s['files']['rlog'] for s in route['segments']):
+    if 1 <= distance < MAX_CHECKPOINTS and route.get('segments') and all(s['files']['rlog'] for s in route['segments']):
       candidates.append((distance, route['routeId'], route))
   if len({distance for distance, _, _ in candidates}) != len(candidates):
     raise ValueError('Ambiguous completed logger counter')
-  return [latest] + [route for _, _, route in sorted(candidates, reverse=True)]
+  return [latest] + [route for _, _, route in sorted(candidates)]
 
 
 def assess_next_drive(trial, assessment, scope, *, trial_started=True, recorded_backlog=False):

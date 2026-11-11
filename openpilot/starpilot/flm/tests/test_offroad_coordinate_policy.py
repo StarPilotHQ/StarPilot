@@ -24,10 +24,10 @@ class TestCompletedDriveBacklog(unittest.TestCase):
   def test_input_order_ignores_outcomes_and_refuses_ambiguous_or_partial_inventory(self):
     from openpilot.starpilot.flm.offroad_worker import pending_routes
 
-    routes = [self.route(i) for i in (16, 18, 17, 14, 19)]
+    routes = [self.route(i) for i in (16, 18, 17, 14, 19, 9)]
     inventory = {'scanIncomplete': False, 'routes': routes}
     with patch('openpilot.starpilot.galaxy.drive_history.DriveHistory.snapshot', return_value=inventory):
-      self.assertEqual(pending_routes('.', self.route(18)), [self.route(i) for i in (18, 16, 17)])
+      self.assertEqual(pending_routes('.', self.route(18)), [self.route(i) for i in (18, 17, 16, 14)])
       inventory['routes'].append(dict(self.route(17), routeId='00000011--bbbbbbbbbb'))
       with self.assertRaisesRegex(ValueError, 'Ambiguous'):
         pending_routes('.', self.route(18))
