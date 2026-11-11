@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
@@ -17,10 +18,8 @@ class TestFinalUnusableCrop(unittest.TestCase):
     if net:
       core.classifier_net = object()
     proposals = proposals if proposals is not None else [(.4, 0, (1400, 100, 1490, 237))]
-    core._collect_detector_classifier_proposals = lambda frame: proposals
     if control or custom:
       core.detector_classifier_expansions = list(model.DETECTOR_CLASSIFIER_EXPANSIONS)
-    core._iter_school_zone_read_crops = lambda crop: [(crop, 1.)]
     regions = iter(regulatory)
     region_count = [0]
 
@@ -28,7 +27,6 @@ class TestFinalUnusableCrop(unittest.TestCase):
       region_count[0] += 1
       return next(regions)
 
-    core._is_regulatory_speed_sign = color
     calls, identity_calls = [], []
     values = iter(reads) if reads is not None else None
 
@@ -44,9 +42,15 @@ class TestFinalUnusableCrop(unittest.TestCase):
       identity_calls.append(candidate)
       return len(identity_calls) == veto_at
 
-    core._classify_speed_limit_from_model = classify
     core._speed_face_filter = SimpleNamespace(reject_once=reject)
-    result = core._detect_sign_from_detector_classifier(np.zeros((1100, 2000, 3), dtype=np.uint8))
+    with patch.multiple(
+      core,
+      _collect_detector_classifier_proposals=lambda frame: proposals,
+      _iter_school_zone_read_crops=lambda crop: [(crop, 1.)],
+      _is_regulatory_speed_sign=color,
+      _classify_speed_limit_from_model=classify,
+    ):
+      result = core._detect_sign_from_detector_classifier(np.zeros((1100, 2000, 3), dtype=np.uint8))
     return result, core.latest_detector_proposal, calls, identity_calls
 
   def test_only_final_unusable_read_is_skipped(self):
