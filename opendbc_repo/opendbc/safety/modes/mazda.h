@@ -156,15 +156,18 @@ static bool mazda_ti1_ramp_down = false;
 // 12-bit (torque + 2048) in bytes 0-1 and 2-3; bytes 4-7 carry a fixed KEY.
 static const uint8_t MAZDA_TI1_KEY[4] = {0xC4U, 0x61U, 0xCEU, 0x60U};
 
-// With the camera present the host sends 0x243 and then 0x249 in the same frame,
-// and the TI1 is given the stock command itself (or zero). The tx hook records
-// the 0x243 torque it accepted, and a nonzero 0x249 must equal it, so the TI1 is
-// bounded by every 0x243 check (max, rate, driver torque, controls). Each 0x243
-// pairs with at most one 0x249, within a short window.
+// With the camera present the host sends 0x243 and then 0x249 in the same frame.
+// The tx hook records the 0x243 torque it accepted; a nonzero 0x249 must have its
+// sign and at most its magnitude, so the TI1 is bounded by every 0x243 check (max,
+// rate, driver torque, controls). Each 0x243 pairs with at most one 0x249, within
+// a short window. The TI1 channel is also rate-limited on its own from the last
+// command it was sent (mazda_ti1_last), so after an override or a fault it ramps
+// up from zero instead of jumping to the stock command.
 #define MAZDA_TI1_PAIR_WINDOW_US 20000U
 static bool mazda_ti1_pair_pending = false;
 static int mazda_ti1_pair_torque = 0;
 static uint32_t mazda_ti1_pair_ts = 0U;
+static int mazda_ti1_last = 0;
 
 static bool mazda_ti1_healthy(void) {
   return mazda_ti1_feedback_seen && (mazda_ti1_state == MAZDA_TI_STATE_RUN) && (mazda_ti1_viol == 0U) &&
@@ -549,27 +552,49 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
     for (int i = 0; i < 4; i++) {
       well_formed = well_formed && (msg->data[4 + i] == MAZDA_TI1_KEY[i]);
     }
+
+    // The order matters: a frame refused for its format or for TI1 health never
+    // reaches a torque limiter, so it cannot move the torque history.
+    bool ti1_allowed = false;
     if (!well_formed) {
-      tx = false;
-    }
-
-    if (mazda_no_fsc) {
-      // No camera, no 0x243: 0x249 is the only steering command and gets the
-      // standard checks itself.
-      if (steer_torque_cmd_checks(desired_torque, -1, MAZDA_STEERING_LIMITS)) {
-        tx = false;
+      ti1_allowed = false;
+    } else if (!mazda_ti1_healthy()) {
+      // The TI1 is not steering. Only a release passes, and the next command must
+      // ramp up from zero on both limiters.
+      ti1_allowed = (desired_torque == 0);
+      mazda_ti1_last = 0;
+      if (mazda_no_fsc) {
+        desired_torque_last = 0;
+        rt_torque_last = 0;
+        ts_torque_check_last = microsecond_timer_get();
       }
+    } else if (mazda_no_fsc) {
+      // No camera: 0x243 is not on the TX list, so 0x249 is the only steering
+      // command and the only input to the standard checks.
+      ti1_allowed = !steer_torque_cmd_checks(desired_torque, -1, MAZDA_STEERING_LIMITS);
+    } else if (desired_torque == 0) {
+      ti1_allowed = true;
     } else {
-      const bool paired = mazda_ti1_pair_pending && (desired_torque == mazda_ti1_pair_torque) &&
+      const bool paired = mazda_ti1_pair_pending &&
         (safety_get_ts_elapsed(microsecond_timer_get(), mazda_ti1_pair_ts) <= MAZDA_TI1_PAIR_WINDOW_US);
-      if ((desired_torque != 0) && (!paired || !lateral_controls_allowed())) {
-        tx = false;
-      }
-      mazda_ti1_pair_pending = false;
+      const bool same_sign = (desired_torque > 0) == (mazda_ti1_pair_torque > 0);
+      const bool within_stock = (mazda_ti1_pair_torque != 0) && same_sign &&
+        (SAFETY_ABS(desired_torque) <= SAFETY_ABS(mazda_ti1_pair_torque));
+      // The TI1's own ramp: up by at most max_rate_up from the last command it was
+      // sent in this direction (from zero after a reversal). Down is bounded by the
+      // stock command, which is itself rate-limited.
+      const int ti1_base = (((desired_torque > 0) == (mazda_ti1_last > 0)) && (mazda_ti1_last != 0)) ? SAFETY_ABS(mazda_ti1_last) : 0;
+      const bool ramped = SAFETY_ABS(desired_torque) <= (ti1_base + MAZDA_STEERING_LIMITS.max_rate_up);
+      ti1_allowed = paired && within_stock && ramped && lateral_controls_allowed();
     }
 
-    // Releasing torque (zero) stays allowed so the TI1 is never left holding a command.
-    if ((desired_torque != 0) && !mazda_ti1_healthy()) {
+    if (!mazda_no_fsc) {
+      mazda_ti1_pair_pending = false;
+      // What the TI1 last received; a refused frame restarts its ramp from zero,
+      // as the standard limiter does on a violation.
+      mazda_ti1_last = ti1_allowed ? desired_torque : 0;
+    }
+    if (!ti1_allowed) {
       tx = false;
     }
   }
@@ -596,6 +621,14 @@ static safety_config mazda_init(uint16_t param) {
                                     {MAZDA_RADAR_363, 0, 8, .check_relay = true}, {MAZDA_RADAR_364, 0, 8, .check_relay = true}, {MAZDA_RADAR_365, 0, 8, .check_relay = true}, {MAZDA_RADAR_366, 0, 8, .check_relay = true},
                                     {MAZDA_RADAR_499, 0, 8, .check_relay = true}};
   static const CanMsg MAZDA_TI_RI_TX_MSGS[] = {{MAZDA_LKAS, 0, 8, .check_relay = true}, {MAZDA_TI_LKAS, 1, 8, .check_relay = false}, {MAZDA_CRZ_BTNS, 0, 8, .check_relay = false}, {MAZDA_LKAS_HUD, 0, 8, .check_relay = true},
+                                  {MAZDA_CRZ_CTRL, 0, 8, .check_relay = true}, {MAZDA_CRZ_INFO, 0, 8, .check_relay = true}, {MAZDA_RADAR_361, 0, 8, .check_relay = true}, {MAZDA_RADAR_362, 0, 8, .check_relay = true},
+                                  {MAZDA_RADAR_363, 0, 8, .check_relay = true}, {MAZDA_RADAR_364, 0, 8, .check_relay = true}, {MAZDA_RADAR_365, 0, 8, .check_relay = true}, {MAZDA_RADAR_366, 0, 8, .check_relay = true},
+                                  {MAZDA_RADAR_499, 0, 8, .check_relay = true}};
+
+  // TI1 without the camera (NoFSC): 0x243 is not sent, and must not be allowed,
+  // or it could drive the same torque limiter as 0x249.
+  static const CanMsg MAZDA_TI_NO_FSC_TX_MSGS[] = {{MAZDA_TI_LKAS, 1, 8, .check_relay = false}, {MAZDA_CRZ_BTNS, 0, 8, .check_relay = false}, {MAZDA_LKAS_HUD, 0, 8, .check_relay = true}};
+  static const CanMsg MAZDA_TI_RI_NO_FSC_TX_MSGS[] = {{MAZDA_TI_LKAS, 1, 8, .check_relay = false}, {MAZDA_CRZ_BTNS, 0, 8, .check_relay = false}, {MAZDA_LKAS_HUD, 0, 8, .check_relay = true},
                                   {MAZDA_CRZ_CTRL, 0, 8, .check_relay = true}, {MAZDA_CRZ_INFO, 0, 8, .check_relay = true}, {MAZDA_RADAR_361, 0, 8, .check_relay = true}, {MAZDA_RADAR_362, 0, 8, .check_relay = true},
                                   {MAZDA_RADAR_363, 0, 8, .check_relay = true}, {MAZDA_RADAR_364, 0, 8, .check_relay = true}, {MAZDA_RADAR_365, 0, 8, .check_relay = true}, {MAZDA_RADAR_366, 0, 8, .check_relay = true},
                                   {MAZDA_RADAR_499, 0, 8, .check_relay = true}};
@@ -648,6 +681,7 @@ static safety_config mazda_init(uint16_t param) {
   mazda_ti1_pair_pending = false;
   mazda_ti1_pair_torque = 0;
   mazda_ti1_pair_ts = 0U;
+  mazda_ti1_last = 0;
 
   // MoreTore param flags select the generation and interceptors. Pure-stock
   // GEN1 keeps param 0 (Dom's stock-AOL configuration); the GEN1 bit is set
@@ -690,7 +724,11 @@ static safety_config mazda_init(uint16_t param) {
     } else {
       SET_RX_CHECKS(mazda_rx_checks, ret);
     }
-    if (mazda_radar_interceptor && mazda_torque_interceptor) {
+    if (mazda_radar_interceptor && mazda_torque_interceptor && mazda_no_fsc) {
+      SET_TX_MSGS(MAZDA_TI_RI_NO_FSC_TX_MSGS, ret);
+    } else if (mazda_torque_interceptor && mazda_no_fsc) {
+      SET_TX_MSGS(MAZDA_TI_NO_FSC_TX_MSGS, ret);
+    } else if (mazda_radar_interceptor && mazda_torque_interceptor) {
       SET_TX_MSGS(MAZDA_TI_RI_TX_MSGS, ret);
     } else if (mazda_radar_interceptor) {
       SET_TX_MSGS(MAZDA_RI_TX_MSGS, ret);

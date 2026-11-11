@@ -5,7 +5,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
 from opendbc.car.mazda.values import CAR, DBC, LKAS_LIMITS, MazdaSafetyFlags, TI_STATE, TI2_HEALTH, CarControllerParams
 from opendbc.car.mazda.stock_aol import admitted as aol_admitted
-from opendbc.car.mazda.torque_interceptor import violation_is_permanent
+from opendbc.car.mazda.torque_interceptor import TI1_FEEDBACK_FRESH_NS, violation_is_permanent
 
 ButtonType = structs.CarState.ButtonEvent.Type
 
@@ -60,6 +60,7 @@ class CarState(CarStateBase):
     self.ti_violation = 0
     self.ti_error = 0
     self.ti_lkas_allowed = False
+    self.ti_feedback_fresh = False
 
     # GEN2 TI2 health, mirroring panda's model frame for frame (see TI2_HEALTH).
     self.ti2_clean_frames = 0          # consecutive clean RUN frames; 0 until TI2 proves health
@@ -111,12 +112,18 @@ class CarState(CarStateBase):
       self.ti_state = cp_body.vl["TI_FEEDBACK"]["STATE"] # DISCOVER = 0, OFF = 1, DRIVER_OVER = 2, RUN=3
       self.ti_violation = cp_body.vl["TI_FEEDBACK"]["VIOL"] # 0 = no violation
       self.ti_error = cp_body.vl["TI_FEEDBACK"]["ERROR"] # 0 = no error
-      if self.ti_version > 1:
-        self.ti_ramp_down = (cp_body.vl["TI_FEEDBACK"]["RAMP_DOWN"] == 1)
+      # Recomputed every update, with panda's predicate (version > 1 and the byte nonzero).
+      self.ti_ramp_down = self.ti_version > 1 and cp_body.vl["TI_FEEDBACK"]["RAMP_DOWN"] != 0
+      # Freshness: the last TI_FEEDBACK frame's receive time against this update's. Panda refuses torque
+      # 200 ms after the last frame; the host stops a little earlier so its frames are never the refused ones.
+      feedback_ns = cp_body.ts_nanos["TI_FEEDBACK"]["STATE"]
+      self.ti_feedback_fresh = feedback_ns > 0 and (cp_body._last_update_nanos - feedback_ns) <= TI1_FEEDBACK_FRESH_NS
 
       ret.steeringPressed = abs(ret.steeringTorque) > LKAS_LIMITS.TI_STEER_THRESHOLD
-      # Same rule as panda's mazda_ti1_healthy(): nonzero 0x249 only in RUN, with no violation, not ramping down.
-      self.ti_lkas_allowed = not self.ti_ramp_down and self.ti_state == TI_STATE.RUN and self.ti_violation == 0
+      # Same rule as panda's mazda_ti1_healthy(): nonzero 0x249 only with fresh feedback, in RUN, with no
+      # violation, not ramping down.
+      self.ti_lkas_allowed = (self.ti_feedback_fresh and not self.ti_ramp_down and self.ti_state == TI_STATE.RUN and
+                              self.ti_violation == 0)
     else:
       ret.steeringTorque = cp.vl["STEER_TORQUE"]["STEER_TORQUE_SENSOR"]
       ret.steeringPressed = abs(ret.steeringTorque) > LKAS_LIMITS.STEER_THRESHOLD
@@ -179,7 +186,10 @@ class CarState(CarStateBase):
     # Check if LKAS is disabled due to lack of driver torque when all other states indicate
     # it should be enabled (steer lockout). Don't warn until we actually get lkas active
     # and lose it again, i.e, after initial lkas activation
-    ret.steerFaultTemporary = self.lkas_allowed_speed and lkas_blocked and not self.ti_lkas_allowed
+    # On a TI car the stock EPS lockout plays no part in steering (it is set whenever the driver steers), so
+    # TI faults alone decide its alerts (below).
+    ret.steerFaultTemporary = (self.lkas_allowed_speed and lkas_blocked and
+                               not self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR)
 
     self.acc_active_last = ret.cruiseState.enabled
 
@@ -201,7 +211,8 @@ class CarState(CarStateBase):
       # class 1 needs a power cycle. DRIVER_OVER is the driver steering and RAMP_DOWN a hand-back, neither
       # is a fault. DISCOVER/OFF without a code (start-up) is temporary.
       ti_permanent = violation_is_permanent(self.ti_violation)
-      ti_unavailable = self.ti_violation != 0 or self.ti_state not in (TI_STATE.RUN, TI_STATE.DRIVER_OVER)
+      ti_unavailable = (self.ti_violation != 0 or self.ti_state not in (TI_STATE.RUN, TI_STATE.DRIVER_OVER) or
+                        not self.ti_feedback_fresh)
       ret.steerFaultPermanent = ret.steerFaultPermanent or ti_permanent
       ret.steerFaultTemporary = ret.steerFaultTemporary or (ti_unavailable and not ti_permanent)
     self.cp_cam = cp_cam
@@ -382,9 +393,9 @@ class CarState(CarStateBase):
       cam_signals.append(("CAM_TRAFFIC_SIGNS", 0))
 
     body = CANParser(DBC[CP.carFingerprint][Bus.pt], [], 1)
-    if CP.flags & (MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.GEN3):
-      # Register 0x24B now, exactly as a first vl[] access would (no frequency),
-      # so the TI2 health model counts every frame from the first one, as panda does.
+    if CP.flags & (MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.GEN3 | MazdaSafetyFlags.TORQUE_INTERCEPTOR):
+      # Register TI_FEEDBACK (0x24B TI2, 0x24A TI1) now, exactly as a first vl[] access would (no
+      # frequency), so the health models see every frame from the first one, as panda does.
       _ = body.vl["TI_FEEDBACK"]
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),

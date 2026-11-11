@@ -4,7 +4,7 @@ from opendbc.car.lateral import apply_driver_steer_torque_limits
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.mazda import mazdacan
 from opendbc.car.mazda.stock_aol import gen2_qualified
-from opendbc.car.mazda.torque_interceptor import TiCeilingGuard
+from opendbc.car.mazda.torque_interceptor import TiCeilingGuard, ti1_follow
 from opendbc.car.mazda.values import CarControllerParams, Buttons, MazdaSafetyFlags
 from openpilot.common.realtime import DT_CTRL
 from openpilot.common.filter_simple import FirstOrderFilter
@@ -67,13 +67,19 @@ class CarController(CarControllerBase):
                                                         CS.out.steeringTorque, self.ccp)
 
     if self.ti1_guard is not None:
-      # GEN1 TI1: the TI is sent the stock command itself, or zero while it cannot steer. Panda enforces
-      # exactly that pairing on 0x249 (safety/modes/mazda.h).
-      ti_apply_torque = apply_torque if CS.ti_lkas_allowed else 0
-      if self.CP.flags & MazdaSafetyFlags.NO_FSC and not CS.ti_lkas_allowed:
-        # Without the camera 0x249 is the only steering frame, and panda rate-limits it from what was last
-        # sent: restart the ramp from zero instead of jumping back to a command the TI never received.
-        apply_torque = 0
+      # GEN1 TI1 (panda: the 0x249 check in safety/modes/mazda.h).
+      if not CS.ti_lkas_allowed:
+        ti_apply_torque = 0
+        if self.CP.flags & MazdaSafetyFlags.NO_FSC:
+          # Without the camera 0x249 is the only steering frame, and panda restarts its limiter from zero
+          # while the TI is not steering: restart the ramp here too.
+          apply_torque = 0
+      elif self.CP.flags & MazdaSafetyFlags.NO_FSC:
+        ti_apply_torque = apply_torque
+      else:
+        # With the camera the TI follows the stock command, but ramps up on its own from what it was last
+        # sent, so it comes back from an override or a fault at STEER_DELTA_UP per frame, not in one step.
+        ti_apply_torque = ti1_follow(apply_torque, self.ti_apply_torque_last, self.ccp.STEER_DELTA_UP)
       ti_cap = self.ti1_guard.update(ti_apply_torque)
       if ti_cap is not None:
         # Both channels, so they stay one command and the next frame's ramp starts from what was sent.

@@ -111,10 +111,9 @@ TI1_KEY = 3294744160
 TI_RUN, TI_DRIVER_OVER, TI_OFF = 3, 2, 1
 
 
-class TestMazdaTorqueInterceptorSafety(TestMazdaSafety):
-  """Gen1 with the original Torque Interceptor: driver torque comes from the interceptor on bus 1."""
-  TX_MSGS = [[0x243, 0], [0x249, 1], [0x09d, 0], [0x440, 0]]
-  SAFETY_PARAM = MazdaSafetyFlags.GEN1 | MazdaSafetyFlags.TORQUE_INTERCEPTOR
+class Ti1Common:
+  """TI1 (GEN1 Torque Interceptor) rules shared by the camera and NoFSC configurations."""
+  TI_STEER_STEP = 10  # MAZDA_STEERING_LIMITS.max_rate_up
 
   def setUp(self):
     super().setUp()
@@ -131,59 +130,17 @@ class TestMazdaTorqueInterceptorSafety(TestMazdaSafety):
     values = {"LKAS_REQUEST": torque, "CHKSUM": torque if chksum is None else chksum, "KEY": key}
     return self.packer.make_can_msg_safety("CAM_LKAS2", 1, values)
 
+  def _steer(self, torque):
+    """One host frame steering `torque` on every channel this configuration sends; returns the TI result."""
+    raise NotImplementedError
+
   def _engaged_with(self, torque):
-    """Engage, then ramp the stock 0x243 channel to `torque` the way the host would."""
+    """Engage, then ramp every channel to `torque` the way the host would."""
     self.safety.set_controls_allowed(1)
     self._set_prev_torque(0)
-    step = self.MAX_RATE_UP if torque > 0 else -self.MAX_RATE_UP
+    step = self.TI_STEER_STEP if torque > 0 else -self.TI_STEER_STEP
     for t in range(step, torque + step, step):
-      self.assertTrue(self._tx(self._torque_cmd_msg(t)))
-      self.assertTrue(self._tx(self._ti1_cmd_msg(t)))
-
-  def test_ti1_follows_the_accepted_stock_command(self):
-    self._engaged_with(100)
-    self.assertTrue(self._tx(self._torque_cmd_msg(110)))
-    self.assertTrue(self._tx(self._ti1_cmd_msg(110)))
-
-  def test_ti1_rejects_a_different_command(self):
-    self._engaged_with(100)
-    self.assertTrue(self._tx(self._torque_cmd_msg(110)))
-    self.assertFalse(self._tx(self._ti1_cmd_msg(120)))
-    self.assertTrue(self._tx(self._torque_cmd_msg(110)))
-    self.assertFalse(self._tx(self._ti1_cmd_msg(-110)))
-
-  def test_ti1_needs_a_fresh_stock_command(self):
-    self._engaged_with(100)
-    # no 0x243 before it
-    self.assertFalse(self._tx(self._ti1_cmd_msg(100)))
-    # each 0x243 pairs with one 0x249 only
-    self.assertTrue(self._tx(self._torque_cmd_msg(100)))
-    self.assertTrue(self._tx(self._ti1_cmd_msg(100)))
-    self.assertFalse(self._tx(self._ti1_cmd_msg(100)))
-    # and only within the pairing window
-    self.safety.set_timer(0)
-    self.assertTrue(self._tx(self._torque_cmd_msg(100)))
-    self.safety.set_timer(20001)
-    self.assertFalse(self._tx(self._ti1_cmd_msg(100)))
-
-  def test_ti1_blocked_when_the_stock_command_is_rejected(self):
-    self._engaged_with(100)
-    self.assertFalse(self._tx(self._torque_cmd_msg(400)))  # rate violation
-    self.assertFalse(self._tx(self._ti1_cmd_msg(400)))
-    self.safety.set_controls_allowed(0)
-    self.assertFalse(self._tx(self._torque_cmd_msg(10)))
-    self.assertFalse(self._tx(self._ti1_cmd_msg(10)))
-
-  def test_ti1_resumes_at_the_stock_command(self):
-    # MoreTore's design: while the TI is in DRIVER_OVER the host sends it zero and keeps ramping 0x243; when
-    # it is back in RUN it is sent the stock command again. The stock channel's checks bound that value.
-    self._engaged_with(200)
-    self._rx(self._ti1_feedback_msg(state=TI_DRIVER_OVER))
-    self.assertTrue(self._tx(self._torque_cmd_msg(210)))
-    self.assertTrue(self._tx(self._ti1_cmd_msg(0)))
-    self._rx(self._ti1_feedback_msg())
-    self.assertTrue(self._tx(self._torque_cmd_msg(220)))
-    self.assertTrue(self._tx(self._ti1_cmd_msg(220)))
+      self.assertTrue(self._steer(t))
 
   def test_ti1_zero_always_allowed(self):
     for controls in (0, 1):
@@ -202,24 +159,31 @@ class TestMazdaTorqueInterceptorSafety(TestMazdaSafety):
 
   def test_ti1_unhealthy_blocks_torque(self):
     unhealthy = {
-      "violation": self._ti1_feedback_msg(viol=0x11),
-      "violation in RUN": self._ti1_feedback_msg(state=TI_RUN, viol=0x33),
+      "violation": self._ti1_feedback_msg(state=TI_OFF, viol=0x11),
+      "violation in RUN": self._ti1_feedback_msg(viol=0x33),
       "driver override": self._ti1_feedback_msg(state=TI_DRIVER_OVER),
       "off": self._ti1_feedback_msg(state=TI_OFF),
       "discover": self._ti1_feedback_msg(state=0),
       "ramp down": self._ti1_feedback_msg(version=2, ramp_down=1),
+      "ramp down, nonzero byte": self._ti1_feedback_msg(version=2, ramp_down=2),
     }
     for name, feedback in unhealthy.items():
       with self.subTest(name):
         self._engaged_with(100)
         self._rx(feedback)
-        self.assertTrue(self._tx(self._torque_cmd_msg(110)))
-        self.assertFalse(self._tx(self._ti1_cmd_msg(110)))
-        # not a disengagement: the stock path and controls are untouched
+        self.assertFalse(self._steer(100))
+        # not a disengagement
         self.assertTrue(self.safety.get_controls_allowed())
         self._rx(self._ti1_feedback_msg())
 
   def test_ti1_ramp_down_ignored_on_version_1(self):
+    self._rx(self._ti1_feedback_msg(version=1, ramp_down=1))
+    self._engaged_with(100)
+
+  def test_ti1_ramp_down_clears_with_a_version_1_frame(self):
+    self._rx(self._ti1_feedback_msg(version=2, ramp_down=1))
+    self.safety.set_controls_allowed(1)
+    self.assertFalse(self._steer(self.TI_STEER_STEP))
     self._rx(self._ti1_feedback_msg(version=1, ramp_down=1))
     self._engaged_with(100)
 
@@ -228,76 +192,125 @@ class TestMazdaTorqueInterceptorSafety(TestMazdaSafety):
     self.safety.set_safety_hooks(self.SAFETY_MODEL, self.SAFETY_PARAM)
     self.safety.set_controls_allowed(1)
     self._set_prev_torque(0)
-    self.assertTrue(self._tx(self._torque_cmd_msg(10)))
-    self.assertFalse(self._tx(self._ti1_cmd_msg(10)))
+    self.assertFalse(self._steer(self.TI_STEER_STEP))
 
   def test_ti1_stale_feedback_blocks_torque(self):
     self.safety.set_timer(0)
     self._rx(self._ti1_feedback_msg())
     self._engaged_with(100)
+    self.safety.set_timer(200000)
+    self.assertTrue(self._steer(110))
     self.safety.set_timer(200001)
-    self.assertTrue(self._tx(self._torque_cmd_msg(110)))
+    self.assertFalse(self._steer(110))
+
+  def test_ti1_ramps_from_zero_after_the_ti_stops_steering(self):
+    # Review finding: commands refused while the TI1 was not steering must not move its ramp. After
+    # DRIVER_OVER, a return to 110 is refused; the ramp restarts at one step.
+    self._engaged_with(100)
+    self._rx(self._ti1_feedback_msg(state=TI_DRIVER_OVER))
+    for t in range(10, 110, 10):
+      self.assertFalse(self._steer(t))
+    self._rx(self._ti1_feedback_msg())
+    self.assertFalse(self._steer(110))
+    self.assertTrue(self._steer(self.TI_STEER_STEP))
+
+
+class TestMazdaTorqueInterceptorSafety(Ti1Common, TestMazdaSafety):
+  """Gen1 with the original Torque Interceptor and the camera: 0x243 and 0x249 every frame."""
+  TX_MSGS = [[0x243, 0], [0x249, 1], [0x09d, 0], [0x440, 0]]
+  SAFETY_PARAM = MazdaSafetyFlags.GEN1 | MazdaSafetyFlags.TORQUE_INTERCEPTOR
+
+  def _steer(self, torque, ti=None):
+    """Stock 0x243 first, then 0x249 (the host's order). The stock frame is expected to pass; returns the TI's."""
+    self._tx(self._torque_cmd_msg(torque))
+    return self._tx(self._ti1_cmd_msg(torque if ti is None else ti))
+
+  def test_ti1_follows_the_accepted_stock_command(self):
+    self._engaged_with(100)
+    self.assertTrue(self._steer(110))
+
+  def test_ti1_may_be_below_the_stock_command(self):
+    self._engaged_with(100)
+    self.assertTrue(self._steer(110, ti=50))
+    self.assertTrue(self._steer(120, ti=60))
+
+  def test_ti1_rejects_more_than_or_opposite_to_the_stock_command(self):
+    self._engaged_with(100)
+    self.assertFalse(self._steer(110, ti=115))
+    self._engaged_with(100)
+    self.assertFalse(self._steer(110, ti=-10))
+
+  def test_ti1_needs_its_own_stock_command(self):
+    self._engaged_with(100)
+    self.assertFalse(self._tx(self._ti1_cmd_msg(100)))           # no 0x243 before it
+    self.assertTrue(self._tx(self._torque_cmd_msg(100)))
+    self.assertFalse(self._tx(self._ti1_cmd_msg(100)))           # its ramp restarted after the refusal
+    self.assertTrue(self._tx(self._torque_cmd_msg(100)))
+    self.assertTrue(self._tx(self._ti1_cmd_msg(10)))
+    self.assertFalse(self._tx(self._ti1_cmd_msg(10)))            # each 0x243 pairs once
+
+  def test_ti1_pairing_window(self):
+    for gap, ok in ((20000, True), (20001, False)):
+      with self.subTest(gap=gap):
+        self.safety.set_timer(0)
+        self._rx(self._ti1_feedback_msg())
+        self._engaged_with(100)
+        self.assertTrue(self._tx(self._torque_cmd_msg(100)))
+        self.safety.set_timer(gap)
+        self.assertEqual(ok, self._tx(self._ti1_cmd_msg(100)))
+
+  def test_ti1_blocked_when_the_stock_command_is_rejected(self):
+    self._engaged_with(100)
+    self.assertFalse(self._tx(self._torque_cmd_msg(400)))  # rate violation
     self.assertFalse(self._tx(self._ti1_cmd_msg(110)))
+    self.safety.set_controls_allowed(0)
+    self.assertFalse(self._tx(self._torque_cmd_msg(10)))
+    self.assertFalse(self._tx(self._ti1_cmd_msg(10)))
+
+  def test_ti1_ramps_back_after_an_override(self):
+    # The stock channel keeps its command through the override; the TI1 is not sent it in one step, it
+    # ramps back by max_rate_up per frame.
+    self._engaged_with(200)
+    self._rx(self._ti1_feedback_msg(state=TI_DRIVER_OVER))
+    self.assertTrue(self._steer(200, ti=0))
+    self._rx(self._ti1_feedback_msg())
+    self.assertFalse(self._steer(200))
+    for ti in range(10, 210, 10):
+      self.assertTrue(self._steer(200, ti=ti))
+    self.assertTrue(self._steer(200))
 
 
-class TestMazdaTorqueInterceptorNoFscSafety(TestMazdaTorqueInterceptorSafety):
-  """Gen1 TI1 without the camera: 0x249 is the only steering command and gets the full torque checks."""
+class TestMazdaTorqueInterceptorNoFscSafety(Ti1Common, TestMazdaSafety):
+  """Gen1 TI1 without the camera: 0x249 is the only steering command and gets the full torque checks,
+  and 0x243 is not allowed at all."""
+  TX_MSGS = [[0x249, 1], [0x09d, 0], [0x440, 0]]
+  RELAY_MALFUNCTION_ADDRS = {0: (0x440,)}
+  FWD_BLACKLISTED_ADDRS = {2: [0x440]}
   SAFETY_PARAM = MazdaSafetyFlags.GEN1 | MazdaSafetyFlags.TORQUE_INTERCEPTOR | MazdaSafetyFlags.NO_FSC
 
   def _torque_cmd_msg(self, torque, steer_req=1):
     return self._ti1_cmd_msg(torque)
 
-  def _engaged_with(self, torque):
+  def _steer(self, torque):
+    return self._tx(self._ti1_cmd_msg(torque))
+
+  def test_stock_command_not_allowed(self):
+    # Review finding: 0x243 shared the torque limiter with 0x249. It is no longer on the TX list, so it can
+    # neither pass nor advance 0x249's ramp.
     self.safety.set_controls_allowed(1)
     self._set_prev_torque(0)
-    step = self.MAX_RATE_UP if torque > 0 else -self.MAX_RATE_UP
-    for t in range(step, torque + step, step):
-      self.assertTrue(self._tx(self._ti1_cmd_msg(t)))
+    stock = self.packer.make_can_msg_safety("CAM_LKAS", 0, {"LKAS_REQUEST": 10})
+    self.assertFalse(self._tx(stock))
+    self.assertFalse(self._steer(20))
+    self.assertTrue(self._steer(10))
 
-  # The pairing tests describe the camera configuration only.
-  def test_ti1_follows_the_accepted_stock_command(self):
-    pass
-
-  def test_ti1_rejects_a_different_command(self):
-    pass
-
-  def test_ti1_needs_a_fresh_stock_command(self):
-    pass
-
-  def test_ti1_blocked_when_the_stock_command_is_rejected(self):
-    pass
-
-  def test_ti1_resumes_at_the_stock_command(self):
-    # Without the camera the TI's ramp restarts from zero after an override (carcontroller).
-    self._engaged_with(200)
-    self._rx(self._ti1_feedback_msg(state=TI_DRIVER_OVER))
-    self.assertTrue(self._tx(self._ti1_cmd_msg(0)))
-    self._rx(self._ti1_feedback_msg())
-    self.assertFalse(self._tx(self._ti1_cmd_msg(200)))
-    self.assertTrue(self._tx(self._ti1_cmd_msg(self.MAX_RATE_UP)))
-
-  def test_ti1_unhealthy_blocks_torque(self):
-    for viol, state in ((0x11, TI_OFF), (0, TI_DRIVER_OVER), (0x33, TI_RUN)):
-      with self.subTest(viol=viol, state=state):
-        self._engaged_with(100)
-        self._rx(self._ti1_feedback_msg(state=state, viol=viol))
-        self.assertFalse(self._tx(self._ti1_cmd_msg(100)))
-        self.assertTrue(self.safety.get_controls_allowed())
-        self._rx(self._ti1_feedback_msg())
-
-  def test_ti1_no_feedback_blocks_torque(self):
-    self.safety.init_tests()
-    self.safety.set_safety_hooks(self.SAFETY_MODEL, self.SAFETY_PARAM)
+  def test_malformed_frame_does_not_advance_the_ramp(self):
+    # Review finding: a refused malformed 10 let a following 20 through.
     self.safety.set_controls_allowed(1)
     self._set_prev_torque(0)
-    self.assertFalse(self._tx(self._ti1_cmd_msg(10)))
-
-  def test_ti1_stale_feedback_blocks_torque(self):
-    self.safety.set_timer(0)
-    self._rx(self._ti1_feedback_msg())
-    self._engaged_with(100)
-    self.safety.set_timer(200001)
-    self.assertFalse(self._tx(self._ti1_cmd_msg(100)))
+    self.assertFalse(self._tx(self._ti1_cmd_msg(10, key=TI1_KEY + 1)))
+    self.assertFalse(self._steer(20))
+    self.assertTrue(self._steer(10))
 
   def test_realtime_limits(self):
     # common.DriverTorqueSteeringSafetyTest.test_realtime_limits, with the TI1 feedback kept fresh across

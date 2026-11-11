@@ -45,6 +45,10 @@ VIOLATIONS: dict[int, tuple[str, int, str]] = {
 # Class 1 violations stay until the TI is power cycled.
 PERMANENT_CLASS = 1
 
+# Panda refuses nonzero 0x249 once TI_FEEDBACK is 200 ms old (MAZDA_TI_FEEDBACK_TIMEOUT_US). The host judges
+# freshness when it builds the frame, which panda checks a little later, so it stops sooner.
+TI1_FEEDBACK_FRESH_NS = 150_000_000
+
 
 def violation_name(code: int) -> str:
   """'0x33 TK_WLOAD (class 2)' for a known code, '0x5a (unknown)' otherwise, '' for none."""
@@ -59,6 +63,17 @@ def violation_is_permanent(code: int) -> bool:
   either way (car state and panda both require VIOL == 0), and only the alert differs."""
   entry = VIOLATIONS.get(code)
   return entry is not None and entry[1] == PERMANENT_CLASS
+
+
+def ti1_follow(stock: int, last: int, rate_up: int) -> int:
+  """The TI1 command with the camera present: the stock command's sign, at most its magnitude, and at most
+  `rate_up` above the last command the TI was sent in that direction (from zero after a reversal).
+  Mirrors the 0x249 rule in safety/modes/mazda.h."""
+  if stock == 0:
+    return 0
+  base = abs(last) if last != 0 and (last > 0) == (stock > 0) else 0
+  magnitude = min(abs(stock), base + rate_up)
+  return magnitude if stock > 0 else -magnitude
 
 
 class TiCeilingGuard:

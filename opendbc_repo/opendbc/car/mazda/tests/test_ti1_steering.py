@@ -4,9 +4,6 @@ The controller and panda are run together: every 0x243/0x249 frame the TI1 contr
 script (ramp, a held ceiling, a driver override, a violation, recovery) must pass panda's TI1 checks, so the
 two can never disagree in a way that drops 0x249 frames (the TI faults on a 100 ms CAN gap).
 """
-from collections import defaultdict
-from types import SimpleNamespace
-
 import pytest
 
 from opendbc.can import CANPacker
@@ -79,31 +76,39 @@ def test_violation_names_and_classes():
 # --- the car controller and panda together ---
 
 class Loop:
+  """The car controller and panda, with the real CarState and parsers in between, one 100 Hz frame per step."""
   def __init__(self, flags):
     self.flags = flags
-    self.ctl = CarController({Bus.pt: "mazda_2017"}, cp(flags))
+    self.CP = cp(flags)
+    self.ctl = CarController({Bus.pt: "mazda_2017"}, self.CP)
     self.ctl.learning_projection_observer = None
     self.ctl.params = FakeParams()
+    self.cs = CarState(self.CP)
+    self.parsers = CarState.get_can_parsers(self.CP)
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.mazda, flags)
     self.safety.init_tests()
     self.safety.set_controls_allowed(1)
-    self.now = 0
-    self.sent = []          # (stock, ti) per frame
+    self.now = 0            # us
+    self.sent = []          # (stock, ti, host ti_lkas_allowed) per frame
 
-  def step(self, torque, ti_state=TI_STATE.RUN, viol=0):
+  def step(self, torque, ti_state=TI_STATE.RUN, viol=0, feedback=True, version=1, ramp_down=0):
     self.now += 10_000
     self.safety.set_timer(self.now)
-    fb = PACKER.make_can_msg("TI_FEEDBACK", 1, {"TI_TORQUE_SENSOR": 0, "STATE": ti_state, "VIOL": viol})
-    assert self.safety.safety_rx_hook(make_msg(1, 0x24A, dat=bytes(fb[1])))
+    frames = []
+    if feedback:
+      fb = PACKER.make_can_msg("TI_FEEDBACK", 1, {"TI_TORQUE_SENSOR": 0, "STATE": ti_state, "VIOL": viol,
+                                                  "VERSION_NUMBER": version, "RAMP_DOWN": ramp_down})
+      assert self.safety.safety_rx_hook(make_msg(1, 0x24A, dat=bytes(fb[1])))
+      frames.append(fb)
+    for parser in self.parsers.values():
+      parser.update([self.now * 1000, frames])
+    self.cs.out = self.cs.update(self.parsers)
 
     cc = structs.CarControl()
     cc.latActive = True
     cc.actuators.torque = torque
-    ti_allowed = ti_state == TI_STATE.RUN and viol == 0
-    cs = SimpleNamespace(out=structs.CarState(), cam_lkas=defaultdict(int), cam_laneinfo=defaultdict(int),
-                         lkas_allowed_speed=True, ti_lkas_allowed=ti_allowed, crz_btns_counter=0)
-    _, sends = self.ctl.update(cc.as_reader(), cs, 0)
+    _, sends = self.ctl.update(cc.as_reader(), self.cs, 0)
     stock = ti = None
     for addr, dat, bus in sends:
       if (addr, bus) in ((0x243, 0), (0x249, 1)):
@@ -113,25 +118,34 @@ class Loop:
       if (addr, bus) == (0x249, 1):
         ti = ((dat[0] & 0x0F) << 8 | dat[1]) - 2048
     assert ti is not None
-    self.sent.append((stock, ti))
+    self.sent.append((stock, ti, self.cs.ti_lkas_allowed))
     return stock, ti
 
 
-DRIVE = ([(1.0, TI_STATE.RUN, 0)] * 400 +            # ramp to and hold the ceiling for 4 s
-         [(1.0, TI_STATE.DRIVER_OVER, 0)] * 50 +      # driver override
-         [(-0.4, TI_STATE.RUN, 0)] * 150 +            # back, reversing direction
-         [(-0.4, TI_STATE.OFF, 0x11)] * 50 +          # a violation
-         [(0.3, TI_STATE.RUN, 0)] * 200)              # recovery
+def seg(frames, torque, **feedback):
+  return [(torque, feedback)] * frames
+
+
+DRIVE = (seg(400, 1.0) +                                   # ramp to and hold the ceiling for 4 s
+         seg(50, 1.0, ti_state=TI_STATE.DRIVER_OVER) +     # driver override
+         seg(150, -0.4) +                                  # back, reversing direction
+         seg(50, -0.4, ti_state=TI_STATE.OFF, viol=0x11) + # a violation
+         seg(100, 0.3) +                                   # recovery
+         seg(30, 0.3, feedback=False) +                    # 300 ms without TI_FEEDBACK
+         seg(100, 0.3) +
+         seg(30, 0.3, version=2, ramp_down=2) +            # ramp-down, a nonzero byte other than 1
+         seg(30, 0.3, version=1, ramp_down=2) +            # version 1: the byte means nothing
+         seg(100, 0.5))
 
 
 @pytest.mark.parametrize("flags", [TI1, TI1_NO_FSC], ids=["fsc", "no_fsc"])
 def test_panda_accepts_every_frame_of_a_drive(flags):
   loop = Loop(flags)
-  for torque, state, viol in DRIVE:
-    loop.step(torque, state, viol)
+  for torque, feedback in DRIVE:
+    loop.step(torque, **feedback)   # asserts panda accepts every 0x243 and 0x249
 
   ccp = loop.ctl.ccp
-  tis = [ti for _, ti in loop.sent]
+  tis = [ti for _, ti, _ in loop.sent]
   assert max(abs(t) for t in tis) == ccp.TI_CEILING
   # never one nonzero command held for as long as the TI allows (1.84 s)
   run = longest = 0
@@ -139,29 +153,37 @@ def test_panda_accepts_every_frame_of_a_drive(flags):
     run = run + 1 if cur != 0 and cur == prev else 0
     longest = max(longest, run)
   assert longest < ccp.TI_CEILING_HOLD_FRAMES
-  for (stock, ti), (_, state, viol) in zip(loop.sent, DRIVE, strict=True):
-    if state != TI_STATE.RUN or viol:
+
+  prev_ti = 0
+  for stock, ti, allowed in loop.sent:
+    if not allowed:
       assert ti == 0
-    elif flags == TI1:
-      assert ti == stock
+    if flags == TI1 and ti != 0:
+      assert (ti > 0) == (stock > 0) and abs(ti) <= abs(stock)
+      base = abs(prev_ti) if prev_ti != 0 and (prev_ti > 0) == (ti > 0) else 0
+      assert abs(ti) <= base + ccp.STEER_DELTA_UP
+    prev_ti = ti
 
 
-def test_without_the_camera_the_ti_ramps_from_zero_after_an_override():
-  loop = Loop(TI1_NO_FSC)
-  for _ in range(100):
-    loop.step(0.5)
-  loop.step(0.5, TI_STATE.DRIVER_OVER)
-  _, ti = loop.step(0.5)
-  assert 0 < ti <= loop.ctl.ccp.STEER_DELTA_UP
-
-
-def test_with_the_camera_the_ti_resumes_at_the_stock_command():
+def test_host_stops_before_panda_when_feedback_goes_quiet():
   loop = Loop(TI1)
+  for _ in range(100):
+    loop.step(0.3)
+  quiet = [loop.step(0.3, feedback=False)[1] for _ in range(30)]
+  # nonzero while under the host's 150 ms, zero from then on (panda refuses at 200 ms)
+  assert all(t != 0 for t in quiet[:14]) and all(t == 0 for t in quiet[15:])
+
+
+@pytest.mark.parametrize("flags", [TI1, TI1_NO_FSC], ids=["fsc", "no_fsc"])
+def test_the_ti_ramps_from_zero_after_an_override(flags):
+  loop = Loop(flags)
   for _ in range(100):
     loop.step(0.5)
   loop.step(0.5, TI_STATE.DRIVER_OVER)
   stock, ti = loop.step(0.5)
-  assert ti == stock > loop.ctl.ccp.STEER_DELTA_UP
+  assert 0 < ti <= loop.ctl.ccp.STEER_DELTA_UP
+  if flags == TI1:
+    assert stock > ti   # the stock channel kept its command
 
 
 def test_ti2_has_no_ti1_guard():
@@ -172,17 +194,32 @@ def test_ti2_has_no_ti1_guard():
 
 # --- car state ---
 
+class Feed:
+  """A TI1 CarState fed through its real parsers."""
+  def __init__(self):
+    self.CP = cp()
+    self.cs = CarState(self.CP)
+    self.parsers = CarState.get_can_parsers(self.CP)
+    self.packer = CANPacker(DBC[self.CP.carFingerprint][Bus.pt])
+    _ = self.parsers[Bus.pt].vl["STEER_RATE"]  # CANParser registers a message on its first read
+    self.ns = 0
+
+  def update(self, dt_ms=10, feedback=True, lkas_block=0, **values):
+    self.ns += dt_ms * 1_000_000
+    fb = {"STATE": TI_STATE.RUN, "VIOL": 0, "RAMP_DOWN": 0, "VERSION_NUMBER": 1}
+    fb.update(values)
+    frames = [self.packer.make_can_msg("STEER_RATE", 0, {"LKAS_BLOCK": lkas_block})]
+    if feedback:
+      frames.append(self.packer.make_can_msg("TI_FEEDBACK", 1, fb))
+    for parser in self.parsers.values():
+      parser.update([self.ns, frames])
+    return self.cs.update(self.parsers)
+
+
 def carstate_with(ti_state, viol, ramp_down=0, version=1):
-  CP = cp()
-  car_state = CarState(CP)
-  parsers = CarState.get_can_parsers(CP)
-  dbc = DBC[CP.carFingerprint][Bus.pt]
-  fb = CANPacker(dbc).make_can_msg("TI_FEEDBACK", 1, {"STATE": ti_state, "VIOL": viol, "RAMP_DOWN": ramp_down,
-                                                      "VERSION_NUMBER": version})
-  _ = parsers[Bus.body].vl["TI_FEEDBACK"]  # CANParser registers a message on its first read
-  parsers[Bus.body].update([0, [fb]])
-  ret = car_state.update(parsers)
-  return car_state, ret
+  feed = Feed()
+  ret = feed.update(STATE=ti_state, VIOL=viol, RAMP_DOWN=ramp_down, VERSION_NUMBER=version)
+  return feed.cs, ret
 
 
 @pytest.mark.parametrize("ti_state, viol, allowed, temporary, permanent", [
@@ -201,9 +238,41 @@ def test_ti1_faults(ti_state, viol, allowed, temporary, permanent):
   assert ret.steerFaultPermanent == permanent
 
 
-def test_ti1_ramp_down_withholds_torque_on_version_2_only():
+def test_driver_override_never_alerts_even_with_the_eps_lockout():
+  feed = Feed()
+  ret = feed.update(lkas_block=1, STATE=TI_STATE.DRIVER_OVER)
+  assert not ret.steerFaultTemporary and not ret.steerFaultPermanent
+
+
+def test_ti1_ramp_down_matches_panda():
+  # version > 1 and any nonzero byte, recomputed on every frame
   assert not carstate_with(TI_STATE.RUN, 0, ramp_down=1, version=2)[0].ti_lkas_allowed
+  assert not carstate_with(TI_STATE.RUN, 0, ramp_down=2, version=2)[0].ti_lkas_allowed
   assert carstate_with(TI_STATE.RUN, 0, ramp_down=1, version=1)[0].ti_lkas_allowed
+  feed = Feed()
+  feed.update(RAMP_DOWN=1, VERSION_NUMBER=2)
+  assert not feed.cs.ti_lkas_allowed
+  feed.update(RAMP_DOWN=1, VERSION_NUMBER=1)
+  assert feed.cs.ti_lkas_allowed
+
+
+def test_ti1_stale_feedback():
+  feed = Feed()
+  for _ in range(3):
+    feed.update()
+  assert feed.cs.ti_lkas_allowed
+  ret = feed.update(dt_ms=150, feedback=False)
+  assert feed.cs.ti_lkas_allowed and not ret.steerFaultTemporary
+  ret = feed.update(dt_ms=1, feedback=False)
+  assert not feed.cs.ti_lkas_allowed and ret.steerFaultTemporary
+  feed.update()
+  assert feed.cs.ti_lkas_allowed
+
+
+def test_ti1_no_feedback_yet():
+  feed = Feed()
+  ret = feed.update(feedback=False)
+  assert not feed.cs.ti_lkas_allowed and ret.steerFaultTemporary
 
 
 def test_ti1_ignores_the_camera_lane_keep_state():
