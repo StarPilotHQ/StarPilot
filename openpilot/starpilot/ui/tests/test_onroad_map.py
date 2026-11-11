@@ -770,6 +770,20 @@ def test_zoom_closes_in_before_a_maneuver_and_never_widens():
   assert zoom_target(2., 60.) <= zoom_for_speed(2.)
 
 
+def test_route_zoom_ignores_speed_and_closes_in_only_for_turns():
+  from openpilot.starpilot.ui.onroad_map import ZOOM_ROUTE_M_PER_PX, MapFeed
+  assert {zoom_target(v, 2000., guided=True) for v in (5., 15., 30.)} == {ZOOM_ROUTE_M_PER_PX}
+  assert zoom_target(30., None, guided=True) == ZOOM_ROUTE_M_PER_PX
+  assert zoom_target(30., 20., guided=True) == pytest.approx(ZOOM_SLOW_M_PER_PX)
+  def nav(kind, modifier):
+    return NS(status='guiding', instruction=NS(distanceMeters=120., maneuverType=kind, maneuverModifier=modifier))
+  assert MapFeed._maneuver(nav('turn', 'left')) == 120.
+  assert MapFeed._maneuver(nav('off ramp', 'slight right')) == 120.
+  assert MapFeed._maneuver(nav('continue', 'straight')) is None, "a straight-on step is not a corner"
+  assert MapFeed._maneuver(nav('new name', 'none')) is None
+  assert MapFeed._maneuver(nav('continue', 'left')) == 120., "a 'continue' that bends still zooms"
+
+
 def test_stopped_overview_waits_then_yields_to_a_close_maneuver():
   assert zoom_target(0., None, 29.) == ZOOM_SLOW_M_PER_PX
   assert zoom_target(0., None, 31.) == ZOOM_FAST_M_PER_PX
@@ -810,6 +824,28 @@ def test_map_rotation_ignores_heading_wobble_and_turns_gently(tmp_path):
     for _ in range(80):
       step(180.)
     assert abs(overlay._bearing - 180.) < HEADING_DEADBAND_DEG + 1e-9
+  finally:
+    overlay.close()
+
+
+def test_map_stays_still_along_a_kinked_straight_route(tmp_path):
+  from openpilot.starpilot.navigation.road_tiles import meters_per_tile
+  overlay = MapOverlay(tmp_path)
+  try:
+    meter = 1 / meters_per_tile(CENTER[0])
+    x0, y0 = world_xy(*CENTER)
+    # A straight east road whose simplified line zigzags 1.5 m every 15 m: each segment is ~6 degrees off.
+    route = tuple(lat_lon(x0 + i * 15 * meter, y0 + (1.5 * meter if i % 2 else 0.)) for i in range(200))
+    overlay._route(route)
+    bearings = []
+    for frame in range(400):
+      now = 100. + frame / 20
+      car = lat_lon(x0 + (20 + 15 * now - 1500) * meter, y0 + .75 * meter)
+      overlay._advance(MapInput(MapFix(*car, 90. + (3. if frame % 7 < 3 else -3.), 15., now), route, True), now)
+      if frame > 40:
+        bearings.append(overlay._bearing)
+    assert max(bearings) - min(bearings) < 1.0, "route kinks and GPS noise do not twist the map"
+    assert min(bearings) == pytest.approx(90., abs=HEADING_DEADBAND_DEG)
   finally:
     overlay.close()
 
