@@ -29,7 +29,6 @@ from opendbc.car.hyundai.canfd_dash_icons import CanFDDashIcons
 from opendbc.car.hyundai.classic_scc_aol import qualified as qualified_classic_stock_aol
 from opendbc.car.hyundai.classic_long_aol import AOL_EXPERIENCE, qualified as qualified_classic_long_aol
 from opendbc.car.hyundai.canfd_stock_aol import qualified as qualified_canfd_stock_aol, qualified_long as qualified_canfd_long_aol
-from opendbc.car.hyundai.ev6_aol import qualified as qualified_ev6_aol
 from opendbc.car.hyundai.g90_longitudinal import G90LongitudinalPolicy
 from opendbc.car.hyundai.gv70_longitudinal import is_gv70, scc_request, suppress_stock_cancel
 from opendbc.car.hyundai.g90_lead import G90LeadState, eligible as g90_lead_eligible
@@ -162,10 +161,8 @@ class CarController(CarControllerBase):
     ioniq6_status = (self.ioniq6_longitudinal is not None and
                      int(CP.safetyConfigs[-1].safetyParam) in (0x8015, 0x8095, 0x8815, 0x8895))
     self.ioniq6_bsm_enabled = ioniq6_status
-    self.ev6_aol_status = ((CP.carFingerprint == CAR.KIA_EV6 and (qualified_canfd_stock_aol(CP) or qualified_ev6_aol(CP))) or
-                           (CP.carFingerprint == CAR.KIA_SPORTAGE_5TH_GEN and
-                            (qualified_canfd_stock_aol(CP) or qualified_canfd_long_aol(CP))))
-    self.canfd_dash_icons = CanFDDashIcons() if ioniq6_status or self.torque_ev_scc_enabled or self.ev6_aol_status else None
+    self.canfd_torque_aol_status = (qualified_canfd_stock_aol(CP) or qualified_canfd_long_aol(CP))
+    self.canfd_dash_icons = CanFDDashIcons() if ioniq6_status or self.canfd_torque_aol_status else None
     self.classic_dash_icons = CanFDDashIcons() if classic_aol_dash_enabled(CP) else None
     self.classic_lfa_icon = None
     self.ioniq6_bsm_counter = 0
@@ -529,7 +526,7 @@ class CarController(CarControllerBase):
     else:
       steering_status_active = CC.enabled
       if ((self.CP.carFingerprint == CAR.KIA_CARNIVAL_2025 and self.CP.safetyConfigs[-1].safetyParam == 0x28B4) or
-          self.ev6_aol_status or (self.ioniq6_longitudinal is not None and
+          self.canfd_torque_aol_status or (self.ioniq6_longitudinal is not None and
                                  self.CP.safetyConfigs[-1].safetyParam in (0x8815, 0x8895))):
         # AOL may steer while ordinary cruise engagement remains off.
         steering_status_active |= CC.latActive
