@@ -56,12 +56,12 @@ class TestGen2TI2FaultPropagation:
     assert ret.steerFaultPermanent, f"CPU_{cpu}_VIOL must map to steerFaultPermanent"
 
   def test_ti_clean_feedback_has_no_steering_fault(self):
-    # passes on unfixed code too; guards the fix against over-reporting faults.
-    # steerFaultTemporary is intentionally not asserted: its mapping depends on
-    # CPU_x_STATE semantics from the Phase 2 contract and is covered by Phase 4.
-    car_state, CP = make_car_state()
-    ret = update_with_ti_feedback(CP, car_state)
-    assert not ret.steerFaultPermanent
+    # Guards against over-reporting: once the TI2 has proven health (RECOVERY_FRAMES clean frames, as
+    # panda requires), clean feedback reports no fault. Before that, panda is unhealthy and so is the host.
+    feed = Ti2Feed()
+    assert is_permanent(feed.step(n=TI2_HEALTH.RECOVERY_FRAMES - 1))
+    ret = feed.step()
+    assert not ret.steerFaultPermanent and not ret.steerFaultTemporary
 
 
 RUN = (3, 3, 3, 3)
@@ -90,6 +90,16 @@ class Ti2Feed:
       self.t += dt
       for parser in self.parsers.values():
         parser.update([self.t, [self.frame(viol, states)]])
+      ret = self.car_state.update_gen2(self.parsers)
+    return ret
+
+  def quiet(self, n=1, dt=FRAME_NS):
+    """Updates with other CAN traffic but no 0x24B."""
+    ret = None
+    for _ in range(n):
+      self.t += dt
+      for parser in self.parsers.values():
+        parser.update([self.t, []])
       ret = self.car_state.update_gen2(self.parsers)
     return ret
 
@@ -180,12 +190,38 @@ class TestGen2TI2Pause:
     assert not ret.steerFaultPermanent and not ret.steerFaultTemporary
     assert is_temporary(feed.step(ALL_02))
 
-  def test_non_run_state_requires_proven_health_again(self):
+  def test_non_run_state_is_a_fault(self):
+    # Panda latches a CPU outside RUN like a violation (mazda_ti_fault), so the host reports it too.
     feed = Ti2Feed()
     feed.healthy()
-    ret = feed.step(CLEAN, (2, 2, 2, 2))
-    assert not ret.steerFaultPermanent  # reporting unchanged for a state-only condition
+    assert is_permanent(feed.step(CLEAN, (2, 3, 3, 3)))
     assert is_permanent(feed.step(ALL_02))
+    assert is_permanent(feed.step(n=TI2_HEALTH.RECOVERY_FRAMES - 1))
+    assert not feed.step().steerFaultPermanent
+
+  def test_feedback_silence_is_judged_every_update(self):
+    # Panda judges staleness on every frame it receives; the host must not wait for 0x24B to return.
+    feed = Ti2Feed()
+    feed.healthy()
+    ret = feed.quiet(n=TI2_HEALTH.FEEDBACK_TIMEOUT_NS // FRAME_NS)
+    assert not ret.steerFaultPermanent and not ret.steerFaultTemporary   # exactly the timeout: still fresh
+    assert is_permanent(feed.quiet())
+    assert is_permanent(feed.step(ALL_02))   # a returning 0x02 is not a pause
+    assert is_permanent(feed.step(n=TI2_HEALTH.RECOVERY_FRAMES - 1))
+    assert not feed.step().steerFaultPermanent
+
+  def test_feedback_backlog_beyond_the_timestamp_buffer_fails_closed(self):
+    for frames, faulted in ((500, False), (501, True)):
+      feed = Ti2Feed()
+      feed.healthy()
+      batch = []
+      for i in range(frames):
+        batch.append([feed.t + (i + 1) * 1_000_000, [feed.frame()]])
+      feed.t += frames * 1_000_000
+      for parser in feed.parsers.values():
+        parser.update(batch)
+      ret = feed.car_state.update_gen2(feed.parsers)   # must not raise
+      assert ret.steerFaultPermanent == faulted, frames
 
   def test_feedback_gap_is_permanent(self):
     feed = Ti2Feed()

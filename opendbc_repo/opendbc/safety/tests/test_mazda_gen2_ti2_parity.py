@@ -86,6 +86,9 @@ SCENARIOS = {
   'state_only_fault_then_02': ti(n=15) + arm() + ti(CLEAN, (2, 2, 2, 2), n=5) + ti(ALL_02, n=50),
   'feedback_gap_then_02': ti(n=15) + arm() + gap(30) + ti(ALL_02, n=50),
   'short_feedback_gap': ti(n=15) + arm() + gap(10) + ti(n=20),
+  'feedback_gap_at_the_timeout': ti(n=15) + arm() + gap(19) + ti(n=20),
+  'feedback_gap_just_past_the_timeout': ti(n=15) + arm() + gap(20) + ti(n=20),
+  'state_only_fault_then_recovery': ti(n=15) + arm() + ti(CLEAN, (2, 3, 3, 3)) + ti(n=20),
   # Startup: TI2 has not yet proven health when 0x02 arrives.
   'startup_first_frame_02_arm_during': ti(ALL_02, n=30) + arm(ALL_02) + ti(ALL_02, n=30),
   'startup_9_clean_then_02_arm_during': ti(n=9) + ti(ALL_02, n=30) + arm(ALL_02) + ti(ALL_02, n=30),
@@ -111,6 +114,9 @@ SURVIVES = {
   'state_only_fault_then_02': False,
   'feedback_gap_then_02': False,
   'short_feedback_gap': True,
+  'feedback_gap_at_the_timeout': True,
+  'feedback_gap_just_past_the_timeout': False,
+  'state_only_fault_then_recovery': False,
   'startup_first_frame_02_arm_during': False,
   'startup_9_clean_then_02_arm_during': False,
   'startup_02_then_recovery_then_arm': True,
@@ -133,6 +139,7 @@ class TestMazdaGen2TI2Parity(unittest.TestCase):
     # Cause of panda's current unhealthy period: 'fault' (violation or feedback
     # gap), 'state' (non-RUN CPU state only), or None.
     self.unhealthy_cause = None
+    self.feedback_first = getattr(self, 'feedback_first', False)
 
     self.CP = structs.CarParams(carFingerprint=CAR.MAZDA_3_2019, brand="mazda", flags=GEN2)
     self.car_state = CarState(self.CP)
@@ -167,7 +174,9 @@ class TestMazdaGen2TI2Parity(unittest.TestCase):
       ('BRAKE_PEDAL_SLOW', 0, {'BRAKE_PEDAL_PRESSED': 0}),
     ]
     if kind != 'gap':
-      sources.insert(2, ('TI_FEEDBACK', 1, self._ti_fields(viol, states)))
+      # Feedback first makes the 0x24B frame itself the one that finds a feedback gap; later in the tick,
+      # another frame finds it first. Both orders must give the same answers.
+      sources.insert(0 if self.feedback_first else 2, ('TI_FEEDBACK', 1, self._ti_fields(viol, states)))
     for name, bus, fields in sources:
       self.safety.safety_rx_hook(self._panda_packet(name, fields, bus))
     self.safety.safety_tick()
@@ -182,6 +191,14 @@ class TestMazdaGen2TI2Parity(unittest.TestCase):
     cs = self.car_state.update_gen2(self.parsers)
     if kind == 'gap':
       self.unhealthy_cause = 'fault'
+      # No 0x24B this tick: panda judges staleness on the other frames, the host on every update.
+      panda_unhealthy = bool(self.safety.get_mazda_ti_unhealthy())
+      host = self.car_state
+      host_healthy = host.ti2_clean_frames >= TI2_HEALTH.RECOVERY_FRAMES and not host.ti2_hard_fault
+      where = f"gap t={self.time} temp={cs.steerFaultTemporary} perm={cs.steerFaultPermanent}"
+      self.assertEqual(host_healthy, not panda_unhealthy, f"proven-health mismatch: {where}")
+      if panda_unhealthy and not self.safety.get_mazda_ti_lateral_paused():
+        self.assertTrue(cs.steerFaultPermanent, f"panda faulted on silence the host does not report: {where}")
     else:
       self._check_frame_parity(cs, viol, states)
     return cs, now_ns
@@ -243,8 +260,9 @@ class TestMazdaGen2TI2Parity(unittest.TestCase):
     # A lone 0x02 (every CPU in RUN, starting from proven health, within the
     # 30 s episode cap) is a pause the AOL session survives. Everything else
     # still needs a new physical gesture.
-    for name, steps in SCENARIOS.items():
-      with self.subTest(scenario=name):
+    for (name, steps), first in ((item, first) for first in (False, True) for item in SCENARIOS.items()):
+      with self.subTest(scenario=name, feedback_first=first):
+        self.feedback_first = first
         self.setUp()
         host_armed, panda_lateral, trace = self._run(steps)
         tail = '\n'.join(map(str, trace[-5:]))
@@ -252,8 +270,9 @@ class TestMazdaGen2TI2Parity(unittest.TestCase):
         self.assertEqual(host_armed, SURVIVES[name], f"{name}: host armed={host_armed}\n{tail}")
 
   def test_host_and_panda_agree_on_aol_survival(self):
-    for name, steps in SCENARIOS.items():
-      with self.subTest(scenario=name):
+    for (name, steps), first in ((item, first) for first in (False, True) for item in SCENARIOS.items()):
+      with self.subTest(scenario=name, feedback_first=first):
+        self.feedback_first = first
         self.setUp()
         host_armed, panda_lateral, trace = self._run(steps)
         tail = '\n'.join(map(str, trace[-5:]))

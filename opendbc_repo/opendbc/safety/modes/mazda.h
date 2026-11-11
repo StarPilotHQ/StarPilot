@@ -170,9 +170,11 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
 
   // TI2 fault contract: stale interceptor feedback revokes actuation without
   // waiting for the host. Never re-enables; the driver must authorize again.
-  // A feedback frame is itself proof of freshness, so it is never judged stale.
-  const bool incoming_feedback = (msg->bus == (unsigned char)MAZDA_AUX) && (msg->addr == MAZDA_2019_STEER_TORQUE);
-  if ((mazda_gen2 || mazda_gen3) && mazda_ti_feedback_seen && !incoming_feedback &&
+  // Judged against the previous feedback frame before this frame is processed,
+  // including when this frame is itself the returning feedback: a gap is a fault
+  // and a latch, so health needs the full recovery, and a returning 0x02 is not
+  // admitted as a pause.
+  if ((mazda_gen2 || mazda_gen3) && mazda_ti_feedback_seen &&
       (safety_get_ts_elapsed(microsecond_timer_get(), mazda_ti_feedback_ts) > MAZDA_TI_FEEDBACK_TIMEOUT_US)) {
     mazda_ti_fault = true;
     mazda_ti_latch = true;
@@ -476,14 +478,20 @@ static bool mazda_tx_hook(const CANPacket_t *msg) {
 
   if ((mazda_gen2 || mazda_gen3) && (msg->bus == MAZDA_AUX) && (msg->addr == MAZDA_TI_LKAS)) {
     int desired_torque = (int16_t)((msg->data[0] << 8) | msg->data[1]);  // signal is signed
-    if (steer_torque_cmd_checks(desired_torque, -1, MAZDA_2019_STEERING_LIMITS)) {
-      tx = false;
-    }
-    // A verified TI2 fault blocks torque even if a cruise re-engagement briefly
-    // set controls_allowed again between two feedback frames, and a 0x02 pause
-    // blocks it until recovery. Releasing torque (zero) stays allowed so the
-    // interceptor is never left holding a command.
-    if ((ti_unhealthy || mazda_ti_lateral_paused()) && (desired_torque != 0)) {
+    if (ti_unhealthy || mazda_ti_lateral_paused()) {
+      // A verified TI2 fault blocks torque even if a cruise re-engagement briefly
+      // set controls_allowed again between two feedback frames, and a 0x02 pause
+      // blocks it until recovery. Releasing torque (zero) stays allowed so the
+      // interceptor is never left holding a command. Refused frames never reach
+      // the rate limiter, and its history restarts from zero: after recovery the
+      // command ramps up from what the TI2 was actually sent.
+      if (desired_torque != 0) {
+        tx = false;
+      }
+      desired_torque_last = 0;
+      rt_torque_last = 0;
+      ts_torque_check_last = microsecond_timer_get();
+    } else if (steer_torque_cmd_checks(desired_torque, -1, MAZDA_2019_STEERING_LIMITS)) {
       tx = false;
     }
   }

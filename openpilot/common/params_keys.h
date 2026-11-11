@@ -17,7 +17,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"NoFSC", {PERSISTENT, BOOL}},
     {"NoMRCC", {PERSISTENT, BOOL}},
     {"RadarInterceptorEnabled", {PERSISTENT, BOOL}},
-    {"TorqueInterceptorEnabled", {PERSISTENT, BOOL, "1"}},
+    {"TorqueInterceptorEnabled", {PERSISTENT, BOOL, "0"}},
     {"WarningImmediateVolume", {PERSISTENT, INT}},
     {"WarningSoftVolume", {PERSISTENT, INT}},
     {"RefuseVolume", {PERSISTENT, INT}},
