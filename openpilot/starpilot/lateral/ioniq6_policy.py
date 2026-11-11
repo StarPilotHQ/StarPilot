@@ -29,6 +29,8 @@ from openpilot.starpilot.lateral.torque_shaping import (
 )
 
 HKG_CANFD_BASE_FRICTION_THRESHOLD = 0.39
+IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE = 0.50
+
 IONIQ_6_CARS = (CAR.HYUNDAI_IONIQ_6,)
 
 
@@ -881,6 +883,8 @@ class Ioniq6TorquePolicy:
     if self.surface is None and not self.is_2025 and not CS.steeringPressed and not self.prev_steering_pressed:
       friction_threshold += get_ioniq_6_2023_center_friction_increment(
         CS.vEgo, setpoint, measurement, desired_lateral_jerk, future_desired_lateral_accel) / max(center_taper, 1e-3)
+    if self.is_2025 and not CS.steeringPressed:
+      friction_threshold *= 1.0 + IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE * float(np.interp(CS.vEgo, [20.0, 27.0], [0.0, 1.0]))
     friction_scale = get_ioniq_6_friction_scale(CS.vEgo, setpoint, desired_lateral_jerk)
     friction_scale = 1.0 + ((friction_scale - 1.0) * center_taper)
     friction_scale *= get_ioniq_6_friction_center_fade_scale(setpoint, CS.vEgo)
