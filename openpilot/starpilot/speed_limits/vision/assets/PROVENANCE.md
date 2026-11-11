@@ -1,3 +1,9 @@
+## Current numeric classifier asset
+
+| File | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `speed_limit_us_value_classifier.onnx` | 6,240,534 | `f70477aa34a5557b69103ed65066b5a7a678f5bc35dfb4ee19914aec3c108918` |
+
 ## Current STOP-head refinement (November 5, 2026)
 
 The current joint detector is 9,725,049 bytes, SHA-256
