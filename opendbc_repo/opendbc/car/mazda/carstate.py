@@ -62,7 +62,10 @@ class CarState(CarStateBase):
 
     # GEN2 TI2 health, mirroring panda's model frame for frame (see TI2_HEALTH).
     self.ti2_clean_frames = 0          # consecutive clean RUN frames; 0 until TI2 proves health
-    self.ti2_hard_fault = False        # mazda_ti_fault/latch; clears only after a full recovery
+    # mazda_ti_unhealthy() without a pause: a fault, a latch, or no proven health yet. Panda starts unhealthy
+    # (no feedback seen), so the host does too; it clears only after RECOVERY_FRAMES clean frames. A TI2
+    # power-up is shown as temporary by CarEvents (starpilot/car/mazda, the TI2 start-up window).
+    self.ti2_hard_fault = True
     self.ti2_pause = False
     self.ti2_pause_start_ns = 0
     self.ti2_pause_clean_frames = TI2_HEALTH.RECOVERY_FRAMES
@@ -307,11 +310,21 @@ class CarState(CarStateBase):
     frames = cp_body.vl_all["TI_FEEDBACK"]
     count = len(frames["CPU_0_VIOL"])
     if count == 0:
+      # Panda judges staleness on every frame it receives, not only on 0x24B, so the host judges it on
+      # every update: silence past the timeout is a fault and a latch.
+      if self.ti2_last_frame_ns and cp_body._last_update_nanos - self.ti2_last_frame_ns > TI2_HEALTH.FEEDBACK_TIMEOUT_NS:
+        self._ti2_hard_fault()
       return
-    timestamps = list(cp_body.message_states[0x24B].timestamps)[-count:]
+    timestamps = list(cp_body.message_states[0x24B].timestamps)
+    # More frames in one update than the parser keeps timestamps for (a backlog or a replay batch): the
+    # oldest frames' timing cannot be checked. Judge the frames that have a timestamp, then fail closed
+    # (below), so health has to be proven again on frames after this batch.
+    overflow = count > len(timestamps)
+    first = count - len(timestamps) if overflow else 0
+    timestamps = timestamps[-(count - first):]
 
-    for i in range(count):
-      ts = timestamps[i]
+    for i in range(first, count):
+      ts = timestamps[i - first]
       if self.ti2_last_frame_ns and ts - self.ti2_last_frame_ns > TI2_HEALTH.FEEDBACK_TIMEOUT_NS:
         self._ti2_hard_fault()  # panda: stale feedback is a fault and a latch
       self.ti2_last_frame_ns = ts
@@ -334,12 +347,7 @@ class CarState(CarStateBase):
       elif violation:
         self._ti2_hard_fault()  # another code, an ineligible 0x02, or an expired pause
       elif not states_ok:
-        # Panda latches a non-RUN state as well. Reporting stays as before (no
-        # permanent alert), but health must be proven again before any pause.
-        self.ti2_clean_frames = 0
-        self.ti2_pause = False
-        self.ti2_pause_clean_frames = TI2_HEALTH.RECOVERY_FRAMES
-        self.ti2_release_ns = 0
+        self._ti2_hard_fault()  # panda: a CPU not in RUN is a fault and a latch, like a violation
       else:
         self.ti2_clean_frames = min(self.ti2_clean_frames + 1, TI2_HEALTH.RECOVERY_FRAMES)
         if self.ti2_clean_frames >= TI2_HEALTH.RECOVERY_FRAMES:
@@ -349,6 +357,9 @@ class CarState(CarStateBase):
           self.ti2_pause_clean_frames += 1
           if self.ti2_pause_clean_frames == TI2_HEALTH.RECOVERY_FRAMES:
             self.ti2_release_ns = ts  # panda restores lateral on this frame
+
+    if overflow:
+      self._ti2_hard_fault()
 
   @staticmethod
   def get_can_parsers(CP):

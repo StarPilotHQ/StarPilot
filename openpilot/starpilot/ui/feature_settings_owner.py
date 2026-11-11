@@ -85,7 +85,7 @@ GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_
 
 BOOL_DEFAULTS = {
   "GMPedalLongitudinal": False,
-  "TorqueInterceptorEnabled": True, "RadarInterceptorEnabled": False, "NoMRCC": False,
+  "TorqueInterceptorEnabled": False, "RadarInterceptorEnabled": False, "NoMRCC": False,
   "NoFSC": False, "BlendedACC": True, "ManualTransmission": False, "ForceStops": True, "AlwaysAllowUploads": False, "TurnAssist": True,
   "SubaruAvhStartup": False,
   "SubaruStopStartOff": False,

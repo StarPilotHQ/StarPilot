@@ -548,6 +548,71 @@ class TestMazda2019Safety(common.CarSafetyTest, common.DriverTorqueSteeringSafet
     self._healthy(1)
     self.assertFalse(self.safety.get_mazda_ti_unhealthy())
 
+  def test_refused_torque_during_a_pause_does_not_advance_the_ramp(self):
+    # Independent review P1: commands refused during a pause advanced the rate limiter, so after
+    # recovery the TI2 was sent 0 -> 225 in one step.
+    self.safety.set_controls_allowed(1)
+    self._set_prev_torque(0)
+    self._rx_raw(self._ti2_feedback_msg(viol=self.TI_ALL_02))
+    for t in (45, 90, 135, 180):
+      self.assertFalse(self._tx(self._torque_cmd_msg(t)))
+    self._healthy()
+    self.assertTrue(self.safety.get_controls_allowed())
+    self.assertFalse(self._tx(self._torque_cmd_msg(225)))
+    self.assertTrue(self._tx(self._torque_cmd_msg(45)))
+
+  def test_recovery_ramps_from_what_the_ti2_was_sent(self):
+    # Steering at 180 when a pause starts: the host releases to zero during it. After recovery the limiter
+    # must start from that zero, not from 180.
+    self.safety.set_controls_allowed(1)
+    self._set_prev_torque(0)
+    for t in (45, 90, 135, 180):
+      self.assertTrue(self._tx(self._torque_cmd_msg(t)))
+    self._rx_raw(self._ti2_feedback_msg(viol=self.TI_ALL_02))
+    self.assertTrue(self._tx(self._torque_cmd_msg(0)))
+    self._healthy()
+    self.assertFalse(self._tx(self._torque_cmd_msg(225)))
+    self.assertTrue(self._tx(self._torque_cmd_msg(45)))
+
+  def test_refused_torque_while_unhealthy_does_not_advance_the_ramp(self):
+    self._reset_safety_hooks()
+    self.safety.set_controls_allowed(1)
+    self._set_prev_torque(0)
+    for t in (45, 90, 135, 180):
+      self.assertFalse(self._tx(self._torque_cmd_msg(t)))   # no feedback yet
+    self._healthy()
+    self._rx_raw(self._pcm_status_msg(False))
+    self._rx_raw(self._pcm_status_msg(True))
+    self.assertFalse(self._tx(self._torque_cmd_msg(225)))
+    self.assertTrue(self._tx(self._torque_cmd_msg(45)))
+
+  def test_returning_feedback_after_a_gap_needs_full_recovery(self):
+    # Independent review P1: the returning 0x24B itself was exempt from the staleness check, so one clean
+    # frame restored health, and a returning 0x02 was admitted as a pause.
+    for first_viol in ((0, 0, 0, 0), self.TI_ALL_02):
+      with self.subTest(first_viol=first_viol):
+        self._reset_safety_hooks()
+        self.safety.set_timer(1_000_000)
+        self._healthy()
+        self.safety.set_timer(1_000_000 + 200001)       # no frame of any kind in between
+        self._rx_raw(self._ti2_feedback_msg(viol=first_viol))
+        self.assertTrue(self.safety.get_mazda_ti_unhealthy())
+        self.assertFalse(self.safety.get_mazda_ti_lateral_paused())
+        self._healthy(self.TI_RECOVERY_FRAMES - 1)
+        self._rx_raw(self._pcm_status_msg(False))
+        self._rx_raw(self._pcm_status_msg(True))
+        self.assertEqual(first_viol != (0, 0, 0, 0), bool(self.safety.get_mazda_ti_unhealthy()))
+
+  def test_feedback_timeout_boundary(self):
+    for gap, stale in ((200000, False), (200001, True)):
+      with self.subTest(gap=gap):
+        self._reset_safety_hooks()
+        self.safety.set_timer(1_000_000)
+        self._healthy()
+        self.safety.set_timer(1_000_000 + gap)
+        self._rx_raw(self._ti2_feedback_msg())
+        self.assertEqual(stale, bool(self.safety.get_mazda_ti_unhealthy()))
+
   # --- GEN2 0x220 modified-command contract (safety plan 5.1, 5.2, 5.4) ---
   # Raw frames are built bit by bit rather than through the DBC packer, so these
   # tests also pin the native decode. ACCEL_CMD is d2 bit 0, d3, d4 bits 7..5;
@@ -781,7 +846,14 @@ class TestMazda2019Safety(common.CarSafetyTest, common.DriverTorqueSteeringSafet
     hold = self._acc_raw(stock, hold=1)
     resume = self._acc_raw(stock, resume=1)
 
+    fed = [0]
+
     def refresh(now_us, speed=None):
+      # TI2 feedback every 100 ms up to now: a longer gap is itself a TI2 fault.
+      for t in range(fed[0] + 100000, now_us, 100000):
+        self.safety.set_timer(t)
+        self._rx_raw(self._ti2_feedback_msg())
+      fed[0] = now_us
       self.safety.set_timer(now_us)
       self._rx_raw(self._ti2_feedback_msg())
       if speed is not None:
