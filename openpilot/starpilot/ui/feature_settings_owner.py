@@ -96,7 +96,7 @@ DRIVE_MODE_KEYS = ("DriveModeProfiles", "DriveModeAcceleration", "DriveModeDecel
 
 BOOL_DEFAULTS = {
   "GMPedalLongitudinal": False,
-  "TorqueInterceptorEnabled": True, "RadarInterceptorEnabled": False, "NoMRCC": False,
+  "TorqueInterceptorEnabled": False, "RadarInterceptorEnabled": False, "NoMRCC": False,
   "NoFSC": False, "BlendedACC": True, "ManualTransmission": False, "ForceStops": True, "AlwaysAllowUploads": False, "TurnAssist": True,
   "DriveModeProfiles": False, "DriveModeAcceleration": True, "DriveModeDeceleration": True,
   "SubaruAvhStartup": False,

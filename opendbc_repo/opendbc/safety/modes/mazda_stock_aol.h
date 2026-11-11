@@ -121,10 +121,13 @@ static void mazda_aol_optional_rx(const CANPacket_t *msg) {
   if (mazda_aol_enabled) {
     mazda_aol_button_rx(msg);
     const uint32_t now = microsecond_timer_get();
-    const bool gear_msg = msg_matches(msg, 0x228U, 0U, 8U) || msg_matches(msg, 0x228U, 2U, 8U);
+    // GEN1 keeps Dom's single source: GEAR on bus 0 only, so a camera-bus frame
+    // can never overwrite its Reverse. On GEN2 GEAR originates on the camera bus
+    // (bus 2); bus-0 copies only appear intermittently when the panda relays them,
+    // so both are accepted there.
+    const bool gear_msg = msg_matches(msg, 0x228U, 0U, 8U) ||
+                          ((mazda_gen2 || mazda_gen3) && msg_matches(msg, 0x228U, 2U, 8U));
     if (gear_msg) {
-      // On this car GEAR originates on the camera bus (bus 2); bus-0 copies only
-      // appear intermittently when the panda relays them. Accept both.
       mazda_aol_seen |= 2U;
       mazda_aol_gear_ts = now;
       if (mazda_gen2 || mazda_gen3) {
