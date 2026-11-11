@@ -554,7 +554,8 @@ def main(demo=False):
       meta_extra = meta_main
 
     sm.update(0)
-    turn_supported = bool(model.npy.get('desire') is not None and model.npy['desire'].shape[-1] == 8)
+    turn_models = (model.lateral, model.longitudinal) if isinstance(model, LaboratoryPair) else (model,)
+    turn_supported = all(state.npy.get('desire') is not None and state.npy['desire'].shape[-1] == 8 for state in turn_models)
     desire = navigation_turn.select(sm, time.monotonic_ns(), DH.desire,
                                      supported=turn_supported, model_stop=bool(prev_action.shouldStop))
     is_rhd = sm["driverMonitoringState"].isRHD

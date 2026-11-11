@@ -85,7 +85,7 @@ def clock_text(now: datetime | None = None, use_24_hour: bool = False) -> str:
 
 def axis_status_color(state: OnroadState) -> rl.Color:
   """Retain StarPilot's existing off, AOL, long-only, and combined edge colors."""
-  lateral = state.lateral_active if state.aol_latched is None else state.aol_latched
+  lateral = state.lateral_active and state.aol_latched is not False
   if state.driver_override_active or state.longitudinal_overridden:
     return rl.Color(145, 155, 149, 255)
   if lateral and state.switchback_mode:
