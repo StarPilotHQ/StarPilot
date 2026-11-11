@@ -22,12 +22,12 @@ const post = (fetcher, path, body, signal) => fetcher(path, {
 export const SETTINGS_SECTIONS = Object.freeze([
   { id: "lateral", label: "Lateral (Steering)", icon: "bi-arrows-move", pages: ["aol", "lane_change", "torque", "lane"] },
   { id: "longitudinal", label: "Longitudinal (Speed & Following)", icon: "bi-speedometer2", pages: ["profiles", "conditional", "curve", "slc", "personalities", "aggressive", "standard", "relaxed", "traffic"] },
-  { id: "vehicle", label: "Vehicle", icon: "bi-car-front", pages: ["vehicle"] },
   { id: "wheel", label: "Wheel Controls", icon: "bi-controller", pages: ["wheel"] },
   { id: "visual", label: "Visual (Display & UI)", icon: "bi-eye", pages: ["appearance", "ui_layout", "favorites", "pip"] },
   { id: "sounds", label: "Sounds & Alerts", icon: "bi-volume-up", pages: ["sounds"] },
   { id: "device", label: "Device & Data", icon: "bi-hdd", pages: ["power", "display", "data"] },
   { id: "localization", label: "Localization", icon: "bi-globe", pages: ["localization"] },
+  { id: "vehicle", label: "Vehicle", icon: "bi-car-front", pages: ["vehicle"] },
   { id: "developer", label: "Developer", icon: "bi-code-slash", pages: ["developer"] },
 ])
 
