@@ -133,7 +133,8 @@ class CAR(Platforms):
   )
   MAZDA_CX9 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda CX-9 2016-20")],
-    MazdaCarSpecs(mass=4217 * CV.LB_TO_KG, wheelbase=3.1, steerRatio=17.6, centerToFrontRatio=0.41),
+    # 115.3 in (2.93 m) is the CX-9's wheelbase (TC chassis, 2016-23); 3.1 was never right
+    MazdaCarSpecs(mass=4217 * CV.LB_TO_KG, wheelbase=2.93, steerRatio=17.6, centerToFrontRatio=0.41),
     flags=MazdaSafetyFlags.GEN1,
   )
   MAZDA_3 = MazdaPlatformConfig(
@@ -148,7 +149,8 @@ class CAR(Platforms):
   )
   MAZDA_CX9_2021 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda CX-9 2021-23", video="https://youtu.be/dA3duO4a0O4")],
-    MAZDA_CX9.specs,
+    # the 2021-23 AWD's curb weight (4409 lb) on the same chassis
+    MazdaCarSpecs(mass=4409 * CV.LB_TO_KG, wheelbase=2.93, steerRatio=17.6, centerToFrontRatio=0.41),
     flags=MazdaSafetyFlags.GEN1,
   )
   MAZDA_CX5_2022 = MazdaPlatformConfig(
