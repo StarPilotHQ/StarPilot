@@ -154,3 +154,51 @@ def test_actual_go_wire_fixture_confirms_phone_turn():
     local_map.update(event.mapdOut, valid=event.valid, event_boot_ns=event.logMonoTime,
                      received=True, alive=True, now_boot_ns=BOOT)
   assert local_map.status(phone()) == 'mapAligned'
+
+
+def ambiguous(gps_age=100_000_000, **patch):
+  # mapd's shape for an ambiguous fix: invalid, no road or limit, navigation-only junctions.
+  event = packet(**{'roadStatus': 'unknown', 'wayId': 0, 'tileLoaded': False, 'waySelectionType': 'fail',
+                    'gpsMonoTime': BOOT - gps_age, **patch})
+  event.valid = False
+  return event
+
+
+@pytest.mark.parametrize('source,gps_age,status', [
+    ('external', 100_000_000, 'mapAligned'), ('external', 600_000_000, 'mapUnavailable'),
+    ('phone', 2_000_000_000, 'mapAligned'), ('phone', 3_000_000_000, 'mapUnavailable'),
+])
+def test_navigation_only_junctions_from_ambiguous_fix_confirm_while_fresh(source, gps_age, status):
+  local_map = LocalMapCorroborator()
+  update(local_map, ambiguous(gps_age, gpsSource=source))
+  assert local_map.status(phone()) == status
+  # Held evidence expires with the producer's event age, as matched evidence does.
+  local_map.update(None, valid=False, event_boot_ns=0, received=False, alive=True, now_boot_ns=BOOT + 251_000_000)
+  assert local_map.status(phone()) == 'mapUnavailable'
+
+
+@pytest.mark.parametrize('patch', [{'speedLimit': 20.}, {'wayId': 42}, {'sampleVersion': 1}])
+def test_ambiguous_fix_with_road_fields_is_not_navigation_evidence(patch):
+  local_map = LocalMapCorroborator()
+  update(local_map, ambiguous(**patch))
+  assert local_map.status(phone()) == 'mapUnavailable'
+
+
+def test_phone_gps_matched_road_confirms():
+  # The Galaxy "phone" GPS mode once made every frame unreadable here (enum value 4).
+  local_map = LocalMapCorroborator()
+  update(local_map, packet(gpsSource='phone', gpsMonoTime=BOOT - 2_000_000_000))
+  assert local_map.status(phone()) == 'mapAligned'
+
+
+def test_unreadable_provider_logs_once():
+  local_map, logged = LocalMapCorroborator(), []
+  from openpilot.common import swaglog
+  original = swaglog.cloudlog.exception
+  swaglog.cloudlog.exception = lambda *args, **kwargs: logged.append(args)
+  try:
+    for now in (BOOT, BOOT + 1):
+      local_map.update(SimpleNamespace(), valid=True, event_boot_ns=now, received=True, alive=True, now_boot_ns=now)
+  finally:
+    swaglog.cloudlog.exception = original
+  assert len(logged) == 1 and local_map.status(phone()) == 'mapUnavailable'

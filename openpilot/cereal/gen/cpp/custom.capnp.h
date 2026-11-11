@@ -381,6 +381,7 @@ enum class GpsSource_f2b4452cefd6d128: uint16_t {
   INTERNAL,
   EXTERNAL,
   CAR,
+  PHONE,
 };
 CAPNP_DECLARE_ENUM(GpsSource, f2b4452cefd6d128);
 CAPNP_DECLARE_SCHEMA(abefa88b9563dbae);

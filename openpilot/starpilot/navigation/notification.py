@@ -17,6 +17,20 @@ def notification_instruction(phone, *, now_ns):
           'distanceMeters': phone.get('distanceMeters') or 0}, 'notificationGuidance'
 
 
+MATCHED = ('matched_limit_unqualified', 'matched_no_limit_unqualified')
+
+
+def navigation_frame(frame, now_boot_ns):
+  """mapd's neutral ambiguous output, which may carry navigation-only junctions."""
+  from openpilot.starpilot.speed_limits.map_source import COMPUTED_MAX_AGE_NS, EVENT_MAX_AGE_NS, GPS_MAX_AGE_NS
+  return (frame.version == 2 and frame.status == 'unknown' and not frame.event_valid and frame.way_id == 0 and
+          frame.speed_mps == 0 and frame.source in GPS_MAX_AGE_NS and
+          0 < frame.gps_mono_ns <= frame.computed_mono_ns <= frame.event_mono_ns <= now_boot_ns and
+          now_boot_ns - frame.event_mono_ns <= EVENT_MAX_AGE_NS and
+          now_boot_ns - frame.computed_mono_ns <= COMPUTED_MAX_AGE_NS and
+          now_boot_ns - frame.gps_mono_ns <= GPS_MAX_AGE_NS[frame.source])
+
+
 class LocalMapCorroborator:
   """Optional geometry evidence from mapd's matched road; never route authority."""
   def __init__(self):
@@ -24,37 +38,54 @@ class LocalMapCorroborator:
     self.tracker = MapTracker()
     self.frame = None
     self.branches = ()
+    self.navigation_only = False
+    self.last_event_ns = 0
+    self.failure_logged = False
 
   def update(self, road, *, valid, event_boot_ns, received, alive, now_boot_ns):
-    import math
     from openpilot.starpilot.speed_limits.map_source import copy_frame
     try:
       frame = copy_frame(road, event_valid=valid, event_boot_ns=event_boot_ns) if received else None
       evidence = self.tracker.step(frame, received=received, now_boot_ns=now_boot_ns, transport_alive=alive)
       accepted = self.tracker.diagnostic(now_boot_ns=now_boot_ns).frame
-      if frame is not None and accepted is frame:
+      if not alive:
         self.frame, self.branches = None, ()
-        if evidence.kind in ('matched_limit_unqualified', 'matched_no_limit_unqualified'):
-          rows = road.navigationBranches
-          if len(rows) > 32:
-            return
-          branches = []
-          for row in rows:
-            junction = float(row.junctionLatitude), float(row.junctionLongitude)
-            distance, angle, way_id = float(row.distanceMeters), float(row.angleDegrees), int(row.wayId)
-            if (not all(math.isfinite(v) for v in (*junction, distance, angle)) or
-                not -90 <= junction[0] <= 90 or not -180 <= junction[1] <= 180 or
-                not 0 <= distance <= 1500 or not -180 <= angle <= 180 or way_id <= 0):
-              return
-            branches.append((junction, distance, angle, str(row.highwayClass), way_id))
-          self.frame, self.branches = frame, tuple(branches)
-      if accepted is not self.frame:
+      elif frame is not None and frame.event_mono_ns > self.last_event_ns:
+        self.last_event_ns = frame.event_mono_ns
+        self.frame, self.branches = None, ()
+        # A matched road (speed-limit grade), or mapd's navigation-only pick on an ambiguous fix.
+        if accepted is frame and evidence.kind in MATCHED:
+          self._take(road, frame, navigation_only=False)
+        elif accepted is None and navigation_frame(frame, now_boot_ns):
+          self._take(road, frame, navigation_only=True)
+      if self.frame is not None and not (navigation_frame(self.frame, now_boot_ns) if self.navigation_only else
+                                         accepted is self.frame):
         self.frame, self.branches = None, ()
     except Exception:
       # Cereal's lazy readers can raise KjException. Bad optional map evidence
       # must neither retain old confirmation nor interrupt phone/Mapbox output.
+      if not self.failure_logged:
+        from openpilot.common.swaglog import cloudlog
+        cloudlog.exception('notification navigation: mapdOut unreadable; map corroboration off')
+        self.failure_logged = True
       self.tracker.reset()
-      self.frame, self.branches = None, ()
+      self.frame, self.branches, self.last_event_ns = None, (), 0
+
+  def _take(self, road, frame, *, navigation_only):
+    import math
+    rows = road.navigationBranches
+    if len(rows) > 32:
+      return
+    branches = []
+    for row in rows:
+      junction = float(row.junctionLatitude), float(row.junctionLongitude)
+      distance, angle, way_id = float(row.distanceMeters), float(row.angleDegrees), int(row.wayId)
+      if (not all(math.isfinite(v) for v in (*junction, distance, angle)) or
+          not -90 <= junction[0] <= 90 or not -180 <= junction[1] <= 180 or
+          not 0 <= distance <= 1500 or not -180 <= angle <= 180 or way_id <= 0):
+        return
+      branches.append((junction, distance, angle, str(row.highwayClass), way_id))
+    self.frame, self.branches, self.navigation_only = frame, tuple(branches), navigation_only
 
   def status(self, phone):
     if not self.branches:

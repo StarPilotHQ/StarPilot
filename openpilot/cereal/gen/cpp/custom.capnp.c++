@@ -16384,7 +16384,7 @@ const ::capnp::_::RawSchema s_965a7a6975ef2b9e = {
 };
 #endif  // !CAPNP_LITE
 CAPNP_DEFINE_ENUM(SampleStatus_965a7a6975ef2b9e, 965a7a6975ef2b9e);
-static const ::capnp::_::AlignedData<36> b_f2b4452cefd6d128 = {
+static const ::capnp::_::AlignedData<40> b_f2b4452cefd6d128 = {
   {   0,   0,   0,   0,   5,   0,   6,   0,
      40, 209, 214, 239,  44,  69, 180, 242,
      21,   0,   0,   0,   2,   0,   0,   0,
@@ -16394,7 +16394,7 @@ static const ::capnp::_::AlignedData<36> b_f2b4452cefd6d128 = {
      21,   0,   0,   0, 250,   0,   0,   0,
      33,   0,   0,   0,   7,   0,   0,   0,
       0,   0,   0,   0,   0,   0,   0,   0,
-     29,   0,   0,   0, 103,   0,   0,   0,
+     29,   0,   0,   0, 127,   0,   0,   0,
       0,   0,   0,   0,   0,   0,   0,   0,
       0,   0,   0,   0,   0,   0,   0,   0,
      99, 117, 115, 116, 111, 109,  46,  99,
@@ -16402,32 +16402,36 @@ static const ::capnp::_::AlignedData<36> b_f2b4452cefd6d128 = {
     100,  79, 117, 116,  46,  71, 112, 115,
      83, 111, 117, 114,  99, 101,   0,   0,
       0,   0,   0,   0,   1,   0,   1,   0,
-     16,   0,   0,   0,   1,   0,   2,   0,
+     20,   0,   0,   0,   1,   0,   2,   0,
       0,   0,   0,   0,   0,   0,   0,   0,
-     41,   0,   0,   0,  42,   0,   0,   0,
+     53,   0,   0,   0,  42,   0,   0,   0,
       0,   0,   0,   0,   0,   0,   0,   0,
       1,   0,   0,   0,   0,   0,   0,   0,
-     33,   0,   0,   0,  74,   0,   0,   0,
+     45,   0,   0,   0,  74,   0,   0,   0,
       0,   0,   0,   0,   0,   0,   0,   0,
       2,   0,   0,   0,   0,   0,   0,   0,
-     29,   0,   0,   0,  74,   0,   0,   0,
+     41,   0,   0,   0,  74,   0,   0,   0,
       0,   0,   0,   0,   0,   0,   0,   0,
       3,   0,   0,   0,   0,   0,   0,   0,
-     25,   0,   0,   0,  34,   0,   0,   0,
+     37,   0,   0,   0,  34,   0,   0,   0,
+      0,   0,   0,   0,   0,   0,   0,   0,
+      4,   0,   0,   0,   0,   0,   0,   0,
+     29,   0,   0,   0,  50,   0,   0,   0,
       0,   0,   0,   0,   0,   0,   0,   0,
     110, 111, 110, 101,   0,   0,   0,   0,
     105, 110, 116, 101, 114, 110,  97, 108,
       0,   0,   0,   0,   0,   0,   0,   0,
     101, 120, 116, 101, 114, 110,  97, 108,
       0,   0,   0,   0,   0,   0,   0,   0,
-     99,  97, 114,   0,   0,   0,   0,   0, }
+     99,  97, 114,   0,   0,   0,   0,   0,
+    112, 104, 111, 110, 101,   0,   0,   0, }
 };
 ::capnp::word const* const bp_f2b4452cefd6d128 = b_f2b4452cefd6d128.words;
 #if !CAPNP_LITE
-static const uint16_t m_f2b4452cefd6d128[] = {3, 2, 1, 0};
+static const uint16_t m_f2b4452cefd6d128[] = {3, 2, 1, 0, 4};
 const ::capnp::_::RawSchema s_f2b4452cefd6d128 = {
-  0xf2b4452cefd6d128, b_f2b4452cefd6d128.words, 36, nullptr, m_f2b4452cefd6d128,
-  0, 4, nullptr, nullptr, nullptr, { &s_f2b4452cefd6d128, nullptr, nullptr, 0, 0, nullptr }, false
+  0xf2b4452cefd6d128, b_f2b4452cefd6d128.words, 40, nullptr, m_f2b4452cefd6d128,
+  0, 5, nullptr, nullptr, nullptr, { &s_f2b4452cefd6d128, nullptr, nullptr, 0, 0, nullptr }, false
 };
 #endif  // !CAPNP_LITE
 CAPNP_DEFINE_ENUM(GpsSource_f2b4452cefd6d128, f2b4452cefd6d128);
