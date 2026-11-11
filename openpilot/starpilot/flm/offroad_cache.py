@@ -10,6 +10,7 @@ import tempfile
 MAX_DOCUMENT = 1024 * 1024
 MAX_FILES = 128
 MAX_TOTAL = 64 * 1024 * 1024
+MAX_CHECKPOINTS = 8
 
 
 def _pairs(rows):
@@ -106,7 +107,7 @@ class AssessmentCache:
   def _capacity(self, size):
     total = count = 0
     for p in self.directory.iterdir():
-      if p.name == 'latest.json':
+      if p.name in ('latest.json', 'inputs.json'):
         continue
       if not p.name.endswith('.json'):
         raise ValueError('Unexpected assessment directory contents')
@@ -149,11 +150,8 @@ class AssessmentCache:
       os.close(fd)
     return self._read(name) == raw
 
-  def latest(self):
-    try:
-      value = json.loads(self._read('latest.json', 32768), object_pairs_hook=_pairs)
-    except FileNotFoundError:
-      return None
+  @staticmethod
+  def _checkpoint(value):
     if (
       type(value) is not dict
       or set(value) != {'input_fingerprint', 'result'}
@@ -166,8 +164,33 @@ class AssessmentCache:
       raise ValueError('Invalid completed-drive checkpoint')
     return value
 
+  def latest(self):
+    try:
+      return self._checkpoint(json.loads(self._read('latest.json', 32768), object_pairs_hook=_pairs))
+    except FileNotFoundError:
+      return None
+
+  def checkpoints(self):
+    try:
+      rows = json.loads(self._read('inputs.json', MAX_CHECKPOINTS * 32768 + 32), object_pairs_hook=_pairs)
+    except FileNotFoundError:
+      rows = []
+    if type(rows) is not list or len(rows) > MAX_CHECKPOINTS:
+      raise ValueError('Bounded completed-drive history required')
+    rows = [self._checkpoint(row) for row in rows]
+    if len({row['input_fingerprint'] for row in rows}) != len(rows):
+      raise ValueError('Duplicate completed-drive fingerprint')
+    latest = self.latest()
+    if latest is not None:
+      rows = [row for row in rows if row['input_fingerprint'] != latest['input_fingerprint']] + [latest]
+    return rows[-MAX_CHECKPOINTS:]
+
   def checkpoint(self, value):
+    self._checkpoint(value)
     raw = json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
     if len(raw) > 32768:
       raise ValueError('Assessment checkpoint bound')
+    rows = [row for row in self.checkpoints() if row['input_fingerprint'] != value['input_fingerprint']] + [value]
+    self._write('inputs.json', json.dumps(rows[-MAX_CHECKPOINTS:], sort_keys=True, separators=(',', ':'), allow_nan=False).encode())
     self._write('latest.json', raw)
+

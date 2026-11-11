@@ -387,8 +387,8 @@ def collect_route_inputs(root, route, *, permitted, walker=None):
   return RecordedInputs(receipt, state, windows, stable_windows, baseline_tracking, bookends, raw_windows, context_metadata, counts, quality_stops)
 
 
-def collect_latest_steering_inputs(params, root, *, permitted):
-  route = latest_route(params, root, permitted=permitted)
+def collect_latest_steering_inputs(params, root, *, permitted, selected_route=None):
+  route = latest_route(params, root, permitted=permitted) if selected_route is None else selected_route
   import time
   from openpilot.starpilot.flm.offroad_route import MAX_ANALYSIS_SECONDS, MAX_SEGMENTS, LOCAL_ID
   from openpilot.starpilot.galaxy.drive_history import DriveHistory
@@ -415,7 +415,7 @@ def collect_latest_steering_inputs(params, root, *, permitted):
       c['recorded_lateral_request_rows'] >= 40 and c['active_lateral_request_rows'] == 0 and c['invalid_lateral_request_rows'] == 0 and not inputs.quality_stops
     )
 
-  if inactive(collected) and LOCAL_ID.fullmatch(route['routeId']):
+  if selected_route is None and inactive(collected) and LOCAL_ID.fullmatch(route['routeId']):
     snapshot = DriveHistory(root, max_segments_per_route=MAX_SEGMENTS).snapshot()
     if snapshot['scanIncomplete']:
       raise ValueError('Latest steering drive inventory incomplete')
@@ -438,8 +438,11 @@ def collect_latest_steering_inputs(params, root, *, permitted):
   return route, collected
 
 
-def analyze_latest(params, root, previous, *, permitted):
-  route, collected = collect_latest_steering_inputs(params, root, permitted=permitted)
+def analyze_latest(params, root, previous, *, permitted, selected_route=None):
+  if selected_route is None:
+    route, collected = collect_latest_steering_inputs(params, root, permitted=permitted)
+  else:
+    route, collected = collect_latest_steering_inputs(params, root, permitted=permitted, selected_route=selected_route)
   receipt, state = collected.receipt, collected.state
   if type(receipt) not in (RouteReceipt, SelectedSourceReceipt):
     raise ValueError('An original whole-drive or explicit input-selected receipt is required')
@@ -548,3 +551,4 @@ def analyze_latest(params, root, previous, *, permitted):
   return CompletedAssessment(
     receipt, reports, counts, state['cp'], (), route, tuple(quality_stops), tuple(diagnostic), tuple(stable), _recorded_tracking(proposal_windows)
   )
+

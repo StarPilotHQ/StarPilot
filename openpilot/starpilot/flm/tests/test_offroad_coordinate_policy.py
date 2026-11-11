@@ -16,6 +16,142 @@ from openpilot.starpilot.flm.torque_stages import StageFrame
 from openpilot.starpilot.saved_source import read_saved
 
 
+class TestCompletedDriveBacklog(unittest.TestCase):
+  @staticmethod
+  def route(counter):
+    return {'routeId': f'{counter:08x}--aaaaaaaaaa', 'segments': [{'files': {'rlog': True}}]}
+
+  def test_input_order_ignores_outcomes_and_refuses_ambiguous_or_partial_inventory(self):
+    from openpilot.starpilot.flm.offroad_worker import pending_routes
+
+    routes = [self.route(i) for i in (16, 18, 17, 14, 19)]
+    inventory = {'scanIncomplete': False, 'routes': routes}
+    with patch('openpilot.starpilot.galaxy.drive_history.DriveHistory.snapshot', return_value=inventory):
+      self.assertEqual(pending_routes('.', self.route(18)), [self.route(i) for i in (18, 16, 17)])
+      inventory['routes'].append(dict(self.route(17), routeId='00000011--bbbbbbbbbb'))
+      with self.assertRaisesRegex(ValueError, 'Ambiguous'):
+        pending_routes('.', self.route(18))
+      inventory['scanIncomplete'] = True
+      with self.assertRaisesRegex(ValueError, 'incomplete'):
+        pending_routes('.', self.route(18))
+
+  def test_checkpoints_survive_newest_then_backlog_without_repeating_failed_inputs(self):
+    from openpilot.starpilot.flm import offroad_worker as module
+
+    latest, older = self.route(18), self.route(17)
+    seen = []
+    with tempfile.TemporaryDirectory() as directory, patch.object(module, 'latest_route', return_value=latest), patch.object(
+      module, 'pending_routes', return_value=[latest, older]
+    ):
+      params = Params(directory)
+
+      def assess(params, root, previous, *, permitted, selected_route=None):
+        seen.append(latest if selected_route is None else selected_route)
+        raise ValueError('Declared incomplete source; no tune permitted')
+
+      worker = module.OffroadWorker(params, directory, Path(directory) / 'cache', permitted=lambda: True, assessor=assess)
+      for route in (latest, older):
+        with self.assertRaises(ValueError) as caught:
+          worker.run_once()
+        result = worker.record_failure(caught.exception)
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertFalse(result['configuration_changed'])
+        self.assertEqual(result['source_is_latest'], route == latest)
+      fresh = module.OffroadWorker(params, directory, worker.cache, permitted=lambda: True, assessor=assess)
+      self.assertEqual(fresh.run_once()['reason'], 'Declared incomplete source; no tune permitted')
+      self.assertEqual(seen, [latest, older], 'Fresh readers must not repeat either completed input')
+      params.put('AutoSteeringLearningReset', '1', block=True)
+      with self.assertRaises(ValueError):
+        fresh.run_once()
+      self.assertEqual(seen[-1], latest, 'Changed settings require a new assessment, newest first')
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES), (None, True))
+      changed = self.route(19)
+      with patch.object(module, 'latest_route', return_value=changed):
+        self.assertIsNone(fresh.record_failure(ValueError('Cancelled by new drive')))
+      self.assertIs(result['source_is_latest'], False)
+
+  def test_completed_backlog_analysis_keeps_its_own_source_and_is_not_repeated(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_worker as module
+    from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+
+    latest, older = self.route(18), self.route(17)
+    calls = []
+
+    def assess(params, root, previous, *, permitted, selected_route=None):
+      route = latest if selected_route is None else selected_route
+      calls.append(route)
+      cp = SimpleNamespace(carFingerprint='declared-queue-car')
+      previous(cp)
+      receipt = RouteReceipt(route['routeId'], ('d' if route == latest else 'e') * 64, (), 'a' * 64, 1, 2, 3, ())
+      return CompletedAssessment(receipt, (), {}, cp, (), route)
+
+    with tempfile.TemporaryDirectory() as directory, patch.object(module, 'latest_route', return_value=latest), patch.object(
+      module, 'pending_routes', return_value=[latest, older]
+    ), patch('openpilot.starpilot.galaxy.drive_history.DriveHistory.snapshot', return_value={'scanIncomplete': False, 'routes': [latest, older]}):
+      params = Params(directory)
+      worker = module.OffroadWorker(params, directory, Path(directory) / 'cache', permitted=lambda: True, assessor=assess,
+                                    scope_for=lambda cp, params: scope())
+      for route in (latest, older):
+        result = worker.run_once()
+        self.assertEqual(result['completed_route'], route['routeId'])
+        self.assertEqual(result['source_is_latest'], route == latest)
+        self.assertFalse(result['configuration_changed'])
+      self.assertEqual(worker.run_once(), result)
+      self.assertEqual(calls, [latest, older])
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES), (None, True))
+
+  def test_checkpoint_history_is_bounded_and_cannot_reset_a_consumed_trial(self):
+    from openpilot.starpilot.flm.offroad_cache import AssessmentCache, MAX_CHECKPOINTS
+
+    with tempfile.TemporaryDirectory() as directory:
+      cache = AssessmentCache(directory)
+      self.assertTrue(cache.claim_trial('a' * 64, 'b' * 32))
+      for i in range(MAX_CHECKPOINTS + 2):
+        cache.checkpoint({'input_fingerprint': f'{i:064x}', 'result': {'status': 'collecting', 'reason': 'declared'}})
+      fresh = AssessmentCache(directory)
+      self.assertEqual(len(fresh.checkpoints()), MAX_CHECKPOINTS)
+      self.assertEqual(fresh.checkpoints()[-1], fresh.latest())
+      self.assertFalse(fresh.claim_trial('a' * 64, 'c' * 32))
+      rows = fresh.checkpoints()
+      (Path(directory) / 'inputs.json').write_text(json.dumps([rows[0], rows[0]]))
+      with self.assertRaisesRegex(ValueError, 'Duplicate'):
+        fresh.checkpoints()
+
+  def test_selected_backlog_does_not_substitute_an_inactive_source(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_processor as module
+
+    route = self.route(17)
+    inactive = SimpleNamespace(receipt=SimpleNamespace(cp_sha256='a' * 64), counts={
+      'recorded_lateral_request_rows': 100, 'active_lateral_request_rows': 0, 'invalid_lateral_request_rows': 0,
+    }, quality_stops=[])
+    with patch.object(module, 'latest_route', side_effect=AssertionError('Explicit selected input must stay frozen')), patch.object(
+      module, 'collect_route_inputs', return_value=inactive
+    ) as collect:
+      actual, result = module.collect_latest_steering_inputs(None, '.', permitted=lambda: True, selected_route=route)
+    self.assertEqual(actual, route)
+    self.assertIs(result, inactive)
+    self.assertEqual(collect.call_count, 1)
+
+  def test_preconfiguration_recordings_cannot_consume_a_next_drive_attempt(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_worker import assess_next_drive, POLICY
+
+    declared = dict(trial(), policy=POLICY, values=values(0.01), original_metadata={}, configured_after_route=self.route(18)['routeId'])
+    for counter in (17, 18):
+      assessment = SimpleNamespace(receipt=SimpleNamespace(route_id=self.route(counter)['routeId']), quality_stop_markers=())
+      outcome = assess_next_drive(declared, assessment, scope(), trial_started=True, recorded_backlog=True)
+      self.assertEqual(outcome['outcome'], 'pending')
+      self.assertFalse(outcome['counts_as_new_drive'])
+    newer = SimpleNamespace(receipt=SimpleNamespace(route_id=self.route(19)['routeId']), quality_stop_markers=(), groups=(), stable_groups=())
+    self.assertEqual(assess_next_drive(declared, newer, scope(), trial_started=True)['reason'], 'trial_started_waiting_for_comparable_drive')
+    del declared['configured_after_route']
+    self.assertFalse(assess_next_drive(declared, newer, scope(), recorded_backlog=True)['counts_as_new_drive'])
+
+
 class TestAllThirtyCoordinateProposals(unittest.TestCase):
   @staticmethod
   def observations(bucket, speed, side='left', severity=1.0):
@@ -869,3 +1005,4 @@ class TestSelectedCurrentDriveInputs(unittest.TestCase):
     self.assertEqual(actual, route)
     self.assertIs(result, collected)
     self.assertIsNone(selected.call_args.kwargs['cp_sha256'])
+

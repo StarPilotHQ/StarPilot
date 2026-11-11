@@ -17,7 +17,7 @@ from openpilot.starpilot.flm.learned_lifecycle import decode
 from openpilot.starpilot.flm.offroad_cache import AssessmentCache
 from openpilot.starpilot.flm.offroad_checks import qualify
 from openpilot.starpilot.flm.offroad_processor import analyze_latest, CompletedAssessment
-from openpilot.starpilot.flm.offroad_route import latest_route
+from openpilot.starpilot.flm.offroad_route import latest_route, LOCAL_ID, MAX_SEGMENTS
 from openpilot.starpilot.flm.offroad_runtime import configuration_scope
 from openpilot.starpilot.flm.offroad_store import RouteStorage, KEY, MAX_BYTES, MAX_ROUTE_STEP, NAMESPACE
 from openpilot.starpilot.flm.offroad_surface import REVISION
@@ -151,7 +151,29 @@ def quality_withdrawn(assessment, scope, values):
   return any(stop_marker(scope.key(), values, r) in reasons for r in STOP_REASONS)
 
 
-def assess_next_drive(trial, assessment, scope, *, trial_started=True):
+def pending_routes(root, latest):
+  """Newest first, then two preceding logger inputs, oldest first; no fit selection."""
+  if not LOCAL_ID.fullmatch(latest['routeId']):
+    return [latest]
+  from openpilot.starpilot.galaxy.drive_history import DriveHistory
+
+  inventory = DriveHistory(root, max_segments_per_route=MAX_SEGMENTS).snapshot()
+  if inventory['scanIncomplete']:
+    raise ValueError('Completed-drive backlog inventory incomplete')
+  counter = int(latest['routeId'].split('--')[0], 16)
+  candidates = []
+  for route in inventory['routes']:
+    if not LOCAL_ID.fullmatch(route['routeId']):
+      continue
+    distance = (counter - int(route['routeId'].split('--')[0], 16)) % 2**32
+    if 1 <= distance <= 2 and route.get('segments') and all(s['files']['rlog'] for s in route['segments']):
+      candidates.append((distance, route['routeId'], route))
+  if len({distance for distance, _, _ in candidates}) != len(candidates):
+    raise ValueError('Ambiguous completed logger counter')
+  return [latest] + [route for _, _, route in sorted(candidates, reverse=True)]
+
+
+def assess_next_drive(trial, assessment, scope, *, trial_started=True, recorded_backlog=False):
   """Compare independently held-out actual observations; no raw-RMS reward."""
   if trial.get('policy') != POLICY or trial.get('kind') != 'next_drive_trial':
     raise ValueError('Exact provisional assessment provenance required')
@@ -163,6 +185,22 @@ def assess_next_drive(trial, assessment, scope, *, trial_started=True):
       'causal_road_benefit_proven': False,
       'comparisons': [],
     }
+  boundary = trial.get('configured_after_route')
+  if boundary is None and recorded_backlog:
+    return {
+      'outcome': 'pending', 'reason': 'trial_configuration_chronology_unavailable',
+      'counts_as_new_drive': False, 'observed_only': True, 'causal_road_benefit_proven': False, 'comparisons': [],
+    }
+  if boundary is not None:
+    observed = assessment.receipt.route_id
+    if not LOCAL_ID.fullmatch(boundary) or not LOCAL_ID.fullmatch(observed):
+      raise ValueError('Exact local trial chronology required')
+    distance = (int(observed.split('--')[0], 16) - int(boundary.split('--')[0], 16)) % 2**32
+    if not 0 < distance < 2**31:
+      return {
+        'outcome': 'pending', 'reason': 'recorded_drive_precedes_trial_configuration',
+        'counts_as_new_drive': False, 'observed_only': True, 'causal_road_benefit_proven': False, 'comparisons': [],
+      }
   before = trial['original_metadata']
   comparisons = []
   stable = trial['before']['training'].get('kind') == 'uncommanded_residual_v1'
@@ -345,6 +383,7 @@ class OffroadWorker:
     self.permitted, self.assessor, self.checker, self.scope_for = permitted, assessor, checker, scope_for
     self.source_revision = _digest([(p.name, hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted(Path(__file__).parent.glob('*.py'))])
     self.pending_input = None
+    self.pending_latest = None
     self.pending_failure_data = None
     self.on_analysis = on_analysis
     self.on_assessment = on_assessment
@@ -369,7 +408,7 @@ class OffroadWorker:
     if self.pending_input is None or not self.permitted():
       return
     route, fingerprint = self.pending_input
-    if self._snapshot(route) != fingerprint or latest_route(self.params, self.root, permitted=self.permitted) != route:
+    if self._snapshot(route) != fingerprint or latest_route(self.params, self.root, permitted=self.permitted) != self.pending_latest:
       return
     result = {
       'status': 'unavailable',
@@ -377,6 +416,7 @@ class OffroadWorker:
       'configuration_changed': False,
       'actual_application_proven': False,
       'road_improvement_confirmed': False,
+      'source_is_latest': route == self.pending_latest,
     }
     if pending is not None:
       authorized, recorded = pending
@@ -388,14 +428,24 @@ class OffroadWorker:
 
   def run_once(self):
     self.pending_failure_data = None
+    self.pending_input = None
     if not self.permitted():
       raise ValueError('Offroad analysis not permitted')
-    route = latest_route(self.params, self.root, permitted=self.permitted)
-    fingerprint = self._snapshot(route)
+    latest = latest_route(self.params, self.root, permitted=self.permitted)
+    self.pending_latest = latest
+    checkpoints = {row['input_fingerprint']: row['result'] for row in self.cache.checkpoints()}
+    fingerprints = []
+    for route in pending_routes(self.root, latest):
+      fingerprint = self._snapshot(route)
+      fingerprints.append(fingerprint)
+      if fingerprint not in checkpoints:
+        break
+    else:
+      last = self.cache.latest()
+      result = checkpoints[last['input_fingerprint']] if last is not None and last['input_fingerprint'] in fingerprints else checkpoints[fingerprints[0]]
+      source_is_latest = result['completed_route'] == latest['routeId'] if 'completed_route' in result else result.get('source_is_latest', True)
+      return dict(result, source_is_latest=source_is_latest)
     self.pending_input = (route, fingerprint)
-    last = self.cache.latest()
-    if last is not None and last.get('input_fingerprint') == fingerprint:
-      return last['result']
     state = {}
 
     def prior(cp):
@@ -409,7 +459,10 @@ class OffroadWorker:
 
     if self.on_analysis is not None:
       self.on_analysis()
-    assessment = self.assessor(self.params, self.root, prior, permitted=self.permitted)
+    if route == latest:
+      assessment = self.assessor(self.params, self.root, prior, permitted=self.permitted)
+    else:
+      assessment = self.assessor(self.params, self.root, prior, permitted=self.permitted, selected_route=route)
     if self.on_assessment is not None:
       self.on_assessment(assessment)
     if not state:
@@ -418,12 +471,11 @@ class OffroadWorker:
 
     def authorized():
       if not (
-        self.permitted() and self.scope_for(assessment.cp, self.params) == scope and latest_route(self.params, self.root, permitted=self.permitted) == route
+        self.permitted() and self.scope_for(assessment.cp, self.params) == scope and latest_route(self.params, self.root, permitted=self.permitted) == latest
       ):
         return False
-      if assessment.source_inventory == route:
+      if route == latest and assessment.source_inventory == route:
         return True
-      from openpilot.starpilot.flm.offroad_route import MAX_SEGMENTS
       from openpilot.starpilot.galaxy.drive_history import DriveHistory
 
       inventory = DriveHistory(self.root, max_segments_per_route=MAX_SEGMENTS).snapshot()
@@ -439,6 +491,7 @@ class OffroadWorker:
       'vehicle': str(assessment.cp.carFingerprint),
       'analysis_counts': dict(assessment.counts),
       'recorded_tracking': assessment.recorded_tracking,
+      'source_is_latest': assessment.receipt.route_id == latest['routeId'],
     }
     self.pending_failure_data = (authorized, recorded)
     report = assessment.report()
@@ -478,8 +531,9 @@ class OffroadWorker:
       attempts = self.cache.get(row['analysis_sha256']).get('inconclusive_drives', 0)
       if type(attempts) is not int or not 0 <= attempts < MAX_INCONCLUSIVE_DRIVES:
         raise ValueError('Bounded inconclusive trial history required')
-      outcome = assess_next_drive(trial, assessment, scope, trial_started=started)
-      if outcome['outcome'] == 'pending' and started:
+      outcome = assess_next_drive(trial, assessment, scope, trial_started=started, recorded_backlog=route != latest)
+      counts_as_new_drive = outcome.get('counts_as_new_drive', True)
+      if outcome['outcome'] == 'pending' and started and counts_as_new_drive:
         attempts += 1
         if attempts >= MAX_INCONCLUSIVE_DRIVES:
           outcome = dict(outcome, outcome='rolled_back', reason='trial_inconclusive_drive_limit')
@@ -491,7 +545,7 @@ class OffroadWorker:
           'causal_road_benefit_proven': False,
           'comparisons': outcome['comparisons'],
         }
-      if outcome['outcome'] == 'pending' and not started:
+      if outcome['outcome'] == 'pending' and (not started or not counts_as_new_drive):
         status, reason = 'ready_for_next_drive', outcome['reason']
         report['unused_recording_review'] = outcome
         report['recorded_tracking'] = trial.get('assessment', {}).get('recorded_tracking')
@@ -675,6 +729,7 @@ class OffroadWorker:
             if checked['qualified']:
               record = {
                 'kind': 'next_drive_trial',
+                'configured_after_route': latest['routeId'],
                 'policy': POLICY,
                 'assessment': report,
                 'parameter': proposal['parameter'],
@@ -762,6 +817,7 @@ class OffroadWorker:
       'configuration_changed': saved,
       'policy': POLICY,
       'completed_route': assessment.receipt.route_id,
+      'source_is_latest': assessment.receipt.route_id == latest['routeId'],
       'analysis_counts': dict(assessment.counts),
       'actual_application_proven': False,
       'road_improvement_confirmed': False,
@@ -798,3 +854,4 @@ class OffroadWorker:
     self.cache.checkpoint({'input_fingerprint': self._snapshot(route), 'result': result})
     self.pending_failure_data = None
     return result
+

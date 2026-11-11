@@ -36,7 +36,7 @@ class StatusReport:
     # Historical findings survive a new fit. Never carry a saved/current map,
     # enabled flag or application evidence forward from a previous report.
     fields = ('completed_route', 'vehicle', 'analysis_counts', 'recorded_tracking', 'source_sha256', 'assessment_sha256',
-              'recommendations', 'suggestions', 'suggestion_count')
+              'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest')
     previous = {key: self.previous[key] for key in fields if key in self.previous}
     if previous:
       previous['retained_decision'] = self.previous.get('reason', 'waiting_for_completed_drive')
@@ -95,6 +95,7 @@ class StatusReport:
     if 'completed_route' in value:
       details['Earlier analysis shown while updating'] = value.get('retained_analysis') is True
       details['Completed drive analyzed'] = value['completed_route']
+      details['Earlier completed drive reviewed'] = value.get('source_is_latest') is False
       details['Recorded steering observations'] = count('recorded_tracking')
       reviewed, available = count('original_segments_reviewed'), count('original_segments_available')
       if reviewed and available:
@@ -337,3 +338,4 @@ def main():
 
 if __name__ == '__main__':
   main()
+
