@@ -37,7 +37,7 @@ print(json.dumps(dict(native=native,projection=projection)))
       }
       if (pathname.startsWith('/api/')) return route.fulfill({ json: pathname === '/api/starport/layout' ? fixtures.projection : fixtures.native })
       if (pathname === '/') return route.fulfill({ contentType: 'text/html', body: `
-        <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/settings.css">
+        <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/setup.css"><link rel="stylesheet" href="/css/settings.css">
         <main class="gx-content"><div id="app"></div></main><script type="module">
         import {createApp} from '/vendor/vue/vue.esm-browser.js'; import {OnroadLayoutPage} from '/js/onroad-layout.js';
         window.editor=createApp(OnroadLayoutPage,{mode:'local',projection:location.search.includes('projection'),unauthorized(){}}).mount('#app');</script>` })

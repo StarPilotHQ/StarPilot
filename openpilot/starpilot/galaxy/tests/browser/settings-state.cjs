@@ -9,7 +9,7 @@ const { execFileSync } = require('node:child_process')
     const errors = []
     page.on('pageerror', error => errors.push(error.message))
     await page.route('**/settings-state-test', route => route.fulfill({ contentType: 'text/html', body:
-      '<link rel="stylesheet" href="css/galaxy.css"><link rel="stylesheet" href="css/settings.css"><div id="test"></div>' }))
+      '<link rel="stylesheet" href="css/galaxy.css"><link rel="stylesheet" href="css/setup.css"><link rel="stylesheet" href="css/settings.css"><div id="test"></div>' }))
     await page.goto((process.env.GALAXY_URL || 'http://127.0.0.1:8765/') + 'settings-state-test')
     const pages = await page.evaluate(async () => {
       const vue = await import('./vendor/vue/vue.esm-browser.js')

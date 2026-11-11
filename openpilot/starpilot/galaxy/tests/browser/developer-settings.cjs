@@ -10,7 +10,7 @@ const assert = require('node:assert/strict')
     let enabled = false, parked = true
     page.on('pageerror', error => errors.push(error.message))
     await page.route('**/developer-settings-test', route => route.fulfill({ contentType: 'text/html', body:
-      '<link rel="stylesheet" href="css/galaxy.css"><link rel="stylesheet" href="css/settings.css"><div id="test"></div>' }))
+      '<link rel="stylesheet" href="css/galaxy.css"><link rel="stylesheet" href="css/setup.css"><link rel="stylesheet" href="css/settings.css"><div id="test"></div>' }))
     await page.route('**/api/**', route => {
       const path = new URL(route.request().url()).pathname
       let data
