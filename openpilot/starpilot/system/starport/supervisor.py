@@ -320,9 +320,11 @@ class SharedRadioWatch:
       last = current
       self.changed_at = time.monotonic()
       self.log("other_wifi_changed", interface=self.interface)
-      if not self._carrier():
-        if self.on_down is not None:
+      if self.on_down is not None and not self._carrier():
+        try:
           self.on_down()
+        except Exception as error:
+          self.log("other_wifi_hold_failed", error=str(error) or type(error).__name__)
 
   def stalled(self) -> None:
     if self.on_stall is not None:

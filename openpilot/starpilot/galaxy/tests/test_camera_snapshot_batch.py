@@ -253,6 +253,15 @@ class CameraSnapshotBatchTest(unittest.TestCase):
     self.assertEqual(self.launched, [('cabin', 0, [])])
     self.assert_released()
 
+  def test_fully_throttled_batch_does_not_request_camera(self):
+    owner = self.owner()
+    owner.last_request.update(wide=0, cabin=0)
+    result = owner.capture_many(['wide', 'cabin'], permitted=lambda: True)
+    self.assertTrue(all(isinstance(value, SnapshotUnavailable) for value in result.values()))
+    self.request.assert_not_called()
+    self.assertEqual(self.launched, [])
+    self.assert_released()
+
   def test_real_readers_revoked_together_and_exclusive_lock(self):
     children = []
     def spawn(args, **kwargs):

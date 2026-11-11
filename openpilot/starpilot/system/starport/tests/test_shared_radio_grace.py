@@ -144,6 +144,34 @@ def test_watch_without_the_counter_never_reports(tmp_path):
     watch.stop()
 
 
+def test_watch_continues_after_hold_failure(tmp_path):
+  counter, carrier = tmp_path / 'carrier_changes', tmp_path / 'carrier'
+  counter.write_text('1\n')
+  carrier.write_text('0\n')
+  calls, logged = [], []
+
+  def fail_hold():
+    calls.append(True)
+    raise RuntimeError('lease failed')
+
+  watch = SharedRadioWatch(lambda name, **data: logged.append((name, data)), interval=0.01,
+                           counter=counter, carrier=carrier, on_down=fail_hold).start()
+  try:
+    time.sleep(0.05)
+    counter.write_text('2\n')
+    deadline = time.monotonic() + 2
+    while len(calls) < 1:
+      assert time.monotonic() < deadline
+      time.sleep(0.01)
+    counter.write_text('3\n')
+    while len(calls) < 2:
+      assert time.monotonic() < deadline
+      time.sleep(0.01)
+    assert [name for name, _ in logged].count('other_wifi_hold_failed') == 2
+  finally:
+    watch.stop()
+
+
 def test_notice_is_shown_once_and_only_while_fresh(tmp_path, monkeypatch):
   monkeypatch.setattr(reconnect_notice.identity_store, "boot_id", lambda: "current")  # no /proc off device
   path = tmp_path / "notice.json"
