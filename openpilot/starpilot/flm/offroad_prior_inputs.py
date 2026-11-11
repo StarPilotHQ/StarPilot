@@ -96,7 +96,8 @@ def _selected_sources(root, route, *, permitted, consume, cp_sha256, expanded=Fa
         del events
       if not current() or not permitted():
         raise ValueError('Independent source changed')
-  if not ended or actual_cp is None or actual_cp != expected_cp or start is None or not start < end or clock is None or not 0 <= end - clock[0] <= 10_000_000_000:
+  if (not ended or actual_cp is None or actual_cp != expected_cp or start is None or
+      not start < end or clock is None or not 0 <= end - clock[0] <= 10_000_000_000):
     raise ValueError('Closed prior input identity/clock unavailable')
   if set(names) != _route_names(root, route_id, permitted):
     raise ValueError('Prior recording inventory changed')

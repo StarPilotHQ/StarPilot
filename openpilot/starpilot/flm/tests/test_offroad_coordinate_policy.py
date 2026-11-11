@@ -851,7 +851,9 @@ class TestSelectedCurrentDriveInputs(unittest.TestCase):
 
     route = {'routeId': '0000012e--1234567890', 'segments': [{'files': {}} for _ in range(103)]}
     receipt = SelectedSourceReceipt(route['routeId'], 'b' * 64, (), 'a' * 64, 1, 2, 3, (), inputs.selected_segments(103))
-    collected = SimpleNamespace(receipt=receipt, counts={'recorded_lateral_request_rows': 100, 'active_lateral_request_rows': 90, 'invalid_lateral_request_rows': 0}, quality_stops=[])
+    collected = SimpleNamespace(receipt=receipt, counts={
+      'recorded_lateral_request_rows': 100, 'active_lateral_request_rows': 90, 'invalid_lateral_request_rows': 0,
+    }, quality_stops=[])
 
     def collect(root, actual, *, permitted, walker):
       self.assertEqual(walker(root, actual, permitted=permitted, consume=lambda *args: None), receipt)
