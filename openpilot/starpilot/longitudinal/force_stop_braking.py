@@ -1,10 +1,22 @@
-"""Ioniq 6 distance braking under the existing Force Stop stop/hold intent."""
+"""Distance braking under the existing qualified Ioniq stop/hold intent."""
 
 import math
+
+from openpilot.starpilot.longitudinal.ioniq6_start import eligible as ioniq6_eligible
+from opendbc.car.hyundai.ioniq5pe_long_profile import qualified as ioniq5pe_qualified
 
 MAX_AGE_NS = 150_000_000
 STOP_RESERVE_M = .5
 MIN_ACCEL = -3.5
+
+
+def eligible(cp):
+  try:
+    if cp.passive or cp.dashcamOnly or cp.notCar:
+      return False
+    return ioniq6_eligible(cp) or ioniq5pe_qualified(cp)
+  except (AttributeError, IndexError, TypeError, ValueError, RuntimeError):
+    return False
 
 
 def distance_target(speed, acceleration, distance, delay):

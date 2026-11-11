@@ -577,3 +577,74 @@ class MovingPreviewTests(unittest.TestCase):
       plan = owner.step(preview_frame(tick, moving_preview=True), vehicle_tune('OTHER'))
     self.assertTrue(plan.should_stop)
     self.assertLess(plan.tracked_distance_m, 6.0)
+
+
+class Ioniq5PreviewTests(unittest.TestCase):
+  def test_only_pe_selects_the_distance_control_tune(self):
+    self.assertTrue(vehicle_tune('HYUNDAI_IONIQ_5_PE').distance_control)
+    for fingerprint in ('HYUNDAI_IONIQ_5', 'OTHER'):
+      self.assertFalse(vehicle_tune(fingerprint).distance_control)
+
+  def test_recorded_early_stop_input_keeps_the_fresh_preview(self):
+    owner = ForceStop()
+    owner.last_model_ns = BASE
+    owner.distance = owner.distance_cap = 6.29
+    owner.forcing = True
+    owner.timer = 1.
+    owner.entry_speed = 6.54
+    owner.preview_tracking = True
+    plan = owner.step(preview_frame(1, speed_mps=4.019109725952148,
+                                   horizon_m=27.711849212646484, moving_preview=True),
+                      vehicle_tune('HYUNDAI_IONIQ_5_PE'))
+    self.assertFalse(plan.should_stop)
+    self.assertEqual(plan.tracked_distance_m, 27.711849212646484)
+
+  def test_rolling_preview_is_not_counted_down(self):
+    owner = ForceStop()
+    for tick in range(180):
+      plan = owner.step(preview_frame(tick, moving_preview=True), vehicle_tune('HYUNDAI_IONIQ_5_PE'))
+    self.assertTrue(plan.forcing)
+    self.assertFalse(plan.should_stop)
+    self.assertEqual(plan.tracked_distance_m, 30.)
+
+  def test_fixed_endpoint_above_forty_metres_cannot_reopen(self):
+    owner = ForceStop()
+    owner.last_model_ns = BASE
+    owner.distance = owner.distance_cap = 80.
+    owner.entry_speed = 4.
+    owner.forcing = True
+    owner.timer = 1.
+    plan = owner.step(preview_frame(1, horizon_m=190., moving_preview=True), vehicle_tune('HYUNDAI_IONIQ_5_PE'))
+    self.assertLess(plan.tracked_distance_m, 80.)
+
+  def test_terminal_stop_cannot_resume_preview_tracking(self):
+    owner = ForceStop()
+    tune = vehicle_tune('HYUNDAI_IONIQ_5_PE')
+    for tick in range(15):
+      before = owner.step(preview_frame(tick, horizon_m=5., moving_preview=True), tune)
+    self.assertTrue(before.should_stop)
+    after = owner.step(preview_frame(15, horizon_m=35., moving_preview=True), tune)
+    self.assertTrue(after.should_stop)
+    self.assertLess(after.tracked_distance_m, before.tracked_distance_m)
+
+  def test_fixed_model_or_confirmed_sign_ends_preview_tracking(self):
+    for signal in ({'model_should_stop': True}, {'sign': True}):
+      owner = ForceStop()
+      tune = vehicle_tune('HYUNDAI_IONIQ_5_PE')
+      for tick in range(15):
+        owner.step(preview_frame(tick, moving_preview=True), tune)
+      owner.step(preview_frame(15, moving_preview=True, **signal), tune)
+      self.assertFalse(owner.preview_tracking)
+      before = owner.distance
+      after = owner.step(preview_frame(16, horizon_m=35., moving_preview=True), tune)
+      self.assertLess(after.tracked_distance_m, before)
+
+  def test_missing_geometry_keeps_odometry_and_gas_still_releases(self):
+    owner = ForceStop()
+    tune = vehicle_tune('HYUNDAI_IONIQ_5_PE')
+    for tick in range(15):
+      before = owner.step(preview_frame(tick, moving_preview=True), tune)
+    after = owner.step(preview_frame(15, horizon_m=None, road_curvature=None,
+                                     perception_available=False, moving_preview=True), tune)
+    self.assertAlmostEqual(after.tracked_distance_m, before.tracked_distance_m - .2)
+    self.assertFalse(owner.step(preview_frame(16, pedal_override=True), tune).forcing)

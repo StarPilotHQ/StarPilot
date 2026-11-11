@@ -97,7 +97,7 @@ class LongControl:
         output_accel -= self.stopping_decel_rate * DT_CTRL  # m/s^2/s while trying to stop
       if self.extension is not None:
         output_accel = self.extension.stopping_output(output_accel, a_target, should_stop, CS)
-      if (context.force_stop_braking and self.extension is not None and self.extension.ioniq6_start is not None and
+      if (context.force_stop_braking and self.extension is not None and self.extension.force_stop_distance_braking and
           should_stop and not CS.standstill and CS.vEgo > .3 and math.isfinite(a_target)):
         output_accel = min(a_target, 0.0)
       self.reset(reset_start=False)

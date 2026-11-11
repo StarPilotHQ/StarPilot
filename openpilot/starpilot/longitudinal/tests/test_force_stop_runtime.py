@@ -124,8 +124,13 @@ class ForceStopRuntimeTests(unittest.TestCase):
     from openpilot.starpilot.longitudinal.tests.test_ioniq6_start import candidate
 
     stock, admitted = candidate()
+    from opendbc.car.hyundai.tests.test_ioniq5pe_stock import params as pe_params
+    from opendbc.car.hyundai.ioniq5pe_long_profile import candidate as pe_candidate
+    pe_stock = pe_params()
+    pe_admitted = pe_candidate(pe_stock, enabled=True, is_release=False)
+    pe_stock.openpilotLongitudinalControl = True
     stock.openpilotLongitudinalControl = True  # An incomplete profile must still refuse the new tune.
-    for cp, expected in [(self.cp, False), (stock, False), (admitted, True)]:
+    for cp, expected in [(self.cp, False), (stock, False), (admitted, True), (pe_stock, False), (pe_admitted, True)]:
       self.cp = cp
       self.owner = ForceStopRuntime(self.params)
       with patch.object(self.owner.policy, 'step', wraps=self.owner.policy.step) as step:

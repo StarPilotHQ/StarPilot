@@ -39,7 +39,7 @@ class StopTune:
 
 
 def vehicle_tune(fingerprint: str) -> StopTune:
-  if fingerprint == 'HYUNDAI_IONIQ_6':
+  if fingerprint in ('HYUNDAI_IONIQ_6', 'HYUNDAI_IONIQ_5_PE'):
     return StopTune(distance_control=True)
   if fingerprint == 'TOYOTA_CAMRY_TSS2':
     return StopTune(handoff_m=4.5, distance_bias_m=6.0)

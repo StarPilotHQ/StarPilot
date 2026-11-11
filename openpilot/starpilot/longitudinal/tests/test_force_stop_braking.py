@@ -123,3 +123,70 @@ class NativeForceStopBrakingTests(TestCase):
       normal.long_control_state = LongCtrlState.pid
       normal.last_output_accel = -1.5
       self.assertLess(normal.update(True,car,-.8,True,(-3.5,2.),context=context),-1.5)
+
+
+def pe_pair():
+  from opendbc.car.hyundai.tests.test_ioniq5pe_stock import params
+  from opendbc.car.hyundai.ioniq5pe_long_profile import candidate
+  stock = params()
+  return stock, candidate(stock, enabled=True, is_release=False)
+
+
+class Ioniq5PEDistanceBrakingTests(TestCase):
+  def test_only_the_existing_sealed_pe_owner_is_admitted(self):
+    from openpilot.starpilot.longitudinal.force_stop_braking import eligible
+    stock, cp = pe_pair()
+    self.assertFalse(eligible(stock))
+    self.assertTrue(eligible(cp))
+    for field, value in [('passive', True), ('dashcamOnly', True), ('notCar', True),
+                         ('pcmCruise', True), ('openpilotLongitudinalControl', False),
+                         ('alphaLongitudinalAvailable', False), ('alternativeExperience', 1),
+                         ('longitudinalActuatorDelay', math.nan)]:
+      with self.subTest(field=field):
+        _, invalid = pe_pair()
+        setattr(invalid, field, value)
+        self.assertFalse(eligible(invalid))
+    _, invalid = pe_pair()
+    invalid.safetyConfigs[0].safetyParam = 0x5491
+    self.assertFalse(eligible(invalid))
+
+  def test_real_inputs_and_control_keep_the_pe_stop_without_ioniq6_start(self):
+    from openpilot.common.params import Params
+    from openpilot.selfdrive.controls.lib.longcontrol import LongControl, LongCtrlState
+    from openpilot.starpilot.longitudinal.inputs import LongitudinalInputs
+    from openpilot.starpilot.longitudinal.tests.test_ioniq6_start import car_state
+    from opendbc.can.packer import CANPacker
+    from opendbc.car.hyundai.hyundaicanfd import CanBus, create_acc_control
+    stock, cp = pe_pair()
+    sm = inputs()
+    sm.all_checks = lambda names: all(sm.valid.get(name, False) for name in names)
+    state = car_state(speed=4., standstill=False)
+    sm['carState'] = state
+    with tempfile.TemporaryDirectory() as directory:
+      reader = LongitudinalInputs(cp, Params(directory), lambda: sm)
+      self.assertFalse(reader.ioniq6_start_enabled)
+      self.assertIn('starpilotLongitudinalPlan', reader.optional_services)
+      if reader.ev9_long_enabled:
+        self.assertIn('slcState', reader.optional_services)
+      with patch('openpilot.starpilot.longitudinal.inputs.time.monotonic_ns', return_value=NOW):
+        context = reader.context(True)
+      self.assertTrue(context.force_stop_braking)
+      control = LongControl(cp)
+      self.assertIsNone(control.extension.ioniq6_start)
+      control.long_control_state = LongCtrlState.pid
+      control.last_output_accel = -1.5
+      output = control.update(True, state, -.8, True, (-3.5, 2.), context=context)
+      self.assertAlmostEqual(output, -.8)
+      self.assertEqual(control.long_control_state, LongCtrlState.stopping)
+      packet = create_acc_control(CANPacker('hyundai_canfd_generated'), CanBus(cp), True,
+                                  -1.5, output, True, False, 40., NS(leadDistanceBars=2))
+      self.assertEqual((int.from_bytes(packet[1], 'little') >> 184) & 1, 1)
+      with patch('openpilot.starpilot.longitudinal.inputs.time.monotonic_ns', return_value=NOW+200_000_000):
+        stale = reader.context(True)
+      self.assertFalse(stale.force_stop_braking)
+      control.last_output_accel = -.8
+      self.assertLess(control.update(True, state, -.8, True, (-3.5, 2.), context=stale), -.8)
+      normal = LongControl(stock)
+      normal.long_control_state = LongCtrlState.pid
+      normal.last_output_accel = -1.5
+      self.assertLess(normal.update(True, state, -.8, True, (-3.5, 2.), context=context), -1.5)
