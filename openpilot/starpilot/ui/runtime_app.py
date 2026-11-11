@@ -1287,7 +1287,7 @@ class StarShellSession:
         not any(p.ignitionLine or p.ignitionCan for p in pandas)):
       return None
     after = ui.started_frame
-    # plannerd re-validates every action; 100 Hz context only needs to survive one UI frame here.
+    # plannerd revalidates actions.
     car = display_message(ui.sm, "carState", now_ns, after_frame=after)
     control = display_message(ui.sm, "carControl", now_ns, after_frame=after)
     controls = display_message(ui.sm, "controlsState", now_ns, after_frame=after)
