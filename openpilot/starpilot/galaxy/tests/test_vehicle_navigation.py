@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 import secrets
 from types import SimpleNamespace
+from typing import Any
 import threading
 import unittest
 
@@ -16,7 +17,7 @@ class TestVehicleNavigation(unittest.TestCase):
                      for target in node.targets)]
     gateway = next(node for node in source.body if isinstance(node, ast.ClassDef) and node.name == 'SettingsGateway')
     page = next(node for node in gateway.body if isinstance(node, ast.FunctionDef) and node.name == 'page')
-    namespace = {'hashlib': hashlib, 'secrets': secrets, 'SettingsUnavailable': RuntimeError,
+    namespace: dict[str, Any] = {'hashlib': hashlib, 'secrets': secrets, 'SettingsUnavailable': RuntimeError,
                  '_session_key': lambda token: token.encode(), '_projection': lambda row: {}, '_View': lambda *args: args}
     exec(compile(ast.Module(body=constants + [page], type_ignores=[]), 'settings.py', 'exec'), namespace)
     control = SimpleNamespace(choices=('Off', 'On'), page='')
