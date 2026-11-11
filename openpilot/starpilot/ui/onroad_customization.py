@@ -773,7 +773,14 @@ def _unique_object(pairs):
   return result
 
 
+@lru_cache(maxsize=2)
+def _validated_document(raw: bytes | str):
+  return validate_document(json.loads(raw, object_pairs_hook=_unique_object))
+
+
 def decode_document(raw):
+  if isinstance(raw, (bytes, str)) and len(raw) <= MAX_BYTES:
+    return copy.deepcopy(_validated_document(raw))
   return validate_document(json.loads(raw, object_pairs_hook=_unique_object))
 
 

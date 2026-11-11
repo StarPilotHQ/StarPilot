@@ -286,21 +286,9 @@ class ModelRenderer(ModelGeometry, Widget):
   def _update_model(self, lead, path_x_array, *, update_lane_geometry: bool = True):
     """Update model visualization data based on model message"""
     max_distance = np.clip(path_x_array[-1], MIN_DRAW_DISTANCE, MAX_DRAW_DISTANCE)
+    lane_distance = max_distance
     clip = self._clip_region
     clip_key = (clip.x, clip.y, clip.width, clip.height)
-    if update_lane_geometry or clip_key != getattr(self, "_lane_projection_clip", None):
-      max_idx = self._get_path_length_idx(self._lane_lines[0].raw_points[:, 0], max_distance)
-
-      # Radar changes the path's lead-distance clipping, not lane/edge geometry.
-      lines = [*self._lane_lines, *self._road_edges]
-      widths = [width * probability for width, probability in
-                zip((0.12, 0.16, 0.16, 0.16), self._lane_line_probs, strict=True)]
-      widths.extend((0.16, 0.16))
-      polygons = self._map_lines_to_polygons([line.raw_points for line in lines], widths, max_idx)
-      for line, polygon in zip(lines, polygons, strict=True):
-        line.projected_points = polygon
-      self._lane_projection_clip = clip_key
-
     # Update path using raw points
     if lead and lead.present:
       lead_d = lead.dRel * 2.0
@@ -318,9 +306,25 @@ class ModelRenderer(ModelGeometry, Widget):
       y_off = 0.9
 
     max_idx = self._get_path_length_idx(path_x_array, max_distance)
-    self._path.projected_points = self._map_line_to_polygon(
-      self._path.raw_points, y_off, self._path_offset_z, max_idx, allow_invert=False
-    )
+    if update_lane_geometry or clip_key != getattr(self, "_lane_projection_clip", None):
+      lane_max_idx = self._get_path_length_idx(self._lane_lines[0].raw_points[:, 0],
+                                             lane_distance)
+      lines = [*self._lane_lines, *self._road_edges]
+      widths = [width * probability for width, probability in
+                zip((0.12, 0.16, 0.16, 0.16), self._lane_line_probs, strict=True)]
+      widths.extend((0.16, 0.16, y_off))
+      source = [line.raw_points[:lane_max_idx + 1] for line in lines]
+      source.append(self._path.raw_points[:max_idx + 1])
+      polygons = self._map_lines_to_polygons(source, widths, max(lane_max_idx, max_idx),
+                                            z_offsets=(0, 0, 0, 0, 0, 0, self._path_offset_z), invert_last=True)
+      for line, polygon in zip(lines, polygons[:-1], strict=True):
+        line.projected_points = polygon
+      self._path.projected_points = polygons[-1]
+      self._lane_projection_clip = clip_key
+    else:
+      self._path.projected_points = self._map_line_to_polygon(
+        self._path.raw_points, y_off, self._path_offset_z, max_idx, allow_invert=False
+      )
 
     self._update_experimental_gradient()
 
@@ -564,7 +568,8 @@ class ModelRenderer(ModelGeometry, Widget):
 
     return np.vstack((left_screen.T, right_screen[:, ::-1].T)).astype(np.float32)
 
-  def _map_lines_to_polygons(self, lines: list[np.ndarray], widths: list[float], max_idx: int) -> list[np.ndarray]:
+  def _map_lines_to_polygons(self, lines: list[np.ndarray], widths: list[float], max_idx: int,
+                             *, z_offsets: tuple[float, ...] | None = None, invert_last: bool = False) -> list[np.ndarray]:
     """Project clipped lane/edge pairs together while preserving per-line masks."""
     points = [line[:max_idx + 1][line[:max_idx + 1, 0] >= 0] for line in lines]
     counts = [len(line) for line in points]
@@ -574,6 +579,8 @@ class ModelRenderer(ModelGeometry, Widget):
     offsets = np.zeros((2, total, 3), dtype=np.float32)
     offsets[1, :, 1] = np.repeat(widths, counts)
     offsets[0, :, 1] = -offsets[1, :, 1]
+    if z_offsets is not None:
+      offsets[:, :, 2] = np.repeat(z_offsets, counts)
     joined = np.concatenate(points)
     proj = (self._car_space_transform @ (joined[None, :, :] + offsets).reshape(2 * total, 3).T).reshape(3, 2, total)
     valid = (np.abs(proj[2, 0]) >= 1e-06) & (np.abs(proj[2, 1]) >= 1e-06)
@@ -589,11 +596,14 @@ class ModelRenderer(ModelGeometry, Widget):
             (right[1] >= clip.y) & (right[1] <= clip.y + clip.height))
     polygons = []
     start = 0
-    for count in counts:
+    for index, count in enumerate(counts):
       end = start + count
       l = left[:, start:end][:, keep[start:end]]
       r = right[:, start:end][:, keep[start:end]]
-      polygons.append(np.vstack((l.T, r[:, ::-1].T)).astype(np.float32) if l.shape[1] else np.empty((0, 2), dtype=np.float32))
+      if invert_last and index == len(counts) - 1 and l.shape[1] > 1:
+        ascending = l[1] == np.minimum.accumulate(l[1])
+        l, r = l[:, ascending], r[:, ascending]
+      polygons.append(np.vstack((l.T, r[:, ::-1].T)).astype(np.float32, copy=False) if l.shape[1] else np.empty((0, 2), dtype=np.float32))
       start = end
     return polygons
 

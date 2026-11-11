@@ -361,7 +361,7 @@ class StarShellSession:
                              lambda: self.appearance_owner.snapshot(self.profile), self.appearance_owner.apply, requested_keys=keys)
     actions.update(layout_actions(ui_state.params, str(self.profile),
                                   lambda: self._settings_preference_authority() or self._favorite_authority(),
-                                  lambda: self.adapter.invalidate_appearance()))
+                                  lambda: self.adapter.invalidate_appearance(), requested_keys=keys))
     actions.update(self._native_favorite_actions())
     return actions if keys is None else {key: action for key, action in actions.items() if key in keys}
 

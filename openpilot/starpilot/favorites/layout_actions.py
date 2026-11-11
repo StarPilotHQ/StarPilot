@@ -57,7 +57,9 @@ TOGGLES = {
 
 
 def layout_actions(params, profile: str, authorized: Callable[[], bool],
-                   on_change: Callable[[], None] = lambda: None) -> dict[str, FavoriteAction]:
+                   on_change: Callable[[], None] = lambda: None, *, requested_keys=None) -> dict[str, FavoriteAction]:
+  if requested_keys is not None and not TOGGLES.keys() & requested_keys:
+    return {}
   raw, readable = read_saved(params, PARAM_KEY, MAX_BYTES)
   document = None
   if readable:
@@ -67,6 +69,8 @@ def layout_actions(params, profile: str, authorized: Callable[[], bool],
       document = None
   actions = {}
   for key, (label, (get, put), inverted, profiles) in TOGGLES.items():
+    if requested_keys is not None and key not in requested_keys:
+      continue
     supported = profile in profiles
     value = (get(document, profile) != inverted) if document is not None and supported else None
     reason = ("" if value is not None else "Only on the small UI" if not supported and profile == "large" else
