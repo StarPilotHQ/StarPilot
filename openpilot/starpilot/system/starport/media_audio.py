@@ -153,11 +153,11 @@ def music_routed() -> bool:
   return paths.enabled() and preferences.load().output == 'starport'
 
 
-def music_control(action: str) -> None:
+def music_control(action: str, args: dict | None = None) -> None:
   def worker():
     try:
       from openpilot.starpilot.galaxy.spotify_setup import SpotifyClient
-      SpotifyClient().call('control', action=action, args={})
+      SpotifyClient().call('control', action=action, args=args or {})
     except Exception:
       pass
   threading.Thread(target=worker, name=f'aa_music_{action}', daemon=True).start()

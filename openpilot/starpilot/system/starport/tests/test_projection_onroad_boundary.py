@@ -102,6 +102,86 @@ class TestProjectionOnroad(unittest.TestCase):
     owner.cancel.assert_called_once()
     self.assertEqual(owner.touch.call_count, 1)
 
+  def touch_view(self, display, size='big', track=None):
+    """The card bottom-right on the 1860x1116 canvas, with Home, Work and Bookmark enabled."""
+    from openpilot.starpilot.system.starport.projection_favorites import ProjectionFavorites
+    from openpilot.starpilot.system.starport.projection_layout import (default_layout_for_viewport, projection_customization,
+                                                                       validate_layout_for_viewport)
+    from openpilot.starpilot.ui.onroad_customization import default_document
+    native, _ = self.dependencies()
+    owner = Mock()
+    owner.read.return_value = {'revision': 'r1', 'enabled': True, 'token': 't', 'destination': None,
+                               'favorites': [{'id': 'h', 'label': 'home'}, {'id': 'w', 'label': 'work'}]}
+    native.favorites = lambda authorized: ProjectionFavorites(authorized, owner)
+    track = track or {'status': 'playing', 'title': 'Song', 'artist': 'Artist', 'shuffle': False, 'repeat': 'off', 'source': 'spotify'}
+    native.now_playing_feed = lambda: Mock(snapshot=Mock(return_value=track), artwork=Mock(return_value=('', None)))
+    native.now_playing_control = Mock()
+    layout = default_layout_for_viewport((1860, 1116))
+    widgets = layout['widgets']
+    widgets['now_playing'].update(enabled=True, x=1310, y=990, size=size)
+    for key, (x, y) in {'nav_home': (1340, 100), 'nav_work': (1460, 100), 'bookmark': (270, 976)}.items():
+      widgets[key].update(enabled=True, display=display)
+      if display == 'icons':
+        widgets[key].update(x=x, y=y)
+    layout = validate_layout_for_viewport(layout, (1860, 1116))
+    view = projection.ProjectionOnroad(dependencies=native, viewport=(1860, 1116), customization=layout)
+    self.addCleanup(view.close)
+    view.favorites.bookmark = Mock(return_value=True)
+    native.ui_state.started = True
+    view._state = SimpleNamespace(customization=projection_customization(layout, default_document()), alert=SimpleNamespace(size='none'),
+                                  viewport_width=1860)
+    view.onroad.now_playing = SimpleNamespace(track=track, showing=lambda: track)
+    view.now_playing_touch.feedback = None
+    return view, native, owner
+
+  def tap(self, view, x, y):
+    view.handle_touches([SimpleNamespace(kind='down', x=x / 1860, y=y / 1116), SimpleNamespace(kind='up', x=x / 1860, y=y / 1116)])
+
+  def test_each_big_now_playing_button_responds_to_touch(self):
+    from openpilot.starpilot.ui.onroad_now_playing import CONTROLS, card_layout
+    view, native, _ = self.touch_view('icons')
+    placed = view._state.customization['layouts']['large']['now_playing']
+    card, buttons = card_layout(placed, view.onroad.now_playing.track, 1860)
+    self.assertEqual((card.width, card.height), (640, 264))
+    self.assertLessEqual(card.x + card.width, 1830)  # the saved small spot slid back so the big card stays on screen
+    for name in CONTROLS:
+      native.now_playing_control.reset_mock()
+      box = buttons[name]
+      self.tap(view, box.x + box.width / 2, box.y + box.height / 2)
+      expected = {'shuffle': ('shuffle', {'enabled': True}), 'repeat': ('repeat', {'mode': 'context'})}.get(name, (name, {}))
+      native.now_playing_control.assert_called_once_with(*expected)
+    native.now_playing_control.reset_mock()
+    self.tap(view, card.x + 300, card.y + 40)
+    native.now_playing_control.assert_not_called()
+
+  def test_play_on_starpilot_sends_activate(self):
+    from openpilot.starpilot.ui.onroad_now_playing import card_layout
+    track = {'source': 'spotify', 'status': 'elsewhere', 'title': '', 'device': 'StarPilot'}
+    for size in ('big', 'small'):
+      with self.subTest(size=size):
+        view, native, _ = self.touch_view('icons', size=size, track=track)
+        box = card_layout(view._state.customization['layouts']['large']['now_playing'], track, 1860)[1]['play_here']
+        self.tap(view, box.x + box.width / 2, box.y + box.height / 2)
+        native.now_playing_control.assert_called_once_with('activate', {})
+
+  def test_home_work_and_bookmark_respond_to_touch_beside_the_now_playing_card(self):
+    from openpilot.starpilot.system.starport.projection_layout import FAVORITE_ICON_SIZE, FAVORITE_SIZE
+    for display in ('icons', 'words'):
+      with self.subTest(display=display):
+        view, native, owner = self.touch_view(display)
+        layouts = view._state.customization['layouts']['large']
+        width, height = (FAVORITE_ICON_SIZE,) * 2 if display == 'icons' else FAVORITE_SIZE
+        card = layouts['now_playing']
+        for key in ('nav_home', 'nav_work', 'bookmark'):
+          placed = layouts[key]
+          apart = (placed['x'] + width <= card['x'] or placed['x'] >= card['x'] + 640 or
+                   placed['y'] + height <= card['y'] or placed['y'] >= card['y'] + 264)
+          self.assertTrue(apart, f'{key} overlaps the now-playing card')
+          self.tap(view, placed['x'] + width / 2, placed['y'] + height / 2)
+        self.assertEqual([c.args[0]['label'] for c in owner.select.call_args_list], ['home', 'work'])
+        view.favorites.bookmark.assert_called_once_with()
+        native.now_playing_control.assert_not_called()
+
   def test_car_escape_control_remains_active_on_standby(self):
     from openpilot.starpilot.system.starport.projection_layout import CAR_EXIT, default_layout_for_viewport
     native, _ = self.dependencies()

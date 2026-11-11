@@ -187,7 +187,8 @@ class Supervisor:
     if state == 'running' and player is not None:
       state = ('connecting' if not player['connected'] else 'waiting' if not player['loggedIn'] else
                'playing' if player['status'] == 'playing' and player['active'] else 'ready')
-    now_playing = (now_playing_module.from_phone(self.phone_track) if self.phone_prefs is not None and self.player is not None
+    phone = self.phone_prefs if self.player is not None else None
+    now_playing = (now_playing_module.from_phone(self.phone_track, device=phone.phone_name) if phone is not None
                    else now_playing_module.from_spotify(player))
     with self.log_lock:
       log = list(self.log)[-20:]

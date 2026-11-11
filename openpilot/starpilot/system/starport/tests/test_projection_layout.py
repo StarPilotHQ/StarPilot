@@ -535,7 +535,37 @@ class TestNowPlayingWidget(unittest.TestCase):
     self.assertTrue(placement['enabled'])
     self.assertEqual(placement['opacity'], 85)
     self.assertFalse(placement['collapse'])
-    self.assertEqual(set(placement), {'x', 'y', 'enabled', 'opacity', 'collapse'})
+    self.assertEqual(placement['size'], 'small')
+    self.assertEqual(set(placement), {'x', 'y', 'enabled', 'opacity', 'collapse', 'size'})
+
+  def test_size_is_validated_and_older_layouts_stay_small_in_place(self):
+    document = default_layout(SCREEN)
+    metadata = layout_metadata(SCREEN)
+    self.assertEqual(metadata['widgets']['now_playing']['sizes'], {'small': [520, 96], 'big': [640, 264]})
+    for bad in ('medium', 1, None, True):
+      broken = copy.deepcopy(document)
+      broken['widgets']['now_playing']['size'] = bad
+      with self.assertRaises(ValueError):
+        validate_layout(broken, SCREEN)
+    bounds = metadata['bounds']
+    old = copy.deepcopy(document)
+    del old['widgets']['now_playing']['size']
+    old['widgets']['now_playing'].update(x=bounds['x'] + bounds['width'] - 520, y=bounds['y'] + bounds['height'] - 96)
+    placed = validate_layout(old, SCREEN)['widgets']['now_playing']
+    self.assertEqual((placed['size'], placed['x'], placed['y']),
+                     ('small', bounds['x'] + bounds['width'] - 520, bounds['y'] + bounds['height'] - 96))
+
+  def test_saved_spot_slides_back_on_screen_when_the_card_grows(self):
+    document = default_layout(SCREEN)
+    bounds = layout_metadata(SCREEN)['bounds']
+    right, bottom = bounds['x'] + bounds['width'], bounds['y'] + bounds['height']
+    document['widgets']['now_playing'].update(x=right - 520, y=bottom - 96, size='big')
+    placed = validate_layout(document, SCREEN)['widgets']['now_playing']
+    self.assertEqual((placed['x'], placed['y']), (right - 640, bottom - 264))
+    self.assertEqual(placement_size('now_playing', layout_metadata(SCREEN)['widgets']['now_playing'], placed), (640, 264))
+    document['widgets']['now_playing'].update(x=bounds['x'], y=bounds['y'])
+    placed = validate_layout(document, SCREEN)['widgets']['now_playing']
+    self.assertEqual((placed['x'], placed['y']), (bounds['x'], bounds['y']))
 
   def test_opacity_is_validated_and_old_layouts_gain_the_card(self):
     document = default_layout(SCREEN)

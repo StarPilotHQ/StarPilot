@@ -396,12 +396,12 @@ def test_status_publishes_the_spotify_track_for_the_car_screen(layout):
 
 def test_status_publishes_the_phone_track_only_while_phone_audio_runs(layout):
   sup, _ = make_supervisor(layout, [])
-  sup.phone_prefs = object()
+  sup.phone_prefs = preferences.Preferences(source='phone', phone_name='Pixel 9')
   sup.phone_track = {'Status': 'playing', 'Track': {'Title': 'Phone Song', 'Artist': 'Band'}}
   assert sup.status()['nowPlaying'] is None
   sup.player = object()
   found = sup.status()['nowPlaying']
-  assert found['source'] == 'phone' and found['title'] == 'Phone Song'
+  assert found['source'] == 'phone' and found['title'] == 'Phone Song' and found['device'] == 'Pixel 9'
 
 
 def test_supervisor_waits_for_network_before_starting(layout, monkeypatch):
