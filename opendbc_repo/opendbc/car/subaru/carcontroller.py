@@ -160,7 +160,8 @@ class CarController(CarControllerBase):
           _projection.input(new_torque, self.p.STEER_MAX, self.apply_torque_last, CS.out.steeringTorque, self.p, limiter='driver')
         apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, self.p)
 
-        if not CC.latActive:
+        torque_active = CC.latActive and not getattr(CS, "high_angle_cut", False)
+        if not torque_active:
           apply_torque = 0
 
         if self.CP.flags & SubaruFlags.PREGLOBAL:
@@ -168,7 +169,7 @@ class CarController(CarControllerBase):
           if _projection is not None:
             _projection.emit('subaru.PREGLOBAL_ES_LKAS', apply_torque, CC.latActive, can_sends[-1])
         else:
-          apply_steer_req = CC.latActive
+          apply_steer_req = torque_active
 
           if self.CP.flags & SubaruFlags.STEER_RATE_LIMITED:
             # Steering rate fault prevention

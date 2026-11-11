@@ -25,7 +25,8 @@ from openpilot.starpilot.car.subaru.tests.native_fixture import subaru_native_pa
 def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, subaru_native_pair, tmp_path, aol=True, manual=False, stop_resume=False,
                                                                       hard_stop_native_first=False, main_only=False, preferences=None, firmware=None,
                                                                       deadline_gap=False, fixed_angle_handoff=False, host_first_stop=False,
-                                                                      source_outage=False, vm_angle_handoff=0, crawl=False, eps_brake_join=False):
+                                                                      source_outage=False, vm_angle_handoff=0, crawl=False, eps_brake_join=False,
+                                                                      high_angle_guard=False):
   angle_handoff = fixed_angle_handoff or vm_angle_handoff
   fw = firmware_records(candidate, FW_VERSIONS, 'subaru') if firmware is None else firmware
   rows = []
@@ -95,6 +96,12 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           'ES_DashStatus': {'Cruise_On': int(main), 'Cruise_Set_Speed': 100},
           'Transmission': {'Gear': 3 if reverse else 121},
         }
+        if high_angle_guard:
+          values['Brake_Pedal'] = {'Speed': 8}
+          values['Brake_Pressure_L_R'] = {'Steering_Angle': 101 if 110 <= tick < 120 else 83 if 120 <= tick < 125 else 0}
+          if 110 <= tick < 125:
+            values['Steering_Torque'].update(Steering_Angle=100, Steer_Torque_Sensor=59)
+            values['Wheel_Speeds'] = dict.fromkeys(('FL', 'FR', 'RL', 'RR'), 8)
         incoming = stream.frames(values, tick=tick)
         if source_outage:
           pending_host_can.append((now, incoming))
@@ -273,6 +280,12 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           'events': [str(e.name) for e in driven['onroadEvents'].onroadEvents],
         }
         rows.append(row)
+        if high_angle_guard and 115 <= tick < 120:
+          assert cs.steerFaultTemporary and ci.CS.high_angle_cut, ('HIGH_ANGLE_GUARD_NOT_WITHDRAWN', row)
+          assert not row['lat'] and row['cardLatch'] and row['armed'] and row['permission'] == 0, ('HIGH_ANGLE_GUARD_NOT_WITHDRAWN', row)
+          assert all(not command['request'] and command['output'] == 0 and command['nativeAccepted'] for command in row['steering']), row
+        if high_angle_guard and 140 <= tick < 145:
+          assert not cs.steerFaultTemporary and not ci.CS.high_angle_cut and row['lat'] and row['cardLatch'] and row['permission'] == 1, row
         if stopped:
           assert not row['lat'] and row['cardLatch'] and row['permission'] == 0 and row['fault'] == 'none', ('SUBARU_STOP_LOST_ARMED_INTENT', row)
         if source_outage and 78 <= tick < 81:
@@ -454,3 +467,8 @@ def test_actual_crawl_lateral_only_tracks_small_targets(subaru_native_pair, tmp_
 def test_actual_eps_brake_event_join_preserves_armed_intent(subaru_native_pair, tmp_path):
   test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
     CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, eps_brake_join=True)
+
+
+def test_actual_impreza_high_angle_refusal_guard(subaru_native_pair, tmp_path):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, high_angle_guard=True)

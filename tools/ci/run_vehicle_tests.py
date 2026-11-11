@@ -41,6 +41,7 @@ FORD_BLUEPILOT_NATIVE_TARGETS = tuple(str(path.relative_to(ROOT)) for path in so
 # Representative production callers plus their source/native refusal cases.
 # The emitted selected_test_ids record exact parametrized configurations.
 AOL_LIFECYCLE_TARGETS = (
+  "openpilot/starpilot/car/subaru/tests/test_high_angle_guard.py",
   "openpilot/starpilot/aol/tests/test_ford_long_only_withdrawal.py",
   'opendbc_repo/opendbc/car/tests/test_isotp_query_interference.py',
   'openpilot/starpilot/aol/tests/test_mazda_source_deadline.py',
@@ -270,6 +271,8 @@ DEBUG_SAFETY_CLASS_TARGETS = {
 
 
 RELEASE_TARGETS = (
+  "openpilot/starpilot/car/subaru/tests/test_high_angle_guard.py",
+  "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_impreza_high_angle_refusal_guard",
   "openpilot/starpilot/car/toyota/tests/test_radar_filter_buttons.py",
   "openpilot/starpilot/aol/tests/test_ford_long_only_withdrawal.py",
   "opendbc_repo/opendbc/safety/tests/test_hyundai_gv60_hda1_long_aol.py",
