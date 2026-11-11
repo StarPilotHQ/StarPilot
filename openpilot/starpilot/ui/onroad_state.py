@@ -340,10 +340,15 @@ def speed_limit_bounds(profile: Profile, state: OnroadState) -> tuple[float, flo
   if not saved['enabled']:
     return None
   if manual_slc_confirmation(profile, state):
-    return confirmation_bounds(profile, saved['x'], saved['y'], opened=state.slc_prompt_open)
-  x, y, width, height = LIMIT_RECTS[profile]
-  dx, dy = offset(state.customization, profile, widget)
-  return x + dx - 12, y + dy - 12, x + dx + width + 12, y + dy + height + 8
+    bounds = confirmation_bounds(profile, saved['x'], saved['y'], opened=state.slc_prompt_open)
+  else:
+    x, y, width, height = LIMIT_RECTS[profile]
+    dx, dy = offset(state.customization, profile, widget)
+    bounds = x + dx - 12, y + dy - 12, x + dx + width + 12, y + dy + height + 8
+  if profile == Profile.COMPACT and bounds[1] < 12:
+    shift = 12 - bounds[1]
+    bounds = bounds[0], bounds[1] + shift, bounds[2], bounds[3] + shift
+  return bounds
 
 
 def personality_bounds(profile: Profile, state: OnroadState) -> tuple[float, float, float, float] | None:

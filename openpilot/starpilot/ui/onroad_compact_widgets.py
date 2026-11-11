@@ -18,8 +18,7 @@ from openpilot.starpilot.ui.onroad_conditional import reason as conditional_reas
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
 from openpilot.starpilot.ui.onroad_widget_style import draw_widget_frame
 from openpilot.starpilot.ui.wheel_feedback import WheelFeedbackFade
-from openpilot.starpilot.ui.speed_limit_widget import SpeedLimitWidget, draw_set_speed, draw_set_status, set_speed_status, speed_status
-from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_speed
+from openpilot.starpilot.ui.speed_limit_widget import SpeedLimitWidget
 from openpilot.starpilot.ui.moon import draw_moon
 from openpilot.starpilot.ui.onroad_personality import PersonalityWidget
 
@@ -135,20 +134,22 @@ class CompactHudRenderer:
     self.render_steering_wheel(state)
 
   def render_max_speed(self, state: OnroadState) -> None:
-    shown = resolve_unified_speed(state)
-    status = set_speed_status(state, Profile.COMPACT, shown)
-    persistent = (shown.set_limited or shown.slc_target_text is not None or shown.override_text is not None or
-                  speed_status(state, Profile.COMPACT, shown) is not None)
-    set_speed_alpha = self._set_speed_opacity(state, (state.observed_ns or time.monotonic_ns()), slc_active=persistent)
+    set_speed_alpha = self._set_speed_opacity(state, (state.observed_ns or time.monotonic_ns()))
+    cruise = "–" if state.cruise_kph is None else str(round(state.cruise_kph if state.metric else state.cruise_kph * 0.621371))
     mx, my = widget_offset(state.customization, "compact", "max_speed")
-    center = widget_size(state.customization, 'compact', 'max_speed')[0] / 2 + mx
     if set_speed_alpha > 0.01 and placement(state.customization, "compact", "max_speed")["enabled"]:
+      shadow = rl.Color(0, 0, 0, int(255 / 2 * set_speed_alpha))
+      try:
+        rl.draw_circle_gradient(rl.Vector2(81 + mx, 81 + my), 81, shadow, rl.BLANK)
+      except (RuntimeError, TypeError):
+        rl.draw_circle_gradient(int(81 + mx), int(81 + my), 81, shadow, rl.BLANK)
       red, green, blue, alpha = rgba(state.customization, "text", "compact", "max_speed")
-      color = rl.Color(red, green, blue, int(alpha * set_speed_alpha))
-      draw_set_speed(self.fonts, shown, center, 16 + my, color)
-    if status and placement(state.customization, 'compact', 'max_speed')['enabled']:
-      color = rl.Color(241, 246, 243, 255)
-      draw_set_status(self.fonts, status, center, 16 + my, color)
+      color = rl.Color(red, green, blue, int(alpha * 0.9 * set_speed_alpha))
+      speed_size = 112
+      while speed_size > 72 and self.fonts.measure(cruise, FontRole.SET_SPEED, speed_size).width > 128:
+        speed_size -= 1
+      self.fonts.draw(cruise, FontRole.SET_SPEED, speed_size, 17 + mx, -4 + my, color)
+      self.fonts.draw("MAX", FontRole.SEMI_BOLD, 36, 25 + mx, 109 + my, color)
 
   def render_steering_wheel(self, state: OnroadState) -> None:
     color = self._feedback.update(state.wheel_acceleration, state.appearance.wheel_pedal_feedback, state.observed_ns, state.drive_frame)
@@ -175,7 +176,7 @@ class CompactHudRenderer:
       rl.unload_texture(self._wheel)
     self._wheel = None
 
-  def _set_speed_opacity(self, state: OnroadState, now_ns: int, *, slc_active: bool = False) -> float:
+  def _set_speed_opacity(self, state: OnroadState, now_ns: int) -> float:
     if state.drive_frame != self._cruise_drive_frame:
       self._set_speed_alpha.x = 0.0
       self._was_cruise_active = False
@@ -192,7 +193,7 @@ class CompactHudRenderer:
       self._last_cruise_display = display
       self._last_cruise_ns = now_ns
       elapsed = now_ns - self._set_speed_changed_ns if self._set_speed_changed_ns is not None else 0
-      persistent = slc_active or manual_slc_confirmation(Profile.COMPACT, state)
+      persistent = manual_slc_confirmation(Profile.COMPACT, state)
       return self._set_speed_alpha.update(float(persistent or 0 < elapsed < 2_500_000_000))
     if (self._last_cruise_ns is None or now_ns < self._last_cruise_ns or
         now_ns - self._last_cruise_ns > 150_000_000):

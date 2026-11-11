@@ -49,6 +49,17 @@ def draw_monitor_art(renderer, bounds, profile):
 
 
 def monitor_visible(profile, state, *, fresh, onroad, top_icons, bounds=None):
+  if profile == Profile.COMPACT:
+    occluded = False
+    if profile == Profile.COMPACT and top_icons:
+      monitor = monitor_bounds(state.customization, profile, False)
+      speed = placement(state.customization, profile, 'max_speed')
+      widget = PROFILES['compact']['widgets']['max_speed']
+      occluded = rl.check_collision_recs(monitor, rl.Rectangle(speed['x'], speed['y'], widget['width'], widget['height']))
+    return bool(onroad and state.alert.size != AlertSize.FULL and not state.alert.critical and
+                not occluded and
+                placement(state.customization, profile, 'driver_monitor')['enabled'])
+
   from openpilot.starpilot.ui.onroad_state import slc_action_occludes
 
   monitor = bounds if bounds is not None else monitor_bounds(state.customization, profile, state.right_hand_drive)
@@ -91,6 +102,24 @@ class DriverMonitorLayer:
       self.renderer.load_icons()
 
   def render(self, state, *, monitor, driver, fresh, onroad, top_icons=False, y_offset=0):
+    if self.profile == Profile.COMPACT:
+      ready = fresh and valid_observation(monitor, driver)
+      visible = monitor_visible(self.profile, state, fresh=ready, onroad=onroad, top_icons=top_icons)
+      self.renderer.set_should_draw(visible)
+      is_rhd = monitor.isRHD if ready else getattr(self.renderer, '_is_rhd', False)
+      bounds = monitor_bounds(state.customization, self.profile, is_rhd)
+      self.renderer.set_position(bounds.x, bounds.y)
+      if ready:
+        self.renderer._update_state()
+      else:
+        self.renderer._is_active = False
+        self.renderer._awareness_unfull = False
+        self.renderer._fade_filter.update(0.35 if visible else 0.0)
+      if visible:
+        draw_widget_frame(bounds, state.customization, self.profile, "driver_monitor")
+        draw_monitor_art(self.renderer, bounds, self.profile)
+      return
+
     ready = fresh and valid_observation(monitor, driver)
     is_rhd = monitor.isRHD if ready else getattr(self.renderer, '_is_rhd', False)
     bounds = monitor_bounds(state.customization, self.profile, is_rhd)
