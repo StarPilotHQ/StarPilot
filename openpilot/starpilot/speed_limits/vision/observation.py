@@ -17,12 +17,18 @@ MODEL_ID = '19cc26a0e4169962c1965e27b7237301a50d83a8771dde565e26bd0a63e39033:f70
 
 
 def clock_pair_ns() -> tuple[int, int] | None:
-  """Sample MONOTONIC around BOOTTIME; reject an interrupted sample."""
-  before = time.monotonic_ns()
-  boot_clock = getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)
-  boot = time.clock_gettime_ns(boot_clock)
-  after = time.monotonic_ns()
-  return ((before + after) // 2, boot) if 0 <= after - before <= MAX_PAIR_SKEW_NS else None
+  """Sample MONOTONIC around BOOTTIME; retry one overlong sampling window."""
+  for _ in range(2):
+    before = time.monotonic_ns()
+    boot_clock = getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)
+    boot = time.clock_gettime_ns(boot_clock)
+    after = time.monotonic_ns()
+    elapsed = after - before
+    if 0 <= elapsed <= MAX_PAIR_SKEW_NS:
+      return (before + after) // 2, boot
+    if elapsed < 0:
+      return None
+  return None
 
 
 def vision_observation(event, *, receipt_mono_ns: int, now_mono_ns: int, now_boot_ns: int,
