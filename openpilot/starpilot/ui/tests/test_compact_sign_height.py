@@ -179,6 +179,7 @@ def test_mutcd_preserves_text_sizes_and_fits_both_sizes_with_real_fonts(profile)
         assert boxes[-1][3] <= cy + half_height - 1
         assert all(a[3] + 4 * widget.scale <= b[1] for a, b in zip(boxes, boxes[1:], strict=False))
         bounds = speed_limit_bounds(profile, current)
+        assert bounds is not None
         outer_width, outer_height = (SIGN_WIDTH / 2 - 2) * .9 * scale + scale, (SIGN_HEIGHT / 2 - 2) * scale + scale
         assert bounds[0] <= cx - outer_width and cx + outer_width <= bounds[2]
         assert bounds[1] <= cy - outer_height and cy + outer_height <= bounds[3]

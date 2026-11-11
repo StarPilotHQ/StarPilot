@@ -46,7 +46,7 @@ class Head:
 
 @unittest.skipIf(model.cv2 is None, 'OpenCV is optional')
 class TestTerminalMaterialFalse(unittest.TestCase):
-  def setup_case(self, *, proposals=None, control=False, face_type=speed_face.SpeedFaceVerifier):
+  def setup_case(self: unittest.TestCase, *, proposals=None, control=False, face_type=speed_face.SpeedFaceVerifier):
     core = object.__new__(model.VisionModelCore)
     core.latest_detector_proposal = None
     core.temporal_tracking_enabled = True
@@ -68,7 +68,7 @@ class TestTerminalMaterialFalse(unittest.TestCase):
     frame = np.zeros((1100, 2000, 3), np.uint8)
     return core, face, proposals, frame
 
-  def run_case(self, case):
+  def run_case(self: unittest.TestCase, case):
     core, _, proposals, frame = case
     with patch.object(core, '_collect_detector_classifier_proposals', return_value=proposals):
       result = core._detect_sign_from_detector_classifier(frame)
