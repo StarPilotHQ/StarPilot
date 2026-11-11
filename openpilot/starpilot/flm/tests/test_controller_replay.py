@@ -1,4 +1,8 @@
-"""Replay-only Ioniq 6 FLM controller seam; no production profile selection."""
+"""Replay-only Ioniq 6 FLM controller seam; no production profile selection.
+
+Historical vectors retain their original calibration; the highway retune has
+separate current-controller coverage in test_ioniq6_policy.
+"""
 
 import json
 from pathlib import Path
@@ -122,6 +126,7 @@ class TestIoniq6ControllerReplay(unittest.TestCase):
           expected = _GOLDEN["cases"][f"{firmware}_{mode}"]
           _assert_rows(self, actual, expected)
 
+  @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0)
   def test_extended_frozen_filter_limit_override_and_reset_trace(self):
     self.assertEqual(_EXTENDED["sourceCommit"], "678af783")
     self.assertEqual(_EXTENDED["controllerSha256"], _GOLDEN["controllerSha256"])
@@ -141,6 +146,7 @@ class TestIoniq6ControllerReplay(unittest.TestCase):
           expected = _EXTENDED["cases"][f"{firmware}_{mode}"]
           _assert_rows(self, actual, expected)
 
+  @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0)
   def test_actual_torque_parameter_update_recalculates_frozen_pid_limits(self):
     self.assertEqual(_LIVE["sourceControllerSha256"], _GOLDEN["controllerSha256"])
     self.assertEqual(_LIVE["fields"], _GOLDEN["fields"])
@@ -159,6 +165,7 @@ class TestIoniq6ControllerReplay(unittest.TestCase):
           actual = _trace(controller, cp, _EXTENDED["sequence"], historical_friction=True)
           _assert_rows(self, actual, expected["rows"])
 
+  @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0)
   def test_guarded_extended_trace_preserves_model_pid_inputs_and_manual_surface(self):
     for firmware, fw in (("2023", False), ("2025", True)):
       for mode in ("default", "tuned"):
