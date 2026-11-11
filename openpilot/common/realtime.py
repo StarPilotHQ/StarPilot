@@ -1,6 +1,8 @@
 """Utilities for reading real time clocks and keeping soft real time constraints."""
+import ctypes
 import gc
 import os
+import resource
 import sys
 import time
 
@@ -45,6 +47,35 @@ def config_realtime_process(cores: int | list[int], priority: int) -> None:
     os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(priority))
   c = cores if isinstance(cores, list) else [cores, ]
   set_core_affinity(c)
+
+
+MCL_CURRENT, MCL_FUTURE, MCL_ONFAULT = 1, 2, 4
+
+
+def lock_memory() -> str:
+  """Keep this process's pages resident, so a major page fault can't stall a control loop.
+
+  On the device, card sat in uninterruptible sleep for ~27 ms re-reading an evicted page,
+  which exceeded selfdrived's 30 ms freshness bound. MCL_ONFAULT locks pages as they are
+  touched, so nothing extra is loaded: the cost is the working set, not the address space.
+  Locking happens only under an unlimited RLIMIT_MEMLOCK. Under a finite limit the kernel
+  counts whole mappings, and a later mapping that crossed it would fail inside the caller.
+  Returns a short status for the log; any failure leaves the process unchanged.
+  """
+  if sys.platform != 'linux' or PC:
+    return 'skipped: not device'
+  try:
+    soft, hard = resource.getrlimit(resource.RLIMIT_MEMLOCK)
+    if hard != resource.RLIM_INFINITY:
+      return f'skipped: RLIMIT_MEMLOCK {hard}'
+    if soft != resource.RLIM_INFINITY:
+      resource.setrlimit(resource.RLIMIT_MEMLOCK, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.mlockall(MCL_CURRENT | MCL_FUTURE | MCL_ONFAULT) != 0:
+      return f'failed: errno {ctypes.get_errno()}'
+  except (OSError, ValueError, AttributeError) as error:
+    return f'failed: {error!r}'
+  return 'locked'
 
 
 class Ratekeeper:

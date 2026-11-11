@@ -19,7 +19,7 @@ from msgq.visionipc import VisionIpcClient
 
 
 from openpilot.common.params import Params
-from openpilot.common.realtime import config_realtime_process, Priority, Ratekeeper, DT_CTRL
+from openpilot.common.realtime import config_realtime_process, lock_memory, Priority, Ratekeeper, DT_CTRL
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.gps import get_gps_location_service
 from openpilot.starpilot.gps.source import observation as gps_observation
@@ -2349,6 +2349,7 @@ class SelfdriveD:
 
 def main():
   config_realtime_process(5, Priority.CTRL_HIGH)
+  cloudlog.info(f"selfdrived memory lock: {lock_memory()}")
   s = SelfdriveD()
   s.run()
 
