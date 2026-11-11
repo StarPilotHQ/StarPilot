@@ -211,8 +211,9 @@ class TestOffroadCache(unittest.TestCase):
     driving = SimpleNamespace(receipt=SimpleNamespace(cp_sha256='a' * 64), counts=dict(counts, active_lateral_request_rows=70), quality_stops=[])
     calls = []
 
-    def collect(root, route, *, permitted):
+    def collect(root, route, *, permitted, walker=None):
       self.assertTrue(permitted())
+      self.assertTrue(callable(walker))
       calls.append(route['routeId'])
       return parked if route is latest else driving
 
