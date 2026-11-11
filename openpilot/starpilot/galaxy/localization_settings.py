@@ -3,12 +3,14 @@
 import json
 from importlib.resources import files
 
+from openpilot.starpilot.galaxy import slider_units
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsState
 from openpilot.starpilot.ui.slc_offset_feature import SlcOffsetOwner
 
 
+COMMA_UNITS = ("Metric", "Imperial")
 LANGUAGES = json.loads(files("openpilot.selfdrive.ui").joinpath("translations/languages.json").read_text(encoding="utf-8"))
 
 
@@ -23,14 +25,21 @@ class LocalizationSettingsOwner:
     return self.authorized() and self.parked() and not self.params.get_bool("IsDriverViewEnabled")
 
   def snapshot(self):
-    rows = []
+    # Comma speed units: the comma's own setting (Use Metric), shown as Metric / Imperial. Then Galaxy's own display
+    # units (slider_units).
+    raw, readable = read_saved(self.params, "IsMetric", 8)
+    valid = readable and raw in (None, b"0", b"1")
+    rows = [FeatureRow("IsMetric", "Comma speed units", ("Metric" if raw == b"1" else "Imperial") if valid else "Invalid saved value",
+                       raw, COMMA_UNITS if valid else (), available=valid and self.authorized(), default_value="Imperial",
+                       reason=("The comma's own speed units: speed, set speed and limits on the driving screen, and the units of " +
+                               "the comma's settings. Saved speed-limit offsets keep their real meaning.") if valid else "Invalid saved value")]
+    rows += slider_units.rows(self.params, self.authorized())
     for key, label, reason in (
-      ("IsMetric", "Use Metric", "On uses kilometers; Off uses miles. Saved speed-limit offsets keep their physical values."),
       ("IsRhdDetected", "Right-Hand Drive", "Sets the initial driver-monitoring side for the next drive. Automatic wheel-side detection continues."),
     ):
       raw, readable = read_saved(self.params, key, 8)
       valid = readable and raw in (None, b"0", b"1")
-      allowed = self.authorized() if key == "IsMetric" else self._wheel_side_allowed()
+      allowed = self._wheel_side_allowed()
       if key == "IsRhdDetected" and not allowed:
         reason = "Park the vehicle and close driver camera preview before changing the steering-wheel side."
       rows.append(FeatureRow(key, label, ("On" if raw == b"1" else "Off") if valid else "Invalid saved value",
@@ -43,7 +52,7 @@ class LocalizationSettingsOwner:
                            available=readable and self.authorized() and self.parked(),
                            reason="Display language for Galaxy and the device. Untranslated text uses English. Park before changing language.",
                            default_value="English"))
-    return FeatureSettingsState("localization", "Localization", "Language, units and steering-wheel side for every vehicle.",
+    return FeatureSettingsState("localization", "Localization", "Language, the comma’s units, and how Galaxy shows speeds and distances.",
                                 tuple(rows), self.parked())
 
   def apply(self, request):
@@ -54,10 +63,14 @@ class LocalizationSettingsOwner:
                             raw=LANGUAGES[request.value].encode("utf-8"), expected=request.expected,
                             authorized=lambda: self.authorized() and self.parked(), temp_prefix=".language-")
       return result.committed and result.verified
+    if request.key in slider_units.SPECS:
+      return slider_units.apply(self.params, request, self.authorized)
+    if request.key == "IsMetric":
+      if request.value not in COMMA_UNITS or request.expected not in (None, b"0", b"1") or not self.authorized():
+        return False
+      return self.units.change_units(request.value == "Metric", request.expected)
     if request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1") or not self.authorized():
       return False
-    if request.key == "IsMetric":
-      return self.units.change_units(request.value == "On", request.expected)
     if request.key != "IsRhdDetected" or not self._wheel_side_allowed():
       return False
     result = commit_exact(self.params, key=request.key, max_bytes=8,

@@ -13,7 +13,7 @@ export const switchRow = (label, enabled, reason = "") => ({
 
 export function numericBounds(row) {
   const min = Number(row.minimum), max = Number(row.maximum), step = Number(row.step)
-  return Number.isFinite(min) && Number.isFinite(max) && Number.isFinite(step) && max > min && step > 0
+  return Number.isFinite(min) && Number.isFinite(max) && Number.isFinite(step) && max >= min && step > 0
     ? { min, max, step } : null
 }
 
@@ -77,7 +77,7 @@ export const GalaxySettingRow = {
     showDefault() {
       const value = this.presentedRow.value, initial = this.presentedRow.defaultValue
       if (initial === null || initial === undefined || this.row.page) return false
-      return Number.isFinite(Number(value)) && Number.isFinite(Number(initial)) ? Number(value) !== Number(initial) : String(value) !== String(initial)
+      return Number.isFinite(Number(value)) && Number.isFinite(Number(initial)) ? Math.abs(Number(value) - Number(initial)) > (["in", "ft"].includes(this.presentedRow.unit) ? 0.000501 : 1e-9) : String(value) !== String(initial)
     },
     bounds() {
       const bounds = numericBounds(this.presentedRow)
@@ -90,11 +90,16 @@ export const GalaxySettingRow = {
     currentValue() { return this.preview !== undefined ? this.preview : this.presentedRow.value },
     sliderValue() { return this.currentValue === "Auto" && this.bounds?.auto ? this.bounds.max : this.currentValue },
     displayValue() {
+      const value = this.presentedRow.unitPrecision === 3 && Number.isFinite(Number(this.currentValue))
+        ? Number(Number(this.currentValue).toFixed(3)) : this.currentValue
       return this.currentValue === "Auto" || (this.bounds?.auto && Number(this.currentValue) === this.bounds.max)
-        ? "Auto" : `${this.currentValue}${this.presentedRow.unit ? " " + this.presentedRow.unit : ""}`
+        ? "Auto" : `${value}${this.presentedRow.unit ? " " + this.presentedRow.unit : ""}`
     },
   },
   methods: {
+    formatMeasurement(value) {
+      return this.presentedRow.unitPrecision === 3 && Number.isFinite(Number(value)) ? Number(Number(value).toFixed(3)) : value
+    },
     async previewSound() {
       if (this.locked || this.testingSound || !this.testAlert || !this.row.previewSound) return
       this.testingSound = true
@@ -158,7 +163,7 @@ export const GalaxySettingRow = {
     onSliderInput(event) {
       if (this.locked || this.fineScrub?.active) { event.target.value = this.sliderValue; return }
       this.beginInteract()
-      this.preview = Number(event.target.value)
+      this.preview = snapNumeric(event.target.value, this.bounds)
       this.startHoldTimer()
     },
     onSliderCommit(event) {
@@ -257,7 +262,7 @@ export const GalaxySettingRow = {
           @pointerdown="onSliderPointerDown" @pointermove="onSliderPointerMove" @pointerup="onSliderPointerEnd"
           @pointercancel="onSliderCancel" @lostpointercapture="onSliderCancel" @keydown="beginInteract">
         <p v-if="soundError || testingSound" class="gx-alert-preview-note" role="status" aria-live="polite">{{ soundError || 'Playing on your comma…' }}</p>
-        <div class="gx-slider-meta"><span>{{ bounds.min }} to {{ bounds.numericMax ?? bounds.max }} {{ presentedRow.unit }}<template v-if="bounds.auto"> · Auto at right</template></span><span>Step: {{ bounds.step }} {{ presentedRow.unit }}</span></div>
+        <div class="gx-slider-meta"><span>{{ formatMeasurement(bounds.min) }} to {{ formatMeasurement(bounds.numericMax ?? bounds.max) }} {{ presentedRow.unit }}<template v-if="bounds.auto"> · Auto at right</template></span><span>Step: {{ formatMeasurement(bounds.step) }} {{ presentedRow.unit }}</span></div>
       </div>
       <GalaxySelect v-else-if="control === 'select'" class="gx-field" :aria-label="row.label" :value="currentValue" :disabled="dimmed" @change="onSelect">
         <option v-for="choice in row.choices" :key="choice" :value="choice">{{ choice }}</option>

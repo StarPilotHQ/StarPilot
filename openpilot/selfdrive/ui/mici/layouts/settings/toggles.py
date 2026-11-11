@@ -25,7 +25,7 @@ class TogglesLayoutMici(NavScroller):
     self._rhd_toggle = BigToggle("right hand driving", initial_state=ui_state.params.get_bool("IsRhdDetected"),
                                  toggle_callback=self._on_rhd,
                                  description="On selects right-hand; Off selects left-hand for the next drive. Automatic side detection continues.")
-    self._rhd_toggle.set_enabled(lambda: self._localization.snapshot().rows[1].available)
+    self._rhd_toggle.set_enabled(lambda: next(row for row in self._localization.snapshot().rows if row.key == "IsRhdDetected").available)
 
     self._personality_toggle = BigMultiParamToggle("driving personality", "LongitudinalPersonality", ["aggressive", "standard", "relaxed"],
                                                    description="Standard is recommended.\n" +
@@ -154,7 +154,7 @@ class TogglesLayoutMici(NavScroller):
 
   def _on_rhd(self, desired: bool) -> None:
     self._localization.apply(FeatureSettingsRequest("IsRhdDetected", self._rhd_source, "On" if desired else "Off"))
-    self._rhd_source = self._localization.snapshot().rows[1].source
+    self._rhd_source = next(row for row in self._localization.snapshot().rows if row.key == "IsRhdDetected").source
     self._rhd_toggle.set_checked(ui_state.params.get_bool("IsRhdDetected"))
 
   def _on_record_audio(self, desired: bool) -> None:

@@ -1,4 +1,5 @@
 """Authenticated local projection of the shared saved-feature owner."""
+from openpilot.starpilot.galaxy import slider_units
 
 from openpilot.starpilot.ui.lane_change_feature import confirm_question as lane_change_question
 
@@ -387,11 +388,13 @@ def _session_key(token: str) -> bytes:
 def _projection(row: FeatureRow) -> dict:
   return {"label": row.label, "value": row.value, "choices": list(row.choices), "step": row.step,
           "minimum": row.minimum, "maximum": row.maximum, "unit": row.unit,
-          "available": row.available, "reason": description(row),
+          "available": row.available, "reason": slider_units.help_text(description(row), row.unit) if any(
+            key in slider_units.SPECS for key, _ in row.dependencies) else description(row),
           "page": row.page if row.page in PAGES else "", "action": bool(row.key and row.available and not row.page),
           "confirm": bool(row.key in CONFIRM_ACTIONS or is_long_confirm_action(row.key) or
                           row.key in (PIP_RESET, PIP_EDITOR, VASM_RESET, VASM_ANNOTATION) or row.key.startswith(PIP_FORMAT_PREFIX)),
           "repairValue": row.repair_value, "defaultValue": row.default_value, "resetAvailable": row_default(row) is not None,
+          "unitPrecision": 3 if any(key in slider_units.SPECS for key, _ in row.dependencies) else None,
           "displayScale": "lane-strength" if row.key == "LaneCenteringStrength" else None,
           **({"coordinate": row.key.removeprefix("torque:surface:")} if row.key.startswith("torque:surface:") and row.key != "torque:surface:reset" else {}),
           "heading": is_heading(row.key), "collapsed": bool(row.collapsed),
@@ -624,6 +627,24 @@ class SettingsGateway:
     return LocalizationSettingsOwner(self.params, authorized, parked)
 
   def _state(self, page: str, ctx: AuthorityContext):
+    state = self._base_state(page, ctx)
+    owner = self._owner(ctx) if page.startswith("lane") else None
+    return replace(state, rows=tuple(slider_units.project(self.params, row, owner) for row in state.rows))
+
+  def _native_request(self, page, ctx, request):
+    """The request in the setting's own units (Galaxy's slider units only change what is shown)."""
+    if not any(key in slider_units.SPECS for key, _ in request.dependencies):
+      return request
+    rows = self._base_state(page, ctx).rows
+    row = next((row for row in rows if row.key == request.key), None)
+    if row is None:
+      raise SettingsChanged("Setting no longer exists")
+    try:
+      return slider_units.restore(self.params, row, request, self._owner(ctx) if page.startswith("lane") else None)
+    except (ValueError, TypeError, OverflowError) as error:
+      raise SettingsChanged(str(error)) from error
+
+  def _base_state(self, page: str, ctx: AuthorityContext):
     if page == "localization":
       return self._localization_owner(ctx).snapshot()
     if page == "developer":
@@ -822,6 +843,7 @@ class SettingsGateway:
       if request is None:
         raise SettingsChanged("Unavailable choice")
       request = replace(request, confirmation=True)
+    self._native_request(view.page, ctx, request)  # A value Galaxy cannot map back to the setting's units is refused here.
     with self.lock:
       self._clean()
       if len(self.intents) >= MAX_INTENTS:
@@ -849,6 +871,17 @@ class SettingsGateway:
       fresh_rows = self._state(intent.page, ctx).rows
       if intent.reset_row not in fresh_rows or row_default(intent.reset_row, allow_inactive=intent.recovery_default) != intent.request:
         raise SettingsChanged("Default or saved settings changed")
+    unit_dependencies = intent.request.dependencies
+    valid_session = session_valid
+
+    def session_valid():
+      return valid_session() and slider_units.unchanged(self.params, unit_dependencies)
+    if not slider_units.unchanged(self.params, unit_dependencies):
+      raise SettingsChanged("Galaxy slider units changed")
+    try:
+      intent = replace(intent, request=self._native_request(intent.page, ctx, intent.request))
+    except SettingsChanged:
+      return False  # Preserve the owner API for stale values and peer settings.
     if intent.page == "pip":
       return self._pip_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
     if intent.page == "appearance":
