@@ -26,7 +26,7 @@ class CustomSchemaEvolutionTest(unittest.TestCase):
       'MapdOut', 'MapdExtendedOut', 'MapdIn',
       'AolAxisState.LaneChangeStatusWire', 'StarPilotModelDataV2', 'StarPilotRadarState',
       'StarPilotSelfdriveState', 'SpotMonitorState', 'StarPilotLateralState', 'StarPilotCarState',
-      'StarPilotCarParams',
+      'StarPilotCarParams', 'StarPilotLongitudinalPlan',
       'LearningControlEvidence', 'LearningAppliedEvidence', 'AutomaticRuntimeProfile',
       'AutomaticLearningSourceReceipt', 'LearningApplication', 'FordLearningEvidence',
       'FordLearningEvent', 'CentreApplicationWitness', 'LearningTorqueProjection',
@@ -306,6 +306,7 @@ struct DataDefaults @0xc889677671233ef4 {
 
   def test_preexisting_payload_helper_root_ids_are_preserved(self):
     expected = {
+      'StarPilotLongitudinalPlan': 0xda96579883444c35,
       'LearningControlEvidence': 0xf2447170bb68f358,
       'LearningAppliedEvidence': 0xbab0f51a74ffee6e,
       'AutomaticRuntimeProfile': 0xef38d302825641e3,
