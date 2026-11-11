@@ -92,9 +92,11 @@ def coordinate_candidates(observations, previous):
   """
   previous = route_values(previous)
   votes = {}
+  symptoms = {}
   for window, summary in observations:
     for name, step in _symptom_steps(summary, previous).items():
       votes.setdefault(name, {}).setdefault(window, []).append(step)
+      symptoms.setdefault(name, set()).add((summary['bucket'], summary['direction']))
   candidates = []
   for name in NAMES:
     windows = votes.get(name, {})
@@ -114,6 +116,7 @@ def coordinate_candidates(observations, previous):
       'policy': 'original_stable_recommended_bounded_route_v1',
       'coordinate_policy': 'symptom_bound_all30_v1',
       'original_windows': sorted(windows),
+      'symptoms': [list(row) for row in sorted(symptoms[name])],
       'coordinate_units': (
         'relative_speed_window' if name in WINDOWS else
         'physical_normalized' if name in DEADBANDS or name == 'low_speed_angle_assist_max_torque' else 'amplitude'

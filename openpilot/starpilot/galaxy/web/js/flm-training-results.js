@@ -235,7 +235,25 @@ const REASONS = {
   scoring_later_matched_whole_episodes: "Comparing new steering windows with the baseline.",
   accepted_target_currently_acknowledged: "The controller acknowledged the accepted correction.",
 }
-export const learningReason = reason => Object.hasOwn(REASONS, reason) ? REASONS[reason] : "The device's detailed report is available in Activity."
+export function learningReason(reason) {
+  if (Object.hasOwn(REASONS, reason)) return REASONS[reason]
+  const pattern = /^observed_(understeer|oversteer|late_turn_in|early_turn_in|unwind_too_slow|unwind_too_fast|low_speed_unwillingness|center_chatter|notchy_mid_curve)_(left|right|center)$/.exec(reason)
+  if (pattern) {
+    const [, behavior, side] = pattern
+    return {
+      understeer: `On ${side} curves, the car turned less sharply than requested.`,
+      oversteer: `On ${side} curves, the car turned more sharply than requested.`,
+      late_turn_in: `Steering was slow to build as ${side} turns started.`,
+      early_turn_in: `Steering built too early as ${side} turns started.`,
+      unwind_too_slow: `While easing out of ${side} curves, steering stayed stronger than requested.`,
+      unwind_too_fast: `While easing out of ${side} curves, steering eased off faster than requested.`,
+      low_speed_unwillingness: `At low speed, steering was slow to build into ${side} turns.`,
+      center_chatter: 'Small steering corrections kept reversing on straights.',
+      notchy_mid_curve: `Steering made repeated corrections while holding ${side} curves.`,
+    }[behavior]
+  }
+  return "The device's detailed report is available in Activity."
+}
 export function sourceCaptureCounts(report) {
   const value = report?.current?.details?.['GLOBAL original source capture']
   return validTrackingResults(report?.current?.tracking) && value &&
@@ -280,6 +298,8 @@ export function offroadView(report) {
   const savedSurface = stored ? fullCoordinates(details['Full surface coordinates']) : null
   const savedFriction = stored ? frictionCoordinates(details['Saved friction-curve adjustments']) : null
   return { route: details['Completed drive analyzed'], samples: details['Recorded steering observations'],
+    evidenceDrives: stamp(details['Drives in steering evidence history']) && details['Drives in steering evidence history'] <= 8 ?
+      details['Drives in steering evidence history'] : null,
     reason: details['Analysis decision'], saved: details['Automatic configuration changed'] === true,
     configurationState, savedValues: savedSurface ? { ...savedSurface, ...(savedFriction || {}) } : null,
     observed, checks, savedCount: stamp(savedCount) && savedCount <= 35 ? savedCount : null,

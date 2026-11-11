@@ -217,12 +217,25 @@ def _release_unused_analysis_heap():
       trim(0)
 
 
-def _original_results(assessment, original, ids, values, root, *, permitted):
+def _original_results(assessment, original, ids, values, root, *, permitted, source_batch=False):
   spans = {w['identity']: w for w in original if w['identity'] in ids}
-  if not 3 <= len(ids) <= 24 or len(set(ids)) != len(ids) or set(spans) != set(ids):
+  if not (1 if source_batch else 3) <= len(ids) <= 24 or len(set(ids)) != len(ids) or set(spans) != set(ids):
     raise ValueError('Every preselected original window required')
   if not permitted():
     raise ValueError('Parked checks cancelled')
+  if getattr(assessment, 'evidence_sources', None):
+    results = []
+    if any(w.get('route') not in assessment.evidence_sources for w in spans.values()):
+      raise ValueError('Every historical window needs its own original source')
+    for route, source in sorted(assessment.evidence_sources.items()):
+      selected = tuple(key for key in ids if spans[key]['route'] == route)
+      if selected:
+        try:
+          checked = _original_results(source, original, selected, values, root, permitted=permitted, source_batch=True)
+        except FileNotFoundError:
+          checked = [{'window': key, 'qualified': False, 'reason': 'historical_dense_source_unavailable'} for key in selected]
+        results.extend(dict(row, route=route, source_sha256=source.receipt.source_sha256) for row in checked)
+    return results
   _release_unused_analysis_heap()
   from openpilot.starpilot.flm.learning_wire import read_control, read_applied
   import hashlib

@@ -16,6 +16,283 @@ from openpilot.starpilot.flm.torque_stages import StageFrame
 from openpilot.starpilot.saved_source import read_saved
 
 
+class TestCrossDriveEvidence(unittest.TestCase):
+  """Declared unit observations, never a physical-route or native-output claim."""
+
+  @staticmethod
+  def inputs(number, *, gain=0.85, route_values=None, anchor=()):
+    from dataclasses import replace
+    import hashlib
+    import math
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_evidence import RoutePoint, RouteWindow, window_identity
+    from openpilot.starpilot.flm.offroad_processor import RecordedInputs
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+
+    route = f'{number:08x}--aaaaaaaaaa'
+    metadata = {
+      'cp_sha256': 'a' * 64, 'controller_mode': 'starpilot', 'controller_revision': 'declared-unit-controller',
+      'baseline_revision': 'b' * 64, 'domain': 'lateral_acceleration', 'baseline_values': (3.0, 0.1),
+      'vehicle_model_anchor': anchor, 'route_scope': scope().key(), 'route_revision': REVISION,
+      'route_values': tuple((values() if route_values is None else route_values).items()),
+    }
+    context = hashlib.sha256(repr(metadata).encode()).hexdigest()
+    comparison = {k: v for k, v in metadata.items() if k not in ('route_values', 'route_revision')}
+    comparison_key = hashlib.sha256(repr(comparison).encode()).hexdigest()
+    windows = []
+    for segment in (0, 1):
+      points = []
+      for index in range(301):
+        stamp = 1_000_000_000 + segment * 4_000_000_000 + index * 10_000_000
+        desired = 0.6 + 0.1 * math.sin(2 * math.pi * index / 100)
+        point = RoutePoint(route, segment, stamp, 'lateral_acceleration', comparison_key, desired, desired, 20.0,
+                           0.1, 0.1, stamp, stamp, True, False, False, True)
+        points.append(replace(point, actual=gain * desired))
+      points = tuple(points)
+      windows.append(RouteWindow(window_identity(points), points))
+    cp = SimpleNamespace(carFingerprint='declared-car', lateralTuning=SimpleNamespace(which=lambda: 'torque'))
+    receipt = RouteReceipt(route, f'{number:064x}', ((route + '--0', 'd' * 64, 1), (route + '--1', 'e' * 64, 1)),
+                           'a' * 64, 1_000_000_000, 8_000_000_000, number * 10_000_000_000, ())
+    inventory = {'routeId': route, 'segments': [{'files': {'rlog': True}}, {'files': {'rlog': True}}]}
+    collected = RecordedInputs(receipt, {'cp': cp}, {context: windows}, {}, {}, {}, {}, {context: metadata}, {}, [])
+    return collected, inventory
+
+  def test_four_sparse_drives_persist_and_support_one_independent_turn_recommendation(self):
+    from openpilot.starpilot.flm.offroad_history import EvidenceBank, combine
+    from openpilot.starpilot.flm.offroad_processor import _assess_inputs
+
+    with tempfile.TemporaryDirectory() as directory:
+      for number in range(1, 5):
+        bank = EvidenceBank(Path(directory) / 'cache')
+        current, inventory = self.inputs(number)
+        single = _assess_inputs(inventory, current, values(), permitted=lambda: True)
+        self.assertFalse(any(c.get('proposal') for g in single.groups for c in g['cohorts']))
+        history = bank.retain(current, inventory, 'same-settings', permitted=lambda: True)
+      pooled, sources, order = combine(current, inventory, history)
+      assessment = _assess_inputs(inventory, pooled, values(), permitted=lambda: True, sources=sources, route_order=order)
+      cohort = assessment.groups[0]['cohorts'][0]
+      self.assertEqual(cohort['proposal']['parameter'], 'ff_gain_left')
+      self.assertGreater(cohort['proposal']['delta'], 0)
+      owners = {w.identity: w.points[0].route for rows in pooled.windows.values() for w in rows}
+      train, heldout = ({owners[key] for key in cohort[role]['windows']} for role in ('training', 'heldout'))
+      self.assertEqual((len(train), len(heldout)), (2, 2))
+      self.assertTrue(train.isdisjoint(heldout))
+      self.assertEqual(assessment.counts['evidence_drives'], 4)
+      self.assertEqual(len(bank.retain(current, inventory, 'same-settings', permitted=lambda: True)), 4)
+      self.assertLess((bank.cache.directory / 'history.z').stat().st_size, 1024 * 1024)
+      self.assertEqual(bank.read('changed-manual-settings'), [])
+      bank.retain(current, inventory, 'different-car-profile', permitted=lambda: True)
+      self.assertEqual(len(bank.read('same-settings')), 4, 'Changing car/settings must preserve the earlier profile separately')
+      before = (bank.cache.directory / 'history.z').read_bytes()
+      empty, empty_inventory = self.inputs(5)
+      empty.windows = {}
+      self.assertEqual(len(bank.retain(empty, empty_inventory, 'same-settings', permitted=lambda: True)), 4)
+      self.assertEqual((bank.cache.directory / 'history.z').read_bytes(), before, 'No-steering recordings must not evict driving evidence')
+
+  def test_cancel_tamper_and_vehicle_change_cannot_create_or_mix_evidence(self):
+    import zlib
+    from dataclasses import replace
+    from openpilot.starpilot.flm.offroad_history import EvidenceBank, combine
+
+    with tempfile.TemporaryDirectory() as directory:
+      bank = EvidenceBank(Path(directory) / 'cache')
+      original, inventory = self.inputs(1)
+      history = bank.retain(original, inventory, 'same', permitted=lambda: True)
+      before = (bank.cache.directory / 'history.z').read_bytes()
+      other, other_inventory = self.inputs(2)
+      with self.assertRaises(ValueError):
+        bank.retain(other, other_inventory, 'same', permitted=lambda: False)
+      self.assertEqual((bank.cache.directory / 'history.z').read_bytes(), before)
+      other.receipt = replace(other.receipt, cp_sha256='f' * 64)
+      _, sources, _ = combine(other, other_inventory, history)
+      self.assertEqual(set(sources), {other.receipt.route_id})
+      history[0]['windows'][0]['points'][0][6] += 0.1
+      other, other_inventory = self.inputs(2)
+      with self.assertRaisesRegex(ValueError, 'window changed'):
+        combine(other, other_inventory, history)
+      (bank.cache.directory / 'history.z').write_bytes(zlib.compress(b'{"version":9}'))
+      with self.assertRaises(ValueError):
+        bank.read('same')
+
+  def test_observed_vehicle_model_variation_does_not_erase_repeatable_tracking_or_rewrite_points(self):
+    from openpilot.starpilot.flm.offroad_history import EvidenceBank, combine
+    from openpilot.starpilot.flm.offroad_processor import _assess_inputs
+
+    with tempfile.TemporaryDirectory() as directory:
+      bank = EvidenceBank(Path(directory) / 'cache')
+      original_ids = set()
+      for number in range(1, 5):
+        current, inventory = self.inputs(number, anchor=(14.0 + number * 0.1, 180000.0 + number, 190000.0 + number))
+        original_ids.update(w.identity for rows in current.windows.values() for w in rows)
+        history = bank.retain(current, inventory, 'same', permitted=lambda: True)
+      pooled, sources, order = combine(current, inventory, history)
+      assessment = _assess_inputs(inventory, pooled, values(), permitted=lambda: True, sources=sources, route_order=order)
+      self.assertEqual(len(assessment.groups), 1)
+      group = assessment.groups[0]
+      self.assertEqual(group['cohorts'][0]['proposal']['parameter'], 'ff_gain_left')
+      self.assertEqual(set(group['original_window_contexts']), original_ids)
+      self.assertEqual(len(group['original_contexts']), 4)
+      self.assertEqual({w.identity for rows in pooled.windows.values() for w in rows}, original_ids)
+
+  def test_native_dispatch_keeps_each_source_and_does_not_lower_global_role_requirements(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_checks as module
+
+    sources = {str(i): SimpleNamespace(receipt=SimpleNamespace(source_sha256=f'{i:064x}')) for i in range(4)}
+    spans = [{'identity': f'{i:064x}', 'route': str(i // 2)} for i in range(8)]
+    group = {'selected_original_windows': spans}
+    roles = {'training': {'windows': tuple(w['identity'] for w in spans[:4])}, 'heldout': {'windows': tuple(w['identity'] for w in spans[4:])}}
+    assessment = SimpleNamespace(evidence_sources=sources)
+    original = module._original_results
+    seen = []
+
+    def dispatch(actual, descriptors, ids, candidate, root, *, permitted, source_batch=False):
+      if actual is assessment:
+        return original(actual, descriptors, ids, candidate, root, permitted=permitted)
+      self.assertTrue(source_batch)
+      self.assertEqual(len(ids), 2)
+      seen.append(actual)
+      return [{'window': key, 'qualified': True, 'numerical': {'qualified': True, 'changed_frames': 1},
+               'registered_encoder': {'qualified': True, 'candidate_changed_emissions': 1}} for key in ids]
+
+    with patch.object(module, '_original_results', new=dispatch):
+      checked = module.qualify(assessment, group, roles, values(), '.', permitted=lambda: True)
+      self.assertTrue(checked['qualified'])
+      self.assertEqual(seen, list(sources.values()))
+      self.assertEqual({w['source_sha256'] for w in checked['windows']}, {s.receipt.source_sha256 for s in sources.values()})
+      with self.assertRaises(ValueError):
+        module.qualify(assessment, group, dict(roles, training={'windows': roles['training']['windows'][:2]}), values(), '.', permitted=lambda: True)
+
+  def test_old_baseline_suggestions_never_recommend_resetting_an_unrelated_saved_adjustment(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
+
+    old = values()
+    proposed = dict(old, ff_gain_left=0.01)
+    current = dict(old, highway_center_taper_max=0.001)
+    group = {'original_metadata': {'route_values': tuple(old.items()), 'route_revision': REVISION},
+             'cohorts': [{'proposal': {'values': proposed}, 'whole_windows': 8}]}
+    assessment = SimpleNamespace(groups=(group,), diagnostic_groups=())
+    recommendations = recorded_recommendations(assessment, current, {})
+    self.assertEqual([r['parameter'] for r in recommendations], ['ff_gain_left'])
+    self.assertEqual(recommendations[0]['target'], 0.01)
+    current['ff_gain_left'] = 0.02
+    self.assertEqual(recorded_recommendations(assessment, current, {}), [], 'Do not undo a later, stronger setting using an older target')
+    current['ff_gain_left'] = 0.001
+    self.assertEqual(recorded_recommendations(assessment, current, {})[0]['target'], 0.01)
+
+  def test_different_recorded_tunes_keep_separate_evidence_partitions(self):
+    from openpilot.starpilot.flm.offroad_history import EvidenceBank, combine
+    from openpilot.starpilot.flm.offroad_processor import _assess_inputs
+
+    with tempfile.TemporaryDirectory() as directory:
+      bank = EvidenceBank(Path(directory) / 'cache')
+      for number in range(1, 5):
+        current, inventory = self.inputs(number, route_values=values(0.001) if number == 4 else values())
+        history = bank.retain(current, inventory, 'same-vehicle-settings', permitted=lambda: True)
+      pooled, sources, order = combine(current, inventory, history)
+      assessment = _assess_inputs(inventory, pooled, values(), permitted=lambda: True, sources=sources, route_order=order)
+      self.assertEqual(len(assessment.groups), 2)
+      self.assertFalse(any(c.get('proposal') for g in assessment.groups for c in g['cohorts']))
+
+  def test_four_slow_unwinds_out_of_five_observed_sections_generate_targeted_suggestions(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+    from openpilot.starpilot.flm.offroad_stable_bridge import StableRouteSelector
+    from openpilot.starpilot.flm.offroad_stable_policy import FLMSample
+    from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
+
+    ids = [f'{number:064x}' for number in range(1, 6)]
+    metadata = {'domain': 'lateral_acceleration', 'route_values': tuple(values().items()), 'route_revision': REVISION,
+                'controller_mode': 'starpilot', 'route_scope': scope().key()}
+    observed = [{'identity': key, 'route': f'declared-exit-{i}', 'segment': 0,
+                 'start_ns': 10**9, 'end_ns': 3 * 10**9, 'cohort': '2:right:unwind'} for i, key in enumerate(ids)]
+    group = {'original_metadata': metadata, 'original_context_sha256': 'f' * 64,
+             'cohorts': [{'cohort': '2:right:unwind', 'whole_windows': 5}],
+             'selected_original_windows': [], 'observed_original_windows': observed}
+    cp = SimpleNamespace(brand='gm', carFingerprint='declared-unwind-car', lateralTuning=SimpleNamespace(which=lambda: 'torque'))
+    receipt = RouteReceipt('declared-observation-only', 'd' * 64, (), 'a' * 64, 1, 2, 3, ())
+    assessment = CompletedAssessment(receipt, (group,), {}, cp, (), {'routeId': receipt.route_id})
+    selector = StableRouteSelector(assessment, '.', values(), scope(), permitted=lambda: True)
+    selector.rows = {}
+    for index, key in enumerate(ids):
+      samples = []
+      for tick in range(201):
+        desired = -1.0 + 0.35 * tick / 100
+        actual = desired - (0.25 if index < 4 else 0)
+        samples.append(FLMSample(f'declared-exit-{index}', 0, 1 + tick / 100, 20.0, True, False, False,
+          actual, desired, 0.35, actual - desired, 0, 0, 0, 0, 0, -0.2, -5.0, 0, -0.2, -0.2, 0))
+      selector.rows[key] = samples
+    _, proof = selector.profile(tuple(ids), '2:right:unwind')
+    candidates = proof['coordinate_candidates']
+    taper = next(c for c in candidates if c['parameter'] == 'stable:unwind_taper_right')
+    self.assertEqual(len(taper['original_windows']), 4)
+    self.assertEqual(len(proof['original_windows']), 5)
+    self.assertGreater(taper['delta'], 0)
+    self.assertTrue(all(c['parameter'].endswith('_right') for c in candidates))
+    recommendations = recorded_recommendations(assessment, values(), {'observed_profile_reports': [proof]})
+    self.assertTrue(recommendations)
+    self.assertTrue(all(r['reason'] == 'observed_unwind_too_slow_right' for r in recommendations))
+    self.assertFalse(assessment.report()['automatically_saved'], 'An observed symptom is a suggestion, not a native or save acknowledgement')
+    from openpilot.starpilot.flm import offroad_worker as module
+
+    def assessed(params, root, previous, *, permitted):
+      previous(cp)
+      return assessment
+
+    def no_native(*args, **kwargs):
+      self.fail('An observational recommendation must not enter automatic qualification')
+
+    def load(actual):
+      actual.rows = selector.rows
+
+    with tempfile.TemporaryDirectory() as directory, patch.object(module, 'latest_route', return_value=assessment.source_inventory), patch.object(
+      module, 'qualify', new=no_native
+    ), patch.object(StableRouteSelector, '_load', new=load):
+      params = Params(directory)
+      result = module.OffroadWorker(params, directory, Path(directory) / 'cache', permitted=lambda: True,
+        assessor=assessed, checker=no_native, scope_for=lambda cp, params: scope()).run_once()
+      self.assertGreater(result['recommendation_count'], 0)
+      self.assertFalse(result['configuration_changed'])
+      self.assertIsNone(params.get(KEY))
+
+  def test_production_worker_collects_across_restarts_saves_then_keeps_next_drive_measurement_separate(self):
+    from openpilot.starpilot.flm import offroad_worker as module
+    from openpilot.starpilot.flm.offroad_cache import AssessmentCache
+
+    with tempfile.TemporaryDirectory() as directory:
+      params = Params(directory)
+      cache = AssessmentCache(Path(directory) / 'cache')
+      inventories = []
+      for number in range(1, 6):
+        current, inventory = self.inputs(number)
+        inventories.append(inventory)
+
+        def checks(actual, group, cohort, candidate, root, *, permitted, require_change=True):
+          self.assertTrue(permitted())
+          return {'qualified': True, 'windows': [{'window': key, 'qualified': True,
+                  'source_sha256': f'{int(next(w["route"] for w in group["selected_original_windows"] if w["identity"] == key).split("--")[0], 16):064x}'}
+                  for role in ('training', 'heldout') for key in cohort[role]['windows']]}
+
+        with patch.object(module, 'latest_route', return_value=inventory), patch.object(module, 'pending_routes', return_value=[inventory]), patch(
+          'openpilot.starpilot.flm.offroad_processor.collect_latest_steering_inputs', return_value=(inventory, current)
+        ), patch('openpilot.starpilot.galaxy.drive_history.DriveHistory.snapshot', return_value={'scanIncomplete': False, 'routes': inventories}):
+          worker = module.OffroadWorker(params, directory, cache, permitted=lambda: True, checker=checks, scope_for=lambda cp, p: scope())
+          result = worker.run_once()
+        if number < 4:
+          self.assertFalse(result['configuration_changed'])
+        elif number == 4:
+          self.assertTrue(result['configuration_changed'])
+          self.assertEqual(result['status'], 'ready_for_next_drive')
+          self.assertGreater(result['configured_values']['ff_gain_left'], 0)
+          saved = params.get(KEY)
+        else:
+          self.assertFalse(result['configuration_changed'])
+          self.assertNotEqual(result['status'], 'accepted_after_drive')
+          self.assertEqual(params.get(KEY), saved, 'Old pooled evidence must not count as a new-drive success')
+
+
 class TestCompletedDriveBacklog(unittest.TestCase):
   @staticmethod
   def route(counter):

@@ -399,6 +399,15 @@ assert.equal(untouchedManual.props.row.value, 0, 'Showing advice cannot move a m
 const singleAdvisory = structuredClone(advisoryReport)
 singleAdvisory.current.details['Recorded coordinate recommendations'] = singleAdvisory.current.details['Recorded coordinate recommendations'].slice(0, 1)
 assert(offroadCoordinateEvidence(singleAdvisory, 'unwind_taper_right').includes('No recommendation from this analyzed drive'))
+const symptomAdvice = structuredClone(singleAdvisory)
+symptomAdvice.current.details['Recorded coordinate recommendations'] = [
+  ['unwind_taper_right', 0, .006, 5, 'observed_unwind_too_slow_right'],
+]
+manualContext.report = symptomAdvice
+assert(text(render.call(manualContext, manualContext, [])).includes('While easing out of right curves, steering stayed stronger than requested.'),
+  'Show the observed behavior on the finding itself, not only its technical details')
+manualContext.report = advisoryReport
+
 const conflictingAdvisory = structuredClone(singleAdvisory)
 conflictingAdvisory.current.details['Recorded coordinate recommendations'][0][2] = null
 conflictingAdvisory.current.details['Recorded coordinate recommendations'][0][4] = 'conflicting_recorded_candidates'

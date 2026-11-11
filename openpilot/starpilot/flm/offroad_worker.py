@@ -25,6 +25,7 @@ from openpilot.starpilot.flm.offroad_tracking import TrackingEstimate, compare_o
 from openpilot.starpilot.saved_source import read_saved
 
 POLICY = 'bounded_provisional_next_drive_v1'
+RECORDED_ASSESSOR = analyze_latest
 MAX_INCONCLUSIVE_DRIVES = 3
 ZERO = dict.fromkeys(NAMES, 0.0)
 from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, LEGACY_KEYS
@@ -281,9 +282,13 @@ def recorded_recommendations(assessment, previous, report):
 
   found: dict[str, dict[str, Any]] = {}
 
-  def add(proposal, windows, reason):
+  def add(proposal, windows, reason, baseline=None):
+    baseline = previous if baseline is None else baseline
     if type(proposal) is not dict or type(windows) is not int or windows <= 0:
       return
+    symptoms = proposal.get('symptoms', ())
+    if len(symptoms) == 1 and len(symptoms[0]) == 2:
+      reason = 'observed_' + '_'.join(symptoms[0])
     values = proposal.get('values')
     if type(values) is not dict:
       name = proposal.get('parameter', '')
@@ -293,11 +298,15 @@ def recorded_recommendations(assessment, previous, report):
       delta = proposal.get('delta')
       if name not in NAMES or type(delta) not in (int, float) or not math.isfinite(delta):
         return
-      values = {name: previous[name] + delta}
+      values = {name: baseline[name] + delta}
     for name in NAMES:
       base, target = previous[name], values.get(name, previous[name])
       if type(target) not in (int, float) or not math.isfinite(target):
         continue
+      if target == baseline[name]:
+        continue
+      if base != baseline[name] and (target - base) * (target - baseline[name]) <= 0:
+        continue  # A change already taken past this old target is not a new recommendation.
       low, high = route_bounds(name)
       if not low <= target <= high or not 1e-12 < abs(target - base) <= MAX_ROUTE_STEP + 1e-12:
         continue
@@ -311,7 +320,9 @@ def recorded_recommendations(assessment, previous, report):
 
   for group in (*assessment.groups, *assessment.diagnostic_groups):
     for cohort in group['cohorts']:
-      add(cohort.get('proposal'), cohort.get('whole_windows', 0), 'recorded_candidate_requires_automatic_checks')
+      baseline = _recorded_values(group['original_metadata']) if 'original_metadata' in group else previous
+      if baseline is not None:
+        add(cohort.get('proposal'), cohort.get('whole_windows', 0), 'recorded_candidate_requires_automatic_checks', baseline)
   for proof in (*report.get('stable_profile_reports', ()), *report.get('short_turn_profile_reports', ())):
     roles = proof.get('roles', {})
     windows = sum(len(roles.get(role, {}).get('original_windows', ())) for role in ('training', 'heldout'))
@@ -319,6 +330,9 @@ def recorded_recommendations(assessment, previous, report):
     add(proof.get('observed_candidate'), windows, 'recorded_candidate_not_independently_confirmed')
     for proposal in roles.get('training', {}).get('coordinate_candidates', ()):
       add(proposal, windows, 'training_candidate_not_independently_confirmed')
+  for proof in report.get('observed_profile_reports', ()):
+    for proposal in proof.get('coordinate_candidates', ()):
+      add(proposal, len(proof['original_windows']), 'recorded_candidate_not_independently_confirmed', proof.get('source_baseline'))
   return [found[name] for name in NAMES if name in found]
 
 
@@ -355,7 +369,7 @@ def input_coverage(cohort):
 def _input_spans(group, cohort, ids):
   name = 'qualification_original_windows' if 'qualification_roles' in cohort else 'selected_original_windows'
   return {
-    (row['segment'], row['start_ns'], row['end_ns'])
+    (row.get('route', ''), row['segment'], row['start_ns'], row['end_ns'])
     for row in group.get(name, ())
     if row['identity'] in ids and all(key in row for key in ('segment', 'start_ns', 'end_ns'))
   }
@@ -390,6 +404,22 @@ class OffroadWorker:
     self.on_recommendations = on_recommendations
     self.prior_provider = prior_provider
     self.stable_prior_provider = stable_prior_provider
+    self.evidence_bank = None
+    if assessor is RECORDED_ASSESSOR:
+      from openpilot.starpilot.flm.offroad_history import EvidenceBank
+
+      self.evidence_bank = EvidenceBank(self.cache.directory)
+
+  def _history_identity(self, cp):
+    settings = []
+    for key in SETTINGS:
+      if key == KEY:
+        continue
+      raw, okay = read_saved(self.params, key, MAX_BYTES)
+      if not okay:
+        raise ValueError('Unreadable evidence history setting')
+      settings.append((key, None if raw is None else hashlib.sha256(raw).hexdigest()))
+    return _digest((self.scope_for(cp, self.params).document(), settings))
 
   def _snapshot(self, route):
     values = []
@@ -459,10 +489,10 @@ class OffroadWorker:
 
     if self.on_analysis is not None:
       self.on_analysis()
-    if route == latest:
-      assessment = self.assessor(self.params, self.root, prior, permitted=self.permitted)
-    else:
-      assessment = self.assessor(self.params, self.root, prior, permitted=self.permitted, selected_route=route)
+    options: dict[str, Any] = {} if self.evidence_bank is None else {'evidence_bank': self.evidence_bank, 'history_identity': self._history_identity}
+    if route != latest:
+      options['selected_route'] = route
+    assessment = self.assessor(self.params, self.root, prior, permitted=self.permitted, **options)
     if self.on_assessment is not None:
       self.on_assessment(assessment)
     if not state:
@@ -497,6 +527,105 @@ class OffroadWorker:
     report = assessment.report()
     report.update(policy=POLICY, current_scope=scope.document(), road_improvement_confirmed=False)
     current = dict(ZERO) if row is None else dict(row['values'])
+    recorded['recommendations'] = recorded_recommendations(assessment, current, report)
+
+    choices = []
+    for group in assessment.groups:
+      metadata = group['original_metadata']
+      if _recorded_values(metadata) != current or metadata['controller_mode'] != scope.controller_mode:
+        continue
+      contract = recorded_source_contract(assessment.cp, metadata, scope, self.params)
+      if contract is None:
+        continue
+      report.setdefault('original_source_requalification', []).append(contract)
+      for cohort in group['cohorts']:
+        if 'qualification_roles' in cohort and any(len(cohort['qualification_roles'][role]['windows']) < 3 for role in ('training', 'heldout')):
+          continue
+        proposal = cohort.get('proposal')
+        if proposal is not None:
+          proposal = dict(proposal, values=dict(current, **proposal['values']))
+          choices.append((group, cohort, proposal))
+    # Freeze all proposal sources before any controller/native fit. One
+    # marginal tracking proposal must not hide the Recommended profile.
+    short_groups = tuple(
+      group for group in assessment.groups
+      if any(
+        c['cohort'].rsplit(':', 1)[-1] in ('steady', 'turn_in', 'unwind')
+        and all(3 <= len(c.get(role, {}).get('windows', ())) <= 12 for role in ('training', 'heldout'))
+        for c in group['cohorts']
+      )
+    ) if type(assessment) is CompletedAssessment else ()
+    if (
+      type(assessment) is CompletedAssessment and (
+        assessment.stable_groups or short_groups or any(g.get('observed_original_windows') for g in assessment.groups)
+      )
+      and self.checker is qualify and scope.controller_domain == 'torque'
+    ):
+      from openpilot.starpilot.flm.offroad_stable_bridge import StableRouteSelector
+
+      selector = StableRouteSelector(assessment, self.root, current, scope, permitted=self.permitted)
+      report['observed_profile_reports'] = []
+      for group in assessment.groups:
+        metadata = group['original_metadata']
+        baseline = _recorded_values(metadata)
+        if baseline is None or recorded_source_contract(assessment.cp, metadata, scope, self.params) is None:
+          continue
+        observed = group.get('observed_original_windows', ())
+        source_selector = selector
+        if baseline != current:
+          source_selector = StableRouteSelector(assessment, self.root, baseline, scope, permitted=self.permitted)
+          source_selector.rows = selector.rows
+        for condition in sorted({w['cohort'] for w in observed}):
+          ids = tuple(w['identity'] for w in observed if w['cohort'] == condition)
+          if 3 <= len(ids) <= 12:
+            _, proof = source_selector.profile(ids, condition)
+            selector.rows = source_selector.rows
+            report['observed_profile_reports'].append(dict(proof, source_baseline=baseline, automatic_application_allowed=False))
+      report['stable_profile_reports'] = []
+      for group in assessment.stable_groups:
+        metadata = group['original_metadata']
+        if _recorded_values(metadata) != current or metadata['controller_mode'] != scope.controller_mode:
+          continue
+        contract = recorded_source_contract(assessment.cp, metadata, scope, self.params)
+        if contract is None:
+          continue
+        report.setdefault('original_source_requalification', []).append(contract)
+        for cohort in group['cohorts']:
+          if not all(role in cohort for role in ('training', 'heldout')):
+            continue
+          if 'qualification_roles' in cohort and any(len(cohort['qualification_roles'][role]['windows']) < 3 for role in ('training', 'heldout')):
+            continue
+          proposal, proof = selector.propose(group, cohort)
+          report['stable_profile_reports'].append({'context': group['original_context_sha256'], 'cohort': cohort['cohort'], **proof})
+          if proposal is not None:
+            choices.append((group, {**cohort, 'stable_profile_proof': proof}, proposal))
+          for alternative in proof.get('coordinate_candidates', []):
+            if proposal is None or alternative['values'] != proposal['values']:
+              choices.append((group, {**cohort, 'stable_profile_proof': proof}, alternative))
+      # Turn entry/exit need the existing short controller windows, not a
+      # six-second steady interval. Keep their original partitions and all
+      # native checks; legacy quieting profiles still use stable windows.
+      report['short_turn_profile_reports'] = []
+      for group in short_groups:
+        metadata = group['original_metadata']
+        if _recorded_values(metadata) != current or metadata['controller_mode'] != scope.controller_mode:
+          continue
+        contract = recorded_source_contract(assessment.cp, metadata, scope, self.params)
+        if contract is None:
+          continue
+        for cohort in group['cohorts']:
+          if cohort['cohort'].rsplit(':', 1)[-1] not in ('steady', 'turn_in', 'unwind'):
+            continue
+          if not all(role in cohort for role in ('training', 'heldout')):
+            continue
+          roles = cohort.get('qualification_roles', cohort)
+          if any(not 3 <= len(roles[role]['windows']) <= 12 for role in ('training', 'heldout')):
+            continue
+          _, proof = selector.propose(group, cohort)
+          report['short_turn_profile_reports'].append({'context': group['original_context_sha256'], 'cohort': cohort['cohort'], **proof})
+          for alternative in proof.get('coordinate_candidates', []):
+            choices.append((group, {**cohort, 'stable_profile_proof': proof}, alternative))
+
 
     def recommendations_ready():
       recorded['recommendations'] = recorded_recommendations(assessment, current, report)
@@ -510,20 +639,22 @@ class OffroadWorker:
     offered = None
     profile_suggestions = []
     selected_profile_windows = 0
+    actual_drive = getattr(assessment, 'single_drive', None)
+    actual_drive = actual_drive if type(actual_drive) is CompletedAssessment else assessment
     if row is not None and assessment.receipt.source_sha256 in row['route_sha256s']:
       reason = 'this_completed_drive_already_assessed'
-    elif row is not None and (row['state'] == 'ready_for_next_drive' or quality_withdrawn(assessment, scope, row['values'])):
+    elif row is not None and (row['state'] == 'ready_for_next_drive' or quality_withdrawn(actual_drive, scope, row['values'])):
       trial = trial_document(self.cache, row['analysis_sha256'])
       observed_checks = []
-      if not quality_withdrawn(assessment, scope, row['values']):
+      if not quality_withdrawn(actual_drive, scope, row['values']):
         stable = trial['before']['training'].get('kind') == 'uncommanded_residual_v1'
-        for group in assessment.stable_groups if stable else assessment.groups:
+        for group in actual_drive.stable_groups if stable else actual_drive.groups:
           if group['original_metadata']['route_scope'] != scope.key() or _recorded_values(group['original_metadata']) != row['values']:
             continue
           for cohort in group['cohorts']:
             if cohort['cohort'] == trial['cohort'] and 'training' in cohort and 'heldout' in cohort:
-              actual = self.checker(assessment, group, cohort, row['values'], self.root, permitted=self.permitted, require_change=False)
-              contribution = self.checker(assessment, group, cohort, row['previous'], self.root, permitted=self.permitted, require_change=True)
+              actual = self.checker(actual_drive, group, cohort, row['values'], self.root, permitted=self.permitted, require_change=False)
+              contribution = self.checker(actual_drive, group, cohort, row['previous'], self.root, permitted=self.permitted, require_change=True)
               observed_checks.append(
                 {'qualified': actual['qualified'] and contribution['qualified'], 'actual_recorded_map': actual, 'compared_with_prior_map': contribution}
               )
@@ -531,7 +662,7 @@ class OffroadWorker:
       attempts = self.cache.get(row['analysis_sha256']).get('inconclusive_drives', 0)
       if type(attempts) is not int or not 0 <= attempts < MAX_INCONCLUSIVE_DRIVES:
         raise ValueError('Bounded inconclusive trial history required')
-      outcome = assess_next_drive(trial, assessment, scope, trial_started=started, recorded_backlog=route != latest)
+      outcome = assess_next_drive(trial, actual_drive, scope, trial_started=started, recorded_backlog=route != latest)
       counts_as_new_drive = outcome.get('counts_as_new_drive', True)
       if outcome['outcome'] == 'pending' and started and counts_as_new_drive:
         attempts += 1
@@ -574,84 +705,6 @@ class OffroadWorker:
         status = 'ready_for_next_drive' if outcome['outcome'] == 'pending' else outcome['outcome']
         reason = outcome['reason']
     else:
-      current = dict(ZERO) if row is None else dict(row['values'])
-      choices = []
-      for group in assessment.groups:
-        metadata = group['original_metadata']
-        if _recorded_values(metadata) != current or metadata['controller_mode'] != scope.controller_mode:
-          continue
-        contract = recorded_source_contract(assessment.cp, metadata, scope, self.params)
-        if contract is None:
-          continue
-        report.setdefault('original_source_requalification', []).append(contract)
-        for cohort in group['cohorts']:
-          if 'qualification_roles' in cohort and any(len(cohort['qualification_roles'][role]['windows']) < 3 for role in ('training', 'heldout')):
-            continue
-          proposal = cohort.get('proposal')
-          if proposal is not None:
-            proposal = dict(proposal, values=dict(current, **proposal['values']))
-            choices.append((group, cohort, proposal))
-      # Freeze all proposal sources before any controller/native fit. One
-      # marginal tracking proposal must not hide the Recommended profile.
-      short_groups = tuple(
-        group for group in assessment.groups
-        if any(
-          c['cohort'].rsplit(':', 1)[-1] in ('steady', 'turn_in', 'unwind')
-          and all(3 <= len(c.get(role, {}).get('windows', ())) <= 12 for role in ('training', 'heldout'))
-          for c in group['cohorts']
-        )
-      ) if type(assessment) is CompletedAssessment else ()
-      if (
-        type(assessment) is CompletedAssessment and (assessment.stable_groups or short_groups)
-        and self.checker is qualify and scope.controller_domain == 'torque'
-      ):
-        from openpilot.starpilot.flm.offroad_stable_bridge import StableRouteSelector
-
-        selector = StableRouteSelector(assessment, self.root, current, scope, permitted=self.permitted)
-        report['stable_profile_reports'] = []
-        for group in assessment.stable_groups:
-          metadata = group['original_metadata']
-          if _recorded_values(metadata) != current or metadata['controller_mode'] != scope.controller_mode:
-            continue
-          contract = recorded_source_contract(assessment.cp, metadata, scope, self.params)
-          if contract is None:
-            continue
-          report.setdefault('original_source_requalification', []).append(contract)
-          for cohort in group['cohorts']:
-            if not all(role in cohort for role in ('training', 'heldout')):
-              continue
-            if 'qualification_roles' in cohort and any(len(cohort['qualification_roles'][role]['windows']) < 3 for role in ('training', 'heldout')):
-              continue
-            proposal, proof = selector.propose(group, cohort)
-            report['stable_profile_reports'].append({'context': group['original_context_sha256'], 'cohort': cohort['cohort'], **proof})
-            if proposal is not None:
-              choices.append((group, {**cohort, 'stable_profile_proof': proof}, proposal))
-            for alternative in proof.get('coordinate_candidates', []):
-              if proposal is None or alternative['values'] != proposal['values']:
-                choices.append((group, {**cohort, 'stable_profile_proof': proof}, alternative))
-        # Turn entry/exit need the existing short controller windows, not a
-        # six-second steady interval. Keep their original partitions and all
-        # native checks; legacy quieting profiles still use stable windows.
-        report['short_turn_profile_reports'] = []
-        for group in short_groups:
-          metadata = group['original_metadata']
-          if _recorded_values(metadata) != current or metadata['controller_mode'] != scope.controller_mode:
-            continue
-          contract = recorded_source_contract(assessment.cp, metadata, scope, self.params)
-          if contract is None:
-            continue
-          for cohort in group['cohorts']:
-            if cohort['cohort'].rsplit(':', 1)[-1] not in ('steady', 'turn_in', 'unwind'):
-              continue
-            if not all(role in cohort for role in ('training', 'heldout')):
-              continue
-            roles = cohort.get('qualification_roles', cohort)
-            if any(not 3 <= len(roles[role]['windows']) <= 12 for role in ('training', 'heldout')):
-              continue
-            _, proof = selector.propose(group, cohort)
-            report['short_turn_profile_reports'].append({'context': group['original_context_sha256'], 'cohort': cohort['cohort'], **proof})
-            for alternative in proof.get('coordinate_candidates', []):
-              choices.append((group, {**cohort, 'stable_profile_proof': proof}, alternative))
       # Freeze input-only ranking; training may select a candidate, validation may not.
       choices.sort(key=lambda v: (-input_coverage(v[1]), -v[1]['whole_windows'], v[1]['cohort'], v[0]['original_context_sha256']))
       recommendations_ready()
@@ -687,7 +740,7 @@ class OffroadWorker:
               validation = tuple(w['identity'] for w in independent.windows)
             validation_spans = _input_spans(group, cohort, validation) if independent is None else ()
             if training_seen.intersection(validation) or any(
-              a[0] == b[0] and max(a[1], b[1]) <= min(a[2], b[2]) for a in training_spans for b in validation_spans
+              a[:2] == b[:2] and max(a[2], b[2]) <= min(a[3], b[3]) for a in training_spans for b in validation_spans
             ):
               reason = 'candidate_validation_already_used_for_training'
               continue
@@ -765,20 +818,34 @@ class OffroadWorker:
               if TrialGuard(scope.key(), proposal['values'], record).stopped is not None:
                 raise ValueError('Original onroad gross-guard baseline unavailable')
               digest = self.cache.put(record)
-              new = {
+              new: dict[str, Any] = {
                 'scope': scope.document(),
                 'values': proposal['values'],
                 'previous': current,
-                'route_sha256s': [assessment.receipt.source_sha256]
+                'route_sha256s': sorted({w['source_sha256'] for w in checked['windows']})
+                if assessment.evidence_sources else [assessment.receipt.source_sha256]
                 + ([] if independent_checks is None else [independent_checks['source_partitions']['heldout']]),
                 'source_start_ns': assessment.receipt.original_start_ns,
                 'source_end_ns': assessment.receipt.original_end_ns,
-                'completed_wall_ns': assessment.receipt.completed_wall_ns,
+                'completed_wall_ns': max(
+                  [assessment.receipt.completed_wall_ns] + [source.receipt.completed_wall_ns for source in assessment.evidence_sources.values()]
+                ),
                 'analysis_sha256': digest,
                 'sequence': 1 if row is None else row['sequence'] + 1,
                 'state': 'ready_for_next_drive',
               }
-              saved = RouteStorage(self.params).save(new, expected=expected, authorized=authorized)
+              def original_sources_current(new=new):
+                if not authorized():
+                  return False
+                from openpilot.starpilot.galaxy.drive_history import DriveHistory
+
+                required = [s.source_inventory for s in assessment.evidence_sources.values() if s.receipt.source_sha256 in new['route_sha256s']]
+                if not required:
+                  return True
+                inventory = DriveHistory(self.root, max_segments_per_route=MAX_SEGMENTS).snapshot()
+                return not inventory['scanIncomplete'] and all(sum(r == source for r in inventory['routes']) == 1 for source in required)
+
+              saved = RouteStorage(self.params).save(new, expected=expected, authorized=original_sources_current)
               if not saved:
                 raise ValueError('Next-drive tune compare-and-swap refused')
               status = 'ready_for_next_drive'
@@ -807,7 +874,9 @@ class OffroadWorker:
           reason = 'recorded_tracking_suggestion_not_yet_qualified_for_automatic_application'
     if status == 'collecting' and offered is None:
       proofs = report.get('stable_profile_reports', ())
-      if any(p.get('reason') == 'original_stable_input_fields_missing' for p in proofs):
+      if any(p.get('coordinate_candidates') for p in report.get('observed_profile_reports', ())):
+        reason = 'recorded_tracking_suggestion_not_yet_qualified_for_automatic_application'
+      elif any(p.get('reason') == 'original_stable_input_fields_missing' for p in proofs):
         reason = 'recorded_steering_window_inputs_unavailable'
       elif proofs:
         reason = 'no_consistent_adjustment_in_completed_drive'

@@ -77,15 +77,22 @@ def _interval(values):
   return max(0.0, min(min(values), mean - radius)), max(max(values), mean + radius)
 
 
-def estimate_residual(windows, *, cohort, permitted=lambda: True):
+def estimate_residual(windows, *, cohort, permitted=lambda: True, comparison=None):
   if (
     type(windows) is not tuple
     or not 3 <= len(windows) <= 12
     or any(type(w) is not RouteWindow or not w.valid() for w in windows)
     or len({w.identity for w in windows}) != len(windows)
-    or len({(w.domain, w.points[0].context_key) for w in windows}) != 1
+    or comparison is None and len({(w.domain, w.points[0].context_key) for w in windows}) != 1
   ):
     raise ValueError('Distinct complete same-context residual windows required')
+  context = windows[0].points[0].context_key
+  if comparison is not None:
+    from openpilot.starpilot.flm.offroad_history import TrackingComparison
+
+    if type(comparison) is not TrackingComparison:
+      raise ValueError('Original numerical comparison contract required')
+    context = comparison.context(windows)
   seen = set()
   metrics = []
   references = []
@@ -116,7 +123,7 @@ def estimate_residual(windows, *, cohort, permitted=lambda: True):
     means.append(sum(p.desired for p in points) / len(points))
   source = hashlib.sha256(repr((cohort, tuple(w.identity for w in windows))).encode()).hexdigest()
   return ResidualEstimate(
-    windows[0].points[0].context_key,
+    context,
     windows[0].domain,
     cohort,
     tuple(w.identity for w in windows),
@@ -179,10 +186,11 @@ def compare_residual(before, after):
   }
 
 
-def analyze_stable_windows(windows, *, permitted=lambda: True):
+def analyze_stable_windows(windows, *, permitted=lambda: True, route_order=None, comparison=None):
   """Fixed input-only cohorts; calm references need no fictitious gain fit."""
   from dataclasses import asdict
-  from openpilot.starpilot.flm.offroad_analysis import cohort, _spread, MAX_COHORT_WINDOWS
+  from openpilot.starpilot.flm.offroad_analysis import cohort
+  from openpilot.starpilot.flm.offroad_history import partition_windows
 
   if type(windows) is not tuple or any(not w.valid() for w in windows):
     raise ValueError('Original Stable windows required')
@@ -195,12 +203,10 @@ def analyze_stable_windows(windows, *, permitted=lambda: True):
   for key, rows in sorted(groups.items()):
     if not permitted():
       raise ValueError('Parked tracking analysis cancelled')
-    chosen = _spread(sorted(rows, key=lambda w: (w.points[0].segment, w.points[0].mono_ns)), MAX_COHORT_WINDOWS)
     # Keep source-contiguous evidence within each role. Interleaving every
     # six-second slice makes the recovered four-second detector blind at each
     # artificial boundary. The two roles still share no original samples.
-    split = len(chosen) // 2
-    training, heldout = tuple(chosen[:split]), tuple(chosen[split:])
+    training, heldout = partition_windows(rows, route_order, contiguous=True)
     if len(training) < 3 or len(heldout) < 3:
       results.append({'cohort': key, 'whole_windows': len(rows), 'reason': 'more_independent_stable_windows_required'})
       continue
@@ -208,8 +214,8 @@ def analyze_stable_windows(windows, *, permitted=lambda: True):
       {
         'cohort': key,
         'whole_windows': len(rows),
-        'training': asdict(estimate_residual(training, cohort=key, permitted=permitted)),
-        'heldout': asdict(estimate_residual(heldout, cohort=key, permitted=permitted)),
+        'training': asdict(estimate_residual(training, cohort=key, permitted=permitted, comparison=comparison)),
+        'heldout': asdict(estimate_residual(heldout, cohort=key, permitted=permitted, comparison=comparison)),
         'reason': 'original_stable_symptoms_require_replication',
         'proposal': None,
       }

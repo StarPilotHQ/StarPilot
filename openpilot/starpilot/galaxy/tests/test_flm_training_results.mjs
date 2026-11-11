@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { validTrainingResults, trainingSummary, detailText, offroadView, tunerStatus, SURFACE_NAMES, FRICTION_NAMES, surfaceRows, offroadCoordinateEvidence } from "../web/js/flm-training-results.js"
+import { validTrainingResults, trainingSummary, detailText, learningReason, offroadView, tunerStatus, SURFACE_NAMES, FRICTION_NAMES, surfaceRows, offroadCoordinateEvidence } from "../web/js/flm-training-results.js"
 
 const report = () => ({ version: 1, current: { fresh: true, ageSeconds: .1, enabled: true,
   status: "collecting", reason: "independent_evidence", progress: { samples: 140, blocks: 3, requiredBlocks: 16 },
@@ -63,6 +63,13 @@ completed.current.details = {
 assert(validTrainingResults(completed))
 assert.equal(offroadView(completed).suggestions.length, 5)
 assert.equal(offroadView(completed).samples, 241573)
+assert.match(learningReason("observed_unwind_too_slow_right"), /right curves.*stronger than requested/)
+const history = structuredClone(completed)
+history.current.details['Drives in steering evidence history'] = 4
+assert.equal(offroadView(history).evidenceDrives, 4)
+history.current.details['Drives in steering evidence history'] = 9
+assert.equal(offroadView(history).evidenceDrives, null)
+assert.equal(offroadView(completed).evidenceDrives, null, 'Older reports must not imply cross-drive evidence')
 assert.equal(tunerStatus(completed, true, true).title, 'Completed drive analyzed', 'Parked status must not mask completed analysis')
 assert.match(tunerStatus(completed, true, true).description, /none has passed/)
 assert.equal(completed.current.application.applied, false)

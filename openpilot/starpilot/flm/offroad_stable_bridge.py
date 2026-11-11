@@ -88,6 +88,7 @@ class StableRouteSelector:
         ids = {
           wid for c in group['cohorts'] if all(role in c for role in ('training', 'heldout')) for role in ('training', 'heldout') for wid in c[role]['windows']
         }
+        ids.update(w['identity'] for w in group.get('observed_original_windows', ()))
         groups.append((group, ids))
     elif type(assessment) is PriorOriginals and type(assessment.receipt) is SelectedSourceReceipt and assessment.profile_metadata is not None:
       groups = [
@@ -123,12 +124,14 @@ class StableRouteSelector:
     for group, ids in groups:
       if group['original_metadata']['domain'] != 'lateral_acceleration':
         continue
-      for window in group['selected_original_windows']:
+      for window in (*group['selected_original_windows'], *group.get('observed_original_windows', ())):
         if window['identity'] in ids:
           if window['identity'] in self.spans and self.spans[window['identity']] != window:
             raise ValueError('Conflicting original window identity')
           self.spans[window['identity']] = window
-          comparison = dict(group['original_metadata'])
+          context = group.get('original_window_contexts', {}).get(window['identity'])
+          original = group['original_metadata'] if context is None else group['original_contexts'][context]
+          comparison = dict(original)
           comparison.pop('route_values')
           comparison.pop('route_revision')
           context_key = hashlib.sha256(repr(comparison).encode()).hexdigest()
@@ -139,6 +142,21 @@ class StableRouteSelector:
       raise ValueError('Original whole-window bound')
 
   def _load(self):
+    if getattr(self.assessment, 'evidence_sources', None):
+      from copy import copy
+
+      self.rows = {}
+      for route, source in self.assessment.evidence_sources.items():
+        reader = copy(self)
+        reader.assessment = source
+        reader.spans = {key: span for key, span in self.spans.items() if span['route'] == route}
+        try:
+          reader._load()
+        except FileNotFoundError:
+          reader.rows = dict.fromkeys(reader.spans)
+        assert reader.rows is not None
+        self.rows.update(reader.rows)
+      return
     rows = {key: [] for key in self.spans}
     original_points = {key: [] for key in self.spans}
     invalid = set()
