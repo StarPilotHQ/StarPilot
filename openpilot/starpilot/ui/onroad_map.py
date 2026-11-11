@@ -49,10 +49,19 @@ DESTINATION_MAX_CHARS = 32
 CAR_ANCHOR = 0.68            # the car sits below center so more road ahead is visible
 ZOOM_SLOW_M_PER_PX = 0.9     # parking-lot and city detail
 ZOOM_FAST_M_PER_PX = 3.4     # highway overview
+ZOOM_ROUTE_M_PER_PX = 1.8    # on a route: one steady level at any speed, closer only for turns
+# Route steps that do not change direction (a road renaming, "continue straight") do not zoom in.
+NO_ZOOM_MANEUVERS = frozenset({'continue', 'new name', 'notification', 'depart', 'merge'})  # unknown types still zoom
+NO_ZOOM_MODIFIERS = frozenset({'', 'none', 'straight'})
 MIN_HEADING_SPEED = 1.5      # m/s; GPS heading is noise below this
 ROTATE_MIN_SPEED = 3.0       # m/s; below this the map holds its rotation
 HEADING_DEADBAND_DEG = 3.0   # heading changes smaller than this leave the map still
+HEADING_SETTLE_DEG = 0.5     # ...and once it turns, it keeps turning until this close, not stopping at the deadband edge
+HEADING_FILTER_RATE = 2.0    # 1/s: GPS and route headings are smoothed this fast before the map follows them
 HEADING_RATE = 1.5           # 1/s: how quickly the map eases toward the heading
+HEADING_LOOKAHEAD_S = 2.0    # on the route, the map faces the line this far ahead, not the segment under the car
+HEADING_LOOKAHEAD_MIN_M, HEADING_LOOKAHEAD_MAX_M = 20.0, 80.0
+GUIDANCE_SUPERSAMPLE = 2     # the route line and puck are drawn at this scale and filtered down, so edges are smooth
 MAX_TURN_DEG_S = 45.0        # the map never spins faster than this
 JUNCTION_LOOKAHEAD_S = 14.0  # zoom in on the next maneuver this far ahead
 JUNCTION_MIN_M, JUNCTION_MAX_M = 80.0, 300.0
@@ -107,9 +116,13 @@ def zoom_for_speed(speed_mps: float) -> float:
   return ZOOM_SLOW_M_PER_PX + (ZOOM_FAST_M_PER_PX - ZOOM_SLOW_M_PER_PX) * t
 
 
-def zoom_target(speed_mps: float, maneuver_m: float | None = None, stopped_s: float = 0.0) -> float:
-  """Meters per screen pixel: speed-based, closer ahead of a maneuver, wider after sitting still."""
-  base = zoom_for_speed(speed_mps)
+def zoom_target(speed_mps: float, maneuver_m: float | None = None, stopped_s: float = 0.0, guided: bool = False) -> float:
+  """Meters per screen pixel: closer ahead of a maneuver, wider after sitting still.
+
+  Without a route the zoom follows speed. On a route it holds one steady level and only zooms in for
+  the next turn, so the map does not breathe in and out with every change of speed.
+  """
+  base = ZOOM_ROUTE_M_PER_PX if guided else zoom_for_speed(speed_mps)
   near = maneuver_m is not None and maneuver_m <= OVERVIEW_MIN_MANEUVER_M
   if stopped_s >= OVERVIEW_AFTER_S and not near:
     return ZOOM_FAST_M_PER_PX
@@ -308,6 +321,38 @@ def snap_to_route(route: np.ndarray, position: tuple[float, float], bearing: flo
   return (float(nearest[index, 0]), float(nearest[index, 1])), first + index, float(headings[index])
 
 
+def route_lengths(route: np.ndarray) -> np.ndarray:
+  """Distance along the route to each point, in world units."""
+  return np.concatenate(([0.0], np.cumsum(np.hypot(*np.diff(route, axis=0).T))))
+
+
+def lookahead_heading(route: np.ndarray, lengths: np.ndarray, segment: int, point: tuple[float, float],
+                      ahead: float) -> float | None:
+  """Bearing from ``point`` (on ``segment``) to the spot ``ahead`` world units farther along the route.
+
+  Facing a point down the line, rather than the segment under the car, keeps the map steady across the
+  small kinks of a simplified route line and starts a turn's rotation smoothly as the car approaches it.
+  """
+  segment = min(max(segment, 0), len(route) - 2)
+  a = route[segment]
+  along = float(lengths[segment]) + math.hypot(point[0] - a[0], point[1] - a[1]) + ahead
+  if along >= lengths[-1]:
+    target = route[-1]
+  else:
+    j = min(len(route) - 2, max(segment, int(np.searchsorted(lengths, along, side='right')) - 1))
+    span = float(lengths[j + 1] - lengths[j])
+    target = route[j] + (route[j + 1] - route[j]) * (0.0 if span <= 0 else min(1.0, (along - lengths[j]) / span))
+  dx, dy = float(target[0] - point[0]), float(target[1] - point[1])
+  if math.hypot(dx, dy) < ahead * 0.25:
+    return None                                                # at the end of the route: too short to trust
+  return math.degrees(math.atan2(dx, -dy)) % 360.0
+
+
+def angle_delta(target: float, current: float) -> float:
+  """Signed shortest rotation from ``current`` to ``target``, in degrees."""
+  return (target - current + 540.0) % 360.0 - 180.0
+
+
 def split_route(route: np.ndarray | None, position: tuple[float, float]) -> tuple[np.ndarray | None, np.ndarray | None]:
   """(driven, ahead) world polylines, split at the point on the route nearest the car."""
   if route is None or len(route) < 2:
@@ -341,7 +386,7 @@ class MapInput:
   gps_wait_seconds: float = 0.0
   destination: str = ''                             # where navigation is going: "Home", "Work" or the place name
   source: str = ''                                  # where the fix comes from: comma, car or phone
-  maneuver_distance_m: float | None = None          # meters to the next maneuver while guiding
+  maneuver_distance_m: float | None = None          # meters to the next turn while guiding (None for straight-on steps)
   road_name: str = ''                               # the road the car is on, from the map data
 
 
@@ -495,6 +540,7 @@ class MapOverlay:
     self._raster_redrawn = -math.inf
     self._route_key: tuple | None = None
     self._route_world: np.ndarray | None = None
+    self._route_lengths: np.ndarray | None = None
     self._route_last_shown: float | None = None   # clock time the route was last available this navigation session
     self._starting_since: float | None = None     # clock time "Starting navigation" went up
     self._generation_built = -1
@@ -502,6 +548,8 @@ class MapOverlay:
     self._world: tuple[float, float] | None = None
     self._latitude = 0.0
     self._bearing = 0.0
+    self._heading_target = 0.0                    # smoothed GPS or route heading the map rotates toward
+    self._turning = False
     self._has_heading = False
     self._stopped_since: float | None = None
     self._name = ''
@@ -545,13 +593,28 @@ class MapOverlay:
       target_world = (target_world[0] + (snap[0][0] - target_world[0]) * w, target_world[1] + (snap[0][1] - target_world[1]) * w)
     if moving:
       assert fix.bearing is not None
-      road_bearing = snap[2] if snap is not None else fix.bearing
-      delta = (road_bearing - self._bearing + 540.0) % 360.0 - 180.0
+      road_bearing = fix.bearing
+      if snap is not None:
+        assert self._route_world is not None and self._route_lengths is not None
+        ahead_m = min(HEADING_LOOKAHEAD_MAX_M, max(HEADING_LOOKAHEAD_MIN_M, fix.speed * HEADING_LOOKAHEAD_S))
+        ahead = lookahead_heading(self._route_world, self._route_lengths, snap[1], snap[0], ahead_m / meters_per_tile(fix.latitude))
+        road_bearing = snap[2] if ahead is None else ahead
       if not self._has_heading:
-        self._bearing, self._has_heading = road_bearing % 360.0, True
-      elif fix.speed > ROTATE_MIN_SPEED and abs(delta) > HEADING_DEADBAND_DEG:
-        limit = MAX_TURN_DEG_S * dt
-        self._bearing = (self._bearing + max(-limit, min(limit, delta * min(1.0, dt * HEADING_RATE)))) % 360.0
+        self._bearing = self._heading_target = road_bearing % 360.0
+        self._has_heading, self._turning = True, False
+      else:
+        # Smooth the heading first so GPS noise and route kinks never reach the map, then rotate with
+        # hysteresis: start past the deadband, finish close to the heading instead of parking at the edge.
+        self._heading_target = (self._heading_target + angle_delta(road_bearing, self._heading_target) *
+                                min(1.0, dt * HEADING_FILTER_RATE)) % 360.0
+        delta = angle_delta(self._heading_target, self._bearing)
+        if fix.speed <= ROTATE_MIN_SPEED or abs(delta) < HEADING_SETTLE_DEG:
+          self._turning = False
+        elif abs(delta) > HEADING_DEADBAND_DEG:
+          self._turning = True
+        if self._turning:
+          limit = MAX_TURN_DEG_S * dt
+          self._bearing = (self._bearing + max(-limit, min(limit, delta * min(1.0, dt * HEADING_RATE)))) % 360.0
     if self._world is None or math.hypot(target_world[0] - self._world[0], target_world[1] - self._world[1]) > 0.5:
       self._world = target_world                               # first fix or a jump: no slow glide across town
     else:
@@ -566,7 +629,8 @@ class MapOverlay:
       self._stopped_since = now
     stopped_s = 0.0 if self._stopped_since is None else now - self._stopped_since
     maneuver = data.maneuver_distance_m if data.navigation_active else None
-    target_zoom = zoom_target(fix.speed, maneuver, stopped_s) if math.isfinite(fix.speed) else self._m_per_px
+    guided = data.navigation_active and self._route_world is not None
+    target_zoom = zoom_target(fix.speed, maneuver, stopped_s, guided) if math.isfinite(fix.speed) else self._m_per_px
     self._m_per_px += (target_zoom - self._m_per_px) * min(1.0, dt * 0.8)
 
   def _track_name(self, name: str, now: float) -> None:
@@ -583,6 +647,7 @@ class MapOverlay:
       self._guidance_key = None
       self._snap_index = None
       self._route_world = np.array([world_xy(lat, lon) for lat, lon in route], np.float64) if len(route) >= 2 else None
+      self._route_lengths = route_lengths(self._route_world) if self._route_world is not None else None
     self._route_key = route
 
   def _track_route(self, data: MapInput, now: float) -> None:
@@ -681,7 +746,7 @@ class MapOverlay:
       if self._guidance is not None:
         rl.unload_render_texture(self._guidance)
       self._widget = rl.load_render_texture(width, height)
-      self._guidance = rl.load_render_texture(width, height)
+      self._guidance = rl.load_render_texture(width * GUIDANCE_SUPERSAMPLE, height * GUIDANCE_SUPERSAMPLE)
       self._widget_size = None
       if not self._widget.id or not self._guidance.id:
         for target in (self._widget, self._guidance):
@@ -770,6 +835,11 @@ class MapOverlay:
     try:
       rl.clear_background(rl.BLANK)
       rl.begin_blend_mode(rl.BlendMode.BLEND_ALPHA_PREMULTIPLY)
+      # Render textures have no MSAA: the guidance layer is drawn larger and its bilinear sample in the
+      # mask shader averages each 2x2 block, so the route line's edges stay smooth at any rotation.
+      rl.rl_push_matrix()
+      if guidance:
+        rl.rl_scalef(GUIDANCE_SUPERSAMPLE, GUIDANCE_SUPERSAMPLE, 1)
       if not guidance:
         rl.draw_rectangle(0, 0, width, height, premultiplied(GLASS))
       request = self._canvas_request
@@ -812,6 +882,7 @@ class MapOverlay:
           rl.draw_texture_pro(self._canvas.texture, rl.Rectangle(0, 0, side, -side),
                               rl.Rectangle(anchor.x, anchor.y, side * zoom, side * zoom),
                               rl.Vector2(car_x * zoom, car_y * zoom), -self._bearing, rl.WHITE)
+      rl.rl_pop_matrix()
       rl.end_blend_mode()
     finally:
       rl.end_texture_mode()
@@ -1123,7 +1194,12 @@ class MapFeed:
 
   @staticmethod
   def _maneuver(nav) -> float | None:
-    meters = float(nav.instruction.distanceMeters)
+    """Distance to the next turn worth zooming in for, or None for a step that keeps going straight."""
+    instruction = nav.instruction
+    meters = float(instruction.distanceMeters)
+    if (getattr(instruction, 'maneuverType', '') in NO_ZOOM_MANEUVERS and
+        getattr(instruction, 'maneuverModifier', '') in NO_ZOOM_MODIFIERS):
+      return None
     return meters if nav.status == "guiding" and math.isfinite(meters) and meters >= 0 else None
 
   def _road_name(self, now: float) -> str:

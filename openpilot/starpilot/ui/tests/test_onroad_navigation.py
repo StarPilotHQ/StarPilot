@@ -76,6 +76,20 @@ def test_bad_distance_and_empty_instruction_do_not_render():
   assert navigation_display(nav, now_ns=NOW, drive_id=DRIVE).text == 'You have arrived'
 
 
+def test_reaching_the_arrive_maneuver_reads_arrived_before_the_car_stops():
+  nav = message()
+  nav.instruction = {'text': 'Arrive at your destination', 'maneuverType': 'arrive', 'maneuverModifier': 'straight',
+                     'distanceMeters': 150, 'remainingDistanceMeters': 150, 'remainingDurationSeconds': 20}
+  nav.nextManeuver = {'maneuverType': 'arrive', 'maneuverModifier': 'straight', 'distanceMeters': 150}
+  approaching = navigation_display(nav, now_ns=NOW, drive_id=DRIVE)
+  assert not approaching.arrived and approaching.text == 'Arrive at your destination'
+  nav.instruction.distanceMeters = nav.instruction.remainingDistanceMeters = 0
+  there = navigation_display(nav, now_ns=NOW, drive_id=DRIVE)
+  assert there.arrived and there.text == 'You have arrived' and there.then_type == '', "no '0 ft' while still rolling"
+  nav.instruction.maneuverType = 'turn'
+  assert not navigation_display(nav, now_ns=NOW, drive_id=DRIVE).arrived, "only the final maneuver means arrival"
+
+
 @pytest.mark.parametrize('meters,metric,expected', [(120, False, '400 ft'), (120, True, '125 m'),
                                                    (1609.344, False, '1.0 mi'), (2000, True, '2.0 km')])
 def test_distance_units(meters, metric, expected):
