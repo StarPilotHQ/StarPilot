@@ -458,6 +458,21 @@ class VisionModelCore:
     return detection
 
 
+  @staticmethod
+  def _is_yellow_advisory(sign_crop):
+    if sign_crop.size == 0:
+      return False
+    sign_crop = _primary_regulatory_panel(sign_crop)
+    hsv = cv2.cvtColor(sign_crop, cv2.COLOR_BGR2HSV)
+    hue, saturation, value = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    white_mask = ((value >= REGULATORY_WHITE_VALUE_MIN) & (saturation <= REGULATORY_WHITE_SAT_MAX))
+    yellow_mask = ((hue >= REGULATORY_YELLOW_HUE_MIN) &
+                   (hue <= REGULATORY_YELLOW_HUE_MAX) &
+                   (saturation >= REGULATORY_YELLOW_SAT_MIN) &
+                   (value >= REGULATORY_YELLOW_VALUE_MIN))
+    return float((yellow_mask & ~white_mask).astype(np.uint8).mean()) > .5
+
+
   def _is_regulatory_speed_sign(self, sign_crop):
     if sign_crop.size == 0:
       return False
@@ -849,6 +864,10 @@ class VisionModelCore:
         proposal_area_ratio < DETECTOR_CLASSIFIER_TINY_LOW_CONF_AREA_RATIO and
         proposal_confidence < DETECTOR_CLASSIFIER_TINY_LOW_CONF_MIN_CONFIDENCE
       )
+      if class_id == 0 and self._is_yellow_advisory(
+          frame_bgr[max(int(y1), 0):min(int(y2), frame_height), max(int(x1), 0):min(int(x2), frame_width)]):
+        rejected_advisory_boxes.append((x1, y1, x2, y2))
+        continue
       self._remember_detector_proposal(proposal_confidence, class_id, (x1, y1, x2, y2))
 
       if class_id == 2:
