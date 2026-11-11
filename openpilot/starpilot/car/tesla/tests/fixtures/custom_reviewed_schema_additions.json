@@ -920,6 +920,66 @@
           }
         }
       ]
+    },
+    "0xda96579883444c35": {
+      "kind": "struct",
+      "before_name": "StarPilotLongitudinalPlan",
+      "after_name": "StarPilotLongitudinalPlan",
+      "old_field_count": 5,
+      "old_storage": {
+        "dataWordCount": 4,
+        "pointerCount": 0,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 5,
+        "pointerCount": 0,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 17,
+            "type": {
+              "bool": null
+            },
+            "defaultValue": {
+              "bool": false
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "forceStopBraking",
+          "codeOrder": 5,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 5
+          }
+        },
+        {
+          "slot": {
+            "offset": 4,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "forceStopEpisodeMonoTime",
+          "codeOrder": 6,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 6
+          }
+        }
+      ]
     }
   },
   "published_addition_commits": {

@@ -290,3 +290,40 @@ def test_compiled_compatibility_check_rejects_unreviewed_changes(tmp_path, field
   else:
     with pytest.raises(AssertionError):
       compare_node(old, new)
+
+
+def test_additive_force_stop_fields_preserve_defaults_and_incumbent_relay(historical):
+  old = historical.StarPilotLongitudinalPlan.new_message(
+    version=1, sourcePlanMonoTime=11, modelMonoTime=22, driveStartMonoTime=33, forceStopHolding=True)
+  incumbent = old.to_dict()
+  with custom.StarPilotLongitudinalPlan.from_bytes(old.to_bytes()) as decoded:
+    assert not decoded.forceStopBraking
+    assert decoded.forceStopEpisodeMonoTime == 0
+    current = decoded.as_builder()
+  current.forceStopBraking = True
+  current.forceStopEpisodeMonoTime = 44
+  expected = current.to_dict()
+  with historical.StarPilotLongitudinalPlan.from_bytes(current.to_bytes()) as prior:
+    assert prior.to_dict() == incumbent
+    relayed = prior.as_builder().to_bytes()
+  with custom.StarPilotLongitudinalPlan.from_bytes(relayed) as recovered:
+    assert recovered.to_dict() == expected
+
+
+@pytest.mark.parametrize(('before', 'after'), [
+  ('forceStopHolding @4 :Bool;', 'forceStopHolding @4 :Bool = true;'),
+  ('forceStopBraking @5 :Bool;', 'forceStopBraking @5 :UInt8;'),
+  ('forceStopBraking @5 :Bool;', 'forceStopBraking @5 :Bool = true;'),
+  ('forceStopEpisodeMonoTime @6 :UInt64;', 'forceStopEpisodeMonoTime @6 :UInt32;'),
+  ('forceStopEpisodeMonoTime @6 :UInt64;', 'forceStopEpisodeMonoTime @6 :UInt64 = 1;'),
+  ('forceStopEpisodeMonoTime @6 :UInt64;', 'forceStopEpisodeMonoTime @6 :UInt64; unreviewed @7 :Bool;'),
+])
+def test_reviewed_force_stop_addition_rejects_other_changes(historical, tmp_path, before, after):
+  source = Path(CEREAL_PATH, 'custom.capnp').read_text()
+  assert source.count(before) == 1
+  path = tmp_path / 'unreviewed-force-stop.capnp'
+  path.write_text(source.replace(before, after))
+  parser = capnp.SchemaParser()
+  changed = parser.load(str(path), imports=[CEREAL_PATH, str(files('opendbc') / 'car')])
+  with pytest.raises(AssertionError):
+    compare_node(historical.StarPilotLongitudinalPlan, changed.StarPilotLongitudinalPlan)
