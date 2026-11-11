@@ -96,6 +96,9 @@ class StatusReport:
       details['Earlier analysis shown while updating'] = value.get('retained_analysis') is True
       details['Completed drive analyzed'] = value['completed_route']
       details['Recorded steering observations'] = count('recorded_tracking')
+      reviewed, available = count('original_segments_reviewed'), count('original_segments_available')
+      if reviewed and available:
+        details['Recorded drive coverage'] = f'{reviewed} of {available} original recorded segments reviewed'
       details['Joined steering observations'] = count('joined_tracking')
       details['Retained control windows'] = count('qualified_whole_windows')
       details['Retained tracking windows'] = count('stable_qualified_whole_windows')

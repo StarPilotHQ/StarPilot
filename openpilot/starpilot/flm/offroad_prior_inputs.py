@@ -53,6 +53,7 @@ def _selected_sources(root, route, *, permitted, consume, cp_sha256, expanded=Fa
   total = 0
   start, end, clock, actual_cp = None, 0, None, None
   ended = False
+  expected_cp = cp_sha256
   for number, name in enumerate(names):
     if not permitted():
       raise ValueError('Independent input collection cancelled')
@@ -72,7 +73,13 @@ def _selected_sources(root, route, *, permitted, consume, cp_sha256, expanded=Fa
             end = max(end, stamp)
           if kind == 'carParams':
             actual_cp = car_params_digest(event.carParams)
-            if actual_cp != cp_sha256:
+            if expected_cp is None:
+              from openpilot.starpilot.flm.offroad_evidence import torque_vehicle
+
+              if not torque_vehicle(event.carParams):
+                raise PriorIdentityMismatch('Original torque vehicle required')
+              expected_cp = actual_cp
+            if actual_cp != expected_cp:
               raise PriorIdentityMismatch('Prior vehicle differs')
           elif kind == 'starpilotLateralState' and event.valid and event.starpilotLateralState.learningEvidence.version == 1:
             value = event.starpilotLateralState.learningEvidence
@@ -89,7 +96,7 @@ def _selected_sources(root, route, *, permitted, consume, cp_sha256, expanded=Fa
         del events
       if not current() or not permitted():
         raise ValueError('Independent source changed')
-  if not ended or actual_cp is None or actual_cp != cp_sha256 or start is None or not start < end or clock is None or not 0 <= end - clock[0] <= 10_000_000_000:
+  if not ended or actual_cp is None or actual_cp != expected_cp or start is None or not start < end or clock is None or not 0 <= end - clock[0] <= 10_000_000_000:
     raise ValueError('Closed prior input identity/clock unavailable')
   if set(names) != _route_names(root, route_id, permitted):
     raise ValueError('Prior recording inventory changed')

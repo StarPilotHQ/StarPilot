@@ -783,3 +783,87 @@ class TestRetainedDriveRecommendationReport(unittest.TestCase):
         'source_sha256': 'c' * 64, 'assessment_sha256': digest, 'reason': 'declared'}})
       wrong.restore(cache)
       self.assertEqual(wrong.previous, {}, 'Historical candidate inputs must match their exact completed source')
+
+
+class TestSelectedCurrentDriveInputs(unittest.TestCase):
+  def selected_source(self, *, closed=True, changed=False, angle=False):
+    import bz2
+    from contextlib import contextmanager
+    from openpilot.cereal import log
+    from opendbc.car import structs
+    from openpilot.starpilot.flm import offroad_prior_inputs as inputs
+
+    cp = structs.CarParams.new_message(carFingerprint='declared-selected-source')
+    cp.steerControlType = 'angle' if angle else 'torque'
+    cp.lateralTuning.init('torque')
+    names = tuple(f'declared--{i}' for i in range(103))
+    route = {'routeId': '0000012e--1234567890', 'segments': [{'files': {}} for _ in names]}
+    consumed = []
+
+    @contextmanager
+    def source(root, name, expected, permitted, **kwargs):
+      index = names.index(name)
+      stamp = (index + 1) * 1_000_000_000
+      events = []
+      if index == 0:
+        events.append(log.Event.new_message(logMonoTime=stamp, carParams=cp).to_bytes())
+      event = log.Event.new_message(logMonoTime=stamp, valid=True)
+      event.init('carState')
+      events.append(event.to_bytes())
+      event = log.Event.new_message(logMonoTime=stamp, valid=True)
+      event.init('clocks').wallTimeNanos = 1_800_000_000_000_000_000
+      events.append(event.to_bytes())
+      if closed and index == len(names) - 1:
+        event = log.Event.new_message(logMonoTime=stamp, valid=True)
+        event.init('sentinel').type = 'endOfRoute'
+        events.append(event.to_bytes())
+      yield bz2.compress(b''.join(events)), 'bz2', lambda: not changed, ('declared-source', name)
+
+    with (
+      patch.object(inputs, '_selected', return_value=(route['routeId'], names)),
+      patch.object(inputs, '_route_names', return_value=set(names)),
+      patch.object(inputs, '_closed_source', new=source),
+    ):
+      receipt = inputs._selected_sources('.', route, permitted=lambda: True, consume=lambda number, events: consumed.append(number), cp_sha256=None)
+    return receipt, consumed
+
+  def test_long_drive_reviews_spread_sections_and_keeps_every_source_identity(self):
+    from openpilot.starpilot.flm.offroad_prior_inputs import selected_segments
+
+    receipt, consumed = self.selected_source()
+    self.assertEqual(tuple(consumed), selected_segments(103))
+    self.assertEqual(len(consumed), 14)
+    self.assertEqual(len(receipt.segments), 103)
+    self.assertEqual(receipt.decoded_segments, tuple(consumed))
+    self.assertFalse(receipt.whole_route_decoded)
+    self.assertEqual((consumed[0], consumed[-1]), (0, 102))
+
+  def test_selected_current_drive_still_requires_closed_unchanged_torque_inputs(self):
+    for invalid in ({'closed': False}, {'changed': True}, {'angle': True}):
+      with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+        self.selected_source(**invalid)
+
+  def test_primary_long_drive_reuses_selected_reader_without_a_full_scan(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_processor as processor
+    from openpilot.starpilot.flm import offroad_prior_inputs as inputs
+    from openpilot.starpilot.flm.offroad_route import SelectedSourceReceipt
+
+    route = {'routeId': '0000012e--1234567890', 'segments': [{'files': {}} for _ in range(103)]}
+    receipt = SelectedSourceReceipt(route['routeId'], 'b' * 64, (), 'a' * 64, 1, 2, 3, (), inputs.selected_segments(103))
+    collected = SimpleNamespace(receipt=receipt, counts={'recorded_lateral_request_rows': 100, 'active_lateral_request_rows': 90, 'invalid_lateral_request_rows': 0}, quality_stops=[])
+
+    def collect(root, actual, *, permitted, walker):
+      self.assertEqual(walker(root, actual, permitted=permitted, consume=lambda *args: None), receipt)
+      return collected
+
+    with (
+      patch.object(processor, 'latest_route', return_value=route),
+      patch.object(processor, 'collect_route_inputs', side_effect=collect),
+      patch.object(processor, 'walk_completed_route', side_effect=AssertionError('Long drive must not start a full scan')),
+      patch.object(inputs, '_selected_sources', return_value=receipt) as selected,
+    ):
+      actual, result = processor.collect_latest_steering_inputs(None, '.', permitted=lambda: True)
+    self.assertEqual(actual, route)
+    self.assertIs(result, collected)
+    self.assertIsNone(selected.call_args.kwargs['cp_sha256'])

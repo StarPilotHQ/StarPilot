@@ -9,7 +9,7 @@ from openpilot.starpilot.flm.offroad_baseline_windows import baseline_windows
 from openpilot.starpilot.flm.canonical_surface_adapter import NAMES as AMPLITUDE_NAMES
 from openpilot.starpilot.flm.offroad_residual import analyze_stable_windows
 from openpilot.starpilot.flm.offroad_evidence import read_point, whole_windows, eligible_points, tracking_metrics
-from openpilot.starpilot.flm.offroad_route import latest_route, walk_completed_route, RouteReceipt
+from openpilot.starpilot.flm.offroad_route import latest_route, walk_completed_route, RouteReceipt, SelectedSourceReceipt
 from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
 
 
@@ -40,7 +40,11 @@ class CompletedAssessment:
       'diagnostic_groups': list(self.diagnostic_groups),
       'stable_groups': list(self.stable_groups),
       'recorded_tracking': self.recorded_tracking,
-      'source_role': 'Historical diagnostic alignment, not a statement of actual Controls consumption or current permission.',
+      'source_role': (
+        'Input-selected original drive sections; not a whole-drive assessment or live permission.'
+        if type(self.receipt) is SelectedSourceReceipt
+        else 'Historical diagnostic alignment, not a statement of actual Controls consumption or current permission.'
+      ),
     }
 
 
@@ -358,6 +362,8 @@ def collect_route_inputs(root, route, *, permitted, walker=None):
       raise ValueError('Whole-drive tracking window bound exceeded')
 
   receipt = (walk_completed_route if walker is None else walker)(root, route, permitted=permitted, consume=consume)
+  counts['original_segments_reviewed'] = len(getattr(receipt, 'decoded_segments', receipt.segments))
+  counts['original_segments_available'] = len(receipt.segments)
   return RecordedInputs(receipt, state, windows, stable_windows, baseline_tracking, bookends, raw_windows, context_metadata, counts, quality_stops)
 
 
@@ -372,7 +378,14 @@ def collect_latest_steering_inputs(params, root, *, permitted):
   def allowed():
     return permitted() and time.monotonic() - started <= MAX_ANALYSIS_SECONDS
 
-  collected = collect_route_inputs(root, route, permitted=allowed)
+  def walk(actual_root, original_route, *, permitted, consume):
+    if len(original_route.get('segments', ())) <= 30:
+      return walk_completed_route(actual_root, original_route, permitted=permitted, consume=consume)
+    from openpilot.starpilot.flm.offroad_prior_inputs import _selected_sources
+
+    return _selected_sources(actual_root, original_route, permitted=permitted, consume=consume, cp_sha256=None)
+
+  collected = collect_route_inputs(root, route, permitted=allowed, walker=walk)
   current_cp = collected.receipt.cp_sha256
   skipped = 0
 
@@ -394,7 +407,7 @@ def collect_latest_steering_inputs(params, root, *, permitted):
         if 1 <= distance <= 3 and candidate['segments'] and all(s['files']['rlog'] for s in candidate['segments']):
           candidates.append((distance, candidate['routeId'], candidate))
     for _, _, candidate in sorted(candidates):
-      earlier = collect_route_inputs(root, candidate, permitted=allowed)
+      earlier = collect_route_inputs(root, candidate, permitted=allowed, walker=walk)
       if earlier.receipt.cp_sha256 != current_cp:
         continue
       skipped += 1
@@ -408,8 +421,8 @@ def collect_latest_steering_inputs(params, root, *, permitted):
 def analyze_latest(params, root, previous, *, permitted):
   route, collected = collect_latest_steering_inputs(params, root, permitted=permitted)
   receipt, state = collected.receipt, collected.state
-  if type(receipt) is not RouteReceipt:
-    raise ValueError('A whole completed-route assessment requires all original segments')
+  if type(receipt) not in (RouteReceipt, SelectedSourceReceipt):
+    raise ValueError('An original whole-drive or explicit input-selected receipt is required')
   windows, stable_windows, baseline_tracking = collected.windows, collected.stable_windows, collected.baseline_tracking
   bookends, raw_windows, context_metadata = collected.bookends, collected.raw_windows, collected.context_metadata
   counts, quality_stops = collected.counts, collected.quality_stops
