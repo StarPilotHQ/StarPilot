@@ -194,6 +194,7 @@ class ForceStopRuntime:
         self.vision_ranged_ns = vision_sign
         vision_distance = self.vision_stop.distance_m - float(car.vEgo) * (stamp - vision_sign) / 1e9
       dashboard_sign = dashboard_stop_sign(sm, now_ns=now_ns, drive_id=drive_id)
+      # A stationary forecast tail alone does not identify a fixed stop line.
       frame = StopFrame(stamp, float(car.vEgo), horizon, light_context, horizon is not None and horizon < 50,
                         bool(model.action.shouldStop), bool(car.standstill), True, bool(car.gasPressed),
                         tracked is not None and tracked.tracked is True, bool(lead.present), float(lead.dRel), float(lead.vLead),
@@ -203,7 +204,7 @@ class ForceStopRuntime:
                         dashboard_sign=dashboard_sign, vision_distance_m=vision_distance,
                         moving_preview=bool(perception_available and not model.action.shouldStop and
                                             len(model.velocity.x) == len(model.position.x) and
-                                            math.isfinite(model.velocity.x[-1]) and model.velocity.x[-1] > .3))
+                                            math.isfinite(model.velocity.x[-1])))
       tune = replace(vehicle_tune(str(cp.carFingerprint)), distance_control=distance_braking_eligible(cp))
       self.plan = self.policy.step(frame, tune, self.offset)
       if takeoff_enabled:

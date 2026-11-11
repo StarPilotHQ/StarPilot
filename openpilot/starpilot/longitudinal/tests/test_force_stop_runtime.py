@@ -62,6 +62,45 @@ class ForceStopRuntimeTests(unittest.TestCase):
     self.assertTrue(output.forcing)
     return output
 
+  def test_unconfirmed_stationary_forecast_tail_keeps_preview_tracking(self):
+    from unittest.mock import patch
+    from openpilot.starpilot.longitudinal.tests.test_ioniq6_start import candidate
+    _, self.cp = candidate()
+    for tail in (0., .1, .3):
+      with self.subTest(tail=tail):
+        self.owner = ForceStopRuntime(self.params)
+        self.sample(Frame(0))
+        sm = Frame(1)
+        sm['modelV2'].velocity.x = [10.] * 32 + [tail]
+        sm['modelV2'].action.shouldStop = False
+        with patch.object(self.owner.policy, 'step', wraps=self.owner.policy.step) as step:
+          self.sample(sm)
+        self.assertTrue(step.called)
+        self.assertTrue(step.call_args.args[0].moving_preview)
+
+  def test_explicit_model_stop_still_freezes_the_target(self):
+    from openpilot.starpilot.longitudinal.tests.test_ioniq6_start import candidate
+    _, self.cp = candidate()
+    for tick in range(40):
+      self.sample(Frame(tick))
+    sm = Frame(40, horizon=30.)
+    sm['modelV2'].velocity.x = [10.] * 32 + [0.]
+    sm['modelV2'].action.shouldStop = True
+    before = self.sample(sm)
+    self.assertFalse(self.owner.policy.preview_tracking)
+    after = self.sample(Frame(41, horizon=70.))
+    self.assertLess(after.tracked_distance_m, before.tracked_distance_m)
+
+  def test_invalid_forecast_still_uses_odometry_without_extending(self):
+    from openpilot.starpilot.longitudinal.tests.test_ioniq6_start import candidate
+    _, self.cp = candidate()
+    for tick in range(40):
+      before = self.sample(Frame(tick))
+    sm = Frame(40, horizon=70.)
+    sm['modelV2'].velocity.x = [10.] * 32 + [-.1]
+    after = self.sample(sm)
+    self.assertAlmostEqual(after.tracked_distance_m, before.tracked_distance_m - .5)
+
   def test_vision_expiry_gap_preserves_confirmation_but_not_control_authority(self):
     from unittest.mock import patch
     from openpilot.starpilot.speed_limits.vision.tests.test_stop_observation import evidence, message
