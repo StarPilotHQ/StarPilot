@@ -805,7 +805,8 @@ class VisionModelCore:
         cached_bytes += crop.nbytes
       return result
 
-    for proposal_confidence, class_id, (x1, y1, x2, y2) in self._collect_detector_classifier_proposals(frame_bgr):
+    proposals = self._collect_detector_classifier_proposals(frame_bgr)
+    for proposal_index, (proposal_confidence, class_id, (x1, y1, x2, y2)) in enumerate(proposals):
       if class_id == 1:
         continue
       if class_id == 0:
@@ -945,6 +946,16 @@ class VisionModelCore:
         if face_filter is not None and face_filter.reject_once((proposal_confidence, class_id, (x1, y1, x2, y2))):
           self.latest_detector_proposal = None
           return None
+        if (type(proposals) is list and proposal_index == len(proposals) - 1 and
+            expansions is DETECTOR_CLASSIFIER_EXPANSIONS and
+            (expand_left, expand_top, expand_right, expand_bottom, expansion_weight) == expansions[-1] and
+            getattr(self, 'classifier_net', None) is not None and class_id == 0 and not speed_scores and not raw_is_regulatory and
+            proposal_confidence < DETECTOR_CLASSIFIER_STRONG_MODEL_MIN_PROPOSAL_CONFIDENCE and
+            not (x1 >= frame_width * DETECTOR_CLASSIFIER_TRUSTED_MODEL_MIN_X_RATIO and
+                 box_height <= DETECTOR_CLASSIFIER_TRUSTED_MODEL_MAX_HEIGHT and
+                 proposal_area_ratio <= DETECTOR_CLASSIFIER_TRUSTED_MODEL_MAX_AREA_RATIO and
+                 proposal_confidence >= DETECTOR_CLASSIFIER_TRUSTED_MODEL_MIN_PROPOSAL_CONFIDENCE)):
+          break
         model_read = classify_crop(sign_crop)
         if not any((expand_left, expand_top, expand_right, expand_bottom)):
           primary_reject_dominant = bool(
