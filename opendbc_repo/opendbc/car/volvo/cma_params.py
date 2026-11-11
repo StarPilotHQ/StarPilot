@@ -70,3 +70,9 @@ class CarControllerCMAParams:
     ([0., 5., 25.], [2.5, 1.5, .2]),  # rate up limits at different speeds
     ([0., 5., 25.], [5., 2., .3]),    # rate down limits at different speeds
   )
+
+  LCA_5_ANGLE_LIMITS = AngleSteeringLimits(
+    ANGLE_LIMITS.STEER_ANGLE_MAX,
+    (ANGLE_LIMITS.ANGLE_RATE_LIMIT_UP[0], [value * 2 for value in ANGLE_LIMITS.ANGLE_RATE_LIMIT_UP[1]]),
+    (ANGLE_LIMITS.ANGLE_RATE_LIMIT_DOWN[0], [value * 2 for value in ANGLE_LIMITS.ANGLE_RATE_LIMIT_DOWN[1]]),
+  )
