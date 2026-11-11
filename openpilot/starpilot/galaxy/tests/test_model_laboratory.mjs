@@ -72,7 +72,13 @@ assert.equal(download.requests[1].url,'./api/models/laboratory/download');assert
 await download.reply(1,{message:'Starting download'});await download.reply(2,{...p,download:{downloading:true,jobId:'job',progress:'40%'}});await downloading
 const canceling=download.feed.action('cancel');assert.equal(download.requests[3].url,'./api/models/cancel');assert.deepEqual(JSON.parse(download.requests[3].options.body),{jobId:'job'})
 await download.reply(3,{message:'Cancelling'});await download.reply(4,p);await canceling;download.feed.stop()
-assert.ok(LaboratoryPage.template.indexOf('Available models')<LaboratoryPage.template.indexOf('Compose a pair'))
+assert.deepEqual([...LaboratoryPage.template.matchAll(/class="gx-section__title">([^<]+)<\/span>/g)].map(match => match[1]),
+  ['Compose a pair', 'Available models', 'Runtime'])
+for (const label of ['Lateral model', 'Longitudinal model', 'Enable model pair', 'Check model catalog']) {
+  const position = LaboratoryPage.template.indexOf(label)
+  assert.ok(position >= 0 && position < LaboratoryPage.template.indexOf('v-for="m in availableModels"'),
+    `${label} must appear before the model catalog`)
+}
 assert.match(LaboratoryPage.template,/GalaxySelect/)
 assert.match(LaboratoryPage.template,/Catalog models/)
 assert.match(LaboratoryPage.template,/modelLabReason/)
