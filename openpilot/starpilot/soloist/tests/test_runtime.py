@@ -470,3 +470,28 @@ def test_network_ready_accepts_either_address_family(monkeypatch, ipv4, ipv6, ex
   from io import StringIO
   monkeypatch.setattr('builtins.open', lambda path: StringIO(ipv4 if path.endswith('/route') else ipv6))
   assert supervisor.network_ready() is expected
+
+
+def test_pull_onroad_takes_spotify_over_only_while_driving(layout, monkeypatch):
+  ready_layout(layout, monkeypatch)
+  state = {'parked': True}
+  monkeypatch.setattr(supervisor, 'parked', lambda: state['parked'])
+  sup, now = make_supervisor(layout, [])
+  sup.tick()
+  now[0] += 1
+  sup.tick()
+  assert sup.client.sent == []
+  from dataclasses import replace
+  preferences.save(replace(preferences.load(layout), pull_onroad=True), layout)
+  now[0] += 1
+  sup.tick()
+  assert sup.client.sent == []
+  state['parked'] = False
+  now[0] += 1
+  sup.tick()
+  now[0] += 1
+  sup.tick()
+  assert sup.client.sent == [('activate', {})]
+  now[0] += supervisor.PULL_RETRY_SECONDS
+  sup.tick()
+  assert sup.client.sent == [('activate', {})] * 2

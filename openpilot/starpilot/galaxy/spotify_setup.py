@@ -162,7 +162,7 @@ class SpotifySetup:
     current = preferences.load(self.layout)
     fields = {'deviceName': 'device_name', 'cacheMb': 'cache_mb', 'initialVolume': 'initial_volume',
               'output': 'output', 'outputAddress': 'output_address', 'source': 'source', 'phoneAddress': 'phone_address',
-              'pauseMute': 'pause_mute', 'skipMute': 'skip_mute'}
+              'pauseMute': 'pause_mute', 'skipMute': 'skip_mute', 'pullOnroad': 'pull_onroad'}
     if not isinstance(payload, dict) or not payload or set(payload) - set(fields):
       raise SetupRejected('Invalid Spotify settings')
     values = {**current.__dict__, **{fields[key]: value for key, value in payload.items()}}

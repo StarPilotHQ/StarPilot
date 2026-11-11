@@ -506,6 +506,8 @@ export const SpotifyPage = {
             <i class="bi bi-broadcast" aria-hidden="true"></i> Move Spotify to <span translate="no">{{ setup.preferences.deviceName || 'StarPilot' }}</span></button>
           <small class="gx-note">Takes over from the phone or speaker Spotify is playing on now. Music plays through {{ outputName }}. You might need to confirm the switch in the Spotify app.</small>
         </div>
+        <GalaxySettingRow :row="switchRow('Move to ' + (setup.preferences.deviceName || 'StarPilot') + ' While Driving', setup.preferences.pullOnroad, 'While driving, takes Spotify over from your phone or another speaker whenever it is playing somewhere else.')"
+          :index="1" :busy="busy" :save-value="(index, value) => feed.post('./api/spotify/preferences', { pullOnroad: value === 'On' })" />
         <GalaxySettingRow :row="switchRow('Spotify', setup.enabled, 'Turn off to stop playing and free up the comma. Your setup stays saved.')"
           :index="0" :busy="busy" :save-value="(index, value) => setEnabled(value === 'On')" />
         <div class="gx-actions">
