@@ -149,7 +149,7 @@ class CAR(Platforms):
   )
   MAZDA_CX9_2021 = MazdaPlatformConfig(
     [MazdaCarDocs("Mazda CX-9 2021-23", video="https://youtu.be/dA3duO4a0O4")],
-    # the 2021-23 AWD's curb weight (4409 lb) on the same chassis
+    # the 2021-23 AWD's curb weight (4409 lb; FWD is 4236 lb) on the same chassis
     MazdaCarSpecs(mass=4409 * CV.LB_TO_KG, wheelbase=2.93, steerRatio=17.6, centerToFrontRatio=0.41),
     flags=MazdaSafetyFlags.GEN1,
   )
