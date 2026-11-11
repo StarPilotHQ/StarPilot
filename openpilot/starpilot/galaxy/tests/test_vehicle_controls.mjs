@@ -137,7 +137,7 @@ VehicleControlsPage.methods.changeAutoDetection.call(autoState, { target: { chec
 assert.match(VehicleControlsPage.template, /next start/)
 assert.match(VehicleControlsPage.template, /state\.pending\.question/)
 const app = readFileSync(new URL("../web/js/app.js", import.meta.url), "utf8")
-assert.match(app, /route\.path === '\/vehicle'/)
+assert.match(app, /route\.path === '\/settings\/vehicle'/)
 
 
 // Vehicle settings use the existing switch and exact-view automatic save gateway.
@@ -178,3 +178,24 @@ assert.match(VehicleControlsPage.template, /initial-page="vehicle"/)
 const alpha = { ...toggle, label: "Alpha Longitudinal" }
 assert.equal(settingControl(alpha), "switch")
 assert.equal(settingControl({ ...alpha, value: "On" }), "switch")
+
+const { SETTINGS_SECTIONS } = await import("../web/js/settings.js")
+assert.equal(SETTINGS_SECTIONS.filter(section => section.id === "vehicle").length, 1)
+assert.ok(!SETTINGS_SECTIONS.find(section => section.id === "lateral").pages.includes("vehicle"))
+assert.equal(await SettingsPage.components.VehicleControlsPage.__asyncLoader(), VehicleControlsPage)
+const catalog = JSON.parse(readFileSync(new URL('../web/data/catalog.json', import.meta.url), 'utf8'))
+assert.ok(!catalog.tools.some(tool => tool.path === "/vehicle"))
+const priorLocation = globalThis.location
+globalThis.location = { hash: "#/vehicle" }
+const { route } = await import("../web/js/router.js?vehicle-tab-test")
+assert.equal(route.path, "/settings/vehicle")
+globalThis.location = priorLocation
+let leftVehicle = 0
+const leave = () => leftVehicle++
+VehicleControlsPage.methods.requestRouteLeave.call({ busy: true, $refs: {} }, leave)
+assert.equal(leftVehicle, 0)
+VehicleControlsPage.methods.requestRouteLeave.call({ busy: false, $refs: { vehicleSettings: { requestRouteLeave: proceed => proceed() } } }, leave)
+assert.equal(leftVehicle, 1)
+let cancelled = 0
+assert.equal(VehicleControlsPage.methods.navigateBack.call({ state: { pending: {} }, feed: { cancel: () => cancelled++ } }), true)
+assert.equal(cancelled, 1)

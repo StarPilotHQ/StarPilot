@@ -235,8 +235,8 @@ class FeatureSettingsOwner:
       ('On' if raw == b'1' else 'Off') if valid else 'Invalid saved choice', raw,
       ('Off', 'On') if valid else (), default_value='Off', capability=capability, vehicle_fingerprint=self.vehicle_fingerprint(),
       available=valid and parked and self.authority('parked_preferences') and self.authority('preferences'),
-      reason='Request StarPilot speed control instead of factory ACC. May disable Automatic Emergency Braking. ' +
-             'Applies after the next startup; exact vehicle takeover checks remain required.'),)
+      reason='Let StarPilot control acceleration and braking instead of factory ACC. ' +
+             'Takes effect next drive. May disable factory Automatic Emergency Braking.'),)
 
   def _apply_alpha_long(self, request):
     from openpilot.starpilot.saved_document import commit_exact

@@ -461,12 +461,12 @@ const vehicleHub = {
   ] } },
 }
 const vehicleLinks = SettingsPage.computed.visibleRows.call(vehicleHub)
-assert.deepEqual(vehicleLinks.map(entry => entry.row.page), ["aol", "vehicle"])
-assert.equal(vehicleLinks[1].index, 1, "navigation must retain the server row index")
+assert.deepEqual(vehicleLinks.map(entry => entry.row.page), ["aol"])
+assert.equal(vehicleLinks[0].index, 0, "navigation must retain the server row index")
 const vehicleSection = SettingsPage.computed.activeSection.call({
   sections: SETTINGS_SECTIONS, state: { developerOpen: false, data: { page: "vehicle" } },
 })
-assert.equal(vehicleSection.id, "lateral", "a saved Vehicle Settings page must map back to its section")
+assert.equal(vehicleSection.id, "vehicle", "Vehicle Settings belongs to the dedicated Toggles tab")
 const brakeRows = SettingsPage.computed.visibleRows.call({
   initialPage: "hub", activeSection: vehicleSection,
   state: { query: "", data: { page: "vehicle", rows: [

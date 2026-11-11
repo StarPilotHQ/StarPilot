@@ -4,7 +4,9 @@ import { createRouteLeave } from "./route-leave.js"
 
 const start = () => {
   const hash = location.hash.slice(1) || "/"
-  try { return decodeURIComponent(hash) } catch { return hash }
+  let path
+  try { path = decodeURIComponent(hash) } catch { path = hash }
+  return path === "/vehicle" ? "/settings/vehicle" : path
 }
 route.path = start()
 const index = () => Number.isInteger(history.state?.galaxyIndex) ? history.state.galaxyIndex : null

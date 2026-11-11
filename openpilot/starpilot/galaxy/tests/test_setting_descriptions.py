@@ -145,3 +145,16 @@ def test_manual_descriptions_explain_direction_dependencies_and_pid_limits():
     assert 'can act with FF gain at zero' in FLM_DESCRIPTIONS['crawl_turn_in_ff_boost_' + side]
   for name in ('curvy_speed_min', 'curvy_speed_max', 'curvy_turn_in_trim_speed_min', 'curvy_turn_in_trim_speed_max'):
     assert 'not cruise speed' in FLM_DESCRIPTIONS[name]
+
+
+def test_alpha_longitudinal_has_one_plain_description(monkeypatch):
+  from types import SimpleNamespace
+  from openpilot.starpilot.ui import feature_settings_owner as owner_module
+  monkeypatch.setattr(owner_module, 'read_saved', lambda *args: (b'0', True))
+  owner = SimpleNamespace(_alpha_long_capability=lambda: ('qualified',), params=object(),
+                          authority=lambda name: True, vehicle_fingerprint=lambda: 'HYUNDAI_IONIQ_6')
+  row = owner_module.FeatureSettingsOwner._alpha_long_rows(owner, True)[0]
+  expected = ('Let StarPilot control acceleration and braking instead of factory ACC. ' +
+              'Takes effect next drive. May disable factory Automatic Emergency Braking.')
+  assert description(row) == expected
+  assert description(replace(row, available=False, reason='Current vehicle status unavailable')) == expected + ' Current vehicle status unavailable'

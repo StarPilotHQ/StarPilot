@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
-import { Home, homeSummary, driveSummary } from "../web/js/home.js"
+import { Home, homeSummary, driveSummary, modelArc } from "../web/js/home.js"
 
 const absent = homeSummary({ status: "unavailable", snapshot: null }, { status: "stale", data: null },
   { status: "unavailable", data: null })
@@ -45,7 +45,7 @@ for (const deviceType of ["tizi", "mici", "pc", undefined]) {
 assert.match(Home.template, /v-if="summary.system.recordingStorage"/)
 assert.match(Home.template, /Recording drive:/)
 assert.match(Home.template, /summary.system.recordingStorage.free }} free/)
-assert.equal(current.model.variant, "Chestnut big")
+assert.equal(current.model.variant, "Big")
 assert.equal(current.software.branch, "Unavailable")
 assert.equal(current.software.version, "StarPilot 0.11.2")
 assert.equal(current.software.update, "Unavailable")
@@ -122,11 +122,28 @@ assert.deepEqual(allModels.models.map(model => model.name), modelHistory.map(mod
   "Recorded Models must include the full history, including lower-mileage recent models")
 assert.equal(new Set(allModels.models.map(model => model.color)).size, modelHistory.length)
 assert.ok(allModels.models.every(model => model.color && model.distance && model.drives === 1))
-assert.ok(allModels.models.every(model => allModels.modelStyle.includes(model.color)))
-assert.doesNotMatch(allModels.modelStyle, /undefined|NaN/)
-assert.ok(Math.abs(Number(/([\d.]+)%\)$/.exec(allModels.modelStyle)[1]) - 100) < 1e-9)
-assert.equal(driveSummary({ status: "ready", data: { ...drives,
-  models: modelHistory.map(model => ({ ...model, distanceMeters: 0 })) } }).modelStyle, "")
+assert.ok(allModels.models.every(model => model.arc && Number.isFinite(model.share)))
+assert.ok(Math.abs(allModels.models.reduce((sum, model) => sum + model.share, 0) - 100) < 1e-9)
+assert.ok(allModels.models.every(model => !/NaN|undefined/.test(model.arc)))
+const zeroModels = driveSummary({ status: "ready", data: { ...drives,
+  models: modelHistory.map(model => ({ ...model, distanceMeters: 0 })) } })
+assert.ok(zeroModels.models.every(model => model.arc === "" && model.share === 0 && model.shareLabel === "0.0%"))
+assert.ok(!/NaN|undefined/.test(modelArc(0, 100)))
+assert.equal(modelArc(0, 0), "")
+const compactPage = { driving: allModels, showAllModels: false, activeModel: 10 }
+assert.equal(Home.computed.visibleModels.call(compactPage).length, 6)
+assert.equal(Home.computed.selectedModel.call(compactPage).name, modelHistory[10].name)
+compactPage.showAllModels = true
+assert.equal(Home.computed.visibleModels.call(compactPage).length, 17)
+compactPage.activeModel = 99
+assert.equal(Home.computed.selectedModel.call(compactPage).index, 0)
+const bigLabels = driveSummary({ status: "ready", data: { ...drives, models: [
+  { ...modelHistory[0], name: "ResFit (Chestnut big)" },
+  { ...modelHistory[1], name: "Chestnut big model (identity not recorded)" }] } })
+assert.deepEqual(bigLabels.models.map(model => model.name), ["ResFit (Big)", "Big model (identity not recorded)"])
+assert.ok(Home.template.includes('@pointerenter="activeModel = model.index"'))
+assert.ok(Home.template.includes('@keydown.space.prevent="activeModel = model.index"'))
+assert.ok(Home.template.includes('Show all '))
 const previousTZ = process.env.TZ
 process.env.TZ = "America/Chicago"
 const midnightDrive = { ...route, startTime: Date.parse("2026-09-27T04:30:00Z") / 1000,

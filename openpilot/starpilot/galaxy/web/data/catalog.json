@@ -170,13 +170,6 @@
       "availability": "local-only"
     },
     {
-      "name": "Vehicle Controls",
-      "path": "/vehicle",
-      "icon": "bi-car-front",
-      "description": "Parked Auto or manual next-start vehicle selection",
-      "availability": "local-only"
-    },
-    {
       "name": "StarPort",
       "path": "/starport",
       "icon": "bi-phone",
