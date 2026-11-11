@@ -64,16 +64,22 @@ jobs:
           openpilot/starpilot/flm/tests/test_offroad_backend.py
           openpilot/starpilot/flm/tests/test_offroad_coordinate_policy.py
           openpilot/starpilot/flm/tests/test_offroad_equal_native_output.py
+          openpilot/starpilot/flm/tests/test_offroad_behavior.py
+          openpilot/starpilot/flm/tests/test_offroad_history_safety.py
           --json-output ci-results/flm-offroad.json
       - name: Test completed-drive and steering-result presentation
         timeout-minutes: 1
         run: |
           node openpilot/starpilot/galaxy/tests/test_flm_training_results.mjs
           node openpilot/starpilot/galaxy/tests/test_flm_tracking_results.mjs
+          node openpilot/starpilot/galaxy/tests/test_flm_review.mjs
+      - name: Test observed-behavior findings in Chromium
+        timeout-minutes: 2
+        run: node openpilot/starpilot/galaxy/tests/test_flm_ux_browser.mjs
       - name: Retain offroad contract results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: flm-offroad-contracts
-          path: ci-results/flm-offroad.json
+          path: ci-results/flm-*.json
           if-no-files-found: warn

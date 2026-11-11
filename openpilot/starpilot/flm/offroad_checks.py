@@ -5,7 +5,7 @@ from typing import Any
 from openpilot.starpilot.flm.offroad_controller_checks import check_candidate, check_original_native
 from openpilot.starpilot.flm.offroad_route import RETAIN
 from openpilot.starpilot.flm.log_decode import decode_full_rlog_segment
-from openpilot.starpilot.galaxy.drive_analysis import _closed_source
+from openpilot.starpilot.galaxy.drive_analysis import _closed_source, _Incomplete
 
 
 TRAINING_FRACTIONS = (1.0, 0.8, 0.6, 0.4, 0.2, 0.1, 0.05)
@@ -73,12 +73,12 @@ def fit_independent_route(assessment, group, cohort, prior, proposal, previous, 
   train = tuple(roles['training']['windows']) + tuple(roles['heldout']['windows'])
   original = group['qualification_original_windows'] if 'qualification_roles' in cohort else group['selected_original_windows']
   validation = tuple(row['identity'] for row in prior.windows)
+  source_receipts = (assessment.receipt, *(source.receipt for source in getattr(assessment, 'evidence_sources', {}).values()))
   if (
     not all(3 <= len(roles[role]['windows']) <= 12 for role in ('training', 'heldout'))
     or not 6 <= len(validation) <= 12
     or len(set(train + validation)) != len(train + validation)
-    or assessment.receipt.source_sha256 == prior.receipt.source_sha256
-    or assessment.receipt.route_id == prior.receipt.route_id
+    or any(receipt.source_sha256 == prior.receipt.source_sha256 or receipt.route_id == prior.receipt.route_id for receipt in source_receipts)
     or prior.receipt.completed_wall_ns >= assessment.receipt.completed_wall_ns
     or prior.receipt.cp_sha256 != assessment.receipt.cp_sha256
     or car_params_digest(prior.cp) != assessment.receipt.cp_sha256
@@ -217,12 +217,27 @@ def _release_unused_analysis_heap():
       trim(0)
 
 
-def _original_results(assessment, original, ids, values, root, *, permitted):
+def _original_results(assessment, original, ids, values, root, *, permitted, source_batch=False):
   spans = {w['identity']: w for w in original if w['identity'] in ids}
-  if not 3 <= len(ids) <= 24 or len(set(ids)) != len(ids) or set(spans) != set(ids):
+  if not (1 if source_batch else 3) <= len(ids) <= 24 or len(set(ids)) != len(ids) or set(spans) != set(ids):
     raise ValueError('Every preselected original window required')
   if not permitted():
     raise ValueError('Parked checks cancelled')
+  if getattr(assessment, 'evidence_sources', None):
+    results = []
+    if any(w.get('route') not in assessment.evidence_sources for w in spans.values()):
+      raise ValueError('Every historical window needs its own original source')
+    for route, source in sorted(assessment.evidence_sources.items()):
+      selected = tuple(key for key in ids if spans[key]['route'] == route)
+      if selected:
+        try:
+          checked = _original_results(source, original, selected, values, root, permitted=permitted, source_batch=True)
+        except (FileNotFoundError, _Incomplete) as error:
+          if not permitted() or isinstance(error, _Incomplete) and str(error) == 'Analysis cancelled':
+            raise
+          checked = [{'window': key, 'qualified': False, 'reason': 'historical_dense_source_unavailable'} for key in selected]
+        results.extend(dict(row, route=route, source_sha256=source.receipt.source_sha256) for row in checked)
+    return results
   _release_unused_analysis_heap()
   from openpilot.starpilot.flm.learning_wire import read_control, read_applied
   import hashlib
@@ -301,7 +316,7 @@ def _original_results(assessment, original, ids, values, root, *, permitted):
       controls = []
       outputs = []
       missing = []
-  return results
+  return [dict(row, route=receipt.route_id, source_sha256=receipt.source_sha256) for row in results]
 
 
 def qualified_originals(results, cohort, *, require_change):

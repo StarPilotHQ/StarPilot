@@ -191,6 +191,7 @@ export const SURFACE_GROUPS = Object.freeze([
 ])
 
 const REASONS = {
+  repeated_observed_behavior_requires_automatic_checks: 'Repeated recorded behavior suggests this setting. Automatic saving still requires independent controller and steering-output checks.',
   heldout_profile_does_not_support_training_step: "Part of the drive suggested this setting; separate windows did not confirm it.",
   independent_support_for_frozen_training_profile: "Separate recorded windows support this starting point. Automatic approval is separate.",
   training_candidate_not_independently_confirmed: "Training windows suggested this setting; it is not independently confirmed.",
@@ -250,7 +251,7 @@ export const historyTitle = status => Object.hasOwn(HISTORY_LABELS, status) ? HI
 export function validCoordinateRecommendations(rows) {
   const names = [...SURFACE_NAMES, ...FRICTION_NAMES]
   return Array.isArray(rows) && rows.length <= names.length && new Set(rows.map(row => row?.[0])).size === rows.length &&
-    rows.every(row => Array.isArray(row) && row.length === 5 && names.includes(row[0]) &&
+    rows.every(row => Array.isArray(row) && [5, 6].includes(row.length) && (row.length === 5 || text(row[5], 500)) && names.includes(row[0]) &&
       typeof row[1] === 'number' && Number.isFinite(row[1]) && Math.abs(row[1]) <= 1000 &&
       (row[2] === null && row[4] === 'conflicting_recorded_candidates' ||
         typeof row[2] === 'number' && Number.isFinite(row[2]) && Math.abs(row[2]) <= 1000 &&
@@ -280,12 +281,14 @@ export function offroadView(report) {
   const savedSurface = stored ? fullCoordinates(details['Full surface coordinates']) : null
   const savedFriction = stored ? frictionCoordinates(details['Saved friction-curve adjustments']) : null
   return { route: details['Completed drive analyzed'], samples: details['Recorded steering observations'],
+    evidenceDrives: stamp(details['Drives in steering evidence history']) && details['Drives in steering evidence history'] <= 8 ?
+      details['Drives in steering evidence history'] : null,
     reason: details['Analysis decision'], saved: details['Automatic configuration changed'] === true,
     configurationState, savedValues: savedSurface ? { ...savedSurface, ...(savedFriction || {}) } : null,
     observed, checks, savedCount: stamp(savedCount) && savedCount <= 35 ? savedCount : null,
     retained: details['Earlier analysis shown while updating'] === true,
     suggestions: recommendations === undefined ? rows.map(([parameter, delta, windows, qualification]) => ({ parameter, delta, windows, qualification })) :
-      recommendations.map(([parameter, baseline, target, windows, reason]) => ({ parameter, baseline, target,
+      recommendations.map(([parameter, baseline, target, windows, reason, evidence = '']) => ({ parameter, baseline, target, evidence,
         delta: target === null ? null : target - baseline, windows, reason, qualification: 'controller_native_checks_not_passed' }))
         .filter(row => row.target === null || row.target !== { ...savedSurface, ...savedFriction }[row.parameter]),
     moreSuggestions: details['More recorded suggestions omitted'] === true }

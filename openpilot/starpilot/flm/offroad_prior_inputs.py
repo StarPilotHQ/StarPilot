@@ -118,9 +118,11 @@ def _prior_originals(assessment, group, selected_cohort, root, *, permitted, sta
   if not LOCAL_ID.fullmatch(current):
     raise ValueError('Original local latest route required')
   counter = int(current.split('--')[0], 16)
+  used_routes = {current, *(source.receipt.route_id for source in getattr(assessment, 'evidence_sources', {}).values())}
+  used_digests = {assessment.receipt.source_sha256, *(source.receipt.source_sha256 for source in getattr(assessment, 'evidence_sources', {}).values())}
   candidates = []
   for row in inventory['routes']:
-    if LOCAL_ID.fullmatch(row['routeId']):
+    if row['routeId'] not in used_routes and LOCAL_ID.fullmatch(row['routeId']):
       distance = (counter - int(row['routeId'].split('--')[0], 16)) % 2**32
       if 1 <= distance <= 3 and row['segments'] and all(s['files']['rlog'] for s in row['segments']):
         candidates.append((distance, row['routeId'], row))
@@ -138,6 +140,8 @@ def _prior_originals(assessment, group, selected_cohort, root, *, permitted, sta
     try:
       collected = collect_route_inputs(root, route, permitted=allowed, walker=walk)
     except PriorIdentityMismatch:
+      continue
+    if collected.receipt.route_id in used_routes or collected.receipt.source_sha256 in used_digests:
       continue
     if collected.receipt.completed_wall_ns >= assessment.receipt.completed_wall_ns:
       raise ValueError('Independent prior chronology invalid')
@@ -172,6 +176,7 @@ def _prior_originals(assessment, group, selected_cohort, root, *, permitted, sta
         chosen.append(
           {
             'identity': w.identity,
+            'route': w.points[0].route,
             'segment': number,
             'start_ns': w.points[0].mono_ns,
             'end_ns': w.points[-1].mono_ns,
@@ -193,7 +198,10 @@ def _prior_originals(assessment, group, selected_cohort, root, *, permitted, sta
         )
         if candidates:
           w = candidates[0]
-          profile_spans.append({'identity': w.identity, 'segment': number, 'start_ns': w.points[0].mono_ns, 'end_ns': w.points[-1].mono_ns})
+          profile_spans.append({
+            'identity': w.identity, 'route': w.points[0].route, 'segment': number,
+            'start_ns': w.points[0].mono_ns, 'end_ns': w.points[-1].mono_ns,
+          })
     if stable:
       chosen = _spread(chosen, 12)
       tracking = _spread(tracking, 12)

@@ -63,6 +63,12 @@ completed.current.details = {
 assert(validTrainingResults(completed))
 assert.equal(offroadView(completed).suggestions.length, 5)
 assert.equal(offroadView(completed).samples, 241573)
+const history = structuredClone(completed)
+history.current.details['Drives in steering evidence history'] = 4
+assert.equal(offroadView(history).evidenceDrives, 4)
+history.current.details['Drives in steering evidence history'] = 9
+assert.equal(offroadView(history).evidenceDrives, null)
+assert.equal(offroadView(completed).evidenceDrives, null, 'Older reports must not imply cross-drive evidence')
 assert.equal(tunerStatus(completed, true, true).title, 'Completed drive analyzed', 'Parked status must not mask completed analysis')
 assert.match(tunerStatus(completed, true, true).description, /none has passed/)
 assert.equal(completed.current.application.applied, false)
@@ -120,3 +126,11 @@ adjustedSlider.current.details['Full surface coordinates'][0][1] = .005
 assert.match(offroadCoordinateEvidence(adjustedSlider, SURFACE_NAMES[0]), /Auto Learn saved: \+0.005 for the next drive/)
 assert(surfaceRows(adjustedSlider, false).every(row => row.applied === null))
 console.log('Saved curve and slider adjustments, unsaved recommendations, absent history and current application reconcile without writes')
+
+const behavioral = structuredClone(completed)
+const observation = '4 of 5 retained right turn-exit sections: steering unwound too slowly. Not a count of distinct turns.'
+behavioral.current.details['Recorded coordinate recommendations'] = [['unwind_taper_right', 0, .005, 5, 'repeated_observed_behavior_requires_automatic_checks', observation]]
+assert(validTrainingResults(behavioral))
+assert.equal(offroadView(behavioral).suggestions[0].evidence, observation)
+behavioral.current.details['Recorded coordinate recommendations'][0][5] = 'x'.repeat(501)
+assert(!validTrainingResults(behavioral), 'Oversized behavioral descriptions are refused')

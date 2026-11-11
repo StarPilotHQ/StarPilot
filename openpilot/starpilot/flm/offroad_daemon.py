@@ -103,6 +103,8 @@ class StatusReport:
       details['Joined steering observations'] = count('joined_tracking')
       details['Retained control windows'] = count('qualified_whole_windows')
       details['Retained tracking windows'] = count('stable_qualified_whole_windows')
+      details['Drives in steering evidence history'] = count('evidence_drives')
+      details['Control windows in steering evidence history'] = count('evidence_windows')
       details['Original controller observations'] = count('original_control_metadata_rows')
       details['Controller eligibility refusals'] = count('controller_fit_refusals')
       details['Automatic configuration changed'] = bool(value.get('configuration_changed', False))
@@ -120,7 +122,7 @@ class StatusReport:
       if 'recommendations' in value:
         recommendations = value['recommendations'][:35]
         details['Recorded coordinate recommendations'] = [
-          [s['parameter'], s['baseline'], s['target'], s['whole_windows'], s['reason']]
+          [s['parameter'], s['baseline'], s['target'], s['whole_windows'], s['reason'], s.get('evidence', '')]
           for s in recommendations
         ]
         details['Recorded route suggestions'] = [

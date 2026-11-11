@@ -46,7 +46,7 @@ def _spread(rows, count):
   return tuple(rows[i * (len(rows) - 1) // (count - 1)] for i in range(count))
 
 
-def analyze(windows, previous, *, permitted=lambda: True):
+def analyze(windows, previous, *, permitted=lambda: True, route_order=None, comparison=None):
   """Return source-bound suggestions; caller still owes controller qualification."""
   if (
     type(windows) is not tuple
@@ -55,7 +55,7 @@ def analyze(windows, previous, *, permitted=lambda: True):
     or set(previous) != set(NAMES)
     or any(type(w) is not RouteWindow or not w.valid() for w in windows)
     or len({w.identity for w in windows}) != len(windows)
-    or len({(w.domain, w.points[0].context_key) for w in windows}) > 1
+    or comparison is None and len({(w.domain, w.points[0].context_key) for w in windows}) > 1
   ):
     raise ValueError('Bounded, distinct, same-controller whole windows required')
   if not permitted():
@@ -67,14 +67,14 @@ def analyze(windows, previous, *, permitted=lambda: True):
       groups.setdefault(key, []).append(window)
   results = []
   for key, rows in sorted(groups.items()):
-    rows = sorted(rows, key=lambda w: (w.points[0].segment, w.points[0].mono_ns))
-    chosen = _spread(rows, MAX_COHORT_WINDOWS)
-    # Partition original whole windows before fitting and before selecting knobs.
-    train, heldout = chosen[::2], chosen[1::2]
+    from openpilot.starpilot.flm.offroad_history import partition_windows
+
+    train, heldout = partition_windows(rows, route_order)
     if len(train) < 3 or len(heldout) < 3:
       results.append({'cohort': key, 'whole_windows': len(rows), 'reason': 'more_independent_windows_required'})
       continue
-    first, second = estimate(tuple(train), cohort=key, permitted=permitted), estimate(tuple(heldout), cohort=key, permitted=permitted)
+    first = estimate(tuple(train), cohort=key, permitted=permitted, comparison=comparison)
+    second = estimate(tuple(heldout), cohort=key, permitted=permitted, comparison=comparison)
     if first is None or second is None:
       results.append({'cohort': key, 'whole_windows': len(rows), 'reason': 'reference_response_not_identified'})
       continue

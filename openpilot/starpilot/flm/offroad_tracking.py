@@ -75,7 +75,7 @@ def _interval(values):
   return min(min(values), mean - radius), max(max(values), mean + radius)
 
 
-def estimate(windows, *, cohort, permitted=lambda: True):
+def estimate(windows, *, cohort, permitted=lambda: True, comparison=None):
   _allowed(permitted)
   if (
     type(windows) is not tuple
@@ -84,9 +84,16 @@ def estimate(windows, *, cohort, permitted=lambda: True):
     or not 0 < len(cohort) <= 96
     or any(type(w) is not RouteWindow or not w.valid() for w in windows)
     or len({w.identity for w in windows}) != len(windows)
-    or len({(w.domain, w.points[0].context_key) for w in windows}) != 1
+    or comparison is None and len({(w.domain, w.points[0].context_key) for w in windows}) != 1
   ):
     raise ValueError('Whole distinct same-context tracking windows required')
+  context = windows[0].points[0].context_key
+  if comparison is not None:
+    from openpilot.starpilot.flm.offroad_history import TrackingComparison
+
+    if type(comparison) is not TrackingComparison:
+      raise ValueError('Original numerical comparison contract required')
+    context = comparison.context(windows)
   seen = set()
   table = {lag: {} for lag in LAGS_NS}
   rms = []
@@ -151,7 +158,7 @@ def estimate(windows, *, cohort, permitted=lambda: True):
   overshoot = math.sqrt(sum(m['overshoot_rms'] ** 2 for m in metrics) / len(metrics)) / reference_rms
   peak = max(m['worst_absolute_error'] for m in metrics) / reference_rms
   return TrackingEstimate(
-    windows[0].points[0].context_key,
+    context,
     windows[0].domain,
     cohort,
     gain,

@@ -1316,7 +1316,7 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
     assessment = CompletedAssessment(receipt, (group,), {}, cp, (), inventory)
     calls = []
 
-    def assessed(params, root, previous, *, permitted):
+    def assessed(params, root, previous, *, permitted, evidence_bank=None, history_identity=None):
       previous(cp)
       return assessment
 
@@ -1778,7 +1778,8 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
 
     def window(segment, identity):
       points = tuple(
-        SimpleNamespace(segment=segment, mono_ns=segment * 10_000_000_000 + i * 10_000_000, context_key=comparison_key, desired=0.2, speed_mps=25.0)
+        SimpleNamespace(route=prior_id, segment=segment, mono_ns=segment * 10_000_000_000 + i * 10_000_000,
+                        context_key=comparison_key, desired=0.2, speed_mps=25.0)
         for i in range(8)
       )
       return SimpleNamespace(identity=identity, points=points, domain='lateral_acceleration')
@@ -1796,7 +1797,7 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
       stable_windows={metadata_key: profile, other_key: wrong_map},
     )
     route = {'routeId': prior_id, 'segments': [{'files': {'rlog': True}} for _ in range(8)]}
-    assessment = SimpleNamespace(receipt=SimpleNamespace(route_id=current_id, cp_sha256='a' * 64, completed_wall_ns=10))
+    assessment = SimpleNamespace(receipt=SimpleNamespace(route_id=current_id, source_sha256='c' * 64, cp_sha256='a' * 64, completed_wall_ns=10))
     with (
       patch.object(module.DriveHistory, 'snapshot', return_value={'scanIncomplete': False, 'routes': [route]}),
       patch.object(module, 'collect_route_inputs', return_value=collected),

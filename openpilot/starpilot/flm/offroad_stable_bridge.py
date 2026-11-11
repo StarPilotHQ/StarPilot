@@ -24,7 +24,7 @@ from openpilot.starpilot.flm.offroad_route import RETAIN
 from openpilot.starpilot.flm.offroad_evidence import read_point, MAX_GAP_NS, RouteWindow
 from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
 from openpilot.starpilot.flm.log_decode import decode_full_rlog_segment
-from openpilot.starpilot.galaxy.drive_analysis import _closed_source
+from openpilot.starpilot.galaxy.drive_analysis import _closed_source, _Incomplete
 
 
 def independent_profile_support(training, heldout, previous):
@@ -88,6 +88,7 @@ class StableRouteSelector:
         ids = {
           wid for c in group['cohorts'] if all(role in c for role in ('training', 'heldout')) for role in ('training', 'heldout') for wid in c[role]['windows']
         }
+        ids.update(w['identity'] for w in group.get('recommendation_original_windows', ()))
         groups.append((group, ids))
     elif type(assessment) is PriorOriginals and type(assessment.receipt) is SelectedSourceReceipt and assessment.profile_metadata is not None:
       groups = [
@@ -123,12 +124,15 @@ class StableRouteSelector:
     for group, ids in groups:
       if group['original_metadata']['domain'] != 'lateral_acceleration':
         continue
-      for window in group['selected_original_windows']:
+      for window in (*group['selected_original_windows'], *group.get('recommendation_original_windows', ())):
         if window['identity'] in ids:
-          if window['identity'] in self.spans and self.spans[window['identity']] != window:
+          span = {name: window[name] for name in ('identity', 'route', 'segment', 'start_ns', 'end_ns')}
+          if window['identity'] in self.spans and self.spans[window['identity']] != span:
             raise ValueError('Conflicting original window identity')
-          self.spans[window['identity']] = window
-          comparison = dict(group['original_metadata'])
+          self.spans[window['identity']] = span
+          context = group.get('original_window_contexts', {}).get(window['identity'])
+          original = group['original_metadata'] if context is None else group['original_contexts'][context]
+          comparison = dict(original)
           comparison.pop('route_values')
           comparison.pop('route_revision')
           context_key = hashlib.sha256(repr(comparison).encode()).hexdigest()
@@ -139,6 +143,23 @@ class StableRouteSelector:
       raise ValueError('Original whole-window bound')
 
   def _load(self):
+    if getattr(self.assessment, 'evidence_sources', None):
+      from copy import copy
+
+      self.rows = {}
+      for route, source in self.assessment.evidence_sources.items():
+        reader = copy(self)
+        reader.assessment = source
+        reader.spans = {key: span for key, span in self.spans.items() if span['route'] == route}
+        try:
+          reader._load()
+        except (FileNotFoundError, _Incomplete) as error:
+          if not self.permitted() or isinstance(error, _Incomplete) and str(error) == 'Analysis cancelled':
+            raise
+          reader.rows = dict.fromkeys(reader.spans)
+        assert reader.rows is not None
+        self.rows.update(reader.rows)
+      return
     rows = {key: [] for key in self.spans}
     original_points = {key: [] for key in self.spans}
     invalid = set()
@@ -300,6 +321,18 @@ class StableRouteSelector:
         mapped = None
         report['conversion_refusal'] = str(error)
     return mapped, report
+
+  def recommendations(self, group, *, stable=False):
+    from openpilot.starpilot.flm.offroad_behavior import behavior_candidates
+
+    if self.rows is None:
+      self._load()
+    groups = {}
+    for window in group.get('recommendation_original_windows', ()):
+      groups.setdefault(window['cohort'], []).append(window['identity'])
+    return [candidate for key, ids in sorted(groups.items()) for candidate in behavior_candidates(
+      tuple(ids), self.rows, self.contexts, self.previous, key, stable=stable, permitted=self.permitted,
+    )]
 
   def propose(self, group, cohort):
     ids = {role: tuple(cohort[role]['windows']) for role in ('training', 'heldout')}

@@ -11,13 +11,14 @@ import { fileURLToPath } from 'node:url'
 import { SURFACE_NAMES, FRICTION_NAMES, validTrainingResults } from '../web/js/flm-training-results.js'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../web')
-const output = resolve('ci-results/flm-offroad.json')
+const output = resolve('ci-results/flm-ux-browser.json')
 const screenshots = [], checks = [], requests = [], errors = [], contrastResults = [], fullPageReflow = []
 const targetIndex = SURFACE_NAMES.indexOf('highway_center_taper_max')
 const running = child => child.exitCode === null && child.signalCode === null
 assert.equal(running({ exitCode: null, signalCode: 'SIGTERM' }), false, 'A signal-reaped child must not be awaited for a second exit')
 let scenario = 'ideas', parked = true, saveError = false, reportError = false, pending = null
 const manual = Object.fromEntries(SURFACE_NAMES.map(name => [name, 0]))
+const behaviorEvidence = '4 of 5 retained higher-speed center sections across 3 drive(s): repeated steering oscillation was measured. These are recorded sections, not a count of distinct turns. This is a possible adjustment, not a confirmed cause or improvement.'
 const hints = [['highway_center_taper_max', .005], ['friction_threshold_low', .002],
   ['friction_threshold_mid', .004], ['friction_threshold_fast', .005], ['friction_threshold_highway', .006]]
 function report() {
@@ -33,10 +34,10 @@ function report() {
       application: { applied: application, reason: application ? 'current_controller_application' : 'saved_configuration_is_not_current_application' },
       details: { 'Completed drive analyzed': 'declared-ui-drive', 'Recorded steering observations': 71357,
         'Analysis decision': scenario === 'saved' ? 'bounded_trial_configured_for_next_drive' : 'no_new_native_feasible_training_step',
-        'Automatic configuration changed': saved, 'Saved route adjustment count': saved ? 1 : 0,
+        'Drives in steering evidence history': 3, 'Automatic configuration changed': saved, 'Saved route adjustment count': saved ? 1 : 0,
         'Recorded coordinate recommendations': scenario === 'none' ? [] : hints.map(([name, target], index) => [name, 0,
           scenario === 'conflict' && index === 0 ? null : target, index === 0 ? 148 : 14,
-          scenario === 'conflict' && index === 0 ? 'conflicting_recorded_candidates' : index ? 'heldout_profile_does_not_support_training_step' : 'recorded_candidate_requires_automatic_checks']),
+          scenario === 'conflict' && index === 0 ? 'conflicting_recorded_candidates' : index ? 'heldout_profile_does_not_support_training_step' : 'recorded_candidate_requires_automatic_checks', index === 0 ? behaviorEvidence : '']),
         'Recorded steering response': { version: 1, domain: 'lateral_acceleration', samples: 46231, windows: 234, error_rms: .062,
           route: 'declared-ui-drive', segment: 1, source_start_ns: start, source_end_ns: points.at(-1)[0],
           sampling: 'input_ordered_original_endpoints_no_interpolation', points } } } }
@@ -213,6 +214,7 @@ try {
       assert.equal(await execute('return document.querySelectorAll(".gx-tuner__groups>button").length'), 7)
       assert.equal(await execute('return document.querySelectorAll(".gx-tuner__idea-grid .gx-tuner__idea").length'), 1)
       assert.equal(await execute('return document.querySelectorAll(".gx-tuner__curve-summary [data-coordinate]").length'), 4)
+      assert(await execute('return document.querySelector(".gx-tuner__idea-grid").textContent.includes(arguments[0])', behaviorEvidence))
       await layout(`${width}/${theme}/ideas`)
       if (width === 1280) assert(await execute('const a=document.querySelector(".gx-tuner__idea-grid").getBoundingClientRect(),b=document.querySelector(".gx-tuner__curve-summary").getBoundingClientRect();return Math.abs(a.top-b.top)<1&&a.right<b.left'), 'Desktop groups related findings side by side without overlapping')
       if (width === 320 || width === 416 || width === 1280) {

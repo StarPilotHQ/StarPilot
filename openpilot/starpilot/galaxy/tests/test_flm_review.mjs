@@ -8,6 +8,8 @@ import { SURFACE_NAMES, FRICTION_NAMES, offroadView, validTrainingResults } from
 
 const idea = (parameter, target = .005) => ({ parameter, baseline: 0, target, delta: target, windows: 14,
   reason: 'heldout_profile_does_not_support_training_step' })
+const evidence = '4 of 5 retained higher-speed right turn-exit sections across 3 drive(s): steering unwound too slowly. These are recorded sections, not a count of distinct turns.'
+assert.equal(ideaExplanation({ ...idea('unwind_taper_right'), evidence }), evidence)
 const route = { suggestions: [idea('highway_center_taper_max'), ...FRICTION_NAMES.slice(1).map(name => idea(name))],
   savedValues: null, saved: false, configurationState: null }
 const review = reviewModel(route)

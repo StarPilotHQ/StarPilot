@@ -27,6 +27,8 @@ class CompletedAssessment:
   diagnostic_groups: tuple = ()
   stable_groups: tuple = ()
   recorded_tracking: dict | None = None
+  evidence_sources: dict = field(default_factory=dict, repr=False, compare=False)
+  single_drive: object = field(default=None, repr=False, compare=False)
 
   def report(self):
     return {
@@ -40,6 +42,7 @@ class CompletedAssessment:
       'diagnostic_groups': list(self.diagnostic_groups),
       'stable_groups': list(self.stable_groups),
       'recorded_tracking': self.recorded_tracking,
+      'evidence_sources': [asdict(source.receipt) for _, source in sorted(self.evidence_sources.items())],
       'source_role': (
         'Input-selected original drive sections; not a whole-drive assessment or live permission.'
         if type(self.receipt) is SelectedSourceReceipt
@@ -68,20 +71,39 @@ def window_demand(window):
   }
 
 
-def _separate_qualification(report, continuous, *, proposal_windows=None):
+def _separate_qualification(report, continuous, *, proposal_windows=None, route_order=None, role_windows=None):
   qualification = {}
   spans = {} if proposal_windows is None else {w.identity: w for w in proposal_windows}
   for c in report['cohorts']:
     native = [w for w in continuous if cohort(w) == c['cohort']]
     ordered = sorted(native, key=lambda w: (w.points[0].segment, w.points[0].mono_ns))
+    if route_order is not None and role_windows is not None and all(role in c for role in ('training', 'heldout')):
+      owners = {w.identity: w.points[0].route for w in role_windows}
+      routes = {role: {owners[key] for key in c[role]['windows']} for role in ('training', 'heldout')}
+      if routes['training'].isdisjoint(routes['heldout']):
+        c['qualification_roles'] = {}
+        for role in ('training', 'heldout'):
+          chosen = _spread([w for w in ordered if w.points[0].route in routes[role]], MAX_COHORT_WINDOWS // 2)
+          c['qualification_roles'][role] = {'windows': tuple(w.identity for w in chosen)}
+          qualification.update((w.identity, w) for w in chosen)
+        continue
     if proposal_windows is None:
-      chosen = _spread(ordered, MAX_COHORT_WINDOWS)
-      c['qualification_roles'] = {role: {'windows': tuple(w.identity for w in chosen[offset::2])} for role, offset in (('training', 0), ('heldout', 1))}
-      qualification.update((w.identity, w) for w in chosen)
+      from openpilot.starpilot.flm.offroad_history import partition_windows
+
+      train, heldout = partition_windows(ordered, route_order)
+      c['qualification_roles'] = {role: {'windows': tuple(w.identity for w in rows)} for role, rows in (('training', train), ('heldout', heldout))}
+      qualification.update((w.identity, w) for w in (*train, *heldout))
     elif all(role in c for role in ('training', 'heldout')):
       # A native check must stay in the SAME original data role as the
       # corresponding profile. Joining observations never joins holdout data.
       c['qualification_roles'] = {}
+      routes = {role: {spans[key].points[0].route for key in c[role]['windows']} for role in ('training', 'heldout')}
+      if routes['training'].isdisjoint(routes['heldout']):
+        for role in ('training', 'heldout'):
+          chosen = _spread([w for w in ordered if w.points[0].route in routes[role]], MAX_COHORT_WINDOWS // 2)
+          c['qualification_roles'][role] = {'windows': tuple(w.identity for w in chosen)}
+          qualification.update((w.identity, w) for w in chosen)
+        continue
       training_end = max((spans[key].points[-1].segment, spans[key].points[-1].mono_ns) for key in c['training']['windows'])
       heldout_start = min((spans[key].points[0].segment, spans[key].points[0].mono_ns) for key in c['heldout']['windows'])
       if training_end >= heldout_start:
@@ -98,6 +120,7 @@ def _separate_qualification(report, continuous, *, proposal_windows=None):
   report['qualification_original_windows'] = [
     {
       'identity': w.identity,
+      'route': w.points[0].route,
       'segment': w.points[0].segment,
       'start_ns': w.points[0].mono_ns,
       'end_ns': w.points[-1].mono_ns,
@@ -131,6 +154,21 @@ def _recorded_tracking(windows):
     'points': [[p.mono_ns, p.desired, p.actual] for p in _spread(first.points, 64)],
     'sampling': 'input_ordered_original_endpoints_no_interpolation',
   }
+
+
+def _recommendation_windows(windows):
+  """Bounded input-only spans, kept separately from automatic trial roles."""
+  groups = {}
+  for window in windows:
+    key = cohort(window)
+    if key is not None:
+      groups.setdefault(key, []).append(window)
+  return [
+    {'identity': w.identity, 'route': w.points[0].route, 'segment': w.points[0].segment,
+     'start_ns': w.points[0].mono_ns, 'end_ns': w.points[-1].mono_ns, 'cohort': key}
+    for key, rows in sorted(groups.items())
+    for w in _spread(sorted(rows, key=lambda w: (w.points[0].route, w.points[0].segment, w.points[0].mono_ns)), 24)
+  ]
 
 
 def _control_source_current(control, stamp):
@@ -438,17 +476,40 @@ def collect_latest_steering_inputs(params, root, *, permitted, selected_route=No
   return route, collected
 
 
-def analyze_latest(params, root, previous, *, permitted, selected_route=None):
+def analyze_latest(params, root, previous, *, permitted, selected_route=None, evidence_bank=None, history_identity=None):
   if selected_route is None:
     route, collected = collect_latest_steering_inputs(params, root, permitted=permitted)
   else:
     route, collected = collect_latest_steering_inputs(params, root, permitted=permitted, selected_route=selected_route)
+  single = _assess_inputs(route, collected, previous, permitted=permitted)
+  if evidence_bank is None:
+    return single
+  if not callable(history_identity):
+    raise ValueError('Current source/settings history identity required')
+  from openpilot.starpilot.flm.offroad_history import combine
+
+  identity = history_identity(collected.state['cp'])
+  history = evidence_bank.retain(collected, route, identity, permitted=permitted)
+  pooled, sources, order = combine(collected, route, history)
+  result = _assess_inputs(route, pooled, previous, permitted=permitted, sources=sources, route_order=order)
+  return replace(result, single_drive=single, recorded_tracking=single.recorded_tracking)
+
+
+def _assess_inputs(route, collected, previous, *, permitted, sources=None, route_order=None):
+  sources = {} if sources is None else sources
+  comparisons = {}
+  if len(sources) > 1:
+    from openpilot.starpilot.flm.offroad_history import statistical_inputs
+
+    collected, comparisons, _ = statistical_inputs(collected)
   receipt, state = collected.receipt, collected.state
   if type(receipt) not in (RouteReceipt, SelectedSourceReceipt):
     raise ValueError('An original whole-drive or explicit input-selected receipt is required')
   windows, stable_windows, baseline_tracking = collected.windows, collected.stable_windows, collected.baseline_tracking
   bookends, raw_windows, context_metadata = collected.bookends, collected.raw_windows, collected.context_metadata
   counts, quality_stops = collected.counts, collected.quality_stops
+  if sources:
+    counts = dict(counts, evidence_drives=len(sources), evidence_windows=sum(map(len, windows.values())))
   if not permitted():
     raise ValueError('Parked authority lost after analysis')
   from openpilot.starpilot.flm.offroad_baseline_windows import stable_proposal_windows, tracking_proposal_windows
@@ -465,17 +526,19 @@ def analyze_latest(params, root, previous, *, permitted, selected_route=None):
   for key, values in sorted(proposal_windows.items()):
     if not values:
       continue
-    report = analyze(tuple(values), amplitude_prior, permitted=permitted)
+    report = analyze(tuple(values), amplitude_prior, permitted=permitted, route_order=route_order, comparison=comparisons.get(key))
     if key in proposal_grades:
       report['tracking_source_grade'] = proposal_grades[key]
-      _separate_qualification(report, windows.get(key, ()))
+      _separate_qualification(report, windows.get(key, ()), route_order=route_order, role_windows=values)
     selected_ids = {wid for cohort_row in report['cohorts'] for role in ('training', 'heldout') for wid in cohort_row.get(role, {}).get('windows', ())}
     report.update(
       original_context_sha256=key,
       original_metadata=context_metadata[key],
+      recommendation_original_windows=_recommendation_windows(values),
       selected_original_windows=[
         {
           'identity': w.identity,
+          'route': w.points[0].route,
           'segment': w.points[0].segment,
           'start_ns': w.points[0].mono_ns,
           'end_ns': w.points[-1].mono_ns,
@@ -486,6 +549,10 @@ def analyze_latest(params, root, previous, *, permitted, selected_route=None):
         if w.identity in selected_ids
       ],
     )
+    if key in comparisons:
+      from openpilot.starpilot.flm.offroad_history import bind_original_contexts
+
+      bind_original_contexts(report, [*values, *windows.get(key, ())], comparisons[key])
     reports.append(report)
   reports = tuple(reports)
   stable = []
@@ -497,6 +564,7 @@ def analyze_latest(params, root, previous, *, permitted, selected_route=None):
       if cohort(child) == target:
         return {
           'identity': child.identity,
+          'route': child.points[0].route,
           'parent_identity': window.identity,
           'segment': child.points[0].segment,
           'start_ns': child.points[0].mono_ns,
@@ -509,18 +577,20 @@ def analyze_latest(params, root, previous, *, permitted, selected_route=None):
   for key, values in sorted(stable_windows.items()):
     if not values:
       continue
-    report = analyze_stable_windows(tuple(values), permitted=permitted)
+    report = analyze_stable_windows(tuple(values), permitted=permitted, route_order=route_order, comparison=comparisons.get(key))
     grade = stable_grades.get(key, 'continuous_original_control_metadata')
     report['tracking_source_grade'] = grade
     if grade == 'bookended_zero_route_tracking':
-      _separate_qualification(report, windows.get(key, ()), proposal_windows=values)
+      _separate_qualification(report, windows.get(key, ()), proposal_windows=values, route_order=route_order)
     selected = {wid for c in report['cohorts'] for role in ('training', 'heldout') for wid in c.get(role, {}).get('windows', ())}
     report.update(
       original_context_sha256=key,
       original_metadata=context_metadata[key],
+      recommendation_original_windows=_recommendation_windows(values),
       selected_original_windows=[
         {
           'identity': w.identity,
+          'route': w.points[0].route,
           'segment': w.points[0].segment,
           'start_ns': w.points[0].mono_ns,
           'end_ns': w.points[-1].mono_ns,
@@ -533,6 +603,10 @@ def analyze_latest(params, root, previous, *, permitted, selected_route=None):
         if w.identity in selected
       ],
     )
+    if key in comparisons:
+      from openpilot.starpilot.flm.offroad_history import bind_original_contexts
+
+      bind_original_contexts(report, [*values, *windows.get(key, ())], comparisons[key])
     stable.append(report)
   counts['stable_qualified_whole_windows'] = sum(map(len, stable_windows.values()))
   diagnostic = []
@@ -549,6 +623,7 @@ def analyze_latest(params, root, previous, *, permitted, selected_route=None):
     )
   counts['diagnostic_whole_windows'] = sum(map(len, raw_windows.values()))
   return CompletedAssessment(
-    receipt, reports, counts, state['cp'], (), route, tuple(quality_stops), tuple(diagnostic), tuple(stable), _recorded_tracking(proposal_windows)
+    receipt, reports, counts, state['cp'], (), route, tuple(quality_stops), tuple(diagnostic), tuple(stable),
+    _recorded_tracking(proposal_windows), sources,
   )
 

@@ -71,9 +71,9 @@ class AssessmentCache:
       raise ValueError('Assessment object required')
     return value
 
-  def _write(self, name, raw):
+  def _write(self, name, raw, *, maximum=MAX_DOCUMENT):
     self._owned()
-    if not 0 < len(raw) <= MAX_DOCUMENT:
+    if not 0 < len(raw) <= maximum:
       raise ValueError('Assessment document bound')
     temporary = None
     try:

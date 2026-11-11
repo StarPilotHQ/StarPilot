@@ -14,6 +14,7 @@ export function ideaStatus(row) {
 
 export function ideaExplanation(row) {
   if (row.target === null) return 'Different parts of the drive pointed to different settings. There is no single value to use.'
+  if (row.evidence) return row.evidence
   if (row.reason === 'heldout_profile_does_not_support_training_step')
     return 'Some driving supported this idea, but other parts did not. Auto Learn kept it out of your saved tune.'
   if (row.reason === 'independent_support_for_frozen_training_profile')
