@@ -119,5 +119,70 @@ class TestFinalUnusableCrop(unittest.TestCase):
     self.assertEqual(len(actual[3]), 3)
 
 
+  def test_saturated_tiny_best_skips_only_last_class0_read(self):
+    kwargs = {'proposals': [(.5, 0, (1400, 100, 1420, 130)), (.60, 0, (1500, 100, 1590, 237))],
+              'regulatory': (False,) * 6,
+              'reads': ((40, .999),) * 3 + ((55, .999),) * 3}
+    actual = self.run_case(**kwargs)
+    control = self.run_case(control=True, **kwargs)
+    self.assertEqual(actual[:2], control[:2])
+    self.assertEqual(actual[0].speed_limit_mph, 40)
+    self.assertEqual(actual[0].confidence, model.DETECTOR_CLASSIFIER_RESCUE_MAX_SCORE)
+    self.assertEqual(len(actual[2]), 5)
+    self.assertEqual(len(control[2]), 6)
+    self.assertEqual(actual[3], control[3])
+
+  def test_saturated_skip_keeps_identity_veto_before_reader(self):
+    kwargs = {'proposals': [(.5, 0, (1400, 100, 1420, 130)), (.60, 0, (1500, 100, 1590, 237))],
+              'regulatory': (False,) * 6, 'reads': ((40, .999),) * 3 + ((55, .999),) * 2, 'veto_at': 6}
+    actual = self.run_case(**kwargs)
+    control = self.run_case(control=True, **kwargs)
+    self.assertEqual(actual, control)
+    self.assertIsNone(actual[0])
+    self.assertIsNone(actual[1])
+    self.assertEqual(len(actual[3]), 6)
+
+  def test_saturated_skip_counterexamples_keep_reads(self):
+    first = (.5, 0, (1400, 100, 1420, 130))
+    last = (.60, 0, (1500, 100, 1590, 237))
+    cases = (
+      {'proposals': [(.4, 0, first[2]), last]},
+      {'proposals': [first, last], 'custom': True},
+      {'proposals': [first, last, (.3, 1, (1600, 100, 1690, 237))]},
+    )
+    for case in cases:
+      with self.subTest(case=case):
+        kwargs = {'regulatory': (False,) * 6, 'reads': ((40, .999),) * 3 + ((55, .999),) * 3, **case}
+        actual = self.run_case(**kwargs)
+        control = self.run_case(control=True, **kwargs)
+        self.assertEqual(actual, control)
+        self.assertEqual(len(actual[2]), 6)
+
+  def test_saturated_skip_keeps_best_when_last_crop_advisory_rejects(self):
+    kwargs = {'proposals': [(.5, 0, (1400, 100, 1420, 130)), (.60, 0, (1500, 100, 1590, 237))],
+              'regulatory': (False,) * 6,
+              'reads': ((40, .999),) * 3 + ((55, .999),) * 2 + (None,)}
+    actual = self.run_case(**kwargs)
+    control = self.run_case(control=True, **kwargs)
+    self.assertEqual(actual[:2], control[:2])
+    self.assertEqual(len(actual[2]), 5)
+    self.assertEqual(len(control[2]), 6)
+    self.assertEqual(actual[3], control[3])
+
+  def test_saturated_skip_keeps_generator_and_school_paths(self):
+    proposals = [(.5, 0, (1400, 100, 1420, 130)), (.60, 0, (1500, 100, 1590, 237))]
+    kwargs = {'regulatory': (False,) * 6, 'reads': ((40, .999),) * 3 + ((55, .999),) * 3}
+    actual = self.run_case(proposals=(p for p in proposals), **kwargs)
+    control = self.run_case(proposals=(p for p in proposals), control=True, **kwargs)
+    self.assertEqual(actual, control)
+    self.assertEqual(len(actual[2]), 6)
+    kwargs = {'proposals': [proposals[0], (.60, 2, proposals[1][2])],
+              'regulatory': (False,) * 6,
+              'reads': ((40, .999),) * 3 + (None,) + ((55, .999),) * 3}
+    actual = self.run_case(**kwargs)
+    control = self.run_case(control=True, **kwargs)
+    self.assertEqual(actual, control)
+
+
 if __name__ == '__main__':
   unittest.main()

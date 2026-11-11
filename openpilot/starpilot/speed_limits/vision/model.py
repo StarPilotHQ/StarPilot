@@ -949,6 +949,12 @@ class VisionModelCore:
         if (type(proposals) is list and proposal_index == len(proposals) - 1 and
             expansions is DETECTOR_CLASSIFIER_EXPANSIONS and
             (expand_left, expand_top, expand_right, expand_bottom, expansion_weight) == expansions[-1] and
+            class_id == 0 and best_score == .95 and
+            getattr(self, 'classifier_net', None) is not None):
+          continue
+        if (type(proposals) is list and proposal_index == len(proposals) - 1 and
+            expansions is DETECTOR_CLASSIFIER_EXPANSIONS and
+            (expand_left, expand_top, expand_right, expand_bottom, expansion_weight) == expansions[-1] and
             getattr(self, 'classifier_net', None) is not None and class_id == 0 and not speed_scores and not raw_is_regulatory and
             proposal_confidence < DETECTOR_CLASSIFIER_STRONG_MODEL_MIN_PROPOSAL_CONFIDENCE and
             not (x1 >= frame_width * DETECTOR_CLASSIFIER_TRUSTED_MODEL_MIN_X_RATIO and
