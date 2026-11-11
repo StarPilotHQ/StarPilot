@@ -421,6 +421,7 @@ EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
 
   EventName.selfdriveInitializing: {
     ET.NO_ENTRY: NoEntryAlert("System Initializing"),
+    ET.PERMANENT: NormalPermanentAlert("System Initializing"),
   },
 
   EventName.startup: {
