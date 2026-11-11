@@ -15,7 +15,7 @@ export function validPhoneNotifications(value) {
 export const PhoneNotifications = {
   components: { GxNotice, GxState, GalaxySettingRow },
   props: { mode: String, unauthorized: Function },
-  data: () => ({ snapshot: null, busy: false, error: '', testResult: '', timer: null, controller: null, generation: 0, active: false }),
+  data: () => ({ snapshot: null, busy: false, error: '', testResult: '', setupOpen: false, timer: null, controller: null, generation: 0, active: false }),
   mounted() {
     this.visibility = () => { this.stop(); this.start() }
     document.addEventListener('visibilitychange', this.visibility)
@@ -88,36 +88,41 @@ export const PhoneNotifications = {
       }
     },
   },
-  template: `<section class="gx-card gx-starport-step" aria-labelledby="gx-phone-notifications-title">
-    <div class="gx-starport-step__head">
-      <span class="gx-starport-step__num" aria-hidden="true"><i class="bi bi-chat-dots"></i></span>
-      <div><h3 id="gx-phone-notifications-title">Phone Notifications</h3><p>Show messages from your phone on the comma screen and on Android Auto. Each one shows for a few seconds and is never stored.</p></div>
-    </div>
-    <div class="gx-starport-step__body">
+  template: `<div class="gx-settings__body">
+    <section class="gx-card gx-settings__section" aria-labelledby="gx-phone-notifications-title">
+      <div class="gx-section__header"><i class="bi bi-phone" aria-hidden="true"></i>
+        <span id="gx-phone-notifications-title" class="gx-section__title">Phone notifications</span>
+        <button v-if="snapshot" type="button" class="gx-icon-btn" title="Send test notification" aria-label="Send test notification"
+          :disabled="busy || !snapshot.enabled" @click="sendTest"><i class="bi bi-send" aria-hidden="true"></i></button>
+      </div>
       <GxState v-if="!snapshot && !error" loading>Loading phone notification settings…</GxState>
       <template v-if="snapshot">
-        <GalaxySettingRow :row="switchRow('Show phone notifications', snapshot.enabled)" :index="0" :busy="busy"
+        <GalaxySettingRow :row="switchRow('Show phone notifications', snapshot.enabled, 'On the comma screen and Android Auto for 8 seconds; never stored')" :index="0" :busy="busy"
           :save-value="(index, value) => save({ enabled: value === 'On' })" />
-        <GalaxySettingRow :row="switchRow('Hide while moving', snapshot.hideWhileMoving)" :index="1" :busy="busy" :disabled="!snapshot.enabled"
+        <GalaxySettingRow :row="switchRow('Hide while moving', snapshot.hideWhileMoving, 'Only show them while stopped')" :index="1" :busy="busy" :disabled="!snapshot.enabled"
           :save-value="(index, value) => save({ hideWhileMoving: value === 'On' })" />
       </template>
-      <div v-if="snapshot" class="gx-actions">
-        <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy || !snapshot.enabled" @click="sendTest"><i class="bi bi-bell" aria-hidden="true"></i> Send test notification</button>
+      <p v-if="testResult" class="gx-empty" role="status">{{ testResult }}</p>
+    </section>
+    <section v-if="snapshot" class="gx-card gx-settings__section" aria-labelledby="gx-phone-apps-title">
+      <div class="gx-section__header"><i class="bi bi-grid" aria-hidden="true"></i>
+        <span id="gx-phone-apps-title" class="gx-section__title">Apps</span>
+        <span v-if="snapshot.apps.length" class="gx-section__count">{{ snapshot.apps.length }}</span>
       </div>
-      <p v-if="testResult" class="gx-note" role="status">{{ testResult }}</p>
-      <ol>
-        <li><strong>Android:</strong> in the StarPilot app, open Connections → Phone sharing → Share notifications. Tap Send test notification there to check the whole path from your phone.</li>
-        <li><strong>iPhone:</strong> in the app, open Connection settings → Phone notifications, then allow notification sharing when iOS asks. Tap Send test notification there to check the whole path from your phone.</li>
-      </ol>
-      <template v-if="snapshot">
-        <p v-if="!snapshot.apps.length" class="gx-note">Apps appear here after they send a notification. Messaging apps are on by default; others start off.</p>
-        <template v-else>
-          <p class="gx-note">Apps that have sent something. Messaging apps are on by default; others start off.</p>
-          <GalaxySettingRow v-for="(app, index) in snapshot.apps" :key="app.id" :row="switchRow(app.name || app.id, app.allowed)" :index="index"
-            :busy="busy" :disabled="!snapshot.enabled" :save-value="(i, value) => save({ apps: { [app.id]: value === 'On' } })" />
-        </template>
+      <p v-if="!snapshot.apps.length" class="gx-empty">Apps appear here after they send a notification. Messaging apps start on; others start off.</p>
+      <GalaxySettingRow v-for="(app, index) in snapshot.apps" :key="app.id" :row="switchRow(app.name || app.id, app.allowed, app.messaging ? 'Messaging' : '')" :index="index"
+        :busy="busy" :disabled="!snapshot.enabled" :save-value="(i, value) => save({ apps: { [app.id]: value === 'On' } })" />
+    </section>
+    <section class="gx-card gx-settings__section">
+      <button type="button" class="gx-section__header gx-section__header--toggle" :aria-expanded="setupOpen" @click="setupOpen = !setupOpen">
+        <i class="bi bi-question-circle" aria-hidden="true"></i><span class="gx-section__title">Set up a phone</span>
+        <i class="bi" :class="setupOpen ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i></button>
+      <template v-if="setupOpen">
+        <p class="gx-empty"><strong>Android:</strong> StarPilot app → Connections → Phone sharing → Share notifications.</p>
+        <p class="gx-empty"><strong>iPhone:</strong> app → Connection settings → Phone notifications, then allow sharing when iOS asks.</p>
+        <p class="gx-empty">Tap Send test notification in the phone app to check the whole path from your phone.</p>
       </template>
-      <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
-    </div>
-  </section>`,
+    </section>
+    <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
+  </div>`,
 }
