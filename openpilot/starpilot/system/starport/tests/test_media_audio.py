@@ -188,6 +188,50 @@ def test_pipe_source_reads_a_fifo_without_blocking(tmp_path):
   assert not ma.PipeSource(tmp_path / 'missing', lambda: True).active(10.0)
 
 
+def test_pipe_source_counts_reads_that_find_the_pipe_full(tmp_path):
+  path = tmp_path / 'aa.pcm'
+  os.mkfifo(path)
+  source = ma.PipeSource(path, lambda: True)
+  writer = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+  try:
+    assert source.active(10.0) and source.read(1024) == b''
+    assert source.capacity >= 4096 and source.overruns == 0
+    os.write(writer, TONE[:1000])
+    assert source.read(65536) == TONE[:1000] and source.overruns == 0
+    source.capacity = ma.PIPE_PAGE + 1000
+    os.write(writer, TONE[:1000])
+    assert source.read(65536) == TONE[:1000] and source.overruns == 1
+    source.close()
+    os.write(writer, TONE[:1000])
+    assert source.read(65536) == TONE[:1000] and source.overruns == 1  # backlog left while nobody read
+  finally:
+    source.close()
+    os.close(writer)
+
+
+def test_status_reports_pipe_overruns(audio):
+  stream, _, source, _, _ = audio
+  assert stream.status()['pipe_overruns'] == 0
+  source.overruns = 3
+  assert stream.status()['pipe_overruns'] == 3
+
+
+def test_longest_service_gap_while_playing_lasts_until_reset(audio):
+  stream, session, source, now, _ = audio
+  ready(stream, session)
+  now[0] += 5.0
+  play(stream, session, source, now)
+  assert stream.status()['max_service_gap_ms'] == 0
+  now[0] += 0.25
+  stream.service()
+  now[0] += 0.05
+  stream.service()
+  assert stream.status()['max_service_gap_ms'] == 250
+  assert stream.status()['max_service_gap_ms'] == 250
+  stream.reset_peaks()
+  assert stream.status()['max_service_gap_ms'] == 0
+
+
 def test_source_switch_discards_old_audio_and_releases_focus(audio):
   stream, session, source, now, _ = audio
   source.generation = 1

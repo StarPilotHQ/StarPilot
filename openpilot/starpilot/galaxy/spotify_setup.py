@@ -90,7 +90,8 @@ class SpotifySetup:
     self._require_session(session)
     prefs = preferences.load(self.layout)
     try:
-      devices = [{'address': d['address'], 'name': d['name'], 'connected': d.get('connected') is True}
+      devices = [{'address': d['address'], 'name': d['name'], 'connected': d.get('connected') is True,
+                  'audioSink': d.get('audioSink') is True}
                  for d in self.paired_devices(session) if d.get('paired')]
     except Exception:
       devices = []

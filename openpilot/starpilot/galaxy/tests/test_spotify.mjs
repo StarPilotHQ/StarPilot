@@ -144,3 +144,17 @@ assert.doesNotMatch(SpotifyPage.template, /Pause smoothing[^>]*parked/)
 }
 
 assert.equal(serviceLabel({ enabled: true, service: { state: "ready", player: { status: "paused" }, outputWaiting: "Car" } }), "Paused Audio waits for Car.")
+
+// Audio outputs require the receiving-music profile; the phone source list stays separate.
+{
+  const devices = [
+    { address: "AA:BB:CC:DD:EE:01", name: "Car", connected: true, audioSink: true },
+    { address: "AA:BB:CC:DD:EE:02", name: "Speaker", connected: false, audioSink: true },
+    { address: "AA:BB:CC:DD:EE:03", name: "Phone", connected: true, audioSink: false },
+    { address: "AA:BB:CC:DD:EE:04", name: "Radar detector", connected: true },
+  ]
+  const deviceChoices = SpotifyPage.computed.deviceChoices.call({ setup: { devices } })
+  const outputs = SpotifyPage.computed.outputChoices.call({ deviceChoices })
+  assert.deepEqual(outputs.map(choice => choice.label), ["Car", "Speaker (Not Connected)"])
+  assert.equal(deviceChoices.length, 4)
+}

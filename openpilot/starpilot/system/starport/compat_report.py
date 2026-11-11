@@ -22,7 +22,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from openpilot.starpilot.system.starport import identity as identity_store, reachability
-from openpilot.starpilot.system.starport import system_snapshot
+from openpilot.starpilot.system.starport import system_slice, system_snapshot
 from openpilot.starpilot.system.starport.session import describe_video_config
 
 SESSION_GLOB = "session-*.jsonl"
@@ -381,6 +381,22 @@ def _diagnosis_report(logs: list[Path]) -> bytes:
     return b""
 
 
+def _captures(path: Path) -> list[tuple[str, bytes]]:
+  """The device logs saved beside a session log (the whole session and any stall), without network or device names."""
+  found = []
+  for tag in ("", ".stall"):
+    side = system_slice.sidecar_path(path, tag)
+    try:
+      capture = json.loads(read_log(side, MAX_LOG_BYTES))
+      for source in capture["sources"].values():
+        if "lines" in source:
+          source["lines"] = [system_slice.scrub_line(line) for line in source["lines"]]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+      continue
+    found.append((side.name, json.dumps(capture, indent=1).encode()))
+  return found
+
+
 def bundle(log_dir: Path | None = None, config_path: Path | None = None, *,
            snapshot: Callable[[float], dict[str, bytes]] | None = system_snapshot.collect) -> bytes:
   """A zip for a bug report: every session log with its report, the settings, the renderer logs and a snapshot of the
@@ -408,6 +424,8 @@ def bundle(log_dir: Path | None = None, config_path: Path | None = None, *,
       summaries.append(render_text(report, path.name))
       add(f"logs/{path.name}", data)
       add(f"reports/{path.stem}.json", json.dumps(report, indent=2, default=str).encode())
+      for name, capture in _captures(path):
+        add(f"logs/{name}", capture)
     add("REPORT.txt", ("\n".join(summaries) or "No Android Auto sessions have been logged yet.\n").encode())
     report = _diagnosis_report(logs)
     if report:

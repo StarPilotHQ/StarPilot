@@ -98,7 +98,8 @@ class HardwareH264Encoder:
 
   def __init__(self, width: int, height: int, fps: int = HW_FPS, bitrate_kbps: int = 6000, margin_height: int = 0,
                library: Path = LIBRARY, rate_control: str = "cbr"):
-    if not (0 < width <= self.max_width and 0 < height <= self.max_height) or width % 2 or height % 2 or fps != HW_FPS:
+    if not (0 < min(width, height) <= self.max_height and max(width, height) <= self.max_width) or width % 2 or height % 2 or \
+       fps != HW_FPS:
       raise ValueError(f"Hardware encoder supports even sizes up to {self.max_width}x{self.max_height} at 30 fps")
     if margin_height % 4:
       margin_height = 0  # only chroma-aligned black margins may be skipped

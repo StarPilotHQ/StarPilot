@@ -50,6 +50,8 @@ class CameraSnapshot:
           results[camera] = SnapshotUnavailable("Wait before another snapshot")
         else:
           self.last_request[camera] = self.clock()
+      if len(results) == len(cameras):
+        return results
       from openpilot.starpilot.galaxy.camera_request import request, boot_ns
       capture_started = self.clock()
       request()

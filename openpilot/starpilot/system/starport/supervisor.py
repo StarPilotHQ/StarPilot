@@ -76,6 +76,7 @@ LINK_CHECK_SLOW = 1.0        # a link check slower than this is logged (NetworkM
 STREAM_STALL_LOG = 1.0       # a streaming loop pass slower than this is logged
 RADIO_CHECK_INTERVAL = 0.5   # how often the comma's own Wi-Fi is checked for a join or roam (a sysfs read)
 RADIO_CHANGE_WINDOW = 15.0   # a join or roam this recent can still stall the car (11-02: stall came 7.5 s after a roam)
+STALL_CAPTURE_S = 20.0       # device logs kept from before a shared-radio stall is reported
 REPORTED_SETTINGS = ("connection", "usb_mode", "view", "encoder", "fps", "bitrate_kbps", "rate_control", "gpu_nv12",
                      "async_readback", "wifi_interface", "dedicated_wifi_interface", "verify_head_unit", "version_status",
                      "rfcomm_channel", "phone_class", "auto_connect", "allow_hevc", "head_unit_experiments",
@@ -280,11 +281,13 @@ class SharedRadioWatch:
   """
 
   def __init__(self, log: Callable[..., None], interface: str = "wlan0", interval: float = RADIO_CHECK_INTERVAL,
-               counter: Path | None = None, carrier: Path | None = None, on_down: Callable[[], None] | None = None):
+               counter: Path | None = None, carrier: Path | None = None, on_down: Callable[[], None] | None = None,
+               on_stall: Callable[[], None] | None = None):
     self.log, self.interface, self.interval = log, interface, interval
     self.counter = counter or Path(f"/sys/class/net/{interface}/carrier_changes")
     self.carrier = carrier or Path(f"/sys/class/net/{interface}/carrier")
     self.on_down = on_down  # the other network was lost, not just roamed
+    self.on_stall = on_stall  # the car's acks stopped after a change
     self.changed_at: float | None = None
     self._stop = threading.Event()
     self._thread = threading.Thread(target=self._run, name="aa_radio_watch", daemon=True)
@@ -320,8 +323,12 @@ class SharedRadioWatch:
       if self.on_down is not None and not self._carrier():
         try:
           self.on_down()
-        except Exception as error:  # the watch must keep running for the ACK grace window
+        except Exception as error:
           self.log("other_wifi_hold_failed", error=str(error) or type(error).__name__)
+
+  def stalled(self) -> None:
+    if self.on_stall is not None:
+      self.on_stall()
 
   def _carrier(self) -> bool:
     try:
@@ -401,6 +408,12 @@ class EventLog:
     """Save what the device was doing during this session beside its log, off the session's thread."""
     if self.path is not None:
       system_slice.write_sidecar_async(self.path, self.started, datetime.now(UTC).timestamp())
+
+  def capture_stall(self) -> None:
+    """Save the last seconds of device logs now; the session's own capture keeps only its newest lines."""
+    if self.path is not None:
+      now = datetime.now(UTC).timestamp()
+      system_slice.write_sidecar_async(self.path, now - STALL_CAPTURE_S, now, tag=".stall")
 
   def _line(self, record: dict) -> str:
     return json.dumps(record, default=str) + "\n"
@@ -1522,6 +1535,7 @@ class Supervisor:
                    frames=self._attempt_frames, hung_up=hung_up, hangups=self._hangups)
           if isinstance(error, SharedRadioStall):
             reconnect_notice.write(reconnect_notice.SHARED_RADIO_TEXT)
+            self.log.capture_stall()
           if isinstance(error, StrayLinkError):
             self._clear_stray_link()
             car_first = True  # the car pages right back once its link drops; let it, rather than crossing it again
@@ -2047,8 +2061,10 @@ class Supervisor:
     watch = LinkWatch(lease, self.log).start()
     radio = None
     if getattr(lease, "dedicated", False) and getattr(lease, "interface", "wlan0") != "wlan0":
-      radio = SharedRadioWatch(self.log, on_down=getattr(lease, "hold_home_wifi", None)).start()
+      radio = SharedRadioWatch(self.log, on_down=getattr(lease, "hold_home_wifi", None),
+                               on_stall=getattr(lease, "stop_home_join", None)).start()
       session.radio_change = radio.recent
+      session.radio_stalled = radio.stalled
     try:
       from openpilot.starpilot.system.starport.media_audio import MediaAudio, music_control
       from openpilot.starpilot.system.starport.media_status import MediaStatus
@@ -2267,6 +2283,8 @@ class Supervisor:
         if int(now - started) % 30 == 0:
           self.log("stats", **{**device_health.sample(getattr(watch.lease, "interface", "wlan0")), **stats})
           encode_peak = 0.0  # the peak covers each logged 30 s window
+          if audio is not None:
+            audio.reset_peaks()
       spent = time.monotonic() - pass_started
       if spent > STREAM_STALL_LOG:
         # Nothing was read from the car meanwhile: pings, focus and ACKs all waited on this pass.
