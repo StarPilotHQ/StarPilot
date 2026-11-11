@@ -57,6 +57,40 @@ def crop(np, cv2, rgb256, box):
   return np.ascontiguousarray(np.clip(result, 0, 1).transpose(2, 0, 1))
 
 
+def warning_context_box(rgb256, box):
+  from openpilot.starpilot.speed_limits.vision import model
+
+  image = np.rint(rgb256.transpose(1, 2, 0) * np.float32(255)).astype(np.uint8)
+  hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+  hue, saturation, value = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+  mask = ((hue >= model.REGULATORY_YELLOW_HUE_MIN) & (hue <= model.REGULATORY_YELLOW_HUE_MAX) &
+          (saturation >= model.REGULATORY_YELLOW_SAT_MIN) & (value >= model.REGULATORY_YELLOW_VALUE_MIN)).astype(np.uint8)
+  contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+  center = (float((box[0] + box[2]) / 2), float((box[1] + box[3]) / 2))
+  matches = []
+  for contour in contours:
+    hull = cv2.convexHull(contour)
+    if (hull <= 0).any() or (hull >= 255).any():
+      continue
+    quad = cv2.approxPolyDP(hull, .02 * cv2.arcLength(hull, True), True)
+    if len(quad) != 4 or not cv2.isContourConvex(quad):
+      continue
+    points = quad.reshape(4, 2)
+    top, right = points[np.argmin(points[:, 1])], points[np.argmax(points[:, 0])]
+    bottom, left = points[np.argmax(points[:, 1])], points[np.argmin(points[:, 0])]
+    if (len({tuple(p) for p in (top, right, bottom, left)}) != 4 or
+        not (top[1] < min(left[1], right[1]) and bottom[1] > max(left[1], right[1]) and
+             left[0] < min(top[0], bottom[0]) and right[0] > max(top[0], bottom[0]))):
+      continue
+    x, y, width, height = cv2.boundingRect(hull)
+    if (cv2.pointPolygonTest(quad, center, False) >= 0 and
+        x < box[0] and y < box[1] and x + width > box[2] and y + height > box[3]):
+      outline = cv2.approxPolyDP(contour, .02 * cv2.arcLength(contour, True), True)
+      matches.append(np.asarray([x, y, x + width, y + height], np.float32)
+                     if len(outline) == 4 and cv2.isContourConvex(outline) else None)
+  return matches[0] if len(matches) == 1 else None
+
+
 class SpeedFaceVerifier:
   def __init__(self, path):
     self.net = None
@@ -123,6 +157,9 @@ class SpeedFaceVerifier:
     patch = crop(np, cv2, blob, box)
     if patch is None:
       return False
+    context_box = warning_context_box(blob, box)
+    if context_box is not None:
+      patch = crop(np, cv2, blob, context_box)
     started = time.monotonic()
     self.last_forward_count += 1
     try:
