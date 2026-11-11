@@ -36,6 +36,7 @@ FORD_BLUEPILOT_TARGETS = (
 FORD_BLUEPILOT_NATIVE_TARGETS = tuple(str(path.relative_to(ROOT)) for path in sorted(
   (ROOT / 'opendbc_repo/opendbc/bluepilot_lateral/safety/tests').glob('test_*.py'))) + (
   'openpilot/starpilot/tests/test_ford_starpilot_ordering.py',
+  "openpilot/starpilot/aol/tests/test_ford_long_only_withdrawal.py",
 )
 
 # Representative production callers plus their source/native refusal cases.

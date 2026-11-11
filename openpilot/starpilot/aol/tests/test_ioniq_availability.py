@@ -22,12 +22,8 @@ def car_state(*, brake=False):
 def assert_ordinary_source_pause(sd, *, publication_only=False):
   """Host loss withdraws commands while the existing state machine owns life."""
   assert sd.enabled and sd.active
-  if publication_only:
-    assert sd.state_machine.state == log.SelfdriveState.OpenpilotState.enabled
-    assert sd.state_machine.soft_disable_timer == 0
-  else:
-    assert sd.state_machine.state == log.SelfdriveState.OpenpilotState.softDisabling
-    assert 0 < sd.state_machine.soft_disable_timer <= 300
+  assert sd.state_machine.state == log.SelfdriveState.OpenpilotState.softDisabling
+  assert 0 < sd.state_machine.soft_disable_timer <= 300
   assert log.OnroadEvent.EventName.commIssue in sd.events.names
   assert log.OnroadEvent.EventName.controlsMismatch not in sd.events.names
   assert not sd.events.contains(ET.ENABLE)

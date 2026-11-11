@@ -1306,10 +1306,10 @@ class SelfdriveD:
     self.aol_fault_reason = 'availabilityPause'
     self.aol_car_state_log_ns = 0
     self.conditional_car_state_valid = False
-    # If publication crosses the cutoff after StateMachine ran, emit the fault
-    # now; its existing next-cycle transition owns the timer and driver state.
+    # A late source fault still enters the real state machine before alerts
+    # consume its timer; appending SOFT_DISABLE alone leaves an expired timer.
     if self.enabled and ET.SOFT_DISABLE not in self.state_machine.current_alert_types:
-      self.state_machine.current_alert_types.append(ET.SOFT_DISABLE)
+      self.enabled, self.active = self.state_machine.update(self.events)
     return True
 
   def _expire_axis_source(self, CS, now_ns):
@@ -1896,36 +1896,45 @@ class SelfdriveD:
                               toyota_aol_qualified(self.CP, marked_only=True))
     steering_override_allowed = (ordinary_ford or toyota_longitudinal or self.CP.brand == 'hyundai' or
                                  volkswagen_long_qualified(self.CP, marked_only=True))
+    # Paused Ford steering has no LAT grant to retain. The same ordinary
+    # mismatch owner can observe denied LONG with both outputs inactive.
+    ford_long_only = bool(ordinary_ford and not previous.lateral_active and
+      not requested.desired_lateral and intent is not None and intent.pauseLateral and
+      native is not None and not native.requestedLateral and not native.lateralAllowed)
     proof = getattr(self, 'aol_published_input_proof', None)
     prior = getattr(self, 'aol_published_input_native', None)
     anchor = getattr(self, 'aol_ordinary_source_anchor', None)
     companion = getattr(self, 'aol_intent_companion', None)
     if (not self.enabled or not self.active or not self.CP.openpilotLongitudinalControl or
-        not previous.lateral_active or not previous.longitudinal_active or
-        not requested.desired_lateral or not requested.desired_longitudinal or not source_current or
+        not (previous.lateral_active or ford_long_only) or not previous.longitudinal_active or
+        not (requested.desired_lateral or ford_long_only) or not requested.desired_longitudinal or not source_current or
         not self.conditional_car_state_valid or not 0 < self.aol_car_state_log_ns <= now_ns or
         now_ns - self.aol_car_state_log_ns > INTENT_MAX_AGE_NS or
         native is None or prior is None or proof is None or anchor is None or
         anchor[3] != cp_identity(self.CP) or proof[0] != self.aol_session_id or
-        not proof[8] or not proof[9] or not 0 < proof[2] <= now_ns or
+        not (proof[8] or ford_long_only) or not proof[9] or not 0 < proof[2] <= now_ns or
         now_ns > proof[3] and not (ordinary_ford and proof[1] < self.aol_car_state_log_ns and
           intent is not None and intent.allowedLatch and intent.lateralArmed and not intent.pauseLateral) or
         intent is None or companion is None or proof[4] != intent.producerSessionId or
         proof[5] != companion.integrity_epoch or not ((intent.allowedLatch and intent.lateralArmed) or ordinary_ford) or
-        not native.requestedLateral or not native.lateralAllowed or
+        not ford_long_only and (not native.requestedLateral or not native.lateralAllowed) or
         not native.requestedLongitudinal or native.longitudinalAllowed or not native.pandaInventory or
         CS.brakePressed or CS.regenBraking or CS.gasPressed or CS.steeringPressed and not steering_override_allowed or
         any(self.events.contains(kind) for kind in (ET.IMMEDIATE_DISABLE, ET.SOFT_DISABLE, ET.USER_DISABLE,
                                                   ET.OVERRIDE_LONGITUDINAL)) or
         not steering_override_allowed and self.events.contains(ET.OVERRIDE_LATERAL)):
       return False
+    from openpilot.starpilot.aol.transport_pause import _healthy_transport_native
+    health = (_healthy_transport_native(self.sm, self.CP, CS, self.aol_session_id, now_ns,
+      require_longitudinal=False) if ford_long_only else
+      independent_lateral_health(self.sm, self.CP, CS, self.aol_session_id, now_ns))
     def identity(state):
       return (state.axisSessionId, state.pandaSerial, state.safetyModel, state.safetyParam,
               tuple((slot.slotIndex, slot.hardwareSerial, slot.safetyModel, slot.safetyParam,
                      slot.alternativeExperience) for slot in state.pandaInventory))
     if (identity(prior) != identity(native) or
         not 0 < prior.observedMonoTime <= native.observedMonoTime <= now_ns <= prior.validUntilMonoTime or
-        independent_lateral_health(self.sm, self.CP, CS, self.aol_session_id, now_ns) != native):
+        health != native):
       return False
     owners = [index for index, config in enumerate(self.CP.safetyConfigs)
               if str(config.safetyModel) not in ('silent', 'noOutput')]
