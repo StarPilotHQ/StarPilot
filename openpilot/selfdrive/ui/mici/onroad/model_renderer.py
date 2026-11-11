@@ -582,7 +582,15 @@ class ModelRenderer(ModelGeometry, Widget):
     if z_offsets is not None:
       offsets[:, :, 2] = np.repeat(z_offsets, counts)
     joined = np.concatenate(points)
-    proj = (self._car_space_transform @ (joined[None, :, :] + offsets).reshape(2 * total, 3).T).reshape(3, 2, total)
+    expanded = joined[None, :, :] + offsets
+    # Keep matrix grouping stable when radar changes only the path endpoint.
+    if invert_last and z_offsets is not None:
+      lane_count = total - counts[-1]
+      lanes = (self._car_space_transform @ expanded[:, :lane_count].reshape(2 * lane_count, 3).T).reshape(3, 2, lane_count)
+      path = (self._car_space_transform @ expanded[:, lane_count:].reshape(2 * counts[-1], 3).T).reshape(3, 2, counts[-1])
+      proj = np.concatenate((lanes, path), axis=2)
+    else:
+      proj = (self._car_space_transform @ expanded.reshape(2 * total, 3).T).reshape(3, 2, total)
     valid = (np.abs(proj[2, 0]) >= 1e-06) & (np.abs(proj[2, 1]) >= 1e-06)
     # Divide and clip all projected pairs together; retain each line's output order.
     left = np.zeros((2, total), dtype=proj.dtype)

@@ -209,13 +209,21 @@ def test_radar_only_reuses_lane_geometry_without_changing_path_filters_or_clip(r
   renderer._update_model(lead, points[:, 0], update_lane_geometry=True)
   batch_calls = renderer._map_lines_to_polygons.call_args_list
   assert len(batch_calls) == (3 if renderer_class is LargeModelRenderer else 1)
-  assert sum(len(call.args[0]) == 6 for call in batch_calls) == 1
+  strips = 6 if renderer_class is LargeModelRenderer else 7
+  assert sum(len(call.args[0]) == strips for call in batch_calls) == 1
+  if renderer_class is ModelRenderer:
+    assert batch_calls[-1].kwargs['invert_last'] is True
+    assert batch_calls[-1].kwargs['z_offsets'] == (0, 0, 0, 0, 0, 0, renderer._path_offset_z)
   renderer._map_lines_to_polygons.reset_mock()
   renderer._clip_region.x += 1
   renderer._update_model(lead, points[:, 0], update_lane_geometry=False)
   batch_calls = renderer._map_lines_to_polygons.call_args_list
   assert len(batch_calls) == (2 if renderer_class is LargeModelRenderer else 1)
-  assert sum(len(call.args[0]) == 6 for call in batch_calls) == 1
+  strips = 6 if renderer_class is LargeModelRenderer else 7
+  assert sum(len(call.args[0]) == strips for call in batch_calls) == 1
+  if renderer_class is ModelRenderer:
+    assert batch_calls[-1].kwargs['invert_last'] is True
+    assert batch_calls[-1].kwargs['z_offsets'] == (0, 0, 0, 0, 0, 0, renderer._path_offset_z)
 
 
 def test_large_render_preserves_lead_cadence_and_lane_invalidation(renderer, monkeypatch):
