@@ -474,45 +474,53 @@ class VisionModelCore:
 
     white_mask = ((value >= REGULATORY_WHITE_VALUE_MIN) & (saturation <= REGULATORY_WHITE_SAT_MAX)).astype(np.uint8)
     dark_mask = ((value <= REGULATORY_DARK_VALUE_MAX) & (saturation <= REGULATORY_DARK_SAT_MAX)).astype(np.uint8)
+
+    white_ratio = float(white_mask.mean())
+    dark_ratio = float(dark_mask.mean())
+
+    if white_ratio < REGULATORY_MIN_WHITE_RATIO or dark_ratio < REGULATORY_MIN_DARK_RATIO:
+      return False
+
     yellow_mask = (
       (hue >= REGULATORY_YELLOW_HUE_MIN) &
       (hue <= REGULATORY_YELLOW_HUE_MAX) &
       (saturation >= REGULATORY_YELLOW_SAT_MIN) &
       (value >= REGULATORY_YELLOW_VALUE_MIN)
     ).astype(np.uint8)
+    yellow_ratio = float(yellow_mask.mean())
+
+    if yellow_ratio > REGULATORY_MAX_YELLOW_RATIO and yellow_ratio > white_ratio * 0.45:
+      return False
+
     red_mask = (
       (((hue <= REGULATORY_RED_LOW_HUE_MAX) | (hue >= REGULATORY_RED_HIGH_HUE_MIN))) &
       (saturation >= REGULATORY_RED_SAT_MIN) &
       (value >= REGULATORY_RED_VALUE_MIN)
     ).astype(np.uint8)
+    red_ratio = float(red_mask.mean())
+
+    if red_ratio > REGULATORY_MAX_RED_RATIO and red_ratio > white_ratio * 0.35:
+      return False
+
     green_mask = (
       (hue >= REGULATORY_GREEN_HUE_MIN) &
       (hue <= REGULATORY_GREEN_HUE_MAX) &
       (saturation >= REGULATORY_COLORED_SAT_MIN) &
       (value >= REGULATORY_COLORED_VALUE_MIN)
     ).astype(np.uint8)
+    green_ratio = float(green_mask.mean())
+
+    if green_ratio > REGULATORY_MAX_GREEN_RATIO and green_ratio > white_ratio * 0.60:
+      return False
+
     blue_mask = (
       (hue >= REGULATORY_BLUE_HUE_MIN) &
       (hue <= REGULATORY_BLUE_HUE_MAX) &
       (saturation >= REGULATORY_COLORED_SAT_MIN) &
       (value >= REGULATORY_COLORED_VALUE_MIN)
     ).astype(np.uint8)
-
-    white_ratio = float(white_mask.mean())
-    dark_ratio = float(dark_mask.mean())
-    yellow_ratio = float(yellow_mask.mean())
-    red_ratio = float(red_mask.mean())
-    green_ratio = float(green_mask.mean())
     blue_ratio = float(blue_mask.mean())
 
-    if white_ratio < REGULATORY_MIN_WHITE_RATIO or dark_ratio < REGULATORY_MIN_DARK_RATIO:
-      return False
-    if yellow_ratio > REGULATORY_MAX_YELLOW_RATIO and yellow_ratio > white_ratio * 0.45:
-      return False
-    if red_ratio > REGULATORY_MAX_RED_RATIO and red_ratio > white_ratio * 0.35:
-      return False
-    if green_ratio > REGULATORY_MAX_GREEN_RATIO and green_ratio > white_ratio * 0.60:
-      return False
     if blue_ratio > REGULATORY_MAX_BLUE_RATIO and blue_ratio > white_ratio * 0.60:
       return False
 
