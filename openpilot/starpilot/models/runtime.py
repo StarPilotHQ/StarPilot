@@ -101,7 +101,8 @@ class ModelStatusSource:
   def home_label(self, commit: str = "") -> str:
     from openpilot.starpilot.ui.models_state import home_model_label
     status = self.snapshot()
-    return home_model_label(status, commit, self.laboratory_json(self.laboratory_configuration()))
+    config = self.laboratory_configuration()
+    return home_model_label(status, commit, config if config["enabled"] else self.laboratory_json(config))
 
   def laboratory_json(self, config: dict) -> dict:
     self.sm.update(0)

@@ -232,14 +232,14 @@ class HomeView:
       size = 30
       while size > 22 and self._measure(text, FontRole.ROMAN, size).width > width:
         size -= 1
-      if y == 140 and " / " in text:
-        parts = text.split(" / ", 1)
-        budget = (width - self._measure(" / ", FontRole.ROMAN, size).width) / 2
+      if y == 140 and "/" in text:
+        parts = text.split("/", 1)
+        budget = (width - self._measure("/", FontRole.ROMAN, size).width) / 2
         for i, part in enumerate(parts):
           while part and self._measure(part, FontRole.ROMAN, size).width > budget:
             part = part[:-2].rstrip('…') + '…'
           parts[i] = part
-        text = " / ".join(parts)
+        text = "/".join(parts)
       while text and self._measure(text, FontRole.ROMAN, size).width > width:
         text = text[:-2].rstrip('…') + '…'
       self._text(text, FontRole.ROMAN, size, 6, y, color)

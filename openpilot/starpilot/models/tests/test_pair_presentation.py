@@ -5,6 +5,7 @@ from openpilot.starpilot.models.catalog import BUNDLED_CURRENT, model_entries
 from openpilot.starpilot.models.runtime import ModelStatusSource
 from openpilot.starpilot.models.status import ModelStatus, ModelHealth, LaboratoryLoad
 from openpilot.starpilot.models.tests.test_runtime import FakeSubMaster, FakeParams
+from openpilot.starpilot.ui.models_state import model_display_text
 
 
 def test_actual_pair_status_reaches_home_and_galaxy_and_expires():
@@ -23,11 +24,11 @@ def test_actual_pair_status_reaches_home_and_galaxy_and_expires():
     status = source.json()['laboratory']
     assert status['active'] and status['pendingNextStart']
     assert (status['lateralModel'], status['longitudinalModel']) == tuple(ids)
-    assert ' / ' in source.home_label()
+    assert '/' in source.home_label()
     sm.valid['drivingModelData'] = False
     assert source.json()['laboratory']['health'] == 'stale'
-    assert source.home_label() == 'Laboratory output unavailable'
+    assert source.home_label() == '/'.join(model_display_text(model_entries()[mid].name) for mid in reversed(ids))
     sm.valid['drivingModelData'] = True
     receipt.return_value = replace(load, process_start_ticks=99999)
     assert not source.json()['laboratory']['active']
-    assert ' / ' not in source.home_label()
+    assert '/' in source.home_label()
