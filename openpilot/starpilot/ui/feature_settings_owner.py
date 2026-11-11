@@ -84,7 +84,7 @@ from openpilot.starpilot.controllers.toyota_cruise import capability as toyota_c
 GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, "DisengageOnAccelerator"))
 
 BOOL_DEFAULTS = {
-  "GMPedalLongitudinal": False, "ForceStops": False, "AlwaysAllowUploads": False, "TurnAssist": True,
+  "GMPedalLongitudinal": False, "ForceStops": True, "AlwaysAllowUploads": False, "TurnAssist": True,
   "SubaruAvhStartup": False,
   "SubaruStopStartOff": False,
   "SubaruSNG": False,

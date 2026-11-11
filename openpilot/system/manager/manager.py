@@ -78,7 +78,7 @@ def manager_init() -> None:
   for k in params.all_keys():
     if k == b"LKASButtonControl":
       continue  # Card enrolls the vehicle-specific default after identification.
-    default_value = not os.path.lexists(params.get_param_path("Version")) if k == b"LaneCentering" else params.get_default_value(k)
+    default_value = not os.path.lexists(params.get_param_path("Version")) if k in (b"LaneCentering", b"ForceStops") else params.get_default_value(k)
     if default_value is not None and not os.path.lexists(params.get_param_path(k)):
       params.put(k, default_value, block=True)
 
