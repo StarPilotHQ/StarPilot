@@ -946,7 +946,7 @@ class VisionModelCore:
         if face_filter is not None and face_filter.reject_once((proposal_confidence, class_id, (x1, y1, x2, y2))):
           self.latest_detector_proposal = None
           return None
-        if (frame_bgr.dtype == np.uint8 and type(proposals) is list and proposal_index == len(proposals) - 1 and
+        if (frame_bgr.dtype == np.uint8 and type(proposals) is list and
             expansions is DETECTOR_CLASSIFIER_EXPANSIONS and
             (expand_left, expand_top, expand_right, expand_bottom, expansion_weight) == expansions[0] and
             class_id == 0 and not speed_scores and not raw_is_regulatory and
@@ -972,7 +972,39 @@ class VisionModelCore:
               if remaining_crop.size and self._is_regulatory_speed_sign(remaining_crop):
                 break
             else:
-              break
+              if proposal_index == len(proposals) - 1:
+                break
+              if (getattr(self._remember_detector_proposal, '__func__', None) is
+                  VisionModelCore._remember_detector_proposal):
+                for future in proposals[proposal_index + 1:]:
+                  if (type(future) is not tuple or len(future) != 3 or
+                      type(future[0]) not in (int, float) or not math.isfinite(future[0]) or
+                      not future[0] <= proposal_confidence or type(future[1]) is not int or future[1] != 0 or
+                      type(future[2]) is not tuple or len(future[2]) != 4 or
+                      any(type(value) not in (int, float) or not math.isfinite(value) for value in future[2])):
+                    break
+                  confidence, _, (fx1, fy1, fx2, fy2) = future
+                  width, height = fx2 - fx1, fy2 - fy1
+                  area = width * height / max(frame_width * frame_height, 1)
+                  if (width <= 0 or height <= 0 or
+                      confidence >= DETECTOR_CLASSIFIER_STRONG_MODEL_MIN_PROPOSAL_CONFIDENCE or
+                      (fx1 >= frame_width * DETECTOR_CLASSIFIER_TRUSTED_MODEL_MIN_X_RATIO and
+                       height <= DETECTOR_CLASSIFIER_TRUSTED_MODEL_MAX_HEIGHT and
+                       area <= DETECTOR_CLASSIFIER_TRUSTED_MODEL_MAX_AREA_RATIO and
+                       confidence >= DETECTOR_CLASSIFIER_TRUSTED_MODEL_MIN_PROPOSAL_CONFIDENCE)):
+                    break
+                  for left, top, right, bottom, _ in expansions:
+                    future_crop = frame_bgr[
+                      max(int(fy1 - height * top), 0):min(int(fy2 + height * bottom), frame_height),
+                      max(int(fx1 - width * left), 0):min(int(fx2 + width * right), frame_width),
+                    ]
+                    if future_crop.size and self._is_regulatory_speed_sign(future_crop):
+                      break
+                  else:
+                    continue
+                  break
+                else:
+                  return None if best_retry_conflict else best_detection
         if (type(proposals) is list and proposal_index == len(proposals) - 1 and
             expansions is DETECTOR_CLASSIFIER_EXPANSIONS and
             (expand_left, expand_top, expand_right, expand_bottom, expansion_weight) == expansions[-1] and

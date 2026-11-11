@@ -126,9 +126,8 @@ class TestTerminalMaterialFalse(unittest.TestCase):
     self.assertEqual(core.classifier_net.calls, 1)
     self.assertTrue(core.last_classifier_advisory_rejected)
 
-  def test_nonlast_strong_trusted_and_custom_expansions_keep_reads(self):
+  def test_strong_trusted_and_custom_expansions_keep_reads(self):
     variants = [
-      {'proposals': [(.4, 0, (1400, 100, 1490, 237)), (.3, 0, (1550, 150, 1650, 300))]},
       {'proposals': [(.6, 0, (1400, 100, 1490, 237))]},
       {'proposals': [(.18, 0, (1040, 100, 1120, 155))]},
       {'control': True},
@@ -170,4 +169,111 @@ class TestTerminalMaterialFalse(unittest.TestCase):
     self.assertIsNotNone(actual_result[0])
     self.assertEqual(actual_result[0].speed_limit_mph, 40)
     self.assertGreater(actual[0].classifier_net.calls, 0)
+    self.assertLess(actual[0].classifier_net.calls, control[0].classifier_net.calls)
+
+
+  def test_descending_suffix_empty_votes_and_ties_preserve_tracking(self):
+    proposals = [(.4, 0, (1400, 100, 1490, 237)), (.4, 0, (1550, 150, 1650, 300)),
+                 (.3, 0, (1650, 200, 1750, 350))]
+    for advisory in (False, True):
+      with self.subTest(advisory=advisory):
+        actual = self.setup_case(proposals=proposals)
+        control = self.setup_case(proposals=proposals, control=True)
+        for case in (actual, control):
+          case[0].classifier_net = Reader(advisory=advisory)
+          case[0].classifier_logits_layer = 'original' if advisory else None
+        self.assertEqual(self.run_case(actual), self.run_case(control))
+        self.assertEqual(actual[0].classifier_net.calls, 0)
+        self.assertGreater(control[0].classifier_net.calls, 0)
+        self.assertEqual(actual[0].latest_detector_proposal.bbox, proposals[0][2])
+        self.assertFalse(actual[0].last_classifier_advisory_rejected)
+
+  def test_suffix_future_eligible_or_unsupported_falls_back(self):
+    first = (.4, 0, (1400, 100, 1490, 237))
+    variants = [(.5, 0, (1550, 150, 1650, 300)), (.6, 0, (1550, 150, 1650, 300)),
+                (.3, 2, (1550, 150, 1650, 300)), (.3, 0, (1040, 100, 1120, 155)),
+                (.3, 0, (1550, 150, 1550, 300))]
+    for future in variants:
+      with self.subTest(future=future):
+        actual = self.setup_case(proposals=[first, future])
+        control = self.setup_case(proposals=[first, future], control=True)
+        self.assertEqual(self.run_case(actual), self.run_case(control))
+        self.assertGreater(actual[0].classifier_net.calls, 0)
+
+  def test_suffix_future_material_true_keeps_advisory_behavior(self):
+    proposals = [(.4, 0, (1400, 100, 1490, 237)), (.3, 0, (1550, 150, 1650, 300))]
+    actual, control = self.setup_case(proposals=proposals), self.setup_case(proposals=proposals, control=True)
+    for case in (actual, control):
+      case[3][150:300, 1550:1650] = 255
+      case[3][190:240, 1580:1620] = 0
+      case[0].classifier_net = Reader(advisory=True)
+      case[0].classifier_logits_layer = 'original'
+    self.assertEqual(self.run_case(actual), self.run_case(control))
+    self.assertGreater(actual[0].classifier_net.calls, 0)
+    self.assertEqual(actual[0].last_classifier_advisory_rejected, control[0].last_classifier_advisory_rejected)
+
+  def test_suffix_custom_remember_retains_callbacks(self):
+    proposals = [(.4, 0, (1400, 100, 1490, 237)), (.3, 0, (1550, 150, 1650, 300))]
+    actual = self.setup_case(proposals=proposals)
+    calls = []
+    original = actual[0]._remember_detector_proposal
+    def remember(*args, **kwargs):
+      calls.append((args, kwargs))
+      return original(*args, **kwargs)
+    with patch.object(actual[0], '_remember_detector_proposal', side_effect=remember):
+      self.run_case(actual)
+    self.assertEqual(len(calls), 2)
+    self.assertGreater(actual[0].classifier_net.calls, 0)
+
+  def test_suffix_prior_winner_remains_and_skips_only_suffix(self):
+    proposals = [(.3, 0, (1100, 400, 1190, 537)), (.4, 0, (1400, 100, 1490, 237)),
+                 (.3, 0, (1550, 150, 1650, 300))]
+    actual, control = self.setup_case(proposals=proposals), self.setup_case(proposals=proposals, control=True)
+    for case in (actual, control):
+      case[0].classifier_net = Reader(confidence=.6)
+      case[3][400:537, 1100:1190] = 255
+      case[3][430:485, 1130:1160] = 0
+    result = self.run_case(actual)
+    self.assertEqual(result, self.run_case(control))
+    self.assertIsNotNone(result[0])
+    self.assertEqual(result[0].speed_limit_mph, 40)
+    self.assertLess(actual[0].classifier_net.calls, control[0].classifier_net.calls)
+
+
+  def test_suffix_preserves_prior_retry_conflict_return(self):
+    class RetryReader(Reader):
+      def forward(self, names=None):
+        values = super().forward(names)
+        if self.calls == 2:
+          return [values, values]
+        rejected = np.zeros((1, 19), np.float32)
+        rejected[0, 18] = .99
+        rejected[0, model.US_CLASSIFIER_SPEED_VALUES.index(40)] = .01
+        return [rejected, rejected]
+
+    proposals = [(.5, 0, (1100, 400, 1190, 537)), (.4, 0, (1400, 100, 1490, 237)),
+                 (.3, 0, (1550, 150, 1650, 300))]
+    actual, control = self.setup_case(proposals=proposals), self.setup_case(proposals=proposals, control=True)
+    results = []
+    for case in (actual, control):
+      core = case[0]
+      core.classifier_net = RetryReader(confidence=.61)
+      core.classifier_logits_layer = 'original'
+      material_calls = []
+      patch_refs = []
+      def material(crop, material_calls=material_calls, patch_refs=patch_refs):
+        material_calls.append(crop.shape)
+        if len(material_calls) == 3:
+          patch_refs[0].stop()
+        return len(material_calls) == 2
+      material_patch = patch.object(core, '_is_regulatory_speed_sign', side_effect=material)
+      patch_refs.append(material_patch)
+      material_patch.start()
+      try:
+        results.append(self.run_case(case))
+      finally:
+        material_patch.stop()
+    self.assertEqual(results[0], results[1])
+    self.assertIsNone(results[0][0])
+    self.assertEqual(actual[0].latest_detector_proposal.speed_limit_mph, 40)
     self.assertLess(actual[0].classifier_net.calls, control[0].classifier_net.calls)
