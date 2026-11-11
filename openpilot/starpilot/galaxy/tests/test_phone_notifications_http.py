@@ -120,5 +120,15 @@ class PhoneNotificationsHttpTest(unittest.TestCase):
     self.assertEqual(self.notifications.snapshot()['apps'], [])
 
 
+  def test_message_text_is_shown_only_on_a_direct_local_connection(self):
+    self.request('/api/companion/notification', payload=NOTE, cookie=self.local_cookie)
+    local = self.request('/api/starport/notifications', cookie=self.local_cookie)[1]
+    self.assertEqual((local['showing']['sender'], local['showing']['text'], local['contentVisible']), ('Alice', 'On my way', True))
+    self.assertEqual(local['recent'][0]['outcome'], 'shown')
+    remote = self.request('/api/starport/notifications', remote=True, cookie=self.remote_cookie)[1]
+    self.assertEqual((remote['showing'].get('sender'), remote['showing'].get('text'), remote['contentVisible']), (None, None, False))
+    self.assertEqual(remote['showing']['appName'], 'WhatsApp')
+
+
 if __name__ == '__main__':
   unittest.main()

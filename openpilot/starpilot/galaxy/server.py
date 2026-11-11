@@ -1120,7 +1120,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(401, {'error': 'Sign in to Galaxy'})
           return
         try:
-          result = phone_notifications_source.snapshot()
+          result = phone_notifications_source.snapshot(content=self.direct_local())
         except OSError:
           self.json(503, {'error': 'Phone notification settings are unavailable'})
         else:

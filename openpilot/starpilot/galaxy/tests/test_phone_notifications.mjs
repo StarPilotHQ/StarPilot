@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { compile } from '../web/vendor/vue/vue.esm-browser.js'
-import { PhoneNotifications, validPhoneNotifications } from '../web/js/phone-notifications.js'
+import { OUTCOME_TEXT, PhoneNotifications, ago, validPhoneNotifications } from '../web/js/phone-notifications.js'
 import { StarPortPage } from '../web/js/starport.js'
 import { SettingsPage, SETTINGS_SECTIONS } from '../web/js/settings.js'
 
@@ -13,6 +13,15 @@ assert.equal(validPhoneNotifications({ ...value, apps: [{ ...app, id: 'bad id' }
 assert.equal(validPhoneNotifications({ ...value, apps: Array(65).fill(app) }), false)
 assert.equal(validPhoneNotifications({ ...value, apps: [{ ...app, sender: 'Alice' }] }), true, 'extra keys are ignored, never rendered')
 assert.equal(validPhoneNotifications(null), false)
+const live = { ...value, recent: [{ app: 'com.whatsapp', appName: 'WhatsApp', source: 'android', outcome: 'appOff', ageSeconds: 4 }],
+  showing: { appName: 'WhatsApp', remainingSeconds: 6, sender: 'Alice', text: 'Hi' }, contentVisible: true }
+assert.equal(validPhoneNotifications(live), true)
+assert.equal(validPhoneNotifications({ ...live, recent: [{ ...live.recent[0], outcome: 'boom' }] }), false)
+assert.equal(validPhoneNotifications({ ...live, showing: { appName: 'X', remainingSeconds: 'soon' } }), false)
+assert.equal(validPhoneNotifications({ ...live, showing: { appName: 'X', remainingSeconds: 2, text: 5 } }), false)
+assert.equal(ago(5), '5 s ago')
+assert.equal(ago(125), '2 min ago')
+for (const outcome of ['shown', 'appOff', 'notMessage', 'tooOld', 'disabled']) assert.ok(OUTCOME_TEXT[outcome])
 compile(PhoneNotifications.template, { decodeEntities: text => text })
 for (const text of ['Show phone notifications', 'comma screen', 'Hide while moving', 'never stored', 'Share notifications', 'Phone notifications', 'Send test notification'])
   assert.ok(PhoneNotifications.template.includes(text), text)
@@ -47,11 +56,18 @@ assert.equal(sample.active, false)
 const vm = instance()
 vm.start()
 await new Promise(done => setTimeout(done, 0))
-assert.deepEqual(vm.snapshot, value)
+assert.deepEqual(vm.snapshot, { recent: [], showing: null, contentVisible: false, ...value })
 assert.equal(requests[0].url, './api/starport/notifications')
 assert.notEqual(vm.timer, null)
 assert.equal(await vm.save({ hideWhileMoving: true }), true)
 assert.equal(vm.snapshot.hideWhileMoving, true)
+vm.snapshot = { ...vm.snapshot, recent: live.recent, showing: live.showing, contentVisible: true }
+vm.adopt(value)
+assert.deepEqual(vm.snapshot.recent, live.recent, 'a settings-only reply keeps the live state')
+assert.equal(vm.pollMs(), 1000)
+vm.adopt({ ...value, recent: [], showing: null, contentVisible: false })
+assert.equal(vm.snapshot.showing, null)
+assert.equal(vm.pollMs(), 5000)
 assert.deepEqual(JSON.parse(requests.at(-1).body), { hideWhileMoving: true })
 vm.stop()
 assert.equal(vm.timer, null)
@@ -63,8 +79,9 @@ globalThis.fetch = async (url, options = {}) => {
 const tester = instance()
 tester.active = true
 assert.equal(await tester.sendTest(), false)
-assert.equal(requests.at(-1).url, './api/starport/notifications/test')
-assert.equal(requests.at(-1).method, 'POST')
+const testRequest = requests.find(request => request.url.endsWith('/test'))
+assert.equal(testRequest?.method, 'POST')
+assert.equal(requests.at(-1).url, './api/starport/notifications', 'a test refreshes the live view right away')
 assert.match(tester.testResult, /Turn on Show phone notifications/)
 assert.equal(tester.busy, false)
 tester.stop()

@@ -230,3 +230,26 @@ def test_test_notification_respects_the_main_switch_and_age(owner):
   assert owner.publish_test('galaxy')['accepted'] and read_current(owner)['text'] == TEST_TEXT['galaxy']
   with pytest.raises(ValueError):
     owner.publish_test('web')
+
+
+def test_recent_outcomes_hold_no_content_and_showing_needs_permission(owner):
+  owner.publish(note())
+  owner.publish(note(app='com.google.android.gm', appName='Gmail', category='email'))
+  owner.update({'apps': {'com.whatsapp': False}})
+  owner.publish(note())
+  owner.update({'apps': {'com.whatsapp': True}})
+  owner.publish(note(ageMs=9000))
+  owner.publish_test('android')
+  owner.clock_value[0] += 3_000_000_000
+  hidden = owner.snapshot()
+  assert [row['outcome'] for row in hidden['recent']] == ['shown', 'tooOld', 'appOff', 'notMessage', 'shown']
+  assert hidden['recent'][0]['appName'] == 'Test from Android' and hidden['recent'][0]['ageSeconds'] == 3
+  assert hidden['showing'] == {'appName': 'StarPilot', 'remainingSeconds': 5} and hidden['contentVisible'] is False
+  assert SECRET_SENDER not in json.dumps(hidden) and SECRET_TEXT not in json.dumps(hidden)
+  shown = owner.snapshot(content=True)
+  assert (shown['showing']['sender'], shown['showing']['text']) == (TEST_TITLE, TEST_TEXT['android'])
+  owner.update({'enabled': False})
+  owner.publish(note())
+  after = owner.snapshot(content=True)
+  assert after['showing'] is None and after['recent'][0]['outcome'] == 'disabled'
+  assert SECRET_TEXT not in json.dumps(after)

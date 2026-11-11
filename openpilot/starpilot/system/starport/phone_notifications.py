@@ -1,4 +1,5 @@
 """Phone notifications for the car screen. Content only ever lives in the short-lived /dev/shm handoff."""
+from collections import deque
 import json
 import math
 import re
@@ -15,6 +16,7 @@ PATH = '/api/companion/notification'
 TOAST_NS = 8_000_000_000
 MAX_AGE_MS = 60_000
 MAX_APPS = 64
+RECENT = 8
 FIELDS = {'source', 'app', 'appName', 'sender', 'text', 'category', 'ageMs'}
 SOURCES = ('android', 'ios')
 CATEGORIES = ('message', 'call', 'email', 'social', 'other')
@@ -109,6 +111,8 @@ class PhoneNotifications:
     self.lock = threading.Lock()
     old = _read_handoff(self.handoff)
     self.sequence = old['sequence'] if old else 0
+    # Outcomes only, in memory; never the sender or text.
+    self.recent = deque(maxlen=RECENT)
 
   def _write_handoff(self, value):
     with atomic_write(str(self.handoff), overwrite=True) as handle:
@@ -153,6 +157,7 @@ class PhoneNotifications:
     with self.lock:
       settings = read_settings(self.settings_path)
       if not settings['enabled']:
+        self._note(payload, 'disabled')
         return {'ok': True, 'accepted': False, 'enabled': False}
       if self._record(settings, payload):
         self._save(settings)
@@ -161,21 +166,33 @@ class PhoneNotifications:
       age_ns = int(payload['ageMs'] * 1e6)
       if accepted and age_ns < TOAST_NS:
         self._show(payload['app'], payload.get('appName', ''), payload.get('sender', ''), payload.get('text', ''), age_ns)
+        self._note(payload, 'shown')
       else:
+        self._note(payload, 'tooOld' if accepted else 'appOff' if allowed is False else 'notMessage')
         accepted = False
     return {'ok': True, 'accepted': bool(accepted), 'enabled': True}
+
+  def _note(self, payload, outcome):
+    app = payload['app']
+    self.recent.appendleft({'app': app, 'appName': payload.get('appName', '').strip()[:80] or app, 'source': payload['source'],
+                            'outcome': outcome, 'at': self.clock()})
 
   def publish_test(self, source, age_ms=0):
     """A fixed toast that skips the app list and filter, so a test proves the path without changing choices."""
     if source not in TEST_TEXT:
       raise ValueError('Invalid notification source')
     with self.lock:
+      test = {'app': 'starpilot.test', 'appName': 'Test from ' + {'galaxy': 'Galaxy', 'android': 'Android', 'ios': 'iPhone'}[source],
+              'source': source}
       if not read_settings(self.settings_path)['enabled']:
+        self._note(test, 'disabled')
         return {'ok': True, 'accepted': False, 'enabled': False, 'test': True}
       age_ns = int(age_ms * 1e6)
       if age_ns >= TOAST_NS:
+        self._note(test, 'tooOld')
         return {'ok': True, 'accepted': False, 'enabled': True, 'test': True}
       self._show('starpilot.test', 'StarPilot', TEST_TITLE, TEST_TEXT[source], age_ns)
+      self._note(test, 'shown')
     return {'ok': True, 'accepted': True, 'enabled': True, 'test': True}
 
   def _show(self, app, app_name, sender, text, age_ns):
@@ -186,9 +203,19 @@ class PhoneNotifications:
     expiry.daemon = True
     expiry.start()
 
-  def snapshot(self):
+  def snapshot(self, content=False):
+    """Settings plus live state; sender and text only when content is True (a direct local connection)."""
     with self.lock:
-      return self._snapshot(read_settings(self.settings_path))
+      result = self._snapshot(read_settings(self.settings_path))
+      now = self.clock()
+      result['recent'] = [{key: row[key] for key in ('app', 'appName', 'source', 'outcome')} |
+                          {'ageSeconds': max(0, (now - row['at']) // 1_000_000_000)} for row in self.recent]
+    shown = current(now, self.handoff, self.boot_id, self.boot_offset)
+    result['showing'] = None if shown is None else {
+      'appName': shown['appName'] or shown['app'], 'remainingSeconds': max(1, -(-(shown['observed'] + TOAST_NS - now) // 1_000_000_000)),
+      **({'sender': shown['sender'], 'text': shown['text']} if content else {})}
+    result['contentVisible'] = bool(content)
+    return result
 
   @staticmethod
   def _snapshot(settings):
