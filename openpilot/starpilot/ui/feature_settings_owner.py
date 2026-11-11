@@ -1163,9 +1163,9 @@ class FeatureSettingsOwner:
                                  reason="Off uses the upstream planner. Supported longitudinal control stays active. Changes apply on the next drive."))
       allowed = configurable and system_long
       force_enabled, _, _ = self._value("ForceStops")
-      rows.append(self._bool_row("ForceStops", "Enhanced Stops", allowed or
-                                 (force_enabled == "1" and self.authority("preferences")),
-                                 reason="Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue."))
+      rows.append(self._bool_row(
+        "ForceStops", "Enhanced Stops", allowed or (force_enabled == "1" and self.authority("preferences")),
+        reason="Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue."))
       offset_row = self._number_row("ForceStopDistanceOffset", "Stop Distance Adjustment", allowed and force_enabled == "1")
       rows.append(replace(offset_row, default_reset_available=allowed and parked and offset_row.step > 0,
                           reason="Positive values stop farther forward; negative values stop earlier"))

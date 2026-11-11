@@ -62,12 +62,15 @@ class TestRenderDocumentReuse(unittest.TestCase):
             self.assertEqual(set(selected), {key})
             self.assertEqual(selected[key], all_actions[key])
             allowed[0] = False
-            if selected[key].invoke is not None:
-              self.assertFalse(selected[key].invoke())
+            invoke = selected[key].invoke
+            if invoke is not None:
+              self.assertFalse(invoke())
             allowed[0] = True
         saved = favorites.layout_actions(params, profile, lambda: True, requested_keys={'EnableTorqueBarWidget'})
         path.write_bytes(self.raw + b' ')
-        self.assertFalse(saved['EnableTorqueBarWidget'].invoke())
+        invoke = saved['EnableTorqueBarWidget'].invoke
+        assert invoke is not None
+        self.assertFalse(invoke())
         path.write_bytes(self.raw)
 
   def test_unrequested_layout_actions_do_not_read_saved_layout(self):

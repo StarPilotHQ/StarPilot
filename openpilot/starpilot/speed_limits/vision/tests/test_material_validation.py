@@ -10,7 +10,8 @@ from openpilot.starpilot.speed_limits.vision import model
 @unittest.skipIf(model.cv2 is None, 'OpenCV is optional')
 class TestMaterialValidation(unittest.TestCase):
   def validate(self, image):
-    return model.VisionModelCore._is_regulatory_speed_sign(None, image)
+    core = model.VisionModelCore.__new__(model.VisionModelCore)
+    return core._is_regulatory_speed_sign(image)
 
   def panel(self, hue=None):
     hsv = np.zeros((100, 80, 3), np.uint8)
