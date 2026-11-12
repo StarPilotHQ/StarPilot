@@ -476,7 +476,11 @@ def build_priority_tests(site, catalog, core_tests):
     family_modules = [name for name in sorted(catalog) if name == f"test_{family}.py" or name.startswith(f"test_{family}_") or
                       (family == "ford" and name == "test_angle_native.py")]
     if family_modules:
-      return [test_id for name in family_modules for test_id in catalog[name]]
+      targets = [test_id for name in family_modules for test_id in catalog[name]]
+      if family == "honda":
+        targets.sort(key=lambda target: not target.endswith((".test_all_stock_honda_rx_callbacks_finish_without_native_memory_faults",
+                                                            ".test_all_zero_commands_finish_without_native_memory_faults")))
+      return targets
     # Unmapped mode files still exercise the full safety suite rather than receive zero targets.
     return [test_id for name in sorted(catalog) for test_id in catalog[name]]
   return core_tests
@@ -607,18 +611,23 @@ def _run_pytest(targets):
 
   debug_root = None
   debug_libraries = []
+  release_template = None
+  native_copy_count = 0
 
   def fixture_native(release=False):
-    if release:
-      return build_native(release=True)
+    nonlocal release_template, native_copy_count
     if native is None or native_path is None or debug_root is None:
       raise RuntimeError("pytest Debug mutation context is unavailable")
     if native.mutation_get_active_mutant() != active_mutant:
       raise RuntimeError("pytest fixture changed the active Debug mutant")
-    path = debug_root / f"debug-{len(debug_libraries)}.so"
-    shutil.copyfile(native_path, path)
+    if release and release_template is None:
+      release_template = build_native(release=True, output_dir=debug_root)
+    path = debug_root / f"{'release' if release else 'debug'}-{native_copy_count}.so"
+    native_copy_count += 1
+    shutil.copyfile(release_template if release else native_path, path)
     library = libsafety_py.ffi.dlopen(str(path))
-    library.mutation_set_active_mutant(active_mutant)
+    if not release:
+      library.mutation_set_active_mutant(active_mutant)
     debug_libraries.append(library)
     return str(path)
 
@@ -648,6 +657,7 @@ def run_unittest(targets, lib_path, mutant_id, verbose):
 
   unittest_targets = [target for target in targets if not target.startswith("pytest:")]
   pytest_targets = [target for target in targets if target.startswith("pytest:")]
+
   class LazyTargets(unittest.TestSuite):
     _cleanup = False
     _result: unittest.TestResult | None = None

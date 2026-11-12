@@ -89,7 +89,7 @@ class TestMutationInfrastructureAccounting(unittest.TestCase):
     source = """import pytest
 from opendbc.car import structs
 from opendbc.safety.tests.libsafety import libsafety_py
-@pytest.fixture(params=(False, False, True), ids=('DEBUG_A', 'DEBUG_B', 'RELEASE'))
+@pytest.fixture(params=(False, False, True, True), ids=('DEBUG_A', 'DEBUG_B', 'RELEASE_A', 'RELEASE_B'))
 def native_variant(request):
   previous = libsafety_py.libpath
   libsafety_py.load(libsafety_py._build_libsafety(release=request.param))
@@ -98,18 +98,18 @@ def native_variant(request):
   finally:
     libsafety_py.load(previous)
 def test_native_variant(native_variant):
+  assert not libsafety_py.libsafety.get_controls_allowed()
+  libsafety_py.libsafety.set_controls_allowed(True)
   if native_variant:
     assert libsafety_py.libsafety.set_safety_hooks(structs.CarParams.SafetyModel.allOutput, 0) != 0
     with pytest.raises(AttributeError):
       libsafety_py.libsafety.mutation_get_active_mutant()
   else:
     assert libsafety_py.libsafety.mutation_get_active_mutant() == 73
-    assert not libsafety_py.libsafety.get_controls_allowed()
-    libsafety_py.libsafety.set_controls_allowed(True)
 """
-    release = libsafety_py._build_libsafety(release=True)
     with TemporaryDirectory() as directory, patch.dict(libsafety_py.__dict__):
       root = Path(directory)
+      release = libsafety_py._build_libsafety(release=True, output_dir=root)
       debug = root / "instrumented.so"
       fixture_source = "\n".join(("#include <stdbool.h>", "static bool fixture_controls;",
                                   "void set_controls_allowed(bool value) { fixture_controls = value; }",
@@ -121,19 +121,56 @@ def test_native_variant(native_variant):
       target = root / "test_native_variant.py"
       target.write_text(source)
       builds = []
+      build_roots = []
 
-      def build_variant(release=False):
+      def build_variant(release=False, output_dir=None):
+        self.assertIsNotNone(output_dir)
         self.assertTrue(release, "active Debug library must not be rebuilt")
         builds.append(release)
+        build_roots.append(Path(output_dir))
         return release_library
 
       release_library = release
       with patch.object(libsafety_py, "_build_libsafety", side_effect=build_variant):
         result = mutation._run_pytest(["pytest:" + str(target)])
-      self.assertEqual((result.ran, result.skipped, result.failures, result.errors), (3, 0, (), ()), result.output_tail)
+      self.assertEqual((result.ran, result.skipped, result.failures, result.errors), (4, 0, (), ()), result.output_tail)
       self.assertEqual(builds, [True])
+      self.assertTrue(all(not path.exists() for path in build_roots))
+      self.assertTrue(Path(release).is_file())
       self.assertEqual(libsafety_py.libsafety.mutation_get_active_mutant(), 73)
       self.assertTrue(libsafety_py.libsafety.get_controls_allowed())
+
+  def test_native_build_removes_objects_and_failed_outputs(self):
+    with TemporaryDirectory() as directory:
+      root = Path(directory)
+      library = Path(libsafety_py._build_libsafety(release=True, output_dir=root))
+      self.assertEqual(list(root.iterdir()), [library])
+      library.unlink()
+      for calls in ((RuntimeError("compiler failed"),), (None, RuntimeError("compiler failed"))):
+        with self.subTest(calls=len(calls)), patch.object(libsafety_py.subprocess, "check_call", side_effect=calls):
+          with self.assertRaisesRegex(RuntimeError, "compiler failed"):
+            libsafety_py._build_libsafety(output_dir=root)
+        self.assertEqual(list(root.iterdir()), [])
+      make_temp = libsafety_py.tempfile.mkstemp
+
+      def fail_shared_output(*args, **kwargs):
+        if kwargs.get("suffix") == ".so":
+          raise OSError("output allocation failed")
+        return make_temp(*args, **kwargs)
+
+      with patch.object(libsafety_py.tempfile, "mkstemp", side_effect=fail_shared_output):
+        with self.assertRaisesRegex(OSError, "output allocation failed"):
+          libsafety_py._build_libsafety(output_dir=root)
+      self.assertEqual(list(root.iterdir()), [])
+
+  def test_honda_callback_probes_precede_in_process_native_calls(self):
+    site = mutation.MutationSite(1, 0, 1, 0, 1, 1, "==", "!=", "comparison", mutation.SAFETY_DIR / "modes/honda.h", 1)
+    probe = "test_honda_interceptor.TestHondaInterceptor.test_all_stock_honda_rx_callbacks_finish_without_native_memory_faults"
+    catalog = {"test_honda.py": ["test_honda.TestHonda.test_rx_hook"], "test_honda_interceptor.py": [probe]}
+    expected = [target for targets in catalog.values() for target in targets]
+    ordered = mutation.build_priority_tests(site, catalog, expected)
+    self.assertEqual(Counter(ordered), Counter(expected))
+    self.assertEqual(ordered[0], probe)
 
   def test_worker_crash_is_infrastructure_error(self):
     site = self.site()
