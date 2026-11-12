@@ -98,7 +98,9 @@ def test_actual_required_rx_refusal(matrix, address, kind):
   matrix.warm()
   assert matrix.safety.aol_get_permission_mask() == 1
   config = matrix.safety.current_safety_config
-  index = next(i for i in range(config.rx_checks_len) if config.rx_checks[i].msg[0].addr == address)
+  matches = [i for i in range(config.rx_checks_len) if config.rx_checks[i].msg[0].addr == address]
+  assert len(matches) == 1, (hex(address), matches)
+  index = matches[0]
   check = config.rx_checks[index]
   original_timestamp = matrix.safety.rx_status[index].last_timestamp
   matrix.tick(fault=(kind, address))

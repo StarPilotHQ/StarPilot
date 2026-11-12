@@ -480,6 +480,8 @@ def build_priority_tests(site, catalog, core_tests):
       if family == "honda":
         targets.sort(key=lambda target: not target.endswith((".test_all_stock_honda_rx_callbacks_finish_without_native_memory_faults",
                                                             ".test_all_zero_commands_finish_without_native_memory_faults")))
+      if family == "toyota":
+        targets.sort(key=lambda target: not target.endswith("TestToyotaNativeCallbacks.test_valid_native_callbacks_finish_without_memory_faults"))
       return targets
     # Unmapped mode files still exercise the full safety suite rather than receive zero targets.
     return [test_id for name in sorted(catalog) for test_id in catalog[name]]

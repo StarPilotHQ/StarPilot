@@ -3,6 +3,9 @@ import numpy as np
 import random
 import unittest
 import itertools
+import signal
+import subprocess
+import sys
 
 from opendbc.car.toyota.values import ToyotaSafetyFlags
 from opendbc.car.structs import CarParams
@@ -769,3 +772,78 @@ class TestToyotaLtaIndependentHealth(unittest.TestCase):
             self.assertEqual(case.native.aol_get_permission_mask(), expected)
         finally:
           case.close()
+
+
+class TestToyotaNativeCallbacks(unittest.TestCase):
+  def test_valid_native_callbacks_finish_without_memory_faults(self):
+    try:
+      mutant = libsafety_py.libsafety.mutation_get_active_mutant()
+    except AttributeError:
+      mutant = None
+    script = """import faulthandler, sys
+from opendbc.can import CANPacker
+from opendbc.car import structs
+from opendbc.car.toyota import pedal
+from opendbc.safety.tests.libsafety import libsafety_py
+faulthandler.enable(all_threads=True)
+libsafety_py.load(sys.argv[1])
+safety = libsafety_py.libsafety
+libsafety_py.ffi.cdef('extern safety_config current_safety_config;', override=True)
+if sys.argv[2] != 'None':
+  safety.mutation_set_active_mutant(int(sys.argv[2]))
+scenario = sys.argv[3]
+safety.init_tests()
+safety.set_alternative_experience(32)
+word = {'pedal': 0x2049, 'secoc-init': 2121, 'composite-init': 0xA849}.get(scenario, 73)
+print('NATIVE_SETUP_BEGIN', flush=True)
+configured = safety.set_safety_hooks(structs.CarParams.SafetyModel.toyota, word)
+print('NATIVE_SETUP_RETURN', flush=True)
+if configured != 0 or not 0 <= safety.current_safety_config.rx_checks_len <= safety.MAX_RX_CHECKS:
+  print('NATIVE_SETUP_ASSERTION', flush=True)
+  raise SystemExit(1)
+if scenario.endswith('-init'):
+  print('NATIVE_INIT_DONE', flush=True)
+  raise SystemExit(0)
+packer = CANPacker('toyota_nodsu_pt_generated')
+name, values = {
+  'accel': ('ACC_CONTROL', {'ACCEL_CMD': .1}),
+  'cruise': ('PCM_CRUISE', {'CRUISE_ACTIVE': 0, 'GAS_RELEASED': 1}),
+  'speed': ('WHEEL_SPEEDS', {f'WHEEL_SPEED_{wheel}': 30 for wheel in ('FL', 'FR', 'RL', 'RR')}),
+  'pedal': ('GAS_SENSOR', {'INTERCEPTOR_GAS': 0, 'INTERCEPTOR_GAS2': 0, 'STATE': 0, 'COUNTER_PEDAL': 0}),
+}[scenario]
+address, data, bus = packer.make_can_msg(name, 0, values)
+if scenario == 'pedal':
+  data = bytearray(data)
+  data[-1] = pedal.checksum(data)
+packet = libsafety_py.make_CANPacket(address, bus, data)
+print('NATIVE_CALLBACK_BEGIN', flush=True)
+accepted = safety.safety_tx_hook(packet) if scenario == 'accel' else safety.safety_rx_hook(packet)
+print('NATIVE_CALLBACK_RETURN', flush=True)
+assert accepted in (0, 1)
+if scenario != 'accel':
+  assert accepted
+"""
+    for scenario in ('accel', 'cruise', 'speed', 'pedal', 'secoc-init', 'composite-init'):
+      with self.subTest(scenario=scenario):
+        try:
+          result = subprocess.run([sys.executable, '-c', script, libsafety_py.libpath, str(mutant), scenario],
+                                  capture_output=True, text=True, timeout=10)
+        except subprocess.TimeoutExpired as exc:
+          output = exc.stdout or ''
+          if isinstance(output, bytes):
+            output = output.decode(errors='replace')
+          setup_entered = 'NATIVE_SETUP_BEGIN' in output and 'NATIVE_SETUP_RETURN' not in output
+          if 'NATIVE_CALLBACK_BEGIN' not in output and not setup_entered:
+            raise RuntimeError('Native probe did not reach its initialization or callback') from exc
+          self.fail('Native callback did not finish within ten seconds')
+        setup_entered = 'NATIVE_SETUP_BEGIN' in result.stdout and 'NATIVE_SETUP_RETURN' not in result.stdout
+        if result.returncode == -signal.SIGSEGV and setup_entered:
+          self.fail('Native initialization faulted on a supported profile: ' + result.stderr)
+        entered = 'NATIVE_CALLBACK_BEGIN' in result.stdout
+        if result.returncode == -signal.SIGSEGV and entered and 'NATIVE_CALLBACK_RETURN' not in result.stdout:
+          self.fail('Native callback faulted on a fully allocated valid packet: ' + result.stderr)
+        setup_complete = scenario.endswith('-init') and 'NATIVE_INIT_DONE' in result.stdout
+        asserted = setup_complete or 'NATIVE_SETUP_ASSERTION' in result.stdout or 'NATIVE_CALLBACK_RETURN' in result.stdout
+        if result.returncode not in (0, 1) or not asserted:
+          raise RuntimeError(f'Native callback probe infrastructure failure ({result.returncode}): {result.stdout}{result.stderr}')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

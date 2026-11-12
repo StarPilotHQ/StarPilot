@@ -177,6 +177,15 @@ def test_native_variant(native_variant):
     self.assertEqual(Counter(ordered), Counter(expected))
     self.assertEqual(ordered[0], probe)
 
+  def test_toyota_callback_probe_precedes_in_process_native_calls(self):
+    site = mutation.MutationSite(1, 0, 1, 0, 1, 1, "==", "!=", "comparison", mutation.SAFETY_DIR / "modes/toyota.h", 1)
+    probe = "test_toyota.TestToyotaNativeCallbacks.test_valid_native_callbacks_finish_without_memory_faults"
+    catalog = {"test_toyota.py": ["test_toyota.TestToyota.test_rx_hook", probe]}
+    expected = catalog["test_toyota.py"]
+    ordered = mutation.build_priority_tests(site, catalog, expected)
+    self.assertEqual(Counter(ordered), Counter(expected))
+    self.assertEqual(ordered[0], probe)
+
   def test_worker_crash_is_infrastructure_error(self):
     site = self.site()
     future = Future()
