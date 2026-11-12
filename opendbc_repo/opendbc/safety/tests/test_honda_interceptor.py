@@ -1,3 +1,7 @@
+from pathlib import Path
+import signal
+import subprocess
+import sys
 import unittest
 
 from opendbc.can import CANPacker
@@ -58,6 +62,54 @@ class TestHondaInterceptor(unittest.TestCase):
       data[5] = pedal_crc(data)
     return message[0], bytes(data), message[2]
 
+  def test_all_zero_commands_finish_without_native_memory_faults(self):
+    try:
+      mutant = libsafety_py.libsafety.mutation_get_active_mutant()
+    except AttributeError:
+      mutant = None
+    script = """import faulthandler, sys
+from opendbc.can import CANPacker
+from opendbc.car import structs
+from opendbc.car.honda.nidec_interceptor import create_command
+from opendbc.safety.tests.libsafety import libsafety_py
+faulthandler.enable(all_threads=True)
+libsafety_py.load(sys.argv[1])
+safety = libsafety_py.libsafety
+if sys.argv[2] != 'None':
+  safety.mutation_set_active_mutant(int(sys.argv[2]))
+word = int(sys.argv[3])
+if safety.set_safety_hooks(structs.CarParams.SafetyModel.hondaNidec, word) != 0:
+  print('NATIVE_SETUP_ASSERTION', flush=True)
+  raise SystemExit(1)
+safety.init_tests()
+packer = CANPacker('acura_ilx_2016_can_generated' if word == 36 else 'honda_civic_touring_2016_can_generated')
+message = create_command(packer, 0.0, 0)
+packet = libsafety_py.make_CANPacket(message[0], message[2], message[1])
+print('NATIVE_TX_BEGIN', flush=True)
+accepted = safety.safety_tx_hook(packet)
+print('NATIVE_TX_RETURN', flush=True)
+raise SystemExit(0 if accepted else 1)
+"""
+    for word in (32, 36):
+      with self.subTest(word=word):
+        try:
+          result = subprocess.run([sys.executable, '-c', script, libsafety_py.libpath, str(mutant), str(word)],
+                                  cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True, timeout=10)
+        except subprocess.TimeoutExpired as exc:
+          output = exc.stdout or b''
+          if isinstance(output, bytes):
+            output = output.decode(errors='replace')
+          if 'NATIVE_TX_BEGIN' not in output:
+            raise RuntimeError('Native TX probe did not reach its callback') from exc
+          self.fail('Native interceptor TX callback did not finish within ten seconds')
+        entered = 'NATIVE_TX_BEGIN' in result.stdout
+        if result.returncode == -signal.SIGSEGV and entered and 'NATIVE_TX_RETURN' not in result.stdout:
+          self.fail('Native TX callback faulted on a fully allocated valid zero-command packet: ' + result.stderr)
+        asserted = 'NATIVE_SETUP_ASSERTION' in result.stdout or 'NATIVE_TX_RETURN' in result.stdout
+        if result.returncode not in (0, 1) or not asserted:
+          raise RuntimeError(f'Native TX probe infrastructure failure ({result.returncode}): {result.stdout}{result.stderr}')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
   def test_both_tracks_enable_reserved_bits_and_crc_are_required(self):
     for word in (32, 36):
       self.engage(word)
@@ -111,3 +163,31 @@ class TestHondaInterceptor(unittest.TestCase):
       self.engage(word)
       self.rx("BRAKE_COMMAND", 2, {"COMPUTER_BRAKE": 100, "AEB_REQ_1": 1})
       self.assertFalse(self.safety.safety_fwd_hook(2, 0x1FA))
+
+  def test_counter_bit_does_not_change_enable_or_reserved_bits(self):
+    for word in (32, 36):
+      self.engage(word)
+      for counter in range(16):
+        with self.subTest(word=word, counter=counter):
+          self.assertTrue(self.tx(self.command(0.0, counter)))
+          self.assertTrue(self.tx(self.command(0.5, counter)))
+
+  def test_exact_track_endpoints_and_one_count_tolerance(self):
+    for word in (32, 36):
+      self.engage(word)
+      for first in (328, 329, 330, 1331, 1332, 1333):
+        for delta in (-2, -1, 0, 1, 2):
+          with self.subTest(word=word, first=first, delta=delta):
+            second = 2 * first + delta
+            data = bytearray(first.to_bytes(2, 'big') + second.to_bytes(2, 'big') + b'\x80\x00')
+            data[5] = pedal_crc(data)
+            self.assertEqual(self.tx((0x200, bytes(data), 0)), 329 <= first <= 1332 and abs(delta) <= 1)
+
+  def test_sensor_expires_after_exact_two_hundred_milliseconds(self):
+    for word in (32, 36):
+      self.engage(word)
+      self.safety.set_timer(410_000)
+      self.assertTrue(self.tx(self.command()))
+      self.safety.set_timer(410_001)
+      self.assertFalse(self.tx(self.command()))
+      self.assertTrue(self.tx(self.command(0.0)))
