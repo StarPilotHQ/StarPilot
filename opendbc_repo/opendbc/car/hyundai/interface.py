@@ -407,7 +407,8 @@ class CarInterface(CarInterfaceBase):
       can_packets = list(can_packets)
       recovery.observe(can_packets, self.CC.frame)
     if (self.CS.pe_ready is not None or self.CS.gv70_camera_lead is not None or self.CS.ev9_camera_lead is not None or
-        self.CS.ioniq6_camera_lead is not None or self.CS.torque_ev_camera_lead is not None or self.CS.forte_lkas_sources is not None):
+        self.CS.ioniq6_camera_lead is not None or self.CS.torque_ev_camera_lead is not None or
+        self.CS.forte_lkas_sources is not None or self.CS.stock_lfa_status is not None):
       # This isolated optional parser must never join required controls health.
       can_packets = list(can_packets)
       if self.CS.gv70_camera_lead is not None:
@@ -422,6 +423,8 @@ class CarInterface(CarInterfaceBase):
         self.CS.torque_ev_camera_lead.update(can_packets)
       if self.CS.forte_lkas_sources is not None:
         self.CS.forte_lkas_sources.update(can_packets)
+      if self.CS.stock_lfa_status is not None:
+        self.CS.stock_lfa_status.update(can_packets)
     ret = super().update(can_packets)
     self.CS.finalize_blended_cancel(ret)
     return ret

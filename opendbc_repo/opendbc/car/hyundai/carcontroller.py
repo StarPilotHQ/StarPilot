@@ -530,8 +530,12 @@ class CarController(CarControllerBase):
                                  self.CP.safetyConfigs[-1].safetyParam in (0x8815, 0x8895))):
         # AOL may steer while ordinary cruise engagement remains off.
         steering_status_active |= CC.latActive
+      stock_source = getattr(CS, "stock_lfa_status", None)
+      stock_lfa = stock_source.current(clock_boot_ns()) if stock_source is not None else None
+      stock_faults = stock_source.last_fault() if stock_source is not None and stock_lfa is None else None
       can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
-                                                            steering_status_active, apply_steer_req, apply_torque))
+                                                            steering_status_active, apply_steer_req, apply_torque,
+                                                            stock_lfa=stock_lfa, stock_lfa_faults=stock_faults))
       if _projection is not None:
         _projection.emit('hyundai.CANFD_TORQUE', apply_torque, apply_steer_req, can_sends[-1])
 

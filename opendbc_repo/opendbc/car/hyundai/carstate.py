@@ -1,3 +1,4 @@
+from opendbc.car.hyundai.canfd_lfa_status import CANFDLfaStatus, preserves_stock_lfa
 from opendbc.car.hyundai.left_paddle import has_left_paddle
 from opendbc.car.hyundai.ioniq5pe_long_profile import qualified as pe_long_qualified
 from opendbc.car.hyundai.ioniq5pe_ready import PEReadySource
@@ -62,6 +63,7 @@ def get_non_scc_cruise_signals(flags: int, car=None) -> tuple[str, str, str, str
 class CarState(CarStateBase):
   def __init__(self, CP):
     super().__init__(CP)
+    self.stock_lfa_status = CANFDLfaStatus(CanBus(CP).CAM) if preserves_stock_lfa(CP) else None
     from opendbc.car.hyundai.daw import DawSource
     self.daw = DawSource(CP)
     self.forte_lkas_sources = NonSccLkasSources() if qualified_non_scc(CP) and CP.flags & HyundaiFlags.HAS_LDA_BUTTON else None
@@ -714,6 +716,9 @@ class CarState(CarStateBase):
         msgs.append(("SCC_CONTROL", 50))
       if ("CAM_0x2a4", 20) not in cam_msgs:
         cam_msgs.append(("CAM_0x2a4", 20))
+    if (CP.steerControlType == structs.CarParams.SteerControlType.torque and not CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS and
+        not any(name == "CRUISE_BUTTONS_ALT" for name, _ in msgs)):
+      msgs.append(("CRUISE_BUTTONS_ALT", math.nan))
     cam_msgs.append(("ADAS_0x380", math.nan))
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], msgs, CanBus(CP).ECAN),
