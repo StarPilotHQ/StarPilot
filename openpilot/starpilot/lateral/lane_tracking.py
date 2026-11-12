@@ -170,9 +170,7 @@ class SingleLineTracker:
         raise ValueError
       self.path = target_x, target_y
       target = self._target(lookahead, offset)
-      model_y = self._at(position, lookahead)
-      # Allow for Float32 model-coordinate rounding at the disagreement bound.
-      if target.y is None or abs(target.y - model_y) > self.MAX_PATH_DISAGREEMENT + 1e-6:
+      if target.y is None:
         raise ValueError
       # An observed road edge vetoes a conflicting target. A distant edge is
       # not interpreted as the missing lane line or a lane-width measurement.

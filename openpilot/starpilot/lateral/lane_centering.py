@@ -232,6 +232,8 @@ def raw_correction(model: Any, speed_mps: float, offset_m: float, e2e_authority:
       if target_y is None:
         return None
     error = target_y - model_y
+    if not all(qualified) and _single_target is not None:
+      error = clip_scalar(error, -SingleLineTracker.MAX_PATH_DISAGREEMENT, SingleLineTracker.MAX_PATH_DISAGREEMENT)
     error_abs = abs(error)
     deadband = CENTER_ERROR_DEADBAND
     if not all(qualified) and _single_target is not None:

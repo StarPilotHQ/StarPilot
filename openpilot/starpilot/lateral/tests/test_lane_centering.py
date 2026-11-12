@@ -619,6 +619,31 @@ class TestSingleBoundary(unittest.TestCase):
 
 
 class TestSingleLineTracking(unittest.TestCase):
+  def test_large_single_line_disagreement_stays_bounded_without_dropping_tracking(self):
+    from openpilot.starpilot.lateral.lane_tracking import SingleLineTracker
+    for missing_right, sign in ((True, 1), (False, -1)):
+      with self.subTest(missing_right=missing_right):
+        m = single(missing_right=missing_right, line=-.7, edge=10.)
+        m.laneLineStds[1 if missing_right else 2] = .02
+        controller = LaneCenteringController()
+        source = observation(m, base_curvature=0., measured_curvature=0., lateral_delay_s=.1,
+                             settings=LaneCenteringSettings(True, e2e_authority=.5))
+        for frame in range(10):
+          result = controller.update(replace(source, model_sample_id=frame + 1, elapsed_seconds=.05))
+        self.assertEqual(result.reason, 'qualified')
+        self.assertGreater(sign * result.correction, 0.)
+        self.assertIsNotNone(controller._tracker.path)
+        assert controller._tracker.spacing is not None
+        self.assertAlmostEqual(controller._tracker.spacing, 1.7)
+        raw = raw_correction(m, 20., 0., .5, _single_target=sign * 1.)
+        assert raw is not None
+        self.assertAlmostEqual(sign * raw, (SingleLineTracker.MAX_PATH_DISAGREEMENT - .04) / 20. ** 2)
+        self.assertEqual(raw_correction(m, 20., 0., 1., _single_target=sign * 1.), 0.)
+        m.laneLineProbs = [0., .1, .1, 0.]
+        released = controller.update(replace(source, model_sample_id=11, elapsed_seconds=.05))
+        self.assertEqual(released.reason, 'unqualified_model')
+        self.assertLess(abs(released.correction), abs(result.correction))
+
   def test_two_line_guard_rejects_auxiliary_path_bias_when_command_is_centered(self):
     for direction in (-1., 1.):
       m = model(left=-1.8, right=1.8, path=direction * .5)
