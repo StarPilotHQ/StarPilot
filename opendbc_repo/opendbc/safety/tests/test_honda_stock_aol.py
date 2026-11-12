@@ -5,6 +5,8 @@ from opendbc.can.dbc import DBC
 from opendbc.safety.tests.common import CANPackerSafety
 from opendbc.safety.tests.libsafety import libsafety_py
 
+libsafety_py.ffi.cdef("extern safety_config current_safety_config;", override=True)
+
 
 CASES = (
   ("classic-alpha", 20, 2082, 1, "honda_civic_hatchback_ex_2017_can_generated", False, "GEARBOX_AUTO", 4),
@@ -527,3 +529,28 @@ class TestHondaStockAol(unittest.TestCase):
         self.assertEqual(self.safety.aol_get_permission_mask(), 0)
         self.stream(main=True, lkas=0)
         self.assertEqual(self.safety.aol_get_permission_mask(), int(self.scoped))
+
+  def test_each_profile_keeps_its_exact_required_rx_alternatives(self):
+    for case in CASES:
+      with self.subTest(case=case[0]):
+        self.configure(case)
+        if not self.scoped:
+          self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+          continue
+        config = self.safety.current_safety_config
+        self.assertLessEqual(config.rx_checks_len, 8)
+        self.assertGreaterEqual(config.rx_checks_len, 6)
+        model, word = case[1:3]
+        primary_eps = (model == 1 and word in (260, 804)) or (model == 20 and word in (16, 17, 80, 81, 512, 513, 1058, 1059, 1570, 1571))
+        primary_gear = model == 20 and word in (16, 17, 80, 81, 512, 513, 1058, 1059, 1570, 1571)
+        expected = [
+          [(0x18F, self.pt, 7), (0, 0, 0) if primary_eps else (0x18F, self.pt, 6),
+           (0, 0, 0) if primary_eps else (0x190, self.pt, 5)],
+          [(0x191, self.pt, 8), (0x1A3, self.pt, 8), (0, 0, 0) if primary_gear else (0x188, self.pt, 6)],
+        ]
+        for row, wanted in zip(range(config.rx_checks_len - 2, config.rx_checks_len), expected, strict=True):
+          actual = [(int(msg.addr), int(msg.bus), int(msg.len)) for msg in config.rx_checks[row].msg]
+          self.assertEqual(actual, wanted)
+        buttons = config.rx_checks[0].msg
+        self.assertEqual([(int(msg.addr), int(msg.bus), int(msg.len)) for msg in buttons],
+                         [(0x1A6 if self.alt else 0x296, self.pt, 8 if self.alt else 4), (0, 0, 0), (0, 0, 0)])
