@@ -84,7 +84,9 @@ from openpilot.starpilot.controllers.toyota_cruise import capability as toyota_c
 GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, "DisengageOnAccelerator"))
 
 BOOL_DEFAULTS = {
-  "GMPedalLongitudinal": False, "ForceStops": True, "AlwaysAllowUploads": False, "TurnAssist": True,
+  "GMPedalLongitudinal": False,
+  "TorqueInterceptorEnabled": False, "RadarInterceptorEnabled": False, "NoMRCC": False,
+  "NoFSC": False, "BlendedACC": True, "ManualTransmission": False, "ForceStops": True, "AlwaysAllowUploads": False, "TurnAssist": True,
   "SubaruAvhStartup": False,
   "SubaruStopStartOff": False,
   "SubaruSNG": False,
@@ -884,6 +886,24 @@ class FeatureSettingsOwner:
       rows.extend(self.gm_ev_preset.rows(parked))
       rows.extend(self.volt_radar.rows())
       rows.extend(row for row in self.panda_wake.rows(parked) if row.key != "IgnoreIgnitionLine")
+      cp = self.vehicle_params()
+      if cp is not None and str(getattr(cp, "brand", "")) == "mazda":
+        mazda_allowed = configurable and parked and self.authority("parked_preferences")
+        for key, label, reason in (
+          ("TorqueInterceptorEnabled", "Torque Interceptor",
+           "Enable the More Torque torque interceptor for steering control (GEN1 hardware; GEN2/GEN3 use the TI without this toggle)."),
+          ("RadarInterceptorEnabled", "Radar Interceptor",
+           "Enable if you have installed a radar interceptor."),
+          ("NoMRCC", "No Stock MRCC",
+           "Enable if your car does not have stock Mazda radar cruise control."),
+          ("NoFSC", "No Stock FSC",
+           "Enable if your car does not have the stock front sensing camera."),
+          ("BlendedACC", "Blended ACC",
+           "Use stock Mazda radar cruise unless Conditional Experimental Mode is active."),
+          ("ManualTransmission", "Manual Transmission",
+           "Enable if your car has a manual transmission."),
+        ):
+          rows.append(self._bool_row(key, label, mazda_allowed, reason + " Applies after the next startup."))
       pedal_capability = self._pedal_setup_capability()
       if pedal_capability is not None:
         from opendbc.car.gm.values import GMFlags
@@ -1479,6 +1499,8 @@ class FeatureSettingsOwner:
     elif key.startswith(LONG_PREFIX):
       source_key = PERSONALITY_PROFILES_PARAM
       group = "long"
+    elif key in ("TorqueInterceptorEnabled", "RadarInterceptorEnabled", "NoMRCC", "NoFSC", "BlendedACC", "ManualTransmission"):
+      source_key, group = key, "parked_preferences"
     elif key in BOOL_DEFAULTS or key in FLOAT_SPECS or key in (*SOURCE_PRIORITY_KEYS, *ADVANCE_KEYS, 'SLCConfirmation', PEDAL_OVERRIDE_KEY):
       source_key = key
       long_key = (key in ("CustomPersonalities", "ForceStops", "ForceStopDistanceOffset") or "Personality" in key or

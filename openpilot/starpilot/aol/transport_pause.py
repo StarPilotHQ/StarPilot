@@ -272,6 +272,14 @@ class TransportPauseFeedback:
   """Card accepts pause provenance only after a healthy same-session baseline."""
   def __init__(self, cp):
     self.cp = cp_identity(cp)
+    # Last observation at which a Mazda temporary restriction held (see
+    # opendbc.car.mazda.stock_aol.RESTRICTION_RELEASE_GRACE_NS).
+    self.mazda_restricted_ns = 0
+    # Session anchors from the last healthy observation, active lateral or not (see
+    # _mazda_restricted_lateral_current).
+    self.mazda_inventory = None
+    self.mazda_producer = ''
+    self.mazda_epoch = None
     self.session = ''
     self.sequence = 0
     self.signature = None
@@ -564,7 +572,7 @@ class TransportPauseFeedback:
     from opendbc.car.ford.aol import qualified as ford_qualified
     from opendbc.car.rivian.stock_aol import qualified as rivian_qualified
     from openpilot.starpilot.car.volkswagen.aol import qualified as volkswagen_qualified
-    from opendbc.car.mazda.stock_aol import qualified as mazda_qualified
+    from opendbc.car.mazda.stock_aol import admitted as mazda_admitted
     from opendbc.car.subaru.stock_aol import qualified as subaru_qualified
     from opendbc.car.hyundai.canfd_angle_aol import qualified as angle_qualified
     from opendbc.car.hyundai.canfd_stock_aol import qualified as stock_canfd_qualified
@@ -582,7 +590,7 @@ class TransportPauseFeedback:
     stock_temporary_user = bool(recovering_user and (stock_hkg or cp.brand == 'chrysler' and chrysler_qualified(cp, marked_only=True) or
       cp.brand == 'ford' and ford_qualified(cp, marked_only=True) or cp.brand == 'nissan' and nissan_qualified(cp, marked_only=True)
       or cp.brand == 'subaru' and subaru_qualified(cp, marked_only=True)
-      or cp.brand == 'mazda' and mazda_qualified(cp, marked_only=True)
+      or cp.brand == 'mazda' and mazda_admitted(cp, marked_only=True)
       or cp.brand == 'rivian' and rivian_qualified(cp, marked_only=True)
       or cp.brand == 'volkswagen' and volkswagen_qualified(cp, marked_only=True)) and users and
       not axis.desiredLongitudinal and not axis.longitudinalActive and
@@ -1204,20 +1212,21 @@ class TransportPauseFeedback:
   def _angle_stop_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
     from opendbc.car.structs import car
     from opendbc.car.hyundai.canfd_angle_aol import qualified, temporary_restriction
-    from opendbc.car.mazda.stock_aol import qualified as mazda_qualified, temporary_restriction as mazda_restriction
     from opendbc.car.subaru.stock_aol import temporary_restriction as subaru_restriction
 
     from opendbc.car.hyundai.values import CAR
 
+    # Mazda is handled by _mazda_restricted_lateral_current.
     # Exact profile admission remains in the configured native receipt below.
     ccnc_stop = bool((cs.standstill or 0 <= cs.vEgoRaw <= .3) and cp.openpilotLongitudinalControl and
       cp.carFingerprint in (CAR.KIA_EV9, CAR.HYUNDAI_IONIQ_5_PE) and not cs.accFaulted and not cs.steeringDisengage)
     combined_stop = bool(ccnc_stop and axis.desiredLongitudinal and axis.longitudinalActive)
     pending_stop = bool(ccnc_stop and axis.desiredLongitudinal and not axis.longitudinalActive and not axis.lateralActive)
     subaru_stop = cs.standstill and subaru_restriction(cp, cs)
-    if (not (qualified(cp, marked_only=True) or mazda_qualified(cp, marked_only=True) or subaru_stop or ccnc_stop) or
+    if (not (qualified(cp, marked_only=True) or subaru_stop or ccnc_stop) or
       cs.gearShifter != car.CarState.GearShifter.drive or
-      not (temporary_restriction(cp, cs) or mazda_restriction(cp, cs) or subaru_stop) or cs.steerFaultTemporary or cs.steerFaultPermanent or
+      not (temporary_restriction(cp, cs) or subaru_stop) or
+      cs.steerFaultTemporary or cs.steerFaultPermanent or
       not latched or self.failed or self.paused or self.pending_event or self.retention_started_ns or
       not (self.lateral_only_baseline or ccnc_stop) or not self.lateral_inventory or not self.lateral_baseline_ns or
       not self.session or axis.sessionId != self.session or str(axis.faultReason) != 'none' or
@@ -1256,6 +1265,47 @@ class TransportPauseFeedback:
        combined_stop and native.requestedLongitudinal and native.longitudinalAllowed) and
       native.observedMonoTime >= self.lateral_native_ns and
       (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) == self.lateral_inventory)
+
+  def _mazda_restricted_lateral_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
+    """Mazda: a panda lateral denial explained by a temporary restriction is not a transport failure.
+
+    Panda withholds lateral while stopped (its vehicle_moving gate), during a TI2 pause and
+    outside Drive, and keeps its AOL token. Retain host intent while the restriction holds
+    and for RESTRICTION_RELEASE_GRACE_NS after it. This anchors to the session's last
+    healthy panda inventory, producer and epoch, not to a recent active-lateral baseline:
+    a TI2 pause ending at standstill legitimately clears that baseline. A temporary steering
+    fault is itself a restriction, so a pause's first frames are covered before its event
+    arrives. Every other check stays: session, freshness, Drive, no permanent fault, no
+    disabling event, no longitudinal request. A Mazda denial with no restriction still fails.
+    """
+    from opendbc.car.mazda.stock_aol import admitted, temporary_restriction, within_restriction_grace
+    from opendbc.car.structs import car
+    if (not admitted(cp, marked_only=True) or not latched or self.failed or self.paused or self.pending_event or
+        self.retention_started_ns or cs.steerFaultPermanent or not cs.canValid or cs.canTimeout or
+        cs.gearShifter != car.CarState.GearShifter.drive or
+        not (temporary_restriction(cp, cs) or within_restriction_grace(self.mazda_restricted_ns, now_ns)) or
+        not self.session or str(axis.sessionId) != self.session or str(axis.faultReason) != 'none' or
+        not producer or producer != self.mazda_producer or str(axis.intentProducerSessionId) != producer or
+        self.mazda_epoch is None or int(axis.intentIntegrityEpoch) != self.mazda_epoch or
+        not self.mazda_inventory or not axis.nativeAcknowledged or
+        axis.desiredLongitudinal or axis.longitudinalActive or
+        not 0 < axis.sourceCarStateMonoTime <= stamp <= now_ns or
+        now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS):
+      return False
+    event_ns = int(sm.logMonoTime['onroadEvents'])
+    if (not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
+        not 0 < event_ns <= now_ns or now_ns - event_ns > 1_500_000_000 or
+        any(event.immediateDisable or
+            event.softDisable and event.name != log.OnroadEvent.EventName.steerTempUnavailable or
+            event.userDisable and event.name not in (log.OnroadEvent.EventName.pcmDisable,
+                                                     log.OnroadEvent.EventName.pedalPressed)
+            for event in sm['onroadEvents'])):
+      return False
+    native = _configured_transport_native(sm, cp, self.session, now_ns, allow_restricted_lateral=True)
+    return bool(native is not None and native.pandaInventory and
+      not native.requestedLongitudinal and not native.longitudinalAllowed and
+      not (native.requestedLateral and native.lateralAllowed) and
+      (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) == self.mazda_inventory)
 
   def _inactive_gear_source_gap(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
     from opendbc.car import structs
@@ -1355,6 +1405,10 @@ class TransportPauseFeedback:
     self.awaiting = False
     self.retention_qualified = False
     self.retention_pending = False
+    if getattr(cp, 'brand', None) == 'mazda':
+      from opendbc.car.mazda.stock_aol import temporary_restriction as mazda_restriction
+      if mazda_restriction(cp, cs):
+        self.mazda_restricted_ns = now_ns
     try:
       axis = sm['aolAxisState']
       if not latched or cp_identity(cp) != self.cp or self.session and str(axis.sessionId) != self.session:
@@ -1491,8 +1545,10 @@ class TransportPauseFeedback:
         if not recovery_ahead:
           self.failed = True
           return True
-      if current and continuity and self._angle_stop_intent_current(sm, cp, cs, axis, stamp, now_ns,
-          latched=latched, producer=intent_producer_session):
+      if current and continuity and (self._mazda_restricted_lateral_current(sm, cp, cs, axis, stamp, now_ns,
+          latched=latched, producer=intent_producer_session) or
+          self._angle_stop_intent_current(sm, cp, cs, axis, stamp, now_ns,
+          latched=latched, producer=intent_producer_session)):
         self.sequence, self.signature = int(axis.sequence), signature
         return False
       if current and continuity and (reason == 'critical' or self.lag_withdrawal_ns and not axis.lateralActive or
@@ -1540,11 +1596,11 @@ class TransportPauseFeedback:
             informational_events=(log.OnroadEvent.EventName.userBookmarkNotPaired,), allow_withdrawal_join=True):
           return False
       if cp.brand == 'mazda' and current and continuity:
-        from opendbc.car.mazda.stock_aol import qualified as mazda_qualified
+        from opendbc.car.mazda.stock_aol import admitted as mazda_admitted
         from openpilot.starpilot.aol.reverse_intent import retain_reverse_intent
 
         if retain_reverse_intent(self, sm, cp, cs, axis, now_ns, latched=latched, producer=intent_producer_session,
-            qualified_cp=mazda_qualified(cp, marked_only=True),
+            qualified_cp=mazda_admitted(cp, marked_only=True),
             informational_events=(log.OnroadEvent.EventName.userBookmarkNotPaired,), allow_withdrawal_join=True):
           return False
       if cp.brand == 'rivian' and current and continuity:
@@ -1780,6 +1836,11 @@ class TransportPauseFeedback:
         self.healthy_inventory = ((native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory))
           if native is not None else None)
         self.session = str(axis.sessionId)
+        if getattr(cp, 'brand', None) == 'mazda':
+          self.mazda_inventory = self.healthy_inventory
+          self.mazda_producer = (str(axis.intentProducerSessionId) if intent_producer_session and
+            str(axis.intentProducerSessionId) == intent_producer_session else '')
+          self.mazda_epoch = int(axis.intentIntegrityEpoch) if self.mazda_producer else None
         lateral_baseline = bool(axis.desiredLateral and axis.lateralActive and native is not None and
           native.pandaInventory and native.requestedLateral and native.lateralAllowed)
         self.lateral_baseline_ns = now_ns if lateral_baseline else 0

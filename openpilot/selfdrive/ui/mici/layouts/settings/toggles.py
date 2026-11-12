@@ -61,6 +61,12 @@ class TogglesLayoutMici(NavScroller):
     enable_openpilot = BigParamControl("enable openpilot", "OpenpilotEnabledToggle", toggle_callback=restart_needed_callback,
                                        description="Enable to use openpilot driver assistance.\n" +
                                                    "Disable to use your car's stock driver assistance.")
+    mazda_torqueinterceptorenabled = BigParamControl("torque interceptor", "TorqueInterceptorEnabled", toggle_callback=restart_needed_callback)
+    mazda_radarinterceptorenabled = BigParamControl("radar interceptor", "RadarInterceptorEnabled", toggle_callback=restart_needed_callback)
+    mazda_nomrcc = BigParamControl("no stock MRCC", "NoMRCC", toggle_callback=restart_needed_callback)
+    mazda_nofsc = BigParamControl("no stock FSC", "NoFSC", toggle_callback=restart_needed_callback)
+    mazda_blendedacc = BigParamControl("blended ACC", "BlendedACC", toggle_callback=restart_needed_callback)
+    mazda_manualtransmission = BigParamControl("manual transmission", "ManualTransmission", toggle_callback=restart_needed_callback)
 
     self._scroller.add_widgets([
       self._personality_toggle,
@@ -75,6 +81,12 @@ class TogglesLayoutMici(NavScroller):
       record_front,
       record_mic,
       enable_openpilot,
+      mazda_torqueinterceptorenabled,
+      mazda_radarinterceptorenabled,
+      mazda_nomrcc,
+      mazda_nofsc,
+      mazda_blendedacc,
+      mazda_manualtransmission,
     ])
 
     # Toggle lists
@@ -89,10 +101,22 @@ class TogglesLayoutMici(NavScroller):
       ("RecordFront", record_front),
       ("RecordAudio", record_mic),
       ("OpenpilotEnabledToggle", enable_openpilot),
+      ("TorqueInterceptorEnabled", mazda_torqueinterceptorenabled),
+      ("RadarInterceptorEnabled", mazda_radarinterceptorenabled),
+      ("NoMRCC", mazda_nomrcc),
+      ("NoFSC", mazda_nofsc),
+      ("BlendedACC", mazda_blendedacc),
+      ("ManualTransmission", mazda_manualtransmission),
     )
 
     enable_openpilot.set_enabled(lambda: not ui_state.engaged)
     always_on_dm_toggle.set_enabled(not ui_state.params.get_bool("AlwaysOnDMLock"))
+    mazda_torqueinterceptorenabled.set_visible(lambda: ui_state.CP is not None and ui_state.CP.brand == "mazda")
+    mazda_radarinterceptorenabled.set_visible(lambda: ui_state.CP is not None and ui_state.CP.brand == "mazda")
+    mazda_nomrcc.set_visible(lambda: ui_state.CP is not None and ui_state.CP.brand == "mazda")
+    mazda_nofsc.set_visible(lambda: ui_state.CP is not None and ui_state.CP.brand == "mazda")
+    mazda_blendedacc.set_visible(lambda: ui_state.CP is not None and ui_state.CP.brand == "mazda")
+    mazda_manualtransmission.set_visible(lambda: ui_state.CP is not None and ui_state.CP.brand == "mazda")
     record_front.set_enabled(False if ui_state.params.get_bool("RecordFrontLock") else (lambda: not ui_state.engaged))
     record_mic.set_enabled(lambda: not ui_state.engaged)
 
