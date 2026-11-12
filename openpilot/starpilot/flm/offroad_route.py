@@ -1,6 +1,7 @@
 """Bounded latest completed LOCAL drive input for the parked tuner; no downloads."""
 
 from dataclasses import dataclass
+from functools import wraps
 import hashlib
 import json
 from pathlib import Path
@@ -9,7 +10,7 @@ import time
 
 from openpilot.starpilot.flm.log_decode import decode_full_rlog_segment
 from openpilot.starpilot.galaxy.drive_history import DriveHistory
-from openpilot.starpilot.galaxy.drive_analysis import _selected, _route_names, _closed_source
+from openpilot.starpilot.galaxy.drive_analysis import _Incomplete, _selected, _route_names, _closed_source
 from openpilot.starpilot.saved_source import read_saved
 
 RETAIN = frozenset(
@@ -35,6 +36,25 @@ MAX_ANALYSIS_SECONDS = 3600.0
 LOCAL_ID = re.compile(r'[0-9a-f]{8}--[0-9a-f]{10}')
 
 
+def _unusable_drive_is_value_error(fn):
+  """Report drive_analysis's _Incomplete as this module's ValueError.
+
+  _selected/_route_names/_closed_source raise _Incomplete (a plain Exception) for a
+  drive that cannot be analysed, e.g. a route whose first segment is missing. The
+  parked callers handle ValueError, OSError and RuntimeError only, so an escaping
+  _Incomplete killed offroad_daemon, and manager restarted it into the same drive
+  every ~30 s.
+  """
+  @wraps(fn)
+  def wrapper(*args, **kwargs):
+    try:
+      return fn(*args, **kwargs)
+    except _Incomplete as error:
+      raise ValueError(str(error)) from error
+  return wrapper
+
+
+@_unusable_drive_is_value_error
 def latest_route(params, root, *, permitted):
   """CurrentRoute is logger-owned. After restart use its persistent counter.
 
@@ -95,6 +115,7 @@ class SelectedSourceReceipt(RouteReceipt):
   whole_route_decoded: bool = False
 
 
+@_unusable_drive_is_value_error
 def walk_completed_route(root, route, *, permitted, consume):
   """Process complete segments one at a time, then revalidate all source identities.
 
