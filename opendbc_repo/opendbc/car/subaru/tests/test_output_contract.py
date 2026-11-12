@@ -18,7 +18,7 @@ from opendbc.safety.tests.libsafety import libsafety_py
 def test_inactive_sensor_angle_is_bounded_and_native_accepts(car, sign, position):
   cp, controller, command, state = setup_controller(car)
   limit = 545.0 if cp.safetyConfigs[0].safetyParam & SubaruSafetyFlags.FIXED_ANGLE_LIMITS else 650.0
-  if car == CAR.SUBARU_CROSSTREK_2025:
+  if car in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025):
     limit = 190.0
   measured = sign * {'within': 100.0, 'limit': limit, 'beyond': limit + 5.0}[position]
   packer, frames = pair.TestSubaruGen2AnglePair.sources(car, cruise=False)

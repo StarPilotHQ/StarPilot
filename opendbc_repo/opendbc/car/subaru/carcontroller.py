@@ -15,7 +15,8 @@ from opendbc.car.vehicle_model import VehicleModel
 # involves the total steering angle change rather than rate, but these limits work well for now
 MAX_STEER_RATE = 25  # deg/s
 MAX_STEER_RATE_FRAMES = 7  # tx control frames needed before torque can be cut
-GEN2_ANGLE_PORTS = frozenset((CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_LEGACY_2025, CAR.SUBARU_ASCENT_2023, CAR.SUBARU_FORESTER_2022, CAR.SUBARU_OUTBACK_2023))
+GEN2_ANGLE_PORTS = frozenset((CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_LEGACY_2025,
+                              CAR.SUBARU_ASCENT_2023, CAR.SUBARU_FORESTER_2022, CAR.SUBARU_OUTBACK_2023))
 
 
 class CarController(CarControllerBase):
@@ -26,7 +27,7 @@ class CarController(CarControllerBase):
     from opendbc.car.subaru.avh import selected as avh_selected, AvhStartup
     self.avh_startup = AvhStartup() if avh_selected(CP) else None
     self.apply_torque_last = 0
-    self.angle_filter = FirstOrderFilter(0.0, 0.3, DT_CTRL) if CP.carFingerprint == CAR.SUBARU_CROSSTREK_2025 else None
+    self.angle_filter = FirstOrderFilter(0.0, 0.3, DT_CTRL) if CP.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025) else None
     self.apply_angle_last = 0.
     self.angle_was_active = False
     self.angle_override_frames = 0
@@ -60,7 +61,7 @@ class CarController(CarControllerBase):
       self.angle_override_frames = 0
       self.angle_handoff_active = False
       return False
-    high, low = (150, 100) if self.CP.carFingerprint == CAR.SUBARU_CROSSTREK_2025 else (200, 150)
+    high, low = (150, 100) if self.CP.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025) else (200, 150)
     torque = abs(CS.out.steeringTorque)
     if self.angle_driver_override:
       if torque < low:
@@ -141,7 +142,7 @@ class CarController(CarControllerBase):
           apply_angle = apply_std_steer_angle_limits(actuators.steeringAngleDeg, self.apply_angle_last,
                                                      CS.out.vEgoRaw, CS.out.steeringAngleDeg, angle_active,
                                                      self.p.FIXED_ANGLE_LIMITS)
-        elif self.CP.carFingerprint == CAR.SUBARU_CROSSTREK_2025:
+        elif self.CP.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025):
           assert self.VM is not None
           apply_angle, angle_active = jacobw_limit_angle(
             angle_target, self.apply_angle_last, CS.out.vEgo,
