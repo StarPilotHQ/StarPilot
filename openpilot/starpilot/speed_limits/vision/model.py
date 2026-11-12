@@ -848,7 +848,11 @@ class VisionModelCore:
       box_height = y2 - y1
       if box_width <= 0 or box_height <= 0:
         continue
-      is_small_box = box_width < DETECTOR_CLASSIFIER_MIN_ACCEPT_WIDTH or box_height < DETECTOR_CLASSIFIER_MIN_ACCEPT_HEIGHT
+      is_small_box = (
+        box_width < DETECTOR_CLASSIFIER_MIN_ACCEPT_WIDTH - 1 or
+        box_height < DETECTOR_CLASSIFIER_MIN_ACCEPT_HEIGHT or
+        box_width * box_height < DETECTOR_CLASSIFIER_MIN_ACCEPT_WIDTH * DETECTOR_CLASSIFIER_MIN_ACCEPT_HEIGHT
+      )
       # Tiny far-away proposals are the main nighttime false-positive source.
       # Keep a narrow rescue path for right-side high-confidence reads,
       # then let temporal confirmation decide whether they are real.
