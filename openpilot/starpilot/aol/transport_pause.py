@@ -1326,6 +1326,13 @@ class TransportPauseFeedback:
     event_ns = int(sm.logMonoTime['onroadEvents'])
     events = sm['onroadEvents']
     matched = event_ns == axis.faultEventMonoTime
+    stock_user = stock_lateral_user_event(cp)
+    stock_expiry = bool(cp.pcmCruise and not cp.openpilotLongitudinalControl and
+      previous[9] and not previous[10] and not previous[12] and previous[4] < stamp and
+      not cs.cruiseState.enabled and not cs.brakePressed and not cs.regenBraking)
+    if stock_expiry:
+      events = [event for event in events if not (event.name == stock_user and event.userDisable and
+        not event.softDisable and not event.immediateDisable)]
     if (not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
         not 0 < event_ns <= now_ns or now_ns - event_ns > 1_500_000_000 or
         (not host_source_availability_only(events) if matched else
