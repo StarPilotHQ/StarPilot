@@ -279,6 +279,8 @@ def enumerate_sites(input_source, preprocessed_file):
     origin_file, origin_line = mapped
     if not any(origin_file.is_relative_to(source_dir) for source_dir in SAFETY_SOURCE_DIRS):
       continue
+    if origin_file.is_relative_to(SAFETY_TESTS_DIR):
+      continue
     site_id = len(out)
     site = MutationSite(
       site_id=site_id, expr_start=s.expr_start, expr_end=s.expr_end,

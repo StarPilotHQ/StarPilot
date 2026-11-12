@@ -70,6 +70,21 @@ class TestMutationInfrastructureAccounting(unittest.TestCase):
       native.mutation_set_active_mutant(comparison.site_id)
       self.assertEqual((native.permit(3), native.permit(4)), (0, 1))
 
+  def test_mutation_targets_production_safety_not_its_test_harness(self):
+    production = mutation.SAFETY_DIR / "helpers.h"
+    fixture = mutation.SAFETY_TESTS_DIR / "libsafety/safety.c"
+    code = '\n'.join((f'#line 1 "{production}"',
+                       'int allowed(int value) { return value > 0; }',
+                       f'#line 1 "{fixture}"',
+                       'int fixture(int value) { return value > 0; }', ''))
+    with TemporaryDirectory() as directory:
+      source = Path(directory) / "input.c"
+      source.write_text(code)
+      sites, _counts, _pruned, _source = mutation.enumerate_sites(source, Path(directory) / "input.i")
+    self.assertTrue(sites)
+    self.assertEqual({site.origin_file for site in sites}, {production})
+    self.assertEqual({site.mutator for site in sites}, {"comparison", "boundary"})
+
   def test_worker_crash_is_infrastructure_error(self):
     site = self.site()
     future = Future()
