@@ -62,7 +62,7 @@ _TAKEOFF_TOTAL_MAX = [3.5, 3.5, 1.7, 1.7, 3.2]
 
 def get_max_accel(v_ego, faster_takeoffs=False):
   max_accel = np.interp(v_ego, A_CRUISE_MAX_BP, A_CRUISE_MAX_VALS)
-  return np.interp(v_ego, [2., 5.], [ACCEL_MAX, max_accel]) if faster_takeoffs else max_accel
+  return np.interp(v_ego, [5., 10.], [ACCEL_MAX, max_accel]) if faster_takeoffs else max_accel
 
 def get_coast_accel(pitch):
   return np.sin(pitch) * -5.65 - 0.3  # fitted from data using xx/projects/allow_throttle/compute_coast_accel.py
