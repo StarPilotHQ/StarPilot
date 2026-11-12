@@ -5,6 +5,7 @@ import usb1
 import time
 import signal
 import subprocess
+from pathlib import Path
 
 from panda import Panda, PandaDFU, PandaProtocolMismatch, McuType, FW_PATH
 from openpilot.common.basedir import BASEDIR
@@ -77,11 +78,24 @@ def firmware_environment(selected_firmware: dict[str, str]) -> dict[str, str]:
 
 
 def wait_for_internal_panda(timeout: int = 15) -> bool:
-  if HARDWARE.get_device_type() == "tici":
-    # C3's internal USB port needs udev permissions in application and DFU modes.
-    return subprocess.run(["udevadm", "wait", f"--timeout={timeout}", "/sys/bus/usb/devices/1-1.2"], check=False,
-                          stderr=subprocess.DEVNULL if timeout == 0 else None).returncode == 0
-  return True
+  if HARDWARE.get_device_type() != "tici":
+    return True
+  deadline = time.monotonic() + timeout
+  usb = Path("/sys/bus/usb/devices/1-1.2")
+  while True:
+    try:
+      vendor = int((usb / "idVendor").read_text().strip(), 16)
+      product = int((usb / "idProduct").read_text().strip(), 16)
+      supported = (vendor in Panda.USB_VIDS and product in Panda.USB_PIDS) or (vendor, product) == (0x0483, 0xdf11)
+      bus = int((usb / "busnum").read_text())
+      device = int((usb / "devnum").read_text())
+      if supported and bus > 0 and device > 0 and os.access(f"/dev/bus/usb/{bus:03d}/{device:03d}", os.R_OK | os.W_OK):
+        return True
+    except (OSError, ValueError):
+      pass
+    if time.monotonic() >= deadline:
+      return False
+    time.sleep(0.01)
 
 
 def main() -> None:
