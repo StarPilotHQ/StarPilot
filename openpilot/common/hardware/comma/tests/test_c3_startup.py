@@ -203,7 +203,7 @@ def test_internal_panda_ready_without_udev(tmp_path, device, ids):
     (usb / name).write_text(value)
   access = Mock(return_value=True)
   clock = Mock(monotonic=Mock(return_value=0), sleep=Mock())
-  namespace = {'HARDWARE': SimpleNamespace(get_device_type=lambda: device), 'Path': lambda _: usb,
+  namespace: dict = {'HARDWARE': SimpleNamespace(get_device_type=lambda: device), 'Path': lambda _: usb,
                'Panda': SimpleNamespace(USB_VIDS=(0xbbaa, 0x3801), USB_PIDS=(0xddee, 0xddcc)),
                'os': SimpleNamespace(access=access, R_OK=4, W_OK=2), 'time': clock,
                'subprocess': SimpleNamespace(run=Mock(side_effect=FileNotFoundError('udevadm')))}
@@ -236,7 +236,7 @@ def test_internal_panda_readiness_refuses_unready_device(tmp_path, failure):
     for name, value in values.items():
       (usb / name).write_text(value)
   clock = Mock(monotonic=Mock(side_effect=[0, 0, 0.01, 0.02]), sleep=Mock())
-  namespace = {'HARDWARE': SimpleNamespace(get_device_type=lambda: 'tici'), 'Path': lambda _: usb,
+  namespace: dict = {'HARDWARE': SimpleNamespace(get_device_type=lambda: 'tici'), 'Path': lambda _: usb,
                'Panda': SimpleNamespace(USB_VIDS=(0xbbaa, 0x3801), USB_PIDS=(0xddee, 0xddcc)),
                'os': SimpleNamespace(access=Mock(return_value=failure != 'no_access'), R_OK=4, W_OK=2), 'time': clock,
                'subprocess': SimpleNamespace(run=Mock(side_effect=FileNotFoundError('udevadm')))}
@@ -254,7 +254,7 @@ def test_internal_panda_readiness_waits_for_read_write_permission(tmp_path):
     (usb / name).write_text(value)
   clock = Mock(monotonic=Mock(return_value=0), sleep=Mock())
   access = Mock(side_effect=[False, True])
-  namespace = {'HARDWARE': SimpleNamespace(get_device_type=lambda: 'tici'), 'Path': lambda _: usb,
+  namespace: dict = {'HARDWARE': SimpleNamespace(get_device_type=lambda: 'tici'), 'Path': lambda _: usb,
                'Panda': SimpleNamespace(USB_VIDS=(0xbbaa, 0x3801), USB_PIDS=(0xddee, 0xddcc)),
                'os': SimpleNamespace(access=access, R_OK=4, W_OK=2), 'time': clock}
   exec(compile(ast.Module(body=[method], type_ignores=[]), 'pandad.py', 'exec'), namespace)

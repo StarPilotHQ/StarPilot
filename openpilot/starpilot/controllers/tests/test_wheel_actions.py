@@ -155,6 +155,7 @@ def test_idle_mapping_change_is_checked_before_a_new_press(context):
   params.put("DistanceButtonControl", 8, block=True)
   owner.observe(params, cp, state(), now_ns=NOW + 2_000_000_000, drive_id=DRIVE)
   assert not any(action for _, action in owner.observe(params, cp, state(True), now_ns=NOW + 2_010_000_000, drive_id=DRIVE))
+  assert owner.mapping is not None
   assert owner.mapping["DistanceButtonControl"] == 8
   owner.observe(params, cp, state(False), now_ns=NOW + 2_020_000_000, drive_id=DRIVE)
   owner.observe(params, cp, state(True), now_ns=NOW + 2_030_000_000, drive_id=DRIVE)
@@ -171,4 +172,5 @@ def test_held_button_keeps_periodic_revocation_checks(context):
   commands = owner.observe(params, cp, state(), now_ns=NOW + 1_020_000_000, drive_id=DRIVE)
   assert not any(action for _, action in commands)
   assert not owner.tracker.distance_held
+  assert owner.mapping is not None
   assert owner.mapping["LongDistanceButtonControl"] == 0
