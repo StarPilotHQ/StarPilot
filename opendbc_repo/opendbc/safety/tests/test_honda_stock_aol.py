@@ -109,6 +109,49 @@ class TestHondaStockAol(unittest.TestCase):
       values.update(ACC_STATUS=1, PEDAL_GAS=0)
     self.assertTrue(self.safety.safety_rx_hook(self.packet(name, values)))
 
+  def test_cancel_preserves_only_existing_lateral_without_renewing_request(self):
+    for case in CASES:
+      with self.subTest(case=case[0]):
+        self.configure(case)
+        if not self.scoped:
+          continue
+        self.stream()
+        self.normal_engage()
+        self.safety.aol_set_host_request(3)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 3)
+        self.safety.set_timer(1_010_000)
+        values = {"CRUISE_BUTTONS": 2, "CRUISE_SETTING": 0}
+        if self.alt:
+          values["MAIN_ON"] = 1
+        self.assertTrue(self.safety.safety_rx_hook(self.packet("SCM_BUTTONS", values)))
+        self.assertFalse(self.safety.get_controls_allowed())
+        self.assertEqual(self.safety.aol_get_request_mask(), 1)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+        # Expire the original 1s request, not the later Cancel receipt.
+        self.safety.set_timer(1_299_999)
+        self.stream(request=False)
+        self.safety.set_timer(1_300_001)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+
+  def test_cancel_never_creates_lateral_and_main_still_withdraws_all(self):
+    for case in CASES:
+      for experience in (0, 32):
+        for request in (0, 2, 3):
+          with self.subTest(case=case[0], experience=experience, request=request):
+            self.configure(case, experience=experience)
+            self.stream()
+            self.safety.aol_set_host_request(request)
+            values = {"CRUISE_BUTTONS": 2, "CRUISE_SETTING": 0}
+            if self.alt:
+              values["MAIN_ON"] = 1
+            self.assertTrue(self.safety.safety_rx_hook(self.packet("SCM_BUTTONS", values)))
+            self.assertFalse(self.safety.get_controls_allowed())
+            self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+            if experience == 0 or request in (0, 2):
+              self.assertEqual(self.safety.aol_get_request_mask(), 0)
+            self.stream(main=False)
+            self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+
   def test_normal_engagement_then_brake_without_main_or_lkas_gesture(self):
     for case in CASES:
       for button in ((3, 4) if case[2] in (10, 11, 544, 548, 804, 1058, 1059, 1570, 1571, 2082, 2083, 2211) else (3,)):

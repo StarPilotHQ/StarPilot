@@ -853,6 +853,21 @@ class Car:
 
   def aol_cancel_source(self, CS, now_ns: int) -> int:
     """Bind Cancel to this parsed CAN batch and its local monotonic receipt."""
+    observation = getattr(self, '_aol_can_observation', None)
+    if getattr(getattr(self, 'CP', None), 'brand', '') == 'honda' and qualified_honda_stock_aol(self.CP, marked_only=True):
+      from opendbc.car import Bus
+      parser = self.CI.can_parsers[Bus.pt]
+      stamp = int(parser.ts_nanos.get('SCM_BUTTONS', {}).get('CRUISE_BUTTONS', 0))
+      if observation is None or observation[0] is not CS:
+        return 0
+      _, received_ns, can_source_ns, boot_ns = observation
+      if (parser.vl.get('SCM_BUTTONS', {}).get('CRUISE_BUTTONS') != 2 or
+          not any(e.type == structs.CarState.ButtonEvent.Type.cancel and e.pressed for e in CS.buttonEvents) or
+          not 0 < received_ns <= now_ns or now_ns - received_ns > 30_000_000 or
+          not 0 < stamp <= can_source_ns <= boot_ns or boot_ns - stamp > 30_000_000 or
+          can_source_ns - stamp > 30_000_000):
+        return 0
+      return received_ns
     from opendbc.car.hyundai.values import Buttons
     state = getattr(getattr(self, 'CI', None), 'CS', None)
     observation = getattr(self, '_aol_can_observation', None)
