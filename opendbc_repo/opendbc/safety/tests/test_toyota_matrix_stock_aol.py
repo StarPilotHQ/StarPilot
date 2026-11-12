@@ -202,3 +202,50 @@ def test_real_stock_steering_rx_triggers_relay_refusal(matrix):
   assert matrix.safety.get_relay_malfunction()
   assert matrix.safety.aol_get_permission_mask() == 0
   assert not matrix.tx('STEERING_LKA', {'STEER_TORQUE_CMD': 1, 'STEER_REQUEST': 1})
+
+
+from opendbc.car import Bus
+from opendbc.car.toyota.stock_aol import PROFILES as FACTORY_PROFILES, EPS5_WORDS, ALT_MAIN_WORDS
+from opendbc.car.toyota.values import DBC
+
+FACTORY_CASES = {word: car for car, word in FACTORY_PROFILES.items()}
+
+
+class FactoryPhysical(Physical):
+  def __init__(self, word):
+    super().__init__(word=word)
+    self.word = word
+    self.packer = CANPacker(DBC[FACTORY_CASES[word]][Bus.pt])
+
+  def tick(self, *, main=True, **fields):
+    self.now += 10_000
+    self.safety.set_timer(self.now)
+    frames = helpers.physical(self.packer, main=main, sdsu=None, **fields)
+    if self.word in ALT_MAIN_WORDS:
+      frames.append(self.packer.make_can_msg('DSU_CRUISE', 0, {'MAIN_ON': main, 'SET_SPEED': 90}))
+    for address, data, bus in frames:
+      self.safety.safety_rx_hook(libsafety_py.make_CANPacket(address, bus, data))
+    self.safety.safety_tick()
+    self.safety.aol_set_host_request(3)
+
+
+@pytest.mark.parametrize('word', sorted(FACTORY_CASES))
+def test_every_factory_profile_keeps_stock_acc_and_physical_steering(word):
+  case = FactoryPhysical(word)
+  try:
+    assert case.safety.aol_get_permission_mask() == 0
+    case.warm()
+    assert case.safety.safety_config_valid()
+    assert case.safety.aol_get_permission_mask() == 1
+    assert case.tx('STEERING_LKA', {'STEER_REQUEST': 1, 'STEER_TORQUE_CMD': 1})
+    assert not case.tx('ACC_CONTROL', {'ACCEL_CMD': .1})
+    assert case.safety.safety_fwd_hook(2, 0x343) == 0
+    cfg = case.safety.current_safety_config
+    sources = [(cfg.rx_checks[i].msg[0].addr, cfg.rx_checks[i].msg[0].len) for i in range(cfg.rx_checks_len)]
+    assert (0x262, 5 if word in EPS5_WORDS else 8) in sources
+    assert (0x365, 7) in sources if word in ALT_MAIN_WORDS else (0x1D3, 8) in sources
+    case.tick(main=False, cruise=True)
+    assert case.safety.aol_get_permission_mask() == 0
+    assert not case.tx('STEERING_LKA', {'STEER_REQUEST': 1, 'STEER_TORQUE_CMD': 1})
+  finally:
+    case.close()
