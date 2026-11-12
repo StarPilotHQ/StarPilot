@@ -56,30 +56,30 @@
   },
   {
     "name": "boot",
-    "url": "https://files.firestar.link/x/9wnjcvwijyva/boot33.img.xz",
-    "hash": "75dcac3828edbe9ea23720158e66068016c398bec7268d9631026f9a9a898908",
-    "hash_raw": "75dcac3828edbe9ea23720158e66068016c398bec7268d9631026f9a9a898908",
-    "size": 49039360,
+    "url": "https://files.firestar.link/x/k6xdy03heyc8/boot-24ce92ae04d2bacf663d91599e445a14a42a3e75a5162971c12843954619bc4f.img.xz",
+    "hash": "24ce92ae04d2bacf663d91599e445a14a42a3e75a5162971c12843954619bc4f",
+    "hash_raw": "24ce92ae04d2bacf663d91599e445a14a42a3e75a5162971c12843954619bc4f",
+    "size": 49043456,
     "sparse": false,
     "full_check": true,
     "has_ab": true,
-    "ondevice_hash": "9c39a5dc219051b9fd441945e82d87431ed6594a1bdad7b314a49b5479ea707f",
+    "ondevice_hash": "01533c30c7077ed9a455ccbb4b0dceebefd331c42716566bbf9392f5d4abe475",
     "fallback_urls": [
-      "https://files-east.firestar.link/x/xsngjn2xoubj/boot33.img.xz"
+      "https://files-east.firestar.link/x/x8tmdnb7xr0p/boot-24ce92ae04d2bacf663d91599e445a14a42a3e75a5162971c12843954619bc4f.img.xz"
     ]
   },
   {
     "name": "system",
-    "url": "https://files.firestar.link/x/02it0a5qbzuh/system33.img.xz",
-    "hash": "04d55b32073b6cef899e46816f283f07d733aa5050bf3d3fed19fa945c6952c2",
-    "hash_raw": "c66ba21f7eea6a608d17234d63b7b1ea15c1263af3bcee70069bd622999789c7",
+    "url": "https://files.firestar.link/x/k6xdy03heyc8/system-f150b4cdbb856c8f0e70c80303458910808d6d05dd9d78b86eeddd9e311607ff.img.xz",
+    "hash": "94f4d0a09b6bbbf1d519238d164a143d64936f7991e05afad1a823073c2b2435",
+    "hash_raw": "f150b4cdbb856c8f0e70c80303458910808d6d05dd9d78b86eeddd9e311607ff",
     "size": 4718592000,
     "sparse": true,
     "full_check": false,
     "has_ab": true,
-    "ondevice_hash": "753fa431b643775a6dcebd38d9d0b8eaa1a3082848fae36f07882d786d103499",
+    "ondevice_hash": "b206127450667e030ee78602fb07d7bf76c78818a050308765ad0e3a96467559",
     "fallback_urls": [
-      "https://files-east.firestar.link/x/eb5jrs089fwc/system33.img.xz"
+      "https://files-east.firestar.link/x/x8tmdnb7xr0p/system-f150b4cdbb856c8f0e70c80303458910808d6d05dd9d78b86eeddd9e311607ff.img.xz"
     ]
   }
 ]
