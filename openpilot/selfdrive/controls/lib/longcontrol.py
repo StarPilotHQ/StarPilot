@@ -64,7 +64,7 @@ class LongControl:
     if context.faster_takeoffs and takeoff_eligible(self.CP):
       upper = min(accel_limits[1], TAKEOFF_ACCEL_MAX)
       cap = context.profile_max_accel
-      if type(cap) in (int, float) and math.isfinite(cap) and 0 <= cap <= TAKEOFF_ACCEL_MAX:
+      if cap is not None and type(cap) in (int, float) and math.isfinite(cap) and 0 <= cap <= TAKEOFF_ACCEL_MAX:
         upper = min(upper, cap)
       accel_limits = (accel_limits[0], upper)
     self.pid.neg_limit = accel_limits[0]

@@ -333,5 +333,5 @@ def test_saved_takeoff_preference_keeps_ordinary_profile_context_bound(tmp_path,
   params = Params(str(tmp_path))
   params.put_bool('FasterLeadTakeoff', enabled, block=True)
   owner = LongitudinalInputs(candidate()[1], params, lambda: Frame())
-  owner._vehicle_context = lambda active: LongitudinalContext(profile_max_accel=cap)
-  assert owner.context(False).profile_max_accel == min(cap, 3.5 if enabled else 2.)
+  with patch.object(owner, '_vehicle_context', return_value=LongitudinalContext(profile_max_accel=cap)):
+    assert owner.context(False).profile_max_accel == min(cap, 3.5 if enabled else 2.)
