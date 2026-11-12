@@ -213,12 +213,21 @@ def create_acc_cancel(packer, CP, CAN, cruise_info_copy):
   return packer.make_can_msg("SCC_CONTROL", CAN.ECAN, values)
 
 
-def create_lfahda_cluster(packer, CAN, enabled, *, lfa_icon=None):
+CLUSTER_CONTROL_MASK = bytes.fromhex("ffffff80008001000000000000000000")
+
+
+def create_lfahda_cluster(packer, CAN, enabled, *, lfa_icon=None, stock_cluster=None):
   values = {
     "HDA_ICON": 1 if enabled else 0,
     "LFA_ICON": (2 if enabled else 0) if lfa_icon is None else lfa_icon,
   }
-  return packer.make_can_msg("LFAHDA_CLUSTER", CAN.ECAN, values)
+  message = packer.make_can_msg("LFAHDA_CLUSTER", CAN.ECAN, values)
+  if stock_cluster is not None:
+    data = bytearray((old & ~owned) | (new & owned)
+                     for old, new, owned in zip(stock_cluster, message[1], CLUSTER_CONTROL_MASK, strict=True))
+    data[:2] = hkg_can_fd_checksum(message[0], None, data).to_bytes(2, "little")
+    message = (message[0], bytes(data), message[2])
+  return message
 
 
 def create_acc_control(packer, CAN, enabled, accel_last, accel, stopping, gas_override, set_speed, hud_control,

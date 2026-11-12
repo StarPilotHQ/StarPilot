@@ -1,4 +1,4 @@
-from opendbc.car.hyundai.canfd_lfa_status import CANFDLfaStatus, preserves_stock_lfa
+from opendbc.car.hyundai.canfd_lfa_status import CANFDClusterStatus, CANFDLfaStatus, preserves_stock_lfa
 from opendbc.car.hyundai.left_paddle import has_left_paddle
 from opendbc.car.hyundai.ioniq5pe_long_profile import qualified as pe_long_qualified
 from opendbc.car.hyundai.ioniq5pe_ready import PEReadySource
@@ -63,7 +63,9 @@ def get_non_scc_cruise_signals(flags: int, car=None) -> tuple[str, str, str, str
 class CarState(CarStateBase):
   def __init__(self, CP):
     super().__init__(CP)
-    self.stock_lfa_status = CANFDLfaStatus(CanBus(CP).CAM) if preserves_stock_lfa(CP) else None
+    preserve_status = preserves_stock_lfa(CP)
+    self.stock_lfa_status = CANFDLfaStatus(CanBus(CP).CAM) if preserve_status else None
+    self.stock_cluster_status = CANFDClusterStatus(CanBus(CP).CAM) if preserve_status else None
     from opendbc.car.hyundai.daw import DawSource
     self.daw = DawSource(CP)
     self.forte_lkas_sources = NonSccLkasSources() if qualified_non_scc(CP) and CP.flags & HyundaiFlags.HAS_LDA_BUTTON else None

@@ -571,7 +571,10 @@ class CarController(CarControllerBase):
           self.last_ccnc_161_ts_ns = CS.ccnc_161_ts_ns
           self.last_ccnc_162_ts_ns = CS.ccnc_162_ts_ns
       else:
-        can_sends.append(hyundaicanfd.create_lfahda_cluster(self.packer, self.CAN, CC.enabled, lfa_icon=canfd_lfa_icon))
+        cluster_source = getattr(CS, "stock_cluster_status", None)
+        stock_cluster = cluster_source.current(clock_boot_ns()) if cluster_source is not None else None
+        can_sends.append(hyundaicanfd.create_lfahda_cluster(self.packer, self.CAN, CC.enabled, lfa_icon=canfd_lfa_icon,
+                                                         stock_cluster=stock_cluster))
 
     # blinkers
     if lka_steering and self.CP.flags & HyundaiFlags.CANFD_ENABLE_BLINKERS:

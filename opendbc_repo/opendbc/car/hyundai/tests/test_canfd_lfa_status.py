@@ -4,8 +4,8 @@ import pytest
 
 from opendbc.can import CANPacker, CANParser
 from opendbc.car import Bus, gen_empty_fingerprint, structs
-from opendbc.car.hyundai.canfd_lfa_status import CANFDLfaStatus, preserves_stock_lfa
-from opendbc.car.hyundai.hyundaicanfd import hkg_can_fd_checksum
+from opendbc.car.hyundai.canfd_lfa_status import CANFDClusterStatus, CANFDLfaStatus, preserves_stock_lfa
+from opendbc.car.hyundai.hyundaicanfd import CLUSTER_CONTROL_MASK, CanBus, create_lfahda_cluster, hkg_can_fd_checksum
 from opendbc.car.hyundai.interface import CarInterface
 from opendbc.car.hyundai.values import CAR, DBC
 
@@ -347,3 +347,136 @@ def test_stale_warning_cannot_keep_old_green_or_blink_when_host_is_off(indicatio
   assert decoder.vl['LFA']['ToiFltSta'] == 2
   assert decoder.vl['LFA']['ActToiSta'] == 0
   assert decoder.vl['LFA']['StrTqReqVal'] == 0
+
+
+def cluster(packer, bus, counter):
+  address, body, _ = packer.make_can_msg('LFAHDA_CLUSTER', bus, {'COUNTER': counter, 'HDA_ICON': 1, 'LFA_ICON': 3})
+  data = bytearray(body)
+  data[3] |= 7
+  data[4], data[7], data[14] = 3, 0xE5, 0xA5
+  data[:2] = hkg_can_fd_checksum(address, None, data).to_bytes(2, 'little')
+  return address, bytes(data), bus
+
+
+@pytest.mark.parametrize('car', (CAR.KIA_NIRO_EV_2ND_GEN, CAR.HYUNDAI_KONA_EV_2ND_GEN, CAR.HYUNDAI_IONIQ_5))
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('alternate', (False, True))
+@pytest.mark.parametrize('enabled,active', ((False, False), (False, True), (True, False), (True, True)))
+def test_actual_interface_preserves_body_icons_cadence_and_identical_steering(car, alpha, alternate, enabled, active, clock):
+  cp = params(car, alpha=alpha, alternate=alternate)
+  expected_alpha = alpha and car in (CAR.KIA_NIRO_EV_2ND_GEN, CAR.HYUNDAI_IONIQ_5)
+  assert cp.openpilotLongitudinalControl == expected_alpha
+  assert cp.pcmCruise != expected_alpha
+  ci, reference = CarInterface(cp), CarInterface(cp)
+  ci.update([])
+  reference.update([])
+  packer = CANPacker(DBC[car][Bus.pt])
+  bus = ci.CC.CAN
+  command = structs.CarControl.new_message()
+  command.enabled, command.latActive = enabled, active
+  command.actuators.torque = .2
+  for tick in range(10):
+    clock[0] = 1_000_000_000 + tick * 10_000_000
+    packets = physical_frames(ci, packer, tick, template(packer, bus.CAM, (tick + 173) % 256, warning=15, fault=2))
+    assert reference.update([(clock[0], packets)]).canValid
+    stock = cluster(packer, bus.CAM, 61 + tick // 5)
+    if tick % 5 == 0:
+      packets = packets + [stock]
+    state = ci.update([(clock[0], packets)])
+    assert state.canValid and not state.canTimeout
+    _, own = ci.apply(command.as_reader(), clock[0])
+    _, original = reference.apply(command.as_reader(), clock[0])
+    assert [p for p in own if p[0] == 0x12A] == [p for p in original if p[0] == 0x12A]
+    messages = [p for p in own if p[0] == 0x1E0]
+    assert len(messages) == int(tick % 5 == 0)
+    if messages:
+      original_cluster = next(p for p in original if p[0] == 0x1E0)
+      body = messages[0][1]
+      for i, mask in enumerate(CLUSTER_CONTROL_MASK):
+        if i > 1:
+          assert body[i] & mask == original_cluster[1][i] & mask
+        assert body[i] & ~mask == stock[1][i] & ~mask
+      assert body[2] == tick // 5
+      assert int.from_bytes(body[:2], 'little') == hkg_can_fd_checksum(0x1E0, None, bytearray(body))
+
+
+def test_mask_matches_exact_dbc_counter_checksum_and_icons():
+  packer = CANPacker(DBC[CAR.KIA_NIRO_EV_2ND_GEN][Bus.pt])
+  expected = bytearray(16)
+  for name in ('CHECKSUM', 'COUNTER', 'HDA_ICON', 'LFA_ICON'):
+    signal = packer.dbc.name_to_msg['LFAHDA_CLUSTER'].sigs[name]
+    assert signal.is_little_endian
+    for bit in range(signal.lsb, signal.lsb + signal.size):
+      expected[bit // 8] |= 1 << (bit % 8)
+  assert bytes(expected) == CLUSTER_CONTROL_MASK
+
+
+@pytest.mark.parametrize('enabled', (False, True))
+@pytest.mark.parametrize('icon', (0, 1, 2, 3))
+def test_generated_icons_never_come_from_stock(enabled, icon):
+  cp = params(CAR.KIA_NIRO_EV_2ND_GEN)
+  bus = CanBus(cp)
+  packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+  stock = cluster(CANPacker(DBC[cp.carFingerprint][Bus.pt]), bus.CAM, 173)
+  message = create_lfahda_cluster(packer, bus, enabled, lfa_icon=icon, stock_cluster=stock[1])
+  decoder = CANParser(DBC[cp.carFingerprint][Bus.pt], [('LFAHDA_CLUSTER', 0)], bus.ECAN)
+  decoder.update([(1_000_000_000, [message])])
+  assert decoder.vl['LFAHDA_CLUSTER']['HDA_ICON'] == int(enabled)
+  assert decoder.vl['LFAHDA_CLUSTER']['LFA_ICON'] == icon
+  assert message[1][3] & 7 == 7
+  assert message[1][4] == 3
+  assert message[1][7] == 0xE5
+  assert message[1][14] == 0xA5
+  assert message[1][2] == 0
+
+
+@pytest.mark.parametrize('mutation', ('crc', 'bus', 'length', 'future', 'held', 'backward', 'counter', 'address'))
+def test_bad_source_never_renews_freshness(mutation, clock):
+  packer = CANPacker(DBC[CAR.KIA_NIRO_EV_2ND_GEN][Bus.pt])
+  source = CANFDClusterStatus(2)
+  first = cluster(packer, 2, 254)
+  source.update([(clock[0], [first])])
+  assert source.current(clock[0]) == first[1]
+  clock[0] += 50_000_000
+  later, stamp = cluster(packer, 2, 255), clock[0]
+  if mutation == 'crc':
+    body = bytearray(later[1])
+    body[3] ^= 1
+    later = later[0], bytes(body), later[2]
+  elif mutation == 'bus':
+    later = later[0], later[1], 0
+  elif mutation == 'length':
+    later = later[0], later[1][:-1], later[2]
+  elif mutation == 'future':
+    stamp += 1
+  elif mutation == 'held':
+    later = first
+  elif mutation == 'backward':
+    stamp -= 50_000_001
+  elif mutation == 'counter':
+    later = cluster(packer, 2, 0)
+  elif mutation == 'address':
+    later = template(packer, 2, 255)
+  source.update([(stamp, [later])])
+  clock[0] += 50_000_000
+  assert source.current(clock[0]) == first[1]
+  clock[0] += 1
+  assert source.current(clock[0]) is None
+  assert source.last_fault() is None
+
+
+def test_multiple_frames_wrap_and_no_stale_template(clock):
+  packer = CANPacker(DBC[CAR.KIA_NIRO_EV_2ND_GEN][Bus.pt])
+  source = CANFDClusterStatus(2)
+  first, second = cluster(packer, 2, 255), cluster(packer, 2, 0)
+  source.update([(clock[0], [first, second])])
+  assert source.current(clock[0]) == second[1]
+  clock[0] += 100_000_001
+  assert source.current(clock[0]) is None
+
+
+@pytest.mark.parametrize('car,hda2', ((CAR.KIA_NIRO_EV_2ND_GEN, True), (CAR.HYUNDAI_IONIQ_5_PE, False),
+                                    (CAR.KIA_CARNIVAL_2025, False)))
+def test_other_protocols_do_not_acquire_source(car, hda2):
+  ci = CarInterface(params(car, hda2=hda2))
+  assert ci.CS.stock_cluster_status is None

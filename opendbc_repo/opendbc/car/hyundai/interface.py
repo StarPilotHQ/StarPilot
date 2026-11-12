@@ -425,6 +425,7 @@ class CarInterface(CarInterfaceBase):
         self.CS.forte_lkas_sources.update(can_packets)
       if self.CS.stock_lfa_status is not None:
         self.CS.stock_lfa_status.update(can_packets)
+        self.CS.stock_cluster_status.update(can_packets)
     ret = super().update(can_packets)
     self.CS.finalize_blended_cancel(ret)
     return ret
