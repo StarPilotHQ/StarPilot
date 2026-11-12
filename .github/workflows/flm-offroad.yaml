@@ -6,11 +6,20 @@ on:
     paths:
       - 'openpilot/starpilot/flm/**'
       - 'openpilot/starpilot/lateral/**'
+      - 'openpilot/starpilot/aol/**'
       - 'openpilot/starpilot/galaxy/web/js/flm*.js'
       - 'openpilot/starpilot/galaxy/tests/test_flm*.mjs'
       - 'openpilot/selfdrive/controls/lib/latcontrol*'
       - 'openpilot/selfdrive/controls/controlsd.py'
       - 'openpilot/system/manager/process_config.py'
+      - 'openpilot/selfdrive/modeld/**'
+      - 'openpilot/system/camerad/cameras/**'
+      - 'openpilot/system/sensord/**'
+      - 'openpilot/selfdrive/locationd/**'
+      - 'msgq_repo/msgq/visionipc/**'
+      - 'rednose_repo/rednose/helpers/**'
+      - 'openpilot/starpilot/models/laboratory_runner.py'
+      - 'openpilot/starpilot/models/tests/test_laboratory_runner.py'
       - '.github/workflows/flm-offroad.yaml'
       - 'pyproject.toml'
       - 'uv.lock'
@@ -57,14 +66,24 @@ jobs:
       - name: Build native dependencies
         timeout-minutes: 10
         run: scons
-      - name: Test offroad recommendations, storage, startup and rollback contracts
+      - name: Test producer capture, clocks, offroad recommendations, startup and rollback
         timeout-minutes: 3
-        run: >-
-          tools/op.sh test
-          openpilot/starpilot/flm/tests/test_offroad_backend.py
-          openpilot/starpilot/flm/tests/test_offroad_coordinate_policy.py
-          openpilot/starpilot/flm/tests/test_offroad_equal_native_output.py
-          --json-output ci-results/flm-offroad.json
+        run: |
+          tools/op.sh test \
+            openpilot/starpilot/flm/tests/test_offroad_backend.py \
+            openpilot/starpilot/flm/tests/test_offroad_coordinate_policy.py \
+            openpilot/starpilot/flm/tests/test_offroad_equal_native_output.py \
+            --json-output ci-results/flm-offroad.json
+          .venv/bin/python -m pytest -q --import-mode=importlib \
+            openpilot/starpilot/flm/tests/test_upstream_producer_transport.py \
+            openpilot/starpilot/flm/tests/test_clock_resolution_budget.py \
+            openpilot/starpilot/flm/tests/test_consumption_join_clocks.py \
+            openpilot/starpilot/flm/tests/test_control_source_clock_recovery.py \
+            openpilot/starpilot/flm/tests/test_drain_receipt_clock.py \
+            openpilot/starpilot/flm/tests/test_event_admission_clock.py \
+            openpilot/starpilot/models/tests/test_laboratory_runner.py \
+            openpilot/starpilot/aol/tests/test_source_expiry_native_off.py \
+            --junitxml=ci-results/flm-producer.xml
       - name: Test completed-drive and steering-result presentation
         timeout-minutes: 1
         run: |
@@ -75,5 +94,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flm-offroad-contracts
-          path: ci-results/flm-offroad.json
+          path: |
+            ci-results/flm-offroad.json
+            ci-results/flm-producer.xml
           if-no-files-found: warn
