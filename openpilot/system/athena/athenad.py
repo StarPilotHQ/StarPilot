@@ -25,6 +25,7 @@ from functools import partial, total_ordering
 from queue import Queue
 from typing import cast
 from collections.abc import Callable, Iterable
+from urllib.parse import urlsplit
 
 import requests
 from requests.adapters import HTTPAdapter, DEFAULT_POOLBLOCK
@@ -673,9 +674,10 @@ def uploadFilesToUrls(files_data: list[UploadFileDict]) -> UploadFilesToUrlRespo
 
     path = os.path.join(Paths.log_root(), file.fn)
     # Konik requests the bare name ("<segment>/rlog") with an upload URL for "rlog.zst", while the device stores
-    # rlog.zst. Upload the stored .zst file when that is exactly what the URL expects.
+    # rlog.zst. Upload the stored .zst file when that is exactly what the URL path expects (the parsed path,
+    # so a query or fragment cannot make a plain-file URL look like a .zst one, or the reverse).
     if (not file.fn.endswith('.zst') and not os.path.exists(path) and os.path.exists(path + '.zst') and
-        file.url.split('?')[0].endswith('/' + os.path.basename(file.fn) + '.zst')):
+        urlsplit(file.url).path.endswith('/' + os.path.basename(file.fn) + '.zst')):
       path += '.zst'
     if not owns_recording(path, Paths.log_root()) or (not os.path.exists(path) and not os.path.exists(strip_zst_extension(path))):
       failed.append(file.fn)
