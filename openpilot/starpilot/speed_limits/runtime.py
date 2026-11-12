@@ -145,6 +145,9 @@ class Runtime:
     self.last_cruise_producer: str | None = None
     self._ui_receipt = None
     self.last_received: acc.Candidate | None = None
+    self._ego_delta_key: tuple[str, str] | None = None
+    self._ego_delta_mps = 0.0
+    self._ego_sample_ns = 0
     self.current_presentation: acc.Presentation | None = None
 
   def reset(self) -> None:
@@ -168,6 +171,9 @@ class Runtime:
     self.last_cruise_producer = None
     self._ui_receipt = None
     self.last_received = None
+    self._ego_delta_key = None
+    self._ego_delta_mps = 0.0
+    self._ego_sample_ns = 0
     self.current_presentation = None
 
   def update_offsets(self, offsets: sd.OffsetSchedule, *, is_metric: bool | None = None) -> None:
@@ -331,6 +337,22 @@ class Runtime:
     # Vision still requires its independent source-specific qualification.
     return values
 
+  def _smoothed_ego_delta(self, ego, CP, sample_ns: int, *, standstill: bool) -> float | None:
+    """Estimate dashboard calibration without feeding its display steps into cruise."""
+    if (ego.status is not sd.DomainStatus.VALID or ego.raw_mps is None or ego.cluster_mps is None or
+        standstill or ego.raw_mps <= 0. or ego.cluster_mps <= 0.):
+      self._ego_delta_key = None
+      return None
+    key = (str(CP.brand), str(CP.carFingerprint))
+    delta = ego.cluster_mps - ego.raw_mps
+    if key != self._ego_delta_key or sample_ns < self._ego_sample_ns:
+      self._ego_delta_mps = delta
+    elif sample_ns > self._ego_sample_ns:
+      dt = (sample_ns - self._ego_sample_ns) / 1e9
+      self._ego_delta_mps += dt / (2.0 + dt) * (delta - self._ego_delta_mps)
+    self._ego_delta_key, self._ego_sample_ns = key, sample_ns
+    return max(0., self._ego_delta_mps)
+
   def _frame(self, sm, CP, now_ns: int, now_boot_ns: int | None, action: acc.DriverAction | None, adopt: acc.AdoptRequest | None,
              classified: arb.Result | None, *, wheel_override_blocked: bool) -> comp.Frame:
     car_fresh = _fresh(sm, "carState", now_ns) and not sm["carState"].canTimeout
@@ -370,7 +392,9 @@ class Runtime:
                       sd.DomainStatus.VALID if car_fresh and selected_cluster is not None else sd.DomainStatus.STALE,
                       ego, bool(car_state.gasPressed) if car_fresh else False, host, action=action, adopt=adopt,
                       classified_cruise=classified, is_metric=self.is_metric, pedal_override=self.settings.pedal_override,
-                      wheel_override_enabled=wheel_enabled, wheel_override_blocked=wheel_blocked)
+                      wheel_override_enabled=wheel_enabled, wheel_override_blocked=wheel_blocked,
+                      filtered_ego_delta_mps=self._smoothed_ego_delta(
+                        ego, CP, int(sm.logMonoTime.get('carState', 0)), standstill=bool(car_state.standstill)))
     maps_selected = self._maps_selected
     encounter = self.advance.encounter
     if not maps_selected and encounter is None:
