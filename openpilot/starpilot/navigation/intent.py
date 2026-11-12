@@ -11,6 +11,7 @@ SERVICE = 'starpilotNavigation'
 MAX_AGE_NS = 2_500_000_000
 SMOOTH_CEILING_CAR = 'HONDA_CIVIC_2022'
 TARGET_MPH = {'uturn': 5., 'sharpLeft': 10., 'sharpRight': 10., 'left': 14., 'right': 14.}
+LEFT, RIGHT = ('left', 'sharpLeft'), ('right', 'sharpRight')
 
 
 def current_instruction(sm, now_ns: int):
@@ -48,6 +49,16 @@ def instruction_distance(nav, instruction, v_ego: float, now_ns: int) -> float:
   return distance
 
 
+def turn_side(nav, instruction, cs) -> str:
+  """The side the driver is signalling, when it is the instructed one. An arrow-only phone turn is confirmed
+  at its junction but carries no side, so there the signal alone chooses it."""
+  if instruction.maneuverType != 'turn' or cs.leftBlinker == cs.rightBlinker:
+    return ''
+  side = 'left' if cs.leftBlinker else 'right'
+  modifier = instruction.maneuverModifier
+  return side if modifier in (LEFT if cs.leftBlinker else RIGHT) or (not modifier and is_phone_navigation(nav)) else ''
+
+
 def turn_desire(sm, now_ns: int, current_desire, *, supported: bool):
   if not supported or current_desire != log.Desire.none:
     return current_desire
@@ -60,16 +71,17 @@ def turn_desire(sm, now_ns: int, current_desire, *, supported: bool):
       instruction.maneuverType != 'turn' or not math.isfinite(distance) or
       not 0 <= distance <= min(90., max(35., cs.vEgo * 6.))):
     return current_desire
-  if instruction.maneuverModifier in ('left', 'sharpLeft') and cs.leftBlinker and not cs.rightBlinker and not cs.leftBlindspot:
+  side = turn_side(nav, instruction, cs)
+  if side == 'left' and not cs.leftBlindspot:
     return log.Desire.turnLeft
-  if instruction.maneuverModifier in ('right', 'sharpRight') and cs.rightBlinker and not cs.leftBlinker and not cs.rightBlindspot:
+  if side == 'right' and not cs.rightBlindspot:
     return log.Desire.turnRight
   return current_desire
 
 
 def turn_target(maneuver, min_steer_speed: float) -> float | None:
   kind, modifier = maneuver.maneuverType, maneuver.maneuverModifier
-  target = TARGET_MPH.get(modifier) if kind == 'turn' else None
+  target = TARGET_MPH.get(modifier or 'left') if kind == 'turn' else None
   if modifier == 'uturn' or 'uturn' in kind or 'u-turn' in kind:
     target = 5.
   elif 'roundabout' in kind or 'rotary' in kind:
@@ -136,9 +148,7 @@ def matching_turn_signal(sm, now_ns: int, *, supported: bool) -> bool:
     return False
   cs, instruction = sm['carState'], nav.instruction
   distance = instruction_distance(nav, instruction, cs.vEgo, now_ns)
-  matching = ((instruction.maneuverModifier in ('left', 'sharpLeft') and cs.leftBlinker and not cs.rightBlinker) or
-              (instruction.maneuverModifier in ('right', 'sharpRight') and cs.rightBlinker and not cs.leftBlinker))
-  return bool(instruction.maneuverType == 'turn' and matching and math.isfinite(cs.vEgo) and
+  return bool(turn_side(nav, instruction, cs) and math.isfinite(cs.vEgo) and
               math.isfinite(distance) and
               0 <= distance <= min(250., max(30., 15. + max(0., cs.vEgo) * 12.)))
 

@@ -62,7 +62,8 @@ def test_local_geometry_corroborates_notification_without_a_route(kind, side, ro
     ([branch(120, 165)], {}, 'mapAligned'),  # Permit notification rounding and GPS/position uncertainty.
     ([branch(-90)], {}, 'mapDifferentDirection'),
     ([branch(90, 300)], {}, 'mapNoNearbyJunction'),
-    ([branch(), branch(90, junctionLatitude=35.152, wayId=78)], {}, 'mapAmbiguous'),
+    ([branch(), branch(90, 175, junctionLatitude=35.152, wayId=78)], {}, 'mapAmbiguous'),
+    ([branch(), branch(90, 140, junctionLatitude=35.1512, wayId=78)], {}, 'mapAligned'),  # Both carriageways of a divided road.
     ([branch()], {'maneuverType': 'fork'}, 'mapUnverifiable'),
     ([branch()], {'maneuverType': 'roundabout', 'exitNumber': '3'}, 'mapUnverifiable'),
     ([branch()], {'maneuverType': 'merge'}, 'mapUnverifiable'),
@@ -131,7 +132,7 @@ def test_older_event_cannot_change_current_confirmation():
 
 def test_mapbox_priority_never_consults_phone_map_evidence():
   class UnusedMap:
-    def status(self, _phone):
+    def resolve(self, _phone, **_):
       raise AssertionError('Mapbox source selection must remain independent')
   base = {'status': 'guiding'}
   assert select_navigation(base, phone(), now_ns=NOW, drive_id=1, local_map=UnusedMap()) is base
@@ -213,3 +214,233 @@ def test_trip_totals_do_not_affect_map_corroboration():
   assert plain['controlValid'] == totals['controlValid']
   assert not plain['totalsKnown'] and totals['totalsKnown']
   assert totals['instruction']['remainingDistanceMeters'] == 3000 and totals['instruction']['remainingDurationSeconds'] == 240
+
+
+def bare(**patch):
+  # Google Maps' usual notification: a distance and the road, the direction only in the arrow icon.
+  return phone(instruction='S Oak Hill Blvd', maneuverType='', maneuverModifier='', **patch)
+
+
+@pytest.mark.parametrize('rows,status', [
+    ([branch(88, roadName='South Oak Hill Boulevard')], 'mapInferred'),
+    ([branch(-64, roadName='Oak Hill Boulevard'), branch(115, roadName='Oak Hill Boulevard', wayId=78)], 'mapInferred'),
+    ([branch(3, roadName='South Oak Hill Boulevard')], 'mapUnverifiable'),   # the road only changes its name
+    ([branch(88, roadName='Elm Street')], 'mapUnverifiable'),
+    ([branch(88)], 'mapUnverifiable'),
+    ([branch(88, roadName='Oak Hill Boulevard'), branch(88, 175, roadName='Oak Hill Boulevard', wayId=78)], 'mapAmbiguous'),
+])
+def test_arrow_only_guidance_is_confirmed_by_a_turn_onto_the_named_road(rows, status):
+  local_map = LocalMapCorroborator()
+  update(local_map, packet(rows))
+  resolved = local_map.resolve(bare())
+  assert resolved.status == status
+  if resolved.control:
+    assert (resolved.kind, resolved.side) == ('turn', '')
+
+
+def test_named_road_settles_two_junctions_on_the_instructed_side():
+  local_map = LocalMapCorroborator()
+  update(local_map, packet([branch(90, 100, roadName='Elm Street'), branch(90, 165, roadName='Main Street', wayId=78)]))
+  resolved = local_map.resolve(phone(roadName='Main St'))
+  assert resolved.status == 'mapAligned' and resolved.distance == 165
+  assert local_map.resolve(phone()).status == 'mapAmbiguous'
+
+
+def test_control_runs_on_the_junction_distance_and_fix_time():
+  local_map = LocalMapCorroborator()
+  update(local_map, packet([branch(90, 95)]))
+  selected = select_navigation({'status': 'noDestination'}, phone(), now_ns=NOW, drive_id=NOW - 1_000_000_000,
+                               local_map=local_map)
+  assert selected['controlValid'] and selected['instruction']['distanceMeters'] == 95
+  assert selected['locationMonoTime'] == selected['observationMonoTime'] == NOW - 100_000_000
+
+
+def test_phone_distance_is_compared_after_the_distance_driven_since_it_was_seen():
+  local_map = LocalMapCorroborator()
+  local_map.resolve(phone(), speed=15., now_ns=NOW - 6_000_000_000)
+  for second in range(5, -1, -1):
+    update(local_map, packet([branch(90, 100)]))
+    resolved = local_map.resolve(phone(distanceMeters=190, observed=NOW - 6_000_000_000), speed=15., now_ns=NOW - second * 1_000_000_000)
+  assert resolved.status == 'mapAligned'
+  assert LocalMapCorroborator().status(phone(distanceMeters=190)) == 'mapUnavailable'
+  stopped = LocalMapCorroborator()
+  update(stopped, packet([branch(90, 100)]))
+  assert stopped.resolve(phone(distanceMeters=190, observed=NOW - 6_000_000_000), speed=0., now_ns=NOW).status == 'mapNoNearbyJunction'
+
+
+def test_confirmed_junction_is_carried_while_a_live_map_loses_the_road():
+  local_map = LocalMapCorroborator()
+  update(local_map, packet([branch(90, 100)]))
+  assert local_map.resolve(phone(distanceMeters=100), speed=10., now_ns=NOW).control
+  def lost(seconds):
+    now = BOOT + seconds * 1_000_000_000
+    event = ambiguous(navigationBranches=[], gpsMonoTime=now - 100_000_000, computedMonoTime=now)
+    event.logMonoTime = now
+    update(local_map, event, now=now)
+  lost(1)
+  held = local_map.resolve(phone(distanceMeters=91), speed=10., now_ns=NOW + 1_000_000_000)
+  # 100 m at the fix 0.1 s before NOW, less 1.1 s at 10 m/s.
+  assert held.control and held.distance == pytest.approx(89) and held.anchor_ns == NOW + 1_000_000_000
+  # The phone moving on to another distance, or the map producer stopping, ends it.
+  lost(2)
+  assert not local_map.resolve(phone(distanceMeters=400), speed=10., now_ns=NOW + 2_000_000_000).control
+  assert not local_map.resolve(phone(distanceMeters=80), speed=10., now_ns=NOW + 3_000_000_000).control
+
+
+def live(local_map, second, rows=None, **patch):
+  # A current mapd frame `second` after BOOT; no rows is mapd momentarily losing the road.
+  now = BOOT + int(second * 1e9)
+  event = (packet(rows, gpsMonoTime=now - 100_000_000, computedMonoTime=now, **patch) if rows else
+           ambiguous(navigationBranches=[], gpsMonoTime=now - 100_000_000, computedMonoTime=now))
+  event.logMonoTime = now
+  update(local_map, event, now=now)
+
+
+def at(local_map, second, rows, make=phone, speed=10., **patch):
+  # Approach at 10 m/s: the junction 100 m ahead at second 0, and the phone reading that, rounded.
+  live(local_map, second, rows)
+  observed = NOW + int(second * 1e9)
+  return local_map.resolve(make(observed=observed, **{'distanceMeters': 100 - 10 * second, **patch}),
+                           speed=speed, now_ns=observed)
+
+
+def named(angle, distance, **patch):
+  return branch(angle, distance, roadName='Oak Hill Boulevard', **patch)
+
+
+def test_hold_survives_ticks_that_do_not_contradict_it():
+  local_map = LocalMapCorroborator()
+  assert at(local_map, 0, [named(88, 100)], bare).status == 'mapInferred'
+  assert at(local_map, 1, [named(88, 90)], bare).distance == 90
+  # mapd sees the junction but not its name for two ticks: the speed ceiling must not release.
+  for second, left in ((2, 79), (3, 69)):
+    held = at(local_map, second, [branch(88, 100 - 10 * second)], bare)
+    assert held.status == 'mapInferred' and held.distance == pytest.approx(left)
+    assert held.anchor_ns == NOW + second * 1_000_000_000
+  assert at(local_map, 4, None, bare).distance == pytest.approx(59)
+  assert at(local_map, 5, [named(88, 50)], bare).distance == 50
+
+
+@pytest.mark.parametrize('rows,patch', [
+    ([branch(-90, 80)], {}),                                                        # a different direction
+    ([branch(90, 80), branch(90, 140, junctionLatitude=35.152, wayId=78)], {}),     # two junctions
+    (None, {'instruction': 'Turn right onto Elm St'}),                               # the next instruction
+    (None, {'distanceMeters': 300}),                                                 # the phone disagrees
+    (None, {'session': 'other'}),                                                    # another trip
+])
+def test_hold_ends_on_contradiction_or_new_guidance(rows, patch):
+  local_map = LocalMapCorroborator()
+  assert at(local_map, 0, [branch(90, 100)]).control and at(local_map, 1, [branch(90, 90)]).control
+  assert not at(local_map, 2, rows, **patch).control
+  assert not at(local_map, 3, None).control
+
+
+def test_hold_ends_with_the_map_producer_or_after_its_timeout():
+  stopped = LocalMapCorroborator()
+  assert at(stopped, 0, [branch(90, 100)]).control
+  stopped.update(None, valid=False, event_boot_ns=0, received=False, alive=True, now_boot_ns=BOOT + 1_000_000_000)
+  assert not stopped.resolve(phone(distanceMeters=90, observed=NOW + 1_000_000_000), speed=10., now_ns=NOW + 1_000_000_000).control
+  # A packet the tracker refuses (stamped in the future) is not a live producer either.
+  refused = LocalMapCorroborator()
+  assert at(refused, 0, [branch(90, 100)]).control
+  event = ambiguous(navigationBranches=[], gpsMonoTime=BOOT, computedMonoTime=BOOT + 1_000_000_000)
+  event.logMonoTime = BOOT + 2_000_000_000
+  update(refused, event, now=BOOT + 1_000_000_000)
+  assert not refused.fresh
+  assert not refused.resolve(phone(distanceMeters=90, observed=NOW + 1_000_000_000), speed=10., now_ns=NOW + 1_000_000_000).control
+  # Creeping in traffic, the phone still agreeing: the hold lasts 20 s from the last confirmation.
+  slow = LocalMapCorroborator()
+  assert at(slow, 0, [branch(90, 100)], speed=1.).control
+  assert all(at(slow, second, None, speed=1., distanceMeters=100 - second).control for second in range(1, 21))
+  assert not at(slow, 21, None, speed=1., distanceMeters=79).control
+
+
+def test_unknown_distance_driven_never_confirms():
+  # The phone's reading predates the odometer by more than a gap: the match may be the next junction.
+  local_map = LocalMapCorroborator()
+  live(local_map, 0, [branch(90, 100)])
+  stale = local_map.resolve(phone(distanceMeters=160, observed=NOW - 6_000_000_000), speed=10., now_ns=NOW)
+  assert stale.status == 'mapUnverifiable'
+  # A reading just before the odometer's first call is advanced at the current speed.
+  assert local_map.resolve(phone(distanceMeters=120, observed=NOW - 2_000_000_000), speed=10., now_ns=NOW).control
+
+
+def test_odometer_coasts_over_a_missed_speed_and_restarts_after_a_gap():
+  coast = LocalMapCorroborator()
+  assert at(coast, 0, [branch(90, 100)]).control
+  assert at(coast, 1, None, speed=None).control
+  assert at(coast, 2, None).distance == pytest.approx(79)
+  # Without speed for longer than a gap there is no knowing how far the car went.
+  blind = LocalMapCorroborator()
+  assert at(blind, 0, [branch(90, 100)]).control
+  assert [at(blind, second, None, speed=None).control for second in range(1, 6)] == [True, True, True, False, False]
+  gap = LocalMapCorroborator()
+  assert at(gap, 0, [branch(90, 100)]).control
+  # No call for 5 s: the held junction cannot be advanced, so it is dropped.
+  assert not at(gap, 5, None).control
+
+
+def test_phone_distance_already_driven_past_never_confirms():
+  local_map = LocalMapCorroborator()
+  for second in range(-10, 0):
+    local_map.resolve(phone(observed=NOW - 10_000_000_000), speed=10., now_ns=NOW + second * 1_000_000_000)
+  live(local_map, 0, [branch(90, 30)])
+  # 100 m driven since the phone said 20 m: the junction 30 m ahead is not that turn.
+  assert local_map.resolve(phone(distanceMeters=20, observed=NOW - 10_000_000_000), speed=10., now_ns=NOW).status == 'mapUnverifiable'
+  # Nor does it keep a junction confirmed earlier alive.
+  assert local_map.resolve(phone(distanceMeters=10, observed=NOW), speed=10., now_ns=NOW).control
+  stale = phone(distanceMeters=20, observed=NOW - 10_000_000_000)
+  assert not local_map.resolve(stale, speed=10., now_ns=NOW + 500_000_000).control and local_map.held is None
+
+
+@pytest.mark.parametrize('phone_road,map_road,same', [
+    ('S Oak Hill Blvd', 'South Oak Hill Boulevard', True), ('S Oak Hill Blvd', 'Oak Hill Boulevard', True),
+    ('E St', 'West Street', False), ('North Ave', 'West Avenue', False), ('N St', 'North Street', True),
+    ('Main St', 'Main Avenue', False), ('Oak Hill Blvd', '', False),
+])
+def test_road_names_match_without_conflicting_cardinals(phone_road, map_road, same):
+  from openpilot.starpilot.navigation.notification import instruction_roads, same_road
+  assert same_road(map_road, instruction_roads(phone_road)) == same
+  local_map = LocalMapCorroborator()
+  update(local_map, packet([branch(88, roadName=map_road)]))
+  assert local_map.resolve(phone(instruction=phone_road, maneuverType='', maneuverModifier='')).control == same
+
+
+def test_diagnostics_detail_keeps_the_phone_reading_and_the_resolution():
+  local_map = LocalMapCorroborator()
+  update(local_map, packet([branch(88, 95, roadName='South Oak Hill Boulevard')]))
+  diagnostics = {}
+  select_navigation({'status': 'noDestination'}, bare(), now_ns=NOW, drive_id=1, local_map=local_map, diagnostics=diagnostics)
+  assert diagnostics['mapStatus'] == 'mapInferred' and diagnostics['detail'] == ('', '', 120, 'turn', '', 95)
+  diagnostics = {}
+  select_navigation({'status': 'noDestination'}, phone(), now_ns=NOW, drive_id=1, local_map=LocalMapCorroborator(),
+                    diagnostics=diagnostics)
+  assert diagnostics['detail'] == ('turn', 'right', 120, '', '', 0)
+
+
+class Master:
+  valid, logMonoTime, updated, alive = {'mapdOut': True}, {'mapdOut': BOOT}, {'mapdOut': True}, {'mapdOut': True}
+
+  def __getitem__(self, _service):
+    return 'mapdOut'
+
+
+def test_runtime_reads_map_evidence_only_while_a_phone_is_guiding():
+  from openpilot.starpilot.navigation.runtime import corroborate
+  local_map, reads = LocalMapCorroborator(), []
+  local_map.update = lambda road, **values: reads.append(values['now_boot_ns'])
+  def hold():
+    local_map.held, local_map.last_event_ns = ('key', None, NOW), 1
+    local_map.odometer.append((NOW, 0.))
+  hold()
+  corroborate(local_map, Master(), None, 7, NOW, 5)
+  assert reads == [] and local_map.held is None and not local_map.odometer and not local_map.last_event_ns
+  corroborate(local_map, Master(), phone(), 7, NOW, 5)
+  assert reads == [NOW + 5]
+  # A deviceState hiccup (no drive) keeps the hold; a new drive does not.
+  hold()
+  corroborate(local_map, Master(), phone(), 0, NOW, 5)
+  corroborate(local_map, Master(), phone(), 7, NOW, 5)
+  assert local_map.held is not None
+  corroborate(local_map, Master(), phone(), 9, NOW, 5)
+  assert local_map.held is None and len(reads) == 4

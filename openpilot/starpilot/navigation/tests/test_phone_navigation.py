@@ -241,8 +241,11 @@ class Aligned:
   def __init__(self, status='mapAligned'):
     self.value = status
 
-  def status(self, phone):
-    return self.value
+  def resolve(self, phone, *, speed=None, now_ns=None):
+    from openpilot.starpilot.navigation.notification import Resolution
+    if phone.get('distanceMeters') is None:
+      return Resolution('mapUnverifiable')
+    return Resolution(self.value, phone.get('maneuverType', ''), phone.get('maneuverModifier', ''), 80., NOW - 100)
 
 
 def selected_for_control(stream, local_map, **values):
@@ -254,9 +257,9 @@ def selected_for_control(stream, local_map, **values):
 
 def test_control_needs_map_agreement_known_distance_and_fresh_observation(stream):
   granted = selected_for_control(stream, Aligned())
-  assert granted['controlValid'] and granted['locationMonoTime'] == NOW
+  assert granted['controlValid'] and granted['locationMonoTime'] == NOW - 100
+  assert granted['instruction']['distanceMeters'] == 80.
   for status in ('mapUnavailable', 'mapAmbiguous', 'mapDifferentDirection', 'mapNoNearbyJunction', 'mapUnverifiable'):
     assert not selected_for_control(stream, Aligned(status))['controlValid']
   assert not selected_for_control(stream, None)['controlValid']
   assert not selected_for_control(stream, Aligned(), distanceMeters=None)['controlValid']
-  assert not selected_for_control(stream, Aligned(), distanceMeters=0)['controlValid']

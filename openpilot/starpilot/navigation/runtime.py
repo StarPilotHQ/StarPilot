@@ -290,6 +290,17 @@ def publish_status(pm, value: dict, phone_fix=None) -> None:
   pm.send('starpilotNavigation', message)
 
 
+def corroborate(local_map, sm, phone, drive_id: int, now_ns: int, boot_offset_ns: int) -> None:
+  """Junction evidence is only read while a phone is guiding, once per published frame, and never across drives."""
+  changed = bool(drive_id and local_map.drive and drive_id != local_map.drive)
+  local_map.drive = drive_id or local_map.drive
+  if (phone is None or changed) and (local_map.last_event_ns or local_map.held is not None or local_map.odometer):
+    local_map.reset()
+  if phone is not None:
+    local_map.update(sm['mapdOut'], valid=sm.valid['mapdOut'], event_boot_ns=sm.logMonoTime['mapdOut'],
+                     received=sm.updated['mapdOut'], alive=sm.alive['mapdOut'], now_boot_ns=now_ns + boot_offset_ns)
+
+
 def main():
   from openpilot.cereal import messaging
   from openpilot.common.realtime import Ratekeeper
@@ -317,23 +328,26 @@ def main():
       drive_id = (device.startedMonoTime if sm.valid['deviceState'] and device.started and
                   0 < device.startedMonoTime <= device_stamp <= now <= device_stamp + 2_000_000_000 else 0)
       try:
-        local_map.update(sm['mapdOut'], valid=sm.valid['mapdOut'], event_boot_ns=sm.logMonoTime['mapdOut'],
-                         received=sm.updated['mapdOut'], alive=sm.alive['mapdOut'], now_boot_ns=now + boot_offset_ns())
         phone_fix = read_phone_gps(now)
         phone_stamp = phone_fix[0] if phone_fix is not None else 0
         if now >= next_update_ns or phone_stamp != last_phone_stamp:
           next_update_ns = now + 1_000_000_000
           last_phone_stamp = phone_stamp
-          value = runtime.update(now, location(sm, now, phone_fix), drive_id)
+          fix = location(sm, now, phone_fix)
+          value = runtime.update(now, fix, drive_id)
           official_active = params.get_bool('NavigationEnabled') and bool(params.get('NavDestination'))
+          phone_enabled = owner.read().get('phoneNavigation', False)
+          phone = read_phone_navigation(now) if phone_enabled else None
+          corroborate(local_map, sm, phone, drive_id, now, boot_offset_ns() if phone is not None else 0)
           diagnostics = {}
-          value = select_navigation(value, read_phone_navigation(now), now_ns=now, drive_id=drive_id,
-                                    official_active=official_active, phone_enabled=owner.read().get('phoneNavigation', False),
-                                    diagnostics=diagnostics, local_map=local_map)
+          value = select_navigation(value, phone, now_ns=now, drive_id=drive_id, official_active=official_active,
+                                    phone_enabled=phone_enabled, diagnostics=diagnostics, local_map=local_map,
+                                    speed=fix[2] if fix is not None and len(fix) > 2 else None)
           reason = diagnostics['reason'], diagnostics.get('mapStatus', '')
           if reason != last_reason:
             last_reason = reason
-            cloudlog.info('notification navigation: %s %s', *reason)
+            # The published frame carries the junction's distance once confirmed, so keep the phone's own here.
+            cloudlog.info('notification navigation: %s %s phone=%s', *reason, diagnostics.get('detail', ''))
           publish_status(pm, value, phone_fix)
       except (ValidationError, OSError, ValueError):
         cloudlog.warning('navigation settings or route unavailable')

@@ -5,7 +5,7 @@ import pytest
 
 from openpilot.cereal import messaging, log
 from openpilot.common.constants import CV
-from openpilot.starpilot.navigation.intent import current_instruction, turn_desire, cruise_ceiling, turn_speed
+from openpilot.starpilot.navigation.intent import current_instruction, matching_turn_signal, turn_desire, cruise_ceiling, turn_speed
 
 
 NOW = 20_000_000_000
@@ -239,3 +239,21 @@ def test_phone_guidance_ends_once_the_reported_turn_is_passed(sm):
   # 150 m driven against a 30 m turn with no newer notification.
   assert turn_desire(sm, NOW, log.Desire.none, supported=True) == log.Desire.none
   assert cruise_ceiling(sm, CP, NOW, 20.) is None
+
+
+def test_arrow_only_phone_turn_takes_its_side_from_the_signal(sm):
+  nav = sm['starpilotNavigation'].navigation
+  nav.source, nav.instruction.maneuverModifier = 'phone:googleMaps', ''
+  assert turn_desire(sm, NOW, log.Desire.none, supported=True) == log.Desire.turnRight
+  assert matching_turn_signal(sm, NOW, supported=True)
+  sm['carState'].rightBlinker, sm['carState'].leftBlinker = False, True
+  assert turn_desire(sm, NOW, log.Desire.none, supported=True) == log.Desire.turnLeft
+  sm['carState'].leftBlinker = False
+  assert turn_desire(sm, NOW, log.Desire.none, supported=True) == log.Desire.none
+  assert not matching_turn_signal(sm, NOW, supported=True)
+  cp = NS(openpilotLongitudinalControl=True, passive=False, dashcamOnly=False, minSteerSpeed=0.)
+  assert cruise_ceiling(sm, cp, NOW, 20.) == pytest.approx(((14 * CV.MPH_TO_MS) ** 2 + 2 * .45 * (30 - 8)) ** .5)
+  # A routed turn always names its side; without one the signal does not choose it.
+  nav.source = ''
+  sm['carState'].leftBlinker = True
+  assert turn_desire(sm, NOW, log.Desire.none, supported=True) == log.Desire.none

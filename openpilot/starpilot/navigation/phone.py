@@ -135,7 +135,7 @@ def phone_navigation_status(now_ns=None, path=None):
 
 
 def select_navigation(mapbox, phone, *, now_ns, drive_id, official_active=False, phone_enabled=True,
-                      diagnostics=None, local_map=None):
+                      diagnostics=None, local_map=None, speed=None):
   def rejected(reason):
     if diagnostics is not None:
       diagnostics['reason'] = reason
@@ -151,18 +151,26 @@ def select_navigation(mapbox, phone, *, now_ns, drive_id, official_active=False,
     diagnostics['reason'] = reason
   if instruction is None:
     return mapbox
-  map_status = local_map.status(phone) if local_map is not None else 'mapUnavailable'
+  from openpilot.starpilot.navigation.notification import Resolution
+  resolved = local_map.resolve(phone, speed=speed, now_ns=now_ns) if local_map is not None else Resolution('mapUnavailable')
   if diagnostics is not None:
-    diagnostics['mapStatus'] = map_status
+    diagnostics['mapStatus'] = resolved.status
+    diagnostics['detail'] = (phone.get('maneuverType', ''), phone.get('maneuverModifier', ''), phone.get('distanceMeters'),
+                             resolved.kind, resolved.side, round(resolved.distance))
   from openpilot.starpilot.navigation.wire import PHONE_CONTROL_AGE_NS, PHONE_SOURCE_PREFIX
-  # Turn speed and turn assist need a known distance, a fresh observation and map agreement.
-  distance = phone.get('distanceMeters')
-  controlled = bool(map_status == 'mapAligned' and distance is not None and distance > 0 and drive_id > 0 and
+  # Turn speed and turn assist need a fresh observation and a junction the map agrees on; they then run on
+  # that junction's distance and fix time, not the notification's rounded one.
+  controlled = bool(resolved.control and drive_id > 0 and drive_id <= resolved.anchor_ns <= now_ns and
                     drive_id <= phone['observed'] <= now_ns <= phone['observed'] + PHONE_CONTROL_AGE_NS)
+  observed = phone['observed']
+  if controlled:
+    observed = resolved.anchor_ns
+    instruction = {**instruction, 'maneuverType': resolved.kind, 'maneuverModifier': resolved.side,
+                   'distanceMeters': resolved.distance}
   source = PHONE_SOURCE_PREFIX + phone.get('source', 'googleMaps')
   return {**mapbox, 'sessionId': source + ':' + phone['session'], 'revision': str(phone['sequence']),
           'enabled': True, 'status': 'guiding', 'source': source, 'frameMonoTime': now_ns,
-          'startedMonoTime': drive_id, 'locationMonoTime': phone['observed'] if controlled else 0, 'observationMonoTime': phone['observed'],
+          'startedMonoTime': drive_id, 'locationMonoTime': observed if controlled else 0, 'observationMonoTime': observed,
           'distanceKnown': phone.get('distanceMeters') is not None,
           'totalsKnown': phone.get('remainingMeters') is not None and phone.get('remainingSeconds') is not None,
           'destinationName': '', 'route': [], 'nextManeuver': {}, 'controlValid': controlled,

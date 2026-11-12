@@ -142,8 +142,8 @@ def modern_maneuver(maneuver_type: str, modifier: str) -> int:
   kind, mod = _normal(maneuver_type), _normal(modifier)
   right = 'right' in mod
   directional = right or 'left' in mod
-  if not kind:
-    return 0  # Phone guidance without a parsed maneuver: no arrow rather than straight.
+  if not kind or (kind == 'turn' and not mod):
+    return 0  # Phone guidance without a parsed maneuver or side: no arrow rather than straight.
   if kind == 'depart':
     return 1
   if kind == 'arrive':
