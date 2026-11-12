@@ -86,6 +86,6 @@ def test_vision_sign_and_slc_cap_use_configured_units_without_rewriting_set(prof
   texts = render(output.message.slcState, car.vCruise)
   assert str(number) in texts
   assert str(round(90. if metric else 90. * CV.KPH_TO_MPH)) in texts
-  assert 'SET' in texts
+  assert ('SET' if profile == Profile.LARGE else 'MAX') in texts
   assert ('SET IS LOW' in texts) == set_is_low
   assert ('RAISE SET' in texts) == set_is_low

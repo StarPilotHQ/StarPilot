@@ -1,3 +1,4 @@
+from dataclasses import replace
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
@@ -30,7 +31,9 @@ class TestOnroadLeafScope(unittest.TestCase):
         ui.params.values["ShowCSCStatus"] = str(frame % 2)
       expected = full.build(ShellMode.ONROAD, now_ns=now)
       actual = view.build(ShellMode.ONROAD, now_ns=now, onroad_view_only=True)
-      self.assertEqual(actual.onroad, expected.onroad)
+      self.assertEqual(actual.onroad.developer_metrics, ())
+      self.assertTrue(expected.onroad.developer_metrics)
+      self.assertEqual(actual.onroad, replace(expected.onroad, developer_metrics=()))
       self.assertEqual(actual.home, expected.home)
       self.assertEqual(actual.settings, expected.settings)
       self.assertEqual(actual.device.offroad, expected.device.offroad)
@@ -45,7 +48,9 @@ class TestOnroadLeafScope(unittest.TestCase):
     full = adapter.build(ShellMode.ONROAD, now_ns=NOW)
     self.assertNotEqual(narrow.device.dongle_id, full.device.dongle_id)
     self.assertEqual(full.device.dongle_id, "actual-device")
-    self.assertEqual(narrow.onroad, full.onroad)
+    self.assertEqual(narrow.onroad.developer_metrics, ())
+    self.assertTrue(full.onroad.developer_metrics)
+    self.assertEqual(narrow.onroad, replace(full.onroad, developer_metrics=()))
     live = adapter.build(ShellMode.ONROAD, now_ns=NOW + 1, onroad_view_only=True)
     self.assertEqual(live.onroad.observed_ns, NOW + 1)
     self.assertEqual(narrow.onroad.observed_ns, NOW)

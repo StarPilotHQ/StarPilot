@@ -23479,3 +23479,10 @@ msgstr "横方向支援オフ時の死角警告"
 #: openpilot/starpilot/ui/sounds_owner.py
 msgid "Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. Independent of Loud Blindspot Alert. Hazards do not trigger it."
 msgstr "ステアリング支援がオフまたは一時停止中に、検出された死角の車両の方向へウインカーを出すと警告します。大きな死角警告とは独立しています。ハザードランプでは作動しません。"
+
+msgid "Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue."
+msgstr "信号での停止動作を改善し、検出した一時停止標識で自動停止します。発進するにはアクセルを踏んでください。"
+
+msgid "Enhanced Stops"
+msgstr "停止機能の強化"
+

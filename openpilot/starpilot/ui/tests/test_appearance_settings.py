@@ -328,6 +328,7 @@ class AppearanceSettingsTests(unittest.TestCase):
   def test_stock_confidence_rail_requires_fresh_source_and_road_camera(self):
     from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
     view = onroad.OnroadView.__new__(onroad.OnroadView)
+    view._fade = Mock()
     view.personality = Mock()
     view.navigation = Mock()
     view.background_layer = None
@@ -628,6 +629,7 @@ class AppearanceSettingsTests(unittest.TestCase):
       self.assertAlmostEqual(y, 86.07, places=2)
     for profile in (Profile.LARGE, Profile.COMPACT):
       view = onroad.OnroadView.__new__(onroad.OnroadView)
+      view._fade = Mock()
       view.personality = Mock()
       view.navigation = Mock()
       view.background_layer = None

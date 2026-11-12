@@ -159,6 +159,7 @@ class TestOffroadConfigurationPages(unittest.TestCase):
     self.assert_no_car_cache()
 
   def test_saved_configuration_cruise_force_stop_and_wheel_edits(self):
+    self.params.put_bool("ForceStops", False, block=True)
     selection = self.params.get('VehicleSelection')
     profiles = self.page('profiles')
     rows = {row['label']: row for row in profiles['rows']}

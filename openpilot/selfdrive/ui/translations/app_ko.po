@@ -23479,3 +23479,10 @@ msgstr "횡방향 제어 꺼짐 시 사각지대 경고"
 #: openpilot/starpilot/ui/sounds_owner.py
 msgid "Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. Independent of Loud Blindspot Alert. Hazards do not trigger it."
 msgstr "조향 보조가 꺼져 있거나 일시 정지된 상태에서 감지된 사각지대 차량 쪽으로 방향지시등을 켜면 경고합니다. 큰 사각지대 경고음과 별개입니다. 비상등은 경고를 작동시키지 않습니다."
+
+msgid "Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue."
+msgstr "신호등에서의 정차 동작을 개선하고 감지된 정지 표지판에서 자동으로 정차합니다. 출발하려면 가속 페달을 밟으세요."
+
+msgid "Enhanced Stops"
+msgstr "향상된 정차"
+

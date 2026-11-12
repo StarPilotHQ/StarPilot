@@ -419,6 +419,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     self.assertIsNone(self.params.get("QOLLongitudinal"))
 
   def test_force_stop_preserves_cruise_master_and_offset_bounds(self):
+    self.params.put_bool("ForceStops", False, block=True)
     self.assertTrue(self._row("profiles", "ForceStops").available)
     self.params.put_bool("QOLLongitudinal", True, block=True)
     force = self._row("profiles", "ForceStops")

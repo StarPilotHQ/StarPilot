@@ -14,6 +14,7 @@ def attach_inputs(controls):
   inputs.messages = lambda: controls.sm
   inputs.takeoff_preferences = None
   inputs.faster_takeoffs = False
+  inputs.force_stop_distance_braking = False
   for name in ('ev9_long_enabled', 'blended_longitudinal_enabled', 'toyota_sienna_replay', 'toyota_sienna_production', 'toyota_corolla_stop',
                'ioniq6_start_enabled', 'gm_start_enabled', 'gm_volt_enabled', 'gm_euv_enabled',
                'gm_cc_enabled', 'gm_cc_stop_enabled', 'gm_ascm_enabled', 'gm_suburban_enabled'):

@@ -1,9 +1,11 @@
 from types import SimpleNamespace
-from unittest.mock import Mock
+from typing import cast
+from unittest.mock import Mock, patch
 
 from openpilot.starpilot.models.catalog import model_entries, BUNDLED_CURRENT
 from openpilot.starpilot.models.status import ModelStatus, ModelHealth
 from openpilot.starpilot.ui.home import HomeView
+from openpilot.starpilot.ui.home_state import HomeState
 from openpilot.starpilot.ui.models_state import home_model_label, model_display_text
 
 
@@ -22,7 +24,7 @@ def test_compact_keeps_both_names_inside_the_model_row():
   view = HomeView.__new__(HomeView)
   view._text = Mock()
   view._icon = Mock()
-  view._measure = lambda text, role, size: SimpleNamespace(width=len(text) * size * .6)
+  measure = Mock(side_effect=lambda text, role, size: SimpleNamespace(width=len(text) * size * .6))
   state = SimpleNamespace(version="7", branch="Dom", commit_date="", model_label="A" * 60 + "/" + "B" * 60,
                           network="none", network_strength=0)
   # Stop after rendering the header; later sections need unrelated home state.
@@ -30,11 +32,12 @@ def test_compact_keeps_both_names_inside_the_model_row():
     pass
   view._icon.side_effect = EndHeader
   try:
-    view._compact(state)
+    with patch.object(view, "_measure", measure):
+      view._compact(cast(HomeState, state))
   except EndHeader:
     pass
   drawn = next(call.args for call in view._text.call_args_list if len(call.args) > 4 and call.args[4] == 140)
   text, role, size, x, y, color = drawn
   assert text.startswith("A") and "/B" in text
   assert "Lateral" not in text and "Longitudinal" not in text
-  assert view._measure(text, role, size).width <= 520
+  assert measure(text, role, size).width <= 520
