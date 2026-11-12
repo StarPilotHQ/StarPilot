@@ -26,7 +26,6 @@ def _configured_transport_native(sm, cp, session, now_ns, native=None, *, requir
       now_ns - native.observedMonoTime > SAFETY_MAX_AGE_NS or
       native.validUntilMonoTime - native.observedMonoTime > SAFETY_MAX_AGE_NS):
       return None
-    # Validate supplied inventory.
     if coherent and (not validated_here and not native_inventory_matches_cp(native, cp) or
       any(p.safetyRxChecksInvalid or p.heartbeatLost or blocking_fault_mask(p.faults, cp) or
           (require_longitudinal and native.requestedLongitudinal and str(config.safetyModel) not in ('silent', 'noOutput') and
@@ -169,7 +168,6 @@ class AvailabilityPause:
         self.baseline_ns = 0
         return False
       if source_expired:
-        # Intent only; original 200ms lease.
         latest = companion.latest
         raw = latest[2] if latest is not None and latest[1] else None
         verified = companion.verified_sm_projection
@@ -227,7 +225,6 @@ class TransportPause:
 
   def observe(self, *, cp, session, sm, cs, native, now_ns, companion, previous_intent,
               intent, expired_healthy_source, previously_active, hard_fault, model_ready, user_disable):
-    # Adjacent producer per observation.
     self.observed_native = None
     context_current = bool(cp_identity(cp) == self.cp and session == self.session and model_ready and companion is not None)
     if context_current:
@@ -456,7 +453,6 @@ class TransportPauseFeedback:
     released_brake = bool(self.ordinary_warning_retained and not cs.brakePressed and not cs.regenBraking and
       brake_proof is not None and brake_proof[0] == event_ns and
       brake_proof[2:] == (self.session, producer, self.availability_epoch) and now_ns <= brake_proof[1])
-    # Button/pedal clear: no rearm.
     if any(event.userDisable and event.name != stock_user and not (
         event.name == log.OnroadEvent.EventName.pedalPressed and (cs.brakePressed or cs.regenBraking or released_brake) or
         event.name == log.OnroadEvent.EventName.buttonCancel and (physical_cancel(cs, cp) or
@@ -608,7 +604,6 @@ class TransportPauseFeedback:
       all(event.name in (stock_user, log.OnroadEvent.EventName.pedalPressed) and
           not event.softDisable and not event.immediateDisable for event in users))
     from openpilot.starpilot.car.gm.aol import f1_conventional_lateral_owner, gm_physical_pedal_withdrawal
-    # Receipt-bound GM F1 withdrawal.
     pedal = bool(not f1_conventional_lateral_owner(cp) and
       (cs.brakePressed or gm_physical_pedal_withdrawal(cp, cs)) and users and all(
       event.name == log.OnroadEvent.EventName.pedalPressed and
@@ -721,8 +716,6 @@ class TransportPauseFeedback:
     if users:
       from opendbc.car.gm.values import is_volt_sdgm_accepted_envelope, is_bolt_pedal_profile
       from openpilot.starpilot.nostalgia import physical_cancel
-      # Accepted Volt/Bolt LAT-only brake/regen: pedalPressed USER_DISABLE.
-      # Qualified lag retains intent, never axis/lease.
       gm_pedal = bool(self.lateral_only_baseline and (is_volt_sdgm_accepted_envelope(cp) or is_bolt_pedal_profile(cp)) and
         (cs.brakePressed or cs.regenBraking) and cs.cruiseState.available and
         not cs.doorOpen and not cs.seatbeltUnlatched and not cs.steeringDisengage and not physical_cancel(cs, cp) and
@@ -731,7 +724,6 @@ class TransportPauseFeedback:
         all(event.name == log.OnroadEvent.EventName.pedalPressed and event.noEntry and
             not event.softDisable and not event.immediateDisable for event in users))
       stock_user = stock_lateral_user_event(cp)
-      # GM lag LAT-off/PCM-off: fresh OFF retains intent only.
       gm_stock_withdrawal = bool(cp.brand == 'gm' and cp.pcmCruise and self.lateral_only_baseline and
         (withdrawn or recovering) and cs.cruiseState.available and not cs.cruiseState.enabled and
         not cs.brakePressed and not cs.regenBraking and not cs.gasPressed and
@@ -898,7 +890,6 @@ class TransportPauseFeedback:
     if (not sm.seen['pandaStates'] or not sm.valid['pandaStates'] or not sm.alive['pandaStates'] or stamp <= 0 or
         len(pandas) != len(cp.safetyConfigs)):
       return None
-    # controlsAllowed: LONG-off; config/fault/producer inventory vetoes.
     current_pandas = all(int(p.safetyModel.raw) == int(c.safetyModel.raw) and p.safetyParam == c.safetyParam and
       p.alternativeExperience == cp.alternativeExperience and not p.safetyRxChecksInvalid and
       not p.heartbeatLost and not blocking_fault_list(p.faults, cp) and
@@ -962,7 +953,6 @@ class TransportPauseFeedback:
         previous[5] == 'availabilityPause' and previous[8] == 0 and not previous[9] and
         previous[6] == axis.faultEventMonoTime) or
        # Critical: matched lag only; otherwise keep pending_event.
-       # Else clear LAT-only baseline before signature change.
        self.lateral_only_baseline and not self.failed and not self.pending_event and
        (previous[5] == 'critical' or previous[5] == 'availabilityPause' and self.ordinary_warning_retained) and
        previous[1] == self.sequence and not any(previous[9:14]) and
@@ -996,9 +986,6 @@ class TransportPauseFeedback:
     typed = bool(reason == 'availabilityPause' and not axis.lateralActive and not axis.longitudinalActive and
                  0 < axis.faultEventMonoTime <= stamp)
     source_expired = bool(typed and axis.sourceCarStateMonoTime == 0)
-    # Original 200ms source admission; no output. Require verified event/proof/native LAT.
-    # Fresh OFF/source-zero retains intent with fixed producer/epoch/config/inventory;
-    # missing events keep original 30ms join.
     continuing_intent = bool(source_expired and self.retention_verified and issue)
     if source_expired and not (0 < self.lateral_source_ns <= now_ns and
         (now_ns <= self.lateral_source_ns + SAFETY_MAX_AGE_NS or continuing_intent)):
@@ -1030,8 +1017,6 @@ class TransportPauseFeedback:
 
   def _availability_recovery_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, current, continuity, producer):
     event_ns = int(sm.logMonoTime['onroadEvents'])
-    # SOFT join: both owners/deadlines/source/event/producer/epoch/inventory
-    # and current native LAT.
     verified_pause = self.retention_verified or self.ordinary_warning_retained
     if (not latched or self.failed or self.paused or self.pending_event or not verified_pause or
       not self.retention_started_ns or not 0 <= now_ns - self.retention_started_ns <= AXIS_MAX_AGE_NS or
@@ -1230,7 +1215,6 @@ class TransportPauseFeedback:
 
     from opendbc.car.hyundai.values import CAR
 
-    # Exact profile admission uses native receipt below.
     ccnc_stop = bool((cs.standstill or 0 <= cs.vEgoRaw <= .3) and cp.openpilotLongitudinalControl and
       cp.carFingerprint in (CAR.KIA_EV9, CAR.HYUNDAI_IONIQ_5_PE) and not cs.accFaulted and not cs.steeringDisengage)
     combined_stop = bool(ccnc_stop and axis.desiredLongitudinal and axis.longitudinalActive)
