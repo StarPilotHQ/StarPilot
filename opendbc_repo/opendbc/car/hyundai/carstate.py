@@ -425,7 +425,7 @@ class CarState(CarStateBase):
     self.is_metric = cp.vl["CRUISE_BUTTONS_ALT"]["DISTANCE_UNIT"] != 1
     speed_factor = CV.KPH_TO_MS if self.is_metric else CV.MPH_TO_MS
 
-    if self.CP.flags & (HyundaiFlags.EV | HyundaiFlags.HYBRID):
+    if self.CP.flags & (HyundaiFlags.EV.value | HyundaiFlags.HYBRID.value):
       ret.gasPressed = cp.vl[self.accelerator_msg_canfd]["ACCELERATOR_PEDAL"] > 1e-5
     else:
       ret.gasPressed = bool(cp.vl[self.accelerator_msg_canfd]["ACCELERATOR_PEDAL_PRESSED"])
@@ -454,7 +454,7 @@ class CarState(CarStateBase):
     ret.steeringTorqueEps = cp.vl["MDPS"]["MDPS_OutTqVal"]
     ret.steeringPressed = self.update_steering_pressed(abs(ret.steeringTorque) > self.params.STEER_THRESHOLD, 5)
     ret.steerFaultTemporary = cp.vl["MDPS"]["MDPS_LkaFailSta"] != 0
-    if self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING:
+    if self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING.value:
       angle_fault = int(cp.vl["MDPS"]["MDPS_ADAS_AciFltSig_Lv2"])
       if self.ev9_long:
         self.angle_steering_angle = cp.vl["MDPS"]["MDPS_EstStrAnglVal"]
@@ -463,7 +463,7 @@ class CarState(CarStateBase):
       else:
         ret.steerFaultTemporary |= bool(angle_fault if self.CP.carFingerprint in (CAR.HYUNDAI_IONIQ_5_PE, CAR.KIA_EV9) else angle_fault & 2)
 
-    if self.CP.flags & HyundaiFlags.CCNC and not self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
+    if self.CP.flags & HyundaiFlags.CCNC.value and not self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG.value:
       self.ccnc_161 = copy.copy(cp_cam.vl["CCNC_0x161"])
       self.ccnc_162 = copy.copy(cp_cam.vl["CCNC_0x162"])
       self.ccnc_1b5 = copy.copy(cp_cam.vl["FR_CMR_03_50ms"])
@@ -472,7 +472,7 @@ class CarState(CarStateBase):
       self.ccnc_1b5_ts_ns = cp_cam.ts_nanos[0x1b5]["Info_LftLnPosVal"]
 
     left_blinker_sig, right_blinker_sig = "LEFT_LAMP", "RIGHT_LAMP"
-    if (self.CP.carFingerprint == CAR.HYUNDAI_KONA_EV_2ND_GEN or self.CP.flags & HyundaiFlags.CCNC or
+    if (self.CP.carFingerprint == CAR.HYUNDAI_KONA_EV_2ND_GEN or self.CP.flags & HyundaiFlags.CCNC.value or
         cp.vl["BLINKERS"]["USE_ALT_LAMP"] == 1):
       left_blinker_sig, right_blinker_sig = "LEFT_LAMP_ALT", "RIGHT_LAMP_ALT"
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(50, cp.vl["BLINKERS"][left_blinker_sig],
@@ -529,7 +529,7 @@ class CarState(CarStateBase):
       ret.cruiseState.enabled = cp.vl["TCS"]["ACC_REQ"] == 1
       ret.cruiseState.standstill = False
     else:
-      cp_cruise_info = cp_cam if self.CP.flags & HyundaiFlags.CANFD_CAMERA_SCC else cp
+      cp_cruise_info = cp_cam if self.CP.flags & HyundaiFlags.CANFD_CAMERA_SCC.value else cp
       ret.cruiseState.enabled = cp_cruise_info.vl["SCC_CONTROL"]["ACCMode"] in (1, 2)
       ret.cruiseState.standstill = cp_cruise_info.vl["SCC_CONTROL"]["CRUISE_STANDSTILL"] == 1
       ret.cruiseState.speed = cp_cruise_info.vl["SCC_CONTROL"]["VSetDis"] * speed_factor
@@ -539,7 +539,7 @@ class CarState(CarStateBase):
     # It limits the vehicle speed, overridable by pressing the accelerator past a certain point.
     # The car will brake, but does not respect positive acceleration commands in this mode
     # TODO: find this message on ICE & HYBRID cars + cruise control signals (if exists)
-    if self.CP.flags & HyundaiFlags.EV:
+    if self.CP.flags & HyundaiFlags.EV.value:
       ret.cruiseState.nonAdaptive = cp.vl["MANUAL_SPEED_LIMIT_ASSIST"]["MSLA_ENABLED"] == 1
 
     from opendbc.car.hyundai.ev6_aol import qualified as ev6_aol_qualified
@@ -577,17 +577,17 @@ class CarState(CarStateBase):
     prev_left_paddle = self.left_paddle
     self.left_paddle = cp.vl["CRUISE_BUTTONS"]["LEFT_PADDLE"] if has_left_paddle(self.CP) else 0
     self.buttons_counter = cp.vl[self.cruise_btns_msg_canfd]["COUNTER"]
-    if not self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING and self.CP.safetyConfigs[-1].safetyParam & HyundaiSafetyFlags.CARNIVAL_ALT_RESUME:
+    if not self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING.value and self.CP.safetyConfigs[-1].safetyParam & HyundaiSafetyFlags.CARNIVAL_ALT_RESUME:
       self.cruise_buttons_alt_ts_ns = cp.ts_nanos["CRUISE_BUTTONS_ALT"]["COUNTER"]
       if self.cruise_buttons_alt_ts_ns > 0:
         self.cruise_buttons_alt_msg = copy.copy(cp.vl["CRUISE_BUTTONS_ALT"])
     ret.accFaulted = cp.vl["TCS"]["ACCEnable"] != 0  # 0 ACC CONTROL ENABLED, 1-3 ACC CONTROL DISABLED
 
-    if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
-      self.lfa_block_msg = copy.copy(cp_cam.vl["CAM_0x362"] if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT
+    if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG.value:
+      self.lfa_block_msg = copy.copy(cp_cam.vl["CAM_0x362"] if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT.value
                                           else cp_cam.vl["CAM_0x2a4"])
-      if self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING:
-        self.angle_lkas_status = copy.copy(cp_cam.vl["LKAS_ALT" if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "LKAS"])
+      if self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING.value:
+        self.angle_lkas_status = copy.copy(cp_cam.vl["LKAS_ALT" if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT.value else "LKAS"])
 
     ret.buttonEvents = [*self.create_cruise_button_events(self.cruise_buttons[-1], prev_cruise_buttons,
                                                         cp.vl_all[self.cruise_btns_msg_canfd]["CRUISE_BUTTONS"]),
@@ -600,7 +600,7 @@ class CarState(CarStateBase):
     # The front camera's posted sign is distinct from SCC set speed and from
     # the CCNC cluster's forwarded display value. Only a received packet can
     # establish valid or absent evidence; the subscription is non-gating.
-    sign_bus = cp if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG else cp_cam
+    sign_bus = cp if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG.value else cp_cam
     timestamp, expiry = parser_expiry(sign_bus, "FR_CMR_02_100ms", "ISLW_SpdCluMainDis")
     if timestamp > self.dashboard_limit.observation.observed_ns:
       speed = int(sign_bus.vl["FR_CMR_02_100ms"]["ISLW_SpdCluMainDis"])
