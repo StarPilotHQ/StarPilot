@@ -8,6 +8,8 @@ from opendbc.car import structs, uds
 from opendbc.car.can_definitions import CanData
 from opendbc.car.docs_definitions import CarDocs, ExtraCarDocs
 
+ACCEL_MAX_TAKEOFF = 3.5
+
 DT_CTRL = 0.01  # car state and control loop timestep (s)
 
 # kg of standard extra cargo to count for drive, gas, etc...

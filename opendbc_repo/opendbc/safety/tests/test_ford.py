@@ -443,11 +443,11 @@ class TestFordCANFDStockSafety(TestFordSafetyBase):
 
 
 class TestFordLongitudinalSafetyBase(TestFordSafetyBase):
-  MAX_ACCEL = 2.0  # accel is used for brakes, but openpilot can set positive values
+  MAX_ACCEL = 3.5  # accel is used for brakes, but openpilot can set positive values
   MIN_ACCEL = -3.5
   INACTIVE_ACCEL = 0.0
 
-  MAX_GAS = 2.0
+  MAX_GAS = 3.5
   MIN_GAS = -0.5
   INACTIVE_GAS = -5.0
 

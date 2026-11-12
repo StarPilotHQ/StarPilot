@@ -7,7 +7,8 @@ from dataclasses import astuple, dataclass
 
 from openpilot.common.constants import CV
 from opendbc.car.structs import car
-from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX
+from opendbc.car.interfaces import ACCEL_MIN
+from openpilot.starpilot.longitudinal.lead_takeoff_preferences import MAX_ACCEL as ACCEL_MAX
 from openpilot.starpilot.longitudinal.accel_profile import A_CRUISE_MAX_VALS_TRAFFIC_ALL, interpolate_accel_profile
 from openpilot.starpilot.longitudinal.profile_document import (
   DEFAULT_DECELERATION_PROFILE, active_personality_id, interpolate_category_curve, is_truck_fingerprint,

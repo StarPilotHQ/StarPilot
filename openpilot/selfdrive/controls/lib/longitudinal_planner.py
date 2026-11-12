@@ -7,6 +7,7 @@ import numpy as np
 
 import openpilot.cereal.messaging as messaging
 from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX
+from openpilot.starpilot.longitudinal.lead_takeoff_preferences import MAX_ACCEL as TAKEOFF_ACCEL_MAX
 from openpilot.common.constants import CV
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import DT_MDL
@@ -57,12 +58,12 @@ NATIVE_PLAN_INPUTS = ('carControl', 'carState', 'controlsState', 'vehicleParamet
 # Lookup table for turns
 _A_TOTAL_MAX_V = [1.7, 3.2]
 _A_TOTAL_MAX_BP = [20., 40.]
-_TAKEOFF_TOTAL_BP = [0., 2., 5., 20., 40.]
-_TAKEOFF_TOTAL_MAX = [3.5, 3.5, 1.7, 1.7, 3.2]
+_TAKEOFF_TOTAL_BP = [0., 5., 10., 20., 40.]
+_TAKEOFF_TOTAL_MAX = [3.5, 3.5, 3.5, 1.7, 3.2]
 
 def get_max_accel(v_ego, faster_takeoffs=False):
   max_accel = np.interp(v_ego, A_CRUISE_MAX_BP, A_CRUISE_MAX_VALS)
-  return np.interp(v_ego, [5., 10.], [ACCEL_MAX, max_accel]) if faster_takeoffs else max_accel
+  return np.interp(v_ego, [5., 10.], [TAKEOFF_ACCEL_MAX, max_accel]) if faster_takeoffs else max_accel
 
 def get_coast_accel(pitch):
   return np.sin(pitch) * -5.65 - 0.3  # fitted from data using xx/projects/allow_throttle/compute_coast_accel.py
@@ -71,14 +72,15 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
                      profile: AppliedProfile | None = None,
                      base_brake_floor: float = A_CRUISE_MIN, selected_acceleration_max: float | None = None, faster_takeoffs: bool = False,
                      *, a_target_prev: float | None = None):
-  max_accel = ACCEL_MAX if e2e else get_max_accel(v_ego, faster_takeoffs)
+  ceiling = TAKEOFF_ACCEL_MAX if faster_takeoffs else ACCEL_MAX
+  max_accel = ceiling if e2e else get_max_accel(v_ego, faster_takeoffs)
   if selected_acceleration_max is not None and not e2e:
     max_accel = selected_acceleration_max
   if profile is not None:
-    max_accel = min(max_accel, profile.acceleration_max, ACCEL_MAX)
+    max_accel = min(max_accel, profile.acceleration_max, ceiling)
 
   if selected_acceleration_max is not None:
-    max_accel = min(max_accel, selected_acceleration_max, ACCEL_MAX)
+    max_accel = min(max_accel, selected_acceleration_max, ceiling)
 
   if not e2e:
     a_total_max = np.interp(v_ego, _TAKEOFF_TOTAL_BP, _TAKEOFF_TOTAL_MAX) if faster_takeoffs else np.interp(v_ego, _A_TOTAL_MAX_BP, _A_TOTAL_MAX_V)
@@ -159,6 +161,7 @@ class LongitudinalPlanner:
       self.model_lead_history.clear()
     self.plan_drive_id = drive_id
     faster_takeoffs = bool(faster_lead_takeoff)
+    accel_ceiling = TAKEOFF_ACCEL_MAX if faster_takeoffs else ACCEL_MAX
     sample_now_ns = self.clock_ns() if now_ns is None else now_ns
     if len(sm['carControl'].orientationNED) == 3:
       accel_coast = get_coast_accel(sm['carControl'].orientationNED[1])
@@ -271,14 +274,14 @@ class LongitudinalPlanner:
     preap_acceleration_cap = None
     if self.preap_adaptive is not None:
       preap_acceleration_cap = self.preap_adaptive.sample(
-        sm, now_ns=sample_now_ns, drive_id=drive_id, upper=ACCEL_MAX if acceleration_cap is None else acceleration_cap,
+        sm, now_ns=sample_now_ns, drive_id=drive_id, upper=accel_ceiling if acceleration_cap is None else min(accel_ceiling, acceleration_cap),
         follow_seconds=selected_follow, active=profile_eligible and not reset_state)
       if preap_acceleration_cap is not None:
         acceleration_cap = preap_acceleration_cap
     self.mpc.update(sm['radarState'], personality=sm['selfdriveState'].personality,
                     follow_seconds=follow if follow is not None else
                     (self.last_profile.follow_seconds if self.last_profile is not None else None),
-                    acceleration_max=acceleration_cap,
+                    acceleration_max=acceleration_cap, faster_takeoffs=faster_takeoffs,
                     extra_stopped_gap_m=(selected_profiles.extra_stopped_gap_m if profile_eligible and selected_profiles is not None else 0.0),
                     stop_line_m=self.force_stop_plan.obstacle_m, modelV2=qualified_model_leads(sm, sample_now_ns, self.model_lead_history))
 
@@ -447,7 +450,7 @@ class LongitudinalPlanner:
       force_stop=self.force_stop_plan.forcing, traffic_mode=traffic_mode, accel_min=ACCEL_MIN)
     if faster_lead_takeoff:
       # Dom takeoff bypasses the standstill cruise slew, never its final bounds.
-      takeoff_max = ACCEL_MAX if sm['selfdriveState'].experimentalMode else get_max_accel(v_ego, faster_takeoffs)
+      takeoff_max = accel_ceiling if sm['selfdriveState'].experimentalMode else get_max_accel(v_ego, faster_takeoffs)
       if selected_acceleration is not None and not sm['selfdriveState'].experimentalMode:
         takeoff_max = selected_acceleration
       if cruise_profile is not None:
@@ -483,7 +486,7 @@ class LongitudinalPlanner:
       output_a_target, self.output_should_stop = self.ford_stop_approach.sample(
         sm, now_ns=sample_now_ns, drive_id=drive_id, target=float(output_a_target),
         stopping=self.output_should_stop, accel_min=ACCEL_MIN, active=profile_eligible and not reset_state)
-    self.output_a_target = np.clip(output_a_target, ACCEL_MIN, ACCEL_MAX)
+    self.output_a_target = np.clip(output_a_target, ACCEL_MIN, accel_ceiling)
 
     self.v_desired_filter.x = self.v_desired_filter.x + self.dt * (self.output_a_target + a_prev) / 2.0
 

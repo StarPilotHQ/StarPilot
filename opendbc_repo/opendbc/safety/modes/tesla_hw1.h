@@ -72,7 +72,7 @@ static void tesla_hw1_rx_hook(const CANPacket_t *msg) {
 static bool tesla_hw1_tx_hook(const CANPacket_t *msg) {
   const AngleSteeringLimits ANGLE_LIMITS = {.max_angle = 3600, .angle_deg_to_can = 10, .frequency = 50U};
   const AngleSteeringParams VM = {.slip_factor = -0.0005666493436310427F, .steer_ratio = 15.0F, .wheelbase = 2.96F};
-  const LongitudinalLimits LONG_LIMITS = {.max_accel = 425, .min_accel = 288, .inactive_accel = 375};
+  const LongitudinalLimits LONG_LIMITS = {.max_accel = 463, .min_accel = 288, .inactive_accel = 375};
   bool violation = tesla_hw1_checksum_index(msg) < 0;
   violation |= tesla_hw1_checksum(msg) != tesla_hw1_compute_checksum(msg);
   if (msg->addr == 0x488U) {

@@ -218,7 +218,7 @@ static void honda_rx_hook(const CANPacket_t *msg) {
 
 static bool honda_tx_hook(const CANPacket_t *msg) {
   const LongitudinalLimits HONDA_BOSCH_LONG_LIMITS = {
-    .max_accel = 200,   // accel is used for brakes
+    .max_accel = 350,   // accel is used for brakes
     .min_accel = -350,
 
     .max_gas = honda_rdx_high_gas ? 2200 : 2000,

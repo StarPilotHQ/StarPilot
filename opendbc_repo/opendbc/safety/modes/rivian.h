@@ -119,7 +119,7 @@ static bool rivian_tx_hook(const CANPacket_t *msg) {
   };
 
   const LongitudinalLimits RIVIAN_LONG_LIMITS = {
-    .max_accel = 200,
+    .max_accel = 350,
     .min_accel = -350,
     .inactive_accel = 0,
   };

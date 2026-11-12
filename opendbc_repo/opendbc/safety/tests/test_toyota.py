@@ -21,6 +21,7 @@ TOYOTA_COMMON_LONG_TX_MSGS = [[0x283, 0], [0x2E6, 0], [0x2E7, 0], [0x33E, 0], [0
 
 class TestToyotaSafetyBase(common.CarSafetyTest, common.LongitudinalAccelSafetyTest):
 
+  MAX_ACCEL = 3.5
   DBC = "toyota_nodsu_pt_generated"
   SAFETY_MODEL = CarParams.SafetyModel.toyota
 
@@ -702,7 +703,7 @@ class TestToyotaHighlanderAol(unittest.TestCase):
         self.assertEqual(self.safety.aol_get_request_mask(), 1 if stock else 3)
         self.assertEqual(self.safety.aol_get_permission_mask(), 1 if stock else 3)
         for accel, cancel, allowed in ((0, 1, True), (0, 0, not stock), (0.1, 0, not stock),
-                                       (-0.1, 0, not stock), (2.1, 0, False), (-3.6, 0, False)):
+                                       (-0.1, 0, not stock), (3.6, 0, False), (-3.6, 0, False)):
           message = self.packer.make_can_msg_safety("ACC_CONTROL", 0, {"ACCEL_CMD": accel, "CANCEL_REQ": cancel})
           self.assertEqual(bool(self.safety.safety_tx_hook(message)), allowed)
         for address, bus, length in ((0x750, 0, 8), (0x343, 2, 8), (0x283, 2, 7), (0x411, 2, 8)):

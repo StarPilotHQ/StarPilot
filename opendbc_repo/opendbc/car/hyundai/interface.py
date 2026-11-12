@@ -1,3 +1,4 @@
+from opendbc.car import ACCEL_MAX_TAKEOFF
 from opendbc.car.hyundai.ioniq5pe_long_profile import required as pe_long_required, candidate as pe_long_candidate
 from opendbc.car.pedal import supported_pedal_detected
 from opendbc.car.hyundai.classic_scc_aol import CLASSIC_SCC_IDS
@@ -112,13 +113,13 @@ class CarInterface(CarInterfaceBase):
   DRIVABLE_GEARS = (structs.CarState.GearShifter.sport, structs.CarState.GearShifter.manumatic)
 
   @staticmethod
-  def get_pid_accel_limits(CP, current_speed, cruise_speed):
+  def get_pid_accel_limits(CP, current_speed, cruise_speed, *, faster_takeoffs=False):
     from opendbc.car.hyundai.ev9_longitudinal import qualified as ev9_long_qualified
     if ev9_long_qualified(CP):
-      return -3.5, 2.2
+      return -3.5, ACCEL_MAX_TAKEOFF if faster_takeoffs else 2.2
     if is_blended_alpha(CP):
       return -3.5, 3.5
-    return CarInterfaceBase.get_pid_accel_limits(CP, current_speed, cruise_speed)
+    return CarInterfaceBase.get_pid_accel_limits(CP, current_speed, cruise_speed, faster_takeoffs=faster_takeoffs)
 
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:

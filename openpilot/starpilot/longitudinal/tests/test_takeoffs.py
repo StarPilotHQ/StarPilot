@@ -12,7 +12,7 @@ from openpilot.common.params import Params
 from openpilot.cereal import messaging
 from openpilot.starpilot.galaxy.settings import AuthorityContext, SettingsGateway
 from openpilot.selfdrive.controls.lib.longcontrol import LongControl, LongCtrlState
-from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner, get_cruise_accel
+from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner, get_cruise_accel, get_max_accel
 from openpilot.starpilot.longitudinal.extension import LongitudinalContext
 from openpilot.starpilot.longitudinal.inputs import LongitudinalInputs
 from openpilot.starpilot.longitudinal.ioniq6_start import StartEvidence
@@ -38,7 +38,7 @@ def test_actual_factory_longcontrol_first_start_target_bounds_and_ordinary_exit(
   assert eligible(cp)
   ctrl = LongControl(cp)
   cs = car_state(standstill=False)
-  output = ctrl.update(True, cs, 1.8, False, (np.float64(-3.), np.float64(1.5)), context=context())
+  output = ctrl.update(True, cs, 1.8, False, (np.float64(-3.), np.float64(1.5)), context=replace(context(), profile_max_accel=1.5))
   assert ctrl.takeoff_starting and ctrl.long_control_state == LongCtrlState.starting
   assert output <= 1.5
   ctrl.update(True, car_state(speed=.11, standstill=False), .8, False, (-3., 2.), context=context(1))
@@ -214,3 +214,95 @@ def test_actual_inputs_qualify_current_serialized_drive_and_plan(factory, tmp_pa
     sm.logMonoTime['longitudinalPlan'] = NOW - 5_000_000
     sm.valid['radarState'] = False
     assert inputs.context(True).start_evidence.lead_clear is None
+
+
+@pytest.mark.parametrize('speed', [0., .5, 2., 4., 5.])
+def test_fast_takeoff_ceiling_is_3_point_5(speed):
+  assert get_max_accel(speed, True) == 3.5
+  assert get_max_accel(speed, False) <= 2.
+
+@pytest.mark.parametrize('speed', [0., 3., 5.])
+@pytest.mark.parametrize('experimental', [False, True])
+@pytest.mark.parametrize('cap', [None, .5, 1.2, 2.4, 3.5])
+def test_user_cap_survives_without_hidden_two_clip(speed, experimental, cap):
+  cp = candidate()[1]
+  expected = 3.5 if cap is None else cap
+  actual = get_cruise_accel(experimental, 30., speed, expected, 0., cp, .05, 0., True,
+                           selected_acceleration_max=cap, faster_takeoffs=True)
+  assert actual == expected
+
+@pytest.mark.parametrize('enabled', [False, True])
+def test_actual_mpc_uses_toggle_dependent_ceiling(enabled):
+  planner=LongitudinalPlanner(candidate()[1])
+  sm=Frame()
+  planner.mpc.update(sm['radarState'], faster_takeoffs=enabled)
+  assert planner.mpc.solution_status == 0
+  assert np.all(planner.mpc.params[:,1] == (3.5 if enabled else 2.))
+
+@pytest.mark.parametrize('brand', ['hyundai', 'toyota', 'honda', 'ford', 'gm', 'volkswagen', 'rivian', 'tesla'])
+def test_controls_ceiling_is_not_ioniq_gated(brand):
+  cp = candidate()[1]
+  cp.brand=brand
+  control = LongControl(cp)
+  control.extension=None
+  cs=car_state(speed=4.,standstill=False)
+  out=control.update(True,cs,3.5,False,(-3.5,3.5),context=LongitudinalContext(faster_takeoffs=True))
+  assert out==3.5
+  assert control.update(True,cs,3.5,False,(-3.5,2.),context=LongitudinalContext()) == 2.
+
+@pytest.mark.parametrize('cap', [0., .5, 1.2, 2.4])
+def test_controls_respects_personality_cap(cap):
+  cp=candidate()[1]
+  control=LongControl(cp)
+  control.extension=None
+  cs=car_state(speed=4.,standstill=False)
+  assert control.update(True,cs,3.5,False,(-3.5,3.5),context=LongitudinalContext(faster_takeoffs=True,profile_max_accel=cap)) == cap
+
+
+def test_real_planner_reaches_three_point_five_without_losing_model_stop():
+  cp=candidate()[1]
+  planner=LongitudinalPlanner(cp)
+  outputs=[]
+  for tick in range(100):
+    now=NOW+tick*50_000_000
+    sm=Frame()
+    sm.logMonoTime=dict.fromkeys(sm,now-5_000_000)
+    sm.recv_time=dict.fromkeys(sm,(now-5_000_000)/1e9)
+    sm['carState'].vEgo=0.
+    sm['carState'].standstill=True
+    sm['carState'].vCruise=72.
+    sm['selfdriveState'].experimentalMode=tick<8
+    sm['modelV2'].action.shouldStop=tick<8
+    sm['modelV2'].action.desiredAcceleration=-.04 if tick<8 else 4.
+    planner.update(sm,faster_lead_takeoff=True,takeoff_drive_id=DRIVE,now_ns=now,drive_id=DRIVE)
+    assert planner.mpc.solution_status == 0
+    assert planner.output_a_target <= 3.5
+    if tick<8:
+      assert planner.output_should_stop
+    outputs.append(float(planner.output_a_target))
+  assert max(outputs)==3.5
+
+
+@pytest.mark.parametrize('brand', ['hyundai', 'toyota', 'honda', 'ford', 'gm', 'volkswagen', 'rivian', 'tesla'])
+def test_actual_interface_takeoff_ceiling_and_default_are_independent(brand):
+  from importlib import import_module
+  interface = import_module('opendbc.car.' + brand + '.interface').CarInterface
+  models = import_module('opendbc.car.' + brand + '.values').CAR
+  cp = interface.get_non_essential_params(next(iter(models)))
+  normal = interface.get_pid_accel_limits(cp, 0., 30.)
+  assert normal == interface.get_pid_accel_limits(cp, 0., 30., faster_takeoffs=False)
+  fast = interface.get_pid_accel_limits(cp, 0., 30., faster_takeoffs=True)
+  assert fast[0] == normal[0]
+  assert fast[1] == 3.5
+
+
+@pytest.mark.parametrize('brand', ['ford', 'honda'])
+def test_takeoff_keeps_near_set_speed_pid_windup_limit(brand):
+  from importlib import import_module
+  interface = import_module('opendbc.car.' + brand + '.interface').CarInterface
+  models = import_module('opendbc.car.' + brand + '.values').CAR
+  cp = interface.get_non_essential_params(next(iter(models)))
+  if brand == 'honda':
+    cp = Honda.get_non_essential_params(H.HONDA_CIVIC)
+  upper = interface.get_pid_accel_limits(cp, 30., 30., faster_takeoffs=True)[1]
+  assert upper == .2
