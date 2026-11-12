@@ -1,4 +1,4 @@
-import { FRICTION_NAMES, SURFACE_GROUPS, SURFACE_NAMES } from './flm-training-results.js'
+import { FRICTION_NAMES, SURFACE_GROUPS, SURFACE_NAMES, isConsistentSuggestion } from './flm-training-results.js'
 
 export function dialPercent(value) {
   if (!Number.isFinite(value)) return 'Not reported'
@@ -9,22 +9,22 @@ export function dialPercent(value) {
 export function ideaStatus(row) {
   if (row.target === null) return 'Conflicting findings'
   if (row.reason === 'heldout_profile_does_not_support_training_step') return 'Not confirmed across the drive'
-  return 'Not approved for automatic saving'
+  return 'Suggested change'
 }
 
 export function ideaExplanation(row) {
-  if (row.target === null) return 'Different parts of the drive pointed to different settings. There is no single value to use.'
-  if (row.reason === 'heldout_profile_does_not_support_training_step')
-    return 'Some driving supported this idea, but other parts did not. Auto Learn kept it out of your saved tune.'
+  if (!isConsistentSuggestion(row)) return 'Different parts of the drive did not support the same change. Your tune was left unchanged.'
+  const next = SURFACE_NAMES.includes(row.parameter) ? ' You can review the suggested value and adjust this setting manually while parked.' :
+    ' Auto Learn will review it as more driving is recorded.'
   if (row.reason === 'independent_support_for_frozen_training_profile')
-    return 'Separate parts of the recording supported this idea. It still needs to pass the automatic-save checks.'
-  return 'The recording suggested a change here. It has not passed all the checks needed to save it automatically.'
+    return 'Separate parts of your drive support this suggestion. Auto Learn still needs to confirm the controller checks before saving it.' + next
+  return 'Your drive suggests this change, but Auto Learn needs more evidence before saving it automatically.' + next
 }
 
 export function reviewModel(route, historical = false, updating = false) {
   if (!route) return { title: 'Your next drive starts here', description: 'After a completed drive, Auto Learn will show what it found and whether it saved a change.',
     next: 'Wait for a completed-drive report.', tone: 'neutral', manual: [], manualGroups: [], curve: [], other: [], findings: [], saved: [], areas: [], count: 0 }
-  const findings = route.suggestions.map(row => ({ ...row,
+  const findings = route.suggestions.filter(isConsistentSuggestion).map(row => ({ ...row,
     kind: SURFACE_NAMES.includes(row.parameter) ? 'manual' : FRICTION_NAMES.includes(row.parameter) ? 'curve' : 'earlier',
     destination: SURFACE_NAMES.includes(row.parameter) ? 'tuner-dial-' + row.parameter : FRICTION_NAMES.includes(row.parameter) ? 'tuner-friction' : 'tuner-earlier-findings',
   }))
@@ -37,14 +37,14 @@ export function reviewModel(route, historical = false, updating = false) {
   if (curve.length) areas.push('Small corrections by speed')
   if (other.length) areas.push('Earlier grouped findings')
   const count = findings.length
-  let title = count ? `${count} ${count === 1 ? 'finding' : 'findings'} to review` : 'No new change selected'
+  let title = count ? 'Your drive suggestions' : 'Your drive review'
   if (['no_new_native_feasible_training_step', 'no_consistent_adjustment_in_completed_drive',
     'recorded_tracking_suggestion_not_yet_qualified_for_automatic_application',
-    'original_controller_or_registered_encoder_check_refused'].includes(route.reason)) title = 'Your tune stayed the same'
-  let description = count ? 'No change was saved from this drive. You do not need to adjust anything.' :
+    'original_controller_or_registered_encoder_check_refused'].includes(route.reason)) title = count ? 'Your drive suggestions' : 'Your tune stayed the same'
+  let description = count ? 'Review these suggestions alongside your saved tune. Auto Learn saves changes after confirming them against your driving.' :
     'No new change was saved. Your current tune stays in place, and there is nothing you need to do.'
   let tone = count ? 'review' : 'neutral'
-  let next = count ? 'Keep driving with your current tune. These findings are optional; they have not been approved for automatic saving.' : 'No action is needed. Auto Learn can review the next completed drive when it is enabled.'
+  let next = count ? 'Auto Learn will save changes it can confirm. You can also review these suggestions and adjust the manual settings while parked.' : 'No action is needed. Auto Learn can review the next completed drive when it is enabled.'
   if (route.configurationState === 'ready_for_next_drive') {
     title = 'A tune is saved for your next drive'
     description = 'Auto Learn will compare it with new driving. A saved trial is not yet a confirmed improvement.'
@@ -68,12 +68,14 @@ export function reviewModel(route, historical = false, updating = false) {
     next = 'Wait for a complete saved-state report before treating the change as ready.'
   }
   if (historical) {
-    title = 'Earlier drive findings'
-    description = updating ? 'Auto Learn is checking your completed drive. These earlier findings stay available while it runs; they are not a new saved tune.' :
-      'These are earlier findings. They do not confirm the current saved tune; reviewing them does not apply a change.'
-    tone = 'neutral'
-    next = updating ? 'No action is needed while the new analysis runs.' : 'Wait for a current report to confirm the saved state.'
+    if (saved.length || ['ready_for_next_drive', 'accepted', 'accepted_after_drive'].includes(route.configurationState)) {
+      tone = 'neutral'
+      title = 'Previously saved tune'
+      description = 'These saved values come from an earlier report. Current use is shown separately during driving.'
+      next = 'Review the latest saved state before treating an earlier tune as current.'
+    }
   }
+
   return { title, description, next, tone, manual, manualGroups, curve, other, findings, saved, areas, count, historical }
 }
 
@@ -100,8 +102,8 @@ export function curvePointLabel(name) {
 }
 
 export function ideaDetails(row) {
-  const baseline = Number.isFinite(row.baseline) ? [{ label: 'Recorded baseline', value: dialPercent(row.baseline) }] : []
-  if (row.target === null) return [...baseline, { label: 'Recorded candidate', value: 'No single suggested value' }]
-  if (row.target === undefined) return [...baseline, { label: 'Recorded change', value: (row.delta > 0 ? '+' : '') + dialPercent(row.delta) }]
-  return [...baseline, { label: 'Recorded candidate', value: dialPercent(row.target) }]
+  const baseline = Number.isFinite(row.baseline) ? [{ label: 'Starting value', value: dialPercent(row.baseline) }] : []
+  if (row.target === null) return [...baseline, { label: 'Suggested value', value: 'No single suggested value' }]
+  if (row.target === undefined) return [...baseline, { label: 'Suggested change', value: (row.delta > 0 ? '+' : '') + dialPercent(row.delta) }]
+  return [...baseline, { label: 'Suggested value', value: dialPercent(row.target) }]
 }

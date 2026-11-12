@@ -376,7 +376,9 @@ class TestCompletedDriveBacklog(unittest.TestCase):
         self.assertEqual(result['completed_route'], route['routeId'])
         self.assertEqual(result['source_is_latest'], route == latest)
         self.assertFalse(result['configuration_changed'])
-      self.assertEqual(worker.run_once(), result)
+      reported = worker.run_once()
+      self.assertEqual(reported['completed_route'], latest['routeId'], 'A backlog checkpoint is not the newest recording')
+      self.assertTrue(reported['source_is_latest'])
       self.assertEqual(calls, [latest, older])
       self.assertEqual(read_saved(params, KEY, MAX_BYTES), (None, True))
 
@@ -1077,12 +1079,44 @@ class TestRecordedRecommendationMetadata(unittest.TestCase):
   def test_conflicting_candidates_do_not_invent_a_best_setting(self):
     from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
 
-    proposals = [{'values': {'center_taper_max': v}} for v in (0.005, 0.006)]
+    proposals = [{'values': {'friction_threshold_mid': v}} for v in (0.005, -0.005)]
     result = recorded_recommendations(self.assessment(proposals), values(), {})
     self.assertEqual(len(result), 1)
     self.assertIsNone(result[0]['target'])
     self.assertEqual(result[0]['reason'], 'conflicting_recorded_candidates')
     self.assertEqual(result[0]['whole_windows'], 6, 'Shared windows cannot be double-counted')
+
+  def test_same_direction_estimates_are_not_mislabeled_as_conflicting(self):
+    from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
+
+    for targets in ((.005, .006), (.006, .005), (-.005, -.006), (-.006, -.005)):
+      with self.subTest(targets=targets):
+        proposals = [{'values': {'friction_threshold_mid': value}} for value in targets]
+        result = recorded_recommendations(self.assessment(proposals), values(), {})
+        self.assertEqual(result[0]['target'], min(targets, key=abs))
+        self.assertNotEqual(result[0]['reason'], 'conflicting_recorded_candidates')
+        self.assertEqual(result[0]['whole_windows'], 6, 'Agreement must not double-count the same windows')
+
+  def test_actual_same_direction_friction_estimates_keep_the_smaller_starting_point(self):
+    from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
+
+    # Retained derived values, not replayed road data or a claim of automatic qualification.
+    observed = {'friction_threshold_low': .003333333333, 'friction_threshold_mid': .006666666667,
+                'friction_threshold_fast': .008333333333, 'friction_threshold_highway': .01}
+    frozen = {'friction_threshold_mid': .00402, 'friction_threshold_fast': .0054, 'friction_threshold_highway': .0054}
+    result = recorded_recommendations(self.assessment([{'values': observed}, {'values': frozen}]), values(), {})
+    self.assertEqual({row['parameter']: row['target'] for row in result}, {**observed, **frozen})
+    self.assertTrue(all(row['target'] is not None for row in result))
+
+  def test_failed_command_limits_are_distinct_from_a_manual_starting_point(self):
+    from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
+
+    proposals = [{'values': {'center_taper_max': .005, 'unwind_taper_left': .005}}]
+    rows = recorded_recommendations(self.assessment(proposals), values(), {'refused_parameters': ['center_taper_max']})
+    by_name = {row['parameter']: row for row in rows}
+    self.assertEqual(by_name['center_taper_max']['reason'], 'controller_checks_did_not_support_change')
+    self.assertEqual(by_name['unwind_taper_left']['reason'], 'recorded_candidate_requires_automatic_checks')
+    self.assertTrue(all(row['target'] == .005 for row in rows), 'Keep exact evidence while excluding unsupported advice in the UI')
 
   def test_invalid_or_out_of_envelope_candidates_are_not_suggestions(self):
     from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
@@ -1283,3 +1317,284 @@ class TestSelectedCurrentDriveInputs(unittest.TestCase):
     self.assertIs(result, collected)
     self.assertIsNone(selected.call_args.kwargs['cp_sha256'])
 
+
+
+class TestLatestUsefulDriveReport(unittest.TestCase):
+  """Declared display fixtures: cached ideas never become an acceptance or write."""
+
+  def setUp(self):
+    from openpilot.starpilot.flm.offroad_cache import AssessmentCache
+    from openpilot.starpilot.flm.offroad_worker import OffroadWorker
+
+    self.directory = self.enterContext(tempfile.TemporaryDirectory())
+    self.params = Params(self.directory)
+    self.cache = AssessmentCache(Path(self.directory) / 'cache')
+
+    def forbid_fit(*args, **kwargs):
+      raise AssertionError('Completed immutable inputs must not be fitted again to choose a report')
+
+    self.worker = OffroadWorker(self.params, self.directory, self.cache, permitted=lambda: True, assessor=forbid_fit)
+    self.latest = self.result(3)
+    self.driving = self.result(2, windows=6, findings=5, drives=2)
+    self.parked = self.result(1)
+    self.results = [self.latest, self.driving, self.parked]
+
+  def result(self, number, *, windows=0, findings=0, drives=0, profile=None):
+    from openpilot.starpilot.flm.offroad_worker import _digest
+
+    profile = scope() if profile is None else profile
+    route = f'{number:08x}--aaaaaaaaaa'
+    source_hash = _digest(('declared-source', route))
+    digest = self.cache.put({'kind': 'completed_assessment', 'assessment': {
+      'current_scope': profile.document(),
+      'route': {'route_id': route, 'source_sha256': source_hash, 'cp_sha256': profile.cp_sha256, 'completed_wall_ns': number * 1_000_000_000}}})
+    names = ('unwind_taper_right', 'friction_threshold_low', 'friction_threshold_mid', 'friction_threshold_fast', 'friction_threshold_highway')
+    return {'status': 'collecting', 'reason': 'more_independent_eligible_tracking_required', 'completed_route': route,
+      'vehicle': 'declared-vehicle', 'source_sha256': source_hash, 'assessment_sha256': digest,
+      'analysis_counts': {'recorded_tracking': 600, 'qualified_whole_windows': windows,
+                          'evidence_drives': drives, 'evidence_windows': windows},
+      'recommendations': [{'parameter': name, 'baseline': 0, 'target': .005, 'whole_windows': 6, 'reason': 'unconfirmed'}
+                          for name in names[:findings]],
+      'configuration_changed': False, 'saved_adjustments': 0, 'actual_application_proven': False, 'road_improvement_confirmed': False}
+
+  def report(self):
+    from openpilot.starpilot.flm import offroad_worker as module
+
+    routes = [{'routeId': row['completed_route']} for row in self.results]
+    for route, result in zip(routes, self.results, strict=True):
+      self.cache.checkpoint({'input_fingerprint': module._digest(route), 'result': result})
+    before = {path.name: path.read_bytes() for path in self.cache.directory.iterdir() if path.is_file()}
+    with patch.object(module, 'latest_route', return_value=routes[0]), patch.object(module, 'pending_routes', return_value=routes), patch.object(
+      self.worker, '_snapshot', side_effect=module._digest
+    ):
+      result = self.worker.run_once()
+    after = {path.name: path.read_bytes() for path in self.cache.directory.iterdir() if path.is_file()}
+    self.assertEqual(before, after, 'Choosing a display must not rewrite source assessments or trials')
+    self.assertEqual(read_saved(self.params, KEY, MAX_BYTES), (None, True))
+    return result
+
+  def test_empty_latest_and_oldest_parked_checkpoint_do_not_erase_five_real_drive_ideas(self):
+    from openpilot.starpilot.flm.offroad_daemon import StatusReport
+    from openpilot.starpilot.flm.training_report import read_report
+
+    result = self.report()
+    self.assertEqual(result['completed_route'], self.driving['completed_route'])
+    self.assertEqual(len(result['recommendations']), 5)
+    self.assertEqual(result['analysis_counts']['evidence_drives'], 2)
+    self.assertEqual(result['latest_recording']['completed_route'], self.latest['completed_route'])
+    self.assertFalse(result['source_is_latest'])
+    status = StatusReport(path=Path(self.directory) / 'report.json', clock_ns=lambda: 1_000_000_000)
+    status.set(result)
+    status.publish()
+    wire = read_report(status.path, now_ns=1_000_000_000)
+    self.assertIsNotNone(wire['current'])
+    assert wire['current'] is not None
+    details = wire['current']['details']
+    self.assertEqual(len(details['Recorded coordinate recommendations']), 5)
+    self.assertEqual(details['Latest completed recording reviewed'], self.latest['completed_route'])
+    self.assertEqual(details['Findings retained from earlier drive'], self.driving['completed_route'])
+    self.assertFalse(details['Earlier analysis shown while updating'])
+    self.assertFalse(wire['current']['application']['applied'])
+
+  def test_new_useful_drive_without_suggestions_is_not_replaced_by_a_more_positive_report(self):
+    self.latest['analysis_counts']['qualified_whole_windows'] = 4
+    result = self.report()
+    self.assertEqual(result['completed_route'], self.latest['completed_route'])
+    self.assertEqual(result['recommendations'], [])
+    self.assertNotIn('latest_recording', result)
+
+  def test_different_vehicle_controller_baseline_epoch_or_reset_does_not_supply_findings(self):
+    from dataclasses import replace
+
+    for field, value in (('cp_sha256', 'd' * 64), ('controller_revision', 'declared-other-controller'),
+                         ('baseline_revision', 'd' * 64), ('persistent_source_epoch', 'd' * 64), ('reset_generation', '1')):
+      with self.subTest(field=field):
+        self.results[1] = self.result(2, windows=6, findings=5, profile=replace(scope(), **{field: value}))
+        result = self.report()
+        self.assertEqual(result['completed_route'], self.latest['completed_route'])
+        self.assertEqual(result['recommendations'], [])
+
+  def test_fresh_trial_rollback_and_source_error_are_never_hidden_by_older_ideas(self):
+    for state in ('ready_for_next_drive', 'accepted_after_drive', 'rolled_back', 'unavailable'):
+      with self.subTest(state=state):
+        self.latest['status'] = state
+        self.assertEqual(self.report()['completed_route'], self.latest['completed_route'])
+
+  def test_historical_findings_cannot_copy_a_saved_trial_or_application_into_current_state(self):
+    self.driving.update(configuration_changed=True, saved_adjustments=7, actual_application_proven=True,
+                        configured_values=values(.005), configuration_state='ready_for_next_drive', enabled=True)
+    result = self.report()
+    self.assertEqual(len(result['recommendations']), 5)
+    self.assertFalse(result['configuration_changed'])
+    self.assertFalse(result['actual_application_proven'])
+    self.assertFalse(result['road_improvement_confirmed'])
+    self.assertEqual(result['saved_adjustments'], 0)
+    self.assertNotIn('configured_values', result)
+    self.assertNotIn('configuration_state', result)
+    self.assertNotIn('enabled', result)
+
+  def test_changed_cached_source_or_missing_document_is_not_reused(self):
+    for change in ('source_sha256', 'assessment_sha256'):
+      with self.subTest(change=change):
+        self.results[1] = dict(self.driving, **{change: 'f' * 64})
+        self.assertEqual(self.report()['completed_route'], self.latest['completed_route'])
+
+  def test_empty_inputs_show_the_newest_recording_not_the_last_scanned_backlog(self):
+    self.driving['analysis_counts']['qualified_whole_windows'] = 0
+    self.driving['recommendations'] = []
+    self.assertEqual(self.report()['completed_route'], self.latest['completed_route'])
+
+
+  def test_restart_retains_the_newest_usable_drive_even_when_the_oldest_was_scanned_last(self):
+    from openpilot.starpilot.flm.offroad_daemon import StatusReport
+
+    self.report()
+    before = {p.name: p.read_bytes() for p in self.cache.directory.iterdir() if p.is_file()}
+    status = StatusReport(path=Path(self.directory) / 'restored.json', clock_ns=lambda: 1_000_000_000)
+    status.restore(self.cache)
+    self.assertEqual(status.previous['completed_route'], self.driving['completed_route'])
+    status.analyzing({'reason': 'analyzing_last_completed_drive'})
+    status.publish()
+    wire = json.loads(status.path.read_bytes())['current']
+    self.assertEqual(len(wire['details']['Recorded coordinate recommendations']), 5)
+    self.assertTrue(wire['details']['Earlier analysis shown while updating'])
+    self.assertIsNone(wire['enabled'])
+    self.assertFalse(wire['application']['applied'])
+    self.assertNotIn('Saved route configuration state', wire['details'])
+    self.assertEqual({p.name: p.read_bytes() for p in self.cache.directory.iterdir() if p.is_file()}, before)
+
+  def test_restart_does_not_retain_a_different_profile_or_prefer_more_suggestions(self):
+    from dataclasses import replace
+    from openpilot.starpilot.flm.offroad_daemon import StatusReport
+
+    self.results[1] = self.result(2, windows=6, findings=5, profile=replace(scope(), cp_sha256='d' * 64))
+    self.report()
+    status = StatusReport(path=Path(self.directory) / 'restored.json')
+    status.restore(self.cache)
+    self.assertEqual(status.previous['completed_route'], self.latest['completed_route'])
+    self.latest['analysis_counts']['qualified_whole_windows'] = 4
+    self.results[1] = self.driving
+    self.report()
+    status.restore(self.cache)
+    self.assertEqual(status.previous['completed_route'], self.latest['completed_route'])
+    self.assertEqual(status.previous['recommendations'], [])
+
+
+
+class TestAssessmentImplementationCache(unittest.TestCase):
+  def test_controller_brand_common_and_native_changes_invalidate_completed_results(self):
+    from opendbc import car
+    from openpilot.starpilot.flm import offroad_worker as module
+
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      worker = root / 'openpilot/starpilot/flm/offroad_worker.py'
+      car_file = root / 'opendbc_repo/opendbc/car/__init__.py'
+      files = (worker, root / 'openpilot/starpilot/lateral/controller.py', root / 'openpilot/common/model.py',
+               root / 'openpilot/selfdrive/controls/lib/latcontrol_torque.py', car_file,
+               car_file.parent / 'hyundai/interface.py', root / 'prebuilt.json')
+      for path in files:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('declared-original')
+      test_file = car_file.parent / 'tests/test_unrelated.py'
+      test_file.parent.mkdir()
+      test_file.write_text('declared-test')
+      with patch.object(module, '__file__', str(worker)), patch.object(car, '__file__', str(car_file)), patch(
+        'openpilot.starpilot.flm.native_primitives.native_identity', return_value='declared-native-original'
+      ) as native:
+        original = module._assessment_source_revision()
+        test_file.write_text('test-only edit')
+        self.assertEqual(module._assessment_source_revision(), original)
+        for path in files:
+          with self.subTest(path=str(path.relative_to(root))):
+            path.write_text('declared-changed')
+            self.assertNotEqual(module._assessment_source_revision(), original)
+            path.write_text('declared-original')
+        native.return_value = 'declared-native-changed'
+        self.assertNotEqual(module._assessment_source_revision(), original)
+
+  def test_new_implementation_cannot_reuse_an_old_completed_input_fingerprint(self):
+    from openpilot.starpilot.flm import offroad_worker as module
+
+    with tempfile.TemporaryDirectory() as directory:
+      params = Params(directory)
+      route = {'routeId': '00000001--aaaaaaaaaa'}
+      with patch.object(module, '_assessment_source_revision', return_value='declared-old'):
+        old = module.OffroadWorker(params, directory, Path(directory) / 'cache', permitted=lambda: True)
+      old.cache.checkpoint({'input_fingerprint': old._snapshot(route), 'result': {'status': 'collecting', 'reason': 'declared-old-result'}})
+      with patch.object(module, '_assessment_source_revision', return_value='declared-new'):
+        current = module.OffroadWorker(params, directory, old.cache, permitted=lambda: True)
+      self.assertNotEqual(old._snapshot(route), current._snapshot(route))
+      latest = old.cache.latest()
+      self.assertIsNotNone(latest)
+      assert latest is not None
+      self.assertEqual(latest['result']['reason'], 'declared-old-result', 'Invalidation must preserve the original evidence')
+
+
+
+class TestGrowingEvidenceRefresh(unittest.TestCase):
+  def test_new_retained_driving_invalidates_latest_checkpoint_without_repeating_unchanged_history(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm import offroad_worker as module
+
+    latest = {'routeId': '00000002--aaaaaaaaaa'}
+    with tempfile.TemporaryDirectory() as directory, patch.object(module, 'latest_route', return_value=latest), patch.object(
+      module, 'pending_routes', return_value=[latest]
+    ):
+      params = Params(directory)
+      def assess(*args, **kwargs):
+        raise ValueError('Declared source unavailable')
+      worker = module.OffroadWorker(params, directory, Path(directory) / 'cache', permitted=lambda: True, assessor=assess)
+      revision = ['first-history']
+      self.enterContext(patch.object(worker, 'evidence_bank', SimpleNamespace(revision=lambda: revision[0])))
+      worker.cache.checkpoint({'input_fingerprint': worker._snapshot(latest), 'result': {
+        'status': 'collecting', 'reason': 'declared', 'evidence_revision': revision[0]}})
+      self.assertEqual(worker.run_once()['reason'], 'declared')
+      revision[0] = 'more-real-driving'
+      with self.assertRaisesRegex(ValueError, 'Declared source unavailable') as failure:
+        worker.run_once()
+      worker.record_failure(failure.exception)
+      self.assertEqual(worker.run_once()['reason'], 'Declared source unavailable', 'The same failed source must not loop every poll')
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES), (None, True))
+
+  def test_evidence_revision_changes_only_when_retained_contents_change(self):
+    from openpilot.starpilot.flm.offroad_history import EvidenceBank
+
+    with tempfile.TemporaryDirectory() as directory:
+      bank = EvidenceBank(Path(directory) / 'cache')
+      self.assertIsNone(bank.revision())
+      collected, inventory = TestCrossDriveEvidence.inputs(1)
+      bank.retain(collected, inventory, 'declared-profile', permitted=lambda: True)
+      first = bank.revision()
+      bank.retain(collected, inventory, 'declared-profile', permitted=lambda: True)
+      self.assertEqual(bank.revision(), first)
+      second, inventory = TestCrossDriveEvidence.inputs(2)
+      bank.retain(second, inventory, 'declared-profile', permitted=lambda: True)
+      self.assertNotEqual(bank.revision(), first)
+
+
+class TestNewerDriveRefusal(unittest.TestCase):
+  def test_old_positive_windows_cannot_overrule_same_values_refused_on_newer_driving(self):
+    from types import SimpleNamespace
+    from dataclasses import replace
+    from openpilot.starpilot.flm.offroad_cache import AssessmentCache
+    from openpilot.starpilot.flm.offroad_worker import newer_original_refusal
+
+    with tempfile.TemporaryDirectory() as directory:
+      cache = AssessmentCache(directory)
+      target = values(.005)
+      doc = {'kind': 'completed_assessment', 'assessment': {'current_scope': scope().document(),
+        'route': {'route_id': '00000002--aaaaaaaaaa', 'source_sha256': 'b' * 64, 'completed_wall_ns': 200},
+        'all_original_window_checks': {'qualified': False}}}
+      digest = cache.put(doc)
+      result = {'status': 'collecting', 'reason': 'original_controller_or_registered_encoder_check_refused',
+        'completed_route': '00000002--aaaaaaaaaa', 'source_sha256': 'b' * 64, 'assessment_sha256': digest,
+        'suggestion': {'values': target}}
+      cache.checkpoint({'input_fingerprint': 'a' * 64, 'result': result})
+      original = SimpleNamespace(completed_wall_ns=100)
+      self.assertEqual(newer_original_refusal(cache, original, scope(), target)['completed_route'], result['completed_route'])
+      self.assertIsNone(newer_original_refusal(cache, original, scope(), values(.004)))
+      self.assertIsNone(newer_original_refusal(cache, original, replace(scope(), cp_sha256='c' * 64), target))
+      self.assertIsNone(newer_original_refusal(cache, SimpleNamespace(completed_wall_ns=300), scope(), target))
+      self.assertIsNotNone(newer_original_refusal(cache, SimpleNamespace(completed_wall_ns=200), scope(), target))
+      self.assertEqual(len(cache.checkpoints()), 1, 'The refusal check never changes the source or saved state')

@@ -7,7 +7,7 @@ import { reviewModel, dialPercent, ideaValue, ideaStatus, ideaExplanation, ideaD
 import { SURFACE_NAMES, FRICTION_NAMES, offroadView, validTrainingResults } from '../web/js/flm-training-results.js'
 
 const idea = (parameter, target = .005) => ({ parameter, baseline: 0, target, delta: target, windows: 14,
-  reason: 'heldout_profile_does_not_support_training_step' })
+  reason: 'recorded_candidate_requires_automatic_checks' })
 const route = { suggestions: [idea('highway_center_taper_max'), ...FRICTION_NAMES.slice(1).map(name => idea(name))],
   savedValues: null, saved: false, configurationState: null }
 const review = reviewModel(route)
@@ -31,8 +31,8 @@ assert.equal(ideaValue(idea('highway_center_taper_max')), '0% → 0.5%')
 assert.equal(ideaValue({ delta: .005 }), 'Change +0.5%')
 assert.match(ideaValue({ target: null }), /No single/)
 assert.equal(ideaStatus({ target: null }), 'Conflicting findings')
-assert.match(ideaExplanation({ target: null }), /no single value/)
-assert.match(ideaExplanation(route.suggestions[1]), /other parts did not/)
+assert.match(ideaExplanation({ target: null }), /did not support the same change/)
+assert.match(ideaExplanation(route.suggestions[1]), /more evidence/)
 assert.equal(reviewModel({ ...route, suggestions: [] }).count, 0)
 assert.equal(reviewModel(null).count, 0)
 assert.equal(reviewModel({ ...route, configurationState: 'ready_for_next_drive' }).tone, 'saved')
@@ -40,16 +40,16 @@ assert.equal(reviewModel({ ...route, configurationState: 'rolled_back' }).title,
 assert.equal(reviewModel({ ...route, saved: true }).title, 'A configuration change was reported')
 const historical = reviewModel({ ...route, configurationState: 'ready_for_next_drive' }, true)
 assert.equal(historical.tone, 'neutral')
-assert.equal(historical.title, 'Earlier drive findings')
-assert.match(historical.description, /confirm the current saved tune/)
+assert.equal(historical.title, 'Previously saved tune')
+assert.match(historical.description, /earlier report/)
 assert.doesNotMatch(historical.description, /Refresh|Reconnect/)
-assert.match(historical.next, /current report/)
+assert.match(historical.next, /latest saved state/)
 const updating = reviewModel(route, true, true)
-assert.match(updating.description, /checking your completed drive/)
+assert.equal(updating.description, review.description, 'Background progress must not alternate the drive explanation')
 assert.doesNotMatch(updating.description, /Refresh|Reconnect/)
-assert.match(updating.next, /No action/)
-assert.deepEqual(ideaDetails(idea('highway_center_taper_max')), [{ label: 'Recorded baseline', value: '0%' }, { label: 'Recorded candidate', value: '0.5%' }])
-assert.deepEqual(ideaDetails({ delta: .005 }), [{ label: 'Recorded change', value: '+0.5%' }])
+assert.equal(updating.next, review.next)
+assert.deepEqual(ideaDetails(idea('highway_center_taper_max')), [{ label: 'Starting value', value: '0%' }, { label: 'Suggested value', value: '0.5%' }])
+assert.deepEqual(ideaDetails({ delta: .005 }), [{ label: 'Suggested change', value: '+0.5%' }])
 assert.equal(ideaDetails({ baseline: 0, target: null })[1].value, 'No single suggested value')
 assert.doesNotMatch(FlmPage.template, /gx-tuner__idea-value/)
 
@@ -59,7 +59,7 @@ assert.equal(PlotGraph.props.endLabel.default, 'Latest', 'Existing live plots re
 assert.match(FlmPage.template, /end-label=.*End/)
 assert.match(FlmPage.template, /not a full-drive score/)
 assert.match(FlmPage.template, /Auto Learn only/)
-assert.match(FlmPage.template, /These ideas were not saved/)
+assert.match(FlmPage.template, /These suggestions are not saved/)
 assert.doesNotMatch(FlmPage.template, /@click=".*(?:applyIdea|saveSuggestion)/)
 
 const context = { ...FlmPage.data(), report: null, mode: 'local', unauthorized() {} }
@@ -125,3 +125,25 @@ const tree = walk(rendered.call(context, context, []))
 assert.equal(tree.filter(node => node.props?.['data-coordinate'] && SURFACE_NAMES.includes(node.props['data-coordinate'])).length, 30)
 assert.deepEqual(data, original, 'Rendering never changes the report or saved state')
 console.log('Drive review keeps all 35 findings reachable, seven destinations, readable values, historical truth and unapproved status')
+
+
+const contradictory = { ...route, suggestions: [route.suggestions[0],
+  { ...route.suggestions[1], reason: 'heldout_profile_does_not_support_training_step' },
+  { ...route.suggestions[2], target: null, reason: 'conflicting_recorded_candidates' },
+  { ...route.suggestions[3], reason: 'controller_checks_did_not_support_change' }] }
+assert.equal(reviewModel(contradictory).count, 1, 'Contradicted values do not inflate suggestions or category badges')
+assert.equal(reviewModel(contradictory).curve.length, 0)
+assert.match(ideaExplanation(route.suggestions[0]), /manually while parked/)
+assert.doesNotMatch(ideaExplanation(route.suggestions[1]), /manually/, 'Auto Learn-only curve points cannot invent manual sliders')
+assert.doesNotMatch(ideaStatus(route.suggestions[0]), /approved/i)
+assert.doesNotMatch(ideaDetails(route.suggestions[0]).map(row => row.label).join(' '), /candidate/i)
+context.receivedAt = context.now = 1_000
+context.report.current.ageSeconds = 1.2
+const beforeExpiry = JSON.stringify(context.review)
+context.now = 2_100
+assert.equal(context.reportFresh, false)
+assert.equal(JSON.stringify(context.review), beforeExpiry, 'Live-clock expiry must not rewrite completed-drive findings')
+context.report.current.ageSeconds = 0
+context.now = context.receivedAt
+assert.equal(JSON.stringify(context.review), beforeExpiry)
+assert.equal(context.currentApplied, false)

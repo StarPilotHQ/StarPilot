@@ -36,7 +36,7 @@ function report() {
         'Automatic configuration changed': saved, 'Saved route adjustment count': saved ? 1 : 0,
         'Recorded coordinate recommendations': scenario === 'none' ? [] : hints.map(([name, target], index) => [name, 0,
           scenario === 'conflict' && index === 0 ? null : target, index === 0 ? 148 : 14,
-          scenario === 'conflict' && index === 0 ? 'conflicting_recorded_candidates' : index ? 'heldout_profile_does_not_support_training_step' : 'recorded_candidate_requires_automatic_checks']),
+          scenario === 'conflict' && index === 0 ? 'conflicting_recorded_candidates' : scenario === 'contradictory' && index ? 'heldout_profile_does_not_support_training_step' : 'recorded_candidate_requires_automatic_checks']),
         'Recorded steering response': { version: 1, domain: 'lateral_acceleration', samples: 46231, windows: 234, error_rms: .062,
           route: 'declared-ui-drive', segment: 1, source_start_ns: start, source_end_ns: points.at(-1)[0],
           sampling: 'input_ordered_original_endpoints_no_interpolation', points } } } }
@@ -47,6 +47,13 @@ function report() {
   if (scenario === 'retained') {
     value.current.status = 'fitting'; value.current.reason = 'analyzing_last_completed_drive'
     value.current.details['Earlier analysis shown while updating'] = true
+  }
+  if (scenario === 'earlier-drive') {
+    value.current.reason = 'more_independent_eligible_tracking_required'
+    Object.assign(value.current.details, { 'Latest completed recording reviewed': 'declared-newer-manual-drive',
+      'Latest recording analysis decision': value.current.reason, 'Findings retained from earlier drive': 'declared-ui-drive',
+      'Drives in steering evidence history': 2 })
+    value.current.details['Recorded coordinate recommendations'][0][0] = 'unwind_taper_right'
   }
   if (scenario === 'rollback') value.current.details['Saved route configuration state'] = 'rolled_back'
   if (scenario === 'incomplete') delete value.current.details['Recorded steering observations']
@@ -247,10 +254,19 @@ try {
     }
   }
   await viewport(416);await execute('document.documentElement.dataset.theme="dark"')
-  for (const name of ['none', 'empty', 'saved', 'rollback', 'conflict', 'stale', 'retained', 'wrong-car', 'incomplete', 'unknown-change']) {
+  for (const name of ['none', 'empty', 'saved', 'rollback', 'conflict', 'contradictory', 'stale', 'retained', 'earlier-drive', 'wrong-car', 'incomplete', 'unknown-change']) {
     await change(name);await layout(`state/${name}`);await capture(name)
-    if (name === 'retained') assert(await execute('return !/Refresh|Reconnect/.test(window.flm.review.description)&&window.flm.review.description.includes("checking your completed drive")'))
-    if (name === 'stale' || name === 'retained') assert.equal(await execute('return window.flm.review.title'), 'Earlier drive findings')
+    if (name === 'retained') assert(await execute('return !/Refresh|Reconnect/.test(window.flm.review.description)&&window.flm.review.description.includes("saved tune")'))
+    if (name === 'earlier-drive') {
+      assert(await execute('return window.flm.offroad.earlierDrive && !window.flm.offroad.retained && !window.flm.review.historical'))
+      assert.equal(await execute('return window.flm.review.count'), 5)
+      assert.equal(await execute('return window.flm.currentApplied'), false)
+      assert(await execute('return document.querySelector("[data-role=retained-drive-findings]").textContent.includes("earlier drive")'))
+      await click('[data-action=view-findings]')
+      assert(await execute('return window.flm.review.manual[0].parameter==="unwind_taper_right" && window.flm.review.curve.length===4'))
+      await capture('earlier-drive-five-findings')
+    }
+    if (name === 'retained') assert.equal(await execute('return window.flm.review.title'), 'Your drive suggestions')
     if (name === 'wrong-car' || name === 'incomplete') {
       assert.equal(await execute('return window.flm.offroad'), null)
       assert.equal(await execute('return window.flm.review.title'), name === 'wrong-car' ? 'This report is for another vehicle' : 'The drive report is incomplete')
@@ -259,10 +275,22 @@ try {
       assert.equal(await execute('return window.flm.review.title'),'A configuration change was reported')
       assert(await execute('return document.querySelector(".gx-tuner__summary").textContent.includes("Saved state not confirmed")&&!document.querySelector(".gx-tuner__summary").textContent.includes("0 saved")'))
     }
-    if (name === 'stale') assert(await execute('return !/Refresh|Reconnect/.test(window.flm.review.description)&&window.flm.savedSummary==="Earlier report"'))
+    if (name === 'stale') assert(await execute('return !/Refresh|Reconnect/.test(window.flm.review.description)&&window.flm.savedSummary==="0 saved"'))
     if (name === 'saved') assert.equal(await execute('return window.flm.currentApplied'), false)
-    if (name === 'conflict') { await click('#tuner-tab-tune');assert(await execute('return document.querySelector(".gx-tuner__idea-grid").textContent.includes("No single suggested value")')) }
+    if (name === 'conflict') { assert.equal(await execute('return window.flm.review.count'), 4);assert(await execute('return !window.flm.review.findings.some(row=>row.target===null)')) }
+    if (name === 'contradictory') { assert.equal(await execute('return window.flm.review.count'), 1);assert.equal(await execute('return window.flm.review.curve.length'), 0);await capture('only-supported-suggestions') }
   }
+  await change('retained')
+  const reading = await execute('return document.querySelector(".gx-tuner__drive-copy").innerText')
+  await execute('window.readingNode=document.querySelector(".gx-tuner__drive-copy");window.flm.report.current.ageSeconds=1.2;window.flm.now=window.flm.receivedAt')
+  for (let pass=0;pass<6;pass++) {
+    await execute('window.flm.now=window.flm.receivedAt+1100;window.flm.report.current.details["Earlier analysis shown while updating"]=false;return window.flm.$nextTick()')
+    assert.equal(await execute('return document.querySelector(".gx-tuner__drive-copy").innerText'), reading)
+    assert(await execute('return document.querySelector(".gx-tuner__drive-copy")===window.readingNode'), 'Polling keeps the mounted reading area')
+    await execute('window.flm.now=window.flm.receivedAt;window.flm.report.current.details["Earlier analysis shown while updating"]=true;return window.flm.$nextTick()')
+  }
+  checks.push('completed-drive-reading-stays-steady-across-live-clock-expiry')
+  await capture('steady-background-analysis')
   assert.equal(requests.length, 0, 'Reviewing findings, categories and curves must not stage or save a manual change')
   await change('applied', { parked: false });assert.equal(await execute('return window.flm.currentApplied'), true)
   await click('#tuner-tab-tune');await until(() => execute('return window.flm.manualState.data?.parked===false'))

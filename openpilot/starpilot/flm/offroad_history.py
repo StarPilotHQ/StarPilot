@@ -159,6 +159,13 @@ class EvidenceBank:
       raise ValueError('Bounded historical steering evidence required')
     return value['profiles']
 
+  def revision(self):
+    try:
+      packed = self.cache._read('history.z', MAX_PACKED)
+    except FileNotFoundError:
+      return None
+    return hashlib.sha256(packed).hexdigest()
+
   def read(self, identity):
     rows = self._profiles().get(identity, [])
     if type(rows) is not list or len(rows) > MAX_DRIVES:

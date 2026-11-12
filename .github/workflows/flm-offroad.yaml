@@ -89,6 +89,10 @@ jobs:
         run: |
           node openpilot/starpilot/galaxy/tests/test_flm_training_results.mjs
           node openpilot/starpilot/galaxy/tests/test_flm_tracking_results.mjs
+          node openpilot/starpilot/galaxy/tests/test_flm.mjs
+          node openpilot/starpilot/galaxy/tests/test_tuning_editor.mjs
+          node openpilot/starpilot/galaxy/tests/test_settings_defaults.mjs
+          node openpilot/starpilot/galaxy/tests/test_flm_ux_browser.mjs
       - name: Retain offroad contract results
         if: always()
         uses: actions/upload-artifact@v4
