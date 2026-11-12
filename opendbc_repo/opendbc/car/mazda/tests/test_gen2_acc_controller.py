@@ -111,7 +111,8 @@ class Rig:
     cc.cruiseControl.resume = resume
     speed_ms = speed_raw * 0.01 * CV.KPH_TO_MS
     cs = SimpleNamespace(out=structs.CarState(standstill=speed_ms < 0.1, gasPressed=gas, vEgo=speed_ms),
-                         cam_lkas={}, acc=dict(self.parser.vl["ACC"]), acc_standstill=speed_raw <= 10)
+                         cam_lkas={}, acc=dict(self.parser.vl["ACC"]), acc_standstill=speed_raw <= 10,
+                         steer_release_speed=speed_raw <= 100)
     _, sends = self.ctl.update(cc.as_reader(), cs, 0)
     dat = next((bytes(d) for a, d, b in sends if a == 0x220 and b == 2), None)
     accepted = None if dat is None else self.safety.safety_tx_hook(make_msg(2, 0x220, dat=dat))

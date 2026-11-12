@@ -44,8 +44,11 @@ class CarController(CarControllerBase):
 
     # Under the GEN2 AOL policy panda refuses nonzero torque while stopped, and the host
     # only hears of it about 60 ms later through latActive. The TI2 pauses for 10 s when
-    # 0x249 stops for about 50 ms, so release in this frame: panda always accepts zero.
-    steer_requested = CC.latActive and not (CS.out.standstill and gen2_qualified(self.CP, marked_only=True))
+    # 0x249 stops for about 50 ms, so release before the stop: panda always accepts zero.
+    # Releasing on CS.out.standstill was one frame late, because SPEED drops from about
+    # 0.66 straight to 0 and panda sees that frame first; see GEN2_STEER_RELEASE_SPEED_RAW.
+    stopping = CS.out.standstill or CS.steer_release_speed
+    steer_requested = CC.latActive and not (stopping and gen2_qualified(self.CP, marked_only=True))
 
     if CC.latActive:
       # calculate steer and also set limits due to driver torque

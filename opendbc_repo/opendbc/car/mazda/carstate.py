@@ -4,7 +4,8 @@ from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs, DT_CTRL
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
-from opendbc.car.mazda.values import CAR, DBC, LKAS_LIMITS, MazdaSafetyFlags, TI_STATE, TI2_HEALTH, CarControllerParams
+from opendbc.car.mazda.values import CAR, DBC, GEN2_STEER_RELEASE_SPEED_RAW, LKAS_LIMITS, MazdaSafetyFlags, TI_STATE, TI2_HEALTH, \
+                                     CarControllerParams
 from opendbc.car.mazda.stock_aol import admitted as aol_admitted
 
 ButtonType = structs.CarState.ButtonEvent.Type
@@ -44,6 +45,8 @@ class CarState(CarStateBase):
     # GEN2 standstill exactly as the panda judges it for HOLD/RESUME; unknown
     # until the first SPEED frame, so default to moving.
     self.acc_standstill = False
+    # GEN2 steering release speed (see GEN2_STEER_RELEASE_SPEED_RAW); same default.
+    self.steer_release_speed = False
     self.lkas_allowed_speed = False
     self.cam_lkas = 0
     self.params = CarControllerParams(CP)
@@ -274,6 +277,7 @@ class CarState(CarStateBase):
     # rejects HOLD/RESUME. ret.standstill extends to 0.1 m/s, so it alone would
     # let the controller send frames the panda refuses.
     self.acc_standstill = round(cp_cam.vl["SPEED"]["SPEED"] * 100) <= 10
+    self.steer_release_speed = round(cp_cam.vl["SPEED"]["SPEED"] * 100) <= GEN2_STEER_RELEASE_SPEED_RAW
     if self.CP.flags & MazdaSafetyFlags.GEN2:
       ret.cruiseState.speed = cp.vl["CRUZE_STATE"]["CRZ_SPEED"] * unit_conversion
       ret.cruiseState.enabled = (cp.vl["CRUZE_STATE"]["CRZ_STATE"] >= 2)

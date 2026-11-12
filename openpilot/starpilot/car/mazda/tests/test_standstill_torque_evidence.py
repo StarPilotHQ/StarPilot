@@ -47,7 +47,7 @@ def run_frame(hooks, owner, standstill, apply_ns):
   cc.latActive = True
   cc.actuators.torque = TORQUE
   cs = structs.CarState(standstill=standstill, canValid=True, vEgo=0.0 if standstill else 5.0)
-  ns = SimpleNamespace(out=cs, cam_lkas={}, acc={}, acc_standstill=standstill)
+  ns = SimpleNamespace(out=cs, cam_lkas={}, acc={}, acc_standstill=standstill, steer_release_speed=standstill)
   output, _ = ctl.update(cc.as_reader(), ns, 0)
   owner.learning_applied_evidence = hooks.applied_snapshot(owner, cc, cs, output, apply_ns=apply_ns, state_ns=apply_ns)
   return owner.learning_applied_evidence
