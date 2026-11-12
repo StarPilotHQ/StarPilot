@@ -271,6 +271,7 @@ DEBUG_SAFETY_CLASS_TARGETS = {
 
 
 RELEASE_TARGETS = (
+  "opendbc_repo/opendbc/car/rivian/tests/test_radar_reachability.py",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_impreza_main_while_braking_waits_for_native_grant",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_impreza_guard_brake_release_keeps_intent",
   "openpilot/starpilot/car/subaru/tests/test_high_angle_guard.py",

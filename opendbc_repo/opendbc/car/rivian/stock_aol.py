@@ -6,7 +6,7 @@ from opendbc.car.rivian.values import CAR
 def qualified(cp, *, marked_only=False):
   try:
     return bool(cp.brand == 'rivian' and cp.carFingerprint == CAR.RIVIAN_R1 and int(cp.flags) == 0 and
-      not (cp.passive or cp.notCar or cp.dashcamOnly) and cp.radarUnavailable and
+      not (cp.passive or cp.notCar or cp.dashcamOnly) and isinstance(cp.radarUnavailable, bool) and
       cp.fingerprintSource != structs.CarParams.FingerprintSource.fixed and
       len(cp.safetyConfigs) == 1 and cp.safetyConfigs[0].safetyModel == structs.CarParams.SafetyModel.rivian and
       cp.safetyConfigs[0].safetyParam == int(cp.openpilotLongitudinalControl) and
