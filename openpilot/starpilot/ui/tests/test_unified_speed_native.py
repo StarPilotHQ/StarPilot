@@ -123,8 +123,10 @@ def test_set_and_binding_slc_stay_visible_beside_sign_or_prompt(profile, stage):
     view.compact_hud._speed_limit_sign(current)
   view._slc_actions(current)
   texts = [call.args[0] for call in foreground_calls(font.draw)]
-  assert 'SET' in texts and '35' in texts and not any(text.startswith('SLC ') for text in texts)
-  assert ('LIMIT 30' in texts) == (stage == 'prompt')
+  assert ('SET' if profile == Profile.LARGE else 'MAX') in texts and '35' in texts and not any(text.startswith('SLC ') for text in texts)
+  assert ('LIMIT 30' in texts) == (stage == 'prompt' and profile == Profile.LARGE)
+  if stage == 'prompt' and profile == Profile.COMPACT:
+    assert 'NEW LIMIT' in texts
   assert ('Now: LIMIT 30' in texts) == (stage == 'expanded')
   assert ('LIMIT' in texts) == (stage in ('live', 'retained'))
   if pending:
@@ -135,7 +137,7 @@ def test_set_and_binding_slc_stay_visible_beside_sign_or_prompt(profile, stage):
 
 
 @pytest.mark.parametrize('gap', [False, True])
-def test_compact_set_stays_visible_while_the_accepted_limit_is_restricted(gap, drawing):
+def test_compact_max_fades_while_the_restricted_limit_keeps_its_warning(gap, drawing):
   current = state(cruise_kph=45, drive_frame=1)
   current = replace(current, speed_limit=replace(current.speed_limit, source='dashboard', speed_limit_mps=55 / 3.6,
     accepted_source='dashboard', accepted_speed_limit_mps=55 / 3.6, accepted_adjusted_limit_mps=55 / 3.6,
@@ -146,10 +148,10 @@ def test_compact_set_stays_visible_while_the_accepted_limit_is_restricted(gap, d
                                                   source='unknown', speed_limit_mps=None))
   font = fonts(Profile.COMPACT)
   hud = CompactHudRenderer(font, Mock())
-  for elapsed in range(0, 5_000_000_000, 100_000_000):
+  for elapsed in range(0, 6_000_000_000, 100_000_000):
     hud.render_max_speed(replace(current, observed_ns=current.observed_ns + elapsed))
-  assert foreground_calls(font.draw)[-1].args[-1].a >= 250
-  assert {call.args[0] for call in foreground_calls(font.draw)} == {'SET', '45'}
+  assert hud._set_speed_alpha.x < .01
+  assert {call.args[0] for call in foreground_calls(font.draw)} == {'MAX', '45'}
   font.draw.reset_mock()
   hud._speed_limit_sign(current)
   assert [call.args[0] for call in foreground_calls(font.draw)] == ['LIMIT', '55', 'SET IS LOW', 'RAISE SET']
@@ -291,7 +293,7 @@ def test_regular_sign_keeps_the_outlined_arrow(profile, vienna, recovering, draw
                     speed_limit=replace(current.speed_limit, decision_id=0, sign_recovering=recovering))
   font = fonts(profile)
   SpeedLimitWidget(font, profile).render(current)
-  assert foreground_calls(font.draw)[0].args[0] == ('LAST OSM' if recovering else 'OSM')
+  assert foreground_calls(font.draw)[0].args[0] == ('LAST OSM' if recovering and profile == Profile.LARGE else 'OSM')
   assert drawing['arrow'].call_args.args[0] == 'compact'
 
 
@@ -364,14 +366,14 @@ def test_override_sign_uses_cluster_target_and_restores_normal_sign(profile, vie
   font.draw.reset_mock()
   sign.render(overridden)
   rows = [call.args for call in foreground_calls(font.draw)]
-  assert [row[0] for row in rows] == (['Override', '128', 'LAST OSM', '100'] if retained else ['Override', '128', 'OSM 100'])
+  assert [row[0] for row in rows] == (['Override', '128', 'LAST OSM', '100'] if retained and profile == Profile.LARGE else ['Override', '128', 'OSM 100'])
   assert rows[1][2] > rows[-1][2]
   for first, second in zip(rows, rows[1:], strict=False):
     assert first[4] + font.vertical_ink(*first[:3])[1] <= second[4] + font.vertical_ink(*second[:3])[0] + 1
   drawing['outline'].assert_called()
   font.draw.reset_mock()
   sign.render(current)
-  assert foreground_calls(font.draw)[0].args[0] == ('LAST OSM' if retained else 'OSM')
+  assert foreground_calls(font.draw)[0].args[0] == ('LAST OSM' if retained and profile == Profile.LARGE else 'OSM')
   drawing['circle' if vienna else 'outline'].assert_called()
 
 
@@ -391,7 +393,10 @@ def test_retained_limits_keep_original_source_and_have_no_actions(profile, vienn
   font = fonts(profile)
   render_sign(SpeedLimitWidget(font, profile), current)
   texts = [call.args[0] for call in foreground_calls(font.draw)]
-  assert texts.count(heading) == 1
+  expected_heading = heading if profile == Profile.LARGE else heading.removeprefix('LAST ').replace('LAST', 'SPEED')
+  assert texts.count(expected_heading) == 1
+  if profile == Profile.COMPACT:
+    assert not any(text.startswith('LAST') for text in texts)
   assert ('50' if latest_received else '40') in texts
   drawing['arrow'].assert_not_called()
   assert slc_controls(profile, current) == ()
@@ -405,7 +410,7 @@ def test_retained_sign_has_no_proposal_arrow_when_actions_are_hidden(profile, dr
                         last_received_speed_limit_mps=50 / 3.6, last_received_source='map')
   font = fonts(profile)
   render_sign(SpeedLimitWidget(font, profile), replace(current, speed_limit=observation))
-  assert foreground_calls(font.draw)[0].args[0] == 'LAST OSM'
+  assert foreground_calls(font.draw)[0].args[0] == ('LAST OSM' if profile == Profile.LARGE else 'OSM')
   drawing['arrow'].assert_not_called()
 
 
@@ -434,7 +439,7 @@ def test_compact_set_speed_stays_visible_during_confirmation_then_fades():
   assert alpha < .01
 
 
-def test_compact_set_stays_visible_when_pedal_status_moves_into_the_sign():
+def test_compact_max_fades_while_pedal_status_remains_in_the_sign():
   font = fonts(Profile.COMPACT)
   renderer = CompactHudRenderer(font, Mock())
   current = state(drive_frame=1, longitudinal_overridden=True)
@@ -442,15 +447,15 @@ def test_compact_set_stays_visible_when_pedal_status_moves_into_the_sign():
                     driver_override_active=True, override_basis='pedal', limiting_max_set=False))
   for now in range(10_000_000_000, 20_000_000_000, 100_000_000):
     renderer.render_max_speed(replace(current, observed_ns=now))
-  assert renderer._set_speed_alpha.x > .99
-  assert 'SET' in [call.args[0] for call in foreground_calls(font.draw)]
+  assert renderer._set_speed_alpha.x < .01
+  assert 'MAX' in [call.args[0] for call in foreground_calls(font.draw)]
   assert 'PEDAL' not in [call.args[0] for call in foreground_calls(font.draw)]
   font.draw.reset_mock()
   renderer._speed_limit_sign(current)
   assert 'Pedal' in [call.args[0] for call in foreground_calls(font.draw)]
 
 
-def test_compact_set_keeps_dinish_number_and_has_no_backplate(drawing):
+def test_compact_max_restores_dinish_number_label_position_and_gradient(drawing):
   from openpilot.starpilot.ui.presentation import font_filename
   font = fonts(Profile.COMPACT)
   hud = CompactHudRenderer(font, Mock())
@@ -459,12 +464,12 @@ def test_compact_set_keeps_dinish_number_and_has_no_backplate(drawing):
   hud.render_max_speed(current)
   hud.render_max_speed(replace(current, observed_ns=current.observed_ns + 20_000_000))
   assert [(call.args[0], call.args[1]) for call in foreground_calls(font.draw)] == [
-    ('SET', FontRole.SEMI_BOLD), ('80', FontRole.SET_SPEED)]
+    ('80', FontRole.SET_SPEED), ('MAX', FontRole.SEMI_BOLD)]
   assert font_filename(Profile.COMPACT, FontRole.SET_SPEED) == 'DINish-Speed.fnt'
-  number = foreground_calls(font.draw)[1].args
-  top, bottom = font.vertical_ink(*number[:3])
-  assert number[4] + (top + bottom) / 2 == 77
-  drawing['draw_circle_gradient'].assert_not_called()
+  number, label = (call.args for call in foreground_calls(font.draw))
+  assert number[2:5] == (112, 17, -4)
+  assert label[2:5] == (36, 25, 109)
+  drawing['draw_circle_gradient'].assert_called()
 
 
 @pytest.mark.parametrize('metric', [False, True])

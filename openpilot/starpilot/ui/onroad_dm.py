@@ -49,6 +49,11 @@ def draw_monitor_art(renderer, bounds, profile):
 
 
 def monitor_visible(profile, state, *, fresh, onroad, top_icons, bounds=None):
+  from openpilot.starpilot.ui.onroad_state import slc_action_occludes
+
+  monitor = bounds if bounds is not None else monitor_bounds(state.customization, profile, state.right_hand_drive)
+  if slc_action_occludes(profile, state, (monitor.x, monitor.y, monitor.x + monitor.width, monitor.y + monitor.height)):
+    return False
   if profile == Profile.COMPACT:
     occluded = False
     if profile == Profile.COMPACT and top_icons:
@@ -60,11 +65,6 @@ def monitor_visible(profile, state, *, fresh, onroad, top_icons, bounds=None):
                 not occluded and
                 placement(state.customization, profile, 'driver_monitor')['enabled'])
 
-  from openpilot.starpilot.ui.onroad_state import slc_action_occludes
-
-  monitor = bounds if bounds is not None else monitor_bounds(state.customization, profile, state.right_hand_drive)
-  if slc_action_occludes(profile, state, (monitor.x, monitor.y, monitor.x + monitor.width, monitor.y + monitor.height)):
-    return False
   occluded = False
   if profile == Profile.COMPACT and top_icons:
     speed = placement(state.customization, profile, 'max_speed')

@@ -133,7 +133,7 @@ def test_large_set_and_limit_share_typography_at_the_saved_position():
 
 
 @pytest.mark.parametrize('pending', [False, True])
-def test_set_and_slc_match_font_and_baseline_on_both_displays(pending):
+def test_set_and_slc_keep_their_profile_specific_typography(pending):
   from unittest.mock import patch
   from openpilot.starpilot.ui.onroad_compact_widgets import CompactHudRenderer
   from openpilot.starpilot.ui.onroad_large_widgets import UnifiedSpeedWidget
@@ -164,7 +164,15 @@ def test_set_and_slc_match_font_and_baseline_on_both_displays(pending):
               if pending:
                 sign = widget.sign if isinstance(widget, UnifiedSpeedWidget) else widget._speed_limit_widget
                 sign.render_confirmation(current)
-            rows = {row[0]: row for row in calls if row[-1].a == 255}
+            rows = {row[0]: row for row in calls if row[-1].a > 0 and (row[-1].r, row[-1].g, row[-1].b) not in ((0, 0, 0), (6, 14, 10), (7, 16, 12))}
+            if profile == Profile.COMPACT:
+              assert rows['MAX'][1:5] == (FontRole.SEMI_BOLD, 36, 25, 109)
+              assert rows['140'][1] == FontRole.SET_SPEED
+              assert rows['140'][3:5] == (17, -4)
+              assert fonts.measure(*rows['140'][:3]).width <= 128
+              assert str(value) in rows and ('OSM' if pending else 'LIMIT') in rows
+              assert not any('mph' in text or 'km/h' in text for text in rows)
+              continue
             for a, b in (('SET', 'OSM' if pending else 'LIMIT'), ('140', str(value))):
               assert rows[a][1] == rows[b][1]
               assert rows[a][2] == pytest.approx(rows[b][2])
@@ -232,9 +240,11 @@ def test_status_below_set_has_real_ink_clearance_and_fits_its_widget():
             widget.render(rl.Rectangle(30,30,1800,1020), current)
           else:
             widget.render_max_speed(current)
-        rows = [row for row in calls if row[-1].a == 255]
+        rows = [row for row in calls if row[-1].a > 0 and (row[-1].r, row[-1].g, row[-1].b) not in ((0, 0, 0), (6, 14, 10), (7, 16, 12))]
         number = next(row for row in rows if row[0] == str(set_speed) and row[1] == FontRole.SET_SPEED)
-        caption = next(row for row in rows if row[0] == status)
+        caption = next(row for row in rows if row[0] == (status if profile == Profile.LARGE else 'MAX'))
+        if profile == Profile.COMPACT:
+          assert status not in [row[0] for row in rows]
         bottom = number[4] + fonts.vertical_ink(*number[:3])[1]
         top = caption[4] + fonts.vertical_ink(*caption[:3])[0]
         assert top - bottom >= 6, (profile, status, set_speed)
@@ -243,13 +253,13 @@ def test_status_below_set_has_real_ink_clearance_and_fits_its_widget():
         width, height = widget_size(current.customization, profile, key)
         assert caption[4] + fonts.vertical_ink(*caption[:3])[1] <= saved['y'] + height - 12
         scale = LARGE_SIGN_SCALE if profile == Profile.LARGE else 1
-        assert 16 <= caption[2] * profile.font_scale / Profile.COMPACT.font_scale / scale <= 22 + 1e-9
+        assert (16 <= caption[2] * profile.font_scale / Profile.COMPACT.font_scale / scale <= 22 + 1e-9) if profile == Profile.LARGE else caption[2] == 36
         left, right = fonts.horizontal_ink(*caption[:3])
         number_left, number_right = fonts.horizontal_ink(*number[:3])
         if profile == Profile.COMPACT:
-          assert saved['x'] + 8 <= caption[3] + left < caption[3] + right <= saved['x'] + width - 8
-          assert caption[3] + (left + right) / 2 == pytest.approx(saved['x'] + width / 2)
-          assert number[3] + (number_left + number_right) / 2 == pytest.approx(saved['x'] + width / 2)
+          assert caption[3:5] == (25, 109)
+          assert number[3:5] == (17, -4)
+          assert number_right - number_left <= 128
         else:
           assert caption[3] + (left + right) / 2 == pytest.approx(saved['x'] + 92)
           assert number[3] + (number_left + number_right) / 2 == pytest.approx(saved['x'] + 92)
@@ -288,7 +298,7 @@ def test_sign_status_rows_keep_balanced_insets_with_real_fonts():
           with patch.object(fonts, 'draw', lambda *args, sink=calls: sink.append(args)):
             widget.render(current)
           if variant == 'retained':
-            assert [call[0] for call in calls if call[-1].a == 255] == ['LIMIT', '100', 'LAST VISION']
+            assert [call[0] for call in calls if call[-1].a == 255] == ['LIMIT', '100', 'LAST VISION' if profile == Profile.LARGE else 'VISION']
           bounds = speed_limit_bounds(profile, current)
           assert bounds is not None
           x, y = bounds[0] + 12, bounds[1] + 12
@@ -535,7 +545,7 @@ def test_preview_sprite_keeps_the_full_confirmation_override_and_set_limited_sig
         if scene in ('slc_notice', 'slc_pending'):
           assert (slot['offsetX'], slot['offsetY'], slot['width'], slot['height']) == (-172, -8, 328, 159)
         else:
-          assert (slot['offsetX'], slot['offsetY'], slot['width'], slot['height']) == (-12, -12, SIGN_WIDTH+24, SIGN_HEIGHT+20)
+          assert (slot['offsetX'], slot['offsetY'], slot['width'], slot['height']) == (-12, 12-y, SIGN_WIDTH+24, SIGN_HEIGHT+20)
       assert np.any(direct[..., 3]), (profile, y, scene)
   finally:
     canvas.close()
@@ -660,7 +670,6 @@ def test_both_sign_styles_contain_text_and_arrows_at_each_profile_scale():
           current = state(observed_ns=10_000_000_000+elapsed)
           key = 'cruise_limits' if profile == Profile.LARGE else 'speed_limit'
           current.customization['layouts'][profile][key].update(x=saved_x, y=y)
-          x = saved_x+230 if profile == Profile.LARGE else saved_x
           current = replace(current, speed_mps=(posted+offset+direction*2)/3.6,
             appearance=replace(current.appearance, use_vienna_sign=vienna),
             speed_limit=replace(current.speed_limit, source=source, speed_limit_mps=posted/3.6,
@@ -669,12 +678,15 @@ def test_both_sign_styles_contain_text_and_arrows_at_each_profile_scale():
             current = replace(current, speed_limit=replace(current.speed_limit, kind=ObservationKind.STALE,
               speed_limit_mps=None, pending_speed_limit_mps=None, last_received_speed_limit_mps=posted/3.6,
               last_received_source=source, last_received_adjusted_limit_mps=(posted+offset)/3.6))
+          bounds = speed_limit_bounds(profile, current)
+          assert bounds is not None
+          x, y = bounds[0] + 12, bounds[1] + 12
           calls = []
           with patch.object(fonts, 'draw', lambda *args, sink=calls: sink.append(args)), \
                patch.object(widget.shapes, 'arrow') as arrow_draw:
             widget.render(current)
           calls = [call for call in calls if call[-1].a == 255]
-          assert sum(call[0] == (f'LAST {heading}' if retained else heading) for call in calls) == 1, case
+          assert sum(call[0] == (f'LAST {heading}' if retained and profile == Profile.LARGE else heading) for call in calls) == 1, case
           assert all(call[0] != 'LIMIT' for call in calls), case
           ink = []
           for text, role, size, left, top, color in calls:
@@ -775,7 +787,10 @@ def test_sign_profiles_share_layout_and_keep_aligned_numbers():
         for a, b in zip(small_calls[start:], large_calls[start:], strict=True):
           assert abs(a[2]/small_widget.text_scale-b[2]/large_widget.text_scale) < 1e-9
           assert abs((a[3]-320)-(b[3]-318)/LARGE_SIGN_SCALE) <= 1
-          assert abs((a[4]-16)-(b[4]-75)/LARGE_SIGN_SCALE) <= 1
+          small_bounds = speed_limit_bounds(Profile.COMPACT, current)
+          large_bounds = speed_limit_bounds(Profile.LARGE, current)
+          assert small_bounds is not None and large_bounds is not None
+          assert abs((a[4]-small_bounds[1]-12)-(b[4]-large_bounds[1]-12)/LARGE_SIGN_SCALE) <= 1
           assert (a[-1].r, a[-1].g, a[-1].b, a[-1].a) == (b[-1].r, b[-1].g, b[-1].b, b[-1].a)
         if pending:
           for widget in (small_widget, large_widget):
