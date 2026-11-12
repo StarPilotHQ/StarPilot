@@ -513,3 +513,17 @@ class TestHondaStockAol(unittest.TestCase):
           with self.subTest(case=case[0], source=source, seen=False):
             self.assertEqual(self.safety.safety_test_honda_aol_source_age(source, 0, False), source == 3 and not self.pedal)
         self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+
+  def test_main_alone_grants_without_lkas_gesture(self):
+    for case in CASES:
+      with self.subTest(case=case[0]):
+        self.configure(case)
+        self.stream(main=False, lkas=0)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+        self.stream(main=True, lkas=0)
+        self.assertFalse(self.safety.get_controls_allowed())
+        self.assertEqual(self.safety.aol_get_permission_mask(), int(self.scoped))
+        self.stream(main=False, lkas=0)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+        self.stream(main=True, lkas=0)
+        self.assertEqual(self.safety.aol_get_permission_mask(), int(self.scoped))

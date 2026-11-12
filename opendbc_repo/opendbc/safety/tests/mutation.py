@@ -18,6 +18,7 @@ from collections import Counter, namedtuple
 from contextlib import ExitStack, redirect_stdout, redirect_stderr
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from unittest.mock import patch
 
 import tree_sitter_c as ts_c
 import tree_sitter as ts
@@ -595,8 +596,26 @@ def _run_pytest(targets):
         else:
           errors.append(target)
 
+  from opendbc.safety.tests.libsafety import libsafety_py
+  native = libsafety_py.__dict__.get("libsafety")
+  try:
+    active_mutant = native.mutation_get_active_mutant() if native is not None else None
+  except AttributeError:
+    active_mutant = None
+  build_native = libsafety_py._build_libsafety
+  native_path = libsafety_py.__dict__.get("libpath")
+
+  def fixture_native(release=False):
+    if release:
+      return build_native(release=True)
+    if native.mutation_get_active_mutant() != active_mutant:
+      raise RuntimeError("pytest fixture changed the active Debug mutant")
+    return native_path
+
   stream = io.StringIO()
-  with redirect_stdout(stream), redirect_stderr(stream):
+  with ExitStack() as native_builds, redirect_stdout(stream), redirect_stderr(stream):
+    if type(active_mutant) is int:
+      native_builds.enter_context(patch.object(libsafety_py, "_build_libsafety", side_effect=fixture_native))
     code = pytest.main(["-xq", "-o", "addopts=", *(target.removeprefix("pytest:") for target in targets)], plugins=[Results()])
   if code not in (0, 1) or (code == 1 and not failures and not errors):
     errors.append(f"pytest exit {code}")

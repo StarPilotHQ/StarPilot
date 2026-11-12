@@ -62,7 +62,7 @@ class TestHondaInterceptor(unittest.TestCase):
       data[5] = pedal_crc(data)
     return message[0], bytes(data), message[2]
 
-  def test_all_zero_commands_finish_without_native_memory_faults(self):
+  def _assert_callbacks_finish(self, words):
     try:
       mutant = libsafety_py.libsafety.mutation_get_active_mutant()
     except AttributeError:
@@ -82,15 +82,15 @@ if safety.set_safety_hooks(structs.CarParams.SafetyModel.hondaNidec, word) != 0:
   print('NATIVE_SETUP_ASSERTION', flush=True)
   raise SystemExit(1)
 safety.init_tests()
-packer = CANPacker('acura_ilx_2016_can_generated' if word == 36 else 'honda_civic_touring_2016_can_generated')
-message = create_command(packer, 0.0, 0)
+packer = CANPacker('acura_ilx_2016_can_generated' if word in (4, 36) else 'honda_civic_touring_2016_can_generated')
+message = packer.make_can_msg('POWERTRAIN_DATA', 0, {'ACC_STATUS': 0}) if word in (0, 4) else create_command(packer, 0.0, 0)
 packet = libsafety_py.make_CANPacket(message[0], message[2], message[1])
-print('NATIVE_TX_BEGIN', flush=True)
-accepted = safety.safety_tx_hook(packet)
-print('NATIVE_TX_RETURN', flush=True)
+print('NATIVE_CALLBACK_BEGIN', flush=True)
+accepted = safety.safety_rx_hook(packet) if word in (0, 4) else safety.safety_tx_hook(packet)
+print('NATIVE_CALLBACK_RETURN', flush=True)
 raise SystemExit(0 if accepted else 1)
 """
-    for word in (32, 36):
+    for word in words:
       with self.subTest(word=word):
         try:
           result = subprocess.run([sys.executable, '-c', script, libsafety_py.libpath, str(mutant), str(word)],
@@ -99,16 +99,22 @@ raise SystemExit(0 if accepted else 1)
           output = exc.stdout or b''
           if isinstance(output, bytes):
             output = output.decode(errors='replace')
-          if 'NATIVE_TX_BEGIN' not in output:
-            raise RuntimeError('Native TX probe did not reach its callback') from exc
-          self.fail('Native interceptor TX callback did not finish within ten seconds')
-        entered = 'NATIVE_TX_BEGIN' in result.stdout
-        if result.returncode == -signal.SIGSEGV and entered and 'NATIVE_TX_RETURN' not in result.stdout:
-          self.fail('Native TX callback faulted on a fully allocated valid zero-command packet: ' + result.stderr)
-        asserted = 'NATIVE_SETUP_ASSERTION' in result.stdout or 'NATIVE_TX_RETURN' in result.stdout
+          if 'NATIVE_CALLBACK_BEGIN' not in output:
+            raise RuntimeError('Native callback probe did not reach its callback') from exc
+          self.fail('Native callback did not finish within ten seconds')
+        entered = 'NATIVE_CALLBACK_BEGIN' in result.stdout
+        if result.returncode == -signal.SIGSEGV and entered and 'NATIVE_CALLBACK_RETURN' not in result.stdout:
+          self.fail('Native callback faulted on a fully allocated valid packet: ' + result.stderr)
+        asserted = 'NATIVE_SETUP_ASSERTION' in result.stdout or 'NATIVE_CALLBACK_RETURN' in result.stdout
         if result.returncode not in (0, 1) or not asserted:
-          raise RuntimeError(f'Native TX probe infrastructure failure ({result.returncode}): {result.stdout}{result.stderr}')
+          raise RuntimeError(f'Native callback probe infrastructure failure ({result.returncode}): {result.stdout}{result.stderr}')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+  def test_all_zero_commands_finish_without_native_memory_faults(self):
+    self._assert_callbacks_finish((32, 36))
+
+  def test_all_stock_honda_rx_callbacks_finish_without_native_memory_faults(self):
+    self._assert_callbacks_finish((0, 4))
 
   def test_both_tracks_enable_reserved_bits_and_crc_are_required(self):
     for word in (32, 36):

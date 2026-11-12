@@ -85,6 +85,49 @@ class TestMutationInfrastructureAccounting(unittest.TestCase):
     self.assertEqual({site.origin_file for site in sites}, {production})
     self.assertEqual({site.mutator for site in sites}, {"comparison", "boundary"})
 
+  def test_pytest_fixture_keeps_mutant_debug_and_actual_release(self):
+    source = """import pytest
+from opendbc.car import structs
+from opendbc.safety.tests.libsafety import libsafety_py
+@pytest.fixture(params=(False, True), ids=('DEBUG', 'RELEASE'))
+def native_variant(request):
+  previous = libsafety_py.libpath
+  libsafety_py.load(libsafety_py._build_libsafety(release=request.param))
+  try:
+    yield request.param
+  finally:
+    libsafety_py.load(previous)
+def test_native_variant(native_variant):
+  if native_variant:
+    assert libsafety_py.libsafety.set_safety_hooks(structs.CarParams.SafetyModel.allOutput, 0) != 0
+    with pytest.raises(AttributeError):
+      libsafety_py.libsafety.mutation_get_active_mutant()
+  else:
+    assert libsafety_py.libsafety.mutation_get_active_mutant() == 73
+"""
+    release = libsafety_py._build_libsafety(release=True)
+    with TemporaryDirectory() as directory, patch.dict(libsafety_py.__dict__):
+      root = Path(directory)
+      debug = root / "instrumented.so"
+      mutation.compile_mutated_library("int fixture_marker(void) { return 0; }", [], debug)
+      libsafety_py.load(debug)
+      libsafety_py.libsafety.mutation_set_active_mutant(73)
+      target = root / "test_native_variant.py"
+      target.write_text(source)
+      builds = []
+
+      def build_variant(release=False):
+        self.assertTrue(release, "active Debug library must not be rebuilt")
+        builds.append(release)
+        return release_library
+
+      release_library = release
+      with patch.object(libsafety_py, "_build_libsafety", side_effect=build_variant):
+        result = mutation._run_pytest(["pytest:" + str(target)])
+      self.assertEqual((result.ran, result.skipped, result.failures, result.errors), (2, 0, (), ()), result.output_tail)
+      self.assertEqual(builds, [True])
+      self.assertEqual(libsafety_py.libsafety.mutation_get_active_mutant(), 73)
+
   def test_worker_crash_is_infrastructure_error(self):
     site = self.site()
     future = Future()
