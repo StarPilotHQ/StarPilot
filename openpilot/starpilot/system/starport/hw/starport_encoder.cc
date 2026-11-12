@@ -172,7 +172,7 @@ struct Encoder {
     control(V4L2_CID_MPEG_VIDC_VIDEO_IDR_PERIOD, 1);
     if (hevc) {
       control(V4L2_CID_MPEG_VIDC_VIDEO_HEVC_PROFILE, V4L2_MPEG_VIDC_VIDEO_HEVC_PROFILE_MAIN);
-      control(V4L2_CID_MPEG_VIDC_VIDEO_HEVC_TIER_LEVEL, V4L2_MPEG_VIDC_VIDEO_HEVC_LEVEL_HIGH_TIER_LEVEL_5);
+      control(V4L2_CID_MPEG_VIDC_VIDEO_HEVC_TIER_LEVEL, V4L2_MPEG_VIDC_VIDEO_HEVC_LEVEL_MAIN_TIER_LEVEL_4_1);
     } else {
       control(V4L2_CID_MPEG_VIDEO_H264_PROFILE, V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE);
       control(V4L2_CID_MPEG_VIDEO_H264_LEVEL, V4L2_MPEG_VIDEO_H264_LEVEL_3_1);
@@ -295,7 +295,7 @@ void starport_encoder_timing(void *ptr, double *output) {
 }
 void *starport_encoder_create(int width, int height, int fps, int bitrate, int margin_height, int options, char *error, size_t size) {
   try {
-    // H.264 baseline level 3.1 is a 720p30 session; HEVC Main at high-tier level 5 carries 1080p30 for a head unit
+    // H.264 baseline level 3.1 is a 720p30 session; HEVC Main at main-tier level 4.1 carries 1080p30 for a head unit
     // that offers nothing else.
     const bool hevc = options & AA_ENCODER_HEVC;
     const int max_width = hevc ? 1920 : 1280, max_height = hevc ? 1080 : 720;

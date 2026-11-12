@@ -62,6 +62,8 @@ AV_SETUP_RESPONSE = 0x8003
 AV_MEDIA_ACK = 0x8004
 VIDEO_FOCUS_REQUEST = 0x8007
 VIDEO_FOCUS_INDICATION = 0x8008
+VIDEO_UI_CONFIG_REQUEST = 0x8009
+VIDEO_UI_CONFIG_REPLY = 0x800A
 
 # Input channel message ids.
 INPUT_EVENT = 0x8001
@@ -177,6 +179,22 @@ def wire_frame_hevc(access_unit: bytes, *, drop_config: bool) -> bytes:
     if match.end() < end and hevc_nal_type(access_unit[match.end()]) not in drop:
       units.append(b"\x00\x00\x00\x01" + access_unit[match.end():end])
   return b"".join(units) or access_unit
+
+
+def hevc_keyframe_summary(access_unit: bytes) -> dict:
+  starts = list(START_CODE.finditer(access_unit))
+  types, summary = [], {}
+  for index, match in enumerate(starts):
+    end = starts[index + 1].start() if index + 1 < len(starts) else len(access_unit)
+    if match.end() >= end:
+      continue
+    nal_type = hevc_nal_type(access_unit[match.end()])
+    types.append(nal_type)
+    if nal_type == 33 and "tier" not in summary:
+      rbsp = access_unit[match.end():end].replace(b"\x00\x00\x03", b"\x00\x00")
+      if len(rbsp) > 14:
+        summary.update(tier="high" if rbsp[3] & 0x20 else "main", profile=rbsp[3] & 0x1F, level=rbsp[14] / 30)
+  return {"nal_types": types, **summary}
 
 
 @dataclass(frozen=True)
@@ -697,6 +715,7 @@ class ProjectionSession(Session):
     self.input_channel: int | None = None
     self.max_window = self.MAX_WINDOW  # raised by the supervisor for adapters that need the car's full window
     self.allow_hevc = False  # the owner's Allow H.265 video setting; used only when the car offers no H.264 mode
+    self.hevc_keyframe_logged = False
     self.phone_services = False  # open the car-data and Bluetooth channels like a phone (adapter profile)
     self.phone_frames = False  # send picture NAL units only (adapter profile)
     self.phone_address = ""  # this comma's Bluetooth address, for the pairing request
@@ -921,6 +940,9 @@ class ProjectionSession(Session):
         self._handle_focus(one(fields, 1), one(fields, 2, 0))
       elif kind == AV_MEDIA_ACK:
         self._handle_ack(one(fields, 1), int(one(fields, 2, 0) or 0))
+      elif kind == VIDEO_UI_CONFIG_REQUEST and mode.codec == CODEC_H265:
+        self.send(channel, VIDEO_UI_CONFIG_REPLY, data)
+        self.event("ui_config_replied", channel=channel, bytes=len(data))
       else:
         self.ignored("video_ignored", channel, kind, data)
     elif channel == self.input_channel:
@@ -1099,6 +1121,9 @@ class ProjectionSession(Session):
     config = b""
     if self.needs_keyframe:
       config = codec_config_hevc(data) if self.mode.codec == CODEC_H265 else codec_config(data)
+      if self.mode.codec == CODEC_H265 and not self.hevc_keyframe_logged:
+        self.hevc_keyframe_logged = True
+        self.event("hevc_keyframe", config_bytes=len(config), frame_bytes=len(data), **hevc_keyframe_summary(data))
       if config:
         fragments += self.send(self.mode.channel, AV_MEDIA_CODEC_CONFIG, config)
         if not self.fragment_acks:

@@ -5,8 +5,10 @@ import pytest
 
 from openpilot.starpilot.system.starport import hw_encoder
 from openpilot.starpilot.system.starport.hw_encoder import HEVC_AUD, normalize_access_unit_hevc
-from openpilot.starpilot.system.starport.session import (CODEC_H264_BP, CODEC_H265, START_CODE, VideoMode, choose_video_mode,
-                                                         codec_config, codec_config_hevc, wire_frame, wire_frame_hevc)
+from openpilot.starpilot.system.starport.session import (CODEC_H264_BP, CODEC_H265, START_CODE, VIDEO_UI_CONFIG_REPLY,
+                                                         VIDEO_UI_CONFIG_REQUEST, ProjectionSession, VideoMode, choose_video_mode,
+                                                         codec_config, codec_config_hevc, hevc_keyframe_summary, wire_frame,
+                                                         wire_frame_hevc)
 
 SC = b"\x00\x00\x00\x01"
 
@@ -111,3 +113,45 @@ def test_h265_never_falls_back_to_another_codec(monkeypatch, tmp_path):
 
 def test_video_mode_defaults_to_h264():
   assert VideoMode(3, 0, 1280, 720, 30, 0, 240).codec == CODEC_H264_BP
+
+
+def ui_config_body():
+  from openpilot.starpilot.system.starport.session import field
+
+  def insets(top, bottom):
+    return field(1, top) + field(2, bottom) + field(3, 0) + field(4, 0)
+  return field(1, field(1, insets(0, 541)) + field(2, insets(0, 0)) + field(3, insets(0, 0)) + field(4, 0) + field(5, 1))
+
+
+def video_session(codec):
+  session = ProjectionSession.__new__(ProjectionSession)
+  session.audio = session.nav = None
+  session.mode = VideoMode(1, 2, 720, 1280, 60, 0, 541, codec=codec)
+  session.ignored_counts = {}
+  sent, events = [], []
+  session.send = lambda channel, kind, data=b"": sent.append((channel, kind, data)) or 1
+  session._log = lambda name, **values: events.append(name)
+  return session, sent, events
+
+
+def test_h265_session_answers_the_ui_config_request_with_the_same_config():
+  session, sent, events = video_session(CODEC_H265)
+  body = ui_config_body()
+  session.handle(1, VIDEO_UI_CONFIG_REQUEST, body)
+  assert sent == [(1, VIDEO_UI_CONFIG_REPLY, body)]
+  assert events == ["ui_config_replied"]
+
+
+def test_h264_session_still_ignores_the_ui_config_request():
+  session, sent, events = video_session(CODEC_H264_BP)
+  session.handle(1, VIDEO_UI_CONFIG_REQUEST, ui_config_body())
+  assert sent == [] and events == ["video_ignored"]
+
+
+def test_keyframe_summary_reads_tier_and_level_through_emulation_prevention():
+  sps_main = bytes([33 << 1, 1, 0x01, 0x01, 0x60, 0, 0, 3, 0, 0x90, 0, 0, 3, 0, 0, 3, 0, 123, 0xA0])
+  sps_high = bytes([33 << 1, 1, 0x01, 0x21, 0x60, 0, 0, 3, 0, 0x90, 0, 0, 3, 0, 0, 3, 0, 150, 0xA0])
+  frame = SC + bytes([32 << 1, 1, 5]) + SC + sps_main + SC + bytes([34 << 1, 1, 7]) + SC + bytes([19 << 1, 1, 9])
+  assert hevc_keyframe_summary(frame) == {"nal_types": [32, 33, 34, 19], "tier": "main", "profile": 1, "level": 4.1}
+  assert hevc_keyframe_summary(SC + sps_high)["tier"] == "high"
+  assert hevc_keyframe_summary(SC + sps_high)["level"] == 5.0
