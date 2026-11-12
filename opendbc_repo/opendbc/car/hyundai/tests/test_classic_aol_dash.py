@@ -75,9 +75,11 @@ def test_qualified_classic_stock_icons_follow_actual_lateral_and_original_blink(
 
 @pytest.mark.parametrize('marked', [False, True])
 @pytest.mark.parametrize('enabled,lateral,lkas,lfa', [(False, False, 1, 0), (True, False, 2, 2), (True, True, 2, 2)])
-def test_existing_ordinary_and_inactive_dash_behavior_is_preserved(marked, enabled, lateral, lkas, lfa):
+def test_icons_follow_lateral_when_marked_and_keep_unmarked_cruise_display(marked, enabled, lateral, lkas, lfa):
   ci, parser = controller(marked=marked)
   step(ci, parser, enabled=enabled, lateral=lateral)
+  if marked and not lateral:
+    lkas, lfa = 1, 0
   assert parser.vl['LKAS11']['CF_Lkas_FcwOpt_USM'] == lkas
   assert parser.vl['LFAHDA_MFC']['LFA_Icon_State'] == lfa
 
@@ -87,3 +89,20 @@ def test_unmarked_configuration_does_not_gain_lateral_only_icon_override():
   step(ci, parser, lateral=True)
   assert parser.vl['LKAS11']['CF_Lkas_FcwOpt_USM'] == 1
   assert parser.vl['LFAHDA_MFC']['LFA_Icon_State'] == 0
+
+
+@pytest.mark.parametrize('identity', [CAR.HYUNDAI_SONATA_HYBRID, CAR.HYUNDAI_SONATA,
+                                     CAR.HYUNDAI_ELANTRA_2021, CAR.HYUNDAI_KONA_EV])
+def test_cruise_stays_engaged_after_lateral_icon_disengages(identity):
+  ci, parser = controller(identity)
+  original = ci.CP.to_dict()
+  for frame in range(135):
+    lateral = frame < 5 or frame >= 125
+    _, packets = step(ci, parser, enabled=True, lateral=lateral)
+    expected = 2 if lateral else 3 if frame < 104 else 0
+    assert parser.vl['LKAS11']['CF_Lkas_FcwOpt_USM'] == (expected or 1)
+    if frame % 5 == 0:
+      assert parser.vl['LFAHDA_MFC']['LFA_Icon_State'] == expected
+    assert parser.vl['LKAS11']['CR_Lkas_StrToqReq'] == 0
+    assert not any(address in (0x420, 0x421) for address, _, _ in packets)
+  assert ci.CP.to_dict() == original

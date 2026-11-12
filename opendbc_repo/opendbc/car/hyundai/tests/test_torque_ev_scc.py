@@ -138,7 +138,7 @@ def test_actual_controller_cluster_lifecycle(cp):
     if cluster:
       parser.update([((frame + 1) * 10_000_000, cluster)])
       values = parser.vl["LFAHDA_CLUSTER"]
-      expected = 2 if command.enabled or command.latActive else 3 if 10 <= frame < 109 else 0
+      expected = 2 if command.latActive else 3 if 10 <= frame < 109 else 0
       assert values["LFA_ICON"] == expected
       assert values["HDA_ICON"] == int(command.enabled)
 

@@ -441,6 +441,8 @@ RELEASE_TARGETS = (
   "opendbc_repo/opendbc/car/hyundai/tests/test_dom_radar_complete_paths.py",
   "opendbc_repo/opendbc/car/hyundai/tests/test_dom_firmware_catalog.py",
   "opendbc_repo/opendbc/car/hyundai/tests/test_canfd_lfa_status.py",
+  "opendbc_repo/opendbc/car/hyundai/tests/test_ioniq6_dash_icons.py",
+  "opendbc_repo/opendbc/car/hyundai/tests/test_torque_ev_scc.py",
   "opendbc_repo/opendbc/safety/tests/test_hyundai_classic_long_aol.py",
   "openpilot/starpilot/aol/tests/test_classic_long_profiles.py",
   "opendbc_repo/opendbc/safety/tests/test_hyundai_shared_canfd_stock_aol.py",
