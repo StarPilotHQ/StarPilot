@@ -121,7 +121,12 @@ async function until(fn) {
 }
 async function command(path, body = {}, method = 'POST', requestMs = 8000) {
   lastCommand = path
-  const response = await fetch(`http://127.0.0.1:${port}${path}`, { method, ...(method === 'GET' || method === 'DELETE' ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), signal: AbortSignal.timeout(requestMs) })
+  let response
+  try {
+    response = await fetch(`http://127.0.0.1:${port}${path}`, { method, ...(method === 'GET' || method === 'DELETE' ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), signal: AbortSignal.timeout(requestMs) })
+  } catch (error) {
+    throw new Error(`WebDriver ${method} ${path} failed (${requestMs} ms request limit; ${Date.now() - browserStartedAt} ms into browser checks)`, { cause: error })
+  }
   const data = await response.json();if (data.value?.error) throw new Error(JSON.stringify(data.value));return data.value
 }
 const execute = (script, ...args) => command(`/session/${session}/execute/sync`, { script, args })

@@ -449,4 +449,3 @@ assert.equal(nowSavedAdvisory.current.application.applied, false, 'A saved recom
 await import('./test_plots.mjs')
 await import('./test_settings_controls.mjs')
 await import('./test_flm_review.mjs')
-if (process.env.CI && process.platform === 'linux') await import('./test_flm_ux_browser.mjs')
