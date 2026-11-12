@@ -36,7 +36,18 @@ class CarControllerParams:
       self.STEER_DRIVER_MULTIPLIER = 5      # weight driver torque
       self.STEER_DRIVER_FACTOR = 1           # from dbc
       self.STEER_ERROR_MAX = 3500            # max delta between torque cmd and torque motor
+      # steeringPressed only. Driver-torque limiting keeps STEER_DRIVER_ALLOWANCE (mirrored by panda's
+      # driver_torque_allowance), so these never change what torque may be sent.
+      self.STEER_PRESSED_THRESHOLD = self.STEER_DRIVER_ALLOWANCE
+      self.STEER_PRESSED_SAMPLES = 1
     if CP.flags & MazdaSafetyFlags.GEN2:
+      # TI2 TI_FEEDBACK.STEER_TORQUE_SENSOR reads resting hands at 1000-2900 (p50-p95, 2.8 h of AOL on a
+      # 2021 Mazda3, Nov 9-10), so the 1400 allowance flagged 38% of active steering as an override: the
+      # integrator froze and lagd never collected a valid block (0 of 30 highway minutes). A 100 ms mean
+      # above 3000 leaves 30 of 30. With a blinker on the raw 1400 test stays, so lane-change nudges are
+      # unchanged (their 1.5 s peaks ran 1450-4450).
+      self.STEER_PRESSED_THRESHOLD = 3000
+      self.STEER_PRESSED_SAMPLES = 10        # 100 ms at 100 Hz
       # 0x220 ACCEL_CMD = 2000 + 200 * accel, confirmed against measured
       # acceleration on the target car. The bounds encode ACCEL_MIN/ACCEL_MAX
       # and mirror MAZDA_ACC_ACCEL_MIN/MAX in safety/modes/mazda.h.

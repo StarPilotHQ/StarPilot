@@ -1,4 +1,5 @@
 import copy
+from collections import deque
 from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs, DT_CTRL
 from opendbc.car.common.conversions import Conversions as CV
@@ -46,6 +47,7 @@ class CarState(CarStateBase):
     self.lkas_allowed_speed = False
     self.cam_lkas = 0
     self.params = CarControllerParams(CP)
+    self.steer_torque_samples = deque(maxlen=getattr(self.params, "STEER_PRESSED_SAMPLES", 1))
 
     self.distance_button = 0
     self.accel_button = 0
@@ -219,6 +221,13 @@ class CarState(CarStateBase):
 
     return ret
 
+  def _gen2_steering_pressed(self, ret) -> bool:
+    """Override detection only (values.py STEER_PRESSED_*); torque limiting is unaffected."""
+    self.steer_torque_samples.append(ret.steeringTorque)
+    if ret.leftBlinker or ret.rightBlinker:
+      return abs(ret.steeringTorque) > self.params.STEER_DRIVER_ALLOWANCE   # lane-change nudge, as before
+    return abs(sum(self.steer_torque_samples) / len(self.steer_torque_samples)) > self.params.STEER_PRESSED_THRESHOLD
+
   def update_gen2(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
@@ -233,7 +242,6 @@ class CarState(CarStateBase):
     )
 
     ret.steeringTorque = cp_body.vl["TI_FEEDBACK"]["STEER_TORQUE_SENSOR"]
-    ret.steeringPressed = abs(ret.steeringTorque) > self.params.STEER_DRIVER_ALLOWANCE
 
     if self.CP.flags & MazdaSafetyFlags.MANUAL_TRANSMISSION:
       can_gear = int(cp_cam.vl["MANUAL_GEAR"]["GEAR"])
@@ -242,6 +250,7 @@ class CarState(CarStateBase):
 
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(100, cp.vl["BLINK_INFO"]["LEFT_BLINK"] == 1,
                                                                       cp.vl["BLINK_INFO"]["RIGHT_BLINK"] == 1)
+    ret.steeringPressed = self._gen2_steering_pressed(ret)
 
     ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
     ret.gasPressed = cp_cam.vl["ENGINE_DATA"]["PEDAL_GAS"] > 0
