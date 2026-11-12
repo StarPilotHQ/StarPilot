@@ -466,14 +466,20 @@ def test_offset_edit_applies_to_the_previous_limit_without_accepting_the_proposa
   assert tick(runtime, sm, cp, 3).result.ceiling.speed_mps == 27.
 
 
-def test_raw_cluster_conversion_is_applied_once_including_during_source_loss(drive):
+@pytest.mark.parametrize('missing', ['unknown', 'absent', 'stale'])
+def test_filtered_cluster_conversion_is_applied_once_including_during_source_loss(drive, missing):
   sm, cp = drive
   runtime = controller(2.)
   sm['carState'].vEgoCluster = sm['carState'].vEgo + 1.
   assert tick(runtime, sm, cp, 0).result.ceiling.speed_mps == 26.
-  sm['slcDashboardObservation'].status = 'unknown'
+  sm['slcDashboardObservation'].status = missing
   sm['carState'].vEgoCluster = sm['carState'].vEgo + .5
-  assert tick(runtime, sm, cp, 1).result.ceiling.speed_mps == 26.5
+  held = tick(runtime, sm, cp, 1)
+  expected_correction = 1. + (.5 - 1.) * .05 / (2. + .05)
+  assert held.result.ceiling.speed_mps == pytest.approx(27. - expected_correction)
+  assert held.message.slcState.acceptedSpeedLimit == 25.
+  assert held.message.slcState.effectiveClusterTarget == 27.
+  assert sm['carState'].vCruise == 100.
 
 
 @pytest.mark.parametrize('stopped,raw,cluster,cap', [
