@@ -437,7 +437,7 @@ def test_rav4_radar_is_galaxy_only_parked_only_and_default_off():
   assert setting["requires_offroad"] is True
   assert setting["settings_tier"] == "simple"
   assert setting["options"] == [
-    {"value": 0, "label": "Off"}, {"value": 1, "label": "ACC Target"}, {"value": 2, "label": "Fused Tracks"},
+    {"value": 0, "label": "Off"}, {"value": 1, "label": "ACC Target"}, {"value": 2, "label": "ACC Target + Summaries"},
   ]
 
 
