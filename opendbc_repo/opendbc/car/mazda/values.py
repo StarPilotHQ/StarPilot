@@ -42,7 +42,7 @@ class CarControllerParams:
       self.STEER_PRESSED_SAMPLES = 1
     if CP.flags & MazdaSafetyFlags.GEN2:
       # TI2 TI_FEEDBACK.STEER_TORQUE_SENSOR reads resting hands at 1000-2900 (p50-p95, 2.8 h of AOL on a
-      # 2021 Mazda3, Nov 9-10), so the 1400 allowance flagged 38% of active steering as an override: the
+      # 2023 Mazda3, Nov 9-10), so the 1400 allowance flagged 38% of active steering as an override: the
       # integrator froze and lagd never collected a valid block (0 of 30 highway minutes). A 100 ms mean
       # above 3000 leaves 30 of 30. With a blinker on the raw 1400 test stays, so lane-change nudges are
       # unchanged (their 1.5 s peaks ran 1450-4450).
@@ -61,6 +61,15 @@ class TI_STATE:
   OFF = 1
   DRIVER_OVER = 2
   RUN = 3
+
+
+# GEN2 AOL releases steering torque at or below this raw SPEED (0x217, 0.01 display units,
+# so 1.00 km/h or mph). Under AOL, panda stops accepting nonzero 0x249 at raw <= 10, but
+# SPEED does not count down to it: on a 2023 Mazda3 the last nonzero value before each of
+# 82 logged stops was 65-70, then 0. Releasing on CarState.standstill sent one more nonzero
+# frame after panda had seen the 0, which panda blocked; with cruise engaged that raised
+# controlsMismatch. At <= 100 the release lands 80-330 ms before the 0.
+GEN2_STEER_RELEASE_SPEED_RAW = 100
 
 
 class TI2_HEALTH:
