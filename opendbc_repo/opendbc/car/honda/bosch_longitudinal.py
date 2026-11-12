@@ -1,6 +1,7 @@
 import math
 
 import numpy as np
+from opendbc.car import ACCEL_MAX_TAKEOFF
 
 from opendbc.car import ACCELERATION_DUE_TO_GRAVITY, structs
 from opendbc.car.honda.values import CAR, HondaFlags
@@ -88,7 +89,7 @@ class BoschLongitudinal:
     hill_brake = math.sin(self.pitch) * ACCELERATION_DUE_TO_GRAVITY
     wind_brake_mps2 = get_honda_bosch_wind_brake_mps2(CS.out.vEgo)
     min_gas = self.params.BOSCH_GAS_LOOKUP_BP[0]
-    self.accel = float(np.clip(accel, self.params.BOSCH_ACCEL_MIN, self.params.BOSCH_ACCEL_MAX))
+    self.accel = float(np.clip(accel, self.params.BOSCH_ACCEL_MIN, ACCEL_MAX_TAKEOFF))
     gas_pedal_force = self.accel + hill_brake
     if self.CP.carFingerprint not in HONDA_BOSCH_RADARLESS:
       gas_pedal_force += wind_brake_mps2 * self.bosch_wind_factor
@@ -114,7 +115,7 @@ class BoschLongitudinal:
           self.bosch_wind_factor = max(self.bosch_wind_factor, self.bosch_wind_factor_before_brake)
         else:
           self.bosch_wind_factor_before_brake = self.bosch_wind_factor
-        if gas_pedal_force >= self.params.BOSCH_ACCEL_MAX:
+        if gas_pedal_force >= ACCEL_MAX_TAKEOFF:
           self.bosch_gas_factor = min(self.bosch_gas_factor, self.bosch_gas_factor_before_gasmax)
           self.bosch_wind_factor = min(self.bosch_wind_factor, self.bosch_wind_factor_before_gasmax)
         else:

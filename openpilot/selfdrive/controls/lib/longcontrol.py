@@ -2,6 +2,7 @@ import numpy as np
 import math
 from opendbc.car.structs import car
 from openpilot.common.realtime import DT_CTRL
+from openpilot.starpilot.longitudinal.lead_takeoff_preferences import MAX_ACCEL as TAKEOFF_ACCEL_MAX
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N
 from openpilot.common.pid import PIDController
 from openpilot.selfdrive.modeld.constants import ModelConstants
@@ -60,6 +61,12 @@ class LongControl:
   def update(self, active, CS, a_target, should_stop, accel_limits, *, context=None):
     """Update longitudinal control. This updates the state machine and runs a PID loop"""
     context = context if context is not None else LongitudinalContext()
+    if context.faster_takeoffs and takeoff_eligible(self.CP):
+      upper = min(accel_limits[1], TAKEOFF_ACCEL_MAX)
+      cap = context.profile_max_accel
+      if type(cap) in (int, float) and math.isfinite(cap) and 0 <= cap <= TAKEOFF_ACCEL_MAX:
+        upper = min(upper, cap)
+      accel_limits = (accel_limits[0], upper)
     self.pid.neg_limit = accel_limits[0]
     self.pid.pos_limit = accel_limits[1]
 

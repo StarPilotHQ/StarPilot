@@ -199,7 +199,7 @@ class ProfileRuntimeTests(unittest.TestCase):
     self.assertTrue(settings.valid)
     tuning = resolve(settings, log.LongitudinalPersonality.standard, 12.5, self.cp, traffic_mode=True)
     assert tuning is not None
-    self.assertAlmostEqual(required_float(tuning.acceleration_max), 2.0)  # Native ACCEL_MAX; keep other valid categories.
+    self.assertAlmostEqual(required_float(tuning.acceleration_max), 3.5)  # Keep other valid categories.
     self.assertAlmostEqual(required_float(tuning.cruise_brake_magnitude), 0.35)
     self.assertAlmostEqual(tuning.follow_seconds, 2.25)
     ordinary = ProfileTuning('standard', 1.45, 1.0, 1.0, 1.0, 1.0, 1.0,
@@ -411,7 +411,7 @@ class ProfileRuntimeTests(unittest.TestCase):
     settings = read_settings(self.params)
     tuning = resolve(settings, log.LongitudinalPersonality.standard, 0.0, self.cp)
     assert tuning is not None
-    self.assertEqual(tuning.acceleration_max, 2.0)
+    self.assertEqual(tuning.acceleration_max, 3.5)
     self.assertEqual(tuning.follow_seconds, 2.25)
     planner = LongitudinalPlanner(self.cp, init_v=0.0)
     for _ in range(40):

@@ -1156,7 +1156,7 @@ static bool hyundai_canfd_tx_hook_valid(const CANPacket_t *msg) {
     if (hyundai_longitudinal) {
       // Exact EV9's reached PID ceiling is 2.2 m/s2. Other vehicles retain
       // their existing 2.0 m/s2 maximum; this is narrower than original EV9 safety.
-      const LongitudinalLimits ev9_long_limits = {.max_accel = 220, .min_accel = -350};
+      const LongitudinalLimits ev9_long_limits = {.max_accel = 350, .min_accel = -350};
       const LongitudinalLimits limits = (hyundai_canfd_ccnc_ev_long && !hyundai_canfd_pe_long) ? ev9_long_limits : HYUNDAI_LONG_LIMITS;
       if (hyundai_canfd_ccnc_ev_long && ((desired_accel_raw != 0) || (desired_accel_val != 0))) {
         violation |= !aol_rx_healthy();

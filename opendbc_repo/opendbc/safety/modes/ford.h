@@ -227,13 +227,13 @@ static bool ford_tx_hook(const CANPacket_t *msg) {
   const LongitudinalLimits FORD_LONG_LIMITS = {
     // acceleration cmd limits (used for brakes)
     // Signal: AccBrkTot_A_Rq
-    .max_accel = 5641,       //  1.9999 m/s^s
+    .max_accel = 6026,       //  3.5014 m/s^2 (CAN resolution)
     .min_accel = 4231,       // -3.4991 m/s^2
     .inactive_accel = 5128,  // -0.0008 m/s^2
 
     // gas cmd limits
     // Signal: AccPrpl_A_Rq & AccPrpl_A_Pred
-    .max_gas = 700,          //  2.0 m/s^2
+    .max_gas = 850,          //  3.5 m/s^2
     .min_gas = 450,          // -0.5 m/s^2
     .inactive_gas = 0,       // -5.0 m/s^2
   };

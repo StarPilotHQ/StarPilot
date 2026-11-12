@@ -1,3 +1,4 @@
+from opendbc.car import ACCEL_MAX_TAKEOFF
 from opendbc.car import Bus, structs, get_safety_config, uds
 from opendbc.car.toyota.carstate import CarState
 from opendbc.car.toyota.carcontroller import CarController
@@ -46,8 +47,8 @@ class CarInterface(CarInterfaceBase):
   DRIVABLE_GEARS = (structs.CarState.GearShifter.sport, structs.CarState.GearShifter.brake)
 
   @staticmethod
-  def get_pid_accel_limits(CP, current_speed, cruise_speed):
-    return CarControllerParams(CP).ACCEL_MIN, CarControllerParams(CP).ACCEL_MAX
+  def get_pid_accel_limits(CP, current_speed, cruise_speed, *, faster_takeoffs=False):
+    return CarControllerParams(CP).ACCEL_MIN, ACCEL_MAX_TAKEOFF if faster_takeoffs else CarControllerParams(CP).ACCEL_MAX
 
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:

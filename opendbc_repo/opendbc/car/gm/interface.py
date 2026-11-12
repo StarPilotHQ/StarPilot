@@ -1,3 +1,4 @@
+from opendbc.car import ACCEL_MAX_TAKEOFF
 #!/usr/bin/env python3
 from math import fabs, exp
 import numpy as np
@@ -135,7 +136,10 @@ class CarInterface(CarInterfaceBase):
     return ret
 
   @staticmethod
-  def get_pid_accel_limits(CP, current_speed, cruise_speed):
+  def get_pid_accel_limits(CP, current_speed, cruise_speed, *, faster_takeoffs=False):
+    if faster_takeoffs:
+      lower, _ = CarInterface.get_pid_accel_limits(CP, current_speed, cruise_speed)
+      return lower, ACCEL_MAX_TAKEOFF
     if is_volt_sdgm_accepted_envelope(CP):
       return CarControllerParams.ACCEL_MIN, volt_sdgm_accepted_accel_max(CP, current_speed)
     profile = camera_acc_pedal_profile(CP)

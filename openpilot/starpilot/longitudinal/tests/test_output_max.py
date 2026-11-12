@@ -59,3 +59,20 @@ class OutputMaximumTests(unittest.TestCase):
       controls.sm['selfdriveState'].enabled = False
       actual, _ = controls.state_control()
       self.assertEqual((actual.actuators.accel, controls.LoC.last_output_accel), (0., 0.))
+
+
+  def test_actual_controls_reads_saved_takeoff_preference_and_keeps_normal_ceiling(self):
+    from openpilot.starpilot.longitudinal.inputs import LongitudinalInputs
+
+    for enabled in (False, True):
+      controls, now, offset = controls_fixture()
+      controls.params.put_bool('FasterLeadTakeoff', enabled, block=True)
+      controls.longitudinal_inputs = LongitudinalInputs(controls.CP, controls.params, lambda controls=controls: controls.sm)
+      controls.sm['longitudinalPlan'].aTarget = 3.5
+      with patch.dict(os.environ, {'REPLAY': '0'}), \
+           patch('openpilot.starpilot.longitudinal.inputs.clock_pair_ns', return_value=(now, now + offset)), \
+           patch('openpilot.starpilot.longitudinal.inputs.time.monotonic_ns', return_value=now), \
+           patch('openpilot.selfdrive.controls.controlsd.time.monotonic_ns', return_value=now):
+        actual, _ = controls.state_control()
+      self.assertEqual(controls.longitudinal_inputs.faster_takeoffs, enabled)
+      self.assertEqual(actual.actuators.accel, 3.5 if enabled else 2.0)

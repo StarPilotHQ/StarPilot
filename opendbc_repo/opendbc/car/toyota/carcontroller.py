@@ -1,5 +1,6 @@
 import math
 import numpy as np
+from opendbc.car import ACCEL_MAX_TAKEOFF
 from opendbc.car import Bus, make_tester_present_msg, rate_limit, structs, ACCELERATION_DUE_TO_GRAVITY, DT_CTRL
 from opendbc.car.lateral import apply_meas_steer_torque_limits, apply_std_steer_angle_limits, common_fault_avoidance
 from opendbc.car.carlog import carlog
@@ -409,6 +410,8 @@ class CarController(CarControllerBase):
         future_t = float(np.interp(CS.out.vEgo, [2., 5.], [0.25, 0.5]))
         a_ego_future = a_ego_blended + j_ego * future_t
 
+        accel_max = max(self.params.ACCEL_MAX, min(ACCEL_MAX_TAKEOFF, actuators.accel))
+        self.long_pid.pos_limit = accel_max
         if long_active:
           if dom_defaults.bypass_pid(self.CP):
             self.long_pid.reset()
@@ -450,7 +453,7 @@ class CarController(CarControllerBase):
           if self.prius_longitudinal:
             pcm_accel_cmd = prius_longitudinal.limit_prius_stopping_accel(
               pcm_accel_cmd, actuators.accel, stopping, CS.out.vEgo, lead)
-        pcm_accel_cmd = float(np.clip(pcm_accel_cmd, self.params.ACCEL_MIN, self.params.ACCEL_MAX))
+        pcm_accel_cmd = float(np.clip(pcm_accel_cmd, self.params.ACCEL_MIN, accel_max))
 
         if self.brake_hold_active and not uses_toyota_auto_hold_aeb(self.CP):
           pcm_accel_cmd = TOYOTA_AUTO_HOLD_ACCEL

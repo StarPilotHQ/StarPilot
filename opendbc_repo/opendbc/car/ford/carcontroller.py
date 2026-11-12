@@ -1,5 +1,6 @@
 import math
 import numpy as np
+from opendbc.car import ACCEL_MAX_TAKEOFF
 from opendbc.can import CANPacker
 from opendbc.bluepilot_lateral.hosts.starpilot.lateral import BluePilotLateral, FrameInputs  # BluePilot
 from opendbc.car import ACCELERATION_DUE_TO_GRAVITY, Bus, DT_CTRL, apply_hysteresis, structs
@@ -210,8 +211,8 @@ class CarController(CarControllerBase):
           fcw=fcw_alert or CS.out.stockFcw or CS.out.stockAeb,
         )
 
-      accel = float(np.clip(accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
-      gas = float(np.clip(gas, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
+      accel = float(np.clip(accel, CarControllerParams.ACCEL_MIN, ACCEL_MAX_TAKEOFF))
+      gas = float(np.clip(gas, CarControllerParams.ACCEL_MIN, ACCEL_MAX_TAKEOFF))
 
       # Both gas and accel are in m/s^2, accel is used solely for braking
       if not CC.longActive or gas < CarControllerParams.MIN_GAS:

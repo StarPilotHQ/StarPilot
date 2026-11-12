@@ -4,6 +4,8 @@ from dataclasses import replace
 import os
 import time
 
+from opendbc.car.interfaces import ACCEL_MAX
+
 from openpilot.starpilot.longitudinal.extension import LongitudinalContext
 from opendbc.car.hyundai.blended_stopping import eligible as blended_longitudinal_eligible
 
@@ -161,6 +163,8 @@ class LongitudinalInputs:
     self.faster_takeoffs = bool(self.takeoff_preferences is not None and
                                self.takeoff_preferences.sample(time.monotonic_ns()))
     if not self.faster_takeoffs:
+      if context.profile_max_accel is not None and context.profile_max_accel > ACCEL_MAX:
+        context = replace(context, profile_max_accel=ACCEL_MAX)
       return context
     evidence = self._start_evidence('takeoff_boot_offset_ns', 'takeoff_source_floor_ns') if active else None
     return replace(context, faster_takeoffs=True, start_evidence=evidence)
