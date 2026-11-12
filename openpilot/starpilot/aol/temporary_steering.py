@@ -127,8 +127,8 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
   stock_ford_eps = bool(ford_temporary_eps_restriction(cp, cs) and
     all(not event.userDisable or event.name in (log.OnroadEvent.EventName.pcmDisable,
         log.OnroadEvent.EventName.pedalPressed) and not event.softDisable and not event.immediateDisable for event in events))
-  from opendbc.car.mazda.stock_aol import qualified as mazda_qualified
-  stock_mazda_eps = bool(mazda_qualified(cp, marked_only=True) and
+  from opendbc.car.mazda.stock_aol import admitted as mazda_admitted
+  stock_mazda_eps = bool(mazda_admitted(cp, marked_only=True) and
     cs.cruiseState.available and not cs.cruiseState.enabled and
     cs.gearShifter == structs.CarState.GearShifter.drive and
     not cs.brakePressed and not cs.regenBraking and not cs.gasPressed and

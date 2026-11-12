@@ -20,6 +20,7 @@ CODECS = frozenset(
     'subaru.ES_LKAS',
     'subaru.PREGLOBAL_ES_LKAS',
     'mazda.CAM_LKAS',
+    'mazda.EPS_LKAS',
     'chrysler.LKAS_COMMAND',
     'mg.FVCM_HSC2_FrP03',
     'rivian.ACM_lkaHbaCmd',

@@ -45,6 +45,13 @@ non_tested_cars = [
   VOLVO.VOLVO_V40,
   # These additional source-tested configurations still lack recorded routes.
   *unrecorded_route_gaps,
+  # Mazda Gen2/Gen3 and CX-8 (MoreTorque Torque Interceptor ports) have no public CI routes
+  MAZDA.MAZDA_CX8,
+  MAZDA.MAZDA_3_2019,
+  MAZDA.MAZDA_CX_30,
+  MAZDA.MAZDA_CX_50,
+  MAZDA.MAZDA_3_2023,
+  MAZDA.MAZDA_CX_30_2023,
   GM.CADILLAC_ATS,
   GM.HOLDEN_ASTRA,
   GM.CHEVROLET_MALIBU,
