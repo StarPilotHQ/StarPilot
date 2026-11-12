@@ -54,7 +54,7 @@ class PhysicalSlot:
     return True
 
   def observe(self, stamp: int, raw: bytes, *, bus: int):
-    if stamp <= 0 or stamp <= self.observed_ns:
+    if bus != 0 or stamp <= 0 or stamp <= self.observed_ns:
       return
     if self.observed_ns and stamp - self.observed_ns > TTL_NS:
       self.needs_requalification = True
@@ -62,7 +62,7 @@ class PhysicalSlot:
     self.clear()
     if self.needs_requalification:
       return
-    if bus != 0 or len(raw) != 7 or raw[:3] != bytes(3) or raw[3] not in (1, 0x41) or raw[4] > 3:
+    if len(raw) != 7 or raw[:3] != bytes(3) or raw[3] not in (1, 0x41) or raw[4] > 3:
       return
     phase = UNIQUE_NEUTRAL.get(raw[5] * 256 + raw[6])
     if phase is None or phase == self.last_admitted_phase:
@@ -107,7 +107,7 @@ def physical_semantic(raw: bytes, *, bus: int) -> str | None:
             0x2ACD: 'main', 0x20EF: 'main', 0x60AF: 'cancel', 0x6A8D: 'cancel'}
   if word in unique:
     return unique[word]
-  if raw == standard_set_bytes(raw[4]):
+  if raw == standard_set_bytes(raw[4]) or (raw[4] == 0 and word in (0x30DF, 0x35CE, 0x3ABD, 0x3FAC)):
     return 'set'
   return None
 

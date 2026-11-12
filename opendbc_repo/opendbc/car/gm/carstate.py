@@ -683,7 +683,8 @@ class CarState(CarStateBase):
         healthy = (healthy and self.pedal_sensor_healthy and
                    0 < self.pedal_sensor_ts_nanos <= now <= self.pedal_sensor_ts_nanos + 100_000_000)
       _, semantic, edges = self.hybrid_buttons.update(
-        healthy, enable_ready=healthy and not ret.brakePressed and not ret.gasPressed and not ret.regenBraking)
+        healthy, enable_ready=healthy and not ret.brakePressed and not ret.regenBraking and
+        (self.hybrid_profile.pedal or not ret.gasPressed))
       from opendbc.car.gm.hybrid_cc import HybridPhysical
       self.volt_cc_physical = HybridPhysical(now, tuple(stamp for stamp, _ in self.hybrid_sources),
                                             self.hybrid_buttons.slot.credit_ns)
