@@ -43,14 +43,17 @@ class SpeedLimitPulse:
       if live and not observation.action_enabled and limit != self.last_limit:
         self.start_time = now
         self.display_pulsing = True
-      elif not live or not self.display_pulsing or observation.action_enabled:
+      # Finish an already-started highlight for the same visible valid sign.
+      # Source hold/recovery and automatic adoption are not new animations.
+      elif (observation.kind != ObservationKind.VALID or limit != self.last_limit or
+            not self.display_pulsing):
         self.start_time = -math.inf
         self.display_pulsing = False
       self.manual_pending = False
       self.last_limit = limit
       return
-    self.display_pulsing = False
     manual = not observation.automatic_adoption_pending and slc_accept_available(state)
+    self.display_pulsing = not manual
     if observation.pending_since_ns > 0:
       self.start_time = observation.pending_since_ns / 1e9
     elif limit != self.last_limit or manual != self.manual_pending or not math.isfinite(self.start_time):
