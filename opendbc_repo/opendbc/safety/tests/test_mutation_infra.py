@@ -4,6 +4,7 @@ from concurrent.futures.process import BrokenProcessPool
 import importlib.util
 from collections import Counter
 import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -144,8 +145,12 @@ def test_native_variant(native_variant):
     with TemporaryDirectory() as directory:
       root = Path(directory)
       library = Path(libsafety_py._build_libsafety(release=True, output_dir=root))
-      self.assertEqual(list(root.iterdir()), [library])
+      notes = set(root.glob("*.gcno"))
+      self.assertEqual(len(notes), int(os.environ.get("SAFETY_COVERAGE") == "1"))
+      self.assertEqual(set(root.iterdir()), {library, *notes})
       library.unlink()
+      for note in notes:
+        note.unlink()
       for calls in ((RuntimeError("compiler failed"),), (None, RuntimeError("compiler failed"))):
         with self.subTest(calls=len(calls)), patch.object(libsafety_py.subprocess, "check_call", side_effect=calls):
           with self.assertRaisesRegex(RuntimeError, "compiler failed"):
