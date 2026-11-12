@@ -5,6 +5,7 @@ import os
 import requests
 import shutil
 import time
+from types import SimpleNamespace
 import threading
 import queue
 from dataclasses import asdict, replace
@@ -57,6 +58,15 @@ def mock_create_connection(mocker):
 def host():
   with http_server_context(handler=HTTPRequestHandler, setup=seed_athena_server) as (host, port):
     yield f"http://{host}:{port}"
+
+class _FakeSM:
+  def __init__(self, seen, network_type):
+    self.seen = {'deviceState': seen}
+    self._state = SimpleNamespace(networkType=network_type)
+
+  def __getitem__(self, key):
+    return self._state
+
 
 class TestAthenadMethods(OpenpilotTestCase):
   def setup_method(self):
@@ -338,6 +348,25 @@ class TestAthenadMethods(OpenpilotTestCase):
 
     if retry:
       assert athenad.upload_queue.get().retry_count == 1
+
+  def test_offline_needs_a_reported_no_network_state(self):
+    from openpilot.cereal import log as cereal_log
+    none, wifi = cereal_log.DeviceState.NetworkType.none, cereal_log.DeviceState.NetworkType.wifi
+    assert athenad._offline(_FakeSM(True, none))
+    assert not athenad._offline(_FakeSM(True, wifi))
+    assert not athenad._offline(_FakeSM(False, none))  # nothing reported yet: not judged offline
+
+  @with_upload_handler
+  def test_upload_handler_offline_keeps_retries(self, mocker):
+    """While the device reports no network an upload waits without using up its retries."""
+    mocker.patch('openpilot.system.athena.athenad._offline', return_value=True)
+    mocker.patch('openpilot.system.athena.athenad.RETRY_DELAY', 0.01)
+    fn = self._create_file('qlog.zst')
+    item = athenad.UploadItem(path=fn, url="http://localhost:44444/qlog.zst", headers={}, created_at=int(time.time()*1000), id='', allow_cellular=True)  # noqa: TID251
+    athenad.upload_queue.put_nowait(replace(item, retry_count=MAX_RETRY_COUNT - 1))
+    time.sleep(0.5)
+    queued = list(athenad.upload_queue.queue) + [i for i in athenad.cur_upload_items.values() if i is not None]
+    assert len(queued) == 1 and queued[0].retry_count == MAX_RETRY_COUNT - 1
 
   @with_upload_handler
   def test_upload_handler_timeout(self):
