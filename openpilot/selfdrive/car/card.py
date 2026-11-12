@@ -1887,6 +1887,10 @@ class Car:
         if getattr(self, 'slc_transport_available', False):
           self.slc_match_on_engage = self.read_slc_match_on_engage()
         self.v_cruise_helper.intervals = read_cruise_intervals(self.params, self.CP)
+        for name in ('bluepilot_inputs', 'hands_free_cluster_input'):
+          source = getattr(self.CI.CC, name, None)
+          if source is not None:
+            source.refresh_settings()
         pitch_input = getattr(self.CI.CC, 'long_pitch_input', None)
         if pitch_input is not None:
           self.CI.CC.long_pitch = pitch_input.update(time.monotonic_ns())

@@ -75,7 +75,10 @@ NB_MODULE(_ipc, m) {
     .def("setTimeout", &SubSocket::setTimeout, nb::arg("timeout"), nb::call_guard<nb::gil_scoped_release>())
     .def("receive", [](SubSocket &socket, bool non_blocking) -> std::optional<nb::bytes> {
       std::unique_ptr<Message> message;
-      {
+      if (non_blocking && !socket.fakeEventsConfigured()) {
+        // A real nonblocking receive must not wait to reacquire Python's lock.
+        message.reset(socket.receive(true));
+      } else {
         nb::gil_scoped_release release;
         message.reset(socket.receive(non_blocking));
       }

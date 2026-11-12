@@ -133,3 +133,42 @@ def test_actual_card_published_distance_off_cannot_trigger_unconditional_persona
   serialized = next(messaging.log_from_bytes(raw).carState for name, raw in instance.pm.events if name == 'carState')
   assert len(serialized.buttonEvents) == 0
   assert len(physical.buttonEvents) == 1
+
+
+def test_idle_heartbeat_does_not_read_button_files(context, monkeypatch):
+  from openpilot.starpilot.controllers import wheel_actions
+  params, cp = context
+  owner = WheelPublisher(params)
+  owner.observe(params, cp, state(), now_ns=NOW, drive_id=DRIVE)
+
+  def forbidden_read(_):
+    raise AssertionError("Idle heartbeat blocked on button settings")
+
+  monkeypatch.setattr(wheel_actions, "capture", forbidden_read)
+  assert owner.observe(params, cp, state(), now_ns=NOW + 2_000_000_000, drive_id=DRIVE) == (("", 0),)
+
+
+def test_idle_mapping_change_is_checked_before_a_new_press(context):
+  params, cp = context
+  owner = WheelPublisher(params)
+  owner.observe(params, cp, state(), now_ns=NOW, drive_id=DRIVE)
+  params.put("DistanceButtonControl", 8, block=True)
+  owner.observe(params, cp, state(), now_ns=NOW + 2_000_000_000, drive_id=DRIVE)
+  assert not any(action for _, action in owner.observe(params, cp, state(True), now_ns=NOW + 2_010_000_000, drive_id=DRIVE))
+  assert owner.mapping["DistanceButtonControl"] == 8
+  owner.observe(params, cp, state(False), now_ns=NOW + 2_020_000_000, drive_id=DRIVE)
+  owner.observe(params, cp, state(True), now_ns=NOW + 2_030_000_000, drive_id=DRIVE)
+  assert owner.observe(params, cp, state(False), now_ns=NOW + 2_040_000_000, drive_id=DRIVE) == (("DistanceButtonControl", 8),)
+
+
+def test_held_button_keeps_periodic_revocation_checks(context):
+  params, cp = context
+  owner = WheelPublisher(params)
+  owner.observe(params, cp, state(), now_ns=NOW, drive_id=DRIVE)
+  owner.observe(params, cp, state(True), now_ns=NOW + 10_000_000, drive_id=DRIVE)
+  params.put("DistanceButtonControl", 0, block=True)
+  params.put("LongDistanceButtonControl", 0, block=True)
+  commands = owner.observe(params, cp, state(), now_ns=NOW + 1_020_000_000, drive_id=DRIVE)
+  assert not any(action for _, action in commands)
+  assert not owner.tracker.distance_held
+  assert owner.mapping["LongDistanceButtonControl"] == 0

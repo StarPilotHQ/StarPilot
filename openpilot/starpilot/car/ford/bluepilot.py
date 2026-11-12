@@ -89,15 +89,24 @@ class BluePilotInputs:
     self.frames = 0
     self.settings = []
     self.unknown_keys = set()
+    self.settings = self.read_settings()
+    self.pending_settings = (self.controller_choice, self.settings)
 
   def read_settings(self):
+    self.controller_choice, entries = self._read_settings()
+    return entries
+
+  def refresh_settings(self):
+    self.pending_settings = self._read_settings()
+
+  def _read_settings(self):
     entries = []
-    self.controller_choice = read_controller(self.cp, self.params)[0]
+    choice = read_controller(self.cp, self.params)[0]
     for key in BP_LATERAL_PARAMS:
       try:
         if key == "FordPrefLateralControl":
-          value = int(self.controller_choice in (FordController.BLUEPILOT_ANGLE, FordController.STARPILOT))
-        elif key == "disable_BP_lat_UI" and self.controller_choice is None:
+          value = int(choice in (FordController.BLUEPILOT_ANGLE, FordController.STARPILOT))
+        elif key == "disable_BP_lat_UI" and choice is None:
           value = True
         else:
           value = HOST_SETTINGS[key] if key in HOST_SETTINGS else self.params.get(key, return_default=True)
@@ -108,12 +117,12 @@ class BluePilotInputs:
         continue
       if value is not None:
         entries.append(FrameInputs.Param(key, encode(value)))
-    return entries
+    return choice, entries
 
   def update(self) -> FrameInputs:
     self.sm.update(0)
     if self.frames % SETTINGS_REFRESH_FRAMES == 0:
-      self.settings = self.read_settings()
+      self.controller_choice, self.settings = self.pending_settings
     self.frames += 1
 
     frame = FrameInputs(params=self.settings)
