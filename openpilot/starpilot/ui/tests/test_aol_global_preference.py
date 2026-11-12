@@ -1,6 +1,7 @@
 from dataclasses import replace
 from pathlib import Path
 import tempfile
+from unittest.mock import patch
 
 import pytest
 from opendbc.car.structs import CarParams
@@ -76,22 +77,23 @@ def test_ev6_hda1_stock_profile_already_has_runtime_policy(camera, external):
 
 def test_runtime_async_save_uses_global_preference_authority():
   from openpilot.starpilot.ui.runtime_app import StarShellSession
+  from openpilot.starpilot.ui.shell import ShellMode
   with tempfile.TemporaryDirectory() as directory:
     params = Params(directory)
     params.put_bool("AlwaysOnLateral", False, block=True)
     session = StarShellSession.__new__(StarShellSession)
-    session._mode = "offroad"
-    session._feature_authority = lambda group: group == "preferences"
-    session._unavailable = lambda message: pytest.fail(message)
-    session.feature_owner = FeatureSettingsOwner(params, session._feature_authority, vehicle_fingerprint=lambda: None)
-    row = next(row for row in session.feature_owner.snapshot("aol", parked=True, system_long=False,
-                                                           lateral_context=False, metric=False).rows
-               if row.key == "AlwaysOnLateral")
-    request = row_change(replace(row, available=True), 1)
-    assert request is not None
-    assert not session.feature_request(request)
-    pending = session._aol_save
-    assert pending is not None and pending.done.wait(5)
-    session._poll_aol_save()
-    assert params.get_bool("AlwaysOnLateral")
-    assert session.notice == "AOL preference saved"
+    session._mode = ShellMode.HOME
+    with patch.object(session, "_feature_authority", side_effect=lambda group: group == "preferences"), \
+         patch.object(session, "_unavailable", side_effect=pytest.fail):
+      session.feature_owner = FeatureSettingsOwner(params, session._feature_authority, vehicle_fingerprint=lambda: None)
+      row = next(row for row in session.feature_owner.snapshot("aol", parked=True, system_long=False,
+                                                             lateral_context=False, metric=False).rows
+                 if row.key == "AlwaysOnLateral")
+      request = row_change(replace(row, available=True), 1)
+      assert request is not None
+      assert not session.feature_request(request)
+      pending = session._aol_save
+      assert pending is not None and pending.done.wait(5)
+      session._poll_aol_save()
+      assert params.get_bool("AlwaysOnLateral")
+      assert session.notice == "AOL preference saved"
