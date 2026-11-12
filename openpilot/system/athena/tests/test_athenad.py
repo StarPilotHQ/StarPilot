@@ -292,14 +292,16 @@ class TestAthenadMethods(OpenpilotTestCase):
   def test_upload_files_to_urls_bare_name_uses_stored_zst(self, host):
     # Konik asks for "<segment>/rlog" with a URL for rlog.zst; the device stores rlog.zst.
     fn = self._create_file('rlog.zst')
-    resp = dispatcher["uploadFilesToUrls"]([{"fn": "2026-10-04--00-00-00--0/rlog", "url": f"{host}/0/rlog.zst?sig=x", "headers": {}}])
-    assert resp['enqueued'] == 1 and 'failed' not in resp
-    assert resp['items'][0]['path'] == fn
+    for url in (f"{host}/0/rlog.zst?sig=x", f"{host}/1/rlog.zst#fragment"):
+      athenad.upload_queue.queue.clear()
+      resp = dispatcher["uploadFilesToUrls"]([{"fn": "2026-10-04--00-00-00--0/rlog", "url": url, "headers": {}}])
+      assert resp['enqueued'] == 1 and 'failed' not in resp
+      assert resp['items'][0]['path'] == fn
 
   def test_upload_files_to_urls_bare_name_needs_a_zst_url(self, host):
     # Without a .zst URL for the same file the bare name is not rewritten, so it still fails as before.
     self._create_file('rlog.zst')
-    for url in (f"{host}/0/rlog?sig=x", f"{host}/0/qlog.zst?sig=x"):
+    for url in (f"{host}/0/rlog?sig=x", f"{host}/0/qlog.zst?sig=x", f"{host}/0/rlog#/rlog.zst", f"{host}/0/rlog?x=/rlog.zst"):
       resp = dispatcher["uploadFilesToUrls"]([{"fn": "2026-10-04--00-00-00--0/rlog", "url": url, "headers": {}}])
       assert resp == {'enqueued': 0, 'items': [], 'failed': ['2026-10-04--00-00-00--0/rlog']}
 
