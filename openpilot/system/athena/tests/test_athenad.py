@@ -289,6 +289,20 @@ class TestAthenadMethods(OpenpilotTestCase):
     resp = dispatcher["uploadFileToUrl"]("2026-10-04--00-00-00--0/qlog.zst", url2, {})
     assert resp == {'enqueued': 0, 'items': []}
 
+  def test_upload_files_to_urls_bare_name_uses_stored_zst(self, host):
+    # Konik asks for "<segment>/rlog" with a URL for rlog.zst; the device stores rlog.zst.
+    fn = self._create_file('rlog.zst')
+    resp = dispatcher["uploadFilesToUrls"]([{"fn": "2026-10-04--00-00-00--0/rlog", "url": f"{host}/0/rlog.zst?sig=x", "headers": {}}])
+    assert resp['enqueued'] == 1 and 'failed' not in resp
+    assert resp['items'][0]['path'] == fn
+
+  def test_upload_files_to_urls_bare_name_needs_a_zst_url(self, host):
+    # Without a .zst URL for the same file the bare name is not rewritten, so it still fails as before.
+    self._create_file('rlog.zst')
+    for url in (f"{host}/0/rlog?sig=x", f"{host}/0/qlog.zst?sig=x"):
+      resp = dispatcher["uploadFilesToUrls"]([{"fn": "2026-10-04--00-00-00--0/rlog", "url": url, "headers": {}}])
+      assert resp == {'enqueued': 0, 'items': [], 'failed': ['2026-10-04--00-00-00--0/rlog']}
+
   def test_upload_file_to_url_does_not_exist(self, host):
     not_exists_resp = dispatcher["uploadFileToUrl"]("does_not_exist.zst", "http://localhost:1238", {})
     assert not_exists_resp == {'enqueued': 0, 'items': [], 'failed': ['does_not_exist.zst']}
