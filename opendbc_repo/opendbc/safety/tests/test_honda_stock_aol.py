@@ -448,3 +448,43 @@ class TestHondaStockAol(unittest.TestCase):
           self.safety.aol_set_host_request(1)
           self.assertEqual(self.safety.aol_get_permission_mask(),
                            int(self.scoped and delay <= 300_000))
+
+  def test_each_eps_status_preserves_only_documented_lateral_states(self):
+    for case in CASES:
+      for eps in range(16):
+        with self.subTest(case=case[0], eps=eps):
+          self.configure(case)
+          self.arm()
+          self.stream(eps=eps)
+          tja = case[2] in (512, 513, 1570, 1571)
+          active = self.scoped and (eps in (0, 3, 4) or tja and eps == 1)
+          self.assertEqual(self.safety.aol_get_permission_mask(), int(active))
+          self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_all_gear_values_pause_and_restore_only_in_driving_gears(self):
+    for case in CASES:
+      for gear in range(16):
+        with self.subTest(case=case[0], gear=gear):
+          self.configure(case)
+          self.arm()
+          self.stream(gear=gear)
+          driving = gear in ((0, 8) if case[7] == 8 else (4, 7, 10, 11))
+          self.assertEqual(self.safety.aol_get_permission_mask(), int(self.scoped and driving))
+          self.assertFalse(self.safety.get_controls_allowed())
+          self.stream()
+          self.assertEqual(self.safety.aol_get_permission_mask(), int(self.scoped))
+
+  def test_normal_grant_checks_each_current_eps_state(self):
+    for case in CASES:
+      for eps in range(16):
+        with self.subTest(case=case[0], eps=eps):
+          self.configure(case)
+          self.stream(eps=eps)
+          self.normal_engage()
+          self.safety.aol_set_host_request(3)
+          tja = case[2] in (512, 513, 1570, 1571)
+          lateral = eps in (0, 3, 4) or tja and eps == 1
+          known = lateral or eps in (2, 6)
+          self.assertEqual(self.safety.aol_get_permission_mask(), (3 if lateral else 2 if known else 0) if self.scoped else 0)
+          self.press_brake()
+          self.assertEqual(self.safety.aol_get_permission_mask(), int(self.scoped and lateral))
