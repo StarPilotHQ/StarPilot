@@ -1,3 +1,4 @@
+import os
 import time
 import numpy as np
 import pyray as rl
@@ -31,7 +32,7 @@ from openpilot.starpilot.common.favorite_slots import (
   load_favorite_slots,
   toggle_favorite_slot,
 )
-from openpilot.system.ui.lib.application import FontWeight, gui_app, MousePos, MouseEvent
+from openpilot.system.ui.lib.application import FontWeight, gui_app, MousePos, MouseEvent, RECORD_HUD_ONLY, RECORD_CAMERA_ONLY, RECORD_COMBINED
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.wrap_text import wrap_text
 from openpilot.system.ui.widgets.label import UnifiedLabel
@@ -54,6 +55,13 @@ CAMERA_VIEW_DRIVER = 1
 CAMERA_VIEW_STANDARD = 2
 CAMERA_VIEW_WIDE = 3
 CAMERA_VIEW_NONE = 4
+
+# Optional camera selection for desktop-only recording modes.
+RECORD_CAMERA_VIEW = (
+  os.getenv("RECORD_CAMERA_VIEW", "").strip().lower()
+  if RECORD_HUD_ONLY or RECORD_CAMERA_ONLY or RECORD_COMBINED
+  else ""
+)
 
 
 class BookmarkState(IntEnum):
@@ -732,6 +740,11 @@ class AugmentedRoadView(CameraView):
       super()._render(self._content_rect)
       gui_app.mark_progress("mici.onroad.after_camera")
 
+    # Desktop-only camera recording: stop after the transformed camera frame.
+    if RECORD_CAMERA_ONLY:
+      rl.end_scissor_mode()
+      return
+
     waiting_for_controls = ui_state.started and not self._controls_ready()
     if waiting_for_controls:
       rl.draw_rectangle(int(self._content_rect.x), int(self._content_rect.y),
@@ -892,6 +905,17 @@ class AugmentedRoadView(CameraView):
 
   @staticmethod
   def _camera_view() -> int:
+    # Desktop-only camera-view override for recording modes.
+    # Never changes CameraView or camera selection on comma hardware.
+    if RECORD_HUD_ONLY or RECORD_CAMERA_ONLY or RECORD_COMBINED:
+      desktop_views = {
+        "auto": CAMERA_VIEW_AUTO,
+        "standard": CAMERA_VIEW_STANDARD,
+        "wide": CAMERA_VIEW_WIDE,
+      }
+      if RECORD_CAMERA_VIEW in desktop_views:
+        return desktop_views[RECORD_CAMERA_VIEW]
+
     camera_view = ui_state.ui_params.get_int("CameraView", return_default=True, default=CAMERA_VIEW_STANDARD)
     if camera_view not in (CAMERA_VIEW_AUTO, CAMERA_VIEW_DRIVER, CAMERA_VIEW_STANDARD, CAMERA_VIEW_WIDE, CAMERA_VIEW_NONE):
       return CAMERA_VIEW_STANDARD

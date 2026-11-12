@@ -58,10 +58,18 @@ GRID_SIZE = int(os.getenv("GRID", "0"))
 PROFILE_RENDER = int(os.getenv("PROFILE_RENDER", "0"))
 PROFILE_STATS = int(os.getenv("PROFILE_STATS", "100"))  # Number of functions to show in profile output
 RECORD = os.getenv("RECORD") == "1"
-RECORD_OUTPUT = str(Path(os.getenv("RECORD_OUTPUT", "output")).with_suffix(".mp4"))
+# Optional recording extensions for desktop replay only. The PC guard prevents
+# these modes from being enabled on comma hardware.
+RECORD_HUD_ONLY = PC and RECORD and os.getenv("RECORD_HUD_ONLY") == "1"
+RECORD_CAMERA_ONLY = PC and RECORD and os.getenv("RECORD_CAMERA_ONLY") == "1"
+RECORD_COMBINED = PC and RECORD and os.getenv("RECORD_COMBINED") == "1"
+RECORD_METRIC = PC and RECORD and os.getenv("RECORD_METRIC") == "1"
+RECORD_CAMERA_RESOLUTION = os.getenv("RECORD_CAMERA_RESOLUTION", "render").strip().lower() if (RECORD_CAMERA_ONLY or RECORD_COMBINED) else "render"
+RECORD_OUTPUT = str(Path(os.getenv("RECORD_OUTPUT", "output")).with_suffix(".mkv" if (RECORD_HUD_ONLY or RECORD_CAMERA_ONLY) else ".mp4"))
 RECORD_QUALITY = int(os.getenv("RECORD_QUALITY", "23"))  # Dynamic bitrate quality level (CRF); 0 is lossless (bigger size), max is 51, default is 23 for x264
 RECORD_BITRATE = os.getenv("RECORD_BITRATE", "")  # Target bitrate e.g. "2000k" (overrides RECORD_QUALITY when set)
 RECORD_SPEED = int(os.getenv("RECORD_SPEED", "1"))  # Speed multiplier
+RECORD_DURATION = float(os.getenv("RECORD_DURATION", "0")) if PC and RECORD else 0.0
 OFFSCREEN = os.getenv("OFFSCREEN") == "1"  # Disable FPS limiting for fast offline rendering
 
 
@@ -499,7 +507,11 @@ class GuiApplication:
     self._width = width if width is not None else GuiApplication._default_width()
     self._height = height if height is not None else GuiApplication._default_height()
 
-    if PC and os.getenv("SCALE") is None:
+    # Near-source recording scale for the 536x240 Mici/C4 desktop canvas only.
+    # Keeps the UI aspect/geometry intact; this is not a raw camera-resolution export.
+    if (RECORD_CAMERA_ONLY or RECORD_COMBINED) and RECORD_CAMERA_RESOLUTION == "source" and self._width == 536:
+      self._scale = 2.5
+    elif PC and os.getenv("SCALE") is None:
       self._scale = self._calculate_auto_scale()
     else:
       self._scale = SCALE
@@ -521,6 +533,7 @@ class GuiApplication:
     self._ffmpeg_queue: queue.Queue | None = None
     self._ffmpeg_thread: threading.Thread | None = None
     self._ffmpeg_stop_event: threading.Event | None = None
+    self._recorded_frames = 0
     self._progress_hook: Callable[[str], None] | None = None
     self._textures: dict[str, rl.Texture] = {}
     self._cached_render_textures: dict[str, rl.RenderTexture] = {}
@@ -665,29 +678,69 @@ class GuiApplication:
 
       if RECORD:
         output_fps = fps * RECORD_SPEED
-        ffmpeg_args = [
-          'ffmpeg',
-          '-v', 'warning',          # Reduce ffmpeg log spam
-          '-nostats',               # Suppress encoding progress
-          '-f', 'rawvideo',         # Input format
-          '-pix_fmt', 'rgba',       # Input pixel format
-          '-s', f'{self._render_texture_width}x{self._render_texture_height}',  # Input resolution
-          '-r', str(fps),           # Input frame rate
-          '-i', 'pipe:0',           # Input from stdin
-          '-vf', 'vflip,format=yuv420p',  # Flip vertically and convert to yuv420p
-          '-r', str(output_fps),    # Output frame rate (for speed multiplier)
-          '-c:v', 'libx264',
-          '-preset', 'veryfast',
-          '-crf', str(RECORD_QUALITY)
-        ]
-        if RECORD_BITRATE:
-          # NOTE: custom bitrate overrides crf setting
-          ffmpeg_args += ['-b:v', RECORD_BITRATE, '-maxrate', RECORD_BITRATE, '-bufsize', RECORD_BITRATE]
-        ffmpeg_args += [
-          '-y',                     # Overwrite existing file
-          '-f', 'mp4',              # Output format
-          RECORD_OUTPUT,            # Output file path
-        ]
+
+        if RECORD_HUD_ONLY:
+          # Desktop-only lossless RGBA recording. PNG preserves HUD transparency.
+          ffmpeg_args = [
+            "ffmpeg",
+            "-v", "warning",
+            "-nostats",
+            "-f", "rawvideo",
+            "-pix_fmt", "rgba",
+            "-s", f"{self._render_texture_width}x{self._render_texture_height}",
+            "-r", str(fps),
+            "-i", "pipe:0",
+            "-vf", "vflip",
+            "-r", str(output_fps),
+            "-c:v", "png",
+            "-pix_fmt", "rgba",
+            "-y",
+            "-f", "matroska",
+            RECORD_OUTPUT,
+          ]
+        elif RECORD_CAMERA_ONLY:
+          # Desktop-only lossless camera recording.
+          ffmpeg_args = [
+            "ffmpeg",
+            "-v", "warning",
+            "-nostats",
+            "-f", "rawvideo",
+            "-pix_fmt", "rgba",
+            "-s", f"{self._render_texture_width}x{self._render_texture_height}",
+            "-r", str(fps),
+            "-i", "pipe:0",
+            "-vf", "vflip,format=yuv420p",
+            "-r", str(output_fps),
+            "-c:v", "ffvhuff",
+            "-y",
+            "-f", "matroska",
+            RECORD_OUTPUT,
+          ]
+        else:
+          # Preserve the native recording path for normal RECORD and COMBINED.
+          ffmpeg_args = [
+            "ffmpeg",
+            "-v", "warning",          # Reduce ffmpeg log spam
+            "-nostats",               # Suppress encoding progress
+            "-f", "rawvideo",         # Input format
+            "-pix_fmt", "rgba",       # Input pixel format
+            "-s", f"{self._render_texture_width}x{self._render_texture_height}",  # Input resolution
+            "-r", str(fps),           # Input frame rate
+            "-i", "pipe:0",           # Input from stdin
+            "-vf", "vflip,format=yuv420p",  # Flip vertically and convert to yuv420p
+            "-r", str(output_fps),    # Output frame rate (for speed multiplier)
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", str(RECORD_QUALITY)
+          ]
+          if RECORD_BITRATE:
+            # NOTE: custom bitrate overrides crf setting
+            ffmpeg_args += ["-b:v", RECORD_BITRATE, "-maxrate", RECORD_BITRATE, "-bufsize", RECORD_BITRATE]
+          ffmpeg_args += [
+            "-y",                     # Overwrite existing file
+            "-f", "mp4",              # Output format
+            RECORD_OUTPUT,            # Output file path
+          ]
         self._ffmpeg_proc = subprocess.Popen(ffmpeg_args, stdin=subprocess.PIPE)
         self._ffmpeg_queue = queue.Queue(maxsize=60)  # Buffer up to 60 frames
         self._ffmpeg_stop_event = threading.Event()
@@ -1079,7 +1132,10 @@ class GuiApplication:
           rl.begin_texture_mode(self._render_texture)
           self._mark_progress("gui_app.after_begin_texture_mode")
           self._mark_progress("gui_app.before_clear_background")
-          rl.clear_background(rl.BLACK)
+          if RECORD_HUD_ONLY:
+            rl.clear_background(rl.Color(0, 0, 0, 0))
+          else:
+            rl.clear_background(rl.BLACK)
           self._mark_progress("gui_app.after_clear_background")
         else:
           self._mark_progress("gui_app.before_begin_drawing")
@@ -1172,6 +1228,11 @@ class GuiApplication:
           data_size = image.width * image.height * 4
           data = bytes(rl.ffi.buffer(image.data, data_size))
           self._ffmpeg_queue.put(data)  # Async write via background thread
+          # Stop after the requested number of recorded frames rather than wall-clock time.
+          if RECORD_DURATION > 0:
+            self._recorded_frames += 1
+            if self._recorded_frames >= int(RECORD_DURATION * self._full_target_fps):
+              self._window_close_requested = True
           rl.unload_image(image)
 
         self.frame_timing = FrameTiming(

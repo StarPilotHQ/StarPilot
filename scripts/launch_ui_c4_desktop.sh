@@ -205,6 +205,26 @@ prepare_pandad_host_artifacts() {
   rm -f "${ROOT_DIR}/selfdrive/pandad/libcan_list_to_can_capnp.a"
 }
 
+prepare_acados_host_artifacts() {
+  # The bundled x86_64 BLASFEO library is marked with an executable GNU_STACK.
+  # Some Linux systems refuse to load it, causing both ACADOS MPC Python
+  # extensions to fail at import time. Clear the executable-stack requirement
+  # before loading the host ACADOS runtime.
+  if [[ "$(uname -s)" == "Linux" && "$(uname -m)" == "x86_64" ]]; then
+    local blasfeo="${ROOT_DIR}/third_party/acados/x86_64/lib/libblasfeo.so"
+
+    if [[ -f "${blasfeo}" ]] && readelf -W -l "${blasfeo}" 2>/dev/null | grep -qE 'GNU_STACK.*RWE'; then
+      if ! command -v patchelf >/dev/null 2>&1; then
+        echo "patchelf is required to clear BLASFEO's executable stack flag."
+        return 1
+      fi
+
+      echo "Clearing executable stack flag from x86_64 BLASFEO..."
+      patchelf --clear-execstack "${blasfeo}"
+    fi
+  fi
+}
+
 python_ui_runtime_ok() {
   "${PY_BIN}" - <<'PY'
 import pyray  # noqa: F401
@@ -289,6 +309,7 @@ if ! python_ui_runtime_ok >/dev/null 2>&1; then
   prepare_common_host_artifacts
   prepare_msgq_host_artifacts
   prepare_pandad_host_artifacts
+  prepare_acados_host_artifacts
   remove_if_elf "common/params_pyx.so"
   remove_if_elf "common/transformations/transformations.so"
   remove_if_elf "msgq/ipc_pyx.so"
@@ -303,18 +324,12 @@ if ! python_ui_runtime_ok >/dev/null 2>&1; then
   run_scons "${jobs}" \
     selfdrive/controls/lib/lateral_mpc_lib/c_generated_code/acados_ocp_solver_pyx.so \
     selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/acados_ocp_solver_pyx.so
-  (
-    cd "${ROOT_DIR}/msgq_repo"
-    local_scons_bin="${ROOT_DIR}/.venv/bin/scons"
-    if [[ -x "${local_scons_bin}" ]]; then
-      SP_DISABLE_AUTO_DEVICE_SCONS=1 "${local_scons_bin}" -j"${jobs}" msgq/ipc_pyx.so msgq/visionipc/visionipc_pyx.so
-    elif "${PY_BIN}" -m SCons --version >/dev/null 2>&1; then
-      SP_DISABLE_AUTO_DEVICE_SCONS=1 "${PY_BIN}" -m SCons -j"${jobs}" msgq/ipc_pyx.so msgq/visionipc/visionipc_pyx.so
-    else
-      echo "SCons not found in .venv after sync."
-      exit 1
-    fi
-  )
+
+  # Build msgq extensions through the root SConstruct so they link against
+  # StarPilot's common library instead of msgq_repo's standalone environment.
+  run_scons "${jobs}" \
+    msgq_repo/msgq/ipc_pyx.so \
+    msgq_repo/msgq/visionipc/visionipc_pyx.so
 fi
 
 if ! python_ui_runtime_ok >/dev/null 2>&1; then

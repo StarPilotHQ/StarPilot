@@ -187,11 +187,18 @@ def _local_route_identifiers(route: str, data_dir: str) -> list[str]:
     parsed = parse_indirect(route)
     sr = SegmentRange(parsed)
     segment = _first_selected_segment(sr)
+    route_name = sr.route_name.replace("/", "|")
   except Exception:
-    return []
+    # Local comma route format, e.g. 00000040--d083928baf.
+    # replay accepts this format directly, while SegmentRange does not.
+    data_root = Path(data_dir)
+    if (data_root / f"{route}--0").is_dir():
+      route_name = route
+      segment = 0
+    else:
+      return []
 
   data_root = Path(data_dir)
-  route_name = sr.route_name.replace("/", "|")
   route_name_slash = route_name.replace("|", "/")
   segment_names = (f"{route_name}--{segment}", f"{route_name_slash}/{segment}")
   filenames = ("rlog.zst", "rlog.bz2", "qlog.zst", "qlog.bz2")

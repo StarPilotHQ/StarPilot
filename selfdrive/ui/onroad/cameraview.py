@@ -10,7 +10,7 @@ import pyray as rl
 from msgq.visionipc import VisionIpcClient, VisionStreamType, VisionBuf
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.hardware import HARDWARE, PC, TICI
-from openpilot.system.ui.lib.application import gui_app
+from openpilot.system.ui.lib.application import gui_app, RECORD_HUD_ONLY
 from openpilot.system.ui.lib.egl import (
   init_egl, is_egl_initialized, finish_gl, create_egl_image, destroy_egl_image,
   bind_egl_image_to_texture, create_external_texture, destroy_external_texture, EGLImage,
@@ -408,6 +408,11 @@ class CameraView(Widget):
     y_offset += transform[1, 2] * rect.height / 2
 
     dst_rect = rl.Rectangle(x_offset, y_offset, scale_x, scale_y)
+
+    # Desktop-only transparent HUD recording: keep camera frame processing and
+    # geometry updates for correctly aligned model overlays, but skip camera pixels.
+    if RECORD_HUD_ONLY:
+      return
 
     if self._use_egl:
       try:
