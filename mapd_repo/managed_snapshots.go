@@ -78,7 +78,7 @@ func runSnapshotManagedPrepareContext(ctx context.Context, args []string, client
 	encoder := json.NewEncoder(output)
 	id, err := maps.FetchAndAdmitSnapshot(ctx, maps.FetchOptions{
 		AdmitOptions: maps.AdmitOptions{Root: filepath.Clean(*root), Bounds: region.Bounds, Overlap: .001,
-			SourceRevision: sourceRevision, UpstreamRevision: upstreamRevision, SourceDigest: sourceDigest},
+			SourceRevision: sourceRevision, UpstreamRevision: upstreamRevision, SourceDigest: sourceDigest, AddToCurrent: true},
 		MaxBytes: *maxTransfer, MaxNewDiskBytes: *maxDisk, PrepareOnly: true,
 		Progress: func(p maps.FetchProgress) error { return encoder.Encode(p) },
 	}, client)

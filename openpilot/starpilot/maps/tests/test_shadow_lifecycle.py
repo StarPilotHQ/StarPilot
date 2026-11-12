@@ -164,6 +164,16 @@ class TestShadowLifecycle(unittest.TestCase):
     receipt.write_bytes(saved)
     self.assertTrue(self.preflight())
 
+  def test_combined_downloaded_regions_can_start_shadow(self):
+    self.receipt['sourceKind'] = 'combined-group-archives'
+    self.receipt['inputs'] = [{'name': '34/-98.tar.gz', 'size': 1, 'sha256': 'a' * 64}]
+    self.write_snapshot()
+    self.assertTrue(shadow._selected_snapshot(self.root))
+    self.assertTrue(self.preflight())
+    self.receipt['sourceKind'] = 'unrecognized'
+    self.write_snapshot()
+    self.assertFalse(shadow._selected_snapshot(self.root))
+
   def test_rejects_symlinked_package_parent(self):
     package = self.base / 'package'
     package.symlink_to(self.base, target_is_directory=True)

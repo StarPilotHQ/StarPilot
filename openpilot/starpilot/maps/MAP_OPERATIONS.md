@@ -9,10 +9,14 @@ map observation and driving-control boundaries are unchanged.
 The owner uses only the generated, source-checked Mapd package and its bundled
 region catalog. A request identifies one named region, a transfer budget, a
 new-storage budget and the expected current generation. The Go backend first
-prepares a complete generation, then atomically selects it if the expected
-selection still matches. Previous generations remain stored. Selection
+prepares a complete generation containing the new region and the currently
+selected offline regions, then atomically selects it if the expected selection
+still matches. Overlapping groups use the new download; unchanged validated
+tiles are hard-linked without duplicating their payload on disk. Separate
+regions do not require downloading the area between them. Combined coverage
+retains the existing 65,536-tile bound. Previous generations remain stored. Selection
 applies at the next shadow start; it does not replace a running map provider
-or qualify its candidate speed for control. Multi-region merging, deletion,
+or qualify its candidate speed for control. Deletion,
 scheduled refresh and full navigation remain outside this workflow.
 
 Fresh manager, device and Panda offroad evidence is required before a download

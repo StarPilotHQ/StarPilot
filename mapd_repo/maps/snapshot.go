@@ -74,6 +74,7 @@ type AdmitOptions struct {
 	SourceDigest     string
 	Now              func() time.Time
 	Budget           *SnapshotDiskBudget
+	AddToCurrent     bool
 }
 
 func expectedSnapshotTiles(bounds [4]float64) ([]string, error) {
@@ -364,14 +365,14 @@ func verifySnapshot(root, id string) (string, SnapshotReceipt, error) {
 		receipt.Attribution != attribution || receipt.SourceVerified || len(receipt.Inputs) == 0 {
 		return "", empty, errors.New("receipt identity or contract invalid")
 	}
-	if (receipt.SourceKind != "local-pbf" && receipt.SourceKind != "provided-group-archives") ||
+	if (receipt.SourceKind != "local-pbf" && receipt.SourceKind != "provided-group-archives" && receipt.SourceKind != "combined-group-archives") ||
 		math.IsNaN(receipt.Overlap) || math.IsInf(receipt.Overlap, 0) || receipt.Overlap < 0 || receipt.Overlap >= 0.25 ||
 		receipt.GeneratedUnix <= 0 || len(receipt.SourceRevision) == 0 || len(receipt.SourceRevision) > 128 ||
 		len(receipt.UpstreamRevision) == 0 || len(receipt.UpstreamRevision) > 128 ||
 		len(receipt.SourceDigest) == 0 || len(receipt.SourceDigest) > 128 {
 		return "", empty, errors.New("receipt metadata invalid")
 	}
-	expected, err := expectedSnapshotTiles(receipt.Bounds)
+	expected, err := receiptSnapshotTiles(receipt)
 	if err != nil || len(receipt.Tiles) != len(expected) {
 		return "", empty, errors.New("receipt cell coverage invalid")
 	}
@@ -625,6 +626,15 @@ func admitSnapshot(ctx context.Context, o AdmitOptions, selectNow bool) (string,
 	if err != nil {
 		return "", err
 	}
+	if o.AddToCurrent {
+		if err := addSelectedSnapshot(ctx, o.Root, stage, &receipt); err != nil {
+			return "", err
+		}
+		expected, err = receiptSnapshotTiles(receipt)
+		if err != nil {
+			return "", err
+		}
+	}
 	data, err := json.Marshal(receipt)
 	if err != nil || len(data) > maxReceiptBytes {
 		return "", errors.New("receipt exceeds finite limit")
@@ -715,7 +725,7 @@ func SelectPreparedSnapshot(ctx context.Context, root, id, expectedCurrent strin
 	if err != nil {
 		return err
 	}
-	expected, err := expectedSnapshotTiles(receipt.Bounds)
+	expected, err := receiptSnapshotTiles(receipt)
 	if err != nil {
 		return err
 	}

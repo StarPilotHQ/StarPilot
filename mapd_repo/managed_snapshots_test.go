@@ -114,6 +114,53 @@ func TestManagedSnapshotCatalogPrepareSelect(t *testing.T) {
 	}
 }
 
+func TestManagedSnapshotCLIAddsSecondRegion(t *testing.T) {
+	root := t.TempDir()
+	bodies := make(map[string][]byte)
+	for _, token := range []string{"nation.CY", "nation.BN"} {
+		region, err := maps.ResolveManagedRegion(token)
+		if err != nil || region.Groups != 1 {
+			t.Fatalf("one-group fixture: %+v %v", region, err)
+		}
+		path := "/offline/" + strconv.Itoa(int(region.Bounds[0])) + "/" + strconv.Itoa(int(region.Bounds[1])) + ".tar.gz"
+		bodies[path] = managedFixtureArchive(t, region.Bounds)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := bodies[r.URL.Path]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+	client := &http.Client{Transport: fixedOriginTestTransport{server}}
+	previous := ""
+	for i, token := range []string{"nation.CY", "nation.BN"} {
+		var output bytes.Buffer
+		args := []string{"--offline-root", root, "--region", token, "--max-transfer-bytes", "1048576", "--max-new-disk-bytes", "16777216"}
+		if err := runSnapshotManagedPrepareContext(context.Background(), args, client, &output); err != nil {
+			t.Fatal(err)
+		}
+		decoder := json.NewDecoder(&output)
+		var last struct{ Generation string }
+		for decoder.More() {
+			if err := decoder.Decode(&last); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := runSnapshotSelectContext(context.Background(), []string{"--offline-root", root, "--generation", last.Generation,
+			"--expected-current", previous}, &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
+		_, receipt, err := maps.ResolveSnapshot(root)
+		if err != nil || len(receipt.Tiles) != 64*(i+1) || len(receipt.Inputs) != i+1 {
+			t.Fatalf("CLI replaced existing region: %+v %v", receipt, err)
+		}
+		previous = last.Generation
+	}
+}
+
 func TestManagedSnapshotRejectsSymlinkedAncestorAndInvalidToken(t *testing.T) {
 	base := t.TempDir()
 	real := filepath.Join(base, "real")
