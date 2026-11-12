@@ -9,7 +9,7 @@ import (
 	"pfeifer.dev/mapd/settings"
 )
 
-const MaxManagedGroups = 64
+const MaxManagedGroups = maxSnapshotTiles / 64
 
 type ManagedRegion struct {
 	Token       string     `json:"token"`

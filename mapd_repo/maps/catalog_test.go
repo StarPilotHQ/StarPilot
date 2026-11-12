@@ -19,16 +19,16 @@ func TestBundledManagedRegionCoverage(t *testing.T) {
 			}
 		}
 	}
-	if available != 199 {
+	if available != 225 {
 		t.Fatalf("review supported-region count changed: %d", available)
 	}
-	for token, groups := range map[string]int{"us_state.CA": 36, "us_state.TX": 56, "us_state.IL": 12} {
+	for token, groups := range map[string]int{"us_state.CA": 36, "us_state.TX": 56, "us_state.IL": 12, "nation.CA": 765, "nation.JP": 72, "nation.US": 390} {
 		region, err := ResolveManagedRegion(token)
 		if err != nil || region.Groups != groups {
 			t.Fatalf("%s: %+v %v", token, region, err)
 		}
 	}
-	for _, token := range []string{"us_state.AK", "nation.FJ", "nation.RU", "nation.AQ", "nation.US", "nation.CA", "us_state.CA.extra", "nation."} {
+	for _, token := range []string{"us_state.AK", "nation.FJ", "nation.RU", "nation.AQ", "us_state.CA.extra", "nation."} {
 		if _, err := ResolveManagedRegion(token); err == nil {
 			t.Fatalf("unsupported region %s accepted", token)
 		}

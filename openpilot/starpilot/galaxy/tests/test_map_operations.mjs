@@ -12,6 +12,12 @@ const status = { schemaVersion: 1, ownerSession: 's1', operationId: null, state:
   bounds: null, completedGroups: 0, totalGroups: 0, transferredBytes: 0, transferBudgetBytes: 0,
   preparedGeneration: null, selectedGeneration: '', errorCode: null, selectedForNextShadowStart: false }
 assert.equal(validCatalog(catalog), true)
+const largeCatalog = { ...catalog, maxGroups: 1024, regions: [
+  { ...region, token: 'nation.CA', name: 'Canada', bounds: [40, -142, 74, -52], groups: 765 },
+  { ...region, token: 'nation.JP', name: 'Japan', bounds: [30, 128, 46, 146], groups: 72 },
+] }
+assert.equal(validCatalog(largeCatalog), true)
+assert.equal(validCatalog({ ...largeCatalog, regions: [{ ...region, groups: 1025 }] }), false)
 assert.equal(validCatalog({ ...catalog, regions: [{ ...region, available: false, unavailable: 'too_large' }] }), true)
 assert.equal(validCatalog({ ...catalog, regions: [{ ...region, token: '<script>' }] }), false)
 assert.equal(validOperation(status), true)
