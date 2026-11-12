@@ -801,7 +801,7 @@ class VisionModelCore:
     return speed_limit, confidence
 
 
-  def _detect_sign_from_detector_classifier(self, frame_bgr):
+  def _detect_sign_from_detector_classifier(self, frame_bgr, *, proposals=None):
     frame_height, frame_width = frame_bgr.shape[:2]
     best_detection = None
     best_score = 0.0
@@ -828,7 +828,8 @@ class VisionModelCore:
         cached_bytes += crop.nbytes
       return result
 
-    proposals = self._collect_detector_classifier_proposals(frame_bgr)
+    if proposals is None:
+      proposals = self._collect_detector_classifier_proposals(frame_bgr)
     for proposal_index, (proposal_confidence, class_id, (x1, y1, x2, y2)) in enumerate(proposals):
       if class_id == 1:
         continue
