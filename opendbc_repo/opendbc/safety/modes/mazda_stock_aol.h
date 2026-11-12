@@ -1,5 +1,8 @@
 #pragma once
 
+static bool mazda_ti_unhealthy(void);
+static bool mazda_ti_lateral_paused(void);
+
 static bool mazda_aol_enabled = false;
 static bool mazda_aol_startup_pending = true;
 static bool mazda_aol_token = false;
@@ -75,7 +78,10 @@ static uint8_t mazda_aol_request_mask(void) {
   const bool expired = mazda_aol_requested &&
     (safety_get_ts_elapsed(now, aol_host_request_ts) > AOL_HOST_REQUEST_TIMEOUT_US);
   if (relay_malfunction || expired || pending_expired || safety_rx_checks_invalid ||
-      (mazda_aol_session && !heartbeat_engaged) || !aol_rx_healthy() || !mazda_aol_current()) {
+      (mazda_aol_session && !heartbeat_engaged) || !aol_rx_healthy() || !mazda_aol_current() ||
+      // TI2 fault or unavailable interceptor revokes AOL as well as ordinary
+      // engagement: a latched session must be re-armed, never silently resumed.
+      mazda_ti_unhealthy()) {
     mazda_aol_clear();
   } else if (!mazda_aol_startup_pending && heartbeat_engaged && aol_rx_healthy() && mazda_aol_current()) {
     // Equal microsecond stamps cannot prove request-after-grant ordering.
@@ -95,8 +101,11 @@ static uint8_t mazda_aol_request_mask(void) {
 static uint8_t mazda_aol_permission(void) {
   const uint8_t request = mazda_aol_request_mask();
   uint8_t permission = 0U;
-  if (acc_main_on && vehicle_moving && (mazda_aol_sources == 1U)) {
-    if (controls_allowed || mazda_aol_token) {
+  if (acc_main_on && (mazda_aol_sources == 1U) && !mazda_ti_unhealthy()) {
+    // Only lateral has a standstill restriction. Ordinary openpilot
+    // longitudinal must retain HOLD/RESUME authority while stopped.
+    // A TI2 0x02 pause withholds lateral without revoking the token, like standstill.
+    if (vehicle_moving && !mazda_ti_lateral_paused() && (controls_allowed || mazda_aol_token)) {
       permission = request & 1U;
     }
     if (controls_allowed) {
@@ -106,13 +115,31 @@ static uint8_t mazda_aol_permission(void) {
   return permission;
 }
 
+static void mazda_aol_button_rx(const CANPacket_t *msg);
+
 static void mazda_aol_optional_rx(const CANPacket_t *msg) {
   if (mazda_aol_enabled) {
+    mazda_aol_button_rx(msg);
     const uint32_t now = microsecond_timer_get();
-    if (msg_matches(msg, 0x228U, 0U, 8U)) {
+    // GEN1 keeps Dom's single source: GEAR on bus 0 only, so a camera-bus frame
+    // can never overwrite its Reverse. On GEN2 GEAR originates on the camera bus
+    // (bus 2); bus-0 copies only appear intermittently when the panda relays them,
+    // so both are accepted there.
+    const bool gear_msg = msg_matches(msg, 0x228U, 0U, 8U) ||
+                          ((mazda_gen2 || mazda_gen3) && msg_matches(msg, 0x228U, 2U, 8U));
+    if (gear_msg) {
       mazda_aol_seen |= 2U;
       mazda_aol_gear_ts = now;
-      mazda_aol_sources = (mazda_aol_sources & 6U) | (((msg->data[0] & 7U) == 4U) ? 1U : 0U);
+      if (mazda_gen2 || mazda_gen3) {
+        // GEN2/GEN3 GEAR is a little-endian nibble in byte 4 (mazda_2019.dbc
+        // 33|4@1+). Its VAL_ table is 13 = P, 12 = R, 11 = N, 1..6 = D.
+        // 33|4@1+ is a little-endian field starting at bit 33, so the nibble is
+        // offset by one bit inside byte 4.
+        const uint8_t gear = (msg->data[4] >> 1) & 0xFU;
+        mazda_aol_sources = (mazda_aol_sources & 6U) | (((gear >= 1U) && (gear <= 6U)) ? 1U : 0U);
+      } else {
+        mazda_aol_sources = (mazda_aol_sources & 6U) | (((msg->data[0] & 7U) == 4U) ? 1U : 0U);
+      }
     } else if (msg_matches(msg, 0x241U, 0U, 8U)) {
       mazda_aol_seen |= 4U;
       mazda_aol_eps_ts = now;
@@ -132,7 +159,42 @@ static void mazda_aol_optional_rx(const CANPacket_t *msg) {
 
 static void mazda_aol_rx(const CANPacket_t *msg) {
   if (mazda_aol_enabled) {
-    if (msg_matches(msg, 0x21CU, 0U, 8U)) {
+    if (msg_matches(msg, 0x44AU, 0U, 8U)) {
+      // GEN2 main switch (see mazda.h): CRZ_STATE != 0. States 0 = off, 1 = ready,
+      // 2 = engaged, 4 = gas override; 3 and 5..7 are undefined and treated as on.
+      mazda_aol_seen |= 1U;
+      mazda_aol_main_ts = microsecond_timer_get();
+      acc_main_on = (msg->data[0] & 0x70U) != 0U;
+      if ((mazda_aol_session && !heartbeat_engaged) || !aol_rx_healthy() || !mazda_aol_current() || safety_rx_checks_invalid || ((mazda_aol_sources & 4U) != 0U)) {
+        mazda_aol_clear();
+      } else if (!acc_main_on) {
+        mazda_aol_clear();
+        mazda_aol_startup_pending = false;
+        mazda_aol_neutral = true;
+      } else if (mazda_aol_startup_pending && vehicle_moving && (mazda_aol_sources == 1U) && !brake_pressed && !gas_pressed &&
+                 ((aol_host_axis_mask & 1U) != 0U) &&
+                 (safety_get_ts_elapsed(microsecond_timer_get(), aol_host_request_ts) <= AOL_HOST_REQUEST_TIMEOUT_US)) {
+        // Same rule as GEN1: follow a fresh MAIN only after physical restrictions
+        // have cleared, and require a strictly later host ACK.
+        mazda_aol_startup_pending = false;
+        mazda_aol_grant();
+        mazda_aol_pending = true;
+        mazda_aol_session = false;
+      } else if (mazda_aol_neutral) {
+        mazda_aol_grant();
+        mazda_aol_neutral = false;
+      } else {
+      }
+    } else if (msg_matches(msg, 0x24BU, 1U, 8U)) {
+      // GEN2 interceptor liveness plays the role of the GEN1 EPS source. There is
+      // no EPS-override bit on this platform, so the source bit stays clear.
+      mazda_aol_seen |= 4U;
+      mazda_aol_eps_ts = microsecond_timer_get();
+    } else if (msg_matches(msg, 0x217U, 2U, 8U)) {
+      // GEN2 camera-bus speed plays the role of the GEN1 camera source.
+      mazda_aol_seen |= 8U;
+      mazda_aol_cam_ts = microsecond_timer_get();
+    } else if (msg_matches(msg, 0x21CU, 0U, 8U)) {
       mazda_aol_seen |= 1U;
       mazda_aol_main_ts = microsecond_timer_get();
       acc_main_on = GET_BIT(msg, 17U);
@@ -158,19 +220,26 @@ static void mazda_aol_rx(const CANPacket_t *msg) {
         mazda_aol_neutral = false;
       } else {
       }
-    } else if (msg_matches(msg, 0x9DU, 0U, 8U)) {
-      // Mapped Cancel can request LAT only after the same fresh physical edge
-      // and current host acknowledgment used by the other cruise buttons.
-      const bool press = (msg->data[0] & 0x35U) != 0U;
-      if ((mazda_aol_session && !heartbeat_engaged) || !aol_rx_healthy() || !mazda_aol_current() || safety_rx_checks_invalid || ((mazda_aol_sources & 4U) != 0U)) {
-        mazda_aol_clear();
-      } else if (!press) {
-        mazda_aol_buttons_neutral = true;
-      } else if (mazda_aol_buttons_neutral && acc_main_on) {
-        mazda_aol_grant();
-        mazda_aol_buttons_neutral = false;
-      } else {
-      }
+    } else {
+      mazda_aol_button_rx(msg);
+    }
+  }
+}
+
+// Shared by the required and optional ingress paths: 0x9D is a required message
+// for GEN1 but is only seen on the optional path for GEN2.
+static void mazda_aol_button_rx(const CANPacket_t *msg) {
+  if (mazda_aol_enabled && msg_matches(msg, 0x9DU, 0U, 8U)) {
+    // Mapped Cancel can request LAT only after the same fresh physical edge
+    // and current host acknowledgment used by the other cruise buttons.
+    const bool press = (msg->data[0] & 0x35U) != 0U;
+    if ((mazda_aol_session && !heartbeat_engaged) || !aol_rx_healthy() || !mazda_aol_current() || safety_rx_checks_invalid || ((mazda_aol_sources & 4U) != 0U)) {
+      mazda_aol_clear();
+    } else if (!press) {
+      mazda_aol_buttons_neutral = true;
+    } else if (mazda_aol_buttons_neutral && acc_main_on) {
+      mazda_aol_grant();
+      mazda_aol_buttons_neutral = false;
     } else {
     }
   }
@@ -180,7 +249,7 @@ static void mazda_aol_rx(const CANPacket_t *msg) {
 // A healthy inactive observation is required; startup-active and held-active
 // packets cannot create or restore an independent token after a disarming fault.
 static void mazda_aol_engagement(const CANPacket_t *msg, bool cruise_engaged, bool normal_engagement) {
-  if (mazda_aol_enabled && msg_matches(msg, 0x21CU, 0U, 8U)) {
+  if (mazda_aol_enabled && (msg_matches(msg, 0x21CU, 0U, 8U) || msg_matches(msg, 0x44AU, 0U, 8U))) {
     const bool request_current = !mazda_aol_requested ||
       (safety_get_ts_elapsed(microsecond_timer_get(), aol_host_request_ts) <= AOL_HOST_REQUEST_TIMEOUT_US);
     const bool healthy = !(mazda_aol_session && !heartbeat_engaged) && acc_main_on && (mazda_aol_sources == 1U) &&

@@ -101,6 +101,27 @@ uint32_t get_heartbeat_engaged_mismatches(void) {
   return heartbeat_engaged_mismatches;
 }
 
+// Test-only AOL policy, so lateral-only isolation can be exercised without a
+// production profile existing. safety_init() clears aol_policy between tests.
+static uint8_t aol_test_permission = 0U;
+static uint8_t aol_test_permission_mask(void) {
+  return aol_test_permission;
+}
+static const AolSafetyPolicy aol_test_policy = {
+  .reset = NULL,
+  .host_request = NULL,
+  .request_mask = NULL,
+  .permission_mask = aol_test_permission_mask,
+  .rx_invalid = NULL,
+};
+void set_aol_test_permission_mask(uint8_t mask) {
+  aol_test_permission = mask;
+  aol_policy = &aol_test_policy;
+}
+void clear_aol_test_policy(void) {
+  aol_policy = NULL;
+}
+
 void set_aol_test_heartbeat(bool engaged) {
   heartbeat_engaged = engaged;
 }
@@ -482,3 +503,9 @@ bool test_ford_bp_pinion_rx_overflow(void) {
   ford_bp_append_pinion_rx(&config, workspace);
   return (config.tx_msgs == NULL) && (config.tx_msgs_len == 0) && (config.rx_checks_len == 11) && !ford_aol_enabled;
 }
+
+// Mazda TI2 health (modes/mazda.h), for the panda/CarState parity test: whether
+// the interceptor is unhealthy (fault, latch, unproven or stale), and whether a
+// 0x02 pause or its recovery window is withholding lateral torque.
+bool get_mazda_ti_unhealthy(void) { return mazda_ti_unhealthy(); }
+bool get_mazda_ti_lateral_paused(void) { return mazda_ti_lateral_paused(); }
