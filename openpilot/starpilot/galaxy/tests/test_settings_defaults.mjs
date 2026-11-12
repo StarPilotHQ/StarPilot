@@ -36,7 +36,7 @@ function buttons(node) {
   if (!node || typeof node !== "object") return []
   return [...(node.type === "button" ? [node] : []), ...(Array.isArray(node.children) ? node.children.flatMap(buttons) : [])]
 }
-const context = { row, index: 2, control: "switch", currentValue: "Off", dimmed: false, locked: false, busy: false, updating: false,
+const context = { compact: false, row, index: 2, control: "switch", currentValue: "Off", dimmed: false, locked: false, busy: false, updating: false,
   showDefault: true, onSwitch: () => {}, $emit: (...args) => events.push(args) }
 const events = []
 const button = buttons(render(context, [])).find(node => node.children === "Default")
