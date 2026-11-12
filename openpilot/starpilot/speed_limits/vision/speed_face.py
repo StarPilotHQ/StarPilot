@@ -91,6 +91,34 @@ def warning_context_box(rgb256, box):
   return matches[0] if len(matches) == 1 else None
 
 
+def inset_context_box(rgb256, box):
+  image = np.rint(rgb256.transpose(1, 2, 0) * np.float32(255)).astype(np.uint8)
+  edges = cv2.Canny(cv2.cvtColor(image, cv2.COLOR_RGB2GRAY), 30, 90)
+  edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+  contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+  width, height = float(box[2] - box[0]), float(box[3] - box[1])
+  matches = []
+  for contour in contours:
+    x, y, w, h = cv2.boundingRect(contour)
+    if (x <= box[0] + 2 and y <= box[1] - height * .5 and
+        x + w >= box[2] - 2 and y + h >= box[3] - 2 and
+        w >= width * 1.5 and h >= height * 1.5 and
+        width * height * 3 <= w * h <= min(width * height * 12, 256 * 256 * .18)):
+      matches.append((w * h, contour, np.asarray([x, y, x + w, y + h], np.float32)))
+  if not matches:
+    return None
+  _, contour, parent = min(matches, key=lambda item: item[0])
+  points = contour
+  if parent[2] == 256:
+    # Close only the board edge clipped by the camera image.
+    points = np.concatenate((points, np.asarray([[[255, int(parent[1])]], [[255, int(parent[3]) - 1]]], np.int32)))
+  hull = cv2.convexHull(points)
+  quad = cv2.approxPolyDP(hull, .02 * cv2.arcLength(hull, True), True)
+  if len(quad) != 4 or cv2.contourArea(hull) < .75 * (parent[2] - parent[0]) * (parent[3] - parent[1]):
+    return None
+  return parent
+
+
 class SpeedFaceVerifier:
   def __init__(self, path):
     self.net = None
@@ -158,6 +186,10 @@ class SpeedFaceVerifier:
     if patch is None:
       return False
     context_box = warning_context_box(blob, box)
+    inset = None
+    if context_box is None:
+      inset = inset_context_box(blob, box)
+      context_box = inset
     if context_box is not None:
       patch = crop(np, cv2, blob, context_box)
     started = time.monotonic()
@@ -167,7 +199,7 @@ class SpeedFaceVerifier:
       output = self.net.forward(['speed_face_logit'])[0]
       if output.shape != (1, 1) or output.dtype != np.float32 or not np.isfinite(output).all():
         raise ValueError('Invalid speed-face output')
-      self.last_rejected = bool(output[0, 0] < KEEP_LOGIT)
+      self.last_rejected = bool(output[0, 0] < (0.0 if inset is not None else KEEP_LOGIT))
       return self.last_rejected
     finally:
       self.last_forward_duration_s += time.monotonic() - started
