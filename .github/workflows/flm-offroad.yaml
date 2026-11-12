@@ -34,7 +34,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: flm-offroad-${{ github.ref }}
+  group: flm-offroad-${{ inputs.source_sha || github.ref }}
   cancel-in-progress: true
 
 env:
