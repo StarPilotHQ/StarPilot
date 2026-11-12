@@ -296,6 +296,7 @@ class TransportPauseFeedback:
     self.longitudinal_cancel_ns = 0
     self.last_cancel_source_ns = 0
     self.honda_brake_ns = 0
+    self.honda_cancel_ns = 0
     self.gm_withdrawal_ns = 0
     self.retention_qualified = False
     self.retention_pending = False
@@ -801,16 +802,15 @@ class TransportPauseFeedback:
     return temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns,
       latched=latched, producer=producer, signature=signature)
 
-  def _honda_brake_lateral_current(self, sm, cp, cs, axis, now_ns, *, latched, brake_source_ns):
+  def _honda_long_withdrawal_lateral_current(self, sm, cp, cs, axis, now_ns, *, latched, source_ns, started, require_long_request):
     from opendbc.car.honda.stock_aol import qualified
     from opendbc.car.structs import car
 
-    source_ns = self.honda_brake_ns or (brake_source_ns if cs.brakePressed else 0)
     if (not qualified(cp, marked_only=True) or not latched or self.failed or self.paused or self.pending_event or
       not self.session or str(axis.sessionId) != self.session or
       not self.healthy_feedback_ns or not 0 <= now_ns - self.healthy_feedback_ns <= AXIS_MAX_AGE_NS or
       not 0 < source_ns <= now_ns or now_ns - source_ns > SAFETY_MAX_AGE_NS or
-      (not self.honda_brake_ns and now_ns - source_ns > AXIS_MAX_AGE_NS) or
+      (not started and now_ns - source_ns > AXIS_MAX_AGE_NS) or
       cs.accFaulted or cs.seatbeltUnlatched or
       cs.gearShifter not in (car.CarState.GearShifter.drive, car.CarState.GearShifter.sport,
                             car.CarState.GearShifter.low, car.CarState.GearShifter.brake) or
@@ -826,10 +826,27 @@ class TransportPauseFeedback:
       return None
     native = independent_lateral_health(sm, cp, cs, self.session, now_ns)
     if (native is None or not native.requestedLateral or not native.lateralAllowed or
-        not native.requestedLongitudinal or native.observedMonoTime < self.healthy_native_ns or
+        (require_long_request and not native.requestedLongitudinal) or native.observedMonoTime < self.healthy_native_ns or
         (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) != self.healthy_inventory):
       return None
-    self.honda_brake_ns = source_ns
+    return native
+
+  def _honda_brake_lateral_current(self, sm, cp, cs, axis, now_ns, *, latched, brake_source_ns):
+    source_ns = self.honda_brake_ns or (brake_source_ns if cs.brakePressed else 0)
+    native = self._honda_long_withdrawal_lateral_current(sm, cp, cs, axis, now_ns,
+      latched=latched, source_ns=source_ns, started=bool(self.honda_brake_ns), require_long_request=True)
+    if native is not None:
+      self.honda_brake_ns = source_ns
+    return native
+
+  def _honda_cancel_lateral_current(self, sm, cp, cs, axis, now_ns, *, latched, cancel_source_ns):
+    from opendbc.car.structs import car
+    cancel = any(e.type == car.CarState.ButtonEvent.Type.cancel and e.pressed for e in cs.buttonEvents)
+    source_ns = self.honda_cancel_ns or (cancel_source_ns if cancel else 0)
+    native = self._honda_long_withdrawal_lateral_current(sm, cp, cs, axis, now_ns,
+      latched=latched, source_ns=source_ns, started=bool(self.honda_cancel_ns), require_long_request=False)
+    if native is not None:
+      self.honda_cancel_ns = source_ns
     return native
 
   def _longitudinal_cancel_current(self, sm, cp, cs, axis, now_ns, *, latched, cancel_source_ns, withdrawal_required=True) -> SafetyState | None:
@@ -1586,6 +1603,9 @@ class TransportPauseFeedback:
           return False
       brake_native = (self._honda_brake_lateral_current(sm, cp, cs, axis, now_ns,
         latched=latched, brake_source_ns=brake_source_ns) if current and continuity else None)
+      if brake_native is None and current and continuity:
+        brake_native = self._honda_cancel_lateral_current(sm, cp, cs, axis, now_ns,
+          latched=latched, cancel_source_ns=cancel_source_ns)
       if brake_native is not None:
         self.healthy_feedback_ns = stamp
         self.healthy_native_ns = int(brake_native.observedMonoTime)
@@ -1727,6 +1747,7 @@ class TransportPauseFeedback:
           self.gm_withdrawal_ns = 0
         if native is not None and not native.requestedLongitudinal:
           self.honda_brake_ns = 0
+          self.honda_cancel_ns = 0
         if (not latched or native is not None and not native.requestedLongitudinal or
             self.longitudinal_cancel_ns and now_ns - self.longitudinal_cancel_ns > SAFETY_MAX_AGE_NS):
           self.longitudinal_cancel_ns = 0

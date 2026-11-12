@@ -162,7 +162,12 @@ static void honda_rx_hook(const CANPacket_t *msg) {
     // exit controls once main or cancel are pressed
     if ((button == HONDA_BTN_MAIN) || (button == HONDA_BTN_CANCEL)) {
       controls_allowed = false;
-      aol_set_host_request(0U);
+      if ((button == HONDA_BTN_CANCEL) && honda_stock_aol_flag(HONDA_STOCK_ENABLED)) {
+        // Retain only the existing lateral request without renewing its deadline.
+        aol_host_axis_mask &= 1U;
+      } else {
+        aol_set_host_request(0U);
+      }
     }
     cruise_button_prev = button;
   }

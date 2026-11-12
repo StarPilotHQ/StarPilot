@@ -27,7 +27,7 @@ class Peers:
     return getattr(self.messages[name], name)
 
 
-def fixture(*, coherent=False, long_allowed=True, brake=True):
+def fixture(*, coherent=False, long_allowed=True, brake=True, cancel=False):
   fp = gen_empty_fingerprint()
   fp[0][0x1A3] = 8
   cp = CarInterface.get_params(CAR.HONDA_CIVIC_2022, fp, [], True, False, False)
@@ -56,8 +56,10 @@ def fixture(*, coherent=False, long_allowed=True, brake=True):
   a.nativeAcknowledged = True
   events = messaging.new_message('onroadEvents', 0, valid=True, logMonoTime=NOW - 1_000_000)
   sm = Peers([safety.as_reader(), pandas.as_reader(), axis.as_reader(), events.as_reader()])
-  cs = structs.CarState(canValid=True, brakePressed=brake, vEgo=12.5,
+  cs = structs.CarState(canValid=True, brakePressed=brake and not cancel, vEgo=12.5,
                         gearShifter=structs.CarState.GearShifter.drive)
+  if cancel:
+    cs.buttonEvents = [structs.CarState.ButtonEvent(type=structs.CarState.ButtonEvent.Type.cancel, pressed=True)]
   feedback = TransportPauseFeedback(cp)
   # Unit precondition representing an already observed healthy acknowledged LAT baseline.
   feedback.session = native.axisSessionId
@@ -69,12 +71,14 @@ def fixture(*, coherent=False, long_allowed=True, brake=True):
 
 @pytest.mark.parametrize('coherent', [False, True])
 @pytest.mark.parametrize('long_allowed', [False, True])
-def test_honda_brake_lateral_intent_only_and_long_fail_closed(coherent, long_allowed):
-  cp, cs, sm, native, feedback = fixture(coherent=coherent, long_allowed=long_allowed)
+@pytest.mark.parametrize('cancel', [False, True])
+def test_honda_brake_lateral_intent_only_and_long_fail_closed(coherent, long_allowed, cancel):
+  cp, cs, sm, native, feedback = fixture(coherent=coherent, long_allowed=long_allowed, cancel=cancel)
   assert _healthy_transport_native(sm, cp, cs, 'unit-session', NOW) is None
   assert independent_lateral_health(sm, cp, cs, 'unit-session', NOW) == native
-  assert not feedback.observe(sm, cp, cs, NOW, latched=True, brake_source_ns=NOW - 1000)
-  assert feedback.honda_brake_ns == NOW - 1000
+  assert not feedback.observe(sm, cp, cs, NOW, latched=True, brake_source_ns=0 if cancel else NOW - 1000,
+                              cancel_source_ns=NOW - 1000 if cancel else 0)
+  assert (feedback.honda_cancel_ns if cancel else feedback.honda_brake_ns) == NOW - 1000
   decision = decide_axes(standard_lateral=False, standard_longitudinal=False,
     intent=SimpleNamespace(pauseLateral=False, allowedLatch=True, pauseLongitudinal=False),
     native=native, car_state=cs, initialized=True, model_ready=True, no_entry=False,
@@ -87,13 +91,15 @@ def test_honda_brake_lateral_intent_only_and_long_fail_closed(coherent, long_all
 @pytest.mark.parametrize('mutation', ['no_brake', 'no_source', 'stale_source', 'future_source', 'no_latch',
   'wrong_profile', 'wrong_session', 'serial', 'native_expired', 'no_lat', 'lat_denied',
   'rx_fault', 'heartbeat', 'panda_config', 'axis_fault', 'hard_event', 'stale_axis', 'unacknowledged_long'])
-def test_honda_brake_cannot_borrow_or_renew_authority(mutation):
-  cp, cs, sm, native, feedback = fixture(coherent=True, long_allowed=False)
+@pytest.mark.parametrize('cancel', [False, True])
+def test_honda_brake_cannot_borrow_or_renew_authority(mutation, cancel):
+  cp, cs, sm, native, feedback = fixture(coherent=True, long_allowed=False, cancel=cancel)
   source, now, latched = NOW - 1000, NOW, True
   axis = sm.messages['aolAxisState'].as_builder()
   pandas = sm.messages['pandaStates'].as_builder()
   if mutation == 'no_brake':
     cs.brakePressed = False
+    cs.buttonEvents = []
   if mutation == 'no_source':
     source = 0
   if mutation == 'stale_source':
@@ -136,27 +142,36 @@ def test_honda_brake_cannot_borrow_or_renew_authority(mutation):
   safety = messaging.new_message('aolSafetyWire', 0, valid=True, logMonoTime=native.observedMonoTime)
   safety.aolSafetyWire = encode_safety(native)
   sm = Peers([safety.as_reader(), pandas.as_reader(), axis.as_reader(), events])
-  assert feedback._honda_brake_lateral_current(sm, cp, cs, sm['aolAxisState'], now,
-                                               latched=latched, brake_source_ns=source) is None
+  hook = feedback._honda_cancel_lateral_current if cancel else feedback._honda_brake_lateral_current
+  assert hook(sm, cp, cs, sm['aolAxisState'], now, latched=latched,
+              **{'cancel_source_ns' if cancel else 'brake_source_ns': source}) is None
   if mutation != 'no_latch':
-    assert feedback.observe(sm, cp, cs, now, latched=latched, brake_source_ns=source)
-  assert feedback.honda_brake_ns == 0
+    assert feedback.observe(sm, cp, cs, now, latched=latched, brake_source_ns=0 if cancel else source,
+                                               cancel_source_ns=source if cancel else 0)
+  assert (feedback.honda_cancel_ns if cancel else feedback.honda_brake_ns) == 0
 
 
-def test_release_and_held_brake_cannot_extend_original_deadline():
-  cp, cs, sm, native, feedback = fixture(long_allowed=False)
+@pytest.mark.parametrize('cancel', [False, True])
+def test_release_and_held_brake_cannot_extend_original_deadline(cancel):
+  cp, cs, sm, native, feedback = fixture(long_allowed=False, cancel=cancel)
   source = NOW - 1000
-  assert not feedback.observe(sm, cp, cs, NOW, latched=True, brake_source_ns=source)
+  assert not feedback.observe(sm, cp, cs, NOW, latched=True, brake_source_ns=0 if cancel else source,
+                              cancel_source_ns=source if cancel else 0)
   cs.brakePressed = False
+  cs.buttonEvents = []
   assert not feedback.observe(sm, cp, cs, NOW + 1, latched=True)
-  assert feedback.honda_brake_ns == source
-  cs.brakePressed = True
-  assert not feedback.observe(sm, cp, cs, NOW + 2, latched=True, brake_source_ns=NOW + 2)
-  assert feedback.honda_brake_ns == source
+  assert (feedback.honda_cancel_ns if cancel else feedback.honda_brake_ns) == source
+  cs.brakePressed = not cancel
+  if cancel:
+    cs.buttonEvents = [structs.CarState.ButtonEvent(type=structs.CarState.ButtonEvent.Type.cancel, pressed=True)]
+  assert not feedback.observe(sm, cp, cs, NOW + 2, latched=True, brake_source_ns=0 if cancel else NOW + 2,
+                              cancel_source_ns=NOW + 2 if cancel else 0)
+  assert (feedback.honda_cancel_ns if cancel else feedback.honda_brake_ns) == source
   axis = sm['aolAxisState']
-  assert feedback._honda_brake_lateral_current(sm, cp, cs, axis, source + 200_000_001,
-                                              latched=True, brake_source_ns=source + 200_000_001) is None
-  assert feedback.honda_brake_ns == source
+  hook = feedback._honda_cancel_lateral_current if cancel else feedback._honda_brake_lateral_current
+  assert hook(sm, cp, cs, axis, source + 200_000_001, latched=True,
+              **{'cancel_source_ns' if cancel else 'brake_source_ns': source + 200_000_001}) is None
+  assert (feedback.honda_cancel_ns if cancel else feedback.honda_brake_ns) == source
 
 
 def test_card_brake_source_keeps_boot_and_monotonic_clocks_separate():
@@ -275,3 +290,88 @@ def test_sd_honda_unexpected_zero_grant_loss_is_not_cold_or_commanded_pause(muta
     source_current=source_current, previous_intent=prior_intent, intent=intent, now_ns=NOW) == (mutation == 'none')
   assert native.validUntilMonoTime == (NOW - 1 if mutation == 'latest_expired' else NOW + 190_000_000)
   assert not native.lateralAllowed and not native.longitudinalAllowed
+
+
+@pytest.mark.parametrize('mutation', ['none', 'stale', 'future', 'other_state', 'not_cancel', 'released', 'wrong_profile'])
+def test_card_cancel_source_requires_matching_fresh_parsed_can(mutation):
+  cp, cs, _, _, _ = fixture(cancel=True)
+  card: Any = Car.__new__(Car)
+  card.CP = cp
+  stamp = NOW + 9_000_000_000
+  parser = SimpleNamespace(vl={'SCM_BUTTONS': {'CRUISE_BUTTONS': 2}},
+                           ts_nanos={'SCM_BUTTONS': {'CRUISE_BUTTONS': stamp}})
+  card.CI = SimpleNamespace(can_parsers={Bus.pt: parser}, CS=SimpleNamespace())
+  card._aol_can_observation = (cs, NOW - 1000, stamp, stamp + 1000)
+  if mutation == 'stale':
+    parser.ts_nanos['SCM_BUTTONS']['CRUISE_BUTTONS'] -= 30_000_001
+  if mutation == 'future':
+    parser.ts_nanos['SCM_BUTTONS']['CRUISE_BUTTONS'] += 1
+  if mutation == 'other_state':
+    cs = structs.CarState(**cs.to_dict())
+  if mutation == 'not_cancel':
+    parser.vl['SCM_BUTTONS']['CRUISE_BUTTONS'] = 3
+  if mutation == 'released':
+    cs.buttonEvents = [structs.CarState.ButtonEvent(type=structs.CarState.ButtonEvent.Type.cancel, pressed=False)]
+  if mutation == 'wrong_profile':
+    cp.alternativeExperience = 0
+  assert card.aol_cancel_source(cs, NOW) == (NOW - 1000 if mutation == 'none' else 0)
+
+
+def test_cancel_retains_existing_native_lateral_only_receipt():
+  cp, cs, sm, native, feedback = fixture(coherent=True, long_allowed=False, cancel=True)
+  native = replace(native, requestedLongitudinal=False)
+  safety = messaging.new_message('aolSafetyWire', 0, valid=True, logMonoTime=native.observedMonoTime)
+  safety.aolSafetyWire = encode_safety(native)
+  sm.messages['aolSafetyWire'] = safety.as_reader()
+  assert feedback._honda_cancel_lateral_current(sm, cp, cs, sm['aolAxisState'], NOW,
+    latched=True, cancel_source_ns=NOW - 1000) == native
+  assert feedback.honda_cancel_ns == NOW - 1000
+  assert feedback.honda_brake_ns == 0
+
+
+@pytest.mark.parametrize('mutation', ['none', 'no_latch', 'no_previous', 'lat_denied', 'expired_native',
+  'stale_source', 'session', 'wrong_cp', 'configured_cancel', 'main_off', 'pause', 'eps', 'invalid_can',
+  'no_button', 'protocol', 'inventory'])
+def test_honda_cancel_no_entry_exception_requires_existing_current_lateral(mutation):
+  from openpilot.starpilot.car.honda.aol import physical_cancel_lateral_allowed
+  from openpilot.starpilot.aol.runtime import AxisDecision
+  cp, cs, _, native, _ = fixture(coherent=True, cancel=True)
+  cs.cruiseState.available = True
+  source = NOW - 1000
+  intent = SimpleNamespace(settingsQualified=True, allowedLatch=True, lateralArmed=True, pauseLateral=False,
+    producerSessionId='unit-producer', carStateLogMonoTime=source, observedMonoTime=NOW - 500,
+    validUntilMonoTime=NOW + 199_999_500)
+  settings = SimpleNamespace(enabled=True, cancel_actions=(0, 0, 0))
+  previous = AxisDecision(lateral_active=True, native_acknowledged=True)
+  if mutation == 'no_latch':
+    intent.allowedLatch = False
+  if mutation == 'no_previous':
+    previous = None
+  if mutation == 'lat_denied':
+    native = replace(native, lateralAllowed=False)
+  if mutation == 'expired_native':
+    native = replace(native, validUntilMonoTime=NOW - 1)
+  if mutation == 'stale_source':
+    intent.carStateLogMonoTime = source = NOW - 30_000_001
+  if mutation == 'session':
+    native = replace(native, axisSessionId='changed-session')
+  if mutation == 'wrong_cp':
+    cp.alternativeExperience = 0
+  if mutation == 'configured_cancel':
+    settings.cancel_actions = (9, 0, 0)
+  if mutation == 'main_off':
+    cs.cruiseState.available = False
+  if mutation == 'pause':
+    intent.pauseLateral = True
+  if mutation == 'eps':
+    cs.steerFaultPermanent = True
+  if mutation == 'invalid_can':
+    cs.canValid = False
+  if mutation == 'no_button':
+    cs.buttonEvents = []
+  if mutation == 'protocol':
+    native = replace(native, protocolVersion=0)
+  if mutation == 'inventory':
+    native = replace(native, pandaInventory=())
+  assert physical_cancel_lateral_allowed(cp, cs, intent, native, settings=settings, previous=previous,
+    source_ns=source, now_ns=NOW, axis_session_id='unit-session') == (mutation == 'none')
