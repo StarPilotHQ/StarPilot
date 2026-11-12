@@ -554,3 +554,27 @@ class TestHondaStockAol(unittest.TestCase):
         buttons = config.rx_checks[0].msg
         self.assertEqual([(int(msg.addr), int(msg.bus), int(msg.len)) for msg in buttons],
                          [(0x1A6 if self.alt else 0x296, self.pt, 8 if self.alt else 4), (0, 0, 0), (0, 0, 0)])
+
+  def test_legacy_longitudinal_owner_keeps_host_age_and_axis_boundaries(self):
+    for word in (34, 35, 163):
+      for request in (1, 2, 3):
+        with self.subTest(word=word, request=request):
+          self.configure(('legacy-long', 20, word, 1, 'honda_civic_hatchback_ex_2017_can_generated', False, 'GEARBOX_AUTO', 4))
+          self.stream(request=False)
+          if not self.debug:
+            self.safety.aol_set_host_request(request)
+            self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+            continue
+          for button in (3, 0):
+            self.assertTrue(self.safety.safety_rx_hook(self.packet('SCM_BUTTONS', {'CRUISE_BUTTONS': button})))
+          self.assertTrue(self.safety.get_controls_allowed())
+          self.safety.aol_set_host_request(request)
+          self.assertEqual(self.safety.aol_get_permission_mask(), request)
+          self.safety.set_timer(1_300_000)
+          self.stream(cruise=1, request=False)
+          self.assertEqual(self.safety.aol_get_request_mask(), request)
+          self.assertEqual(self.safety.aol_get_permission_mask(), request)
+          self.safety.set_timer(1_300_001)
+          self.stream(cruise=1, request=False)
+          self.assertEqual(self.safety.aol_get_request_mask(), 0)
+          self.assertEqual(self.safety.aol_get_permission_mask(), 0)
