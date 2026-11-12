@@ -605,16 +605,28 @@ def _run_pytest(targets):
   build_native = libsafety_py._build_libsafety
   native_path = libsafety_py.__dict__.get("libpath")
 
+  debug_root = None
+  debug_libraries = []
+
   def fixture_native(release=False):
     if release:
       return build_native(release=True)
+    if native is None or native_path is None or debug_root is None:
+      raise RuntimeError("pytest Debug mutation context is unavailable")
     if native.mutation_get_active_mutant() != active_mutant:
       raise RuntimeError("pytest fixture changed the active Debug mutant")
-    return native_path
+    path = debug_root / f"debug-{len(debug_libraries)}.so"
+    shutil.copyfile(native_path, path)
+    library = libsafety_py.ffi.dlopen(str(path))
+    library.mutation_set_active_mutant(active_mutant)
+    debug_libraries.append(library)
+    return str(path)
 
   stream = io.StringIO()
   with ExitStack() as native_builds, redirect_stdout(stream), redirect_stderr(stream):
     if type(active_mutant) is int:
+      debug_root = Path(native_builds.enter_context(tempfile.TemporaryDirectory(prefix="mutation-pytest-native-")))
+      native_builds.callback(libsafety_py.load, native_path)
       native_builds.enter_context(patch.object(libsafety_py, "_build_libsafety", side_effect=fixture_native))
     code = pytest.main(["-xq", "-o", "addopts=", *(target.removeprefix("pytest:") for target in targets)], plugins=[Results()])
   if code not in (0, 1) or (code == 1 and not failures and not errors):
