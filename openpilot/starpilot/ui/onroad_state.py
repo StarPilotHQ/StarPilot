@@ -198,6 +198,7 @@ class OnroadState:
   traffic_selected: bool = False
   traffic_display: TrafficDisplay | None = None
   aol_latched: bool | None = None
+  aol_armed_at_stop: bool = False
   lateral_active: bool = False
   longitudinal_active: bool = False
   longitudinal_overridden: bool = False

@@ -706,7 +706,9 @@ class Car:
       if (angle_aol and native is not None and native.requestedLateral and native.lateralAllowed and
           0 < self.aol_card_intent.physical_arm_ns <= native.observedMonoTime):
         self._angle_aol_acknowledged_arm_ns = self.aol_card_intent.physical_arm_ns
-      rejected = native_reset or (not angle_arm_pending and
+      subaru_braked_main_pending = bool(self.CP.brand == 'subaru' and not transport_reset and native is not None and
+        getattr(self.aol_transport_feedback, 'subaru_main_retained_native_ns', 0) == int(native.observedMonoTime))
+      rejected = native_reset or (not angle_arm_pending and not subaru_braked_main_pending and
         native_latch_rejected(self.CP, native, state=CS if angle_panda_ready else None))
       rejection_ns = now_ns if native_reset else int(native.observedMonoTime) if rejected else 0
       observe_physical = getattr(self.aol_card_intent, 'observe_physical_samples', None)

@@ -63,7 +63,8 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     cs.cruiseState.available and not cs.cruiseState.enabled and stock_user is not None and
     any(event.name == stock_user and event.userDisable for event in sm['onroadEvents']))
   from openpilot.starpilot.car.subaru.aol import temporary_eps_brake_recovery
-  subaru_brake = bool(stock_eps_user and temporary_eps_brake_recovery(cp, cs))
+  subaru_brake = bool(stock_eps_user and temporary_eps_brake_recovery(
+    cp, cs, previous_brake=bool(self.subaru_eps_brake_event_ns and self.subaru_eps_brake_event_ns == event_ns)))
   from opendbc.car import structs
   from opendbc.car.honda.stock_aol import qualified as honda_qualified
   # Existing LAT intent only: brake still removes LONG, and EPS still blocks output.
@@ -178,6 +179,8 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     self.hkg_eps_join_until_ns = min(previous[4], self.lateral_source_ns + AXIS_MAX_AGE_NS)
   if stock_volkswagen_eps and matched_withdrawal:
     self.volkswagen_eps_source_ns = int(axis.sourceCarStateMonoTime)
+  if subaru_brake and cs.brakePressed:
+    self.subaru_eps_brake_event_ns = event_ns
   if cs.steerFaultTemporary and matched_withdrawal:
     self.temporary_eps_event_ns = int(axis.faultEventMonoTime)
     if cp.brand == 'ford':

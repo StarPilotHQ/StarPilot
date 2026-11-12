@@ -289,6 +289,9 @@ class TransportPauseFeedback:
     self.cold_park_waiting = False
     self.lateral_only_baseline = False
     self.temporary_eps_gas_override = False
+    self.subaru_braked_main = None
+    self.subaru_main_retained_native_ns = 0
+    self.subaru_eps_brake_event_ns = 0
     self.hkg_eps_join_until_ns = 0
     self.lateral_source_ns = 0
     self.lateral_inventory = None
@@ -599,7 +602,8 @@ class TransportPauseFeedback:
       all(event.name in (stock_user, log.OnroadEvent.EventName.pedalPressed) and
           not event.softDisable and not event.immediateDisable for event in users))
     from openpilot.starpilot.car.subaru.aol import temporary_eps_brake_recovery as subaru_eps_brake_recovery
-    stock_temporary_user |= bool(eps_recovery and self.lateral_only_baseline and subaru_eps_brake_recovery(cp, cs) and users and
+    stock_temporary_user |= bool(eps_recovery and self.lateral_only_baseline and subaru_eps_brake_recovery(cp, cs, previous_brake=bool(
+        self.subaru_eps_brake_event_ns and self.subaru_eps_brake_event_ns == int(sm.logMonoTime['onroadEvents']))) and users and
       not axis.desiredLongitudinal and not axis.longitudinalActive and
       all(event.name in (stock_user, log.OnroadEvent.EventName.pedalPressed) and
           not event.softDisable and not event.immediateDisable for event in users))
@@ -1368,6 +1372,7 @@ class TransportPauseFeedback:
               gm_withdrawal_source_ns=0, intent_producer_session='', main_arm_ns=0, startup_calibration_pending=False, intent_paused=False):
     self.ordinary_warning_qualified = False
     self.temporary_host_qualified = False
+    self.subaru_main_retained_native_ns = 0
     self.qualified = False
     self.awaiting = False
     self.retention_qualified = False
@@ -1383,6 +1388,8 @@ class TransportPauseFeedback:
         self.ccnc_main_off_source_ns = 0
         self.cold_park_waiting = False
         self.cold_main_sparse_waiting = False
+        self.subaru_braked_main = None
+        self.subaru_eps_brake_event_ns = 0
       stamp = int(sm.logMonoTime['aolAxisState'])
       reason = str(axis.faultReason)
       signature = (str(axis.sessionId), int(axis.sequence), stamp, int(axis.observedMonoTime),
@@ -1431,6 +1438,12 @@ class TransportPauseFeedback:
           self.session = str(axis.sessionId)
           self.sequence, self.signature = int(axis.sequence), signature
           self.temporary_host_qualified = True
+          return False
+      if cp.brand == 'subaru' and latched and current and continuity:
+        from openpilot.starpilot.car.subaru.aol import retain_braked_main_intent
+        if retain_braked_main_intent(self, sm, cp, cs, axis, now_ns, arm_ns=main_arm_ns, producer=intent_producer_session):
+          self.session = str(axis.sessionId)
+          self.sequence, self.signature = int(axis.sequence), signature
           return False
       if cp.brand == 'ford' and latched:
         from openpilot.starpilot.car.ford.command_pause import retain_command_pause_intent, retain_gear_withdrawal_intent
@@ -1813,6 +1826,8 @@ class TransportPauseFeedback:
         if lateral_baseline and native is not None:
           self.ordinary_warning_retained = False
           self.ever_lateral_active = True
+          self.subaru_braked_main = None
+          self.subaru_eps_brake_event_ns = 0
           self.lag_withdrawal_ns = 0
           self.cold_main_wait_ns = 0
           self.cold_main_sparse_waiting = False

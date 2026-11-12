@@ -271,6 +271,8 @@ DEBUG_SAFETY_CLASS_TARGETS = {
 
 
 RELEASE_TARGETS = (
+  "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_impreza_main_while_braking_waits_for_native_grant",
+  "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_impreza_guard_brake_release_keeps_intent",
   "openpilot/starpilot/car/subaru/tests/test_high_angle_guard.py",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_impreza_high_angle_refusal_guard",
   "openpilot/starpilot/car/toyota/tests/test_radar_filter_buttons.py",
