@@ -488,3 +488,28 @@ class TestHondaStockAol(unittest.TestCase):
           self.assertEqual(self.safety.aol_get_permission_mask(), (3 if lateral else 2 if known else 0) if self.scoped else 0)
           self.press_brake()
           self.assertEqual(self.safety.aol_get_permission_mask(), int(self.scoped and lateral))
+
+  def test_native_pair_accessors_reject_every_unbounded_index(self):
+    self.configure(CASES[0])
+    self.assertFalse(self.safety.safety_test_honda_aol_unconfigured_sources())
+    for index in range(256):
+      with self.subTest(index=index):
+        self.assertEqual(self.safety.safety_test_honda_aol_pair_index(index, False), index if index < 7 else -1)
+        self.assertEqual(self.safety.safety_test_honda_aol_pair_index(index, True), index + 1 if index < 7 else -1)
+
+  def test_native_source_deadlines_independently_of_outer_rx_health(self):
+    for case in CASES:
+      self.configure(case)
+      if not self.scoped:
+        continue
+      self.arm()
+      for source in range(4):
+        limit = 200_000 if source == 3 else 300_000
+        for age in (0, limit - 1, limit, limit + 1):
+          with self.subTest(case=case[0], source=source, age=age):
+            expected = age <= limit or source == 3 and not self.pedal
+            self.assertEqual(self.safety.safety_test_honda_aol_source_age(source, age, True), expected)
+        if source != 2:
+          with self.subTest(case=case[0], source=source, seen=False):
+            self.assertEqual(self.safety.safety_test_honda_aol_source_age(source, 0, False), source == 3 and not self.pedal)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 1)

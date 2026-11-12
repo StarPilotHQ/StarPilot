@@ -15,7 +15,8 @@ import time
 import unittest
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from collections import Counter, namedtuple
-from dataclasses import dataclass
+from contextlib import ExitStack, redirect_stdout, redirect_stderr
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import tree_sitter_c as ts_c
@@ -464,6 +465,9 @@ def build_priority_tests(site, catalog, core_tests):
   rel_parts = src.relative_to(ROOT).parts
   is_mode = (len(rel_parts) >= 4 and rel_parts[:3] == ("opendbc", "safety", "modes")) or src.parent == BLUEPILOT_SAFETY_DIR
 
+  if src == SAFETY_DIR / "helpers.h":
+    return sorted(core_tests, key=lambda target: not target.endswith("TestBody.test_rx_callback_finishes"))
+
   if is_mode:
     family = src.stem.split("_", 1)[0]
     family_modules = [name for name in sorted(catalog) if name == f"test_{family}.py" or name.startswith(f"test_{family}_") or
@@ -526,15 +530,75 @@ def print_live_status(text, *, final=False):
     print(text, flush=True)
 
 
+def _unittest_ids(suite: unittest.TestSuite):
+  for item in suite:
+    if isinstance(item, unittest.TestSuite):
+      yield from _unittest_ids(item)
+    else:
+      yield item.id()
+
+
+def _pytest_id(item):
+  return "pytest:" + str(item.path.resolve()) + "::" + item.nodeid.split("::", 1)[1]
+
+
 def _discover_test_catalog():
+  import pytest
+  from tools.ci.safety_pytest_coverage import RELEASE_ONLY
+  from tools.ci.run_vehicle_tests import RELEASE_TARGETS
+  if not RELEASE_ONLY.issubset(RELEASE_TARGETS):
+    raise RuntimeError("Release-only mutation dispositions lack a mandatory RELEASE gate")
   loader = unittest.TestLoader()
   catalog = {}
   test_files = [*sorted(SAFETY_TESTS_DIR.glob("test_*.py")), *sorted((BLUEPILOT_SAFETY_DIR / "tests").glob("test_*.py"))]
   for test_file in test_files:
     module_name = ".".join(test_file.relative_to(ROOT).with_suffix("").parts)
     suite = loader.loadTestsFromName(module_name)
-    catalog[test_file.name] = [t.id() for group in suite for t in group]
+    if loader.errors:
+      raise RuntimeError("unittest safety collection failed: " + "\n".join(str(error) for error in loader.errors))
+    catalog[test_file.name] = list(_unittest_ids(suite))
+
+  class Collection:
+    def pytest_collection_finish(self, session):
+      for item in session.items:
+        if item.cls is None or not issubclass(item.cls, unittest.TestCase):
+          owner = item.path.relative_to(ROOT.parent).as_posix() + "::" + item.nodeid.split("::")[1]
+          if owner not in RELEASE_ONLY:
+            catalog[item.path.name].append(_pytest_id(item))
+
+  stream = io.StringIO()
+  with redirect_stdout(stream), redirect_stderr(stream):
+    code = pytest.main(["--collect-only", "-q", "-o", "addopts=", *(str(path) for path in test_files)], plugins=[Collection()])
+  if code != 0:
+    raise RuntimeError("pytest safety collection failed: " + stream.getvalue()[-32768:])
   return catalog
+
+
+def _run_pytest(targets):
+  import pytest
+  completed, skipped, failures, errors = set(), set(), [], []
+
+  class Results:
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_makereport(self, item, call):
+      report = (yield).get_result()
+      target = _pytest_id(item)
+      if report.when == "call" or report.failed or report.skipped:
+        completed.add(target)
+      if report.skipped:
+        skipped.add(target)
+      if report.failed:
+        if report.when == "call" and call.excinfo is not None and isinstance(call.excinfo.value, AssertionError):
+          failures.append(target)
+        else:
+          errors.append(target)
+
+  stream = io.StringIO()
+  with redirect_stdout(stream), redirect_stderr(stream):
+    code = pytest.main(["-xq", "-o", "addopts=", *(target.removeprefix("pytest:") for target in targets)], plugins=[Results()])
+  if code not in (0, 1) or (code == 1 and not failures and not errors):
+    errors.append(f"pytest exit {code}")
+  return TestRun(len(completed), len(skipped), 0, tuple(failures), tuple(errors), stream.getvalue()[-32768:])
 
 
 def run_unittest(targets, lib_path, mutant_id, verbose):
@@ -549,10 +613,23 @@ def run_unittest(targets, lib_path, mutant_id, verbose):
   stream = io.StringIO()
   runner = unittest.TextTestRunner(stream=stream, verbosity=0, failfast=True)
 
-  suite = unittest.TestSuite()
-  for target in targets:
-    suite.addTests(loader.loadTestsFromName(target))
-  result = runner.run(suite)
+  unittest_targets = [target for target in targets if not target.startswith("pytest:")]
+  pytest_targets = [target for target in targets if target.startswith("pytest:")]
+  class LazyTargets(unittest.TestSuite):
+    _cleanup = False
+    _result: unittest.TestResult | None = None
+
+    def __iter__(self):
+      for target in unittest_targets:
+        if self._result is not None and self._result.shouldStop:
+          return
+        yield from loader.loadTestsFromName(target)
+
+    def run(self, result, debug=False):
+      self._result = result
+      return super().run(result, debug)
+
+  result = runner.run(LazyTargets())
   suppressed_indices = set()
   method_skips = 0
   for test, _reason in result.skipped:
@@ -569,9 +646,14 @@ def run_unittest(targets, lib_path, mutant_id, verbose):
       method_skips += 1
     else:
       raise RuntimeError(f"unexpected unittest skip holder: {skipped_id}")
-  return TestRun(result.testsRun, method_skips, len(suppressed_indices),
-                 tuple(test.id() for test, _ in result.failures),
-                 tuple(test.id() for test, _ in result.errors), stream.getvalue()[-32768:])
+  combined = TestRun(result.testsRun, method_skips, len(suppressed_indices),
+                     tuple(test.id() for test, _ in result.failures),
+                     tuple(test.id() for test, _ in result.errors), stream.getvalue()[-32768:])
+  if pytest_targets and not combined.failures and not combined.errors:
+    other = _run_pytest(pytest_targets)
+    combined = TestRun(combined.ran + other.ran, combined.skipped + other.skipped, combined.suppressed,
+                       other.failures, other.errors, (combined.output_tail + other.output_tail)[-32768:])
+  return combined
 
 
 def _instrument_source(source, sites):
@@ -638,6 +720,7 @@ def compile_mutated_library(preprocessed_source, sites, output_so):
   prelude = """
     static int __mutation_active_id = -1;
     void mutation_set_active_mutant(int id) { __mutation_active_id = id; }
+    int mutation_get_active_mutant(void) { return __mutation_active_id; }
   """
   marker_re = re.compile(r'^\s*#\s+\d+\s+"[^\n]*\n?', re.MULTILINE)
   instrumented = prelude + marker_re.sub("", instrumented)
@@ -825,7 +908,8 @@ def main():
 
   start = time.perf_counter()
 
-  with tempfile.TemporaryDirectory(prefix="mutation-op-run-") as run_tmp_dir:
+  with tempfile.TemporaryDirectory(prefix="mutation-op-run-") as run_tmp_dir, ExitStack() as outputs:
+    journal = outputs.enter_context(args.results_json.with_suffix(".jsonl").open("x")) if args.results_json else None
     preprocessed_file = Path(run_tmp_dir) / "safety_preprocessed.c"
     sites, mutator_counts, build_incompatible_ids, preprocessed_source = enumerate_sites(ROOT / SAFETY_C_REL, preprocessed_file)
     assert len(sites) > 0
@@ -890,6 +974,9 @@ def main():
         for fut in as_completed(future_map):
           res = completed_mutant_result(fut, future_map[fut])
           results.append(res)
+          if journal is not None:
+            journal.write(json.dumps(asdict(res), default=str) + "\n")
+            journal.flush()
           counts[res.outcome] += 1
           elapsed_now = time.perf_counter() - start
           done = len(results) == len(sites)
