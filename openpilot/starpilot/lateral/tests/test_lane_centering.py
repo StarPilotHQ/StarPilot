@@ -74,6 +74,43 @@ class TestCurvePositionFeedback(unittest.TestCase):
     assert result is not None
     return result
 
+  def test_nominal_curve_response_can_build_a_bounded_position_bias(self):
+    for sign in (-1., 1.):
+      with self.subTest(direction=sign):
+        source = self.source(sign * .6, sign * .003)
+        controller = LaneCenteringController()
+        result = self.run_fresh(controller, source, 1000, following=False)
+        self.assertLess(sign * controller._position_trim, -.05)
+        self.assertLessEqual(abs(controller._position_trim), MAX_CORRECTION * source.speed_mps ** 2 + 1e-12)
+        self.assertLess(sign * result.correction, 0.)
+        self.assertLessEqual(abs(result.correction), MAX_CORRECTION)
+
+  def test_position_feedback_survives_loss_of_the_other_line(self):
+    for sign in (-1., 1.):
+      for missing in (1, 2):
+        with self.subTest(direction=sign, missing=missing):
+          source = self.source(sign * .6, sign * .003)
+          # Cover the origin after projecting the line's normal spacing.
+          for path, shift in ((source.model.position, 0.),
+                              (source.model.laneLines[1], -1.8 - sign * .6),
+                              (source.model.laneLines[2], 1.8 - sign * .6)):
+            path.x = [-1., *XS]
+            path.y = (.5 * sign * .003 * np.asarray(path.x) ** 2 + shift).tolist()
+          source.model.position.yStd = [.1] * (len(XS) + 1)
+          controller = LaneCenteringController()
+          self.run_fresh(controller, source, 300)
+          self.assertLess(sign * controller._position_trim, 0.)
+          source.model.laneLineProbs[missing] = .05
+          result = self.run_fresh(controller, source, 300)
+          self.assertEqual(result.reason, 'qualified')
+          self.assertEqual(controller._tracker.side, 1 if missing == 1 else 0)
+          self.assertLess(sign * controller._position_trim, -.01)
+          self.assertLess(sign * result.correction, 0.)
+          self.assertLessEqual(abs(result.correction), MAX_CORRECTION)
+          source.model.laneLineProbs = [0., .05, .05, 0.]
+          controller.update(replace(source, model_sample_id=1000))
+          self.assertEqual(controller._position_trim, 0.)
+
   def test_sustained_curve_position_error_extends_the_partial_path_nudge(self):
     for sign in (-1., 1.):
       source = self.source(sign * .6, sign * .003)

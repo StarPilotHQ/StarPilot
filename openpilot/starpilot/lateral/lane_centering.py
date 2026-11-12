@@ -278,7 +278,7 @@ class LaneCenteringController:
     self._position_trim = 0.0
     self._position_age = 0.0
     self._position_clock = 0.0
-    self._command_history: deque[tuple[float, float]] = deque(maxlen=150)
+    self._command_history: deque[tuple[float, float, float]] = deque(maxlen=150)
     self._geometry_cache = None
     self._tracker = SingleLineTracker()
     self._body = body
@@ -295,7 +295,9 @@ class LaneCenteringController:
     self._tracker.reset()
 
   def _remember_command(self, curvature: float) -> None:
-    sample = (self._position_clock, curvature)
+    source = self._clearance_observation
+    base = source.base_curvature if source is not None else curvature
+    sample = (self._position_clock, curvature, base)
     if self._command_history and self._command_history[-1][0] == self._position_clock:
       self._command_history[-1] = sample
     else:
@@ -354,7 +356,7 @@ class LaneCenteringController:
         allowed = limit_correction(model, base, allowed, measured, speed, checked_delay, self._body)
     if allowed != delta:
       self._correction *= abs(allowed / delta)
-      self._position_trim *= abs(allowed / delta)
+      self._position_trim = clip_scalar(self._position_trim, -abs(allowed) * speed * speed, abs(allowed) * speed * speed)
     final = base + allowed
     self._remember_command(final)
     return final
@@ -429,20 +431,24 @@ class LaneCenteringController:
     measured = _finite_number(observation.measured_curvature)
     delay = _finite_number(observation.lateral_delay_s)
     if measured is not None and delay is not None:
-      if self._tracker.side is None and self._tracker.width is not None and self._tracker.path is not None:
+      spacing = (self._tracker.width * .5 if self._tracker.side is None and self._tracker.width is not None
+                 else self._tracker.spacing)
+      if spacing is not None and self._tracker.path is not None:
         near = _at(self._tracker.path, 0.)
         if near is not None:
-          bound = min(MAX_OFFSET, max(0., self._tracker.width * .5 - MIN_CENTER_TO_LINE))
+          bound = min(MAX_OFFSET, max(0., spacing - MIN_CENTER_TO_LINE))
           position_error = near + clip_scalar(offset, -bound, bound)
           self._position_age = self._position_age + dt if abs(position_error) > POSITION_ACQUIRE_ERROR or self._position_trim != 0. else 0.
           error = math.copysign(max(0., abs(position_error) - CENTER_ERROR_DEADBAND), position_error)
-          unattenuated = raw_correction(observation.model, speed, offset, 0., _paths=paths)
+          unattenuated = raw_correction(observation.model, speed, offset, 0., _paths=paths, _single_target=tracked.y)
           weight = 1. if unattenuated == 0. else abs(raw / unattenuated) if unattenuated is not None else 0.
           if weight == 0.:
             self._position_trim = 0.
             self._position_age = 0.
-          delayed = next((command for stamp, command in reversed(self._command_history) if stamp <= self._position_clock - delay), None)
-          tracking_error = (delayed - measured) * speed * speed if delayed is not None else None
+          delayed = next(((command, nominal) for stamp, command, nominal in reversed(self._command_history)
+                          if stamp <= self._position_clock - delay), None)
+          tracking_error = ((clip_scalar(measured, min(delayed), max(delayed)) - measured) * speed * speed
+                            if delayed is not None else None)
           if (self._position_age >= POSITION_ACQUIRE_SECONDS and tracking_error is not None and
               (error * tracking_error <= 0. or abs(tracking_error) <= POSITION_TRACKING_ERROR)):
             limit = MAX_CORRECTION * speed * speed
@@ -457,7 +463,7 @@ class LaneCenteringController:
         self._position_age = 0.
       allowed = self._tracking_correction(base, target, measured, speed, delay, damp_recovery=True)
       if allowed != target and target != 0.:
-        self._position_trim *= abs(allowed / target)
+        self._position_trim = clip_scalar(self._position_trim, -abs(allowed) * speed * speed, abs(allowed) * speed * speed)
       target = allowed
     else:
       self._position_trim = 0.
