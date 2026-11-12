@@ -1,5 +1,6 @@
 """Native model-message fixtures for the standalone curvature contribution."""
 from dataclasses import replace
+from collections import deque
 import json
 import math
 from pathlib import Path
@@ -46,6 +47,147 @@ def settled(controller, source, ticks=300):
     result = controller.update(source)
   assert result is not None
   return result
+
+
+class TestCurvePositionFeedback(unittest.TestCase):
+  @staticmethod
+  def source(displacement=.6, curvature=.003, *, authority=.5):
+    m = model()
+    x = np.asarray(XS)
+    center = .5 * curvature * x ** 2 - displacement
+    for index, shift in ((1, -1.8), (2, 1.8)):
+      m.laneLines[index].y = (center + shift).tolist()
+    m.position.y = (.5 * curvature * x ** 2).tolist()
+    return observation(m, base_curvature=curvature, measured_curvature=curvature,
+                       speed_mps=25., lateral_delay_s=.1,
+                       settings=LaneCenteringSettings(True, e2e_authority=authority))
+
+  @staticmethod
+  def run_fresh(controller, source, ticks, *, following=True):
+    result = None
+    start = (controller._tracker.last_id or 0) + 1
+    for tick in range(ticks):
+      current = replace(source, model_sample_id=start + tick // 5)
+      if following and source.measured_curvature is not None:
+        current = replace(current, measured_curvature=source.base_curvature + controller._correction)
+      result = controller.update(current)
+    assert result is not None
+    return result
+
+  def test_sustained_curve_position_error_extends_the_partial_path_nudge(self):
+    for sign in (-1., 1.):
+      source = self.source(sign * .6, sign * .003)
+      controller = LaneCenteringController()
+      result = self.run_fresh(controller, source, 1000)
+      raw = raw_correction(source.model, source.speed_mps, 0., .5)
+      assert raw is not None
+      self.assertLess(sign * result.correction, 0.)
+      self.assertGreater(abs(result.correction), abs(raw) * .3 * source.settings.strength * 1.1)
+      self.assertLessEqual(abs(result.correction), MAX_CORRECTION)
+
+  def test_mild_position_error_does_not_build_a_trim(self):
+    source = self.source(.12)
+    controller = LaneCenteringController()
+    self.run_fresh(controller, source, 1000)
+    self.assertEqual(controller._position_trim, 0.)
+
+  def test_position_trim_does_not_wind_up_behind_the_steering_response(self):
+    source = replace(self.source(), measured_curvature=.005)
+    controller = LaneCenteringController()
+    self.run_fresh(controller, source, 1000, following=False)
+    self.assertEqual(controller._position_trim, 0.)
+
+  def test_full_breakaway_releases_a_previously_acquired_trim(self):
+    source = self.source()
+    controller = LaneCenteringController()
+    self.run_fresh(controller, source, 300)
+    self.assertLess(controller._position_trim, 0.)
+    source = replace(source, settings=replace(source.settings, e2e_authority=1.))
+    result = self.run_fresh(controller, source, 1000)
+    self.assertEqual(controller._position_trim, 0.)
+    self.assertAlmostEqual(result.correction, 0., delta=1e-10)
+
+  def test_feedback_cannot_wind_up_through_withdrawal_or_missing_motion(self):
+    for reason in ('override', 'signal', 'confidence', 'motion', 'inactive'):
+      source = self.source()
+      controller = LaneCenteringController()
+      self.run_fresh(controller, source, 300)
+      self.assertLess(controller._position_trim, 0.)
+      if reason == 'override':
+        source = replace(source, driver_override=True)
+      elif reason == 'signal':
+        source = replace(source, turn_signal_active=True)
+      elif reason == 'confidence':
+        source.model.laneLineProbs = [.0, .1, .1, .0]
+      elif reason == 'motion':
+        source = replace(source, lateral_delay_s=None)
+      else:
+        source = replace(source, lateral_active=False)
+      controller.update(replace(source, model_sample_id=1000))
+      self.assertEqual(controller._position_trim, 0.)
+
+  def test_planner_recovery_discards_opposing_position_memory(self):
+    from openpilot.starpilot.lateral.lane_clearance import _center_motion
+    source = self.source()
+    controller = LaneCenteringController()
+    self.run_fresh(controller, source, 300)
+    source = self.source(0.)
+    x, y, _ = _center_motion(source.base_curvature, source.base_curvature, source.speed_mps, .1)
+    x, y = np.r_[0., x, 50.], np.r_[0., y, y[-1]]
+    for index, shift in ((1, -1.8), (2, 1.8)):
+      source.model.laneLines[index].x = x.tolist()
+      source.model.laneLines[index].y = (y + shift).tolist()
+    result = controller.update(replace(source, model_sample_id=1000))
+    assert result.candidate_curvature is not None
+    assert source.measured_curvature is not None and source.lateral_delay_s is not None
+    final = controller.guard_applied(source.model, source.base_curvature, result.candidate_curvature,
+                                     source.measured_curvature, source.speed_mps, source.lateral_delay_s)
+    self.assertAlmostEqual(final, source.base_curvature, delta=1e-8)
+    self.assertAlmostEqual(controller._position_trim, 0., delta=1e-5)
+
+  def test_feedback_build_and_reversal_retain_the_acceleration_rate_bound(self):
+    controller = LaneCenteringController()
+    previous = 0.
+    for tick in range(900):
+      source = self.source(.8 if tick < 450 else -.8)
+      result = controller.update(replace(source, model_sample_id=tick + 1))
+      self.assertLessEqual(abs(result.correction), MAX_CORRECTION)
+      self.assertLessEqual(abs(result.correction - previous) * source.speed_mps ** 2,
+                           source.elapsed_seconds + 1e-12)
+      previous = result.correction
+
+  def test_delayed_curve_tracking_settles_a_biased_planner_within_the_quiet_zone(self):
+    for speed in (25., 35.):
+      for sign in (-1., 1.):
+        with self.subTest(speed=speed, direction=sign):
+          controller = LaneCenteringController()
+          road, bias = sign * .003, sign * .6
+          offset, heading, measured = bias, 0., road
+          base = road
+          commands = deque([road] * 20)
+          x = np.asarray(XS)
+          m = model()
+          for tick in range(2000):
+            if tick % 5 == 0:
+              center = .5 * road * x ** 2 - offset - heading * x
+              for index, shift in ((1, -1.8), (2, 1.8)):
+                m.laneLines[index].y = (center + shift).tolist()
+              lookahead = speed * 1.2
+              base = road + 2 * (bias - offset - heading * lookahead) / lookahead ** 2
+              m.position.y = (.5 * base * x ** 2).tolist()
+            source = observation(m, model_sample_id=1 + tick // 5, base_curvature=base,
+                                 measured_curvature=measured, speed_mps=speed, lateral_delay_s=.2,
+                                 settings=LaneCenteringSettings(True, e2e_authority=.5))
+            result = controller.update(source)
+            assert result.candidate_curvature is not None
+            command = controller.guard_applied(m, base, result.candidate_curvature, measured, speed, .2)
+            commands.append(command)
+            measured += (commands.popleft() - measured) * (1 - math.exp(-.01 / .15))
+            heading += speed * (measured - road) * .01
+            offset += speed * math.sin(heading) * .01
+            self.assertLessEqual(abs(offset), .65)
+            self.assertLessEqual(abs(result.correction), MAX_CORRECTION)
+          self.assertLess(abs(offset), .10)
 
 
 class TestLaneCentering(unittest.TestCase):

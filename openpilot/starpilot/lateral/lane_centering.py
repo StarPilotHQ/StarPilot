@@ -5,6 +5,7 @@ This module neither reads settings nor sends commands.
 """
 
 from dataclasses import dataclass
+from collections import deque
 from enum import StrEnum
 import math
 from numbers import Real
@@ -38,6 +39,11 @@ E2E_BREAK_IN_START = 0.15
 E2E_BREAK_IN_FULL = 0.50
 ACQUIRE_TAU = 0.4
 RELEASE_TAU = 0.2
+POSITION_ACQUIRE_SECONDS = 0.5
+POSITION_GAIN = 0.5
+POSITION_MAX_JERK = 0.1
+POSITION_TRACKING_ERROR = 0.1
+POSITION_ACQUIRE_ERROR = 0.2
 
 
 class ControlMode(StrEnum):
@@ -267,6 +273,10 @@ def _reader_geometry_key(model):
 class LaneCenteringController:
   def __init__(self, *, body: BodyDimensions | None = None, body_required: bool = False) -> None:
     self._correction = 0.0
+    self._position_trim = 0.0
+    self._position_age = 0.0
+    self._position_clock = 0.0
+    self._command_history: deque[tuple[float, float]] = deque(maxlen=150)
     self._geometry_cache = None
     self._tracker = SingleLineTracker()
     self._body = body
@@ -275,8 +285,19 @@ class LaneCenteringController:
 
   def reset(self) -> None:
     self._correction = 0.0
+    self._position_trim = 0.0
+    self._position_age = 0.0
+    self._position_clock = 0.0
+    self._command_history.clear()
     self._geometry_cache = None
     self._tracker.reset()
+
+  def _remember_command(self, curvature: float) -> None:
+    sample = (self._position_clock, curvature)
+    if self._command_history and self._command_history[-1][0] == self._position_clock:
+      self._command_history[-1] = sample
+    else:
+      self._command_history.append(sample)
 
   def _result(self, base: float, reason: str) -> LaneCenteringResult:
     if self._body is not None and self._correction != 0.:
@@ -286,12 +307,17 @@ class LaneCenteringController:
       guarded = (0. if measured is None or delay is None else
                  limit_correction(source.model, base, self._correction, measured, source.speed_mps, delay, self._body))
       if guarded != self._correction:
+        self._position_trim *= abs(guarded / self._correction)
         self._correction = guarded
         reason = 'clearance_limited'
     correction = self._correction
+    self._remember_command(base + correction)
     return LaneCenteringResult(base + correction, correction, (correction > 0) - (correction < 0), reason)
 
   def _fade(self, base: float, dt: float, reason: str) -> LaneCenteringResult:
+    self._position_trim = 0.0
+    self._position_age = 0.0
+    self._command_history.clear()
     self._correction *= math.exp(-dt / RELEASE_TAU)
     if abs(self._correction) < 1e-12:
       self._correction = 0.0
@@ -315,6 +341,7 @@ class LaneCenteringController:
       self.reset()
       return base
     if base == candidate or self._body is None and self._tracker.path is None:
+      self._remember_command(candidate)
       return candidate
     checked_delay = _finite_number(delay)
     delta = candidate - base
@@ -325,7 +352,10 @@ class LaneCenteringController:
         allowed = limit_correction(model, base, allowed, measured, speed, checked_delay, self._body)
     if allowed != delta:
       self._correction *= abs(allowed / delta)
-    return base + allowed
+      self._position_trim *= abs(allowed / delta)
+    final = base + allowed
+    self._remember_command(final)
+    return final
 
   def update(self, observation: LaneCenteringInput) -> LaneCenteringResult:
     if not isinstance(observation, LaneCenteringInput):
@@ -371,6 +401,7 @@ class LaneCenteringController:
     if settings.pause_on_signal and observation.turn_signal_active:
       self._tracker.reset()
       return self._fade(base, dt, "signal_release")
+    self._position_clock += dt
     # Filtering runs per control tick, including repeated model samples.
     geometry = _reader_geometry_key(observation.model)
     cache_key = (observation.model_sample_id, geometry)
@@ -396,7 +427,39 @@ class LaneCenteringController:
     measured = _finite_number(observation.measured_curvature)
     delay = _finite_number(observation.lateral_delay_s)
     if measured is not None and delay is not None:
-      target = self._tracking_correction(base, target, measured, speed, delay, damp_recovery=True)
+      if self._tracker.side is None and self._tracker.width is not None and self._tracker.path is not None:
+        near = _at(self._tracker.path, 0.)
+        if near is not None:
+          bound = min(MAX_OFFSET, max(0., self._tracker.width * .5 - MIN_CENTER_TO_LINE))
+          position_error = near + clip_scalar(offset, -bound, bound)
+          self._position_age = self._position_age + dt if abs(position_error) > POSITION_ACQUIRE_ERROR or self._position_trim != 0. else 0.
+          error = math.copysign(max(0., abs(position_error) - CENTER_ERROR_DEADBAND), position_error)
+          unattenuated = raw_correction(observation.model, speed, offset, 0., _paths=paths)
+          weight = 1. if unattenuated == 0. else abs(raw / unattenuated) if unattenuated is not None else 0.
+          if weight == 0.:
+            self._position_trim = 0.
+            self._position_age = 0.
+          delayed = next((command for stamp, command in reversed(self._command_history) if stamp <= self._position_clock - delay), None)
+          tracking_error = (delayed - measured) * speed * speed if delayed is not None else None
+          if (self._position_age >= POSITION_ACQUIRE_SECONDS and tracking_error is not None and
+              (error * tracking_error <= 0. or abs(tracking_error) <= POSITION_TRACKING_ERROR)):
+            limit = MAX_CORRECTION * speed * speed
+            rate = clip_scalar(error * POSITION_GAIN * weight * strength / STRENGTH_BASELINE, -POSITION_MAX_JERK, POSITION_MAX_JERK)
+            self._position_trim = clip_scalar(self._position_trim + rate * dt, -limit, limit)
+          target = clip_scalar(target + self._position_trim / speed / speed, -MAX_CORRECTION, MAX_CORRECTION)
+        else:
+          self._position_trim = 0.
+          self._position_age = 0.
+      else:
+        self._position_trim = 0.
+        self._position_age = 0.
+      allowed = self._tracking_correction(base, target, measured, speed, delay, damp_recovery=True)
+      if allowed != target and target != 0.:
+        self._position_trim *= abs(allowed / target)
+      target = allowed
+    else:
+      self._position_trim = 0.
+      self._position_age = 0.
     step = (target - self._correction) * (1.0 - math.exp(-dt / ACQUIRE_TAU))
     max_step = MAX_CORRECTION_JERK * dt / speed / speed
     self._correction += clip_scalar(step, -max_step, max_step)
