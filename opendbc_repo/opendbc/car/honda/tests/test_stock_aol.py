@@ -329,7 +329,8 @@ def test_actual_card_active_observation_requires_fresh_selfdrive_state(monkeypat
   host = Car.__new__(Car)
   host.CP, host.aol_card_intent = cp, intent
   host.aol_settings = intent.settings
-  host.CI = SimpleNamespace(update=lambda _: cs, CS=SimpleNamespace())
+  host.CI = SimpleNamespace(update=lambda _: cs, CS=SimpleNamespace(),
+                            can_parsers=CarInterface.CarState(cp).get_can_parsers(cp))
   host.RI = SimpleNamespace(update=lambda _: None)
   host.car_gps_publisher = SimpleNamespace(update=lambda *args: None)
   host.observe_ioniq6_long_authority = lambda *args: None
