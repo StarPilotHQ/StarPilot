@@ -60,6 +60,52 @@ class TestModelLeadTrajectory(unittest.TestCase):
     cp.openpilotLongitudinalControl = True
     return LongitudinalPlanner(cp, init_v=20.)
 
+  def stopped_departure_inputs(self):
+    sm, _ = inputs()
+    sm['carState'].vEgo = 0.
+    sm['carState'].aEgo = 0.
+    sm['carState'].standstill = True
+    sm['modelV2'].velocity.x = [0.]
+    sm['controlsState'].longControlState = 'stopping'
+    for i, model in enumerate(sm['modelV2'].leadsV3):
+      model.x = [8.116, 9.58, 15.07, 24.75, 38.74, 56.94]
+      model.v = [0., 1.46, 3.1, 5.2, 7.0, 8.5]
+      lead = sm['radarState'].leadOne if i == 0 else sm['radarState'].leadTwo
+      lead.dRel = 6.596
+      lead.vLead = lead.vLeadK = lead.vRel = lead.aLeadK = 0.
+    return sm
+
+  def test_stopped_radar_does_not_borrow_predicted_departure(self):
+    sm = self.stopped_departure_inputs()
+    lead, model = sm['radarState'].leadOne, sm['modelV2'].leadsV3[0]
+    mpc = self.planner().mpc
+    mpc.set_cur_state(0., 0.)
+    for speed in (0., .1, .49):
+      lead.vLead = speed
+      self.assertIsNone(m.build_model_lead_trajectory(model, lead, 0., 0.))
+      np.testing.assert_array_equal(mpc.process_lead(lead, model, model_v_ego=0.), mpc.process_lead(lead))
+    for speed in (.5, .8, 1.5):
+      lead.vLead = speed
+      self.assertIsNotNone(m.build_model_lead_trajectory(model, lead, 0., 0.))
+
+  def test_actual_planner_and_longcontrol_keep_hold_for_predicted_departure(self):
+    from openpilot.selfdrive.controls.lib.longcontrol import LongControl, LongCtrlState
+    cp = CarInterface.get_non_essential_params(CAR.HONDA_CIVIC)
+    actual, fallback = LongitudinalPlanner(cp, init_v=0.), LongitudinalPlanner(cp, init_v=0.)
+    sm = self.stopped_departure_inputs()
+    actual.update(sm, now_ns=NOW)
+    with patch('openpilot.selfdrive.controls.lib.longitudinal_planner.qualified_model_leads', return_value=None):
+      fallback.update(sm, now_ns=NOW)
+    self.assertEqual(actual.mpc.solution_status, 0)
+    np.testing.assert_array_equal(actual.mpc.params, fallback.mpc.params)
+    self.assertTrue(actual.output_should_stop)
+    control = LongControl(cp)
+    control.long_control_state = LongCtrlState.stopping
+    for _ in range(10):
+      output = control.update(True, sm['carState'], actual.output_a_target, actual.output_should_stop, (-3.5, 2.))
+      self.assertLess(output, 0.)
+      self.assertEqual(control.long_control_state, LongCtrlState.stopping)
+
   def test_actual_planner_mpc_uses_both_model_horizons_without_changing_lead_owner(self):
     for radar in (True, False):
       with self.subTest(radar=radar):

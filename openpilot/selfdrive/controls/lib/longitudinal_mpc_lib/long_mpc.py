@@ -98,6 +98,10 @@ def build_model_lead_trajectory(model_lead, radar_lead, v_ego, model_v_ego=None)
   if not np.isfinite(raw_d_rel) or not np.isfinite(raw_v_lead):
     return None
 
+  # A predicted departure cannot override a radar lead still measured stopped.
+  if radar_lead.radar and raw_v_lead < 0.5:
+    return None
+
   raw_accel = float(getattr(radar_lead, "aLeadK", float("nan")))
   if not np.isfinite(raw_accel) or not np.isfinite(v_ego):
     return None
