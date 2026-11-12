@@ -71,7 +71,7 @@ class TestForceStopAlert(unittest.TestCase):
     for action in ('gas', 'resume', 'accel'):
       drive, cs = fixture()
       alert = self.update(drive, cs)
-      self.assertEqual((alert.alert_text_1, alert.alert_text_2), ('Force Stop Holding', 'Press RES or accelerator to proceed'))
+      self.assertEqual((alert.alert_text_1, alert.alert_text_2), ('Enhanced Stop', 'Press RES or accelerator to proceed'))
       self.assertEqual(alert.audible_alert, log.SelfdriveState.AudibleAlert.none)
       if action == 'gas':
         cs.gasPressed = True
@@ -86,15 +86,15 @@ class TestForceStopAlert(unittest.TestCase):
       drive.sm['starpilotLongitudinalPlan'].forceStopHolding = False
       self.update(drive, cs)
       drive.sm['starpilotLongitudinalPlan'].forceStopHolding = True
-      self.assertEqual(self.update(drive, cs).alert_text_1, 'Force Stop Holding')
+      self.assertEqual(self.update(drive, cs).alert_text_1, 'Enhanced Stop')
 
   def test_press_already_present_at_subscription_does_not_clear_hold(self):
     drive, cs = fixture()
     cs.buttonEvents = [{'type': 'resumeCruise', 'pressed': True}]
-    self.assertEqual(self.update(drive, cs).alert_text_1, 'Force Stop Holding')
+    self.assertEqual(self.update(drive, cs).alert_text_1, 'Enhanced Stop')
     drive.aol_car_state_log_ns += 1_000_000
     cs.buttonEvents = [{'type': 'resumeCruise', 'pressed': False}]
-    self.assertEqual(self.update(drive, cs).alert_text_1, 'Force Stop Holding')
+    self.assertEqual(self.update(drive, cs).alert_text_1, 'Enhanced Stop')
     drive.aol_car_state_log_ns += 1_000_000
     cs.buttonEvents = [{'type': 'resumeCruise', 'pressed': True}]
     self.assertEqual(self.update(drive, cs).alert_text_1, '')
@@ -116,7 +116,7 @@ class TestForceStopAlert(unittest.TestCase):
             drive.sm.logMonoTime[name] = drive.sm.logMonoTime['longitudinalPlan']
       drive.aol_car_state_log_ns = now
       drive.sm.frame += 1
-      self.assertEqual(self.update(drive, cs, now).alert_text_1, 'Force Stop Holding', tick)
+      self.assertEqual(self.update(drive, cs, now).alert_text_1, 'Enhanced Stop', tick)
 
   def test_companion_binding_and_expiration_do_not_latch_unmatched_hold(self):
     for defect in ('version', 'drive', 'future', 'wrong_pair', 'withdrawn'):
@@ -134,24 +134,24 @@ class TestForceStopAlert(unittest.TestCase):
         drive.sm.valid['starpilotLongitudinalPlan'] = False
       self.assertEqual(self.update(drive, cs).alert_text_1, '', defect)
     drive, cs = fixture()
-    self.assertEqual(self.update(drive, cs).alert_text_1, 'Force Stop Holding')
+    self.assertEqual(self.update(drive, cs).alert_text_1, 'Enhanced Stop')
     # Core arrives first: the prior matched pair bridges the bounded handoff.
     drive.sm.logMonoTime['longitudinalPlan'] += 1_000_000
-    self.assertEqual(self.update(drive, cs).alert_text_1, 'Force Stop Holding')
+    self.assertEqual(self.update(drive, cs).alert_text_1, 'Enhanced Stop')
     self.assertEqual(self.update(drive, cs, NOW + 151_000_000).alert_text_1, '')
     drive, cs = fixture()
-    self.assertEqual(self.update(drive, cs).alert_text_1, 'Force Stop Holding')
+    self.assertEqual(self.update(drive, cs).alert_text_1, 'Enhanced Stop')
     # Companion arrives first; its source binding cannot promote an unpaired hold.
     hold = drive.sm['starpilotLongitudinalPlan']
     hold.sourcePlanMonoTime += 1_000_000
     drive.sm.logMonoTime['starpilotLongitudinalPlan'] += 1_000_000
-    self.assertEqual(self.update(drive, cs).alert_text_1, 'Force Stop Holding')
+    self.assertEqual(self.update(drive, cs).alert_text_1, 'Enhanced Stop')
     drive.sm.logMonoTime['longitudinalPlan'] = hold.sourcePlanMonoTime
-    self.assertEqual(self.update(drive, cs).alert_text_1, 'Force Stop Holding')
+    self.assertEqual(self.update(drive, cs).alert_text_1, 'Enhanced Stop')
 
   def test_physical_release_during_companion_withdrawal_stays_suppressed(self):
     drive, cs = fixture()
-    self.assertEqual(self.update(drive, cs).alert_text_1, 'Force Stop Holding')
+    self.assertEqual(self.update(drive, cs).alert_text_1, 'Enhanced Stop')
     drive.sm.valid['starpilotLongitudinalPlan'] = False
     cs.gasPressed = True
     self.assertEqual(self.update(drive, cs).alert_text_1, '')
@@ -163,7 +163,7 @@ class TestForceStopAlert(unittest.TestCase):
     for defect in ('stale', 'device_stale', 'previous_drive', 'model_mismatch', 'model_reference_stale',
                    'inactive', 'off', 'stock', 'generic_stop', 'car_invalid'):
       drive, cs = fixture()
-      self.assertEqual(self.update(drive, cs).alert_text_1, 'Force Stop Holding')
+      self.assertEqual(self.update(drive, cs).alert_text_1, 'Enhanced Stop')
       if defect == 'stale':
         drive.sm.logMonoTime['longitudinalPlan'] = NOW - 200_000_000
       elif defect == 'device_stale':

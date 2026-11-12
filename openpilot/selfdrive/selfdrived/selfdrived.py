@@ -1219,7 +1219,7 @@ class SelfdriveD:
       self.sm, self.CP, CS, enabled=self.enabled, car_ns=getattr(self, 'aol_car_state_log_ns', 0),
       car_valid=getattr(self, 'conditional_car_state_valid', False), now_ns=time.monotonic_ns()) and ET.WARNING in self.state_machine.current_alert_types
     if holding:
-      alert = Alert("Force Stop Holding", "Press RES or accelerator to proceed", log.SelfdriveState.AlertStatus.normal,
+      alert = Alert("Enhanced Stop", "Press RES or accelerator to proceed", log.SelfdriveState.AlertStatus.normal,
                     log.SelfdriveState.AlertSize.mid, AlertPriority.LOW, car.CarControl.HUDControl.VisualAlert.none,
                     log.SelfdriveState.AudibleAlert.none, 0.)
       alert.alert_type, alert.event_type = "forceStopHold/warning", FORCE_STOP_HOLD

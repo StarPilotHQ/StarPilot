@@ -525,6 +525,32 @@ class TestRuntimeSnapshot(unittest.TestCase):
     self.assertFalse(alert.critical)
     self.assertEqual(alert.visual_alert, 1)
 
+  def test_observed_personality_avoids_saved_read_and_missing_or_invalid_source_keeps_fallback(self):
+    ui = ui_fake()
+    ui.params.values['LongitudinalPersonality'] = '0'
+    ui.sm['selfdriveState'].personality = 'relaxed'
+    adapter = RuntimeSnapshotAdapter(ui)
+    adapter.build(ShellMode.ONROAD, now_ns=NOW)
+    original_get = ui.params.get
+    reads = []
+    ui.params.get = lambda key: (reads.append(key), original_get(key))[1]
+    state = adapter.build(ShellMode.ONROAD, now_ns=NOW + 10_000_000).onroad
+    self.assertEqual(state.personality, 2)
+    self.assertNotIn('LongitudinalPersonality', reads)
+    ui.sm['selfdriveState'].personality = 'aggressive'
+    state = adapter.build(ShellMode.ONROAD, now_ns=NOW + 20_000_000).onroad
+    self.assertEqual(state.personality, 0)
+    self.assertNotIn('LongitudinalPersonality', reads)
+    ui.params.values['LongitudinalPersonality'] = '2'
+    for valid, value in ((False, 'aggressive'), (True, 'unknown')):
+      with self.subTest(valid=valid, personality=value):
+        reads.clear()
+        ui.sm.valid['selfdriveState'] = valid
+        ui.sm['selfdriveState'].personality = value
+        state = adapter.build(ShellMode.ONROAD, now_ns=NOW + 30_000_000).onroad
+        self.assertEqual(state.personality, 2)
+        self.assertEqual(reads.count('LongitudinalPersonality'), 1)
+
   def test_onroad_ancillary_reads_are_bounded_and_settings_refreshes_immediately(self):
     ui = ui_fake()
     ui.params.values['UpdaterState'] = 'idle'

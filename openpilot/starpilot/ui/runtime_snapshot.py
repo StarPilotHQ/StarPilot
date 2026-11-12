@@ -676,12 +676,10 @@ class RuntimeSnapshotAdapter:
                                       car=display_car if display_car_valid else None, read_message=display_message)
     experimental = bool(display_selfdrive.experimentalMode) if display_selfdrive is not None else _flag(params, "ExperimentalMode")
     observed_experimental = bool(display_selfdrive.experimentalMode) if display_selfdrive is not None else False
-    persona = _personality(_text(params, "LongitudinalPersonality", "1"))
-    if display_selfdrive is not None:
-      try:
-        persona = _personality(log.LongitudinalPersonality.schema.enumerants[str(display_selfdrive.personality)])
-      except (AttributeError, KeyError, TypeError, ValueError):
-        pass
+    try:
+      persona = _personality(log.LongitudinalPersonality.schema.enumerants[str(display_selfdrive.personality)])
+    except (AttributeError, KeyError, TypeError, ValueError):
+      persona = _personality(_text(params, "LongitudinalPersonality", "1"))
     torque = observe_torque_feedback(
       display_car, display_control, display_controls,
       display_message(sm, "carOutput", now_ns, after_frame=after) if started else None,

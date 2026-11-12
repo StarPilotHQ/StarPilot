@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import lru_cache
 from pathlib import Path
 import hashlib
 import json
@@ -46,6 +47,7 @@ class TextSize:
   height: float
 
 
+@lru_cache(maxsize=32)
 def font_filename(profile: Profile, role: FontRole) -> str:
   if role == FontRole.NORMAL:
     return "Inter-Regular.fnt" if profile == Profile.LARGE else "Inter-Medium.fnt"
