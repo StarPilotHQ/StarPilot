@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from openpilot.starpilot.models.catalog import ARTIFACT_ABI, CATALOG_PATH, COMPILER_REVISION
 from openpilot.starpilot.models.laboratory import ModelLaboratory, configuration
@@ -17,6 +18,7 @@ class LaboratoryTest(unittest.TestCase):
     self.temp = tempfile.TemporaryDirectory()
     self.addCleanup(self.temp.cleanup)
     self.root = Path(self.temp.name)
+    self.enterContext(patch('openpilot.starpilot.models.manager.SHIPPED_MODELS', self.root / 'shipped'))
     self.parked = True
     self.gpu = False
     self.manifest = json.loads(CATALOG_PATH.read_text())
