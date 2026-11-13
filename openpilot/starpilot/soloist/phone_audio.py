@@ -16,10 +16,11 @@ import sys
 import time
 from pathlib import Path
 
-from openpilot.starpilot.soloist import backend, bluealsa_runtime
+from openpilot.starpilot.soloist import bluealsa_runtime
 from openpilot.starpilot.soloist import preferences
 from openpilot.starpilot.soloist.paths import Layout
 from openpilot.starpilot.soloist.preferences import ADDRESS
+from openpilot.starpilot.soloist.pulse_client import PulseWriter
 
 A2DP_SOURCE = '0000110a-0000-1000-8000-00805f9b34fb'
 MEDIA_PLAYER = 'org.bluez.MediaPlayer1'
@@ -155,48 +156,6 @@ def capture_config(address: str) -> str:
     raise ValueError('Invalid phone Bluetooth address')
   return ('</usr/share/alsa/alsa.conf>\n' + bluealsa_runtime.alsa_plugins() + 'pcm.starpilot_phone {\n type plug\n slave.pcm {\n' +
           f'  type bluealsa\n  device "{address}"\n  profile "a2dp"\n  hwcompat "silence"\n  softvol "true"\n' + ' }\n}\n')
-
-
-class SampleSpec(C.Structure):
-  _fields_ = [('format', C.c_int), ('rate', C.c_uint32), ('channels', C.c_uint8)]
-
-
-class BufferAttr(C.Structure):
-  _fields_ = [(name, C.c_uint32) for name in ('maxlength', 'tlength', 'prebuf', 'minreq', 'fragsize')]
-
-
-class PulseWriter:
-  def __init__(self, server: str):
-    self.lib = C.CDLL('libpulse-simple.so.0')
-    self.lib.pa_simple_new.argtypes = [C.c_char_p, C.c_char_p, C.c_int, C.c_char_p, C.c_char_p,
-                                     C.POINTER(SampleSpec), C.c_void_p, C.POINTER(BufferAttr), C.POINTER(C.c_int)]
-    self.lib.pa_simple_new.restype = C.c_void_p
-    self.lib.pa_simple_write.argtypes = [C.c_void_p, C.c_void_p, C.c_size_t, C.POINTER(C.c_int)]
-    self.lib.pa_simple_write.restype = C.c_int
-    self.lib.pa_simple_free.argtypes = [C.c_void_p]
-    self.lib.pa_simple_free.restype = None
-    self.lib.pa_simple_flush.argtypes = [C.c_void_p, C.POINTER(C.c_int)]
-    self.lib.pa_simple_flush.restype = C.c_int
-    spec = SampleSpec(3, 48000, 2)  # PA_SAMPLE_S16LE
-    # 500 ms maximum, 200 ms target, refill before playing: the phone's stream stalls up to ~90 ms at a time.
-    attr = BufferAttr(96000, 38400, 0xffffffff, 3840, 0xffffffff)
-    error = C.c_int()
-    self.stream = self.lib.pa_simple_new(server.encode(), b'StarPilot phone', 1, backend.SINK_NAME.encode(), b'Phone music',
-                                           C.byref(spec), None, C.byref(attr), C.byref(error))
-    if not self.stream:
-      raise RuntimeError(f'Phone audio output unavailable ({error.value})')
-
-  def write(self, data: bytes):
-    error = C.c_int()
-    if self.lib.pa_simple_write(self.stream, data, len(data), C.byref(error)) < 0:
-      raise RuntimeError(f'Phone audio output closed ({error.value})')
-
-  def flush(self):
-    error = C.c_int()
-    self.lib.pa_simple_flush(self.stream, C.byref(error))
-
-  def close(self):
-    self.lib.pa_simple_free(self.stream)
 
 
 class FlushRequest:

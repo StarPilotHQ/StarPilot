@@ -23,7 +23,7 @@ from pathlib import Path
 from openpilot.starpilot.soloist import backend, bluealsa_runtime, bugsink_report, credentials, package, preferences, phone_audio
 from openpilot.starpilot.soloist import now_playing as now_playing_module
 from openpilot.starpilot.soloist.client import PlayerClient
-from openpilot.starpilot.soloist.paths import CONTROL_SOCKET, Layout, private_dir
+from openpilot.starpilot.soloist.paths import CONTROL_SOCKET, Layout, enabled as music_enabled, private_dir
 
 A2DP_SINK = '0000110b-0000-1000-8000-00805f9b34fb'
 EXIT_EXPIRED = 10
@@ -57,6 +57,14 @@ def network_ready() -> bool:
     except (OSError, ValueError):
       continue
   return False
+
+
+def engine_sound_requested() -> bool:
+  try:
+    from openpilot.common.params import Params
+    return Params().get_bool('EngineSound')
+  except Exception:
+    return False
 
 
 EXPIRES_IN = re.compile(r'client expires in (\d+) days?')
@@ -134,10 +142,14 @@ class Supervisor:
   def __init__(self, layout: Layout | None = None, *, output: BluetoothOutput | None = None,
                spawn: Callable[..., subprocess.Popen] = subprocess.Popen, clock: Callable[[], float] = time.monotonic,
                make_client: Callable[[Path], PlayerClient] | None = None,
-               network: Callable[[], bool] = network_ready):
+               network: Callable[[], bool] = network_ready, engine: Callable[[], bool] = engine_sound_requested):
     self.layout = layout or Layout.default()
     self.output = output or BluetoothOutput()
-    self.spawn, self.clock, self.network = spawn, clock, network
+    self.spawn, self.clock, self.network, self.engine = spawn, clock, network, engine
+    # Engine sound plays through the same server, so it outlives the music player while that is on.
+    self.hold_output = False
+    self.hold_check_at = 0.0
+    self.server_key: tuple | None = None
     self.make_client = make_client or (lambda data: PlayerClient(data))
     self.server: subprocess.Popen | None = None
     self.player: subprocess.Popen | None = None
@@ -233,14 +245,58 @@ class Supervisor:
       self.client.stop()
       self.client = None
     _kill_group(self.player)
-    _kill_group(self.server)
-    self.player = self.server = None
+    self.player = None
+    if not self.hold_output or self.server is None or self.server.poll() is not None:
+      self._stop_server()
     self.launched = None
     if release_phone:
       self.phone.close()
       self.phone_prefs = None
       if self.clock() >= self.pairing_profile_until:
         self._release_profile()
+
+  def _stop_server(self) -> None:
+    _kill_group(self.server)
+    self.server = self.server_key = None
+
+  def _ensure_server(self, prefs: preferences.Preferences, *, silent: bool = False, clock: Callable[[], float] = time.monotonic,
+                     failure: str = 'Audio output could not open') -> None:
+    key = (prefs.output, prefs.output_address, silent)
+    socket_path = backend.runtime_paths(self.layout)['socket']
+    if self.server is not None and self.server.poll() is None and self.server_key == key and socket_path.exists():
+      return
+    self._stop_server()
+    self.server = self._start(backend.server_launch(self.layout, prefs, silent=silent), 'audio')
+    deadline = clock() + 5
+    while not socket_path.exists() and self.server.poll() is None and clock() < deadline:
+      time.sleep(0.1)
+    if not socket_path.exists():
+      raise RuntimeError(failure)
+    self.server_key = key
+
+  def _hold_output(self, prefs: preferences.Preferences) -> None:
+    """Keep the output open with no music player, following the speaker as it connects and disconnects."""
+    alive = self.server is not None and self.server.poll() is None
+    if self.player is not None and alive:
+      return
+    now = self.clock()
+    if now < self.hold_check_at:
+      return
+    self.hold_check_at = now + OUTPUT_RETRY_SECONDS
+    if (prefs.output == 'bluetooth' and not prefs.output_address) or not backend.bundle_ready():
+      return
+    try:
+      speaker = True
+      if prefs.output == 'bluetooth':
+        if not self.phone_profile:
+          phone_audio.profile('acquire')
+          self.phone_profile = True
+        speaker = self._output_ready(prefs.output_address)
+      self._ensure_server(prefs, silent=not speaker)
+      self.output_available = speaker
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+      with self.log_lock:
+        self.log.append(f'audio: could not open the output for engine sound: {error}')
 
   def _output_ready(self, address: str) -> bool:
     with self.output_lock:
@@ -277,11 +333,14 @@ class Supervisor:
         self.log.append(f'audio: could not switch output: {error}')
       return False
     self.output_available, self.output_flips = speaker, 0
+    self.server_key = (prefs.output, prefs.output_address, not speaker)
     self.waiting_for = '' if speaker else prefs.output_name or 'your Bluetooth speaker'
     self.publish()
     return True
 
   def _release_profile(self) -> None:
+    if self.hold_output and self.server_key is not None and self.server_key[0] == 'bluetooth':
+      return
     if self.phone_profile:
       phone_audio.profile('release')
       self.phone_profile = False
@@ -326,13 +385,8 @@ class Supervisor:
           self.phone_track = self.phone.track(prefs.phone_address)
           return
         raise RuntimeError('Phone audio disconnected. Reconnecting…')
-      self.server = self._start(backend.server_launch(self.layout, prefs), 'audio')
+      self._ensure_server(prefs)
       socket_path = backend.runtime_paths(self.layout)['socket']
-      deadline = time.monotonic() + 5
-      while not socket_path.exists() and self.server.poll() is None and time.monotonic() < deadline:
-        time.sleep(0.1)
-      if not socket_path.exists():
-        raise RuntimeError('Audio output could not open')
       env = {**os.environ, 'PULSE_SERVER': f'unix:{socket_path}', 'STARPILOT_AUDIO_PARENT_PID': str(os.getpid()),
              'STARPILOT_SOLOIST_CONFIG': str(self.layout.config),
              'LD_LIBRARY_PATH': backend.library_path(inherited=os.environ.get('LD_LIBRARY_PATH', ''))}
@@ -369,6 +423,19 @@ class Supervisor:
 
   def tick(self) -> None:
     prefs = preferences.load(self.layout)
+    self.hold_output = self.engine()
+    if self.hold_output and not music_enabled(self.layout):
+      if self.player is not None or self.phone_prefs is not None:
+        self.stop_children()
+      self._set('engine_only', 'Music is off. The output stays open for engine sound.')
+    else:
+      self._tick_music(prefs)
+    if self.hold_output:
+      self._hold_output(prefs)
+    elif self.player is None and self.server is not None:
+      self._stop_server()
+
+  def _tick_music(self, prefs: preferences.Preferences) -> None:
     if prefs.source == 'phone':
       self.tick_phone(prefs)
       return
@@ -415,13 +482,7 @@ class Supervisor:
     self.secret = key
     self._set('starting', 'Starting Spotify…')
     try:
-      self.server = self._start(backend.server_launch(self.layout, prefs, silent=not self.output_available), 'audio')
-      deadline = now + 5.0
-      socket_path = backend.runtime_paths(self.layout)['socket']
-      while not socket_path.exists() and self.server.poll() is None and self.clock() < deadline:
-        time.sleep(0.1)
-      if not socket_path.exists():
-        raise RuntimeError('audio output could not open')
+      self._ensure_server(prefs, silent=not self.output_available, clock=self.clock, failure='audio output could not open')
       self.player = self._start(backend.player_launch(self.layout, prefs, key), 'soloist')
     except (OSError, RuntimeError, backend.BackendUnavailable) as error:
       self.stop_children()
@@ -629,6 +690,7 @@ def main() -> None:
     reporter.close()
     try:
       supervisor.pairing_profile_until = 0.0
+      supervisor.hold_output = False
       supervisor.stop_children()
     finally:
       try:

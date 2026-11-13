@@ -23486,3 +23486,51 @@ msgstr "신호등에서의 정차 동작을 개선하고 감지된 정지 표지
 msgid "Enhanced Stops"
 msgstr "향상된 정차"
 
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sound"
+msgstr "엔진 사운드"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal."
+msgstr "가속 페달에 맞춰 차량 스피커로 가상 엔진 소리를 재생합니다."
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Type"
+msgstr "엔진 종류"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Chooses which engine is simulated."
+msgstr "재현할 엔진을 선택합니다."
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sound Volume"
+msgstr "엔진 사운드 음량"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Sets how loud the engine is before the car's own volume control."
+msgstr "차량 자체 음량 조절 전에 엔진 소리 크기를 설정합니다."
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Race Car"
+msgstr "레이스카"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Diesel Truck"
+msgstr "디젤 트럭"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Space Ship"
+msgstr "우주선"
+
+#: openpilot/starpilot/galaxy/setting_descriptions.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal, including revving in Park or Neutral. Uses the audio output chosen under Spotify and Phone Audio, and goes quiet while an alert sounds."
+msgstr "가속 페달에 맞춰 차량 스피커로 가상 엔진 소리를 재생하며, P 또는 N에서 공회전 레브도 지원합니다. Spotify 및 휴대폰 오디오에서 선택한 오디오 출력을 사용하며, 경고음이 울리는 동안에는 소리가 꺼집니다."
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Preview Engine"
+msgstr "엔진 미리 듣기"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Revs the selected engine once on the car speakers, or on the comma when no car is connected."
+msgstr "선택한 엔진을 차량 스피커로 한 번 레브합니다. 차량이 연결되어 있지 않으면 comma에서 재생합니다."

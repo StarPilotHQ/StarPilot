@@ -51,6 +51,7 @@ from openpilot.starpilot.ui.pip_warning import PiPWarningSource
 from openpilot.starpilot.spot_monitor.preferences import read_preferences as read_vasm_preferences
 from openpilot.starpilot.speed_limits.vision.observation import clock_pair_ns
 from openpilot.starpilot.ui.sounds_owner import AUTO_PREFIX as SOUND_AUTO_PREFIX, SoundsOwner
+from openpilot.starpilot.engine_sound.preview import start as start_engine_preview
 from openpilot.starpilot.ui.feature_settings_state import (
   FeatureInput, FeaturePage, FeatureRow, FeatureSettingsRequest, FeatureUiAction, row_change,
   feature_scroll, feature_parent_page, feature_parent_title, value_request, value_editor_state,
@@ -210,7 +211,8 @@ class StarShellSession:
                                                vehicle_fingerprint=lambda: getattr(ui_state.CP, "carFingerprint", None),
                                                vehicle_params=lambda: ui_state.CP,
                                                vision_development=lambda: diagnostic_choice_enabled(os.environ, ui_state.CP))
-    self.sounds_owner = SoundsOwner(ui_state.params, self._settings_preference_authority)
+    self.sounds_owner = SoundsOwner(ui_state.params, self._settings_preference_authority,
+                                    engine_preview=start_engine_preview, preview_row=True)
     self.appearance_owner = AppearanceOwner(ui_state.params, lambda: self._settings_preference_authority() or self._favorite_authority())
     self.pip_owner = PiPOwner(ui_state.params, self._settings_preference_authority,
                              self.pip_renderer.frame_availability.available)

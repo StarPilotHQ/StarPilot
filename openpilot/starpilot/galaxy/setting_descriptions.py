@@ -138,6 +138,11 @@ DESCRIPTIONS = {
   'LoudBlindspotAlertWhenDisengaged': ('Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. ' +
                                       'Independent of Loud Blindspot Alert. Hazards do not trigger it.'),
   'SoundPack': 'Chooses the sounds used for driving alerts and chimes.',
+  'EngineSound': ('Plays a simulated engine on the car speakers that follows the accelerator pedal, including revving in Park or Neutral. ' +
+                  'Uses the audio output chosen under Spotify and Phone Audio, and goes quiet while an alert sounds.'),
+  'EngineSoundProfile': 'Chooses which engine is simulated.',
+  'EngineSoundVolume': "Sets how loud the engine is before the car's own volume control.",
+  'EngineSoundPreview': 'Revs the selected engine once on the car speakers, or on the comma when no car is connected.',
   'WarningImmediateVolume': 'Sets the starting volume of immediate warnings. These warnings still ramp to full volume.',
   'WarningSoftVolume': 'Sets the starting volume of soft warnings. Warning volume keeps its required minimum.',
   'RefuseVolume': 'Sets the volume of the engagement-refused sound.',

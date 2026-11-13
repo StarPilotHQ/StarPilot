@@ -23486,3 +23486,51 @@ msgstr "Cải thiện cách dừng xe tại đèn giao thông và cho phép tự
 msgid "Enhanced Stops"
 msgstr "Dừng xe nâng cao"
 
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sound"
+msgstr "Âm thanh động cơ"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal."
+msgstr "Phát âm thanh động cơ mô phỏng trên loa xe, theo bàn đạp ga."
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Type"
+msgstr "Loại động cơ"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Chooses which engine is simulated."
+msgstr "Chọn động cơ được mô phỏng."
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sound Volume"
+msgstr "Âm lượng âm thanh động cơ"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Sets how loud the engine is before the car's own volume control."
+msgstr "Đặt độ lớn của âm thanh động cơ trước núm âm lượng của xe."
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Race Car"
+msgstr "Xe đua"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Diesel Truck"
+msgstr "Xe tải diesel"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Space Ship"
+msgstr "Tàu vũ trụ"
+
+#: openpilot/starpilot/galaxy/setting_descriptions.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal, including revving in Park or Neutral. Uses the audio output chosen under Spotify and Phone Audio, and goes quiet while an alert sounds."
+msgstr "Phát âm thanh động cơ mô phỏng trên loa xe theo bàn đạp ga, kể cả khi rồ ga ở số P hoặc N. Dùng đầu ra âm thanh đã chọn trong Spotify và âm thanh điện thoại, và tắt tiếng khi có cảnh báo."
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Preview Engine"
+msgstr "Nghe thử động cơ"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Revs the selected engine once on the car speakers, or on the comma when no car is connected."
+msgstr "Rồ ga động cơ đã chọn một lần trên loa xe, hoặc trên comma khi chưa kết nối xe."

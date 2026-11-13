@@ -32150,6 +32150,84 @@
       "refs": [
         "openpilot/starpilot/ui/sounds_owner.py"
       ]
+    },
+    {
+      "source": "Engine Sound",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Plays a simulated engine on the car speakers that follows the accelerator pedal.",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Engine Type",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Chooses which engine is simulated.",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Engine Sound Volume",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Sets how loud the engine is before the car's own volume control.",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Race Car",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Diesel Truck",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Space Ship",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Plays a simulated engine on the car speakers that follows the accelerator pedal, including revving in Park or Neutral. Uses the audio output chosen under Spotify and Phone Audio, and goes quiet while an alert sounds.",
+      "refs": [
+        "openpilot/starpilot/galaxy/setting_descriptions.py"
+      ]
+    },
+    {
+      "source": "Preview Engine",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Play",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Revs the selected engine once on the car speakers, or on the comma when no car is connected.",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
     }
   ]
 }

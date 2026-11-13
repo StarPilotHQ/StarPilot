@@ -358,7 +358,7 @@ export const SettingsPage = {
       if (this.busy) return
       this.state.testingSound = true
       try {
-        await requestJson("./api/sounds/preview", { timeout: 10000, request: {
+        await requestJson("./api/sounds/preview", { timeout: 20000, request: {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key }),
         } })
       } catch (error) {

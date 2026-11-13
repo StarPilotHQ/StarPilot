@@ -11,6 +11,10 @@ import threading
 import time
 
 from openpilot.starpilot.audio.alert_volume import SPECS
+from openpilot.starpilot.engine_sound.settings import PROFILE_KEY as ENGINE_PROFILE_KEY, VOLUME_KEY as ENGINE_VOLUME_KEY
+
+ENGINE_PREVIEW_KEYS = (ENGINE_PROFILE_KEY, ENGINE_VOLUME_KEY)
+ENGINE_EXIT_OUTPUTS = {0: 'car', 3: 'comma', 4: 'engine'}
 
 ALERTS = {
   'WarningImmediateVolume': 'warningImmediate', 'WarningSoftVolume': 'warningSoft',
@@ -31,8 +35,10 @@ class AlertPreview:
     self.lock = threading.Lock()
 
   def play(self, payload):
-    if type(payload) is not dict or set(payload) != {'key'} or type(payload['key']) is not str or payload['key'] not in SPECS:
+    if type(payload) is not dict or set(payload) != {'key'} or type(payload['key']) is not str or         payload['key'] not in (*SPECS, *ENGINE_PREVIEW_KEYS):
       raise AlertPreviewError('Choose an alert volume to preview.', 400)
+    if payload['key'] in ENGINE_PREVIEW_KEYS:
+      return self.play_engine()
     if not self.parked():
       raise AlertPreviewError('Put the comma offroad before testing an alert.')
     if not self.lock.acquire(blocking=False):
@@ -46,6 +52,24 @@ class AlertPreview:
       if result.returncode:
         raise AlertPreviewError('The comma could not play this alert. Try again.', 503)
       return {'played': True}
+    except subprocess.TimeoutExpired as error:
+      raise AlertPreviewError('The preview timed out. Try again.', 503) from error
+    finally:
+      self.lock.release()
+
+
+  def play_engine(self):
+    from openpilot.starpilot.engine_sound import preview
+    if not self.lock.acquire(blocking=False):
+      raise AlertPreviewError('A preview is already playing.')
+    try:
+      result = self.runner(preview.command(), cwd=preview.ROOT, env=preview.environment(), stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+      if result.returncode in ENGINE_EXIT_OUTPUTS:
+        return {'played': True, 'output': ENGINE_EXIT_OUTPUTS[result.returncode]}
+      if result.returncode == 2:
+        raise AlertPreviewError('Preview stopped. Stay parked and close Driver Camera, then try again.')
+      raise AlertPreviewError('The comma could not play the engine. Try again.', 503)
     except subprocess.TimeoutExpired as error:
       raise AlertPreviewError('The preview timed out. Try again.', 503) from error
     finally:

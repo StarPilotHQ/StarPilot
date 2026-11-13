@@ -269,3 +269,16 @@ previewVolume.vm.disabled = true
 previewVolume.vm.testAlert = () => { throw new Error("disabled preview must not run") }
 await previewVolume.vm.previewSound()
 assert.equal(previewVolume.vm.soundError, "Keep the comma offroad")
+assert.equal(previewVolume.vm.previewLabel, "Test alert")
+
+{
+  const engine = control({ label: "Engine Type", value: "Race Car", choices: ["Race Car", "Diesel Truck", "Space Ship"],
+    available: true, action: true, previewSound: "EngineSoundProfile" })
+  assert.equal(settingControl(engine.vm.row), "select")
+  assert.equal(engine.vm.previewLabel, "Rev engine")
+  engine.vm.testAlert = async () => { throw new Error("") }
+  await engine.vm.previewSound()
+  assert.equal(engine.vm.soundError, "The engine could not be played.")
+  assert.match(GalaxySettingRow.template, /control === 'select' && testAlert && row\.previewSound/)
+}
+console.log("Settings controls: engine rows offer a rev preview")

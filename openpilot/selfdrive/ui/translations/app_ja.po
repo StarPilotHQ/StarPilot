@@ -23486,3 +23486,51 @@ msgstr "信号での停止動作を改善し、検出した一時停止標識で
 msgid "Enhanced Stops"
 msgstr "停止機能の強化"
 
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sound"
+msgstr "エンジンサウンド"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal."
+msgstr "アクセルペダルに合わせて、車のスピーカーで疑似エンジン音を再生します。"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Type"
+msgstr "エンジンの種類"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Chooses which engine is simulated."
+msgstr "再現するエンジンを選びます。"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sound Volume"
+msgstr "エンジンサウンドの音量"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Sets how loud the engine is before the car's own volume control."
+msgstr "車側の音量調整の前に、エンジン音の大きさを設定します。"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Race Car"
+msgstr "レースカー"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Diesel Truck"
+msgstr "ディーゼルトラック"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Space Ship"
+msgstr "宇宙船"
+
+#: openpilot/starpilot/galaxy/setting_descriptions.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal, including revving in Park or Neutral. Uses the audio output chosen under Spotify and Phone Audio, and goes quiet while an alert sounds."
+msgstr "アクセルペダルに合わせて、車のスピーカーで疑似エンジン音を再生します。パーキングやニュートラルでの空ぶかしにも対応します。「Spotifyとスマホ音声」で選んだ音声出力を使い、警告音が鳴っている間は消音します。"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Preview Engine"
+msgstr "エンジンを試聴"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Revs the selected engine once on the car speakers, or on the comma when no car is connected."
+msgstr "選んだエンジンを車のスピーカーで一度空ぶかしします。車が接続されていない場合はcommaで再生します。"

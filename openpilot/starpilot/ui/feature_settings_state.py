@@ -240,7 +240,7 @@ def value_editor_state(state: FeatureSettingsState, key: str | None) -> FeatureS
 def sound_editor_state(state: FeatureSettingsState, key: str | None) -> FeatureSettingsState:
   rows = tuple(replace(row, presets=tuple(
     (value, "Mute" if value == "0" else value if value == "Auto" else value + "%")
-    for value in SOUND_PRESETS if value == "Auto" or row.minimum <= int(value) <= row.maximum))
+    for value in SOUND_PRESETS if (value == "Auto" and "Auto" in row.choices) or (value != "Auto" and row.minimum <= int(value) <= row.maximum)))
     if row.unit == "%" else row for row in state.rows)
   rows = value_editor_state(replace(state, rows=rows), None).rows
   if key is not None:

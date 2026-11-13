@@ -222,6 +222,7 @@ struct StarPilotCarState @0xf35cc4560bbf6ec2 {
   feedbackPublication @37 :FeedbackPublication;
   steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo;
   toyotaCruise @38 :ToyotaCruise;
+  acceleratorPedal @40 :Float32;  # driver pedal travel, 0..1; 0 when the platform doesn't publish it
 
   struct ToyotaCruise {
     version @0 :UInt16;

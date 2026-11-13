@@ -23470,3 +23470,55 @@ msgstr ""
 #: openpilot/starpilot/ui/sounds_owner.py
 msgid "Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. Independent of Loud Blindspot Alert. Hazards do not trigger it."
 msgstr ""
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sound"
+msgstr ""
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal."
+msgstr ""
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Type"
+msgstr ""
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Chooses which engine is simulated."
+msgstr ""
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sound Volume"
+msgstr ""
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Sets how loud the engine is before the car's own volume control."
+msgstr ""
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Race Car"
+msgstr ""
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Diesel Truck"
+msgstr ""
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Space Ship"
+msgstr ""
+
+#: openpilot/starpilot/galaxy/setting_descriptions.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal, including revving in Park or Neutral. Uses the audio output chosen under Spotify and Phone Audio, and goes quiet while an alert sounds."
+msgstr ""
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Preview Engine"
+msgstr ""
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Play"
+msgstr ""
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Revs the selected engine once on the car speakers, or on the comma when no car is connected."
+msgstr ""

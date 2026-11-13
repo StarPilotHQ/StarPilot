@@ -49,7 +49,7 @@ class SoundsSettingsTests(unittest.TestCase):
 
   def test_absence_auto_no_writes_and_native_registry(self):
     state = self.owner.snapshot()
-    self.assertEqual(len(state.rows), 10)
+    self.assertEqual(len(state.rows), 13)
     for key, _, _ in VOLUMES:
       self.assertEqual(self.row(key).value, "Auto")
       self.assertEqual((self.row(key).step, self.row(key).maximum, self.row(key).unit), (5.0, 100.0, "%"))
@@ -94,6 +94,50 @@ class SoundsSettingsTests(unittest.TestCase):
     assert auto is not None
     self.assertTrue(self.owner.apply(auto))
     self.assertEqual(read_volume(self.params, row.key).value, AUTO)
+
+  def test_engine_sound_rows_default_save_and_reject_unknown_or_unparked_changes(self):
+    self.assertEqual([self.row(key).value for key in ("EngineSound", "EngineSoundProfile", "EngineSoundVolume")],
+                     ["Off", "Race Car", "60"])
+    self.assertNotIn("EngineSoundPreview", [row.key for row in self.owner.snapshot().rows])
+    for key, value, saved in (("EngineSound", "On", True), ("EngineSoundProfile", "Space Ship", "space_ship"),
+                              ("EngineSoundVolume", "80", 80)):
+      row = self.row(key)
+      self.assertTrue(self.owner.apply(FeatureSettingsRequest(key, row.source, value)))
+      self.assertEqual(self.params.get(key), saved)
+      self.assertEqual(self.row(key).value, value)
+    stepped = row_change(self.row("EngineSoundVolume"), 1)
+    assert stepped is not None
+    self.assertTrue(self.owner.apply(stepped))
+    self.assertEqual(self.params.get("EngineSoundVolume"), 90)
+    for key, value in (("EngineSoundProfile", "Tractor"), ("EngineSoundVolume", "5"), ("EngineSoundVolume", "Auto"),
+                       ("EngineSoundVolume", "55.5"), ("EngineSound", "Maybe")):
+      self.assertFalse(self.owner.apply(FeatureSettingsRequest(key, self.row(key).source, value)))
+    self.parked = False
+    self.assertFalse(self.owner.apply(FeatureSettingsRequest("EngineSound", self.row("EngineSound").source, "Off")))
+    self.assertTrue(self.params.get_bool("EngineSound"))
+
+  def test_engine_choices_rev_the_engine_and_the_native_preview_row_plays_without_writing(self):
+    revs = []
+    owner = SoundsOwner(self.params, lambda: self.parked, engine_preview=lambda: revs.append(1), preview_row=True)
+    row = lambda key: next(row for row in owner.snapshot().rows if row.key == key)
+    self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSoundProfile", row("EngineSoundProfile").source, "Diesel Truck")))
+    self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSoundVolume", row("EngineSoundVolume").source, "40")))
+    self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSound", row("EngineSound").source, "On")))
+    self.assertEqual(len(revs), 2)
+    play = row_change(row("EngineSoundPreview"), 1)
+    assert play is not None and play.value == "Play"
+    self.assertTrue(owner.apply(play))
+    self.assertEqual(len(revs), 3)
+    self.parked = False
+    self.assertFalse(owner.apply(play))
+    self.assertEqual(len(revs), 3)
+
+  def test_engine_volume_editor_offers_no_auto_preset(self):
+    from openpilot.starpilot.ui.feature_settings_state import sound_editor_state
+    editor = sound_editor_state(self.owner.snapshot(), "EngineSoundVolume")
+    self.assertNotIn("Auto", [value for value, _ in editor.rows[0].presets])
+    alert = sound_editor_state(self.owner.snapshot(), "EngageVolume")
+    self.assertIn("Auto", [value for value, _ in alert.rows[0].presets])
 
   def test_parked_and_final_read_guards(self):
     request = row_change(self.row("RefuseVolume"), 1)
@@ -264,7 +308,7 @@ class SoundsSettingsTests(unittest.TestCase):
     session.sounds_scroll = 5
     state = replace(session.sounds_snapshot(), scroll=5)
     self.assertEqual(state.page, "sounds:overview")
-    self.assertEqual(len(state.rows), 10)
+    self.assertEqual(len(state.rows), 13)
     self.assertTrue(all(value_buttons(state, row) == () for row in state.rows))
     self.assertEqual(next(row for row in state.rows if row.key == "EngageVolume").value, "40")
     received = []

@@ -138,6 +138,7 @@ class CarState(CarStateBase):
     self.dashboard_limit = LimitTracker()
     self.dashboard_stop_sign = None
     self.drive_mode = None
+    self.accelerator_pedal = None
     self.ioniq6_bsm_sources = (Ioniq6BlindspotSources()
                                if CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and CP.openpilotLongitudinalControl else None)
     self.ioniq6_bsm_now_ns = 0
@@ -431,7 +432,10 @@ class CarState(CarStateBase):
     speed_factor = CV.KPH_TO_MS if self.is_metric else CV.MPH_TO_MS
 
     if self.CP.flags & (HyundaiFlags.EV.value | HyundaiFlags.HYBRID.value):
-      ret.gasPressed = cp.vl[self.accelerator_msg_canfd]["ACCELERATOR_PEDAL"] > 1e-5
+      pedal = cp.vl[self.accelerator_msg_canfd]["ACCELERATOR_PEDAL"]
+      ret.gasPressed = pedal > 1e-5
+      stamp = cp.ts_nanos[self.accelerator_msg_canfd]["ACCELERATOR_PEDAL"]
+      self.accelerator_pedal = (float(pedal), stamp) if stamp > 0 else None
     else:
       ret.gasPressed = bool(cp.vl[self.accelerator_msg_canfd]["ACCELERATOR_PEDAL_PRESSED"])
 

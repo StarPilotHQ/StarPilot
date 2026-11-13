@@ -87,6 +87,9 @@ export const GalaxySettingRow = {
       return { ...bounds, numericMax, max: Number((numericMax + bounds.step).toFixed(8)), auto: true }
     },
     locked() { return this.busy || this.updating || this.dimmed },
+    engineSound() { return String(this.row.previewSound || "").startsWith("EngineSound") },
+    previewLabel() { return this.testingSound ? "Playing…" : this.engineSound ? "Rev engine" : "Test alert" },
+    previewNote() { return this.soundError || (this.engineSound ? "Revving the engine…" : "Playing on your comma…") },
     dimmed() { return this.disabled || !this.row.available || (!this.row.action && !this.row.page) },
     currentValue() { return this.preview !== undefined ? this.preview : this.presentedRow.value },
     sliderValue() { return this.currentValue === "Auto" && this.bounds?.auto ? this.bounds.max : this.currentValue },
@@ -101,7 +104,7 @@ export const GalaxySettingRow = {
       this.testingSound = true
       this.soundError = ""
       try { await this.testAlert(this.row.previewSound) }
-      catch (error) { this.soundError = error?.message || "The alert could not be played." }
+      catch (error) { this.soundError = error?.message || (this.engineSound ? "The engine could not be played." : "The alert could not be played.") }
       finally { this.testingSound = false }
     },
     async commit(value) {
@@ -248,7 +251,7 @@ export const GalaxySettingRow = {
           <button v-if="testAlert && row.previewSound" type="button" class="gx-btn gx-btn--tonal gx-alert-preview"
             :disabled="locked || testingSound" :aria-label="'Test ' + row.label + ' on your comma'" :aria-busy="testingSound"
             @click="previewSound"><i class="bi" :class="testingSound ? 'bi-soundwave' : 'bi-volume-up'" aria-hidden="true"></i>
-            {{ testingSound ? 'Playing…' : 'Test alert' }}</button>
+            {{ previewLabel }}</button>
           <button v-if="showDefault" type="button"
           class="gx-btn gx-btn--tonal gx-setting-default" :disabled="dimmed || !row.resetAvailable"
           :aria-label="'Reset ' + row.label + ' to default'" :title="'Default: ' + presentedRow.defaultValue"
@@ -258,12 +261,17 @@ export const GalaxySettingRow = {
           @input="onSliderInput" @change="onSliderCommit" @blur="onSliderBlur"
           @pointerdown="onSliderPointerDown" @pointermove="onSliderPointerMove" @pointerup="onSliderPointerEnd"
           @pointercancel="onSliderCancel" @lostpointercapture="onSliderCancel" @keydown="beginInteract">
-        <p v-if="soundError || testingSound" class="gx-alert-preview-note" role="status" aria-live="polite">{{ soundError || 'Playing on your comma…' }}</p>
+        <p v-if="soundError || testingSound" class="gx-alert-preview-note" role="status" aria-live="polite">{{ previewNote }}</p>
         <div class="gx-slider-meta"><span>{{ bounds.min }} to {{ bounds.numericMax ?? bounds.max }} {{ presentedRow.unit }}<template v-if="bounds.auto"> · Auto at right</template></span><span>Step: {{ bounds.step }} {{ presentedRow.unit }}</span></div>
       </div>
       <GalaxySelect v-else-if="control === 'select'" class="gx-field" :aria-label="row.label" :value="currentValue" :disabled="dimmed" @change="onSelect">
         <option v-for="choice in row.choices" :key="choice" :value="choice">{{ choice }}</option>
       </GalaxySelect>
+      <button v-if="control === 'select' && testAlert && row.previewSound" type="button" class="gx-btn gx-btn--tonal gx-alert-preview"
+        :disabled="locked || testingSound" :aria-label="'Test ' + row.label" :aria-busy="testingSound"
+        @click="previewSound"><i class="bi" :class="testingSound ? 'bi-soundwave' : 'bi-volume-up'" aria-hidden="true"></i>
+        {{ previewLabel }}</button>
+      <p v-if="control === 'select' && (soundError || testingSound)" class="gx-alert-preview-note" role="status" aria-live="polite">{{ previewNote }}</p>
       <button v-else-if="control === 'group'" type="button" class="gx-btn gx-btn--tonal" :disabled="dimmed" @click="$emit('open', row.page)">Manage</button>
       <button v-else-if="control === 'action' && row.action" type="button" class="gx-btn gx-btn--tonal" :disabled="dimmed" @click="$emit('review', index, row.confirm ? 0 : 1)">{{ row.repairValue === 'Reset' || /reset|default/i.test(row.label) ? 'Reset' : row.repairValue ? 'Set ' + row.repairValue : row.label }}</button>
       <span v-else-if="!row.heading" class="gx-row__value gx-row__readout">{{ displayValue }}</span>

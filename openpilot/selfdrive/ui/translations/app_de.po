@@ -23490,3 +23490,51 @@ msgstr "Verbessert das Anhalten an Ampeln und ermöglicht automatisches Anhalten
 msgid "Enhanced Stops"
 msgstr "Verbessertes Anhalten"
 
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sound"
+msgstr "Motorsound"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal."
+msgstr "Spielt über die Fahrzeuglautsprecher einen simulierten Motor ab, der dem Gaspedal folgt."
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Type"
+msgstr "Motortyp"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Chooses which engine is simulated."
+msgstr "Wählt den simulierten Motor."
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sound Volume"
+msgstr "Lautstärke des Motorsounds"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Sets how loud the engine is before the car's own volume control."
+msgstr "Legt die Lautstärke des Motors vor der Lautstärkeregelung des Fahrzeugs fest."
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Race Car"
+msgstr "Rennwagen"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Diesel Truck"
+msgstr "Diesel-Lkw"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Space Ship"
+msgstr "Raumschiff"
+
+#: openpilot/starpilot/galaxy/setting_descriptions.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal, including revving in Park or Neutral. Uses the audio output chosen under Spotify and Phone Audio, and goes quiet while an alert sounds."
+msgstr "Spielt über die Fahrzeuglautsprecher einen simulierten Motor ab, der dem Gaspedal folgt, auch beim Hochdrehen in Parkstellung oder Neutral. Nutzt die unter Spotify und Telefon-Audio gewählte Audioausgabe und verstummt, solange ein Warnton ertönt."
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Preview Engine"
+msgstr "Motor anhören"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Revs the selected engine once on the car speakers, or on the comma when no car is connected."
+msgstr "Lässt den gewählten Motor einmal über die Fahrzeuglautsprecher aufheulen, oder über den comma, wenn kein Auto verbunden ist."
