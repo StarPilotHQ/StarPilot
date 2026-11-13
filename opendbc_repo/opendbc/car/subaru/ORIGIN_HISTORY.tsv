@@ -15,3 +15,6 @@ jacobwaller/opendbc	19df75992398f6661c7ed18a1914219d42e5883f	elkoled	elkoled@gma
 jacobwaller/opendbc	8acbeccdab45a47aa7af170d2d17b61f0eb5e4f0	Jacob Waller	jacobwaller@Jacobs-MacBook-Pro.local	subaru: fix ANGLE_LIMITS to use AngleSteeringLimitsVM
 jacobwaller/openpilot	156ee4240d9029fbf97a1fd87a4e774e4578ddf1	Jacob Waller	jacobwaller@Jacobs-MacBook-Pro.local	bump opendbc to jul-angle-based (Subaru Crosstrek 2025 angle steering)
 jacobwaller/openpilot	542816196a18dba5f6f0af093c1ece4f415b5a22	Jacob Waller	jacobwaller@Jacobs-MacBook-Pro.local	FF 'da Crosstrek
+jacobwaller/opendbc	931568b99ed46f35bf48b1dcd8b4b9656fea2a5f	jacobwaller	jacobwaller@jacobwaller.com	Subaru: 2025 Crosstrek angle steering support
+jacobwaller/opendbc	b81a9b7c38866a4935c0e24e8805078033b07a91	jacobwaller	jacobwaller@jacobwaller.com	SR 17 -> 13
+jacobwaller/opendbc	753fdd383a18c3f9e86af801f1e0e9db2a168e72	jacobwaller	jacobwaller@jacobwaller.com	--claude-ese, move test to test_subaru.py

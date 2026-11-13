@@ -1,11 +1,12 @@
 import numpy as np
 from opendbc.can import CANPacker
-from opendbc.car import Bus, make_tester_present_msg, structs
+from opendbc.car import Bus, DT_CTRL, make_tester_present_msg, structs
+from opendbc.car.common.filter_simple import FirstOrderFilter
 from opendbc.car.lateral import (apply_driver_steer_torque_limits, apply_std_steer_angle_limits,
                                 apply_steer_angle_limits_vm, common_fault_avoidance)
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.subaru import subarucan
-from opendbc.car.subaru.jacobw_angle import limit_angle as jacobw_limit_angle
+from opendbc.car.subaru.jacobw_angle import filter_angle as jacobw_filter_angle, limit_angle as jacobw_limit_angle
 from opendbc.car.subaru.stock_aol import qualified as subaru_aol_qualified
 from opendbc.car.subaru.values import CAR, DBC, GLOBAL_ES_ADDR, CanBus, CarControllerParams, SubaruFlags
 from opendbc.car.vehicle_model import VehicleModel
@@ -25,6 +26,7 @@ class CarController(CarControllerBase):
     from opendbc.car.subaru.avh import selected as avh_selected, AvhStartup
     self.avh_startup = AvhStartup() if avh_selected(CP) else None
     self.apply_torque_last = 0
+    self.angle_filter = FirstOrderFilter(0.0, 0.3, DT_CTRL) if CP.carFingerprint == CAR.SUBARU_CROSSTREK_2025 else None
     self.apply_angle_last = 0.
     self.angle_was_active = False
     self.angle_override_frames = 0
@@ -118,6 +120,9 @@ class CarController(CarControllerBase):
                                              CC.enabled or CC.latActive or CC.longActive))
 
     # *** steering ***
+    angle_target = actuators.steeringAngleDeg
+    if self.angle_filter is not None:
+      angle_target = jacobw_filter_angle(self.angle_filter, angle_target, CS.out.vEgo, CC.latActive)
     if (self.frame % self.p.STEER_STEP) == 0:
       if self.CP.carFingerprint in GEN2_ANGLE_PORTS:
         independent_lateral = subaru_aol_qualified(self.CP, marked_only=True)
@@ -139,7 +144,7 @@ class CarController(CarControllerBase):
         elif self.CP.carFingerprint == CAR.SUBARU_CROSSTREK_2025:
           assert self.VM is not None
           apply_angle, angle_active = jacobw_limit_angle(
-            actuators.steeringAngleDeg, self.apply_angle_last, CS.out.vEgoRaw,
+            angle_target, self.apply_angle_last, CS.out.vEgo,
             CS.out.steeringAngleDeg, angle_active, self.p, self.VM)
         else:
           assert self.VM is not None
