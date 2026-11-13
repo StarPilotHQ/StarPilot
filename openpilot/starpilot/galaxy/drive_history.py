@@ -118,7 +118,7 @@ class DriveHistory:
         raise ValueError('Invalid route identifier') from error
       raise DriveHistoryUnavailable(str(error)) from error
 
-  def snapshot(self) -> dict:
+  def snapshot(self, *, isolate_route_errors: bool = False) -> dict:
     result: dict = {'schemaVersion': 1, 'source': 'local', 'partialHistory': True,
                     'scanIncomplete': False, 'routes': []}
     try:
@@ -131,8 +131,18 @@ class DriveHistory:
       if not _same_directory(root_fd, None, self.root):
         raise DriveHistoryUnavailable
       routes: dict[str, dict[int, dict]] = {}
-      scanned = 0
+      route_errors: dict[str, str] = {}
       segment_count = 0
+
+      def omit(route_id: str, reason: str) -> None:
+        nonlocal segment_count
+        route_errors[route_id] = reason
+        if isolate_route_errors:
+          segment_count -= len(routes.pop(route_id, {}))
+        else:
+          result['scanIncomplete'] = True
+
+      scanned = 0
       with os.scandir(root_fd) as entries:
         for entry in entries:
           scanned += 1
@@ -142,25 +152,36 @@ class DriveHistory:
           matched = SEGMENT_NAME.fullmatch(entry.name)
           if matched is None or '/' in entry.name:
             continue
+          route_id = matched.group('route').replace('_', '|')
           number_text = matched.group('number')
           if len(number_text) > 6:
-            result['scanIncomplete'] = True
+            omit(route_id, 'Invalid segment number')
             continue
-          route_id = matched.group('route').replace('_', '|')
+          if isolate_route_errors and route_id in route_errors:
+            continue
           number = int(number_text)
           if route_id not in routes and len(routes) >= MAX_ROUTES:
             result['scanIncomplete'] = True
             continue
           existing = routes.get(route_id)
           if existing is not None and (number in existing or len(existing) >= self.max_segments_per_route):
-            result['scanIncomplete'] = True
+            omit(route_id, 'Duplicate segment or route segment limit exceeded')
             continue
           if segment_count >= self.max_segments:
             result['scanIncomplete'] = True
             continue
-          files, incomplete, file_time, provider = _segment_files(root_fd, entry.name)
-          result['scanIncomplete'] |= incomplete
+          try:
+            files, incomplete, file_time, provider = _segment_files(root_fd, entry.name)
+          except (ValueError, RuntimeError) as error:
+            if not isolate_route_errors:
+              raise
+            omit(route_id, str(error)[:160])
+            continue
+          if incomplete:
+            omit(route_id, 'Recording directory is unreadable or changed during inventory')
           if files is None:
+            if isolate_route_errors:
+              omit(route_id, 'Recording segment is open, empty or unavailable')
             continue
           routes.setdefault(route_id, {})[number] = {'number': number, 'segmentName': entry.name, 'files': files, 'fileTime': file_time, 'provider': provider}
           segment_count += 1
@@ -171,8 +192,10 @@ class DriveHistory:
          'provider': next(iter({s['provider'] for s in segments.values()})) if len({s['provider'] for s in segments.values()}) == 1 else None,
          'fileTime': min((s['fileTime'] for s in segments.values() if s['fileTime'] is not None), default=None),
          'segments': [segments[number] for number in sorted(segments)]}
-        for route_id, segments in sorted(routes.items())
+        for route_id, segments in sorted(routes.items()) if not isolate_route_errors or route_id not in route_errors
       ]
+      if isolate_route_errors:
+        result['routeErrors'] = [{'routeId': key, 'reason': value} for key, value in sorted(route_errors.items())]
       return result
     except OSError:
       raise DriveHistoryUnavailable from None

@@ -4,8 +4,9 @@ from pathlib import Path
 from typing import Any
 from openpilot.starpilot.flm.offroad_controller_checks import check_candidate, check_original_native
 from openpilot.starpilot.flm.offroad_route import RETAIN
-from openpilot.starpilot.flm.log_decode import decode_full_rlog_segment
-from openpilot.starpilot.galaxy.drive_analysis import _closed_source
+from openpilot.starpilot.flm.log_decode import LogDecodeCancelled, LogDecodeError, decode_full_rlog_segment
+from openpilot.starpilot.flm.offroad_route import RouteInputCancelled, RouteInputError, route_permission
+from openpilot.starpilot.galaxy.drive_analysis import _Incomplete, _closed_source
 
 
 TRAINING_FRACTIONS = (1.0, 0.8, 0.6, 0.4, 0.2, 0.1, 0.05)
@@ -218,11 +219,26 @@ def _release_unused_analysis_heap():
 
 
 def _original_results(assessment, original, ids, values, root, *, permitted, source_batch=False):
+  permitted = route_permission(permitted)
+  try:
+    return _read_original_results(assessment, original, ids, values, root, permitted=permitted, source_batch=source_batch)
+  except LogDecodeCancelled:
+    raise
+  except (LogDecodeError, OSError, _Incomplete) as error:
+    if not permitted():
+      raise RouteInputCancelled('Parked checks cancelled') from error
+    name = getattr(getattr(assessment, 'receipt', None), 'route_id', None)
+    if name is None:
+      raise
+    raise RouteInputError(name, str(error)) from error
+
+
+def _read_original_results(assessment, original, ids, values, root, *, permitted, source_batch=False):
   spans = {w['identity']: w for w in original if w['identity'] in ids}
   if not (1 if source_batch else 3) <= len(ids) <= 24 or len(set(ids)) != len(ids) or set(spans) != set(ids):
     raise ValueError('Every preselected original window required')
   if not permitted():
-    raise ValueError('Parked checks cancelled')
+    raise RouteInputCancelled('Parked checks cancelled')
   if getattr(assessment, 'evidence_sources', None):
     results = []
     if any(w.get('route') not in assessment.evidence_sources for w in spans.values()):
@@ -230,10 +246,7 @@ def _original_results(assessment, original, ids, values, root, *, permitted, sou
     for route, source in sorted(assessment.evidence_sources.items()):
       selected = tuple(key for key in ids if spans[key]['route'] == route)
       if selected:
-        try:
-          checked = _original_results(source, original, selected, values, root, permitted=permitted, source_batch=True)
-        except FileNotFoundError:
-          checked = [{'window': key, 'qualified': False, 'reason': 'historical_dense_source_unavailable'} for key in selected]
+        checked = _original_results(source, original, selected, values, root, permitted=permitted, source_batch=True)
         results.extend(dict(row, route=route, source_sha256=source.receipt.source_sha256) for row in checked)
     return results
   _release_unused_analysis_heap()
@@ -251,11 +264,11 @@ def _original_results(assessment, original, ids, values, root, *, permitted, sou
   ranges = tuple((w['start_ns'], w['end_ns']) for w in spans.values())
   for number in sorted(segments):
     if not permitted():
-      raise ValueError('Parked checks cancelled')
+      raise RouteInputCancelled('Parked checks cancelled')
     name, digest, size = receipt.segments[number]
     with _closed_source(Path(root), name, inventory['segments'][number]['files'], permitted, prefer_rlog=True) as (raw, codec, current, _):
       if len(raw) != size or hashlib.sha256(raw).hexdigest() != digest:
-        raise ValueError('Original numerical input changed')
+        raise RouteInputError(receipt.route_id, 'Original numerical input changed')
       events = decode_full_rlog_segment(raw, codec, cancelled=lambda: not permitted(), retain=RETAIN)
       for event in events:
         if event.which() == 'starpilotLateralState':
@@ -276,8 +289,10 @@ def _original_results(assessment, original, ids, values, root, *, permitted, sou
             outputs.append(read_applied(event))
           except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
             missing.append(int(event.logMonoTime))
-      if not current() or not permitted():
-        raise ValueError('Original input changed during checks')
+      if not permitted():
+        raise RouteInputCancelled('Parked checks cancelled')
+      if not current():
+        raise RouteInputError(receipt.route_id, 'Original input changed during checks')
     # Parsed evidence owns primitives; release segment readers before replay.
     del events, raw
     for wid, w in sorted(spans.items()):

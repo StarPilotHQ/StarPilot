@@ -4,15 +4,17 @@ from dataclasses import dataclass
 from pathlib import Path
 import hashlib
 import json
+import logging
 import time
 
 from openpilot.starpilot.flm.offroad_analysis import cohort, _spread
 from openpilot.starpilot.flm.offroad_processor import collect_route_inputs, window_demand
-from openpilot.starpilot.flm.offroad_route import LOCAL_ID, MAX_SEGMENTS, MAX_TOTAL_BYTES, MAX_ANALYSIS_SECONDS, RETAIN, SelectedSourceReceipt
+from openpilot.starpilot.flm.offroad_route import (
+  LOCAL_ID, MAX_SEGMENTS, MAX_TOTAL_BYTES, MAX_ANALYSIS_SECONDS, RETAIN, SelectedSourceReceipt, RouteInputError, route_reader, route_inventory,
+)
 from openpilot.starpilot.flm.log_decode import decode_full_rlog_segment
 from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
 from openpilot.starpilot.galaxy.drive_analysis import _selected, _route_names, _closed_source
-from openpilot.starpilot.galaxy.drive_history import DriveHistory
 
 
 @dataclass(frozen=True)
@@ -26,8 +28,9 @@ class PriorOriginals:
   profile_metadata: dict | None = None
 
 
-class PriorIdentityMismatch(ValueError):
-  pass
+class PriorIdentityMismatch(RouteInputError):
+  def __init__(self, reason):
+    super().__init__(None, reason)
 
 
 def interior_segments(count):
@@ -43,7 +46,8 @@ def selected_segments(count, *, expanded=False):
   return tuple(sorted(selected))
 
 
-def _selected_sources(root, route, *, permitted, consume, cp_sha256, expanded=False):
+@route_reader
+def _selected_sources(root, route, *, permitted, consume, cp_sha256, expanded=False, validate_preroll=False):
   root = Path(root)
   route_id, names = _selected(route)
   if not LOCAL_ID.fullmatch(route_id) or not 1 <= len(names) <= MAX_SEGMENTS or set(names) != _route_names(root, route_id, permitted):
@@ -64,6 +68,10 @@ def _selected_sources(root, route, *, permitted, consume, cp_sha256, expanded=Fa
         raise ValueError('Prior recording input bound')
       receipts.append((name, hashlib.sha256(raw).hexdigest(), len(raw)))
       revisions.append(revision)
+      if validate_preroll and number not in selected and number + 1 in selected:
+        # Native replay needs this original warm-up segment too. Reject an
+        # unreadable prior before freezing its independent input partition.
+        decode_full_rlog_segment(raw, codec, cancelled=lambda: not permitted(), retain=RETAIN)
       if number in selected:
         events = decode_full_rlog_segment(raw, codec, cancelled=lambda: not permitted(), retain=RETAIN)
         for event in events:
@@ -111,9 +119,7 @@ def _selected_sources(root, route, *, permitted, consume, cp_sha256, expanded=Fa
 
 def _prior_originals(assessment, group, selected_cohort, root, *, permitted, stable):
   """Freeze the latest compatible older input set BEFORE any strength is fitted."""
-  inventory = DriveHistory(Path(root), max_segments_per_route=MAX_SEGMENTS).snapshot()
-  if inventory['scanIncomplete']:
-    raise ValueError('Prior drive inventory incomplete')
+  inventory = route_inventory(root)
   current = assessment.receipt.route_id
   if not LOCAL_ID.fullmatch(current):
     raise ValueError('Original local latest route required')
@@ -133,14 +139,19 @@ def _prior_originals(assessment, group, selected_cohort, root, *, permitted, sta
   for _, _, route in sorted(candidates):
 
     def walk(actual_root, original_route, *, permitted, consume):
-      return _selected_sources(actual_root, original_route, permitted=permitted, consume=consume, cp_sha256=assessment.receipt.cp_sha256, expanded=stable)
+      return _selected_sources(actual_root, original_route, permitted=permitted, consume=consume,
+                               cp_sha256=assessment.receipt.cp_sha256, expanded=stable, validate_preroll=True)
 
     try:
       collected = collect_route_inputs(root, route, permitted=allowed, walker=walk)
     except PriorIdentityMismatch:
       continue
+    except RouteInputError as error:
+      logging.getLogger(__name__).warning('Skipping prior drive %s: %s', route['routeId'], error)
+      continue
     if collected.receipt.completed_wall_ns >= assessment.receipt.completed_wall_ns:
-      raise ValueError('Independent prior chronology invalid')
+      logging.getLogger(__name__).warning('Skipping prior drive %s: independent chronology invalid', route['routeId'])
+      continue
     compatible = []
     profile_windows = {}
     if stable:

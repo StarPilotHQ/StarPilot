@@ -217,11 +217,10 @@ class TestOffroadCache(unittest.TestCase):
       calls.append(route['routeId'])
       return parked if route is latest else driving
 
-    history = SimpleNamespace(snapshot=lambda: {'scanIncomplete': False, 'routes': [latest, earlier]})
     with (
       patch.object(module, 'latest_route', return_value=latest),
       patch.object(module, 'collect_route_inputs', new=collect),
-      patch('openpilot.starpilot.galaxy.drive_history.DriveHistory', return_value=history),
+      patch('openpilot.starpilot.flm.offroad_route.route_inventory', return_value={'scanIncomplete': False, 'routes': [latest, earlier]}),
     ):
       route, collected = module.collect_latest_steering_inputs(None, '.', permitted=lambda: True)
       self.assertIs(route, earlier)
@@ -256,10 +255,9 @@ class TestOffroadCache(unittest.TestCase):
 
     for intact in (True, False):
       with self.subTest(selected_source_intact=intact), tempfile.TemporaryDirectory() as directory:
-        history = SimpleNamespace(snapshot=lambda intact=intact: {'scanIncomplete': False, 'routes': [parked, selected] if intact else [parked]})
         with (
           patch.object(module, 'latest_route', return_value=parked),
-          patch('openpilot.starpilot.galaxy.drive_history.DriveHistory', return_value=history),
+          patch.object(module, 'route_inventory', return_value={'scanIncomplete': False, 'routes': [parked, selected] if intact else [parked]}),
         ):
           params = Params(directory)
           worker = module.OffroadWorker(
@@ -1798,7 +1796,7 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
     route = {'routeId': prior_id, 'segments': [{'files': {'rlog': True}} for _ in range(8)]}
     assessment = SimpleNamespace(receipt=SimpleNamespace(route_id=current_id, cp_sha256='a' * 64, completed_wall_ns=10))
     with (
-      patch.object(module.DriveHistory, 'snapshot', return_value={'scanIncomplete': False, 'routes': [route]}),
+      patch.object(module, 'route_inventory', return_value={'scanIncomplete': False, 'routes': [route]}),
       patch.object(module, 'collect_route_inputs', return_value=collected),
       patch.object(module, 'cohort', return_value='2:right:steady'),
     ):

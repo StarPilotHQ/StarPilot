@@ -22,14 +22,18 @@ class LogDecodeError(ValueError):
   """The whole segment is unavailable; callers must discard every event."""
 
 
+class LogDecodeCancelled(LogDecodeError):
+  """Lost permission is not evidence that the recording is corrupt."""
+
+
 def _not_cancelled(cancelled: Callable[[], bool]) -> None:
   try:
     if cancelled():
-      raise LogDecodeError("segment decode cancelled")
+      raise LogDecodeCancelled("segment decode cancelled")
   except LogDecodeError:
     raise
   except Exception as error:
-    raise LogDecodeError("segment cancellation check unavailable") from error
+    raise LogDecodeCancelled("segment cancellation check unavailable") from error
 
 
 def _bounded_read(reader: Any, cancelled: Callable[[], bool], expanded_limit: int = MAX_EXPANDED_BYTES) -> bytes:

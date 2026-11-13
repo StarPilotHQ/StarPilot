@@ -9,7 +9,7 @@ from openpilot.starpilot.flm.offroad_baseline_windows import baseline_windows
 from openpilot.starpilot.flm.canonical_surface_adapter import NAMES as AMPLITUDE_NAMES
 from openpilot.starpilot.flm.offroad_residual import analyze_stable_windows
 from openpilot.starpilot.flm.offroad_evidence import read_point, whole_windows, eligible_points, tracking_metrics
-from openpilot.starpilot.flm.offroad_route import latest_route, walk_completed_route, RouteReceipt, SelectedSourceReceipt
+from openpilot.starpilot.flm.offroad_route import latest_route, walk_completed_route, RouteInputCancelled, RouteReceipt, SelectedSourceReceipt, route_permission
 from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
 
 
@@ -29,6 +29,7 @@ class CompletedAssessment:
   recorded_tracking: dict | None = None
   evidence_sources: dict = field(default_factory=dict, repr=False, compare=False)
   single_drive: object = field(default=None, repr=False, compare=False)
+  route_skips: tuple = ()
 
   def report(self):
     return {
@@ -43,6 +44,7 @@ class CompletedAssessment:
       'stable_groups': list(self.stable_groups),
       'recorded_tracking': self.recorded_tracking,
       'evidence_sources': [asdict(source.receipt) for _, source in sorted(self.evidence_sources.items())],
+      'skipped_routes': [list(row) for row in self.route_skips],
       'source_role': (
         'Input-selected original drive sections; not a whole-drive assessment or live permission.'
         if type(self.receipt) is SelectedSourceReceipt
@@ -413,8 +415,7 @@ def collect_route_inputs(root, route, *, permitted, walker=None):
 def collect_latest_steering_inputs(params, root, *, permitted, selected_route=None):
   route = latest_route(params, root, permitted=permitted) if selected_route is None else selected_route
   import time
-  from openpilot.starpilot.flm.offroad_route import MAX_ANALYSIS_SECONDS, MAX_SEGMENTS, LOCAL_ID
-  from openpilot.starpilot.galaxy.drive_history import DriveHistory
+  from openpilot.starpilot.flm.offroad_route import MAX_ANALYSIS_SECONDS, LOCAL_ID
 
   started = time.monotonic()
 
@@ -439,9 +440,9 @@ def collect_latest_steering_inputs(params, root, *, permitted, selected_route=No
     )
 
   if selected_route is None and inactive(collected) and LOCAL_ID.fullmatch(route['routeId']):
-    snapshot = DriveHistory(root, max_segments_per_route=MAX_SEGMENTS).snapshot()
-    if snapshot['scanIncomplete']:
-      raise ValueError('Latest steering drive inventory incomplete')
+    from openpilot.starpilot.flm.offroad_route import route_inventory
+
+    snapshot = route_inventory(root)
     counter = int(route['routeId'].split('--')[0], 16)
     candidates = []
     for candidate in snapshot['routes']:
@@ -450,7 +451,15 @@ def collect_latest_steering_inputs(params, root, *, permitted, selected_route=No
         if 1 <= distance <= 3 and candidate['segments'] and all(s['files']['rlog'] for s in candidate['segments']):
           candidates.append((distance, candidate['routeId'], candidate))
     for _, _, candidate in sorted(candidates):
-      earlier = collect_route_inputs(root, candidate, permitted=allowed, walker=walk)
+      from openpilot.starpilot.flm.offroad_route import RouteInputError
+
+      try:
+        earlier = collect_route_inputs(root, candidate, permitted=allowed, walker=walk)
+      except RouteInputError as error:
+        import logging
+
+        logging.getLogger(__name__).warning('Skipping earlier steering drive %s: %s', candidate['routeId'], error)
+        continue
       if earlier.receipt.cp_sha256 != current_cp:
         continue
       skipped += 1
@@ -462,6 +471,7 @@ def collect_latest_steering_inputs(params, root, *, permitted, selected_route=No
 
 
 def analyze_latest(params, root, previous, *, permitted, selected_route=None, evidence_bank=None, history_identity=None):
+  permitted = route_permission(permitted)
   if selected_route is None:
     route, collected = collect_latest_steering_inputs(params, root, permitted=permitted)
   else:
@@ -474,10 +484,29 @@ def analyze_latest(params, root, previous, *, permitted, selected_route=None, ev
   from openpilot.starpilot.flm.offroad_history import combine
 
   identity = history_identity(collected.state['cp'])
-  history = evidence_bank.retain(collected, route, identity, permitted=permitted)
-  pooled, sources, order = combine(collected, route, history)
+  skips = []
+  try:
+    history = evidence_bank.retain(collected, route, identity, permitted=permitted)
+  except RouteInputCancelled:
+    raise
+  except (ValueError, OSError, KeyError, TypeError, IndexError) as error:
+    if not permitted():
+      raise
+    # Unreadable derived history provides no evidence. The independently
+    # complete current recording can still be analyzed without that cache.
+    return replace(single, route_skips=(('Stored steering history', str(error)[:160]),))
+  pooled, sources, order = combine(collected, route, history, root=root, permitted=permitted, on_skip=lambda name, reason: skips.append((name, reason)))
+  if skips:
+    try:
+      evidence_bank.exclude(tuple(name for name, _ in skips), permitted=permitted)
+    except RouteInputCancelled:
+      raise
+    except (ValueError, OSError, KeyError, TypeError) as error:
+      if not permitted():
+        raise
+      skips.append(('Stored steering history', str(error)[:160]))
   result = _assess_inputs(route, pooled, previous, permitted=permitted, sources=sources, route_order=order)
-  return replace(result, single_drive=single, recorded_tracking=single.recorded_tracking)
+  return replace(result, single_drive=single, recorded_tracking=single.recorded_tracking, route_skips=tuple(skips))
 
 
 def _assess_inputs(route, collected, previous, *, permitted, sources=None, route_order=None):
@@ -497,7 +526,7 @@ def _assess_inputs(route, collected, previous, *, permitted, sources=None, route
     driven = {w.points[0].route for kind in (windows, stable_windows, baseline_tracking) for rows in kind.values() for w in rows}
     counts = dict(counts, evidence_drives=len(driven), evidence_windows=sum(map(len, windows.values())))
   if not permitted():
-    raise ValueError('Parked authority lost after analysis')
+    raise RouteInputCancelled('Parked authority lost after analysis')
   from openpilot.starpilot.flm.offroad_baseline_windows import stable_proposal_windows, tracking_proposal_windows
 
   proposal_windows, proposal_grades = tracking_proposal_windows(windows, baseline_tracking)

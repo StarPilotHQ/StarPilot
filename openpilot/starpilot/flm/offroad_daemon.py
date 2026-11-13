@@ -36,7 +36,7 @@ class StatusReport:
     # Keep the last completed findings and saved values readable during a fit.
     # They are historical display data, never current application or permission.
     fields = ('completed_route', 'vehicle', 'analysis_counts', 'recorded_tracking', 'source_sha256', 'assessment_sha256',
-              'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest', 'latest_recording')
+              'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest', 'latest_recording', 'skipped_routes')
     previous = {key: self.previous[key] for key in fields if key in self.previous}
     if previous:
       previous['retained_decision'] = self.previous.get('retained_decision', self.previous.get('reason', 'waiting_for_completed_drive'))
@@ -105,6 +105,8 @@ class StatusReport:
       return value if type(value) is int and 0 <= value < 2**63 else 0
 
     details: dict[str, Any] = {'Analysis runs while parked': True, 'Next-drive trial is reversible': True, 'Physical road improvement proven': False}
+    if value.get('skipped_routes'):
+      details['Skipped recorded drives'] = [list(row) for row in value['skipped_routes'][:16]]
     for key, title in (('source_sha256', 'Original completed route hash'), ('assessment_sha256', 'Offroad assessment hash')):
       if key in value:
         details[title] = value[key]
@@ -348,7 +350,11 @@ def main():
           report.set(worker.run_once())
         except (ValueError, OSError, RuntimeError) as error:
           traceback.print_exc()
-          failure = worker.record_failure(error)
+          try:
+            failure = worker.record_failure(error)
+          except (ValueError, OSError, RuntimeError) as checkpoint_error:
+            traceback.print_exc()
+            failure = {'status': 'unavailable', 'reason': f'Could not record route failure: {checkpoint_error}'[:300]}
           report.set(failure if failure is not None else {'status': 'unavailable', 'reason': str(error)[:300]})
       report.publish()
       if not stopped:

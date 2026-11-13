@@ -17,12 +17,14 @@ from openpilot.starpilot.flm.learned_lifecycle import decode
 from openpilot.starpilot.flm.offroad_cache import AssessmentCache, MAX_CHECKPOINTS
 from openpilot.starpilot.flm.offroad_checks import qualify
 from openpilot.starpilot.flm.offroad_processor import analyze_latest, CompletedAssessment
-from openpilot.starpilot.flm.offroad_route import latest_route, LOCAL_ID, MAX_SEGMENTS
+from openpilot.starpilot.flm.offroad_route import latest_route, logger_marker, route_inventory, source_revisions, RouteInputError, LOCAL_ID
 from openpilot.starpilot.flm.offroad_runtime import configuration_scope
 from openpilot.starpilot.flm.offroad_store import RouteScope, RouteStorage, KEY, MAX_BYTES, MAX_ROUTE_STEP, NAMESPACE
 from openpilot.starpilot.flm.offroad_surface import REVISION
 from openpilot.starpilot.flm.offroad_tracking import TrackingEstimate, compare_observed
 from openpilot.starpilot.saved_source import read_saved
+from openpilot.starpilot.flm.log_decode import LogDecodeCancelled
+from openpilot.starpilot.flm.offroad_route import RouteInputCancelled
 
 POLICY = 'bounded_provisional_next_drive_v1'
 RECORDED_ASSESSOR = analyze_latest
@@ -176,26 +178,36 @@ def quality_withdrawn(assessment, scope, values):
   return any(stop_marker(scope.key(), values, r) in reasons for r in STOP_REASONS)
 
 
-def pending_routes(root, latest):
+def pending_routes(root, latest, *, on_skip=None):
   """Review the eight most recent logger inputs, newest first; no fit selection."""
-  if not LOCAL_ID.fullmatch(latest['routeId']):
-    return [latest]
-  from openpilot.starpilot.galaxy.drive_history import DriveHistory
-
-  inventory = DriveHistory(root, max_segments_per_route=MAX_SEGMENTS).snapshot()
-  if inventory['scanIncomplete']:
-    raise ValueError('Completed-drive backlog inventory incomplete')
-  counter = int(latest['routeId'].split('--')[0], 16)
+  name = latest['routeId']
+  if type(name) is not str or not LOCAL_ID.fullmatch(name):
+    if type(latest.get('loggerCounter')) is not int:
+      return [latest]
+    counter = latest['loggerCounter']
+  else:
+    counter = int(name.split('--')[0], 16)
+  inventory = route_inventory(root)
+  if on_skip is not None:
+    for row in inventory.get('routeErrors', ()):
+      if LOCAL_ID.fullmatch(row['routeId']) and (counter - int(row['routeId'].split('--')[0], 16)) % 2**32 < MAX_CHECKPOINTS:
+        on_skip(row['routeId'], row['reason'])
   candidates = []
   for route in inventory['routes']:
     if not LOCAL_ID.fullmatch(route['routeId']):
       continue
     distance = (counter - int(route['routeId'].split('--')[0], 16)) % 2**32
-    if 1 <= distance < MAX_CHECKPOINTS and route.get('segments') and all(s['files']['rlog'] for s in route['segments']):
-      candidates.append((distance, route['routeId'], route))
-  if len({distance for distance, _, _ in candidates}) != len(candidates):
-    raise ValueError('Ambiguous completed logger counter')
-  return [latest] + [route for _, _, route in sorted(candidates)]
+    if 1 <= distance < MAX_CHECKPOINTS:
+      if route.get('segments') and all(s['files']['rlog'] for s in route['segments']):
+        candidates.append((distance, route['routeId'], route))
+      elif on_skip is not None:
+        on_skip(route['routeId'], 'Original dense recording is incomplete')
+  ambiguous = {distance for distance, _, _ in candidates if sum(row[0] == distance for row in candidates) > 1}
+  if on_skip is not None:
+    for distance, name, _ in candidates:
+      if distance in ambiguous:
+        on_skip(name, 'Ambiguous logger counter')
+  return [latest] + [route for distance, _, route in sorted(candidates) if distance not in ambiguous]
 
 
 def assess_next_drive(trial, assessment, scope, *, trial_started=True, recorded_backlog=False):
@@ -429,6 +441,17 @@ def newer_original_refusal(cache, receipt, scope, values):
 
 def reported_checkpoint(cache, results):
   """Display useful current-profile evidence without changing any saved decision."""
+  skipped = [row for row in results if row.get('route_skipped') is True]
+  usable = [row for row in results if row.get('route_skipped') is not True]
+  if skipped:
+    value: dict[str, Any] = dict(reported_checkpoint(cache, usable), source_is_latest=False) if usable else dict(results[0])
+    faults = []
+    for row in skipped:
+      for fault in row.get('skipped_routes', ()):
+        if fault not in faults and len(faults) < 16:
+          faults.append(fault)
+    value['skipped_routes'] = faults
+    return value
   latest = results[0]
 
   def has_windows(value):
@@ -503,6 +526,8 @@ class OffroadWorker:
     self.source_revision = _assessment_source_revision()
     self.pending_input = None
     self.pending_latest = None
+    self.pending_logger = None
+    self.skipped_routes = []
     self.pending_failure_data = None
     self.on_analysis = on_analysis
     self.on_assessment = on_assessment
@@ -533,18 +558,36 @@ class OffroadWorker:
       if not okay:
         raise ValueError('Unreadable automatic tuning setting')
       values.append((key, None if raw is None else hashlib.sha256(raw).hexdigest()))
-    return _digest((POLICY, self.source_revision, route, values))
+    return _digest((POLICY, self.source_revision, route, source_revisions(self.root, route), values))
+
+  def _skip_route(self, route_id, reason):
+    fault = [route_id or 'Last local recording', str(reason)[:160]]
+    if fault not in self.skipped_routes and len(self.skipped_routes) < 16:
+      self.skipped_routes.append(fault)
 
   def record_failure(self, error):
     # Preserve a failed immutable input without re-decoding it every poll.
     # Settings/source/code changes create a different fingerprint. Onroad
     # cancellation never marks a new drive completed or writes a tune.
     pending, self.pending_failure_data = self.pending_failure_data, None
-    if self.pending_input is None or not self.permitted():
+    if self.pending_input is None or isinstance(error, (RouteInputCancelled, LogDecodeCancelled)) or not self.permitted():
       return
     route, fingerprint = self.pending_input
-    if self._snapshot(route) != fingerprint or latest_route(self.params, self.root, permitted=self.permitted) != self.pending_latest:
+    if (self._snapshot(route) != fingerprint or logger_marker(self.params) != self.pending_logger
+        or latest_route(self.params, self.root, permitted=self.permitted, inventory_only=True) != self.pending_latest):
       return
+    if isinstance(error, RouteInputError):
+      self._skip_route(error.route_id, error)
+      if self.evidence_bank is not None:
+        try:
+          self.evidence_bank.exclude((error.route_id,), permitted=self.permitted)
+        except RouteInputCancelled:
+          return
+        except (OSError, ValueError) as history_error:
+          self._skip_route('Stored steering history', history_error)
+      if error.route_id is not None and error.route_id != route['routeId']:
+        return {'status': 'collecting', 'reason': 'skipped_unreadable_historical_drive', 'skipped_routes': list(self.skipped_routes),
+                'configuration_changed': False, 'actual_application_proven': False}
     result = {
       'status': 'unavailable',
       'reason': str(error)[:300],
@@ -552,8 +595,10 @@ class OffroadWorker:
       'actual_application_proven': False,
       'road_improvement_confirmed': False,
       'source_is_latest': route == self.pending_latest,
+      'route_skipped': isinstance(error, RouteInputError),
+      'skipped_routes': list(self.skipped_routes),
     }
-    if pending is not None:
+    if pending is not None and not isinstance(error, RouteInputError):
       authorized, recorded = pending
       if not authorized():
         return
@@ -566,23 +611,29 @@ class OffroadWorker:
   def run_once(self):
     self.pending_failure_data = None
     self.pending_input = None
+    self.skipped_routes = []
     if not self.permitted():
       raise ValueError('Offroad analysis not permitted')
-    latest = latest_route(self.params, self.root, permitted=self.permitted)
+    self.pending_logger = logger_marker(self.params)
+    latest = latest_route(self.params, self.root, permitted=self.permitted, inventory_only=True, on_skip=self._skip_route)
+    if logger_marker(self.params) != self.pending_logger:
+      raise ValueError('Logger identity changed during route selection')
     self.pending_latest = latest
     checkpoints = {row['input_fingerprint']: row['result'] for row in self.cache.checkpoints()}
     fingerprints = []
-    for route in pending_routes(self.root, latest):
+    for route in pending_routes(self.root, latest, on_skip=self._skip_route):
       fingerprint = self._snapshot(route)
       fingerprints.append(fingerprint)
       if (fingerprint not in checkpoints or self.evidence_bank is not None and route == latest
+          and not checkpoints[fingerprint].get('route_skipped')
           and checkpoints[fingerprint].get('evidence_revision') != self.evidence_bank.revision()):
         break
     else:
       result = reported_checkpoint(self.cache, [checkpoints[key] for key in fingerprints])
       source_is_latest = result['completed_route'] == latest['routeId'] if 'completed_route' in result else result.get('source_is_latest', True)
-      return dict(result, source_is_latest=source_is_latest)
+      return dict(result, source_is_latest=source_is_latest, skipped_routes=[*result.get('skipped_routes', ()), *self.skipped_routes][:16])
     self.pending_input = (route, fingerprint)
+    revisions = source_revisions(self.root, route)
     state = {}
 
     def prior(cp):
@@ -608,14 +659,14 @@ class OffroadWorker:
 
     def authorized():
       if not (
-        self.permitted() and self.scope_for(assessment.cp, self.params) == scope and latest_route(self.params, self.root, permitted=self.permitted) == latest
+        self.permitted() and self.scope_for(assessment.cp, self.params) == scope
+        and logger_marker(self.params) == self.pending_logger and source_revisions(self.root, route) == revisions
+        and latest_route(self.params, self.root, permitted=self.permitted, inventory_only=True) == latest
       ):
         return False
       if route == latest and assessment.source_inventory == route:
         return True
-      from openpilot.starpilot.galaxy.drive_history import DriveHistory
-
-      inventory = DriveHistory(self.root, max_segments_per_route=MAX_SEGMENTS).snapshot()
+      inventory = route_inventory(self.root)
       return not inventory['scanIncomplete'] and sum(r == assessment.source_inventory for r in inventory['routes']) == 1
 
     if not authorized():
@@ -629,6 +680,7 @@ class OffroadWorker:
       'analysis_counts': dict(assessment.counts),
       'recorded_tracking': assessment.recorded_tracking,
       'source_is_latest': assessment.receipt.route_id == latest['routeId'],
+      'skipped_routes': [*self.skipped_routes, *getattr(assessment, 'route_skips', ())][:16],
     }
     self.pending_failure_data = (authorized, recorded)
     report = assessment.report()
@@ -950,12 +1002,10 @@ class OffroadWorker:
               def original_sources_current(new=new):
                 if not authorized():
                   return False
-                from openpilot.starpilot.galaxy.drive_history import DriveHistory
-
                 required = [s.source_inventory for s in assessment.evidence_sources.values() if s.receipt.source_sha256 in new['route_sha256s']]
                 if not required:
                   return True
-                inventory = DriveHistory(self.root, max_segments_per_route=MAX_SEGMENTS).snapshot()
+                inventory = route_inventory(self.root)
                 return not inventory['scanIncomplete'] and all(sum(r == source for r in inventory['routes']) == 1 for source in required)
 
               saved = RouteStorage(self.params).save(new, expected=expected, authorized=original_sources_current)
@@ -1010,6 +1060,7 @@ class OffroadWorker:
       'source_sha256': assessment.receipt.source_sha256,
       'vehicle': str(assessment.cp.carFingerprint),
       'recorded_tracking': report.get('recorded_tracking'),
+      'skipped_routes': [*self.skipped_routes, *getattr(assessment, 'route_skips', ())][:16],
       'suggestion_count': len(diagnostics) + len(profile_suggestions),
       'recommendations': recorded_recommendations(assessment, current, report),
       'suggestions': profile_suggestions

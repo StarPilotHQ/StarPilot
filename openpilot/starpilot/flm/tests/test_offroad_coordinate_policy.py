@@ -108,8 +108,10 @@ class TestCrossDriveEvidence(unittest.TestCase):
       self.assertEqual(set(sources), {other.receipt.route_id})
       history[0]['windows'][0]['points'][0][6] += 0.1
       other, other_inventory = self.inputs(2)
-      with self.assertRaisesRegex(ValueError, 'window changed'):
-        combine(other, other_inventory, history)
+      skipped = []
+      _, sources, _ = combine(other, other_inventory, history, on_skip=lambda *args: skipped.append(args))
+      self.assertEqual(set(sources), {other.receipt.route_id})
+      self.assertIn('window changed', skipped[0][1])
       (bank.cache.directory / 'history.z').write_bytes(zlib.compress(b'{"version":9}'))
       with self.assertRaises(ValueError):
         bank.read('same')
@@ -371,9 +373,19 @@ class TestCrossDriveEvidence(unittest.TestCase):
                   'source_sha256': f'{int(next(w["route"] for w in group["selected_original_windows"] if w["identity"] == key).split("--")[0], 16):064x}'}
                   for role in ('training', 'heldout') for key in cohort[role]['windows']]}
 
+        def declared_source(root, row, permitted, needed):
+          # This fixture starts after source ingestion. Real compressed-file
+          # integrity is exercised separately by test_offroad_fault_isolation.
+          self.assertTrue(permitted())
+          counter = int(row['receipt']['route_id'].split('--')[0], 16)
+          self.assertEqual(row['receipt']['source_sha256'], f'{counter:064x}')
+          self.assertTrue(needed <= {0, 1})
+
         with patch.object(module, 'latest_route', return_value=inventory), patch.object(module, 'pending_routes', return_value=[inventory]), patch(
           'openpilot.starpilot.flm.offroad_processor.collect_latest_steering_inputs', return_value=(inventory, current)
-        ), patch('openpilot.starpilot.galaxy.drive_history.DriveHistory.snapshot', return_value={'scanIncomplete': False, 'routes': inventories}):
+        ), patch('openpilot.starpilot.flm.offroad_history._verify_history_source', new=declared_source), patch(
+          'openpilot.starpilot.galaxy.drive_history.DriveHistory.snapshot', return_value={'scanIncomplete': False, 'routes': inventories}
+        ):
           worker = module.OffroadWorker(params, directory, cache, permitted=lambda: True, checker=checks, scope_for=lambda cp, p: scope())
           result = worker.run_once()
         if number < 4:
@@ -394,7 +406,7 @@ class TestCompletedDriveBacklog(unittest.TestCase):
   def route(counter):
     return {'routeId': f'{counter:08x}--aaaaaaaaaa', 'segments': [{'files': {'rlog': True}}]}
 
-  def test_input_order_ignores_outcomes_and_refuses_ambiguous_or_partial_inventory(self):
+  def test_input_order_ignores_outcomes_and_isolates_ambiguous_routes_but_refuses_partial_scan(self):
     from openpilot.starpilot.flm.offroad_worker import pending_routes
 
     routes = [self.route(i) for i in (16, 18, 17, 14, 19, 9)]
@@ -402,8 +414,11 @@ class TestCompletedDriveBacklog(unittest.TestCase):
     with patch('openpilot.starpilot.galaxy.drive_history.DriveHistory.snapshot', return_value=inventory):
       self.assertEqual(pending_routes('.', self.route(18)), [self.route(i) for i in (18, 17, 16, 14)])
       inventory['routes'].append(dict(self.route(17), routeId='00000011--bbbbbbbbbb'))
-      with self.assertRaisesRegex(ValueError, 'Ambiguous'):
-        pending_routes('.', self.route(18))
+      skipped = []
+      self.assertEqual(pending_routes('.', self.route(18), on_skip=lambda *args: skipped.append(args)),
+                       [self.route(i) for i in (18, 16, 14)])
+      self.assertEqual(len(skipped), 2)
+      self.assertTrue(all(reason == 'Ambiguous logger counter' for _, reason in skipped))
       inventory['scanIncomplete'] = True
       with self.assertRaisesRegex(ValueError, 'incomplete'):
         pending_routes('.', self.route(18))
