@@ -31,6 +31,7 @@ class LaboratoryFrame:
 
 
 class LaboratoryPair:
+  vision_input_names = CatalogModelState.vision_input_names
   lat_delay: float
   frame_drop_ratio: float
 

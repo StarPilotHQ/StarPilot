@@ -59,6 +59,25 @@ class TestLaboratoryFrame(unittest.TestCase):
       role.npy["desire"] = original
     self.assertFalse(supported(SimpleNamespace(npy={})))
 
+  def test_actual_modeld_camera_mapping_accepts_both_pair_inputs(self):
+    import ast
+    source = Path(__file__).resolve().parents[3] / "selfdrive/modeld/modeld.py"
+    main = next(node for node in ast.parse(source.read_text()).body if isinstance(node, ast.FunctionDef) and node.name == "main")
+    assignments = [node for node in ast.walk(main) if isinstance(node, ast.Assign) and
+                   any(isinstance(target, ast.Name) and target.id in ("bufs", "transforms") for target in node.targets)]
+    caller = compile(ast.fix_missing_locations(ast.Module(body=assignments, type_ignores=[])), str(source), "exec")
+    pair = make_pair()
+    self.assertEqual(pair.vision_input_names, pair.lateral.vision_input_names)
+    self.assertEqual(pair.vision_input_names, pair.longitudinal.vision_input_names)
+    frames, transforms, inputs = frame_inputs(pair.lateral)
+    scope = {"model": pair, "buf_main": frames["img"], "buf_extra": frames["big_img"],
+             "model_transform_main": transforms["img"], "model_transform_extra": transforms["big_img"]}
+    exec(caller, scope)
+    self.assertIs(scope["bufs"]["img"], frames["img"])
+    self.assertIs(scope["bufs"]["big_img"], frames["big_img"])
+    output = pair.run(scope["bufs"], scope["transforms"], inputs)
+    self.assertIn("plan", output)
+
   def test_sequential_frame_one_warp_independent_actions_and_current_frame_pose(self):
     pair = make_pair()
     callback = Mock()

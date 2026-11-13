@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 _SOURCES = {'adapter.py': '36ba945bbbf2d954474de5499f791804ecec3a6cf2b52e92c1661bb9b2f4788c',
  'ops-mapping.json': '8acf8d759ffd597684fce9e0879b488cf2b32c3f05a5ca355a77ba0026c6bb95',
- 'dom_admission.py': '45ca0ad26271b6606af258af040ded846b19b74f693f837dd802fa71b9e9a284',
- 'dom_usb.py': 'f57983bac65f61873d67fa644e9eedde6eecec9d026130c31d8e55efe2185c0d',
+ 'dom_admission.py': 'f02dd5d30a2a38bd9ca03481c2d4fb42982453da052d3551bdd6f05a5ada1a92',
+ 'dom_usb.py': 'b329c614eeef71698e8acee8acafa727cc7e2635f9a595bfac1b50e668747aaf',
  'qcom.py': 'da93aa4b1929fbb881056669a78e765d113a2ace2d766e1cf7cce40ddba8ab95'}
 
 
