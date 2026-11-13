@@ -14,7 +14,7 @@ from opendbc.car.gm.distance_button import DistanceObservation, DistanceSample
 from opendbc.car.hyundai.ioniq6_media import MediaObservation
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.canfd_owner import config_index
-from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
+from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR, HyundaiFlags
 from openpilot.selfdrive.car.cruise import CRUISE_LONG_PRESS
 from openpilot.starpilot.conditional_mode.policy import ModeChoice, next_manual_status, restore_manual_status
 from openpilot.starpilot.conditional_mode.preferences import ManualState, manual_for_drive
@@ -30,9 +30,17 @@ ButtonType = car.CarState.ButtonEvent.Type
 
 
 def ioniq6_media_eligible(CP: car.CarParams) -> bool:
-  """Only the reviewed Ioniq E-CAN topology has physical media evidence."""
-  return (CP.carFingerprint == HYUNDAI_CAR.HYUNDAI_IONIQ_6 and config_index(CP) is not None and
-          CanBus(CP).ECAN in (1, 5))
+  """Legacy name shared by the Ioniq 6 and restored first-generation EV6 path.
+
+  Pre-rebase StarPilot decoded both models' 0x448 MODE/CUSTOM signals on
+  selected E-CAN. Keep the expansion model-specific, not all Hyundai CAN-FD.
+  """
+  if CP.carFingerprint == HYUNDAI_CAR.HYUNDAI_IONIQ_6:
+    return config_index(CP) is not None and CanBus(CP).ECAN in (1, 5)
+  required = HyundaiFlags.CANFD | HyundaiFlags.EV
+  return (CP.brand == 'hyundai' and CP.carFingerprint == HYUNDAI_CAR.KIA_EV6 and
+          CP.flags & required == required and not CP.flags & (HyundaiFlags.CCNC | HyundaiFlags.CANFD_ANGLE_STEERING) and
+          config_index(CP) is not None and CanBus(CP).ECAN in (0, 1, 4, 5))
 
 
 class Button(StrEnum):

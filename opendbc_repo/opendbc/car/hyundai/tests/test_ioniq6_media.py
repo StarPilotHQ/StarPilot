@@ -50,7 +50,7 @@ class TestIoniq6Media(unittest.TestCase):
         result = source.update([packet(START + MEDIA_MAX_GAP_NS + 2, mode=True, bus=bus)])
         self.assertFalse(result.valid)
         self.assertEqual(result.samples, ())
-    for bus in (True, -1, 4, 129):
+    for bus in (True, -1, 6, 129):
       with self.assertRaises(ValueError):
         Ioniq6MediaButtons(bus)
 

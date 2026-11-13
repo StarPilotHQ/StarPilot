@@ -30,4 +30,6 @@ def configuration_wheel_policy(cp) -> WheelSettingsPolicy | None:
 
 
 def configuration_media_supported(cp) -> bool:
-  return supports_ioniq6_configuration(cp)
+  return (supports_ioniq6_configuration(cp) or
+          bool(cp is not None and cp.brand == 'hyundai' and cp.carFingerprint == CAR.KIA_EV6 and
+               not cp.notCar and not cp.passive and not cp.dashcamOnly))
