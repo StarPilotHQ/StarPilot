@@ -81,6 +81,9 @@ for (const label of ['Lateral model', 'Longitudinal model', 'Enable model pair',
 }
 assert.doesNotMatch(LaboratoryPage.template,/runtimeState|modelLabel\(status\?\.runtime/ )
 assert.match(LaboratoryPage.template,/status\?\.runtime.error/)
+assert.equal(LaboratoryPage.methods.modelLabel.call({status:p},'a'),'Model a')
+assert.equal(LaboratoryPage.methods.modelLabel.call({status:p},'unknown'),'unknown')
+assert.equal(LaboratoryPage.methods.modelLabel.call({status:null},''),'Not selected')
 assert.match(LaboratoryPage.template,/GalaxySelect/)
 assert.match(LaboratoryPage.template,/Catalog models/)
 assert.match(LaboratoryPage.template,/modelLabReason/)

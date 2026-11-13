@@ -138,6 +138,7 @@ export const LaboratoryPage = {
     statusLabel: laboratoryStatusLabel,
     actionAvailable(action, model = null) { return laboratoryActionAllowed(this.status, action, model, this.configuration) },
     can(action, model = null) { return !this.busy && this.actionAvailable(action, model) },
+    modelLabel(id) { return this.status?.models.find(m => m.value === id)?.label || id || "Not selected" },
     changeLateral(value) {
       this.configuration.lateralModel = value
       if (this.configuration.longitudinalModel === value) this.configuration.longitudinalModel = this.candidates[0]?.value || ""
