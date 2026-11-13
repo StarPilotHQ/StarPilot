@@ -9,6 +9,7 @@ import time
 
 OBSERVATION_NS = 90_000_000_000
 LEASE_NS = 15_000_000_000
+MAX_RETIRED_SESSIONS = 256
 PATH = '/api/companion/navigation'
 FIELDS = {'session', 'sequence', 'active', 'ageMs', 'instruction', 'maneuverType', 'maneuverModifier', 'distanceMeters',
           'roadName', 'exitNumber', 'destination', 'source', 'remainingMeters', 'remainingSeconds'}
@@ -34,7 +35,8 @@ def _read(path):
     if (isinstance(value, dict) and isinstance(value.get('session'), str) and type(value.get('sequence')) is int and
         type(value.get('active')) is bool and all(type(value.get(key)) is int for key in ('observed', 'received', 'bootOffset'))):
       retired = value.get('retiredSessions', [])
-      if not isinstance(retired, list) or len(retired) > 16 or any(not isinstance(item, str) for item in retired):
+      if (not isinstance(retired, list) or len(retired) > MAX_RETIRED_SESSIONS or
+          any(not isinstance(item, str) or not 1 <= len(item) <= 64 for item in retired)):
         return None
       validate_payload({key: value[key] for key in FIELDS if key in value})
       return value
@@ -88,7 +90,10 @@ class PhoneNavigationPublisher:
       if session in retired:
         return {'ok': True, 'accepted': False}
       if old and old.get('session') != session:
-        retired = [*retired[-15:], old['session']]
+        # Never forget a retired producer; at the boot-scoped limit, keep the current session only.
+        if len(retired) >= MAX_RETIRED_SESSIONS:
+          return {'ok': True, 'accepted': False}
+        retired = [*retired, old['session']]
       if old and old.get('session') == session:
         if sequence < old['sequence'] or (sequence == old['sequence'] and payload.get('active') != old['active']):
           return {'ok': True, 'accepted': False}
@@ -155,6 +160,7 @@ def select_navigation(mapbox, phone, *, now_ns, drive_id, official_active=False,
   resolved = local_map.resolve(phone, speed=speed, now_ns=now_ns) if local_map is not None else Resolution('mapUnavailable')
   if diagnostics is not None:
     diagnostics['mapStatus'] = resolved.status
+    diagnostics['mapReason'] = resolved.reason
     diagnostics['detail'] = (phone.get('maneuverType', ''), phone.get('maneuverModifier', ''), phone.get('distanceMeters'),
                              resolved.kind, resolved.side, round(resolved.distance))
   from openpilot.starpilot.navigation.wire import PHONE_CONTROL_AGE_NS, PHONE_SOURCE_PREFIX

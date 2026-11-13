@@ -94,10 +94,12 @@ class RouteRuntime:
     destination_key = None if selected is None else (selected['id'], selected['longitude'], selected['latitude'])
     exclusions = tuple(value for key, value in ROUTE_AVOIDANCES.items() if settings[key])
     credentials = (settings['token'], settings['googleKey'] if settings['routeProvider'] == 'google' else '')
-    key = settings['enabled'], hashlib.sha256('\0'.join(credentials).encode()).digest(), destination_key, drive_id, exclusions
+    key = (settings['enabled'], hashlib.sha256('\0'.join(credentials).encode()).digest(), destination_key,
+           drive_id, exclusions, settings['routeProvider'], settings['routingRevision'])
     if key != self.key:
       self.key, self.route = key, None
       self.routes = []
+      self.fetch_key = None  # a transition away and back cannot revive a pending request
       self.preview_only = False
       self.retry_after = self.off_route_since = self.arrived_since = 0
     # A saved origin can draw a preview, but a fresh fix must calculate its own route.
@@ -343,11 +345,11 @@ def main():
           value = select_navigation(value, phone, now_ns=now, drive_id=drive_id, official_active=official_active,
                                     phone_enabled=phone_enabled, diagnostics=diagnostics, local_map=local_map,
                                     speed=fix[2] if fix is not None and len(fix) > 2 else None)
-          reason = diagnostics['reason'], diagnostics.get('mapStatus', '')
+          reason = diagnostics['reason'], diagnostics.get('mapStatus', ''), diagnostics.get('mapReason', '')
           if reason != last_reason:
             last_reason = reason
             # The published frame carries the junction's distance once confirmed, so keep the phone's own here.
-            cloudlog.info('notification navigation: %s %s phone=%s', *reason, diagnostics.get('detail', ''))
+            cloudlog.info('notification navigation: %s %s detail=%s phone=%s', *reason, diagnostics.get('detail', ''))
           publish_status(pm, value, phone_fix)
       except (ValidationError, OSError, ValueError):
         cloudlog.warning('navigation settings or route unavailable')

@@ -131,6 +131,32 @@ def test_generation_discard_and_current_drive_control(tmp_path, route):
   assert result['status'] == 'routing' and not result['controlValid']
 
 
+@pytest.mark.parametrize('change', ['cancelReselect', 'sameDestination', 'avoidanceRoundTrip', 'providerRoundTrip', 'disableEnable'])
+def test_route_intent_changes_between_polls_discard_delayed_response(tmp_path, route, change):
+  owner, executor = configured(tmp_path), Executor()
+  runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None), executor=executor)
+  position = (10_000_000_000, (.001, 0.), 5., 90.)
+  runtime.update(10_000_000_000, position, 1)
+  selected = owner.read()['destination']
+  if change == 'cancelReselect':
+    owner.clear(owner.read()['revision'], True)
+    owner.select(selected, owner.read()['revision'], True)
+  elif change == 'sameDestination':
+    owner.select(selected, owner.read()['revision'], True)
+  else:
+    key, first, second = {'avoidanceRoundTrip': ('avoidTolls', True, False),
+                          'providerRoundTrip': ('routeProvider', 'google', 'mapbox'),
+                          'disableEnable': ('enabled', False, True)}[change]
+    owner.configure({key: first}, owner.read()['revision'], True)
+    owner.configure({key: second}, owner.read()['revision'], True)
+  executor.jobs[0].set_result(route)
+  result = runtime.update(11_000_000_000, (11_000_000_000, *position[1:]), 1)
+  assert result['status'] == 'routing' and not result['controlValid']
+  assert runtime.route is None and len(executor.jobs) == 2
+  executor.jobs[1].set_result(route)
+  assert runtime.update(12_000_000_000, (12_000_000_000, *position[1:]), 1)['controlValid']
+
+
 def test_arrival_ends_navigation_after_a_short_stop(tmp_path, route):
   owner, executor = configured(tmp_path), Executor()
   runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None), executor=executor)

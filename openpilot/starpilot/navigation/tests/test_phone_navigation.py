@@ -156,6 +156,21 @@ def test_late_previous_session_cannot_replace_restart(stream):
   assert read_phone_navigation(NOW, path)['session'] == 'restarted'
 
 
+def test_retired_sessions_remain_fenced_after_more_than_sixteen_restarts(stream):
+  from openpilot.starpilot.navigation.phone import MAX_RETIRED_SESSIONS
+  publisher, path, _ = stream
+  publisher.publish(payload())
+  for index in range(MAX_RETIRED_SESSIONS):
+    assert publisher.publish({**payload(), 'session': f'restart-{index}'})['accepted']
+  assert not publisher.publish({**payload(), 'sequence': 100})['accepted']
+  assert not publisher.publish({**payload(), 'session': 'beyond-limit'})['accepted']
+  assert publisher.publish({**payload(), 'session': f'restart-{MAX_RETIRED_SESSIONS - 1}', 'sequence': 2})['accepted']
+  stored = json.loads(path.read_text())
+  assert len(stored['retiredSessions']) == MAX_RETIRED_SESSIONS
+  restarted = PhoneNavigationPublisher(path, lambda: NOW)
+  assert not restarted.publish({**payload(), 'sequence': 101})['accepted']
+
+
 @pytest.mark.parametrize('corruption', [{'instruction': None}, {'retiredSessions': 1}, {'sequence': -1}])
 def test_corrupted_handoff_is_ignored_and_next_update_recovers(stream, corruption):
   publisher, path, _ = stream

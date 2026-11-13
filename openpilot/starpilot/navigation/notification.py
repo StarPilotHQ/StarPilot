@@ -44,6 +44,7 @@ class Resolution(NamedTuple):
   side: str = ''
   distance: float = 0.            # metres to the matched junction at anchor_ns
   anchor_ns: int = 0              # CLOCK_MONOTONIC time of the GPS fix that measured it
+  reason: str = ''                # diagnostic detail; never grants control
 
   @property
   def control(self):
@@ -99,33 +100,41 @@ class LocalMapCorroborator:
     self.speed = 0.
     self.speed_ns = 0
     self.odometer = deque(maxlen=128)   # (monotonic ns, metres) at each resolve
+    self.map_reason = 'noMapFrame'
 
   def reset(self):
     self.tracker.reset()
     self.odometer.clear()
     self.frame, self.branches, self.last_event_ns, self.held = None, (), 0, None
+    self.map_reason = 'noMapFrame'
 
   def update(self, road, *, valid, event_boot_ns, received, alive, now_boot_ns):
     from openpilot.starpilot.speed_limits.map_source import copy_frame
     self.updated_boot_ns, self.fresh = now_boot_ns, False
     try:
       frame = copy_frame(road, event_valid=valid, event_boot_ns=event_boot_ns) if received else None
-      evidence = self.tracker.step(frame, received=received, now_boot_ns=now_boot_ns, transport_alive=alive)
+      navigation_only = frame is not None and navigation_frame(frame, now_boot_ns)
+      evidence = self.tracker.step(frame, received=received, now_boot_ns=now_boot_ns, transport_alive=alive,
+                                   navigation_only=navigation_only)
       accepted = self.tracker.diagnostic(now_boot_ns=now_boot_ns).frame
+      navigation_admitted = self.tracker.admitted_frame is frame and navigation_only
       if not alive:
         self.frame, self.branches = None, ()
+        self.map_reason = 'mapTransportDead'
       elif frame is not None and frame.event_mono_ns > self.last_event_ns:
         self.last_event_ns = frame.event_mono_ns
-        self.fresh = accepted is frame or navigation_frame(frame, now_boot_ns)
+        self.fresh = accepted is frame or navigation_admitted
         self.frame, self.branches = None, ()
+        self.map_reason = 'mapFrameRejected:' + evidence.kind
         # A matched road (speed-limit grade), or mapd's navigation-only pick on an ambiguous fix.
         if accepted is frame and evidence.kind in MATCHED:
           self._take(road, frame, navigation_only=False)
-        elif accepted is None and navigation_frame(frame, now_boot_ns):
+        elif accepted is None and navigation_admitted:
           self._take(road, frame, navigation_only=True)
       if self.frame is not None and not (navigation_frame(self.frame, now_boot_ns) if self.navigation_only else
                                          accepted is self.frame):
         self.frame, self.branches = None, ()
+        self.map_reason = 'mapFrameExpiredOrReplaced'
     except Exception:
       # Cereal's lazy readers can raise KjException. Bad optional map evidence
       # must neither retain old confirmation nor interrupt phone/Mapbox output.
@@ -135,10 +144,12 @@ class LocalMapCorroborator:
         self.failure_logged = True
       self.tracker.reset()
       self.frame, self.branches, self.last_event_ns, self.held = None, (), 0, None
+      self.map_reason = 'mapFrameUnreadable'
 
   def _take(self, road, frame, *, navigation_only):
     rows = road.navigationBranches
     if len(rows) > 32:
+      self.map_reason = 'tooManyBranches'
       return
     branches = []
     for row in rows:
@@ -147,9 +158,11 @@ class LocalMapCorroborator:
       if (not all(math.isfinite(v) for v in (*junction, distance, angle)) or
           not -90 <= junction[0] <= 90 or not -180 <= junction[1] <= 180 or
           not 0 <= distance <= 1500 or not -180 <= angle <= 180 or way_id <= 0):
+        self.map_reason = 'invalidBranchGeometry'
         return
       branches.append((junction, distance, angle, str(row.highwayClass), way_id, str(row.roadName)))
     self.frame, self.branches, self.navigation_only = frame, tuple(branches), navigation_only
+    self.map_reason = 'noJunctionBranches' if not branches else ''
 
   def status(self, phone):
     return self.resolve(phone).status
@@ -158,7 +171,7 @@ class LocalMapCorroborator:
     """Find the junction the phone means. Phone distances are rounded and seconds old; the junction's is neither."""
     kind, side = phone.get('maneuverType', ''), phone.get('maneuverModifier', '')
     distance = phone.get('distanceMeters')
-    key = (phone.get('session'), phone.get('instruction', ''), kind, side)
+    key = (phone.get('session'), phone.get('source'), phone.get('instruction', ''), phone.get('roadName', ''), kind, side)
     now_ns = phone['observed'] if now_ns is None else now_ns
     self._drive(speed, now_ns)
     driven = 0. if phone['observed'] >= now_ns else self._driven_since(phone['observed'])
@@ -170,7 +183,7 @@ class LocalMapCorroborator:
     result = self._match(phone, kind, side, distance)
     # Without the distance driven since the phone's reading, or well past it, any match may be the next junction.
     if result.control and (driven is None or passed):
-      result = Resolution('mapUnverifiable')
+      result = Resolution('mapUnverifiable', reason='distanceDrivenUnknown' if driven is None else 'phoneJunctionPassed')
     if result.control:
       result = result._replace(anchor_ns=now_ns - max(0, self.updated_boot_ns - self.frame.gps_mono_ns))
       self.held = key, result, now_ns
@@ -222,33 +235,33 @@ class LocalMapCorroborator:
 
   def _match(self, phone, kind, side, distance):
     if not self.branches:
-      return Resolution('mapUnavailable')
+      return Resolution('mapUnavailable', reason=self.map_reason)
     # Stored local tiles do not retain roundabout exit identity or merge topology.
     if distance is None or kind not in VERIFIABLE:
-      return Resolution('mapUnverifiable')
+      return Resolution('mapUnverifiable', reason='phoneDistanceUnknown' if distance is None else 'unsupportedManeuver')
     roads = instruction_roads(phone.get('roadName') or ('' if kind else phone.get('instruction', '')))
     if not kind and not roads:
-      return Resolution('mapUnverifiable')
+      return Resolution('mapUnverifiable', reason='phoneRoadUnknown')
     tolerance = max(60., min(200., distance * .3))
     nearby = [row for row in self.branches if abs(row[1] - distance) <= tolerance]
     if not nearby:
-      return Resolution('mapNoNearbyJunction')
+      return Resolution('mapNoNearbyJunction', reason='junctionDistanceMismatch')
     if not kind:
       # Arrow-only guidance names just the road: a turn onto it here is evidence of the turn, not of its side.
       fits = [row for row in nearby if 45 <= abs(row[2]) <= 150 and same_road(row[5], roads)]
       if not fits:
-        return Resolution('mapUnverifiable')
+        return Resolution('mapUnverifiable', reason='noNamedTurnBranch')
       kind, status = 'turn', 'mapInferred'
     else:
       if kind == 'fork' and len({row[4] for row in nearby}) < 2:
-        return Resolution('mapUnverifiable')
+        return Resolution('mapUnverifiable', reason='forkBranchesMissing')
       fits = [row for row in nearby if self._direction(kind, side, row)]
       if not fits:
-        return Resolution('mapDifferentDirection')
+        return Resolution('mapDifferentDirection', reason='maneuverDirectionMismatch')
       named = [row for row in fits if same_road(row[5], roads)]
       fits, status = named or fits, 'mapAligned'
     if max(row[1] for row in fits) - min(row[1] for row in fits) > JUNCTION_SPAN_M:
-      return Resolution('mapAmbiguous')
+      return Resolution('mapAmbiguous', reason='multipleJunctionsMatch')
     return Resolution(status, kind, side, min(fits, key=lambda row: abs(row[1] - distance))[1])
 
   @staticmethod

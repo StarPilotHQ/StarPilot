@@ -102,9 +102,11 @@ def _ordering_fields(frame: object) -> bool:
           _uint(frame.producer_session, positive=True))
 
 
-def _trusted_wire_shape(frame: MapFrame) -> bool:
+def _trusted_wire_shape(frame: MapFrame, *, navigation_only: bool = False) -> bool:
+  neutral_navigation = (navigation_only and isinstance(frame, MapFrame) and frame.status == 'unknown' and
+                        not frame.event_valid and frame.way_id == 0 and frame.speed_mps == 0)
   if (not _ordering_fields(frame) or not _uint(frame.version, maximum=(1 << 16)-1) or frame.version != 2 or
-      frame.status not in MATCHED | LOSSES or frame.source not in (*GPS_MAX_AGE_NS, 'none') or
+      (frame.status not in MATCHED | LOSSES and not neutral_navigation) or frame.source not in (*GPS_MAX_AGE_NS, 'none') or
       frame.way_selection not in WAY_SELECTIONS | {'fail'} or not _uint(frame.gps_mono_ns) or
       not _uint(frame.computed_mono_ns, positive=True) or frame.computed_mono_ns > frame.event_mono_ns or
       type(frame.way_id) is not int or not -MAX_INT64-1 <= frame.way_id <= MAX_INT64 or
@@ -166,6 +168,7 @@ class MapTracker:
     self.reset()
 
   def reset(self) -> None:
+    self._admitted_frame: MapFrame | None = None
     self._session: int | None = None
     self._generation = 0
     self._source = 'none'
@@ -176,6 +179,11 @@ class MapTracker:
     self._current: MapFrame | None = None
     self._producer_restarts = 0
     self._source_switches = 0
+
+  @property
+  def admitted_frame(self) -> MapFrame | None:
+    """Frame admitted by the last step's ordering checks; consumers must still validate its content and age."""
+    return self._admitted_frame
 
   def diagnostic(self, *, now_boot_ns: int) -> MapDiagnostic:
     # The frame is the same immutable object that passed step() ordering and
@@ -198,8 +206,10 @@ class MapTracker:
     return result
 
   def step(self, frame: MapFrame | None, *, received: bool, now_boot_ns: int,
-           transport_alive: bool = True) -> MapEvidence:
-    if not _uint(now_boot_ns, positive=True) or type(received) is not bool or type(transport_alive) is not bool:
+           transport_alive: bool = True, navigation_only: bool = False) -> MapEvidence:
+    self._admitted_frame = None
+    if (not _uint(now_boot_ns, positive=True) or type(received) is not bool or type(transport_alive) is not bool or
+        type(navigation_only) is not bool):
       raise ValueError('invalid map source clock/transport flags')
     if now_boot_ns < self._last_now_ns:
       self._blocked = True  # new drive/replay epoch requires explicit reset()
@@ -221,7 +231,7 @@ class MapTracker:
     if self._session is not None:
       if frame.event_mono_ns <= self._last_event_ns:
         return self._held(now_boot_ns)  # old/duplicate packet cannot revoke or renew
-    if not _trusted_wire_shape(frame):
+    if not _trusted_wire_shape(frame, navigation_only=navigation_only):
       self._current = None  # unsupported/malformed wire cannot move trusted ordering
       return MapEvidence('unknown', UNKNOWN)
     if frame.event_mono_ns > now_boot_ns:
@@ -249,6 +259,7 @@ class MapTracker:
     self._generation = frame.generation
     self._source = frame.source
     self._last_event_ns = frame.event_mono_ns
+    self._admitted_frame = frame
     result = _classify(frame, now_boot_ns)
     self._current = frame if result.kind in ('matched_limit_unqualified', 'matched_no_limit_unqualified', 'loss') else None
     return result

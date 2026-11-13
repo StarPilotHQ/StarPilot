@@ -185,6 +185,42 @@ def test_ambiguous_fix_with_road_fields_is_not_navigation_evidence(patch):
   assert local_map.status(phone()) == 'mapUnavailable'
 
 
+@pytest.mark.parametrize('rejection', ['retiredProducer', 'regressedGeneration'])
+def test_navigation_only_junctions_cannot_bypass_map_ordering(rejection):
+  local_map = LocalMapCorroborator()
+  first = ambiguous(producerSession=1, sourceGeneration=2)
+  update(local_map, first)
+  assert local_map.resolve(phone(), speed=0., now_ns=NOW).control
+  if rejection == 'retiredProducer':
+    second = ambiguous(producerSession=2, sourceGeneration=2)
+    second.logMonoTime += 1
+    update(local_map, second, now=BOOT + 1)
+    rejected = ambiguous(producerSession=1, sourceGeneration=2)
+  else:
+    rejected = ambiguous(producerSession=1, sourceGeneration=1)
+  rejected.logMonoTime += 2
+  update(local_map, rejected, now=BOOT + 2)
+  assert local_map.tracker.admitted_frame is None
+  assert not local_map.resolve(phone(), speed=0., now_ns=NOW + 2).control
+
+
+@pytest.mark.parametrize('rows,patch,reason', [
+  ([], {}, 'noJunctionBranches'),
+  ([branch(distance=400)], {}, 'junctionDistanceMismatch'),
+  ([branch()], {'distanceMeters': None}, 'phoneDistanceUnknown'),
+  ([branch()], {'maneuverType': 'roundabout'}, 'unsupportedManeuver'),
+  ([branch(-90)], {}, 'maneuverDirectionMismatch'),
+])
+def test_map_diagnostics_explain_why_junction_confirmation_failed(rows, patch, reason):
+  local_map = LocalMapCorroborator()
+  update(local_map, packet(rows))
+  diagnostics = {}
+  selected = select_navigation({'status': 'needsKey'}, phone(**patch), now_ns=NOW, drive_id=1,
+                               local_map=local_map, diagnostics=diagnostics)
+  assert diagnostics['mapReason'] == reason
+  assert selected['source'] == 'phone:googleMaps' and not selected['controlValid']
+
+
 def test_phone_gps_matched_road_confirms():
   # The Galaxy "phone" GPS mode once made every frame unreadable here (enum value 4).
   local_map = LocalMapCorroborator()
@@ -333,6 +369,13 @@ def test_hold_ends_on_contradiction_or_new_guidance(rows, patch):
   assert at(local_map, 0, [branch(90, 100)]).control and at(local_map, 1, [branch(90, 90)]).control
   assert not at(local_map, 2, rows, **patch).control
   assert not at(local_map, 3, None).control
+
+
+@pytest.mark.parametrize('patch', [{'roadName': 'Another St'}, {'source': 'waze'}])
+def test_hold_does_not_cross_road_or_provider_changes(patch):
+  local_map = LocalMapCorroborator()
+  assert at(local_map, 0, [branch(90, 100)], roadName='Main St').control
+  assert not at(local_map, 1, None, **{'roadName': 'Main St', **patch}).control
 
 
 def test_hold_ends_with_the_map_producer_or_after_its_timeout():
