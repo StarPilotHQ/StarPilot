@@ -151,3 +151,56 @@ class TestC4Toggles(unittest.TestCase):
     self.assertTrue(self.audio.enabled)
     self.ui.engaged = True
     self.assertFalse(self.audio.enabled)
+
+
+class TestMazdaSteerGain(unittest.TestCase):
+  def setUp(self):
+    directory = tempfile.TemporaryDirectory()
+    self.addCleanup(directory.cleanup)
+    self.params = Params(directory.name)
+    self.ui = NS(params=self.params, CP=None, engaged=False, started=False,
+                 add_engaged_transition_callback=Mock(), update_params=Mock())
+    self.enterContext(patch.object(toggles, "ui_state", self.ui))
+    self.enterContext(patch.object(common, "ui_state", self.ui))
+    self.enterContext(patch.object(button, "Params", return_value=self.params))
+    self.enterContext(patch.object(gui_app, "font", return_value=rl.Font()))
+    self.enterContext(patch.object(gui_app, "texture", return_value=NS(width=64, height=64)))
+
+  def panel(self):
+    return toggles.TogglesLayoutMici()
+
+  def test_unset_shows_stock_and_each_tap_saves_the_next_gain_and_asks_for_restart(self):
+    gain = self.panel()._mazda_steer_gain
+    self.assertEqual(gain.value, "1.0")
+    for expected in (1.1, 1.2, 1.3, 1.0):
+      with patch.object(toggles, "restart_needed_callback") as restart:
+        gain._handle_mouse_release(MousePos(0, 0))
+      self.assertEqual(self.params.get("MazdaSteerTorqueScale"), expected)
+      self.assertEqual(gain.value, f"{expected:.1f}")
+      restart.assert_called_once_with()
+
+  def test_saved_value_is_shown_including_one_set_outside_the_menu(self):
+    self.params.put("MazdaSteerTorqueScale", 1.2, block=True)
+    self.assertEqual(self.panel()._mazda_steer_gain.value, "1.2")
+    self.params.put("MazdaSteerTorqueScale", 1.25, block=True)
+    gain = self.panel()._mazda_steer_gain
+    self.assertEqual(gain.value, "1.25")
+    self.assertEqual(gain._options, ["1.0", "1.1", "1.2", "1.25", "1.3"])
+    gain._handle_mouse_release(MousePos(0, 0))
+    self.assertEqual(self.params.get("MazdaSteerTorqueScale"), 1.3)
+
+  def test_out_of_range_value_shows_what_the_car_uses(self):
+    self.params.put("MazdaSteerTorqueScale", 2.0, block=True)
+    self.assertEqual(self.panel()._mazda_steer_gain.value, "1.0")
+
+  def test_shown_only_for_mazdas_with_the_torque_table_and_locked_while_engaged(self):
+    gain = self.panel()._mazda_steer_gain
+    for cp, visible in ((None, False), (NS(brand="toyota", carFingerprint="TOYOTA_RAV4"), False),
+                        (NS(brand="mazda", carFingerprint="MAZDA_CX9_2021"), False),
+                        (NS(brand="mazda", carFingerprint="MAZDA_3_2019"), True)):
+      self.ui.CP = cp
+      self.assertEqual(gain.is_visible, visible, cp)
+    self.ui.engaged = True
+    self.assertFalse(gain.enabled)
+    self.ui.engaged = False
+    self.assertTrue(gain.enabled)

@@ -1,7 +1,7 @@
 from openpilot.cereal import log
 
 from openpilot.system.ui.widgets.scroller import NavScroller
-from openpilot.selfdrive.ui.mici.widgets.button import BigParamControl, BigMultiParamToggle, BigToggle
+from openpilot.selfdrive.ui.mici.widgets.button import BigParamControl, BigMultiParamToggle, BigMultiToggle, BigToggle
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.selfdrive.ui.layouts.settings.common import restart_needed_callback
 from openpilot.selfdrive.ui.ui_state import ui_state
@@ -11,6 +11,48 @@ from openpilot.starpilot.galaxy.localization_settings import LocalizationSetting
 from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
 
 PERSONALITY_TO_INT = log.LongitudinalPersonality.schema.enumerants
+
+MAZDA_STEER_GAINS = (1.0, 1.1, 1.2, 1.3)
+
+
+def _gain_label(value: float) -> str:
+  return f"{value:.1f}" if round(value, 1) == value else f"{value:.2f}"
+
+
+class MazdaSteerGainToggle(BigMultiToggle):
+  """MazdaSteerTorqueScale: steps through the offered gains and saves the chosen one.
+
+  The car reads the gain once at startup, so a change asks for a restart. A value saved
+  elsewhere (0.8-1.5) that is not one of the offered steps is shown as its own option.
+  """
+
+  def __init__(self, params):
+    super().__init__("mazda steering gain", [_gain_label(g) for g in MAZDA_STEER_GAINS], select_callback=self._on_select,
+                     description="Scales Mazda steering torque (whole steering controller). 1.0 is stock.\n" +
+                                 "Raise it if the car weaves or under-steers in curves. Applies after the next startup.")
+    self._params = params
+    self.refresh()
+
+  def refresh(self):
+    from opendbc.car.mazda.interface import steer_torque_scale
+    current = _gain_label(steer_torque_scale(self._params))
+    gains = [_gain_label(g) for g in MAZDA_STEER_GAINS]
+    if current not in gains:
+      gains = sorted(gains + [current], key=float)
+    self._options = gains
+    self.set_value(current)
+
+  def _on_select(self, label: str):
+    from opendbc.car.mazda.interface import STEER_TORQUE_SCALE_PARAM
+    self._params.put(STEER_TORQUE_SCALE_PARAM, float(label), block=True)
+    restart_needed_callback()
+
+
+def _mazda_siglin_car() -> bool:
+  if ui_state.CP is None or ui_state.CP.brand != "mazda":
+    return False
+  from opendbc.car.mazda.interface import NON_LINEAR_TORQUE_PARAMS
+  return ui_state.CP.carFingerprint in NON_LINEAR_TORQUE_PARAMS
 
 
 
@@ -67,6 +109,7 @@ class TogglesLayoutMici(NavScroller):
     mazda_nofsc = BigParamControl("no stock FSC", "NoFSC", toggle_callback=restart_needed_callback)
     mazda_blendedacc = BigParamControl("blended ACC", "BlendedACC", toggle_callback=restart_needed_callback)
     mazda_manualtransmission = BigParamControl("manual transmission", "ManualTransmission", toggle_callback=restart_needed_callback)
+    self._mazda_steer_gain = MazdaSteerGainToggle(ui_state.params)
 
     self._scroller.add_widgets([
       self._personality_toggle,
@@ -87,6 +130,7 @@ class TogglesLayoutMici(NavScroller):
       mazda_nofsc,
       mazda_blendedacc,
       mazda_manualtransmission,
+      self._mazda_steer_gain,
     ])
 
     # Toggle lists
@@ -117,6 +161,8 @@ class TogglesLayoutMici(NavScroller):
     mazda_nofsc.set_visible(lambda: ui_state.CP is not None and ui_state.CP.brand == "mazda")
     mazda_blendedacc.set_visible(lambda: ui_state.CP is not None and ui_state.CP.brand == "mazda")
     mazda_manualtransmission.set_visible(lambda: ui_state.CP is not None and ui_state.CP.brand == "mazda")
+    self._mazda_steer_gain.set_visible(_mazda_siglin_car)
+    self._mazda_steer_gain.set_enabled(lambda: not ui_state.engaged)
     record_front.set_enabled(False if ui_state.params.get_bool("RecordFrontLock") else (lambda: not ui_state.engaged))
     record_mic.set_enabled(lambda: not ui_state.engaged)
 
@@ -142,6 +188,8 @@ class TogglesLayoutMici(NavScroller):
   def _update_toggles(self):
     ui_state.update_params()
     self._initial_cruise_speed.refresh()
+    if hasattr(self, "_mazda_steer_gain"):
+      self._mazda_steer_gain.refresh()
 
     safe_mode = ui_state.params.get_bool("SafeMode")
     self._experimental_btn.set_enabled(not safe_mode)
