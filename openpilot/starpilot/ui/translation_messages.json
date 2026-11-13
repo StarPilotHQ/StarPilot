@@ -32264,6 +32264,36 @@
       "refs": [
         "openpilot/starpilot/engine_sound/profiles.py"
       ]
+    },
+    {
+      "source": "Truck",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Muscle Car",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Supra",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "BMW M52",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "LFA",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
     }
   ]
 }

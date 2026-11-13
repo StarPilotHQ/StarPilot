@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "source": "engine-sim engines/atg-video-2/11_merlin_v12.mr",
+  "layers": {
+    "on": [
+      {
+        "rpm": 600,
+        "file": "on_600.wav"
+      },
+      {
+        "rpm": 850,
+        "file": "on_850.wav"
+      },
+      {
+        "rpm": 1100,
+        "file": "on_1100.wav"
+      },
+      {
+        "rpm": 1350,
+        "file": "on_1350.wav"
+      },
+      {
+        "rpm": 1600,
+        "file": "on_1600.wav"
+      },
+      {
+        "rpm": 1850,
+        "file": "on_1850.wav"
+      },
+      {
+        "rpm": 2100,
+        "file": "on_2100.wav"
+      },
+      {
+        "rpm": 2350,
+        "file": "on_2350.wav"
+      },
+      {
+        "rpm": 2600,
+        "file": "on_2600.wav"
+      },
+      {
+        "rpm": 2850,
+        "file": "on_2850.wav"
+      }
+    ],
+    "off": [
+      {
+        "rpm": 600,
+        "file": "off_600.wav"
+      },
+      {
+        "rpm": 850,
+        "file": "off_850.wav"
+      },
+      {
+        "rpm": 1100,
+        "file": "off_1100.wav"
+      },
+      {
+        "rpm": 1350,
+        "file": "off_1350.wav"
+      },
+      {
+        "rpm": 1600,
+        "file": "off_1600.wav"
+      },
+      {
+        "rpm": 1850,
+        "file": "off_1850.wav"
+      },
+      {
+        "rpm": 2100,
+        "file": "off_2100.wav"
+      },
+      {
+        "rpm": 2350,
+        "file": "off_2350.wav"
+      },
+      {
+        "rpm": 2600,
+        "file": "off_2600.wav"
+      },
+      {
+        "rpm": 2850,
+        "file": "off_2850.wav"
+      }
+    ]
+  }
+}

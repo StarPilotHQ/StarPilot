@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "source": "engine-sim engines/chevrolet/chev_truck_454.mr",
+  "layers": {
+    "on": [
+      {
+        "rpm": 600,
+        "file": "on_600.wav"
+      },
+      {
+        "rpm": 1100,
+        "file": "on_1100.wav"
+      },
+      {
+        "rpm": 1600,
+        "file": "on_1600.wav"
+      },
+      {
+        "rpm": 2100,
+        "file": "on_2100.wav"
+      },
+      {
+        "rpm": 2600,
+        "file": "on_2600.wav"
+      },
+      {
+        "rpm": 3100,
+        "file": "on_3100.wav"
+      },
+      {
+        "rpm": 3600,
+        "file": "on_3600.wav"
+      },
+      {
+        "rpm": 4100,
+        "file": "on_4100.wav"
+      },
+      {
+        "rpm": 4600,
+        "file": "on_4600.wav"
+      },
+      {
+        "rpm": 5100,
+        "file": "on_5100.wav"
+      }
+    ],
+    "off": [
+      {
+        "rpm": 600,
+        "file": "off_600.wav"
+      },
+      {
+        "rpm": 1100,
+        "file": "off_1100.wav"
+      },
+      {
+        "rpm": 1600,
+        "file": "off_1600.wav"
+      },
+      {
+        "rpm": 2100,
+        "file": "off_2100.wav"
+      },
+      {
+        "rpm": 2600,
+        "file": "off_2600.wav"
+      },
+      {
+        "rpm": 3100,
+        "file": "off_3100.wav"
+      },
+      {
+        "rpm": 3600,
+        "file": "off_3600.wav"
+      },
+      {
+        "rpm": 4100,
+        "file": "off_4100.wav"
+      },
+      {
+        "rpm": 4600,
+        "file": "off_4600.wav"
+      },
+      {
+        "rpm": 5100,
+        "file": "off_5100.wav"
+      }
+    ]
+  }
+}

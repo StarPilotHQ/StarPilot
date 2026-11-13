@@ -23558,3 +23558,23 @@ msgstr "Xe synth 2"
 #: openpilot/starpilot/engine_sound/profiles.py
 msgid "Big Car 2"
 msgstr "Xe lớn 2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Truck"
+msgstr "Xe tải"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Muscle Car"
+msgstr "Xe cơ bắp"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Supra"
+msgstr "Supra"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "BMW M52"
+msgstr "BMW M52"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "LFA"
+msgstr "LFA"

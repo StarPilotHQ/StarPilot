@@ -23562,3 +23562,23 @@ msgstr "Coche sintético 2"
 #: openpilot/starpilot/engine_sound/profiles.py
 msgid "Big Car 2"
 msgstr "Coche grande 2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Truck"
+msgstr "Camión"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Muscle Car"
+msgstr "Muscle car"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Supra"
+msgstr "Supra"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "BMW M52"
+msgstr "BMW M52"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "LFA"
+msgstr "LFA"

@@ -1,8 +1,19 @@
-The loops in these banks were rendered with tools/make_bank.py from the example engine presets of
-enginesound (https://github.com/DasEtwas/enginesound, commit e5fcca587397c0c8ba9c9d24874b951fed74d260):
+The loops in these banks were rendered with tools/make_bank.py.
+
+From the example engine presets of enginesound (https://github.com/DasEtwas/enginesound,
+commit e5fcca587397c0c8ba9c9d24874b951fed74d260):
 
   big_car_1    example1.esc    big_car_2    example2.esc    rally_car_1  example3.esc
   rally_car_2  example6.esc    synth_car_1  example5.esc    synth_car_2  src/default.esc
+
+From the engine scripts of engine-sim (https://github.com/ange-yaghi/engine-sim,
+commit 85f7c3b959a908ed5232ede4f1a4ac7eafe6b630), recorded with tools/esrec:
+
+  truck        assets/engines/chevrolet/chev_truck_454.mr
+  bmw_m52      assets/engines/bmw/M52B28.mr
+  supra        assets/engines/atg-video-2/03_2jz.mr
+  lfa          assets/engines/atg-video-2/10_lfa_v10.mr
+  muscle_car   assets/engines/atg-video-2/11_merlin_v12.mr
 
 enginesound is distributed under the following license:
 
@@ -27,3 +38,23 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+engine-sim is distributed under the following license:
+
+MIT License
+
+Copyright 2022 AngeTheGreat (Ange Yaghi)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
+persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

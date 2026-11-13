@@ -23558,3 +23558,23 @@ msgstr "シンセカー2"
 #: openpilot/starpilot/engine_sound/profiles.py
 msgid "Big Car 2"
 msgstr "ビッグカー2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Truck"
+msgstr "トラック"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Muscle Car"
+msgstr "マッスルカー"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Supra"
+msgstr "スープラ"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "BMW M52"
+msgstr "BMW M52"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "LFA"
+msgstr "LFA"

@@ -1,0 +1,54 @@
+diff --git a/include/gas_system.h b/include/gas_system.h
+index 29f674d..ac1510a 100644
+--- a/include/gas_system.h
++++ b/include/gas_system.h
+@@ -7,13 +7,15 @@
+ #include <cfloat>
+ #include <cmath>
+ 
++struct GasSystemMix {
++    double p_fuel = 0.0;
++    double p_inert = 1.0;
++    double p_o2 = 0.0;
++};
++
+ class GasSystem {
+     public:
+-        struct Mix {
+-            double p_fuel = 0.0;
+-            double p_inert = 1.0;
+-            double p_o2 = 0.0;
+-        };
++        using Mix = GasSystemMix;
+ 
+         struct State {
+             double n_mol = 0.0;
+diff --git a/scripting/include/object_reference_node.h b/scripting/include/object_reference_node.h
+index 800d912..7e71757 100644
+--- a/scripting/include/object_reference_node.h
++++ b/scripting/include/object_reference_node.h
+@@ -18,9 +18,9 @@ namespace es_script {
+             /* void */
+         }
+ 
+-        template <typename Type>
++        template <typename T_Override>
+         void overrideType() {
+-            m_output.overrideType(LookupChannelType<Type>());
++            m_output.overrideType(LookupChannelType<T_Override>());
+         }
+ 
+     protected:
+diff --git a/src/synthesizer.cpp b/src/synthesizer.cpp
+index 8cf6d74..213d7e0 100644
+--- a/src/synthesizer.cpp
++++ b/src/synthesizer.cpp
+@@ -1,7 +1,7 @@
+ #include "../include/synthesizer.h"
+ 
+ #include "../include/utilities.h"
+-#include "../include/delta.h"
++// delta.h not needed headless
+ 
+ #include <cassert>
+ #include <cmath>

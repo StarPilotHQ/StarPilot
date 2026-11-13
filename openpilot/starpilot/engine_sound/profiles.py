@@ -84,6 +84,11 @@ PROFILES: dict[str, Profile] = {profile.name: profile for profile in (
   _recorded('synth_car_2', 'Synth Car 2', cylinders=4, idle=750.0, redline=5800.0),
   _recorded('big_car_1', 'Big Car 1', cylinders=10, idle=1000.0, redline=8800.0),
   _recorded('big_car_2', 'Big Car 2', cylinders=10, idle=1000.0, redline=8800.0),
+  _recorded('truck', 'Truck', cylinders=8, idle=600.0, redline=5500.0),
+  _recorded('muscle_car', 'Muscle Car', cylinders=12, idle=600.0, redline=3100.0),
+  _recorded('supra', 'Supra', cylinders=6, idle=800.0, redline=6000.0),
+  _recorded('bmw_m52', 'BMW M52', cylinders=6, idle=700.0, redline=7000.0),
+  _recorded('lfa', 'LFA', cylinders=10, idle=1000.0, redline=9000.0),
   Profile(
     name='diesel', label='Diesel Truck',
     idle_rpm=650.0, redline_rpm=3400.0,
