@@ -21,6 +21,7 @@ DISPLAY_GROUPS = {
   "HideLeadMarker": "Lead car (Small layout)", "LeadInfo": "Lead car (Small layout)",
   "CameraView": "Camera (Small layout)", "DriverCamera": "Camera (Small layout)",
   "HidePersonalityAlerts": "Alerts and borders", "SignalMetrics": "Alerts and borders", "BlindSpotMetrics": "Alerts and borders",
+  "UseVienna": "Speed limits",
 }
 
 
