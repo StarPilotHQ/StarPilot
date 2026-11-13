@@ -53,13 +53,14 @@ from openpilot.starpilot.speed_limits.vision.observation import clock_pair_ns
 from openpilot.starpilot.ui.sounds_owner import AUTO_PREFIX as SOUND_AUTO_PREFIX, SoundsOwner
 from openpilot.starpilot.ui.feature_settings_state import (
   FeatureInput, FeaturePage, FeatureRow, FeatureSettingsRequest, FeatureUiAction, row_change,
-  feature_scroll, feature_parent_page, feature_parent_title, value_request, value_editor_state,
+  feature_scroll, feature_page_rows, feature_parent_page, feature_parent_title, value_request, value_editor_state,
   SOUND_PRESETS as SOUND_PRESETS, SYSTEM_PRESETS, sound_editor_state,
 )
 from openpilot.starpilot.ui.lane_change_feature import KEYS as LANE_CHANGE_KEYS, RESET as LANE_CHANGE_RESET
 from openpilot.starpilot.models.runtime import ModelStatusSource
 from openpilot.starpilot.models.status import project_status
-from openpilot.starpilot.ui.models_state import model_page, model_profile_choices, model_profile_request
+from openpilot.common.swaglog import cloudlog
+from openpilot.starpilot.ui.models_state import model_needs_gpu, model_toolbar, model_page, model_request, model_row_intent
 from openpilot.starpilot.ui.maps_state import MapStatusSource
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner, default_owner
 from openpilot.starpilot.ui.galaxy_access import GalaxyAccessFlow
@@ -220,6 +221,9 @@ class StarShellSession:
     self._home_model: tuple[float, str] | None = None
     self.map_source: MapStatusSource | None = None
     self.model_scroll = 0
+    self.model_page = "models"
+    self.model_stack: list[tuple[str, int]] = []
+    self.model_filter, self.model_sort, self.model_size = "installed", "date", "all"
     self.drive_state = DriveStateControl(DriveStateOwner(ui_state.params, starpilot_storage_root() / "drive-state"),
                                          PhysicalSource(ui_state.sm))
     self.system_power_action: Callable[[int], None] | None = None
@@ -914,9 +918,14 @@ class StarShellSession:
     try:
       if self.model_source is None:
         self.model_source = ModelStatusSource(self.adapter.ui_state.params)
-      return model_page(self.model_source.snapshot(), self.model_manager_snapshot())
-    except Exception:
-      # Model status is optional diagnostics; UI remains usable without IPC.
+      return model_page(self.model_source.snapshot(), self.model_manager_snapshot(), getattr(self, "model_page", "models"),
+                        getattr(self, "model_filter", "installed"), getattr(self, "model_sort", "date"),
+                        getattr(self, "model_size", "all"))
+    except Exception as error:
+      # Model status is optional diagnostics; UI remains usable without IPC. Log each new failure once, not per frame.
+      if getattr(self, "_model_error", None) != repr(error):
+        self._model_error = repr(error)
+        cloudlog.exception("Driving Model page unavailable")
       return model_page(project_status(None, None, None, None, time.monotonic_ns()))
 
   def _model_manager(self):
@@ -925,49 +934,111 @@ class StarShellSession:
       self.model_manager = ModelManager(parked=self.confirmed_offroad, refresh_catalog=True)
     return self.model_manager
 
-  def model_manager_snapshot(self):
-    return self._model_manager().snapshot()
+  def model_manager_snapshot(self, fresh: bool = False):
+    # The manager reads files and takes a lock; twice a second keeps download progress current.
+    cached = getattr(self, "_model_data", None)
+    now = time.monotonic()
+    if fresh or cached is None or now - cached[0] >= 0.5:
+      cached = self._model_data = (now, self._model_manager().snapshot())
+    return cached[1]
 
   def model_manager_action(self, action, payload):
-    return self._model_manager().action(action, payload)
+    try:
+      return self._model_manager().action(action, payload)
+    finally:
+      self._model_data = None
+
+  def _model_open(self, page: str) -> None:
+    self.model_stack.append((self.model_page, self.model_scroll))
+    self.model_page, self.model_scroll = page, 0
+    if page.startswith("models:pick:"):
+      self.model_filter = "installed"
+    elif page == "models:catalog":
+      self.model_filter = "all"
+    self.input.cancel()
 
   def _models_ui(self, action: FeatureUiAction) -> None:
     if self._mode != ShellMode.SETTINGS or self.selected != Destination.DRIVING_MODEL:
       return
     state = self.model_snapshot()
+    row = action.row
     if action.kind == "back":
-      self.selected = Destination.STAR
-      self.model_scroll = 0
+      if getattr(self, "model_stack", None):
+        self.model_page, self.model_scroll = self.model_stack.pop()
+      else:
+        self.selected = Destination.STAR
+        self.model_scroll = 0
       self.input.cancel()
     elif action.kind == "scroll":
-      self.model_scroll = feature_scroll(self.model_scroll, action.direction, len(state.rows))
-    elif action.kind == "open" and action.row in state.rows and action.row.page in ("models:small", "models:big"):
-      from openpilot.system.ui.lib.application import gui_app
-      from openpilot.system.ui.widgets import DialogResult
-      from openpilot.system.ui.widgets.option_dialog import MultiOptionDialog
-      profile = action.row.page.split(":", 1)[1]
-      manager = self.model_manager_snapshot()
-      choices = dict(model_profile_choices(manager, profile))
-      current = manager["activeSmallModel" if profile == "small" else "activeBigModel"]
-      current_label = next((label for label, model_id in choices.items() if model_id == current), "")
+      self.model_scroll = feature_scroll(self.model_scroll, action.direction, len(state.rows), feature_page_rows(state))
+    elif action.kind == "toolbar":
+      self._model_option(action.direction)
+    elif row is None or row not in state.rows:
+      if action.kind == "details" and row is None:
+        self._feature_details("models", action)
+    elif action.kind == "open" and row.page.startswith("models:"):
+      self._model_open(row.page)
+    elif action.kind == "details":
+      self._feature_details("models", action)
+    elif row.key == "models:randomizer" and action.kind == "change":
+      self._model_do("randomizer")
+    elif row.key == "models:active" and action.kind == "action" and action.direction in (0, 1):
+      self._model_open(("models:pick:small", "models:pick:big")[action.direction])
+    elif action.kind == "action":
+      intent = model_row_intent(self.model_manager_snapshot(fresh=True), self.model_page, row.key, action.direction)
+      # A refreshed button that now means something else must not act on the displayed press.
+      if intent is None or action.direction >= len(row.actions) or intent[0] != row.actions[action.direction][0]:
+        self._unavailable("model list changed; try again")
+      else:
+        self._model_do(*intent[1:])
+    self._snapshot_cache = None
 
-      def confirmed(result):
-        if result != DialogResult.CONFIRM or self._mode != ShellMode.SETTINGS or self.selected != Destination.DRIVING_MODEL:
-          return
-        fresh = self.model_manager_snapshot()
-        if fresh["activeSmallModel" if profile == "small" else "activeBigModel"] != current:
-          self._unavailable("saved model changed; reopen the selection")
-          return
-        request = model_profile_request(fresh, profile, choices.get(dialog.selection, ""))
-        if request is not None:
-          try:
-            self.model_manager_action("active", request)
-          except (OSError, ValueError, RuntimeError) as error:
-            self._unavailable(str(error))
+  def _model_option(self, index: int) -> None:
+    from openpilot.system.ui.lib.application import gui_app
+    from openpilot.system.ui.widgets import DialogResult
+    from openpilot.system.ui.widgets.option_dialog import MultiOptionDialog
+    settings = model_toolbar(self.model_page)
+    if not 0 <= index < len(settings):
+      return
+    key, title, options = settings[index]
+    page = self.model_page
+
+    def chosen(result):
+      if (result == DialogResult.CONFIRM and self._mode == ShellMode.SETTINGS and self.selected == Destination.DRIVING_MODEL and
+          self.model_page == page):
+        setattr(self, f"model_{key}", next(mode for mode, label in options if label == dialog.selection))
+        self.model_scroll = 0
         self._snapshot_cache = None
 
-      dialog = MultiOptionDialog(f"Active {'Small' if profile == 'small' else 'Big'}", list(choices), current_label, callback=confirmed)
-      gui_app.push_widget(dialog)
+    dialog = MultiOptionDialog(title, [label for _, label in options], dict(options)[getattr(self, f"model_{key}")], callback=chosen)
+    self.input.cancel()
+    gui_app.push_widget(dialog)
+
+  def _model_do(self, action: str, model_id: str = "", profile: str = "", confirmed: bool = False) -> None:
+    from openpilot.system.ui.lib.application import gui_app
+    from openpilot.system.ui.widgets import DialogResult
+    from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
+    data = self.model_manager_snapshot(fresh=True)
+    model = next((m for m in data.get("models", ()) if m.get("value") == model_id), None)
+    needs_gpu = model_needs_gpu(data, action, model)
+    if not confirmed and (action == "delete" or needs_gpu):
+      def done(result):
+        if result == DialogResult.CONFIRM and self._mode == ShellMode.SETTINGS and self.selected == Destination.DRIVING_MODEL:
+          self._model_do(action, model_id, profile, True)
+      name = model.get("label", model_id) if model else model_id
+      question = (f"Delete {name}? Its downloaded files are removed." if action == "delete" else
+                  "Download Chestnut models? They need an external GPU to run.")
+      gui_app.push_widget(ConfirmDialog(question, "Delete" if action == "delete" else "Download", callback=done))
+      return
+    request = model_request(data, action, model_id, profile, allow_gpu=needs_gpu)
+    if request is None:
+      self._unavailable("model action; turn the vehicle off and try again")
+      return
+    try:
+      result = self.model_manager_action(*request)
+      self.notice, self.notice_until = result.get("message", "Saved"), time.monotonic() + 3.0
+    except (OSError, ValueError, RuntimeError) as error:
+      self._unavailable(str(error))
     self._snapshot_cache = None
 
   def power_request(self, request: FeatureSettingsRequest) -> bool:
@@ -1366,7 +1437,7 @@ class StarShellSession:
       snapshot = replace(snapshot, display=display)
     if self.profile == Profile.LARGE and mode == ShellMode.SETTINGS and self.selected == Destination.DRIVING_MODEL:
       models = self.model_snapshot()
-      self.model_scroll = feature_scroll(self.model_scroll, 0, len(models.rows))
+      self.model_scroll = feature_scroll(self.model_scroll, 0, len(models.rows), feature_page_rows(models))
       models = replace(models, scroll=self.model_scroll, sidebar_expanded=self.sidebar_expanded)
       snapshot = replace(snapshot, models=models)
     self._snapshot_cache = (key, snapshot)
@@ -1525,7 +1596,7 @@ class StarShellSession:
             self.display_page = "system"
             self.display_edit_key = None
           elif destination == Destination.DRIVING_MODEL:
-            self.model_scroll = 0
+            self.model_scroll, self.model_page, self.model_stack = 0, "models", []
         elif action.destination.available and self._on_compact_destination is not None:
           self._on_compact_destination(destination)
         else:
@@ -1533,7 +1604,7 @@ class StarShellSession:
     elif (request.source in ("toggles", "device", "software") and self._mode == ShellMode.SETTINGS and
           self.profile == Profile.LARGE and self._request_owner is not None and self._request_owner(action)):
       self._snapshot_cache = None  # the owner acknowledged; read its state on the next frame
-    elif request.source in ("features", "sounds", "appearance", "display", "models") and isinstance(action, FeatureUiAction) and action.kind == "details":
+    elif request.source in ("features", "sounds", "appearance", "display") and isinstance(action, FeatureUiAction) and action.kind == "details":
       self._feature_details(request.source, action)
     elif request.source == "features" and isinstance(action, FeatureUiAction):
       self._feature_ui(action)

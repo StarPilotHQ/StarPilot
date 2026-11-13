@@ -297,6 +297,8 @@ class HostRuntime:
                OPENPILOT_PREFIX=self.prefix, SP_HOST_PREFIX=self.prefix,
                SP_HOST_PARAMS_ROOT=str(self.cache / 'params'), SP_HOST_RUNTIME='1',
                STARPORT_DIR=str(inside(self.cache / 'starport', self.cache)),
+               # One driving-model store for ./c3 and ./onroad; each replay runs under its own OPENPILOT_PREFIX.
+               STARPILOT_MODEL_DIR=str(inside(self.cache / 'models', self.cache)),
                SP_SCONS_CACHE_DIR=str(self.cache / 'scons-cache'),
                SCONS_CACHE=str(self.cache / 'scons-cache'),
                NOBOARD='1', SIMULATION='1', SKIP_FW_QUERY='1', STARPILOT_UI_DEV='1',

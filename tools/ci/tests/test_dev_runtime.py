@@ -93,6 +93,7 @@ class TestDeveloperRuntime(unittest.TestCase):
     self.assertTrue(Path(env['PARAMS_ROOT']).is_relative_to(self.runtime.cache))
     self.assertNotEqual(env['OPENPILOT_PREFIX'], 'real')
     self.assertEqual(Path(env['STARPORT_DIR']), self.runtime.cache / 'starport')
+    self.assertEqual(Path(env['STARPILOT_MODEL_DIR']), self.runtime.cache / 'models')
     second = HostRuntime(self.root, 'shared', system='Darwin', machine='arm64')
     cabana = HostRuntime(self.root, 'cabana', system='Darwin', machine='arm64')
     self.assertEqual(second.prefix, self.runtime.prefix)

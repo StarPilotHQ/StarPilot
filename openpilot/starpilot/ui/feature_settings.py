@@ -11,8 +11,8 @@ from openpilot.starpilot.ui.feature_settings_state import (
   FeatureRow, FeatureSettingsState, FeatureUiAction, FEATURE_CONFIRM_ACTIONS, is_long_confirm_action, boolean_value as _boolean_value,
   FEATURE_ROW_HEIGHT, FEATURE_VISIBLE_ROWS, FEATURE_CONTROL_LEFT, FEATURE_CONTROL_RIGHT,
   FEATURE_BUTTON_TOP, FEATURE_BUTTON_HEIGHT, FEATURE_ACTION_MARGIN, FEATURE_HEADER_HEIGHT,
-  FEATURE_TAP_SLOP, FEATURE_FLICK_DISTANCE, FEATURE_PAGE_COUNTER_WIDTH,
-  feature_scroll, feature_action_left, feature_action_rects, feature_row_top, feature_page_counter_left, feature_footer_buttons,
+  FEATURE_TAP_SLOP, FEATURE_FLICK_DISTANCE, FEATURE_PAGE_COUNTER_WIDTH, TOOLBAR_LABEL_WIDTH,
+  toolbar_rects, feature_body_top, feature_page_rows, feature_scroll, feature_action_left, feature_action_rects, feature_row_top, feature_page_counter_left, feature_footer_buttons,
   value_buttons, value_editor_rect, value_done_rect, value_text, value_reason,
 )
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
@@ -77,7 +77,8 @@ class FeatureSettingsView:
     elif previous.scroll != state.scroll:
       direction = 1 if state.scroll > previous.scroll else -1
       self._transition = ((previous, time.monotonic(), self._last_pull)
-                          if previous.rows == state.rows and feature_scroll(previous.scroll, direction, len(state.rows)) == state.scroll else None)
+                          if previous.rows == state.rows and
+                          feature_scroll(previous.scroll, direction, len(state.rows), feature_page_rows(state)) == state.scroll else None)
     self._last_state = state
     rows, cover = state, 0
     if self._transition is not None:
@@ -114,14 +115,17 @@ class FeatureSettingsView:
     finally:
       clip.end_scissor_mode()
     self._draw_subtitle(state, left)
+    if not state.editor:
+      self._draw_toolbar(state, left, pressed)
     if len(state.rows) == 1 and (buttons := value_buttons(state, state.rows[0], row_top)):
       self._page_frame(state, 0, False)
       self._value_row(state, state.rows[0], rl.Rectangle(*value_editor_rect(state)), buttons, pressed)
       self._value_done(state, pressed)
       return
-    can_page = drag_x != 0 and feature_scroll(state.scroll, 1 if drag_x < 0 else -1, len(state.rows)) != state.scroll
+    page = feature_page_rows(state)
+    can_page = drag_x != 0 and feature_scroll(state.scroll, 1 if drag_x < 0 else -1, len(state.rows), page) != state.scroll
     rows_state, pull_x, cover = self._page_frame(state, feature_pull(drag_x, can_page), drag_x != 0)
-    body = rl.Rectangle(left + 25, row_top, 2100 - left, FEATURE_VISIBLE_ROWS * FEATURE_ROW_HEIGHT)
+    body = rl.Rectangle(left + 25, row_top, 2100 - left, page * FEATURE_ROW_HEIGHT)
     clip.begin_scissor_mode(body.x, body.y, body.width, body.height)
     try:
       if pull_x and can_page:
@@ -148,7 +152,7 @@ class FeatureSettingsView:
         if pull_x:
           rl.rl_translatef(pull_x, 0, 0)
           rl.draw_rectangle_rec(body, PANEL_BG)
-        for visible, row in enumerate(rows_state.rows[rows_state.scroll:rows_state.scroll + FEATURE_VISIBLE_ROWS]):
+        for visible, row in enumerate(rows_state.rows[rows_state.scroll:rows_state.scroll + page]):
           y = row_top + visible * FEATURE_ROW_HEIGHT
           if draw_row is not None:
             draw_row(row, y, left, pressed)
@@ -174,15 +178,17 @@ class FeatureSettingsView:
           reason = value_reason(row)
           detail += (" - " if detail and reason else "") + reason
           label = self._elide(row.label, FontRole.NORMAL, LABEL_SIZE, width)
-          detail = self._elide(detail, FontRole.NORMAL, DETAIL_SIZE, width)
+          # Two detail lines fit a row.
+          lines = [self._elide(line, FontRole.NORMAL, DETAIL_SIZE, width) for line in detail.split("\n")[:2]] if detail else []
           label_top, label_bottom = self.fonts.vertical_ink(label, FontRole.NORMAL, LABEL_SIZE)
-          detail_top, detail_bottom = self.fonts.vertical_ink(detail, FontRole.NORMAL, DETAIL_SIZE) if detail else (0, 0)
-          height = label_bottom - label_top + (12 + detail_bottom - detail_top if detail else 0)
+          detail_top, detail_bottom = self.fonts.vertical_ink("".join(lines), FontRole.NORMAL, DETAIL_SIZE) if lines else (0, 0)
+          step = detail_bottom - detail_top + 8
+          height = label_bottom - label_top + (12 + len(lines) * step - 8 if lines else 0)
           top = y + (FEATURE_ROW_HEIGHT - height) / 2
           self.fonts.draw(label, FontRole.NORMAL, LABEL_SIZE, left + 55, top - label_top, TEXT_MUTED if heading else TEXT_PRIMARY)
-          if detail:
-            self.fonts.draw(detail, FontRole.NORMAL, DETAIL_SIZE, left + 55,
-                            top + label_bottom - label_top + 12 - detail_top, TEXT_SECONDARY)
+          for index, line in enumerate(lines):
+            self.fonts.draw(line, FontRole.NORMAL, DETAIL_SIZE, left + 55,
+                            top + label_bottom - label_top + 12 + index * step - detail_top, TEXT_SECONDARY)
           if heading:
             continue
           action = rl.Rectangle(FEATURE_CONTROL_LEFT, y + FEATURE_ACTION_MARGIN, FEATURE_CONTROL_RIGHT - FEATURE_CONTROL_LEFT,
@@ -191,7 +197,8 @@ class FeatureSettingsView:
             for index, ((text, enabled), rect) in enumerate(zip(row.actions, feature_action_rects(row, y), strict=True)):
               button = rl.Rectangle(*rect)
               active = row.available and enabled and pressed == FeatureUiAction("action", row, index)
-              selected = row.key == "drive_state" and row.available and row.value == text
+              selected = row.key == "drive_state" or row.key.startswith("model:")
+              selected = selected and row.available and (row.value == text or row.key.startswith("model:") and text in ("Favorited", "Skipped"))
               draw_rounded_fill(button, CONTROL_PRESSED_BG if active else rl.color_lerp(PANEL_BG, ACCENT, 0.22) if selected else CONTROL_BG)
               draw_rounded_stroke(button, ACCENT if active or selected else DRIVE_MODE_BORDER if row.key == "drive_state" else CONTROL_BORDER)
               color = TEXT_PRIMARY if row.available and (enabled or selected) else TEXT_MUTED
@@ -271,7 +278,7 @@ class FeatureSettingsView:
     if state.editor:
       self._value_done(state, pressed)
       return
-    can_page = (state.scroll > 0, state.scroll + FEATURE_VISIBLE_ROWS < len(state.rows))
+    can_page = (state.scroll > 0, state.scroll + page < len(state.rows))
     for label, bounds, enabled in zip(("Previous", "Next"), feature_footer_buttons(state), can_page, strict=True):
       button = rl.Rectangle(*bounds)
       active = enabled and pressed == FeatureUiAction("scroll", direction=-1 if label == "Previous" else 1)
@@ -279,10 +286,30 @@ class FeatureSettingsView:
         draw_rounded_fill(button, CONTROL_PRESSED_BG if active else CONTROL_BG)
       draw_rounded_stroke(button, ACCENT if active else CONTROL_BORDER)
       self._center(label, DETAIL_SIZE, button, TEXT_PRIMARY if enabled else TEXT_MUTED)
-    current_page = state.scroll // FEATURE_VISIBLE_ROWS + 1
-    total_pages = max(1, (len(state.rows) + FEATURE_VISIBLE_ROWS - 1) // FEATURE_VISIBLE_ROWS)
+    current_page = state.scroll // page + 1
+    total_pages = max(1, (len(state.rows) + page - 1) // page)
     self._center(f"{current_page}/{total_pages}", DETAIL_SIZE,
                  rl.Rectangle(feature_page_counter_left(state), 980, FEATURE_PAGE_COUNTER_WIDTH, 70), TEXT_SECONDARY)
+
+  def _draw_toolbar(self, state: FeatureSettingsState, left: float, pressed: FeatureUiAction | None) -> None:
+    if not state.toolbar:
+      return
+    top = feature_body_top(state)
+    band = rl.Rectangle(left + 28, top + 8, 2098 - left, FEATURE_ROW_HEIGHT - 16)
+    draw_rounded_fill(band, CONTROL_BG, radius_px=16)
+    draw_rounded_stroke(band, CONTROL_BORDER, radius_px=16)
+    for index, (title, value, bounds) in enumerate(toolbar_rects(state)):
+      chip = rl.Rectangle(*bounds)
+      self._center(title, DETAIL_SIZE, rl.Rectangle(chip.x - TOOLBAR_LABEL_WIDTH, top, TOOLBAR_LABEL_WIDTH - 12, FEATURE_ROW_HEIGHT),
+                   TEXT_SECONDARY, role=FontRole.NORMAL)
+      active = pressed == FeatureUiAction("toolbar", direction=index)
+      draw_rounded_fill(chip, CONTROL_PRESSED_BG if active else PANEL_BG)
+      draw_rounded_stroke(chip, ACCENT if active else CONTROL_BORDER)
+      self._center(self._elide(value, FontRole.MEDIUM, DETAIL_SIZE, chip.width - 96), DETAIL_SIZE,
+                   rl.Rectangle(chip.x + 12, chip.y, chip.width - 72, chip.height))
+      cx, cy = chip.x + chip.width - 40, chip.y + chip.height / 2
+      rl.draw_line_ex(rl.Vector2(cx - 11, cy - 5), rl.Vector2(cx, cy + 6), 3, ACCENT)
+      rl.draw_line_ex(rl.Vector2(cx, cy + 6), rl.Vector2(cx + 11, cy - 5), 3, ACCENT)
 
   def _value_summary(self, row, y, left) -> None:
     value = value_text(row)

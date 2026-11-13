@@ -8,10 +8,11 @@ from unittest import mock
 
 from openpilot.starpilot.models.catalog import BUNDLED_CURRENT, BY_ID
 from openpilot.starpilot.models.status import ModelHealth, ModelStatus, ModelVariant
-from openpilot.starpilot.ui.feature_settings_state import feature_row_top, FeatureInput
+from openpilot.starpilot.ui.feature_settings_state import (feature_action_rects, feature_page_rows, feature_row_top, feature_scroll, toolbar_rects, FeatureInput,
+                                                           FeatureUiAction)
 from openpilot.starpilot.ui.models_compact import ModelsCompact, _ModelsPage, _display_text
-from openpilot.starpilot.ui.models_state import (model_page, model_action_allowed, model_catalog_rows, model_manager_rows, model_profile_choices,
-                                                model_profile_request, home_model_label)
+from openpilot.starpilot.ui.models_state import (model_page, model_action_allowed, model_catalog_rows, model_list_rows, model_manager_rows,
+                                                model_request, model_row_intent, home_model_label)
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.settings_state import Destination
 from openpilot.starpilot.ui.shell import ShellMode, ShellView
@@ -128,11 +129,13 @@ class TestModelManager(unittest.TestCase):
                                   "randomizer": True, "exclusions": True}}
 
   def test_verified_profiles_and_pending_catalog_are_distinct(self):
-    self.assertEqual(model_profile_choices(self.data, "small"), (("Small", "small"),))
-    self.assertEqual(model_profile_choices(self.data, "big"), (("None — always use Active Small", ""), ("Big", "big")))
-    self.assertEqual(model_profile_request(self.data, "big", ""), {"profile": "big", "model": ""})
-    self.assertIsNone(model_profile_request(self.data, "big", "small"))
-    self.assertIsNone(model_profile_request(self.data, "small", "pending"))
+    def picks(data, profile):
+      return [(row.label, row.key) for row in model_list_rows(data, profile, "installed", "name")]
+    self.assertEqual(picks(self.data, "small"), [("Small", "model:small")])
+    self.assertEqual(picks(self.data, "big"), [("None - always use Active Small", "model:"), ("Big", "model:big")])
+    self.assertEqual(model_request(self.data, "active", "", "big"), ("active", {"profile": "big", "model": ""}))
+    self.assertIsNone(model_request(self.data, "active", "small", "big"))
+    self.assertIsNone(model_request(self.data, "active", "pending", "small"))
     self.assertFalse(model_action_allowed(self.data, "download", self.pending))
     self.assertTrue(model_action_allowed(self.data, "download", self.missing))
     self.assertEqual([m["value"] for m in model_catalog_rows(self.data, "community")], ["pending"])
@@ -143,13 +146,13 @@ class TestModelManager(unittest.TestCase):
     onnx = {**self.missing, "value": "onnx", "label": "Onnx", "selectable": True}
     data = {**self.data, "models": [self.small, {**self.big, "selectable": False}, onnx], "jetlinkBig": True,
             "activeBigModel": "onnx", "bigNoneLabel": "Jetlink app's choice"}
-    self.assertEqual(model_profile_choices(data, "big"), (("Jetlink app's choice", ""), ("Onnx", "onnx")))
-    self.assertEqual(model_profile_request(data, "big", "onnx"), {"profile": "big", "model": "onnx"})
-    self.assertIsNone(model_profile_request(data, "big", "big"))
-    self.assertEqual(model_profile_choices(data, "small"), (("Small", "small"),))
+    rows = model_list_rows(data, "big", "installed", "name")
+    self.assertEqual([(row.label, row.value) for row in rows], [("Jetlink app's choice", ""), ("Onnx", "Active")])
+    self.assertEqual(model_request(data, "active", "onnx", "big"), ("active", {"profile": "big", "model": "onnx"}))
+    self.assertIsNone(model_request(data, "active", "big", "big"))
     # a model chosen in the Jetlink app that StarPilot does not list is named as the app's
     app = {**data, "activeBigModel": "", "bigNoneLabel": "Cinque Terre V3 Model · from the Jetlink app"}
-    self.assertEqual(model_manager_rows(app)[2].value, "Cinque Terre V3 Model · from the Jetlink app")
+    self.assertEqual(model_manager_rows(app)[0].value, "Small: Small\nBig: Cinque Terre V3 Model, from the Jetlink app")
 
   def test_parked_and_protected_guards(self):
     self.assertFalse(model_action_allowed(self.data, "delete", self.big))
@@ -168,11 +171,76 @@ class TestModelManager(unittest.TestCase):
 
   def test_large_profile_rows_are_open_actions_and_receipt_stays_inert(self):
     state = model_page(ModelStatus(BUNDLED_CURRENT, None, None, ModelHealth.UNAVAILABLE, False, None, None), self.data)
-    self.assertEqual(state.rows[1].value, "Small")
-    self.assertEqual(state.rows[1].source, b"small")
-    action = FeatureInput.target(1000, feature_row_top(state) + 288, state)
-    self.assertEqual((action.kind, action.row.page), ("open", "models:small"))
+    self.assertEqual(state.rows[0].value, "Small: Small\nBig: Big")
+    self.assertEqual(state.rows[0].actions, (("Small", True), ("Big", True)))
+    x, y, width, height = feature_action_rects(state.rows[0], feature_row_top(state))[1]
+    action = FeatureInput.target(x + width / 2, y + height / 2, state)
+    self.assertEqual((action.kind, action.row.key, action.direction), ("action", "models:active", 1))
+    self.assertEqual([row.label for row in state.rows[:3]], ["Active Models", "Model Randomizer", "Model Catalog"])
     self.assertTrue(all(not row.available for row in state.rows[3:]))
+
+  def test_large_catalog_rows_bind_buttons_to_fresh_intent(self):
+    catalog = model_page(ModelStatus(BUNDLED_CURRENT, None, None, ModelHealth.UNAVAILABLE, False, None, None), self.data,
+                         "models:catalog", "all", "name")
+    rows = {row.key: row for row in catalog.rows}
+    self.assertEqual((rows["model:small"].value, rows["model:small"].actions),
+                     ("Active", (("Delete", False), ("Favorite", True), ("Active", False))))
+    self.assertEqual(rows["model:big"].actions, (("Delete", False), ("Favorited", True), ("Active", False)))
+    self.assertEqual(rows["model:missing"].actions, (("Favorite", True), ("Get", True)))
+    self.assertEqual(rows["model:pending"].actions, (("Favorite", True),))
+    self.assertEqual(model_row_intent(self.data, "models:catalog", "model:missing", 1), ("Get", "download", "missing", ""))
+    self.assertEqual(model_row_intent(self.data, "models:catalog", "model:big", 1), ("Favorited", "preferences", "big", ""))
+    self.assertIsNone(model_row_intent(self.data, "models:catalog", "model:small", 2))
+    self.assertEqual(model_row_intent(self.data | {"activeBigModel": ""}, "models:pick:big", "model:big", 2),
+                     ("Use", "active", "big", "big"))
+    self.assertEqual(model_row_intent(self.data | {"activeBigModel": ""}, "models:catalog", "model:big", 0),
+                     ("Delete", "delete", "big", ""))
+    self.assertEqual(model_row_intent(self.data, "models:pick:big", "model:", 0), ("Use", "active", "", "big"))
+    self.assertEqual(catalog.rows[0].key, "models:downloads")
+    self.assertEqual(catalog.rows[0].actions, (("Refresh", False), ("Get All", True)))  # the fixture grants no refresh capability
+    self.assertEqual(model_row_intent(self.data, "models:catalog", "models:downloads", 1), ("Get All", "download_all", "", ""))
+    self.assertEqual(model_row_intent(self.data | {"downloading": True}, "models:catalog", "models:downloads", 0),
+                     ("Cancel", "cancel", "", ""))
+    self.assertNotIn("models:downloads", [row.key for row in model_list_rows(self.data, "small", "all", "date")])
+    randomized = model_list_rows(self.data | {"randomizer": True}, "", "all", "name")
+    self.assertIn(("Skip", True), next(row for row in randomized if row.key == "model:missing").actions)
+    self.assertEqual(catalog.toolbar, (("Show", "All"), ("Size", "All"), ("Sort", "A-Z")))
+    chips = toolbar_rects(catalog)
+    x, y, width, height = chips[1][2]
+    self.assertEqual(FeatureInput.target(x + width / 2, y + height / 2, catalog), FeatureUiAction("toolbar", direction=1))
+    self.assertTrue(all(a[2][0] + a[2][2] < b[2][0] for a, b in zip(chips, chips[1:], strict=False)))
+    pick = model_page(ModelStatus(BUNDLED_CURRENT, None, None, ModelHealth.UNAVAILABLE, False, None, None), self.data,
+                      "models:pick:big", "installed", "date")
+    self.assertEqual(pick.toolbar, (("Show", "Installed"), ("Sort", "Newest")))
+    big = model_page(ModelStatus(BUNDLED_CURRENT, None, None, ModelHealth.UNAVAILABLE, False, None, None), self.data,
+                     "models:catalog", "all", "name", "big")
+    self.assertEqual([row.key for row in big.rows], ["models:downloads", "model:big", "model:missing"])
+    self.assertEqual(feature_row_top(catalog), y - (154 - height) / 2 + 154)
+    self.assertEqual(feature_page_rows(catalog), 4)
+    self.assertEqual(feature_scroll(0, 1, 9, feature_page_rows(catalog)), 4)
+    first = FeatureInput.target(1000, feature_row_top(catalog) + 77, catalog)
+    self.assertEqual((first.kind, first.row), ("details", catalog.rows[0]))
+    self.assertEqual(model_request(self.data, "download", "missing", allow_gpu=True),
+                     ("download", {"model": "missing", "allowGpuWithoutGpu": True}))
+
+  def test_large_toolbar_chip_opens_choices_and_applies_on_select(self):
+    from openpilot.starpilot.ui import runtime_app
+    from openpilot.system.ui.widgets import DialogResult
+    session = runtime_app.StarShellSession.__new__(runtime_app.StarShellSession)
+    session._mode, session.selected, session.input = ShellMode.SETTINGS, Destination.DRIVING_MODEL, mock.Mock()
+    session.model_page, session.model_scroll = "models:catalog", 4
+    session.model_filter, session.model_size, session.model_sort = "all", "all", "date"
+    with mock.patch("openpilot.system.ui.widgets.option_dialog.MultiOptionDialog") as dialog, \
+         mock.patch("openpilot.system.ui.lib.application.gui_app.push_widget"):
+      session._model_option(1)
+      title, labels, current = dialog.call_args.args
+      self.assertEqual((title, labels, current), ("Size", ["All", "Big", "Small"], "All"))
+      dialog.return_value.selection = "Big"
+      callback = dialog.call_args.kwargs["callback"]
+      callback(DialogResult.CANCEL)
+      self.assertEqual(session.model_size, "all")
+      callback(DialogResult.CONFIRM)
+    self.assertEqual((session.model_size, session.model_scroll), ("big", 0))
 
   def test_compact_catalog_keeps_installation_and_exclusion_visible_first(self):
     session = mock.Mock()
@@ -217,13 +285,13 @@ class TestModelManager(unittest.TestCase):
 
   def test_randomizer_disables_manual_selection_but_keeps_favorites_independent(self):
     randomized = {**self.data, "randomizer": True}
-    self.assertIsNone(model_profile_request(randomized, "small", "small"))
-    self.assertIsNone(model_profile_request(randomized, "big", ""))
+    self.assertIsNone(model_request(randomized, "active", "small", "small"))
+    self.assertIsNone(model_request(randomized, "active", "", "big"))
     self.assertTrue(model_action_allowed(randomized, "preferences", self.small))
     self.assertTrue(model_action_allowed(randomized, "exclusion", self.small))
     rows = model_page(ModelStatus(BUNDLED_CURRENT, None, None, ModelHealth.UNAVAILABLE, False, None, None), randomized).rows
-    self.assertTrue(all(not row.available for row in rows[1:3]))
-    self.assertEqual(rows[1].reason, "Randomizer selects at the next start")
+    self.assertEqual(rows[0].actions, (("Small", False), ("Big", False)))
+    self.assertEqual(rows[0].reason, "Randomizer picks at each start")
 
   def test_native_preferences_dispatch_and_recheck_vehicle_state(self):
     session = mock.Mock()
@@ -259,8 +327,7 @@ class TestModelManager(unittest.TestCase):
     self.assertFalse(model_action_allowed(data | {"refreshing": False}, "active", self.big, "big"))
     self.assertFalse(model_action_allowed(data, "delete", self.small))
     state = model_page(ModelStatus(BUNDLED_CURRENT, None, None, ModelHealth.UNAVAILABLE, False, None, None), data)
-    self.assertTrue(state.rows[1].available)
-    self.assertTrue(state.rows[2].available)
+    self.assertEqual(state.rows[0].actions, (("Small", True), ("Big", True)))
 
   def test_reopening_selector_reuses_rows_but_rechecks_current_state(self):
     session = mock.Mock()

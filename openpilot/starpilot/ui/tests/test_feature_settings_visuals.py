@@ -376,7 +376,7 @@ class FeatureVisualTests(unittest.TestCase):
           with patch.object(view, "feature_scroll", wraps=feature_scroll) as paging, patch.object(view, "draw_settings_header"):
             view.FeatureSettingsView(fonts).render(state, drag)
           if drag:
-            paging.assert_called_once_with(scroll, 1 if drag < 0 else -1, len(rows))
+            paging.assert_called_once_with(scroll, 1 if drag < 0 else -1, len(rows), 5)
           else:
             paging.assert_not_called()
           self.assertEqual(rl.begin_scissor_mode.call_args.args, (left + 25, row_top, 2100 - left, 5 * FEATURE_ROW_HEIGHT))

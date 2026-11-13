@@ -27,7 +27,11 @@ from openpilot.starpilot.models.catalog import (
 )
 
 RESOURCE_URL = "https://huggingface.co/buckets/StarPilot-Driving/StarPilot-Resources/resolve"
-ROOT = Path("/data/models") / GENERATION
+from openpilot.common.hardware import PC
+from openpilot.starpilot.storage import starpilot_storage_root
+
+_HOST_MODELS = os.environ.get("STARPILOT_MODEL_DIR", "") if PC else ""
+ROOT = (Path(_HOST_MODELS) if _HOST_MODELS else starpilot_storage_root() / "models" if PC else Path("/data/models")) / GENERATION
 MAX_MANIFEST = 2 * 1024 * 1024
 MAX_ARTIFACT = 2 * 1024 * 1024 * 1024
 MODEL_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}\Z")
