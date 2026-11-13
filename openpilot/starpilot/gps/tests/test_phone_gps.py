@@ -318,3 +318,134 @@ def test_invalid_upload_reports_reason_without_erasing_last_fix(tmp_path):
     publisher.publish({**FIX, 'ageMs': 5000})
   status = phone_gps_status(NOW, path)
   assert status['reason'] == 'Location is too old' and status['usable']
+
+
+def stream_fix(sequence=1, sample=1_000_000_000, **changes):
+  return {**FIX, 'sessionId': 'fixture', 'sequence': sequence, 'sampleElapsedRealtimeNanos': sample,
+          'sentElapsedRealtimeNanos': sample + 300_000_000, **changes}
+
+
+def test_monotonic_stream_replay_protection_survives_hold_expiry_and_restart(tmp_path):
+  path, now = tmp_path / 'gps.json', [NOW]
+  publisher = PhoneGpsPublisher(path, lambda: now[0])
+  assert publisher.publish(stream_fix())['accepted']
+  original = read_phone_gps(now[0], path)[0]
+  now[0] += PHONE_MAX_AGE_NS + 1
+  publisher = PhoneGpsPublisher(path, lambda: now[0])
+  assert publisher.publish(stream_fix())['reason'] == 'outOfOrder'
+  assert read_phone_gps(now[0], path) is None
+  # A higher sequence carrying an older measurement is also a replay.
+  assert publisher.publish(stream_fix(2, 900_000_000))['reason'] == 'outOfOrder'
+  assert publisher.publish(stream_fix(3, 2_000_000_000))['reason'] == 'delayed'
+  assert publisher.publish(stream_fix(4, 12_000_000_000, timestamp=FIX['timestamp'] - 60000))['accepted']
+  assert read_phone_gps(now[0], path)[0] > original
+
+
+def test_retired_session_cannot_take_over_after_restart_or_legacy_upload(tmp_path):
+  path, now = tmp_path / 'gps.json', [NOW]
+  publisher = PhoneGpsPublisher(path, lambda: now[0])
+  publisher.publish(stream_fix())
+  now[0] += 1_000_000_000
+  assert publisher.publish(stream_fix(sessionId='new'))['accepted']
+  now[0] += 1_000_000_000
+  publisher.publish({**FIX, 'timestamp': FIX['timestamp'] + 2000})
+  now[0] += PHONE_MAX_AGE_NS
+  publisher = PhoneGpsPublisher(path, lambda: now[0])
+  assert publisher.publish(stream_fix(99, 20_000_000_000))['reason'] == 'retiredSession'
+
+
+def test_android_calibration_contract_bounds_first_packet_transport_delay(tmp_path):
+  path, now = tmp_path / 'gps.json', [10_200_000_000]
+  publisher = PhoneGpsPublisher(path, lambda: now[0])
+  payload = stream_fix(ageMs=200, sentElapsedRealtimeNanos=1_200_000_000, serverMonoTimeNs=10_100_000_000)
+  assert publisher.publish(payload)['accepted']
+  assert read_phone_gps(now[0], path)[0] == 9_850_000_000
+  diagnostics = phone_gps_status(now[0], path)
+  assert diagnostics['timingBounded'] and diagnostics['timingUncertaintyMs'] == 150
+  assert diagnostics['fixAgeMs'] == 350
+  now[0] += 3_000_000_000
+  assert publisher.publish(stream_fix(2, 2_000_000_000, serverMonoTimeNs=10_300_000_000))['reason'] == 'delayed'
+  assert phone_gps_status(now[0], path)['rejectedCount'] == 1
+
+
+@pytest.mark.parametrize('change', [
+  {'sessionId': ''}, {'sessionId': 'x' * 129}, {'sequence': True}, {'sequence': -1}, {'sequence': 1.5},
+  {'sampleElapsedRealtimeNanos': -1}, {'sentElapsedRealtimeNanos': 0}, {'ageMs': 1},
+  {'serverMonoTimeNs': True}, {'serverMonoTimeNs': NOW + 50_000_001},
+])
+def test_invalid_stream_fields_preserve_good_fix(tmp_path, change):
+  path = tmp_path / 'gps.json'
+  publisher = PhoneGpsPublisher(path, lambda: NOW)
+  publisher.publish(FIX)
+  with pytest.raises(ValueError):
+    publisher.publish(stream_fix(**change))
+  assert read_phone_gps(NOW, path)[0] == NOW - 300_000_000
+
+
+def test_position_jump_preserves_fix_and_reacquires_after_expiry(tmp_path):
+  path, now = tmp_path / 'gps.json', [NOW]
+  publisher = PhoneGpsPublisher(path, lambda: now[0])
+  publisher.publish(stream_fix())
+  original = read_phone_gps(now[0], path)[0]
+  now[0] += 1_000_000_000
+  assert publisher.publish(stream_fix(2, 2_000_000_000, longitude=-100))['reason'] == 'implausibleJump'
+  assert read_phone_gps(now[0], path)[0] == original
+  # Rejected excursions do not consume sequence or move the motion anchor.
+  assert publisher.publish(stream_fix(2, 2_000_000_000, longitude=-109.999))['accepted']
+  now[0] += PHONE_MAX_AGE_NS + 1
+  assert publisher.publish(stream_fix(3, 13_000_000_000, longitude=-100))['accepted']
+
+
+def test_stream_metadata_stays_out_of_navigation_wire_and_exposes_unbounded_timing(tmp_path):
+  sm = Messages()
+  assert publish(sm, stream_fix(), tmp_path=tmp_path)['accepted']
+  assert select_location(sm, NOW)[1].longitude == -110
+  status = phone_gps_status(NOW, tmp_path / 'phone_gps.json')
+  assert status['timingBounded'] is False and status['acceptedCount'] == 1
+
+
+def test_fresh_calibration_recovers_from_slow_initial_probe(tmp_path):
+  path, now = tmp_path / 'gps.json', [NOW]
+  publisher = PhoneGpsPublisher(path, lambda: now[0])
+  # A stationary measurement can still be useful with an initially slow probe.
+  assert publisher.publish(stream_fix(speed=0, speedAccuracy=0, serverMonoTimeNs=NOW - 1_000_000_000))['accepted']
+  now[0] += 5_000_000_000
+  result = publisher.publish(stream_fix(2, 2_000_000_000, serverMonoTimeNs=now[0] - 10_000_000))
+  assert result['accepted']
+  assert read_phone_gps(now[0], path)[0] == now[0] - 360_000_000
+
+
+def test_timing_uncertainty_inflates_motion_accuracy(tmp_path):
+  path = tmp_path / 'gps.json'
+  publisher = PhoneGpsPublisher(path, lambda: NOW)
+  publisher.publish(stream_fix(serverMonoTimeNs=NOW - 100_000_000))
+  assert read_phone_gps(NOW, path)[1].horizontalAccuracy == pytest.approx(5 + 23 * .15)
+  # Transport timing alone can make a nominally accurate moving fix unusable.
+  path2 = tmp_path / 'slow.json'
+  result = PhoneGpsPublisher(path2, lambda: NOW).publish(stream_fix(serverMonoTimeNs=NOW - 1_000_000_000))
+  assert result['reason'] == 'poorAccuracy'
+  assert read_phone_gps(NOW, path2) is None
+
+
+def test_boot_fence_rejects_old_fix_even_when_new_uptime_is_later(tmp_path):
+  path = tmp_path / 'gps.json'
+  with patch('openpilot.starpilot.gps.phone._boot_id', return_value='boot-a'):
+    PhoneGpsPublisher(path, lambda: NOW).publish(stream_fix())
+  with patch('openpilot.starpilot.gps.phone._boot_id', return_value='boot-b'):
+    assert read_phone_gps(NOW + 1_000_000_000, path) is None
+    assert phone_gps_status(NOW + 1_000_000_000, path) is None
+    # New boot's session clock is independent, even if the app reuses an ID.
+    assert PhoneGpsPublisher(path, lambda: NOW + 1_000_000_000).publish(stream_fix())['accepted']
+
+
+def test_damaged_receiver_metadata_does_not_crash_upload(tmp_path):
+  import json
+  path = tmp_path / 'gps.json'
+  publisher = PhoneGpsPublisher(path, lambda: NOW)
+  publisher.publish(FIX)
+  value = json.loads(path.read_text())
+  value['_stream'] = {'received': 'bad', 'retired': 5}
+  path.write_text(json.dumps(value))
+  path.with_name(path.name + '.status').write_text('{"acceptedCount": null, "rejectedCount": "bad"}')
+  assert PhoneGpsPublisher(path, lambda: NOW + 1_000_000_000).publish(stream_fix())['accepted']
+  assert phone_gps_status(NOW + 1_000_000_000, path)['acceptedCount'] == 1
