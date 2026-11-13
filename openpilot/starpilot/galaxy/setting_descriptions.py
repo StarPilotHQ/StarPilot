@@ -11,7 +11,7 @@ DESCRIPTIONS = {
   'DriveModeAcceleration': 'Matches the acceleration profile to the vehicle’s drive mode.',
   'DriveModeDeceleration': 'Matches the deceleration profile to the vehicle’s drive mode.',
   'AggressiveCoolingEnabled': 'Uses a stronger fan curve on supported devices to reduce temperature at the cost of fan noise.',
-  'HighwaySmoothingLevel': 'Adjusts smoothing of small steering corrections at highway speeds.',
+  'HighwaySmoothingLevel': 'Reduces small steering corrections on highways above about 40 mph. 0% is off; higher values add more smoothing.',
   'FordRearFogIndicator': 'Shows a movable amber telltale while the Ford rear fog light is on, using read-only vehicle status.',
   'DisengageOnAccelerator': 'When enabled, pressing the accelerator pedal will disengage openpilot.',
   'ReduceMotion': 'Reduces interface animations for a steadier display.',
