@@ -45,7 +45,7 @@ PAGES = frozenset(("hub", "localization", "developer", "vehicle", "slc", "lane",
                    "conditional", "conditional/cem",
                    *(f"{name}/{category}" for name in ("traffic", "aggressive", "standard", "relaxed")
                      for category in ("acceleration", "braking", "following"))))
-CONFIRM_ACTIONS = FEATURE_CONFIRM_ACTIONS | {DRIVER_MONITORING_RESET, CALIBRATION_RESET}
+CONFIRM_ACTIONS = (FEATURE_CONFIRM_ACTIONS - {SETUP_ACTION}) | {DRIVER_MONITORING_RESET, CALIBRATION_RESET}
 MAX_VIEWS = 64
 MAX_INTENTS = 64
 TTL = 60.0

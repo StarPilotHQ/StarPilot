@@ -62,6 +62,30 @@ class TestSettingsDefaults(TestCase):
       restored = next(row for row in self.page('torque')['rows'] if row['label'] == label)
       self.assertAlmostEqual(float(restored['value']), previous)
 
+  def test_tuning_preparation_switch_saves_state_and_restores_preferences(self):
+    from openpilot.starpilot.lateral.tests.test_lane_runtime import ioniq_candidate
+    _, cp = ioniq_candidate()
+    self.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
+    self.params.put_bool('TurnAssist', True, block=True)
+    for desired in ('On', 'Off'):
+      page = self.page('torque')
+      index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Prep My Vehicle for Tuning')
+      row = page['rows'][index]
+      self.assertEqual(row['choices'], ['Off', 'On'])
+      self.assertFalse(row['confirm'])
+      self.assertEqual(row['value'], 'Off' if desired == 'On' else 'On')
+      intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value=desired)
+      self.assertTrue(self.confirm(intent))
+      current = next(row for row in self.page('torque')['rows'] if row['label'] == 'Prep My Vehicle for Tuning')
+      self.assertEqual(current['value'], desired)
+      self.assertEqual(self.params.get_bool('TurnAssist'), desired == 'Off')
+    self.context.value = replace(self.context.value, parked=False)
+    page = self.page('torque')
+    index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Prep My Vehicle for Tuning')
+    self.assertFalse(page['rows'][index]['available'])
+    with self.assertRaises(SettingsChanged):
+      self.gateway.preview(page['view'], index, 0, self.session, self.generation, value='On')
+
   def test_boolean_and_numeric_defaults_are_owner_values(self):
     self.params.put_bool('LaneCentering', True, block=True)
     self.params.put_bool('LaneCenteringPauseOnSignal', False, block=True)
