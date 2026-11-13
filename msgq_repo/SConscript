@@ -16,6 +16,9 @@ else:
   # Python symbols resolve at import time.
   envNanobind["LINKFLAGS"] = [f for f in env["LINKFLAGS"] if f != "-Wl,--no-undefined"] + ["-pthread", "-shared"]
 
+# Python.h's feature-test macros clash with newer glibc (_POSIX_C_SOURCE/_XOPEN_SOURCE), like the Cython env.
+envNanobind["CCFLAGS"] = [f for f in envNanobind["CCFLAGS"] if f != "-Werror"]
+
 # Third-party runtime sources do not follow our shadowing warning policy.
 envNanobindRuntime = envNanobind.Clone()
 envNanobindRuntime['CCFLAGS'] = [flag for flag in envNanobindRuntime['CCFLAGS'] if not flag.startswith('-Wshadow')]

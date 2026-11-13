@@ -14,6 +14,8 @@ if arch == 'Darwin':
 else:
   native['LINKFLAGS'] = [flag for flag in env['LINKFLAGS'] if flag != '-Wl,--no-undefined'] + ['-shared', '-pthread']
   native.Append(LIBS=['dl'])
+# Python.h's feature-test macros clash with newer glibc (_POSIX_C_SOURCE/_XOPEN_SOURCE).
+native['CCFLAGS'] = [flag for flag in native['CCFLAGS'] if flag != '-Werror']
 runtime = native.Clone()
 runtime['CCFLAGS'] = [flag for flag in runtime['CCFLAGS'] if not flag.startswith('-Wshadow')]
 combined = runtime.SharedObject('nb_combined.os', str(nb_dir / 'src/nb_combined.cpp'))
