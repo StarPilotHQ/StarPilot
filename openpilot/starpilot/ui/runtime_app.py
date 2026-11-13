@@ -69,7 +69,7 @@ from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile, 
 from openpilot.starpilot.ui.startup import slc_action_transport_enabled, validate_artwork, validate_fonts
 from openpilot.starpilot.speed_limits.vision_gate import diagnostic_choice_enabled
 from openpilot.starpilot.ui.bluetooth_status import BluetoothStatusSource
-from openpilot.starpilot.ui.runtime_snapshot import RuntimeSnapshotAdapter, current_message, display_message
+from openpilot.starpilot.ui.runtime_snapshot import RuntimeSnapshotAdapter, current_message, display_message, input_message
 from openpilot.starpilot.ui.runtime_software import deliver_software
 from openpilot.starpilot.ui.network_panel import NetworkPanelBridge
 from openpilot.starpilot.ui.slc_action_dispatch import SlcActionDispatcher
@@ -86,6 +86,7 @@ from openpilot.starpilot.controllers.mode_actions import ModeActionPublisher, pr
 from openpilot.starpilot.favorites.actions import (BOOKMARK, CYCLE_PERSONALITY, EXPERIMENTAL, INCREASE_SPEED, DECREASE_SPEED, SET_SPEED,
                                                   FORCE_COAST, PULSE_GLIDE, DISENGAGE, TRAFFIC, SWITCHBACK, SCREEN_OFF, mapped_actions)
 from openpilot.starpilot.favorites.state import FavoriteAction
+from openpilot.starpilot.ui.tesla_speed_actions import TeslaSpeedActions
 from openpilot.starpilot.favorites.layout_actions import layout_actions
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.feature_runtime import enabled as feature_enabled
@@ -153,7 +154,7 @@ def visual_border_state(state: OnroadState, signals: Signals) -> OnroadState:
     border.left_blindspot or signals.vasm_left, border.right_blindspot or signals.vasm_right))
 
 
-class StarShellSession:
+class StarShellSession(TeslaSpeedActions):
   """Own native shell resources and one request/router boundary per app."""
 
   def __init__(self, profile: Profile, camera_owner: Any, *, network_layer: Any = None, settings_layer: Any = None):
@@ -508,7 +509,7 @@ class StarShellSession:
           target_mps=float(value) * (1 / 3.6 if metric else 0.44704)))
       actions[SET_SPEED] = FavoriteAction(SET_SPEED, "Set Speed To", available=current and not ui_state.params.get_bool("SafeMode"),
         reason="Active software cruise required; speed uses device units", token=repr((drive, current)), invoke_value=set_speed)
-    return actions
+    return self._tesla_favorite_actions(actions, drive)
 
   def _poll_projection_bookmark(self, now_ns):
     receiver = getattr(self, '_projection_bookmarks', None)
@@ -1338,7 +1339,7 @@ class StarShellSession:
         self.feature_request(replace(request, confirmation=True))
     gui_app.push_widget(ConfirmDialog(question, "Save", callback=confirmed))
 
-  def _live_slc_message(self, now_ns: int) -> Any | None:
+  def _live_slc_message(self, now_ns: int, *, car_input: bool = False) -> Any | None:
     ui = self.adapter.ui_state
     if not ui.started:
       return None
@@ -1348,11 +1349,12 @@ class StarShellSession:
         not any(p.ignitionLine or p.ignitionCan for p in pandas)):
       return None
     after = ui.started_frame
-    # plannerd revalidates actions.
-    car = display_message(ui.sm, "carState", now_ns, after_frame=after)
-    control = display_message(ui.sm, "carControl", now_ns, after_frame=after)
-    controls = display_message(ui.sm, "controlsState", now_ns, after_frame=after)
-    selfdrive = display_message(ui.sm, "selfdriveState", now_ns, after_frame=after)
+    # plannerd revalidates actions. A car button reads with the scroll wheel's age limit.
+    read = input_message if car_input else display_message
+    car = read(ui.sm, "carState", now_ns, after_frame=after)
+    control = read(ui.sm, "carControl", now_ns, after_frame=after)
+    controls = read(ui.sm, "controlsState", now_ns, after_frame=after)
+    selfdrive = read(ui.sm, "selfdriveState", now_ns, after_frame=after)
     cp = ui.CP
     if (car is None or not getattr(car, "canValid", False) or getattr(car, "canTimeout", True) or
         control is None or controls is None or selfdrive is None or cp is None):

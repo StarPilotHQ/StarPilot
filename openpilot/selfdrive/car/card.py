@@ -34,7 +34,7 @@ from opendbc.car.hyundai.ioniq6_media import Ioniq6MediaButtons
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
 from opendbc.car.interfaces import CarInterfaceBase, RadarInterfaceBase
 from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
-from openpilot.selfdrive.car.cruise import slc_sets_set_speed, SlcPendingConfirmation, SlcWheelContext, VCruiseHelper
+from openpilot.selfdrive.car.cruise import TESLA_SET_SPEED_CARS, slc_sets_set_speed, SlcPendingConfirmation, SlcWheelContext, VCruiseHelper
 from openpilot.starpilot.speed_limits import physical_actions as slc_physical
 from openpilot.starpilot.aol.intent import AolProcessFaultContext, independent_axis_requested, read_settings
 from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback, cp_identity
@@ -92,6 +92,7 @@ from openpilot.starpilot.conditional_mode.status import settings_fingerprint
 from openpilot.starpilot.feature_runtime import (requested as feature_requested, enabled as feature_enabled,
                                                slc_runtime_settings, slc_transport_capable)
 from openpilot.starpilot.saved_source import read_saved
+from openpilot.starpilot.common.car_control_config import match_speed_owner, software_cruise_requested
 from openpilot.starpilot.vehicle_selection import startup_candidate
 from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
 from openpilot.starpilot.controller_extensions import configure_controller, observe_controller_can, order_controller_can
@@ -481,6 +482,10 @@ class Car:
     put_cache(self.params, "CarParamsCache", self.CP)
     put_cache(self.params, "CarParamsPersistent", self.CP)
 
+    self.tesla_controls_requested = software_cruise_requested(self.params, self.CP)
+    self.tesla_match_owner = match_speed_owner(self.params, self.CP)
+    self.tesla_controls_active = False
+    self.read_tesla_set_speed()
     self.controller_cruise_consumer = CruiseActionConsumer()
     self.controller_cruise_sock = messaging.sub_sock('slcAction', conflate=False) if cruise_action_eligible(self.CP) else None
     self.v_cruise_helper = VCruiseHelper(self.CP)
@@ -606,6 +611,12 @@ class Car:
     if self.slc_replay:
       pending = slc_physical.pending_confirmation(
         self.sm, now_ns, long_active=slc_long_active, after_ns=floor_ns)
+    # Tesla speed gestures never double as limit confirmation.
+    if self.CP.carFingerprint in TESLA_SET_SPEED_CARS:
+      pending = None
+    # Assignment changes wait for disengagement; disabling SLC always returns
+    # selected-speed ownership to the PCM on this update.
+    self.refresh_tesla_controls_owner()
     wheel_context = None
     slc_settings = getattr(self, 'slc_configuration', (False, None))[1]
     cruise_helper = self.v_cruise_helper
@@ -622,7 +633,10 @@ class Car:
           break
         self.controller_cruise_consumer.apply(request, self.CP, CS, self.sm, self.v_cruise_helper,
                                              now_ns=now_ns, is_metric=self.is_metric,
-                                             enabled=bool(host_control_enabled and can_rcv_valid and not self.params.get_bool("SafeMode")))
+                                             after_ns=floor_ns if self.CP.pcmCruise else 0,
+                                             enabled=bool((host_control_enabled or slc_long_active and
+                                                           self.CP.carFingerprint in TESLA_SET_SPEED_CARS) and
+                                                          can_rcv_valid and not self.params.get_bool("SafeMode")))
     if self.slc_replay:
       self.apply_slc_adopt(now_ns, host_control_enabled=host_control_enabled, after_ns=floor_ns)
     consumed = self.v_cruise_helper.slc_consumed_button
@@ -863,7 +877,8 @@ class Car:
                                   for button, timer in self.v_cruise_helper.button_timers.items()))
         applicable = slc_physical.command_applicable(
           command, state, observation, self.slc_producer_session, now_ns, previous_mps,
-          long_active=slc_long_active, button_event=intervening_button)
+          long_active=slc_long_active, button_event=intervening_button,
+          ceiling_mps=(cap / 3.6 if (cap := getattr(self.v_cruise_helper, 'car_cap_kph', None)) is not None else None))
         if applicable:
           self.v_cruise_helper.apply_slc_target(float(command.targetMps), self.is_metric)
         self.slc_receipts.append(('commandApplied' if applicable else 'commandRejected', command,
@@ -883,6 +898,16 @@ class Car:
 
     return CS, RD
 
+  def read_tesla_set_speed(self) -> None:
+    # Vehicle settings for Tesla Model 3/Y: Independent set speed off makes the car's set speed the ceiling;
+    # Override Tesla set-speed changes Off adopts the car's own changes. Other cars: both False.
+    from openpilot.starpilot.ui.tesla_set_speed_feature import INDEPENDENT, OVERRIDE, SYNC, addon_cable, capped, saved
+    eligible = addon_cable(self.CP) is not None
+    self.tesla_car_cap = bool(eligible and capped(self.params, self.CP))
+    # Override is a sub-setting of Match the Tesla's set speed; turned off, the comma follows the Tesla's own changes.
+    self.tesla_follow_car = bool(eligible and not self.tesla_car_cap and saved(self.params, INDEPENDENT) and
+                                 saved(self.params, SYNC) and not saved(self.params, OVERRIDE))
+
   def slc_set_speed_rule(self) -> bool:
     # SLC writes the set speed on this car (cruise.slc_sets_set_speed). The choice made at startup holds for the drive,
     # as the command channel does.
@@ -893,6 +918,16 @@ class Car:
     configuration = getattr(self, 'slc_configuration', None)
     return bool(getattr(self, 'slc_control_enabled', False) and configuration is not None and self.slc_set_speed_rule() and
                 getattr(getattr(configuration[1], 'custom', None), 'pedal_sets_speed', False))
+
+  def refresh_tesla_controls_owner(self):
+    # Ownership starts only while disengaged. With SLC off only Match the Tesla's set speed asks for it (the request is
+    # recomputed without SLC), and losing the request revokes it at once, even while engaged. Saved assignments remain
+    # intact; assignment changes themselves still wait for disengagement.
+    requested = getattr(self, 'tesla_controls_requested', False)
+    if not getattr(self, 'slc_control_enabled', False) and not getattr(self, 'tesla_match_owner', False):
+      self.tesla_controls_active = False
+    elif not self.CC_prev.enabled and not self.sm['carControl'].enabled:
+      self.tesla_controls_active = requested
 
   def apply_slc_adopt(self, now_ns: int, *, host_control_enabled: bool, after_ns: int = 0) -> None:
     pending = getattr(self, 'slc_wheel_adopt', None)
@@ -913,16 +948,19 @@ class Car:
   def update_cruise_speed(self, CS, pending=None, *, wheel_context: SlcWheelContext | None = None):
     self.v_cruise_helper.update_v_cruise(CS, self.sm['carControl'].enabled, self.is_metric, pending,
                                        slc_enabled=getattr(self, 'slc_control_enabled', getattr(self, 'slc_replay', False)),
+                                       tesla_controls=getattr(self, 'tesla_controls_active', False),
+                                       match_owner=getattr(self, 'tesla_match_owner', False),
                                        pedal_sets_speed=self.slc_pedal_sets_speed(),
+                                       car_cap=getattr(self, 'tesla_car_cap', False), follow_car=getattr(self, 'tesla_follow_car', False),
                                        wheel_context=wheel_context)
     if self.sm['carControl'].enabled and not self.CC_prev.enabled:
       target, initial = None, None
       now_ns = int(self.can_log_mono_time) if REPLAY and hasattr(self, 'can_log_mono_time') else time.monotonic_ns()
-      # Where SLC sets the set speed, engaging always starts SET at the current limit + offset; otherwise Match Speed
-      # Limit on Engage decides, for cars without their own cruise.
+      # Where SLC sets the set speed (including a Tesla Model 3/Y with its own cruise), engaging always starts SET at the
+      # current limit + offset; otherwise Match Speed Limit on Engage decides, for cars without their own cruise.
       set_speed_rule = self.slc_set_speed_rule()
-      if ((set_speed_rule or getattr(self, 'slc_match_on_engage', False)) and getattr(self, 'slc_control_enabled', False) and
-          not self.CP.pcmCruise and self.CP.openpilotLongitudinalControl and
+      if ((set_speed_rule or getattr(self, 'slc_match_on_engage', False) and not self.CP.pcmCruise) and
+          getattr(self, 'slc_control_enabled', False) and self.CP.openpilotLongitudinalControl and
           CS.canValid and not CS.canTimeout and CS.cruiseState.available and
           self.sm.valid['carControl'] and self.sm.alive['carControl'] and
           0 < int(self.sm.logMonoTime['carControl']) <= now_ns and
@@ -1944,6 +1982,9 @@ class Car:
                    self.can_log_mono_time if REPLAY else
                    time.clock_gettime_ns(time.CLOCK_BOOTTIME) if self.volt_startup_keepalive() or monitored_steering else
                    int(time.monotonic() * 1e9))
+      if getattr(self.CI.CC, "speed_sync", None) is not None:
+        from openpilot.starpilot.car.tesla_speed_sync_context import publish_context
+        publish_context(self, CS)
       learning_snapshot = None
       try:
         from openpilot.starpilot.flm.evidence_hooks import begin_applied_frame, applied_snapshot
@@ -2031,6 +2072,9 @@ class Car:
         self.aol_card_intent.settings = read_settings(self.params)
       now = time.monotonic()
       if now >= next_cruise_read:
+        self.tesla_controls_requested = software_cruise_requested(self.params, self.CP)
+        self.tesla_match_owner = match_speed_owner(self.params, self.CP)
+        self.read_tesla_set_speed()
         self.slc_requested_configuration = self.read_slc_configuration()
         if getattr(self, 'slc_transport_available', False):
           self.slc_match_on_engage = self.read_slc_match_on_engage()

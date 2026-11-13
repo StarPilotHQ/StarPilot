@@ -42,8 +42,9 @@ class SavedSlcLifecycle:
     saved_slc = read_slc_settings(self.params)
     admitted = feature_enabled(self.params, self.cp, 'slc', self.environment, saved_slc=saved_slc)
     settings = slc_runtime_settings(self.params, self.cp, self.environment, saved_slc=saved_slc)
-    # Card rounding follows current display units.
-    settings = replace(settings, metric=self.params.get_bool('IsMetric'))
+    # Card rounding follows current display units; the Tesla car cap (Independent set speed off) bounds SLC targets.
+    from openpilot.starpilot.ui.tesla_set_speed_feature import capped as tesla_capped
+    settings = replace(settings, metric=self.params.get_bool('IsMetric'), car_cap=tesla_capped(self.params, self.cp))
     vision = admitted and feature_enabled(self.params, self.cp, 'vision', self.environment, saved_slc=saved_slc)
     configuration = (admitted and not settings.errors, settings, vision,
                      vision_control_enabled(self.params, self.cp, saved_slc=saved_slc),
@@ -59,11 +60,11 @@ class SavedSlcLifecycle:
       old_admitted, old_settings, *old_display = self.configuration
       retimed = replace(old_settings, advance_higher_seconds=settings.advance_higher_seconds,
                         advance_lower_seconds=settings.advance_lower_seconds)
-      # Limit-change timing, offset type, fallback delay, limit switches and units are edited in place unless manual
-      # memory or re-engage change, which own per-drive state.
+      # Limit-change timing, offset type, fallback delay, limit switches, units and the Tesla car cap are edited in place
+      # unless manual memory or re-engage change, which own per-drive state.
       if (settings.custom.manual_memory == old_settings.custom.manual_memory and
           settings.custom.reengage == old_settings.custom.reengage):
-        retimed = replace(retimed, custom=settings.custom, metric=settings.metric)
+        retimed = replace(retimed, custom=settings.custom, metric=settings.metric, car_cap=settings.car_cap)
       timing_only = configuration == (old_admitted, retimed, *old_display)
       preserve_runtime |= configuration[:-1] == (old_admitted, replace(retimed, offsets=settings.offsets), *old_display[:-1])
     if preserve_runtime:

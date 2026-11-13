@@ -154,7 +154,7 @@ def pending_confirmation(sm, now_ns: int, *, long_active: bool,
 
 # SLC sets the set speed (cruise.slc_sets_set_speed): card applies a qualified SLC command to the software set speed.
 def command_applicable(command, state, observation, producer_session: str, now_ns: int,
-                       selected_mps: float, *, long_active: bool, button_event: bool) -> bool:
+                       selected_mps: float, *, long_active: bool, button_event: bool, ceiling_mps: float | None = None) -> bool:
   if state is None or button_event or not long_active or not state.hasAccepted:
     return False
   if (str(command.kind) not in ('adoptAcceptedLimit', 'reengageZone', 'previewRollback') or not str(command.sessionId) or
@@ -181,6 +181,9 @@ def command_applicable(command, state, observation, producer_session: str, now_n
     return False
   bound_target = (float(state.rollbackTarget) if rollback else float(state.reengageTarget) if resumed
                   else float(state.acceptedSpeedLimit) + float(state.offset))
+  if ceiling_mps is not None and finite_speed(ceiling_mps):
+    # The car's own set speed is the ceiling (Tesla Independent set speed off): SLC aims for the lower of the two.
+    bound_target = min(bound_target, ceiling_mps)
   # Float32 transport can round a legal boundary just outside its double-precision value.
   return (finite_speed(expected) and finite_speed(target) and finite_speed(selected_mps) and
           abs(expected - selected_mps) <= 0.1 and

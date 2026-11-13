@@ -41,11 +41,13 @@ class SlcActionDispatcher:
     self._feedback_sequence = 0
     self._feedback_started_ns = 0
 
-  def dispatch(self, request: SlcUiRequest, *, wheel_observed_ns: int = 0) -> bool:
+  def dispatch(self, request: SlcUiRequest, *, read_current: Callable[[int], Any | None] | None = None,
+               wheel_observed_ns: int = 0) -> bool:
+    """read_current replaces the state reader for this request (a car button reads with the scroll wheel's age limit)."""
     if not _positive_number(request.candidate_speed_mps):
       return False
     now_ns = self.clock()
-    state = self.read_current(now_ns)
+    state = (read_current or self.read_current)(now_ns)
     if state is None:
       return False
     try:

@@ -151,7 +151,8 @@ LABELS = {
     '',
     '',
     'On: when you speed up past the set speed with the accelerator, the speed you let go at becomes the new set speed. ' +
-    'The brake works the same way on cars where braking does not disengage.',
+    'The brake works the same way on cars where braking does not disengage. Where the car\'s own cruise caps the set ' +
+    'speed, it only goes up to that.',
   ),
   RESTORE: (
     'Restore SLC speed on re-engagement',
@@ -222,7 +223,8 @@ class SlcCustomFeature:
     return bool(ok and raw is not None and raw.isdigit() and 1 <= int(raw) <= 10)
 
   def sets_set_speed(self):
-    """SLC sets the set speed on this car (cruise.slc_sets_set_speed): the saved choice, where StarPilot owns the set speed."""
+    """SLC sets the set speed on this car (cruise.slc_sets_set_speed): always on a Tesla Model 3/Y with its own cruise, the
+    saved choice where StarPilot owns the set speed."""
     from openpilot.selfdrive.car.cruise import slc_sets_set_speed
 
     cp = self.owner.vehicle_params()

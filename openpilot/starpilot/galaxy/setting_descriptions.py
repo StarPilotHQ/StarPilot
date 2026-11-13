@@ -73,7 +73,8 @@ DESCRIPTIONS = {
   'ShowCSCStatus': 'Shows when Curve Speed Controller is adjusting speed on the driving screen.',
   'curve_reset': 'Deletes saved cornering learning so Curve Speed Controller can learn your preferences again.',
   'SpeedLimitController': ('On: StarPilot keeps you to the speed limit plus your offset. The limit caps your set speed, or becomes ' +
-                           'your set speed with SLC sets the set speed on. Off: the set speed is left to you.'),
+                           'your set speed with SLC sets the set speed on (always on a Tesla Model 3 or Y). Off: the set speed is ' +
+                           'left to you.'),
   'SLCSetsSetSpeed': ('Off: the speed limit with your offset is a maximum under your own set speed, and your set speed never ' +
                       'changes. On: the speed limit with your offset becomes your set speed, so the set speed follows each new ' +
                       'limit and the speed buttons change it from there. Only on cars where StarPilot controls the set speed.'),
@@ -113,7 +114,8 @@ DESCRIPTIONS = {
   'TruckTuning': 'Softens small acceleration requests, reduces grade correction and smooths light braking on supported GM trucks.',
   'EVTuning': 'Selects EV acceleration curves for inherited acceleration presets.',
   'TeslaAOLScreenTap': 'Lets a three-finger tap on a supported Tesla screen toggle Always On Lateral.',
-  'TeslaAOLDisengageOnBrake': 'Disarms Tesla Always On Lateral when you press the brake, with either harness.',
+  'TeslaAOLDisengageOnBrake': ('On: pressing the brake turns Always On Lateral steering off; engage cruise or tap the screen ' +
+                               'to steer again. Off: Always On Lateral keeps steering while you brake.'),
   'RemoteStartBootsComma': 'Wakes comma during GM remote start.',
   'HKGRemoteStartBootsComma': 'Wakes comma during Hyundai, Kia or Genesis remote climate operation.',
   'IgnoreIgnitionLine': 'Uses GM CAN ignition instead of the harness ignition signal.',
@@ -207,7 +209,7 @@ INITIALIZATION = {
     'permission. An already admitted mode can be disabled live.'),
   'VoltSNG': 'Applies when the vehicle controller next starts: its fresh resume-plan input is created for the selected stop-and-go mode.',
   'TeslaAOLScreenTap': 'Requires the next vehicle startup to configure the screen-button CAN source and matching safety permission.',
-  'TeslaAOLDisengageOnBrake': 'Requires the next vehicle startup to configure the Tesla brake/disarm safety permission.',
+  'TeslaAOLDisengageOnBrake': 'Applies after the next startup.',
   'RemoteStartBootsComma': 'Requires a device restart to load the matching Panda ignition firmware.',
   'HKGRemoteStartBootsComma': 'Requires a device restart to load the matching Panda ignition firmware.',
   'IgnoreIgnitionLine': 'Requires a device restart to load the matching Panda ignition firmware.',
@@ -421,6 +423,8 @@ def purpose(row):
 
 def description(row):
   """Keep actual error/prerequisite information after the setting's purpose."""
+  if row.key in ('CustomCruise', 'CustomCruiseLong') and row.label in ('Short scroll', 'Fast scroll'):
+    return row.reason  # a Tesla's right scroll wheel steps describe themselves (and say when Match is needed)
   base = purpose(row)
   if base is None:
     return row.reason

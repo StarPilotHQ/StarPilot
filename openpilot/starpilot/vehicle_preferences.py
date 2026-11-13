@@ -105,7 +105,7 @@ class VehicleStartupPreferences:
     screen = tesla_aol and read_saved(params, 'TeslaAOLScreenTap', 8) == (b'1', True)
     cooperative = bool(enabled and readable and safe in (None, b"0") and
                        read_saved(params, "TeslaCoopSteering", 8) == (b"1", True))
-    screen_brake = read_saved(params, 'TeslaAOLDisengageOnBrake', 8) == (b'1', True)
+    screen_brake = read_saved(params, 'TeslaAOLDisengageOnBrake', 8) in ((None, True), (b'1', True))  # default On
     return cls(vw_stock_long=vw_stock_long,
                subaru_smoothing=smoothing, subaru_avh_startup=bool(enabled and readable and safe in (None, b"0") and
                     read_saved(params, "IsReleaseBranch", 8) in ((None, True), (b"0", True)) and

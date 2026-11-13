@@ -132,6 +132,7 @@ class CarControllerParams:
 class TeslaSafetyFlags(IntFlag):
   LONG_CONTROL = 1
   HW1 = 16
+  SCROLL_SPEED_SYNC = 4096  # 2048 is the ordinary AOL word
   COOP_STEERING = 256
   AOL_SCREEN_BUTTON = 512
   AOL_SCREEN_DISENGAGE_ON_BRAKE = 1024

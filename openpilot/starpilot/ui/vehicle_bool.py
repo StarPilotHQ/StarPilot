@@ -47,5 +47,5 @@ def confirmation_question(request):
   if request.key == "TeslaAOLScreenTap":
     return f"{verb} three-finger screen taps for Always On Lateral after the next startup? Cruise control stays independent."
   if request.key == "TeslaAOLDisengageOnBrake":
-    return f"{verb} disarming Always On Lateral with the brake after the next startup? This applies with either Tesla harness."
+    return f"{verb} turning Always On Lateral steering off with the brake after the next startup? This applies with either Tesla harness."
   raise ValueError("Unsupported vehicle preference")

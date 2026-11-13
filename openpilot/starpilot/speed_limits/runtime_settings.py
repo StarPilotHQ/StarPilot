@@ -52,6 +52,8 @@ class Settings:
   # Limit-change timing, offset type, fallback delay, manual memory, re-engage and the acceleration/braking limits.
   custom: CustomSettings = field(default_factory=CustomSettings)
   metric: bool = False
+  # The car's own set speed is the ceiling (Tesla Independent set speed off): targets never go above it.
+  car_cap: bool = False
 
 
 def _bool(values: Mapping[str, object], key: str, default: bool = False) -> bool:

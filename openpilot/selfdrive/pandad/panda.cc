@@ -173,6 +173,10 @@ bool Panda::up_to_date() {
         allowed |= std::string(selected) == prefix + suffix + ".bin.signed";
       }
     }
+    // CUATRO is qualified only for the Tesla wake image, not other alternates.
+    if (hw_type == cereal::PandaState::PandaType::CUATRO) {
+      allowed |= std::string(selected) == "panda_h7_tesla_wake.bin.signed";
+    }
     if (!allowed) return false;
     filename = selected;
   }

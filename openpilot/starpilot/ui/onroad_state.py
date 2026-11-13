@@ -236,6 +236,8 @@ class OnroadState:
   slc_prompt_open: bool = False
   quick_select_open: bool = False
   slc_wheel_confirmation_available: bool = False
+  # Tesla Match the Tesla's set speed: a short note under the set speed while the Tesla's own set speed differs.
+  tesla_sync_caption: str | None = None
 
   torque_is_demand: bool = False
 

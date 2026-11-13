@@ -148,6 +148,11 @@ LANE_LIVE_KEYS = frozenset(("LaneCentering", "LaneCenteringPauseOnSignal", "Lane
 CURVE_KEYS = frozenset((CURVE_MASTER_KEY, CURVE_NO_LEAD_KEY))
 CURVE_PAGE_KEYS = CURVE_KEYS | {"ShowCSCStatus"}
 CRUISE_KEYS = frozenset(("CustomCruise", "CustomCruiseLong"))
+# On a Tesla Model 3/Y the cruise steps are the right scroll wheel's.
+TESLA_SCROLL_LABELS = {"CustomCruise": "Short scroll", "CustomCruiseLong": "Fast scroll"}
+TESLA_SCROLL_HELP = {"CustomCruise": "How much one scroll of the right scroll wheel changes the comma's set speed.",
+                     "CustomCruiseLong": "How much a fast scroll of the right scroll wheel changes the comma's set speed."}
+TESLA_SCROLL_NEEDS_MATCH = "Turn on Match the Tesla's set speed first"
 
 
 class FeatureSettingsOwner:
@@ -183,6 +188,10 @@ class FeatureSettingsOwner:
     self.long_profiles = LongProfileFeature(self)
     self.tesla_screen = TeslaScreenFeature(self)
     self.tesla_coop = TeslaCoopFeature(self)
+    from openpilot.starpilot.ui.tesla_set_speed_feature import TeslaSetSpeedFeature
+    self.tesla_set_speed = TeslaSetSpeedFeature(self)
+    from openpilot.starpilot.ui.tesla_controls_feature import TeslaControlsFeature
+    self.tesla_controls = TeslaControlsFeature(self)
     from openpilot.starpilot.ui.gm_cancel_remap_feature import GmCancelRemapFeature
     self.gm_cancel_remap = GmCancelRemapFeature(self)
 
@@ -519,6 +528,15 @@ class FeatureSettingsOwner:
                           authorized=authorized, temp_prefix=".global-preference-")
     return result.committed and result.verified
 
+  def _tesla_scroll_steps(self) -> bool | None:
+    """None on other cars; on a Tesla Model 3/Y with the add-on cable the cruise steps are the right scroll wheel's,
+    used while Match the Tesla's set speed is on (True) and grayed while it is off (False)."""
+    from openpilot.starpilot.ui.tesla_set_speed_feature import SYNC, addon_cable, saved
+    cp = self.vehicle_params()
+    if not addon_cable(cp):
+      return None
+    return saved(self.params, SYNC)
+
   def _cruise_rows(self, configurable: bool) -> list[FeatureRow]:
     software_capability = self._cruise_capability()
     toyota_capability = toyota_cruise_capability(self.vehicle_params())
@@ -537,7 +555,10 @@ class FeatureSettingsOwner:
                              reason="Short press changes set speed by 5; hold changes it by 1",
                              capability=toyota_capability, dependencies=()))
       return rows
+    scroll = self._tesla_scroll_steps()
     for key, label, default in (("CustomCruise", "Short press", 1.0), ("CustomCruiseLong", "Hold", 5.0)):
+      if scroll is not None:
+        label = TESLA_SCROLL_LABELS[key]
       value, raw, valid = self._value(key)
       try:
         number = float(value)
@@ -545,10 +566,13 @@ class FeatureSettingsOwner:
       except ValueError:
         valid = False
         number = default
+      grayed = scroll is not None and not scroll
       rows.append(FeatureRow(key, label, f"{number:g}" if valid else "Invalid saved value", raw,
                              step=1.0 if valid else 0.0, minimum=1.0, maximum=150.0 if unit_value == "1" else 99.0,
-                             unit=unit if unit_valid else "", available=allowed and valid and unit_valid,
+                             unit=unit if unit_valid else "", available=allowed and valid and unit_valid and not grayed,
                              reason="Invalid saved value or units" if not valid or not unit_valid else
+                                    TESLA_SCROLL_NEEDS_MATCH + ".\n" + TESLA_SCROLL_HELP[key] if grayed else
+                                    TESLA_SCROLL_HELP[key] if scroll is not None else
                                     "Used when StarPilot controls cruise speed" if allowed else reason,
                              capability=capability, dependencies=(("IsMetric", unit_raw),),
                              display_unit=unit if unit_valid else "", default_value=str(default)))
@@ -566,7 +590,7 @@ class FeatureSettingsOwner:
       raw, readable = read_saved(self.params, key, 128)
       if not readable or raw != request.expected:
         return False
-      if self._cruise_capability() is None:
+      if self._cruise_capability() is None or self._tesla_scroll_steps() is False:
         return False
       units, units_readable = read_saved(self.params, "IsMetric", 8)
       return (units_readable and units in (None, b"0", b"1") and
@@ -957,6 +981,7 @@ class FeatureSettingsOwner:
                              configurable and parked and self.authority("vehicle") and self.authority("parked_preferences"),
                              "Retains a cruise-controlled stop until you press a pedal or cancel cruise. Applies after the next startup")
         rows.append(replace(row, available=row.available and self._readable("JeepBrakeHold"), capability=jeep_capability))
+      rows.extend(self.tesla_set_speed.rows())
       rows.extend(self.tesla_screen.rows(parked))
       rows.extend(self.tesla_coop.rows(parked))
       rows.extend(self.gm_cancel_remap.rows(parked))
@@ -1166,6 +1191,7 @@ class FeatureSettingsOwner:
       if self.show_cruise_intervals or toyota_cruise_capability(self.vehicle_params()) is not None:
         rows.extend(self._cruise_rows(configurable))
       rows.extend(self.wheel.rows())
+      rows.extend(self.tesla_controls.rows())
     elif page == FeaturePage.SLC or page in SLC_PAGES:
       system_long = (system_long if self.vehicle_params() is None else self.longitudinal_available()) and self.authority("slc")
       allowed = configurable and system_long
@@ -1183,7 +1209,8 @@ class FeatureSettingsOwner:
         control_reason = "Repair invalid saved speed-limit offsets or units before enabling control"
       else:
         control_reason = ("On: StarPilot keeps you to the speed limit plus your offset. The limit caps your set speed, " +
-                          "or becomes your set speed with SLC sets the set speed on. Off: the set speed is left to you.")
+                          "or becomes your set speed with SLC sets the set speed on (always on a Tesla Model 3 or Y). " +
+                          "Off: the set speed is left to you.")
       control_row = self._bool_row("SpeedLimitController", "Speed Limit Controller",
                                    allowed and (offsets_ready or control == "1"), reason=control_reason)
       rows.append(replace(control_row, reason=control_reason) if control_row.choices else control_row)
@@ -1234,7 +1261,11 @@ class FeatureSettingsOwner:
         set_speed_rule = self.slc_custom.sets_set_speed()
         hidden = ({*ADVANCE_KEYS, PEDAL_OVERRIDE_KEY, 'SLCOnEngage', WHEEL_OVERRIDE_KEY} if set_speed_rule else
                   {'SLCLastLimitFallback'})
-        if cp.pcmCruise or not cp.openpilotLongitudinalControl:
+        from openpilot.selfdrive.car.cruise import TESLA_SET_SPEED_CARS
+        if cp.pcmCruise and cp.openpilotLongitudinalControl and cp.carFingerprint in TESLA_SET_SPEED_CARS:
+          # A Tesla Model 3/Y with its own cruise: SLC always sets the set speed, so there is no choice to offer.
+          hidden |= {SETS_SET_SPEED}
+        elif cp.pcmCruise or not cp.openpilotLongitudinalControl:
           # The car's own cruise owns the set speed: there is no choice to offer.
           hidden |= {SETS_SET_SPEED, *MANUAL}
         rows = [row for row in rows if row.key not in hidden]
@@ -1481,6 +1512,8 @@ class FeatureSettingsOwner:
       result = commit_exact(self.params, key=key, max_bytes=8, raw=b"0", expected=request.expected,
                             authorized=authorized_off, temp_prefix=".aol-off-")
       return result.committed and result.verified
+    if key.startswith("tesla_input:"):
+      return self.tesla_controls.apply(request)
     if key.startswith(WHEEL_PREFIX):
       return self.wheel.apply(request)
     if key == OUTPUT_MAX_KEY:
@@ -1513,6 +1546,9 @@ class FeatureSettingsOwner:
       return self.preap_radar.apply(request)
     if key == "TeslaCoopSteering":
       return self.tesla_coop.apply(request)
+    from openpilot.starpilot.ui.tesla_set_speed_feature import KEYS as TESLA_SET_SPEED_KEYS
+    if key in TESLA_SET_SPEED_KEYS:
+      return self.tesla_set_speed.apply(request, reset_default=reset_default)
     if key in TESLA_SCREEN_KEYS:
       return self.tesla_screen.apply(request)
     if key == GM_TUNE_KEY:

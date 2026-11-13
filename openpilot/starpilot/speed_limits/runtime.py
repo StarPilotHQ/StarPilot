@@ -893,6 +893,11 @@ class Runtime:
       target = self.rollback_target
       kind = 'previewRollback'
       self.reengage_target = None
+    if self.settings.car_cap:
+      # The car's own set speed is the ceiling: aim for the lower of the two; raise again when the car's rises.
+      car_mps = float(sm['carState'].cruiseState.speed)
+      if 0 < car_mps < target:
+        target = car_mps
     selected_kph = float(sm['carState'].vCruise)
     if (not _number(target, positive=True) or not _number(selected_kph, positive=True) or
         selected_kph >= 255 or not V_CRUISE_MIN / 3.6 <= target <= V_CRUISE_MAX / 3.6):
@@ -913,8 +918,11 @@ class Runtime:
           self.manual_targets.remember(selected_kph/3.6, decision.state.accepted.candidate.speed_mps)
       self.state = replace(self.state, override=replace(self.state.override, applied_selected_mps=selected_kph / 3.6))
       return None
+    # Under a car ceiling the target moves with the car's set speed; follow it (at most once a second).
+    retarget = bool(self.settings.car_cap and self.command_status in ('applied', 'expired', 'rejected') and
+                    abs(target - self.command_target_mps) > 0.1 and now_ns - self.command_issued_ns >= 1_000_000_000)
     if (self.commanded_acceptance == decision.state.accepted and decision.adoption is None and resume is None and
-        self.rollback_target is None):
+        self.rollback_target is None and not retarget):
       if self.command_interrupted or self.command_status in ('issued', 'applied') or abs(selected_kph / 3.6 - self.command_expected_mps) > 0.1:
         return None
     evidence = sm['slcDashboardObservation']
