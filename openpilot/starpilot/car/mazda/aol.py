@@ -78,3 +78,68 @@ def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previou
       native.validUntilMonoTime - native.observedMonoTime <= SAFETY_MAX_AGE_NS)
   except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
     return False
+
+
+# Tolerance for treating a delayed denial as the stop's: the sample must have been taken no later
+# than this after the host's last standstill frame. In 39 logged stops (drives 4f-53) panda's
+# stop denials began from 14 ms before the host's first standstill frame and ended 4-95 ms before
+# its last, so real stop samples fall well inside it. It is a tolerance, not proof of cause: a
+# denial for another reason sampled within it also passes, which is why every other check (no
+# steering or ACC fault, longitudinal still granted, same panda, session and fresh sample) stays.
+STOP_SAMPLE_MARGIN_NS = 50_000_000
+# How long after the last standstill frame a delayed stop sample is still explained by the
+# stop: the card's restriction release grace, so host and card agree.
+STOP_HISTORY_NS = 250_000_000
+
+
+def note_standstill(history, cp, cs, cs_ns, session):
+  """(session, ns) of the host's last standstill frame in Drive for this AOL session.
+
+  A different session discards the history, so a stop never explains a later session's denial.
+  """
+  try:
+    if (cs.standstill and session and cs_ns > 0 and cp.brand == "mazda" and cs.canValid and not cs.canTimeout and
+        cs.gearShifter == structs.CarState.GearShifter.drive):
+      return (session, int(cs_ns))
+  except (AttributeError, TypeError, ValueError):
+    return None
+  return history if history is not None and history[0] == session else None
+
+
+def expected_stopped_lateral_denial(cp, cs, native, *, sm, axis_session_id, now_ns, stop_history=None) -> bool:
+  """GEN2 with openpilot longitudinal: panda's lateral withdrawal at a stop is not lost permission.
+
+  Panda withholds lateral while the car is stopped (its vehicle_moving gate) and keeps its
+  AOL token. With steering-only AOL the driver is on the brake at that moment, so the
+  driver-override exemption already covers it. With cruise engaged openpilot is braking,
+  and the withdrawal read as a lost grant (controlsMismatch, TAKE CONTROL IMMEDIATELY).
+  Lateral still goes inactive on the same frame and needs a fresh panda grant to return;
+  this only stops the withdrawal being a fault.
+
+  The denial is treated as the stop's when the host reads standstill now, or when panda took
+  the sample no later than STOP_SAMPLE_MARGIN_NS after the host's last standstill frame
+  (stop_history, from note_standstill) and the car left standstill at most STOP_HISTORY_NS ago:
+  a short stop can end before panda's delayed sample arrives. Host standstill (SPEED < 0.1 m/s) covers panda's not-moving gate
+  (<= 0.1 km/h). Everything else stays a fault: a steering fault, an ACC fault, not in
+  Drive, a stale or different panda or session, or longitudinal also withdrawn
+  (_configured_transport_native refuses a requested-but-denied longitudinal axis).
+  """
+  from openpilot.starpilot.aol.transport_pause import _configured_transport_native
+  try:
+    # Cheap per-frame state first: this runs on every frame lateral is desired, and the
+    # admission check reads CarParams (about 100 us on the device).
+    if native is None or not native.requestedLateral or native.lateralAllowed:
+      return False
+    stopped_ns = (int(stop_history[1]) if stop_history is not None and axis_session_id and
+                  stop_history[0] == axis_session_id else 0)
+    stopped = bool(cs.standstill or
+      0 < stopped_ns <= now_ns <= stopped_ns + STOP_HISTORY_NS and
+      0 < native.observedMonoTime <= stopped_ns + STOP_SAMPLE_MARGIN_NS)
+    return bool(stopped and
+      cs.canValid and not cs.canTimeout and not cs.steerFaultTemporary and not cs.steerFaultPermanent and
+      not cs.accFaulted and cs.gearShifter == structs.CarState.GearShifter.drive and native.pandaInventory and
+      cp.brand == "mazda" and cp.openpilotLongitudinalControl and gen2_qualified(cp, marked_only=True) and
+      _configured_transport_native(sm, cp, axis_session_id, now_ns, native,
+                                   allow_restricted_lateral=True) == native)
+  except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
+    return False
