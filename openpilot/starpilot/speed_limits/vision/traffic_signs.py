@@ -59,7 +59,9 @@ class SignDetections:
 
 
 class TrafficSignModelCore(model.VisionModelCore):
-  DETECTOR_SHA256 = '52bb30f73bf0d166342f33d1b32b29b726bf036004e0359fef10ef7bf1f5556f'
+  DETECTOR_SHA256 = 'fe54ea8d47cb89cd44697e0a7e85ce8814a12f285c811ccd89ac2bba341c4228'
+  PROPOSAL_LOGIT_CALIBRATION = .16
+  PUBLISHED_SCORE_MARGIN = .001
   STOP_PROJECTION_SHA256 = "a744df1b585bfd80a2a983229509f52bf2f09714d9df011109ad1b8b875aaecc"
   ASSET_MANIFEST = (DETECTOR_SHA256, model.VisionModelCore.CLASSIFIER_SHA256, MODEL_SHA256, STOP_PROJECTION_SHA256)
   MODEL_ID = (hashlib.sha256(("vision_joint_stop_projection_identity_v1\n" + "\n".join(ASSET_MANIFEST) + "\n").encode()).hexdigest() +

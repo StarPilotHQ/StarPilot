@@ -830,6 +830,19 @@ class VisionModelCore:
 
     if proposals is None:
       proposals = self._collect_detector_classifier_proposals(frame_bgr)
+    if type(proposals) is list and len(proposals) > 1 and proposals[0][1] == 0:
+      confidence, _, (left, top, right, bottom) = proposals[0]
+      width, height = right - left, bottom - top
+      if height >= 1.8 * width:
+        for index, candidate in enumerate(proposals[1:], 1):
+          score, kind, (x1, y1, x2, y2) = candidate
+          w, h = x2 - x1, y2 - y1
+          if (kind == 0 and 0 <= confidence - score <= .005 and
+              left <= x1 < x2 <= right and top <= y1 <= top + .15 * width and
+              w >= .8 * width and .9 * w <= h <= 1.6 * w and h <= .75 * height):
+            # Prefer a near-tied upper plate over its combined MINIMUM-board proposal.
+            proposals = [candidate, *proposals[:index], *proposals[index + 1:]]
+            break
     for proposal_index, (proposal_confidence, class_id, (x1, y1, x2, y2)) in enumerate(proposals):
       if class_id == 1:
         continue
@@ -843,6 +856,13 @@ class VisionModelCore:
             break
         if duplicate_advisory:
           continue
+
+      score_confidence = proposal_confidence
+      score_margin = getattr(self, 'PUBLISHED_SCORE_MARGIN', 0.0)
+      calibration = getattr(self, 'PROPOSAL_LOGIT_CALIBRATION', 0.0)
+      if calibration:
+        # Admission calibration must not inflate the published numeric evidence.
+        score_confidence /= proposal_confidence + math.exp(calibration) * (1 - proposal_confidence)
 
       box_width = x2 - x1
       box_height = y2 - y1
@@ -920,9 +940,9 @@ class VisionModelCore:
             ):
               score = min(
                 read_confidence * 0.72 +
-                proposal_confidence * 0.22 +
+                score_confidence * 0.22 +
                 max(support_count - 1, 0) * SCHOOL_ZONE_SUPPORT_BONUS +
-                0.04,
+                0.04 - score_margin,
                 0.95,
               )
               if score >= SCHOOL_ZONE_SHORT_CIRCUIT_CONFIDENCE:
@@ -970,8 +990,8 @@ class VisionModelCore:
               speed_regulatory_support.get(agreed_speed, 0) >= 1 and
               speed_scores[agreed_speed] + DETECTOR_CLASSIFIER_SUPPORT_BONUS >
               expansion_weight + DETECTOR_CLASSIFIER_REGULATORY_BONUS and
-              speed_best_confidences[agreed_speed] * .72 + proposal_confidence * .24 +
-              DETECTOR_CLASSIFIER_SUPPORT_BONUS >= .95):
+              speed_best_confidences[agreed_speed] * .72 + score_confidence * .24 +
+              DETECTOR_CLASSIFIER_SUPPORT_BONUS - score_margin >= .95):
             break
 
         face_filter = getattr(self, '_speed_face_filter', None)
@@ -1185,8 +1205,8 @@ class VisionModelCore:
       )
       score = min(
         read_confidence * 0.72 +
-        proposal_confidence * 0.24 +
-        max(support_count - 1, 0) * DETECTOR_CLASSIFIER_SUPPORT_BONUS,
+        score_confidence * 0.24 +
+        max(support_count - 1, 0) * DETECTOR_CLASSIFIER_SUPPORT_BONUS - score_margin,
         0.95,
       )
       selection_score = score
