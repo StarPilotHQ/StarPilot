@@ -101,7 +101,7 @@ def test_ui_language_selector_uses_shared_device_language_setting():
   selector = _read("js/components/LanguageSelector.js")
   settings = _read("js/views/Settings.js")
 
-  for code in ["en", "es", "fr", "ko", "zh-CHS"]:
+  for code in ["en", "es", "fr", "ko", "zh-CHS", "vi"]:
     assert f'value: "{code}"' in i18n
   assert "localStorage" in i18n
   assert "LanguageSetting" in selector
@@ -746,6 +746,94 @@ def _node_exe():
     if path and Path(path).exists():
       return path
   return None
+
+
+@pytest.mark.skipif(_node_exe() is None, reason="no node.js runtime available")
+@pytest.mark.parametrize("language", ["vi", "en"])
+def test_confirmation_localizes_destructive_warning_and_preserves_actions(tmp_path, language):
+  # Exercise the actual dictionary and dialog renderer; only the DOM mount is stubbed.
+  vue_src = (UI_ROOT.parent / "vendor/vue/vue.esm-browser.js").read_text(encoding="utf-8")
+  (tmp_path / "vue.mjs").write_text(vue_src, encoding="utf-8")
+  (tmp_path / "i18n.mjs").write_text(
+    _read("js/i18n.js").replace('from "vue"', 'from "./vue.mjs"'), encoding="utf-8",
+  )
+  (tmp_path / "modal.mjs").write_text(
+    _read("js/components/GalaxyModal.js").replace('from "../i18n.js"', 'from "./i18n.mjs"'), encoding="utf-8",
+  )
+  script = tmp_path / "confirmation.mjs"
+  script.write_text(
+    r"""
+import assert from "node:assert/strict"
+import { h } from "./vue.mjs"
+import { setLanguage, t } from "./i18n.mjs"
+import { GalaxyConfirm } from "./modal.mjs"
+
+let rendered
+let unmounts = 0
+const hosts = new Set()
+globalThis.document = {
+  documentElement: {},
+  getElementById: () => null,
+  createElement: () => ({ remove() { hosts.delete(this) } }),
+  body: { appendChild(host) { hosts.add(host) } },
+}
+globalThis.window = { __galaxyVue: {
+  h,
+  createApp: component => ({
+    mount() { rendered = component.render() },
+    unmount() { unmounts++ },
+  }),
+} }
+
+const language = process.argv[2]
+setLanguage(language)
+const pending = GalaxyConfirm({
+  title: "Factory reset (SAVE ME)?",
+  message: "This wipes params, backups, themes, models, maps, and route data, then reboots. This cannot be undone.",
+  confirmLabel: "Factory Reset",
+  danger: true,
+})
+const props = rendered.props
+assert.equal(props.title, language === "vi" ? "Khôi phục cài đặt gốc (SAVE ME)?" : "Factory reset (SAVE ME)?")
+assert.equal(props.message, language === "vi"
+  ? "Thao tác này sẽ xóa tham số, bản sao lưu, giao diện, mô hình, bản đồ và dữ liệu hành trình, sau đó khởi động lại thiết bị. Không thể hoàn tác."
+  : "This wipes params, backups, themes, models, maps, and route data, then reboots. This cannot be undone.")
+assert.equal(props.confirmLabel, language === "vi" ? "Khôi phục cài đặt gốc" : "Factory Reset")
+assert.equal(props.cancelLabel, language === "vi" ? "Hủy" : "Cancel")
+assert.equal(props.danger, true)
+props.onConfirm()
+props["onUpdate:modelValue"](false)
+assert.equal(await pending, true)
+assert.equal(hosts.size, 0)
+assert.equal(unmounts, 1)
+
+// Callers such as Home can already pass translated labels.
+const cancelled = GalaxyConfirm({ title: t("Ignore this drive's statistics?"), confirmLabel: t("Ignore"), cancelLabel: t("Cancel") })
+assert.equal(rendered.props.title, language === "vi" ? "Bỏ chuyến này khỏi thống kê?" : "Ignore this drive's statistics?")
+assert.equal(rendered.props.confirmLabel, language === "vi" ? "Bỏ qua" : "Ignore")
+assert.equal(rendered.props.cancelLabel, language === "vi" ? "Hủy" : "Cancel")
+rendered.props.onCancel()
+assert.equal(await cancelled, false)
+assert.equal(hosts.size, 0)
+
+const defaults = GalaxyConfirm({ title: "Custom untranslated heading" })
+assert.equal(rendered.props.title, "Custom untranslated heading")
+assert.equal(rendered.props.confirmLabel, language === "vi" ? "Xác nhận" : "Confirm")
+rendered.props["onUpdate:modelValue"](false)
+assert.equal(await defaults, false)
+assert.equal(hosts.size, 0)
+
+const empty = GalaxyConfirm()
+assert.equal(rendered.props.title, undefined, "preserve GalaxyModal's default title")
+assert.equal(rendered.props.message, "")
+rendered.props.onCancel()
+assert.equal(await empty, false)
+assert.equal(hosts.size, 0)
+""",
+    encoding="utf-8",
+  )
+  result = subprocess.run([_node_exe(), str(script), language], capture_output=True, text=True)
+  assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.skipif(_node_exe() is None, reason="no node.js runtime available")
