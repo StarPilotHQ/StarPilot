@@ -1176,6 +1176,18 @@ class SelfdriveD:
       alerts.append(blindspot)
     else:
       self.AM.alerts.pop(BSM_ALERT, None)
+    from openpilot.starpilot.audio.departure_alert import ALERT_TYPES as DEPARTURE_ALERTS, DepartureAlertDelivery
+    if not hasattr(self, 'departure_alert_delivery'):
+      self.departure_alert_delivery = DepartureAlertDelivery()
+    departure = self.departure_alert_delivery.sample(
+      self.sm, CS, enabled=getattr(self, 'departure_alert_settings', (False, False)), now_ns=now_ns,
+      car_ns=getattr(self, 'aol_car_state_log_ns', 0),
+      car_valid=getattr(self, 'conditional_car_state_valid', False))
+    active_departure = {alert.alert_type for alert in departure}
+    for alert_type in DEPARTURE_ALERTS:
+      if alert_type not in active_departure:
+        self.AM.alerts.pop(alert_type, None)
+    alerts.extend(departure)
     switchback = bool(self.switchback_capable and self.sm.seen['slcState'] and self.sm.alive['slcState'] and
                       self.sm.valid['slcState'] and self.sm['carControl'].latActive and
                       self.switchback_status.sample_state(self.sm['slcState'], drive_id=drive, now_ns=now_ns,
@@ -1256,6 +1268,16 @@ class SelfdriveD:
       # Saturation is already ignored during override; retire its held presentation too.
       alerts = [alert for alert in alerts if alert.alert_type != 'steerSaturated/warning']
       self.AM.alerts.pop('steerSaturated/warning', None)
+    from openpilot.starpilot.audio.departure_alert import protect_safety_alerts
+    retained = ()
+    if departure:
+      retained = tuple(entry.alert for entry in self.AM.alerts.values()
+                       if entry.alert is not None and entry.active(self.sm.frame) and entry.alert.event_type not in clear_event_types)
+    alerts = protect_safety_alerts(alerts, retained=retained)
+    retained_types = {alert.alert_type for alert in alerts}
+    for alert_type in DEPARTURE_ALERTS:
+      if alert_type not in retained_types:
+        self.AM.alerts.pop(alert_type, None)
     self.AM.add_many(self.sm.frame, alerts)
     self.AM.process_alerts(self.sm.frame, clear_event_types)
     from openpilot.starpilot.audio.availability_warning import AvailabilityWarningDelivery
@@ -2339,6 +2361,7 @@ class SelfdriveD:
       self.radar_recovery_enabled = self.params.get_bool("RadarRecoveryAlert")
       self.blindspot_alert_settings = (self.params.get_bool("LoudBlindspotAlert"),
                                       self.params.get_bool("LoudBlindspotAlertWhenDisengaged"))
+      self.departure_alert_settings = (self.params.get_bool("GreenLightAlert"), self.params.get_bool("LeadDepartingAlert"))
       self.nostalgia_enabled = nostalgia_saved_enabled(self.params)
       self.refresh_saved_driving_mode(time.monotonic_ns())
       self.personality = self.params.get("LongitudinalPersonality", return_default=True)

@@ -935,7 +935,7 @@
         "discriminantOffset": 0
       },
       "new_storage": {
-        "dataWordCount": 5,
+        "dataWordCount": 6,
         "pointerCount": 0,
         "preferredListEncoding": "inlineComposite",
         "isGroup": false,
@@ -977,6 +977,42 @@
           "discriminantValue": 65535,
           "ordinal": {
             "explicit": 6
+          }
+        },
+        {
+          "slot": {
+            "offset": 3,
+            "type": {
+              "uint8": null
+            },
+            "defaultValue": {
+              "uint8": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "departureAlertKind",
+          "codeOrder": 7,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 7
+          }
+        },
+        {
+          "slot": {
+            "offset": 5,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "departureAlertMonoTime",
+          "codeOrder": 8,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 8
           }
         }
       ]

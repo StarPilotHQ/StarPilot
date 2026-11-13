@@ -9,6 +9,7 @@ from openpilot.starpilot.audio.sound_pack import DEFAULT_PACK, PACK_ROOT, instal
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.audio.blindspot_alert import KEYS as BLINDSPOT_KEYS
+from openpilot.starpilot.audio.departure_alert import KEYS as DEPARTURE_KEYS, TOGGLES as DEPARTURE_TOGGLES
 
 from openpilot.starpilot.audio.alert_volume import AUTO, MAX_RAW_BYTES, SPECS, VOLUMES, read_volume
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, FeatureSettingsState
@@ -59,7 +60,7 @@ class SoundsOwner:
         rows.append(FeatureRow(AUTO_PREFIX + key, "Use Auto " + label, "Follow ambient sound", source=saved.raw,
                                available=parked and saved.readable, repair_value="Auto"))
     rows.append(pack_row)
-    for key, label, reason in (
+    for key, label, reason in (*DEPARTURE_TOGGLES,
       (BLINDSPOT_KEYS[0], "Loud Blindspot Alert", "Uses the soft-warning sound when a lane change is blocked by a detected blind-spot vehicle."),
       (BLINDSPOT_KEYS[1], "Blindspot Alert While Lateral Is Off",
        "Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. "
@@ -78,12 +79,12 @@ class SoundsOwner:
                                 rows=tuple(rows), parked=parked)
 
   def apply(self, request: FeatureSettingsRequest) -> bool:
-    if request.key in BLINDSPOT_KEYS:
+    if request.key in (*BLINDSPOT_KEYS, *DEPARTURE_KEYS):
       if request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
         return False
       result = commit_exact(self.params, key=request.key, max_bytes=8,
                             raw=b"1" if request.value == "On" else b"0", expected=request.expected,
-                            authorized=self.parked, temp_prefix=".blindspot-alert-")
+                            authorized=self.parked, temp_prefix=".optional-alert-")
       return result.committed and result.verified
     if request.key.startswith(AUTO_PREFIX):
       if request.value != "Auto":

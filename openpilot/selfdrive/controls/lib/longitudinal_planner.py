@@ -137,6 +137,8 @@ class LongitudinalPlanner:
     self.profile_smoother = ProfileSmoother()
     self.last_profile: AppliedProfile | None = None
     self.force_stop_plan = StopPlan()
+    from openpilot.starpilot.audio.departure_alert import DepartureNotifications
+    self.departure_notifications = DepartureNotifications()
     self.follow_jerk = FollowJerk(CP)
     self.vehicle_cost_owner = planner_cost_owner(CP)
     self.lead_takeoff = LeadTakeoff()
@@ -527,5 +529,6 @@ class LongitudinalPlanner:
                                 self.force_stop_plan.should_stop)
     hold.forceStopEpisodeMonoTime = self.force_stop_plan.episode_ns
     pm.send('longitudinalPlan', plan_send)
+    hold.departureAlertKind, hold.departureAlertMonoTime = self.departure_notifications.sample(sm, self.CP, self)
     pm.send('starpilotLongitudinalPlan', companion)
 

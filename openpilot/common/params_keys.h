@@ -155,6 +155,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"LeadInfo", {PERSISTENT, BOOL, "0"}},
     {"LeadInfoMode", {PERSISTENT, INT, "2"}},
     {"BlindSpotMetrics", {PERSISTENT, BOOL, "1"}},
+    {"GreenLightAlert", {PERSISTENT, BOOL, "0"}},
+    {"LeadDepartingAlert", {PERSISTENT, BOOL, "0"}},
     {"LoudBlindspotAlert", {PERSISTENT, BOOL, "0"}},
     {"LoudBlindspotAlertWhenDisengaged", {PERSISTENT, BOOL, "0"}},
     {"SignalMetrics", {PERSISTENT, BOOL, "0"}},

@@ -7,6 +7,8 @@ from openpilot.starpilot.ui.long_profile_feature import CATEGORY_HELP, VALUE_HEL
 from openpilot.starpilot.ui.feature_settings_state import SLC_OFFSET_KEYS
 
 DESCRIPTIONS = {
+  'GreenLightAlert': 'Chimes once when the model’s traffic-light stop prediction clears while you remain stopped.',
+  'LeadDepartingAlert': 'Chimes once when the tracked vehicle ahead starts moving while you remain stopped.',
   'DriveModeProfiles': 'Matches acceleration and deceleration profiles to the vehicle’s Eco, Normal or Sport drive mode.',
   'DriveModeAcceleration': 'Matches the acceleration profile to the vehicle’s drive mode.',
   'DriveModeDeceleration': 'Matches the deceleration profile to the vehicle’s drive mode.',

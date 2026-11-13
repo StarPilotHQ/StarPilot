@@ -729,7 +729,7 @@ struct StarPilotLongitudinalPlan {
   class Pipeline;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(da96579883444c35, 5, 0)
+    CAPNP_DECLARE_STRUCT_HEADER(da96579883444c35, 6, 0)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -4302,6 +4302,10 @@ public:
 
   inline  ::uint64_t getForceStopEpisodeMonoTime() const;
 
+  inline  ::uint8_t getDepartureAlertKind() const;
+
+  inline  ::uint64_t getDepartureAlertMonoTime() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -4350,6 +4354,12 @@ public:
 
   inline  ::uint64_t getForceStopEpisodeMonoTime();
   inline void setForceStopEpisodeMonoTime( ::uint64_t value);
+
+  inline  ::uint8_t getDepartureAlertKind();
+  inline void setDepartureAlertKind( ::uint8_t value);
+
+  inline  ::uint64_t getDepartureAlertMonoTime();
+  inline void setDepartureAlertMonoTime( ::uint64_t value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -18994,6 +19004,34 @@ inline  ::uint64_t StarPilotLongitudinalPlan::Builder::getForceStopEpisodeMonoTi
 inline void StarPilotLongitudinalPlan::Builder::setForceStopEpisodeMonoTime( ::uint64_t value) {
   _builder.setDataField< ::uint64_t>(
       ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint8_t StarPilotLongitudinalPlan::Reader::getDepartureAlertKind() const {
+  return _reader.getDataField< ::uint8_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint8_t StarPilotLongitudinalPlan::Builder::getDepartureAlertKind() {
+  return _builder.getDataField< ::uint8_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLongitudinalPlan::Builder::setDepartureAlertKind( ::uint8_t value) {
+  _builder.setDataField< ::uint8_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t StarPilotLongitudinalPlan::Reader::getDepartureAlertMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t StarPilotLongitudinalPlan::Builder::getDepartureAlertMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLongitudinalPlan::Builder::setDepartureAlertMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS, value);
 }
 
 inline bool SlcState::Reader::hasSlotId() const {

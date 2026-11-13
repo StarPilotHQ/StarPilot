@@ -299,9 +299,13 @@ def test_additive_force_stop_fields_preserve_defaults_and_incumbent_relay(histor
   with custom.StarPilotLongitudinalPlan.from_bytes(old.to_bytes()) as decoded:
     assert not decoded.forceStopBraking
     assert decoded.forceStopEpisodeMonoTime == 0
+    assert decoded.departureAlertKind == 0
+    assert decoded.departureAlertMonoTime == 0
     current = decoded.as_builder()
   current.forceStopBraking = True
   current.forceStopEpisodeMonoTime = 44
+  current.departureAlertKind = 2
+  current.departureAlertMonoTime = 55
   expected = current.to_dict()
   with historical.StarPilotLongitudinalPlan.from_bytes(current.to_bytes()) as prior:
     assert prior.to_dict() == incumbent
@@ -316,7 +320,7 @@ def test_additive_force_stop_fields_preserve_defaults_and_incumbent_relay(histor
   ('forceStopBraking @5 :Bool;', 'forceStopBraking @5 :Bool = true;'),
   ('forceStopEpisodeMonoTime @6 :UInt64;', 'forceStopEpisodeMonoTime @6 :UInt32;'),
   ('forceStopEpisodeMonoTime @6 :UInt64;', 'forceStopEpisodeMonoTime @6 :UInt64 = 1;'),
-  ('forceStopEpisodeMonoTime @6 :UInt64;', 'forceStopEpisodeMonoTime @6 :UInt64; unreviewed @7 :Bool;'),
+  ('forceStopEpisodeMonoTime @6 :UInt64;', 'forceStopEpisodeMonoTime @6 :UInt64; unreviewed @9 :Bool;'),
 ])
 def test_reviewed_force_stop_addition_rejects_other_changes(historical, tmp_path, before, after):
   source = Path(CEREAL_PATH, 'custom.capnp').read_text()

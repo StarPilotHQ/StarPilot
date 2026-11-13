@@ -49,7 +49,7 @@ class SoundsSettingsTests(unittest.TestCase):
 
   def test_absence_auto_no_writes_and_native_registry(self):
     state = self.owner.snapshot()
-    self.assertEqual(len(state.rows), 10)
+    self.assertEqual(len(state.rows), 12)
     for key, _, _ in VOLUMES:
       self.assertEqual(self.row(key).value, "Auto")
       self.assertEqual((self.row(key).step, self.row(key).maximum, self.row(key).unit), (5.0, 100.0, "%"))
@@ -264,7 +264,7 @@ class SoundsSettingsTests(unittest.TestCase):
     session.sounds_scroll = 5
     state = replace(session.sounds_snapshot(), scroll=5)
     self.assertEqual(state.page, "sounds:overview")
-    self.assertEqual(len(state.rows), 10)
+    self.assertEqual(len(state.rows), 12)
     self.assertTrue(all(value_buttons(state, row) == () for row in state.rows))
     self.assertEqual(next(row for row in state.rows if row.key == "EngageVolume").value, "40")
     received = []
