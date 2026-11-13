@@ -29,6 +29,18 @@ EXEC_MARKER = 'STARPILOT_ENGINE_SOUND_LIBRARIES'
 PARKED_SPEED = 0.3
 PEDAL_TAKEOVER = 0.02
 TRIGGER_BLOCKS = 10
+AUDIO_CORES = (0, 1, 2, 3, 4, 5)    # 6 is the camera's and 7 the driving model's
+PREVIEW_CORES = (0, 1, 2, 3)
+
+
+def background(cores, nice: int) -> None:
+  """Plain scheduling, away from the camera and model cores, whatever the launching process was pinned to."""
+  try:
+    os.sched_setscheduler(0, os.SCHED_OTHER, os.sched_param(0))
+    os.sched_setaffinity(0, cores)
+    os.nice(nice)
+  except (AttributeError, OSError):
+    pass
 
 
 class Engine:
@@ -113,7 +125,7 @@ def with_bundled_libraries() -> None:
 
 def main() -> None:
   with_bundled_libraries()
-  import cereal.messaging as messaging
+  from openpilot.cereal import messaging
   from opendbc.car.structs import car
   from openpilot.common.params import Params
   from openpilot.common.swaglog import cloudlog
@@ -122,7 +134,7 @@ def main() -> None:
   from openpilot.starpilot.soloist.pulse_client import PulseWriter
   from openpilot.starpilot.engine_sound.preview import rev_script, trigger_path
 
-  os.nice(5)
+  background(AUDIO_CORES, 5)
   params = Params()
   sm = messaging.SubMaster(['carState', 'starpilotCarState', 'selfdriveState'])
   free_gears = (car.CarState.GearShifter.park, car.CarState.GearShifter.neutral)

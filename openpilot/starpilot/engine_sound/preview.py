@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 from openpilot.starpilot.engine_sound import settings
-from openpilot.starpilot.engine_sound.daemon import BLOCK_SECONDS, BUFFER, Engine
+from openpilot.starpilot.engine_sound.daemon import BLOCK_SECONDS, BUFFER, PREVIEW_CORES, Engine, background
 from openpilot.starpilot.engine_sound.synth import SAMPLE_RATE
 
 MODULE = 'openpilot.starpilot.engine_sound.preview'
@@ -163,11 +163,39 @@ def command() -> list[str]:
   return [sys.executable, '-m', MODULE]
 
 
-def start(spawn=subprocess.Popen) -> bool:
+def demote() -> None:
+  """Runs in the child before exec: the UI is pinned to the camera core, and a preview must not inherit that."""
+  background(PREVIEW_CORES, 10)
+
+
+def spawn_options() -> dict:
+  return {'preexec_fn': demote} if hasattr(os, 'sched_setaffinity') else {}
+
+
+def offroad() -> bool:
+  try:
+    from openpilot.common.params import Params
+    return Params().get_bool('IsOffroad')
+  except Exception:
+    return True
+
+
+def request_rev() -> bool:
+  """Ask the running enginesoundd to rev. Costs one file touch, so it is safe while driving."""
+  try:
+    trigger_path().touch()
+    return True
+  except OSError:
+    return False
+
+
+def start(spawn=subprocess.Popen, is_offroad=offroad) -> bool:
   """Fire and forget, for setting changes. Never raises into the settings page."""
+  if not is_offroad():
+    return request_rev()
   try:
     process = spawn(command(), cwd=str(ROOT), env=environment(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL, start_new_session=True)
+                    stderr=subprocess.DEVNULL, start_new_session=True, **spawn_options())
   except (OSError, ValueError):
     return False
   threading.Thread(target=process.wait, name='engine_preview_reaper', daemon=True).start()

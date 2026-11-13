@@ -26,12 +26,8 @@ class Synth:
     self.idle_table = _table(profile.partials, 1, np.random.default_rng(1))
     self.load_table = _table(profile.partials, 2, np.random.default_rng(1))
     noise = np.random.default_rng(2).standard_normal(NOISE_SIZE)
-    # One-pole low-pass keeps the hiss out of the top octave.
-    smooth = np.empty_like(noise)
-    acc = 0.0
-    for i, sample in enumerate(noise):
-      acc += 0.25 * (sample - acc)
-      smooth[i] = acc
+    # One-pole low-pass (as a short FIR) keeps the hiss out of the top octave.
+    smooth = np.convolve(noise, 0.25 * 0.75 ** np.arange(48), mode='same')
     self.noise = (smooth / np.max(np.abs(smooth))).astype(np.float32)
     self.noise_at = 0
     self.phase = 0.0

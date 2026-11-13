@@ -63,8 +63,12 @@ class AlertPreview:
     if not self.lock.acquire(blocking=False):
       raise AlertPreviewError('A preview is already playing.')
     try:
+      if not preview.offroad():
+        if not preview.request_rev():
+          raise AlertPreviewError('The comma could not play the engine. Try again.', 503)
+        return {'played': True, 'output': 'engine'}
       result = self.runner(preview.command(), cwd=preview.ROOT, env=preview.environment(), stdin=subprocess.DEVNULL,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, **preview.spawn_options())
       if result.returncode in ENGINE_EXIT_OUTPUTS:
         return {'played': True, 'output': ENGINE_EXIT_OUTPUTS[result.returncode]}
       if result.returncode == 2:

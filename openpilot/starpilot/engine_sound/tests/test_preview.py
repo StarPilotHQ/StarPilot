@@ -147,3 +147,38 @@ def test_galaxy_rev_button_runs_the_engine_preview_and_reports_where_it_played(m
     with pytest.raises(audio_preview.AlertPreviewError):
       player.play({'key': 'EngineSoundVolume'})
     assert player.lock.acquire(blocking=False)
+
+
+def test_preview_while_driving_only_asks_the_running_engine_and_spawns_nothing(tmp_path, monkeypatch):
+  trigger = tmp_path / 'trigger'
+  monkeypatch.setattr(preview, 'trigger_path', lambda: trigger)
+  spawned = []
+  assert preview.start(lambda *args, **kwargs: spawned.append(args), is_offroad=lambda: False)
+  assert trigger.exists() and spawned == []
+
+  audio_preview = pytest.importorskip('openpilot.starpilot.audio.preview')
+  trigger.unlink()
+  monkeypatch.setattr(preview, 'offroad', lambda: False)
+  result = audio_preview.AlertPreview(lambda: True, lambda *args, **kwargs: spawned.append(args)).play({'key': 'EngineSoundProfile'})
+  assert result == {'played': True, 'output': 'engine'} and trigger.exists() and spawned == []
+
+
+def test_spawned_preview_leaves_the_callers_cores_and_priority(monkeypatch):
+  from openpilot.starpilot.engine_sound import daemon
+  calls = []
+  monkeypatch.setattr(daemon.os, 'sched_setscheduler', lambda *args: calls.append(('policy', args[1])), raising=False)
+  monkeypatch.setattr(daemon.os, 'sched_param', lambda priority: priority, raising=False)
+  monkeypatch.setattr(daemon.os, 'SCHED_OTHER', 0, raising=False)
+  monkeypatch.setattr(daemon.os, 'sched_setaffinity', lambda pid, cores: calls.append(('cores', tuple(cores))), raising=False)
+  monkeypatch.setattr(daemon.os, 'nice', lambda value: calls.append(('nice', value)), raising=False)
+  preview.demote()
+  assert calls == [('policy', 0), ('cores', (0, 1, 2, 3)), ('nice', 10)]
+  assert 6 not in daemon.AUDIO_CORES and 7 not in daemon.AUDIO_CORES
+
+
+def test_package_imports_resolve_on_the_device_path():
+  import re
+  from pathlib import Path
+  root = Path(preview.__file__).parent
+  bare = re.compile(r'^\s*(import|from)\s+(cereal|selfdrive|common|system|starpilot)\b', re.M)
+  assert [str(path.relative_to(root)) for path in root.rglob('*.py') if bare.search(path.read_text(encoding='utf-8'))] == []
