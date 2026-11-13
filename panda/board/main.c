@@ -143,7 +143,13 @@ static void tick_handler(void) {
     // sample at 8 Hz so a subsecond active interval is not missed at shutdown.
     bool warning_engaged = controls_allowed || heartbeat_engaged;
     if (aol_policy != NULL) {
+      #ifdef STM32H7
+      mpu_safety_open();
+      #endif
       warning_engaged = aol_get_permission_mask() != 0U;
+      #ifdef STM32H7
+      mpu_safety_close();
+      #endif
     }
     if (is_car_safety_mode(current_safety_mode) && warning_engaged) {
       controls_allowed_countdown = 5U * 8U;

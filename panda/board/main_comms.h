@@ -107,6 +107,9 @@ int comms_control_handler(ControlPacket_t *req, uint8_t *resp) {
     // Older firmware returns no matching packet, so the host fails closed.
     case 0xd5:
       {
+        #ifdef STM32H7
+        mpu_safety_open();
+        #endif
         aol_safety_health_t status = {
           .magic = AOL_SAFETY_PROTOCOL_MAGIC,
           .version = AOL_SAFETY_PROTOCOL_VERSION,
@@ -116,6 +119,9 @@ int comms_control_handler(ControlPacket_t *req, uint8_t *resp) {
           .safety_param = current_safety_param,
           .capability_flags = (aol_policy != NULL) ? (0x1U | (aol_optional_release_capable ? 0x2U : 0U)) : 0U,
         };
+        #ifdef STM32H7
+        mpu_safety_close();
+        #endif
         for (unsigned int i = 0U; i < sizeof(status); i++) {
           resp[i] = ((uint8_t *)&status)[i];
         }
@@ -435,7 +441,13 @@ int comms_control_handler(ControlPacket_t *req, uint8_t *resp) {
     // A separate short-lived axis request leaves the legacy heartbeat protocol
     // unchanged for every car without the exact Honda AOL safety parameter.
     case 0xf5:
+      #ifdef STM32H7
+      mpu_safety_open();
+      #endif
       aol_set_host_request((uint8_t)req->param1);
+      #ifdef STM32H7
+      mpu_safety_close();
+      #endif
       break;
     // **** 0xf9: set CAN FD data bitrate
     case 0xf9:
