@@ -36,8 +36,10 @@ class TestSavedTorquePage(unittest.TestCase):
     page = self.page()
     rows = {row['label']: row for row in page['rows']}
     self.assertEqual(set(rows), {'Turn Signal Guidance', 'Steering Controller', 'Turn Assist', 'Prep My Vehicle for Tuning',
-                                'Use StarPilot Auto Learn', 'Lat Accel', 'Lateral acceleration — Reset to Default',
-                                'Friction', 'Friction — Reset to Default'})
+                                'Use StarPilot Auto Learn', 'Lat Accel', 'Friction', 'Highway Smoothing'})
+    for label in ('Lat Accel', 'Friction'):
+      self.assertTrue(rows[label]['resetAvailable'], label)
+      self.assertEqual(rows[label]['defaultValue'], 'Vehicle/learned')
     aol_rows = {row['label']: row for row in self.page('aol')['rows']}
     for label in ('Pause steering below', 'Steering resume delay', 'Pause only while signaling'):
       self.assertNotIn(label, rows)

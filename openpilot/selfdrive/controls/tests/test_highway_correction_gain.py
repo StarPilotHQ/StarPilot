@@ -169,7 +169,8 @@ def test_prediction_releases_before_curve_exit():
   lat = np.interp(t, [0, 20, 22, 30], [1.2, 1.2, 0, 0])
   raw = lat / _V_HWY ** 2
   def excess(predicted):
-    hcg = HighwayCorrectionGain(); hcg.reset(raw[0])
+    hcg = HighwayCorrectionGain()
+    hcg.reset(raw[0])
     out = _run(hcg, raw, gain=0.5, predicted=predicted)
     return np.max(np.abs((out - raw)[t > 19.0])) * _V_HWY ** 2
   with_pred = excess(_lead(lat, 1.5))

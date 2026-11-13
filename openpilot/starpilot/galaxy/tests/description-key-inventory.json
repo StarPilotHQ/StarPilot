@@ -1,4 +1,5 @@
 [
+  "AggressiveCoolingEnabled",
   "AggressiveFollow",
   "AggressiveFollowHigh",
   "AggressiveJerkAcceleration",
@@ -21,6 +22,9 @@
   "DisableOpenpilotLongitudinal",
   "DisengageOnAccelerator",
   "DisengageVolume",
+  "DriveModeAcceleration",
+  "DriveModeDeceleration",
+  "DriveModeProfiles",
   "DriverCamera",
   "EVTuning",
   "EngageVolume",
@@ -41,6 +45,7 @@
   "HKGRemoteStartBootsComma",
   "HideLeadMarker",
   "HidePersonalityAlerts",
+  "HighwaySmoothingLevel",
   "IgnoreIgnitionLine",
   "IsMetric",
   "IsRhdDetected",

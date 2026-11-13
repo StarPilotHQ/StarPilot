@@ -40,6 +40,7 @@ def test_saved_opt_in_through_actual_controller_configuration_and_warning_priori
     state.acc_tja_status_stock_values['FcwAudioWarn_B_Rq'] = 1
     assert status(owner, state, command, parser)['Tja_D_Stat'] == 2
     Path(saved.get_param_path(KEY)).write_bytes(b'1')
+    owner.hands_free_cluster_input.refresh_settings()
     for _ in range(101):
       owner.update(command.as_reader(), state, owner.frame * 10_000_000)
     assert status(owner, state, command, parser)['Tja_D_Stat'] == 7
@@ -58,6 +59,7 @@ def test_saved_opt_in_through_actual_controller_configuration_and_warning_priori
       _, frames = owner.update(command.as_reader(), state, owner.frame * 10_000_000)
       assert not UI.intersection(address for address, _, _ in frames)
     Path(saved.get_param_path(KEY)).write_bytes(b'0')
+    owner.hands_free_cluster_input.refresh_settings()
     command.latActive = True
     for _ in range(101):
       owner.update(command.as_reader(), state, owner.frame * 10_000_000)

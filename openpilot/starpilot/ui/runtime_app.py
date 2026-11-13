@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from openpilot.starpilot.ui.feature_reset_question import feature_reset_question
 from openpilot.starpilot.ui.lane_change_feature import confirm_question as lane_change_question
 
 from collections import deque
@@ -1198,8 +1199,7 @@ class StarShellSession:
     from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
     from openpilot.system.ui.widgets import DialogResult
     from openpilot.starpilot.ui.feature_settings_state import CURVE_CONFIRM_ACTIONS, CONDITIONAL_CONFIRM_ACTIONS, TORQUE_CONFIRM_ACTIONS, is_long_confirm_action
-    from openpilot.starpilot.ui.long_profile_feature import long_confirm_question
-    from openpilot.starpilot.ui.controller_feature import SETUP_ACTION, SETUP_QUESTION
+    from openpilot.starpilot.ui.controller_feature import SETUP_ACTION
     action_key = row.key if (row.key in TORQUE_CONFIRM_ACTIONS or row.key in ("slc_reset", LANE_CHANGE_RESET, SETUP_ACTION) or
                              row.key in CURVE_CONFIRM_ACTIONS | CONDITIONAL_CONFIRM_ACTIONS or is_long_confirm_action(row.key)) else "reset_profiles"
     if action_key in CONDITIONAL_CONFIRM_ACTIONS:
@@ -1211,18 +1211,7 @@ class StarShellSession:
       self._confirm_lane_change(FeatureSettingsRequest(action_key, row.source, "confirm",
                                                        vehicle_fingerprint=row.vehicle_fingerprint, capability=row.capability))
       return
-    question = {"torque_adopt": "Use the new torque editor for this vehicle model and configuration? Existing saved values will be kept but no longer used.",
-                SETUP_ACTION: SETUP_QUESTION,
-                "torque_reset": "Reset invalid torque profiles? Existing legacy values will be kept but remain inactive.",
-                "torque_reset_profile": "Reset this vehicle model's custom torque profile to Vehicle/learned? Other models and legacy values remain saved.",
-                "torque_gain_rebase": "Apply the saved steering response to the selected controller and current vehicle tune? " +
-                                     "Friction and other models stay unchanged.",
-                "torque_rebase": f"Reapply saved torque values ({row.value}) with the current vehicle tune? " +
-                                 "Saved values must pass current limits.",
-                "slc_reset": f"Reset speed-limit offsets to zero? {row.value}. " +
-                             "Saved SLC control may resume if its switch is On; the switch will not change.",
-                "curve_reset": "Reset saved Curve learning? Your Curve Speed Controller On/Off choice will stay the same.",
-                "reset_profiles": "Reset invalid saved Long Planner profiles to defaults?"}.get(action_key, long_confirm_question(row))
+    question = feature_reset_question(action_key, row)
     def confirmed(result: DialogResult) -> None:
       if result == DialogResult.CONFIRM:
         self.feature_request(FeatureSettingsRequest(action_key, row.source, "confirm", confirmation=True,

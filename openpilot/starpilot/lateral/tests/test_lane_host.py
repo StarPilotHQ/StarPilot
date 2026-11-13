@@ -32,6 +32,8 @@ def probe(output, reference_method=None):
   from openpilot.starpilot.lateral.lane_tracking import SingleLineTracker
   from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
   from openpilot.selfdrive.controls.lib.longcontrol import LongControl
+  from openpilot.selfdrive.controls.lib.highway_correction_gain import HighwayCorrectionGain, read_gain
+  from openpilot.starpilot.lateral.controller_selection import turn_assist_supported
   from openpilot.starpilot.longitudinal.ioniq6_start import eligible as ioniq6_start_eligible
   from openpilot.starpilot.longitudinal.tests.extension_helpers import attach_inputs
   from openpilot.starpilot.lateral.lane_centering import ControlMode, LaneCenteringController, LaneCenteringRequest, LaneCenteringSettings
@@ -65,6 +67,9 @@ def probe(output, reference_method=None):
     control.steer_limited_by_safety = False
     control.lane_centering_controller = LaneCenteringController()
     control.params = Params()
+    control.highway_correction_gain = HighwayCorrectionGain()
+    control.highway_smoothing_supported = turn_assist_supported(control.CP)
+    control.highway_gain = read_gain(control.params) if control.highway_smoothing_supported else 1.0
     control.lane_change_preferences = LiveLaneChangePolicy(control.params, now_ns=1_000_000_000)
     control.lane_change_policy = control.lane_change_preferences.applied
     control.lane_change_smoother = LaneChangeSmoother()

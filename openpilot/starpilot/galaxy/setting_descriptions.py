@@ -7,6 +7,11 @@ from openpilot.starpilot.ui.long_profile_feature import CATEGORY_HELP, VALUE_HEL
 from openpilot.starpilot.ui.feature_settings_state import SLC_OFFSET_KEYS
 
 DESCRIPTIONS = {
+  'DriveModeProfiles': 'Matches acceleration and deceleration profiles to the vehicle’s Eco, Normal or Sport drive mode.',
+  'DriveModeAcceleration': 'Matches the acceleration profile to the vehicle’s drive mode.',
+  'DriveModeDeceleration': 'Matches the deceleration profile to the vehicle’s drive mode.',
+  'AggressiveCoolingEnabled': 'Uses a stronger fan curve on supported devices to reduce temperature at the cost of fan noise.',
+  'HighwaySmoothingLevel': 'Adjusts smoothing of small steering corrections at highway speeds.',
   'FordRearFogIndicator': 'Shows a movable amber telltale while the Ford rear fog light is on, using read-only vehicle status.',
   'DisengageOnAccelerator': 'When enabled, pressing the accelerator pedal will disengage openpilot.',
   'ReduceMotion': 'Reduces interface animations for a steadier display.',

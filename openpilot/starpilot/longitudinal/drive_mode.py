@@ -19,7 +19,9 @@ def read_enabled(params) -> tuple[bool, bool]:
   from openpilot.starpilot.saved_source import read_saved
   if read_saved(params, KEY, 8) != (b'1', True):
     return False, False
-  return tuple(read_saved(params, key, 8) in ((None, True), (b'1', True)) for key in (ACCELERATION_KEY, DECELERATION_KEY))
+  acceleration, deceleration = (read_saved(params, key, 8) in ((None, True), (b'1', True))
+                                for key in (ACCELERATION_KEY, DECELERATION_KEY))
+  return acceleration, deceleration
 
 
 def observe(sm, *, now_ns: int) -> str | None:

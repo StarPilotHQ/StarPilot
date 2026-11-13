@@ -8,10 +8,10 @@ IS_MICI = HARDWARE.get_device_type() == "mici"
 
 # raise fan setpoint on tici/tizi to reduce noise
 # after raising LMH threshold in AGNOS 18.1 to prevent CPU throttling
-STOCK_CURVE = dict(offset=0, k_p=0., ff_low=60., ff_high=100.) if IS_MICI else \
-              dict(offset=5, k_p=0., ff_low=65., ff_high=105.)
+STOCK_CURVE = {"offset": 0, "k_p": 0., "ff_low": 60., "ff_high": 100.} if IS_MICI else \
+              {"offset": 5, "k_p": 0., "ff_low": 65., "ff_high": 105.}
 # tici/tizi opt-in: runs 10-16 C cooler than stock at the cost of fan noise
-AGGRESSIVE_CURVE = dict(offset=-5, k_p=1., ff_low=55., ff_high=80.)
+AGGRESSIVE_CURVE = {"offset": -5, "k_p": 1., "ff_low": 55., "ff_high": 80.}
 K_I = 4e-3
 
 

@@ -8,6 +8,8 @@ DBC; baseline gateway Volt actuator mapping is compared with original raw comman
 from unittest.mock import Mock, MagicMock
 from openpilot.cereal.messaging import SubMaster
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
+from openpilot.selfdrive.controls.lib.highway_correction_gain import HighwayCorrectionGain, read_gain
+from openpilot.starpilot.lateral.controller_selection import turn_assist_supported
 from openpilot.starpilot.lateral.lane_centering import LaneCenteringController
 
 from openpilot.starpilot.longitudinal.extension import LongitudinalContext
@@ -49,6 +51,7 @@ def state(speed=12.0, accel=0.0):
 
 class SubMasterFixture:
   def __init__(self, now):
+    self.frame = 0
     names = ('radarState', 'deviceState', 'carState', 'longitudinalPlan', 'vehicleParameters',
              'modelV2', 'selfdriveState', 'lateralManeuverPlan', 'lateralDelay')
     self.data = {name: getattr(messaging.new_message(name), name) for name in names}
@@ -99,6 +102,9 @@ def controls_fixture(alpha=False):
   saved = TemporaryDirectory()
   finalize(controls, saved.cleanup)
   controls.params = Params(saved.name)
+  controls.highway_correction_gain = HighwayCorrectionGain()
+  controls.highway_smoothing_supported = turn_assist_supported(controls.CP)
+  controls.highway_gain = read_gain(controls.params) if controls.highway_smoothing_supported else 1.0
   controls.lane_change_preferences = LiveLaneChangePolicy(controls.params, now_ns=now)
   controls.lane_change_policy = controls.lane_change_preferences.applied
   controls.lane_change_smoother = LaneChangeSmoother()
