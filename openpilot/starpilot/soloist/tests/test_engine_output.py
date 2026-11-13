@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 
 from openpilot.starpilot.soloist import phone_audio, preferences, supervisor
@@ -94,3 +96,47 @@ def test_no_output_chosen_starts_nothing(held):
   sup, _, processes, profiles, _ = held
   sup.tick()
   assert processes == [] and profiles == []
+
+
+def test_server_without_a_sink_gets_the_car_output_loaded_once_the_car_is_there(held, monkeypatch):
+  sup, now, processes, _, _ = held
+  preferences.save(preferences.Preferences(output='bluetooth', output_address=CAR), sup.layout)
+  sup.output.connected = True
+  sinks, switched = [False], []
+  monkeypatch.setattr(supervisor.backend, 'can_switch', lambda: True)
+  monkeypatch.setattr(supervisor.backend, 'has_sink', lambda layout: sinks[0])
+  monkeypatch.setattr(supervisor.backend, 'switch_output', lambda layout, speaker: (switched.append(speaker), sinks.__setitem__(0, True)))
+  sup.tick()
+  assert 'module-alsa-sink' in ' '.join(processes[-1].argv) and switched == []
+  now[0] += supervisor.SINK_CHECK_SECONDS - 1
+  sup.tick()
+  assert switched == []
+  now[0] += 2
+  sup.tick()
+  assert switched == [True]
+  for _ in range(3):
+    now[0] += supervisor.SINK_CHECK_SECONDS
+    sup.tick()
+  assert switched == [True]
+
+
+def test_no_healing_while_the_car_is_away_or_when_the_check_fails(held, monkeypatch):
+  sup, now, _, _, _ = held
+  preferences.save(preferences.Preferences(output='bluetooth', output_address=CAR), sup.layout)
+  calls = []
+  monkeypatch.setattr(supervisor.backend, 'can_switch', lambda: True)
+  monkeypatch.setattr(supervisor.backend, 'has_sink', lambda layout: calls.append('check') or False)
+  monkeypatch.setattr(supervisor.backend, 'switch_output', lambda layout, speaker: calls.append('switch'))
+  for _ in range(3):
+    sup.tick()
+    now[0] += supervisor.SINK_CHECK_SECONDS + 1
+  assert calls == []
+
+  def failing(layout, speaker):
+    raise subprocess.CalledProcessError(1, 'pactl')
+  sup.output.connected = True
+  monkeypatch.setattr(supervisor.backend, 'switch_output', failing)
+  for _ in range(3):
+    now[0] += supervisor.OUTPUT_RETRY_SECONDS + 1
+    sup.tick()
+  assert any('could not load the car output yet' in line for line in sup.log)

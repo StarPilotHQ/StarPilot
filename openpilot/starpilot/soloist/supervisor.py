@@ -29,6 +29,7 @@ A2DP_SINK = '0000110b-0000-1000-8000-00805f9b34fb'
 EXIT_EXPIRED = 10
 STOP_SECONDS = 5.0
 OUTPUT_RETRY_SECONDS = 20.0
+SINK_CHECK_SECONDS = 10.0
 PAIRING_PROFILE_SECONDS = 180.0  # the pairing window plus time for the phone to save the comma's services
 MAX_FAST_FAILURES = 5
 UNRESPONSIVE_SECONDS = 120.0
@@ -149,6 +150,7 @@ class Supervisor:
     # Engine sound plays through the same server, so it outlives the music player while that is on.
     self.hold_output = False
     self.hold_check_at = 0.0
+    self.sink_check_at = 0.0
     self.server_key: tuple | None = None
     self.make_client = make_client or (lambda data: PlayerClient(data))
     self.server: subprocess.Popen | None = None
@@ -273,6 +275,7 @@ class Supervisor:
     if not socket_path.exists():
       raise RuntimeError(failure)
     self.server_key = key
+    self.sink_check_at = self.clock() + SINK_CHECK_SECONDS
 
   def _hold_output(self, prefs: preferences.Preferences) -> None:
     """Keep the output open with no music player, following the speaker as it connects and disconnects."""
@@ -297,6 +300,24 @@ class Supervisor:
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
       with self.log_lock:
         self.log.append(f'audio: could not open the output for engine sound: {error}')
+
+  def _heal_sink(self, prefs: preferences.Preferences) -> None:
+    """The server can start while BlueALSA is still being swapped for the bundled one, so the car's sink fails to load
+    and the server keeps running with nowhere to play. Load it again once the car is there."""
+    if prefs.output != 'bluetooth' or not self.output_available or self.server is None or self.server.poll() is not None:
+      return
+    now = self.clock()
+    if now < self.sink_check_at or not backend.can_switch():
+      return
+    self.sink_check_at = now + SINK_CHECK_SECONDS
+    try:
+      if not backend.has_sink(self.layout):
+        backend.switch_output(self.layout, True)
+        with self.log_lock:
+          self.log.append('audio: the car output had not loaded; loaded it')
+    except (OSError, subprocess.SubprocessError) as error:
+      with self.log_lock:
+        self.log.append(f'audio: could not load the car output yet: {error}')
 
   def _output_ready(self, address: str) -> bool:
     with self.output_lock:
@@ -434,6 +455,7 @@ class Supervisor:
       self._hold_output(prefs)
     elif self.player is None and self.server is not None:
       self._stop_server()
+    self._heal_sink(prefs)
 
   def _tick_music(self, prefs: preferences.Preferences) -> None:
     if prefs.source == 'phone':

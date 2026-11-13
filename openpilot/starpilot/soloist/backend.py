@@ -136,6 +136,10 @@ def _pactl(layout: Layout, root: Path, run: Callable[..., subprocess.CompletedPr
   return run([str(root / 'bin' / 'pactl'), *args], env=env, capture_output=True, text=True, timeout=5, check=True).stdout
 
 
+def has_sink(layout: Layout, *, root: Path = SERVER_ROOT, run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> bool:
+  return bool(_pactl(layout, root, run, 'list', 'short', 'sinks').strip())
+
+
 def switch_output(layout: Layout, speaker: bool, *, root: Path = SERVER_ROOT,
                   run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> None:
   """Move Soloist between the speaker and the silent sink inside the running server, without restarting it."""
