@@ -114,6 +114,102 @@ class TestCrossDriveEvidence(unittest.TestCase):
       with self.assertRaises(ValueError):
         bank.read('same')
 
+  @staticmethod
+  def history_bytes(profiles):
+    import zlib
+
+    raw = json.dumps({'version': 1, 'profiles': profiles}, separators=(',', ':'), allow_nan=False).encode()
+    return raw, zlib.compress(raw, 6)
+
+  def test_compressed_capacity_retires_older_profile_without_refusing_new_drive(self):
+    from openpilot.starpilot.flm import offroad_history as module
+
+    with tempfile.TemporaryDirectory() as directory:
+      bank = module.EvidenceBank(Path(directory) / 'cache')
+      old, inventory = self.inputs(1)
+      bank.retain(old, inventory, 'old-controller', permitted=lambda: True)
+      current, inventory = self.inputs(2)
+      expected = bank.retain(current, inventory, 'current-controller', permitted=lambda: True)
+      profiles = bank._profiles()
+      _, before = self.history_bytes({'old-controller': profiles['old-controller']})
+      _, single = self.history_bytes({'current-controller': expected})
+      maximum = max(len(before), len(single))
+      self.assertGreater(len(self.history_bytes(profiles)[1]), maximum)
+      bank.cache._write('history.z', before, maximum=module.MAX_PACKED)
+      with patch.object(module, 'MAX_PACKED', maximum):
+        actual = bank.retain(current, inventory, 'current-controller', permitted=lambda: True)
+        self.assertEqual(actual, expected, 'Retained whole windows and original points must stay exact')
+        self.assertEqual(bank.read('old-controller'), [])
+        self.assertEqual(bank.read('current-controller'), json.loads(json.dumps(expected)))
+        self.assertLessEqual((bank.cache.directory / 'history.z').stat().st_size, maximum)
+
+  def test_raw_capacity_retires_oldest_drive_in_current_profile(self):
+    from openpilot.starpilot.flm import offroad_history as module
+
+    with tempfile.TemporaryDirectory() as directory:
+      bank = module.EvidenceBank(Path(directory) / 'cache')
+      first, inventory = self.inputs(1)
+      bank.retain(first, inventory, 'same-controller', permitted=lambda: True)
+      current, inventory = self.inputs(2)
+      history = bank.retain(current, inventory, 'same-controller', permitted=lambda: True)
+      old_raw, before = self.history_bytes({'same-controller': history[:1]})
+      new_raw, _ = self.history_bytes({'same-controller': history[1:]})
+      maximum = max(len(old_raw), len(new_raw))
+      bank.cache._write('history.z', before, maximum=module.MAX_PACKED)
+      with patch.object(module, 'MAX_UNPACKED', maximum):
+        actual = bank.retain(current, inventory, 'same-controller', permitted=lambda: True)
+        self.assertEqual(actual, history[1:])
+        self.assertEqual(bank.read('same-controller'), json.loads(json.dumps(actual)))
+
+  def test_oversized_drive_retains_complete_input_spread_windows(self):
+    from openpilot.starpilot.flm import offroad_history as module
+
+    with tempfile.TemporaryDirectory() as directory:
+      bank = module.EvidenceBank(Path(directory) / 'cache')
+      current, inventory = self.inputs(1)
+      history = bank.retain(current, inventory, 'same', permitted=lambda: True)
+      row = history[0]
+      self.assertEqual(len(row['windows']), 2)
+      single_raw, _ = self.history_bytes({'same': [{**row, 'windows': row['windows'][:1]}]})
+      (bank.cache.directory / 'history.z').unlink()
+      with patch.object(module, 'MAX_UNPACKED', len(single_raw)):
+        actual = bank.retain(current, inventory, 'same', permitted=lambda: True)
+        self.assertEqual(len(actual[0]['windows']), 1)
+        self.assertIn(actual[0]['windows'][0], row['windows'], 'Capacity cannot crop, rewrite or interpolate a steering window')
+        self.assertEqual(bank.read('same'), json.loads(json.dumps(actual)))
+
+  def test_capacity_cancellation_leaves_existing_history_exact(self):
+    from openpilot.starpilot.flm import offroad_history as module
+
+    with tempfile.TemporaryDirectory() as directory:
+      bank = module.EvidenceBank(Path(directory) / 'cache')
+      old, inventory = self.inputs(1)
+      bank.retain(old, inventory, 'old', permitted=lambda: True)
+      current, inventory = self.inputs(2)
+      expected = bank.retain(current, inventory, 'current', permitted=lambda: True)
+      profiles = bank._profiles()
+      _, before = self.history_bytes({'old': profiles['old']})
+      _, single = self.history_bytes({'current': expected})
+      maximum = max(len(before), len(single))
+      self.assertGreater(len(self.history_bytes(profiles)[1]), maximum)
+      bank.cache._write('history.z', before, maximum=module.MAX_PACKED)
+      allowed = iter((True, False))
+      with patch.object(module, 'MAX_PACKED', maximum), self.assertRaisesRegex(ValueError, 'Parked authority lost'):
+        bank.retain(current, inventory, 'current', permitted=lambda: next(allowed))
+      self.assertEqual((bank.cache.directory / 'history.z').read_bytes(), before)
+
+  def test_single_oversized_history_window_does_not_fail_current_drive_analysis(self):
+    from openpilot.starpilot.flm import offroad_history as module
+
+    with tempfile.TemporaryDirectory() as directory:
+      bank = module.EvidenceBank(Path(directory) / 'cache')
+      current, inventory = self.inputs(1)
+      original = repr(current.windows)
+      with patch.object(module, 'MAX_UNPACKED', 1):
+        self.assertEqual(bank.retain(current, inventory, 'same', permitted=lambda: True), [])
+      self.assertEqual(repr(current.windows), original, 'Current-drive analysis still receives all of its own original windows')
+      self.assertFalse((bank.cache.directory / 'history.z').exists())
+
   def test_observed_vehicle_model_variation_does_not_erase_repeatable_tracking_or_rewrite_points(self):
     from openpilot.starpilot.flm.offroad_history import EvidenceBank, combine
     from openpilot.starpilot.flm.offroad_processor import _assess_inputs
@@ -1167,6 +1263,7 @@ class TestRetainedDriveRecommendationReport(unittest.TestCase):
       status = StatusReport(path=path, clock_ns=lambda: 1_000_000_000)
       status.set({'status': 'collecting', 'reason': 'previous', 'completed_route': 'declared-last-drive', 'vehicle': 'declared-car',
         'analysis_counts': {'recorded_tracking': 120}, 'configuration_state': 'ready_for_next_drive', 'configured_values': values(0.01),
+        'saved_adjustments': 1, 'configuration_changed': True, 'qualification_summary': {'passed': 24, 'required': 24, 'refusals': []},
         'enabled': True, 'actual_coordinates': list(values(0.01).items()), 'actual_control_ns': 1_000_000_000,
         'recommendations': [{'parameter': 'ff_gain_left', 'baseline': 0, 'target': 0.005, 'whole_windows': 6, 'reason': 'unconfirmed'}]})
       status.analyzing({'reason': 'analyzing_last_completed_drive'})
@@ -1177,10 +1274,23 @@ class TestRetainedDriveRecommendationReport(unittest.TestCase):
       self.assertEqual(details['Completed drive analyzed'], 'declared-last-drive')
       self.assertEqual(details['Analysis decision'], 'previous')
       self.assertEqual(details['Recorded coordinate recommendations'][0][2], 0.005)
-      self.assertNotIn('Saved route configuration state', details)
+      self.assertEqual(details['Saved route configuration state'], 'ready_for_next_drive')
+      self.assertEqual(dict(details['Full surface coordinates']),
+        {name: value for name, value in values(0.01).items() if name in NAMES})
+      self.assertEqual(details['Saved route adjustment count'], 1)
+      self.assertEqual(details['Controller and encoder check windows'], [24, 24])
+      self.assertFalse(details['Automatic configuration changed'], 'Retaining a report is not a new save')
       self.assertNotIn('Actual full surface coordinates', details)
       self.assertFalse(report['current']['application']['applied'])
       self.assertIsNone(report['current']['enabled'])
+      status.analyzing({'reason': 'checking_recorded_steering_recommendations', 'completed_route': 'older-backlog-drive',
+        'recommendations': [], 'configuration_state': 'rolled_back', 'configured_values': values()})
+      self.assertEqual(status.current['completed_route'], 'declared-last-drive')
+      self.assertEqual(status.current['configured_values'], values(0.01))
+      self.assertEqual(status.current['configuration_state'], 'ready_for_next_drive')
+      self.assertNotIn('configuration_changed', status.current)
+      self.assertNotIn('enabled', status.current)
+      self.assertNotIn('actual_coordinates', status.current)
 
   def test_full_recommendation_wire_is_bounded_and_backward_compatible(self):
     from openpilot.starpilot.flm.offroad_daemon import StatusReport

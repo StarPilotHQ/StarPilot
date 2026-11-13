@@ -67,7 +67,7 @@ export function reviewModel(route, historical = false, updating = false) {
     tone = 'neutral'
     next = 'Wait for a complete saved-state report before treating the change as ready.'
   }
-  if (historical) {
+  if (historical && !updating) {
     if (saved.length || ['ready_for_next_drive', 'accepted', 'accepted_after_drive'].includes(route.configurationState)) {
       tone = 'neutral'
       title = 'Previously saved tune'

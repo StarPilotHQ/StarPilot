@@ -22,7 +22,7 @@ const hints = [['highway_center_taper_max', .005], ['friction_threshold_low', .0
   ['friction_threshold_mid', .004], ['friction_threshold_fast', .005], ['friction_threshold_highway', .006]]
 function report() {
   if (scenario === 'empty') return { version: 1, history: [], current: null }
-  const saved = scenario === 'saved' || scenario === 'applied'
+  const saved = scenario === 'saved' || scenario === 'saved-retained' || scenario === 'applied'
   const application = scenario === 'applied'
   const rows = SURFACE_NAMES.map(name => [name, saved && name === 'highway_center_taper_max' ? .005 : 0])
   const start = 1_000_000_000, points = Array.from({ length: 24 }, (_, i) =>
@@ -44,9 +44,10 @@ function report() {
     'Full surface coordinates': rows, 'Saved friction-curve adjustments': FRICTION_NAMES.map(name => [name, 0]) })
   if (application) value.current.details['Actual full surface coordinates'] = rows
   if (scenario === 'stale') { value.current.fresh = false; value.current.ageSeconds = 20 }
-  if (scenario === 'retained') {
+  if (scenario === 'retained' || scenario === 'saved-retained') {
     value.current.status = 'fitting'; value.current.reason = 'analyzing_last_completed_drive'
     value.current.details['Earlier analysis shown while updating'] = true
+    value.current.details['Automatic configuration changed'] = false
   }
   if (scenario === 'earlier-drive') {
     value.current.reason = 'more_independent_eligible_tracking_required'
@@ -278,7 +279,12 @@ try {
     if (name === 'stale') assert(await execute('return !/Refresh|Reconnect/.test(window.flm.review.description)&&window.flm.savedSummary==="0 saved"'))
     if (name === 'saved') assert.equal(await execute('return window.flm.currentApplied'), false)
     if (name === 'conflict') { assert.equal(await execute('return window.flm.review.count'), 4);assert(await execute('return !window.flm.review.findings.some(row=>row.target===null)')) }
-    if (name === 'contradictory') { assert.equal(await execute('return window.flm.review.count'), 1);assert.equal(await execute('return window.flm.review.curve.length'), 0);await capture('only-supported-suggestions') }
+    if (name === 'contradictory') {
+      assert.equal(await execute('return window.flm.review.count'), 1)
+      assert.equal(await execute('return window.flm.review.curve.length'), 0)
+      assert.equal(await execute('return document.querySelector("[data-action=view-findings]").textContent.trim()'), 'View 1 finding')
+      await capture('only-supported-suggestions')
+    }
   }
   await change('retained')
   const reading = await execute('return document.querySelector(".gx-tuner__drive-copy").innerText')
@@ -291,6 +297,18 @@ try {
   }
   checks.push('completed-drive-reading-stays-steady-across-live-clock-expiry')
   await capture('steady-background-analysis')
+  await change('saved-retained')
+  const savedReading = await execute('return document.querySelector(".gx-tuner__drive-copy").innerText')
+  assert(savedReading.includes('A tune is saved for your next drive') && savedReading.includes('1 saved'))
+  for (let pass=0;pass<6;pass++) {
+    await execute('window.flm.report.current.details["Earlier analysis shown while updating"]=!window.flm.report.current.details["Earlier analysis shown while updating"];return window.flm.$nextTick()')
+    assert.equal(await execute('return document.querySelector(".gx-tuner__drive-copy").innerText'), savedReading)
+    assert.equal(await execute('return window.flm.currentApplied'), false, 'Retained saved values cannot imply current use')
+  }
+  await click('#tuner-tab-tune');await until(() => execute('return !!window.flm.manualState.data'))
+  assert(await execute('return window.flm.savedAdjustments.some(row=>row.name==="highway_center_taper_max"&&row.value===.005)'))
+  checks.push('saved-values-remain-visible-and-steady-during-background-analysis-without-application')
+  await capture('saved-during-background-analysis')
   assert.equal(requests.length, 0, 'Reviewing findings, categories and curves must not stage or save a manual change')
   await change('applied', { parked: false });assert.equal(await execute('return window.flm.currentApplied'), true)
   await click('#tuner-tab-tune');await until(() => execute('return window.flm.manualState.data?.parked===false'))

@@ -48,6 +48,13 @@ const updating = reviewModel(route, true, true)
 assert.equal(updating.description, review.description, 'Background progress must not alternate the drive explanation')
 assert.doesNotMatch(updating.description, /Refresh|Reconnect/)
 assert.equal(updating.next, review.next)
+for (const state of ['ready_for_next_drive', 'accepted', 'accepted_after_drive', 'rolled_back']) {
+  const savedRoute = { ...route, configurationState: state, savedValues: { highway_center_taper_max: .005 } }
+  const completed = reviewModel(savedRoute)
+  const inProgress = reviewModel(savedRoute, true, true)
+  for (const key of ['title', 'description', 'tone', 'next', 'saved']) assert.deepEqual(inProgress[key], completed[key])
+  assert.equal(inProgress.historical, true, 'The retained report remains explicitly historical')
+}
 assert.deepEqual(ideaDetails(idea('highway_center_taper_max')), [{ label: 'Starting value', value: '0%' }, { label: 'Suggested value', value: '0.5%' }])
 assert.deepEqual(ideaDetails({ delta: .005 }), [{ label: 'Suggested change', value: '+0.5%' }])
 assert.equal(ideaDetails({ baseline: 0, target: null })[1].value, 'No single suggested value')

@@ -33,13 +33,17 @@ class StatusReport:
       self.next_ns = 0
 
   def analyzing(self, value):
-    # Historical findings survive a new fit. Never carry a saved/current map,
-    # enabled flag or application evidence forward from a previous report.
+    # Keep the last completed findings and saved values readable during a fit.
+    # They are historical display data, never current application or permission.
     fields = ('completed_route', 'vehicle', 'analysis_counts', 'recorded_tracking', 'source_sha256', 'assessment_sha256',
               'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest', 'latest_recording')
     previous = {key: self.previous[key] for key in fields if key in self.previous}
     if previous:
       previous['retained_decision'] = self.previous.get('retained_decision', self.previous.get('reason', 'waiting_for_completed_drive'))
+      if self.previous.get('configuration_state') in ('ready_for_next_drive', 'accepted', 'accepted_after_drive', 'rolled_back'):
+        for key in ('configuration_state', 'configured_values', 'saved_adjustments', 'qualification_summary'):
+          if key in self.previous:
+            previous[key] = self.previous[key]
     self.set({**(previous or value), 'status': 'fitting', 'reason': value['reason'], 'retained_analysis': bool(previous)})
 
   def restore(self, cache):
@@ -314,7 +318,7 @@ def main():
           'recorded_tracking': a.recorded_tracking,
         }
       ),
-      on_recommendations=lambda value: report.set({**value, 'status': 'fitting', 'reason': 'checking_recorded_steering_recommendations'}),
+      on_recommendations=lambda value: report.analyzing({**value, 'reason': 'checking_recorded_steering_recommendations'}),
     )
     report.restore(worker.cache)
     next_analysis = 0.0
