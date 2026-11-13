@@ -383,8 +383,12 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
       keepalive_start = patches.enter_context(patch.object(Ioniq6StartupKeepalive, "start"))
       confirm = patches.enter_context(patch.object(card_module, "confirm_ioniq6_prepared_takeover"))
       patches.enter_context(patch.object(card_module, "get_car", side_effect=capture_get_car))
+      captured_card = card_module.Car.__new__(card_module.Car)
       with self.assertRaises(CandidateCaptured):
-        card_module.Car()
+        card_module.Car.__init__(captured_card)
+      if not expected_stock:
+        self.assertGreater(captured_card.ioniq6_handoff_source_floor_ns, 0,
+                           "prepublication handoff did not establish its CAN source floor")
       confirm.assert_not_called()
       if expected_stock:
         self.assertEqual(bus.queries, [])

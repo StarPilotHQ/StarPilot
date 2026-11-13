@@ -301,6 +301,7 @@ class Car:
             cp, long_cp, *self.can_callbacks, enabled=eligible, is_release=is_release)
           self.ioniq6_long_selected = self.ioniq6_long_prearmed
           if self.ioniq6_long_prearmed:
+            self.ioniq6_handoff_source_floor_ns = time.clock_gettime_ns(time.CLOCK_BOOTTIME)
             ecan_bus = self.ioniq6_restore_bus
             self.ioniq6_keepalive = Ioniq6StartupKeepalive(
               self.can_callbacks[1], lambda: restore_ioniq6_adas(*self.can_callbacks, ecan_bus=ecan_bus),
@@ -1341,6 +1342,9 @@ class Car:
       if self.ioniq6_keepalive is not None:
         self.ioniq6_keepalive.stop()
 
+  def ioniq6_startup_keepalive(self):
+    return bool(getattr(self, 'ioniq6_long_prearmed', False) and not self.ioniq6_long_lost)
+
   def ioniq6_panda_matches(self):
     panda_states = self.sm['pandaStates']
     return bool(
@@ -1620,14 +1624,27 @@ class Car:
     """control update loop, driven by carControl"""
 
     if initialize_only:
+      ioniq6_startup = self.ioniq6_startup_keepalive()
       ev6_startup = self.ev6_startup_keepalive()
       classic_startup = self.classic_startup_keepalive() or self.torque_ev_startup_keepalive()
       mixed_startup = self.mixed_startup_keepalive()
       now_ns = time.monotonic_ns()
       source_ns = int(self.sm.logMonoTime['carControl'])
       receipt_ns = int(self.sm.recv_time['carControl'] * 1e9)
+      # A verified I6 ECU handoff needs inactive replacement traffic before the
+      # first control message. A seen-but-stale producer still fails closed.
+      first_neutral = ioniq6_startup and not self.sm.seen['carControl']
+      if first_neutral:
+        if (not CS.canValid or CS.canTimeout or not self.ioniq6_host_warmed or
+            CC.enabled or CC.latActive or CC.longActive or CC.actuators.torque != 0.0 or CC.actuators.accel != 0.0):
+          return
+        if not self.ci_initialized:
+          if not self.ioniq6_panda_diagnostic_ready():
+            return
+          self.params.put_bool('ControlsReady', True)
+          self.ci_initialized = True
       # Disabled torque/accel are commands; inactive curvature is only telemetry.
-      if (not (mixed_startup or ev6_startup or classic_startup or self.gm_startup_keepalive() or
+      if not first_neutral and (not (ioniq6_startup or mixed_startup or ev6_startup or classic_startup or self.gm_startup_keepalive() or
                (self.aol_replay and native_bootstrap_supported(self.CP) and self.vehicle_startup.owner is None)) or
           not CS.canValid or CS.canTimeout or
           not (self.sm.seen['carControl'] and self.sm.valid['carControl'] and self.sm.alive['carControl']) or
@@ -1751,6 +1768,20 @@ class Car:
       self.ci_initialized = True
 
     if initialize_only:
+      if ioniq6_startup:
+        if (not self.ioniq6_host_warmed or self.ioniq6_long_lost or
+            not self.startup_panda_configured() or any(ps.faults for ps in self.sm['pandaStates'])):
+          return
+        self.ioniq6_panda_armed = True
+        if self.ioniq6_keepalive is not None:
+          self.ioniq6_keepalive.stop()
+        if self.ioniq6_long_lost:
+          return
+        inactive = car.CarControl.new_message().as_reader()
+        self._invalidate_feedback_output(assignment=True)
+        self.last_actuators_output, can_sends = self.CI.apply(inactive, time.clock_gettime_ns(time.CLOCK_BOOTTIME))
+        self.publish_sendcan(can_sends, valid=CS.canValid)
+        return
       if (ev6_startup or classic_startup) and any(ps.faults for ps in self.sm['pandaStates']):
         return
       if mixed_startup:
@@ -1871,11 +1902,12 @@ class Car:
                    self.sm.seen['onroadEvents'])
     if not self.CP.passive and initialized:
       self.controls_update(CS, self.sm['carControl'])
-    elif ((not self.ci_initialized or self.gm_startup_keepalive() or self.ev6_startup_keepalive() or
+    elif ((not self.ci_initialized or self.ioniq6_startup_keepalive() or self.gm_startup_keepalive() or self.ev6_startup_keepalive() or
            self.classic_startup_keepalive() or self.torque_ev_startup_keepalive() or self.mixed_startup_keepalive()) and
           self.sm.seen['onroadEvents'] and
           any(e.name == EventName.selfdriveInitializing for e in self.sm['onroadEvents']) and
-          (self.gm_startup_keepalive() or (self.aol_replay and native_bootstrap_supported(self.CP)) or self.ev6_startup_keepalive() or
+          (self.ioniq6_startup_keepalive() or self.gm_startup_keepalive() or
+           (self.aol_replay and native_bootstrap_supported(self.CP)) or self.ev6_startup_keepalive() or
            self.classic_startup_keepalive() or self.torque_ev_startup_keepalive() or self.mixed_startup_keepalive())):
       self.controls_update(CS, self.sm['carControl'], initialize_only=True)
 
