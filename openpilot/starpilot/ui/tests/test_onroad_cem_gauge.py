@@ -78,14 +78,22 @@ def test_current_radar_metrics_use_native_units():
 
 def test_curve_selected_source_retains_speed_units_and_csc_reduction():
   curve = CurveObservation(True, 15., 15., True, True, False, 100., 2., 30., 'curve', 'selected', 'saved', True, False, .005)
-  sample = state('cem_curve', effective=True, curve=curve, metric=True)
+  sample = state('cem_curve', effective=True, curve=curve, metric=True, show_curve_status=True)
   data = gauge_data(sample)
   assert data.indicator_type is IndicatorType.ROAD_CURVE and data.indicator_value == .005
   assert (data.text, data.unit, data.reduction_text) == ('54', 'km/h', '-36')
   assert (gauge_data(replace(sample, metric=False)).text, gauge_data(replace(sample, metric=False)).unit) == ('34', 'mph')
-  perception = state('cem_curve', curve=curve)
-  assert gauge_data(perception).text == '45'  # Actual ego speed; no CSC control authority.
-  assert gauge_data(perception).reduction_text == ''
+  cem_only = replace(sample, metric=False, show_curve_status=False)
+  assert (gauge_data(cem_only).text, gauge_data(cem_only).reduction_text) == ('45', '')
+  assert gauge_data(replace(cem_only, speed_mps=24.5)) is None
+  assert gauge_data(state('cem_curve', curve=curve)) is None
+  hidden = replace(sample, show_curve_status=False)
+  assert (gauge_data(hidden).text, gauge_data(hidden).reduction_text) == ('72', '')
+  assert gauge_data(replace(state('no_trigger', effective=True, curve=curve), show_curve_status=False)) is None
+  assert gauge_data(replace(state('no_trigger', effective=True, curve=curve), show_curve_status=True)).reduction_text == '-22'
+  held = replace(state('no_trigger', effective=True, curve=replace(curve, applied=False, controlling=False)), show_curve_status=True)
+  assert (gauge_data(held).text, gauge_data(held).reduction_text) == ('45', '')
+  assert gauge_data(replace(held, curve=replace(held.curve, glow=False))) is None
 
 
 @pytest.mark.parametrize('changes', [{'alert': OnroadAlert(size=AlertSize.FULL, critical=True)},
@@ -267,7 +275,7 @@ def test_gauge_draws_only_for_visible_reasons(projection, kind):
     sample = replace(sample, conditional_perception=None)
   elif kind == 'curve_control':
     curve = CurveObservation(True, 15., 15., True, True, False, 100., 2., 30., 'curve', 'selected', 'saved', True, False, .005)
-    sample = replace(sample, curve=curve)
+    sample = replace(sample, curve=curve, show_curve_status=True)
   gauge = AetherGauge(Mock())
   with patch.object(gauge, '_render_unified_road') as draw:
     gauge.render(sample)

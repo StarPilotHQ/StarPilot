@@ -64,7 +64,7 @@ def _path_at_distance(model: object, distance_m: float) -> tuple[float, float] |
   if len(xs) != 33 or len(ys) != 33:
     return None
   distances = tuple(_number(x, 0.0, 500.0) for x in xs)
-  offsets = tuple(_number(y, -50.0, 50.0) for y in ys)
+  offsets = tuple(_number(y, -500.0, 500.0) for y in ys)
   if any(value is None for value in distances) or any(value is None for value in offsets):
     return None
   clean_xs = tuple(value for value in distances if value is not None)
