@@ -7,7 +7,7 @@ from dataclasses import astuple, dataclass
 
 from openpilot.common.constants import CV
 from opendbc.car.structs import car
-from opendbc.car.interfaces import ACCEL_MIN
+from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX as DEFAULT_ACCEL_MAX
 from openpilot.starpilot.longitudinal.lead_takeoff_preferences import MAX_ACCEL as ACCEL_MAX
 from openpilot.starpilot.longitudinal.accel_profile import A_CRUISE_MAX_VALS_TRAFFIC_ALL, interpolate_accel_profile
 from openpilot.starpilot.longitudinal.profile_document import (
@@ -111,7 +111,7 @@ class ProfileSmoother:
       return None
     default_follow = {'traffic': 0.75, 'aggressive': 1.25, 'standard': 1.45, 'relaxed': 1.75}[personality_id]
     default_jerk = 0.5 if personality_id == 'aggressive' else 1.0
-    default = AppliedProfile(default_follow, ACCEL_MAX, 1.2, default_jerk, default_jerk,
+    default = AppliedProfile(default_follow, DEFAULT_ACCEL_MAX, 1.2, default_jerk, default_jerk,
                              default_jerk, default_jerk, 1.0)
     if target is None and self.applied is None:
       return None
@@ -132,7 +132,7 @@ class ProfileSmoother:
       if ordinary_follow is None:
         return None
       ordinary_jerk = 0.5 if ordinary_id == 'aggressive' else 1.0
-      previous = AppliedProfile(ordinary_follow, ACCEL_MAX, 1.2, ordinary_jerk, ordinary_jerk,
+      previous = AppliedProfile(ordinary_follow, DEFAULT_ACCEL_MAX, 1.2, ordinary_jerk, ordinary_jerk,
                                 ordinary_jerk, ordinary_jerk, 1.0)
     else:
       previous = self.applied or default
