@@ -830,13 +830,14 @@ class FeatureSettingsOwner:
       valid = valid and self._readable(KEY) and math.isfinite(number) and MIN_SETTING <= number <= MAX_SETTING
     except ValueError:
       valid, number = False, MAX_SETTING
+    strength = (MAX_SETTING - number) * 100 / (MAX_SETTING - MIN_SETTING)
     allowed = configurable and self.authority("torque") and capability is not None
-    return FeatureRow(KEY, "Highway Smoothing", f"{number:g}" if valid else "Invalid saved value", raw,
-                      step=1.0 if valid else 0., minimum=MIN_SETTING, maximum=MAX_SETTING,
+    return FeatureRow(KEY, "Highway Smoothing", f"{strength:.0f}" if valid else "Invalid saved value", raw,
+                      step=1.0 if valid else 0., minimum=0., maximum=100., unit="%",
                       available=allowed and (valid or self.authority("parked_preferences") and self._readable(KEY)),
-                      repair_value=f"{MAX_SETTING:g}" if not valid else "", default_value=f"{MAX_SETTING:g}",
+                      repair_value="0" if not valid else "", default_value="0",
                       vehicle_fingerprint=self.vehicle_fingerprint(), capability=capability,
-                      reason="Calms steering wheel weave on highways above about 40 mph. Lower values smooth more; 10 is off.")
+                      reason="Reduces small steering corrections on highways above about 40 mph. 0% is off; higher values add more smoothing.")
 
   def _apply_highway_smoothing(self, request: FeatureSettingsRequest) -> bool:
     from openpilot.selfdrive.controls.lib.highway_correction_gain import KEY, MAX_SETTING, MIN_SETTING
@@ -851,9 +852,10 @@ class FeatureSettingsOwner:
       number = float(request.value)
     except ValueError:
       return False
-    if not math.isfinite(number) or not MIN_SETTING <= number <= MAX_SETTING:
+    if not math.isfinite(number) or not 0.0 <= number <= 100.0:
       return False
-    result = commit_exact(self.params, key=KEY, max_bytes=128, raw=f"{number:g}".encode(), expected=request.expected,
+    gain_setting = MAX_SETTING - number * (MAX_SETTING - MIN_SETTING) / 100
+    result = commit_exact(self.params, key=KEY, max_bytes=128, raw=f"{gain_setting:.8g}".encode(), expected=request.expected,
                           authorized=authorized, temp_prefix=".highway-smoothing-")
     return result.committed and result.verified
 
@@ -919,7 +921,7 @@ class FeatureSettingsOwner:
       if drive_mode_capable(self.vehicle_params()):
         match_enabled, _, _ = self._value("DriveModeProfiles")
         rows.append(self._bool_row("DriveModeProfiles", "Match Drive Mode", configurable and system_long,
-                                   reason="Eco, Normal and Sport select Eco, Standard and Sport+ acceleration with Eco, "
+                                   reason="Eco, Normal and Sport select Eco, Standard and Sport+ acceleration with Eco, " +
                                           "Standard and Sport deceleration, replacing the selected profiles below. Traffic Mode is unchanged."))
         if match_enabled == "1":
           rows.append(self._bool_row("DriveModeAcceleration", "Match Acceleration", configurable and system_long,
