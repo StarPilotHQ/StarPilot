@@ -1,7 +1,7 @@
 import os
 import requests
 from requests.adapters import HTTPAdapter, Retry
-from openpilot.starpilot.connect.provider import active_provider, PROVIDERS
+from openpilot.starpilot.connect.provider import active_provider, PROVIDER_NAMES
 
 API_HOST = os.getenv('API_HOST', 'https://api.commadotai.com')
 
@@ -10,7 +10,7 @@ API_HOST = os.getenv('API_HOST', 'https://api.commadotai.com')
 class CommaApi:
   def __init__(self, token=None, *, provider_name=None):
     selected = active_provider()
-    if selected.name not in PROVIDERS or provider_name not in (None, selected.name):
+    if selected.name not in PROVIDER_NAMES or provider_name not in (None, selected.name):
       raise APIError('Cloud provider is unavailable or changed')
     self.provider_name = selected.name
     self.api_host = API_HOST if selected.name == 'comma' else selected.api

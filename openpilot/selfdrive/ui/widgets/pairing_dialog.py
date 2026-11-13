@@ -30,7 +30,7 @@ class PairingDialog(Widget):
 
   def _get_pairing_url(self) -> str:
     provider = active_provider()
-    if provider.name not in ('comma', 'konik'):
+    if provider.name == 'offline' or not provider.web:
       raise RuntimeError('Cloud provider is unavailable')
     try:
       dongle_id = self.params.get("DongleId") or ""

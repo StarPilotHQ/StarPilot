@@ -38,7 +38,7 @@ def register(show_spinner=False) -> str | None:
   params = Params()
   if os.getenv('STARPILOT_CLOUD_DISABLED') == '1':
     return UNREGISTERED_DONGLE_ID
-  if active_provider().name == 'konik':
+  if active_provider().name in ('konik', 'custom'):
     return register_konik(params)
 
   dongle_id: str | None = params.get("DongleId")

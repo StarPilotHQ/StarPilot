@@ -51,11 +51,21 @@ export function routeDate(route, locale = undefined, timeZone = undefined) {
 }
 export function connectRouteUrl(route) {
   if (typeof route?.routeId !== "string" || !LOCAL.test(route.routeId) || typeof route.connectUrl !== "string") return null
-  const host = route.provider === "konik" ? "stable.konik.ai" : route.provider === undefined || route.provider === "comma" ? "connect.comma.ai" : null
-  if (host === null) return null
-  const match = /^https:\/\/(connect\.comma\.ai|stable\.konik\.ai)\/([a-f0-9]{16})\/([^/?#]+)$/.exec(route.connectUrl)
+  const provider = route.provider ?? "comma"
+  if (!["comma", "konik", "custom"].includes(provider)) return null
+  let parsed
+  try {
+    parsed = new URL(route.connectUrl)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) return null
+  const expectedHost = provider === "konik" ? "stable.konik.ai" : provider === "comma" ? "connect.comma.ai" : null
+  if (expectedHost !== null && (parsed.hostname !== expectedHost || parsed.port !== "")) return null
+  const match = /\/([a-f0-9]{16})\/([^/?#]+)$/.exec(parsed.pathname)
+  if (!match || (expectedHost !== null && parsed.pathname !== `/${match[1]}/${match[2]}`)) return null
   const [device, identifier] = route.routeId.includes('|') ? route.routeId.split('|') : [null, route.routeId]
-  return match && match[1] === host && match[3] === identifier && (device === null || match[2] === device) ? route.connectUrl : null
+  return match[2] === identifier && (device === null || match[1] === device) ? route.connectUrl : null
 }
 export const recordingUrl = (segmentName, camera = "qcamera") => SEGMENT.test(segmentName) &&
   ["qcamera", "fcamera", "dcamera", "ecamera"].includes(camera) ?

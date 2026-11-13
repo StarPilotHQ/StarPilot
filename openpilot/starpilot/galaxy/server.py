@@ -128,9 +128,11 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
     from openpilot.starpilot.connect.provider import status
     return cloud.status() if cloud is not None else status()
 
-  def cloud_select(name, revision, authorized):
+  def cloud_select(name, revision, authorized, custom=None):
     from openpilot.starpilot.connect.provider import select_provider
-    return cloud.select(name, revision, authorized) if cloud is not None else select_provider(name, revision, authorized)
+    if cloud is not None:
+      return cloud.select(name, revision, authorized) if custom is None else cloud.select(name, revision, authorized, custom=custom)
+    return select_provider(name, revision, authorized, custom=custom)
 
   address_source = local_access if local_access is not None else LocalAccess(port)
   console_source = tmux_live if tmux_live is not None else TmuxLive()
@@ -1310,9 +1312,9 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             try:
               from openpilot.common.params import Params
               from openpilot.starpilot.saved_source import read_saved
-              from openpilot.starpilot.connect.provider import PROVIDERS, recording_device_id
+              from openpilot.starpilot.connect.provider import PROVIDER_NAMES, recording_device_id
               params = Params()
-              device_ids = {name: recording_device_id(name, params) for name in PROVIDERS}
+              device_ids = {name: recording_device_id(name, params) for name in PROVIDER_NAMES}
               raw, readable = read_saved(params, 'DongleId', 32)
               dongle = raw.decode('ascii', errors='replace') if readable and raw is not None else None
               dates = statistics_owner().recording_dates(route['routeId'] for route in result['routes'])
@@ -1836,16 +1838,20 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
       if path == '/api/connect/provider':
         identity = self.settings_session()
         try:
-          if (type(payload) is not dict or set(payload) != {'provider', 'revision', 'confirmed'} or
+          required = {'provider', 'revision', 'confirmed'}
+          if (type(payload) is not dict or not required <= payload.keys() <= (required | {'custom'}) or
               type(payload['provider']) is not str or type(payload['revision']) is not str or payload['confirmed'] is not True):
             raise ValueError('Confirm the next-boot cloud provider')
+          custom = payload.get('custom')
+          if custom is not None and payload['provider'] != 'custom':
+            raise ValueError('Custom configuration only applies to the custom provider')
           with effect_lock:
             def authorized():
               return identity is not None and self.settings_session() == identity and cloud_allowed()
             if not authorized():
               self.json(403, {'error': 'Turn off the vehicle before changing cloud providers'})
               return
-            result = cloud_select(payload['provider'], payload['revision'], authorized)
+            result = cloud_select(payload['provider'], payload['revision'], authorized, custom=custom)
         except ValueError as error:
           self.json(409, {'error': str(error)})
         except (OSError, TypeError):
