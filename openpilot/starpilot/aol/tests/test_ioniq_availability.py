@@ -378,7 +378,7 @@ class IoniqAvailabilityTests(unittest.TestCase):
       cs.buttonEvents = []
     self.assertEqual(card.aol_card_intent.allowed_latch, initially_armed)
 
-    def receive(now, *, axis=None, event=None, state=None, preserve_cruise_state=False):
+    def receive(now, *, axis=None, event=None, state=None, preserve_cruise_state=False, can_packets=()):
       frames = []
       for service in ('pandaStates', 'aolSafetyWire', 'deviceState', 'carControl'):
         message = messaging.new_message(service, len(sd.sm[service]) if service == 'pandaStates' else
@@ -395,7 +395,7 @@ class IoniqAvailabilityTests(unittest.TestCase):
         observed.cruiseState.available = True
       card.CC_prev = card.sm['carControl']
       with mock.patch('openpilot.selfdrive.car.card.messaging.drain_sock_raw', return_value=[b'fixture']), \
-           mock.patch('openpilot.selfdrive.car.card.can_capnp_to_list', return_value=[]), \
+           mock.patch('openpilot.selfdrive.car.card.can_capnp_to_list', return_value=can_packets), \
            mock.patch('openpilot.selfdrive.car.card.time.monotonic_ns', return_value=now), \
            mock.patch('openpilot.selfdrive.car.card.time.clock_gettime_ns', return_value=now), \
            mock.patch('openpilot.selfdrive.car.card.REPLAY', False), \

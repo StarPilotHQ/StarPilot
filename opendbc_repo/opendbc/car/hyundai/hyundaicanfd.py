@@ -40,7 +40,7 @@ class CanBus(CanBusBase):
     return self._cam
 
 
-LFA_CONTROL_MASK = bytes.fromhex("ffffff3fc0ff3f000000030000ff0000")
+LFA_CONTROL_MASK = bytes.fromhex("ffffff3fc0ff3f000000000000ff0000")
 LFA_FAULT_MASK = bytes.fromhex("00000000c001c0f00000000000000000")
 
 

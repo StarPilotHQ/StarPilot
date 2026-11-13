@@ -29,9 +29,9 @@ def params(car=CAR.HYUNDAI_KONA_EV_2ND_GEN, *, hda2=False, alpha=False, alternat
   return cp
 
 
-def template(packer, bus, counter, *, warning=0, fault=0):
+def template(packer, bus, counter, *, warning=0, fault=0, mode=0):
   address, body, _ = packer.make_can_msg('LFA', bus, {'COUNTER': counter, 'LKA_SysIndReq': 4 if warning else 1,
-                                                     'LKA_SysWrn': warning, 'ToiFltSta': fault})
+                                                     'LKA_SysWrn': warning, 'ToiFltSta': fault, 'LKA_UsmMod': mode})
   data = bytearray(body)
   data[9] = 0x0A
   data[14] = 0xA5
@@ -155,14 +155,14 @@ def test_mask_owns_only_current_dbc_actuation_and_normal_status_fields():
   signals = packer.dbc.name_to_msg['LFA'].sigs
   expected = bytearray(16)
   owned = ('CHECKSUM', 'COUNTER', 'LKA_OptUsmSta', 'LKA_RcgSta', 'LKA_SysIndReq',
-           'StrTqReqVal', 'ActToiSta', 'LKA_UsmMod', 'Damping_Gain')
+           'StrTqReqVal', 'ActToiSta', 'Damping_Gain')
   for name in owned:
     signal = signals[name]
     assert signal.is_little_endian
     for bit in range(signal.lsb, signal.lsb + signal.size):
       expected[bit // 8] |= 1 << (bit % 8)
   assert bytes(expected) == LFA_CONTROL_MASK
-  for name in ('ToiFltSta', 'LKA_SysWrn', 'LKA_OnOffEquip2Sta', 'ELK_SysFlrSta', 'FCA_ESA_WrnSta'):
+  for name in ('LKA_UsmMod', 'ToiFltSta', 'LKA_SysWrn', 'LKA_OnOffEquip2Sta', 'ELK_SysFlrSta', 'FCA_ESA_WrnSta'):
     signal = signals[name]
     assert all(not (LFA_CONTROL_MASK[bit // 8] >> (bit % 8)) & 1 for bit in range(signal.lsb, signal.lsb + signal.size))
 
@@ -213,7 +213,7 @@ def test_stale_source_does_not_clear_faults_or_keep_equipment_body(clock):
   cp = params()
   packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
   source = CANFDLfaStatus(2)
-  fault = template(packer, 2, 0, warning=15, fault=2)
+  fault = template(packer, 2, 0, warning=15, fault=2, mode=3)
   source.update([(clock[0], [fault])])
   clock[0] += 50_000_001
   assert source.current(clock[0]) is None
@@ -227,6 +227,7 @@ def test_stale_source_does_not_clear_faults_or_keep_equipment_body(clock):
   assert decoder.vl['LFA']['ToiFltSta'] == 2
   assert decoder.vl['LFA']['ActToiSta'] == 1
   assert decoder.vl['LFA']['StrTqReqVal'] == 2
+  assert decoder.vl['LFA']['LKA_UsmMod'] == 0
   assert body[9] == body[14] == 0
   assert int.from_bytes(body[:2], 'little') == hkg_can_fd_checksum(0x12A, None, bytearray(body))
   healthy = template(packer, 2, 1)
@@ -480,3 +481,40 @@ def test_multiple_frames_wrap_and_no_stale_template(clock):
 def test_other_protocols_do_not_acquire_source(car, hda2):
   ci = CarInterface(params(car, hda2=hda2))
   assert ci.CS.stock_cluster_status is None
+
+
+@pytest.mark.parametrize('car', (CAR.KIA_EV6, CAR.KIA_NIRO_EV_2ND_GEN, CAR.HYUNDAI_IONIQ_5, CAR.HYUNDAI_KONA_EV_2ND_GEN))
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('mode', (0, 1, 2, 3))
+@pytest.mark.parametrize('active', (False, True))
+def test_actual_interface_preserves_camera_lane_safety_user_mode(car, alpha, mode, active, clock):
+  cp = params(car, alpha=alpha)
+  ci = CarInterface(cp)
+  ci.update([])
+  packer = CANPacker(DBC[car][Bus.pt])
+  bus = ci.CC.CAN
+  decoder = CANParser(DBC[car][Bus.pt], [('LFA', 0)], bus.ECAN)
+  command = structs.CarControl.new_message()
+  command.latActive = active
+  command.enabled = bool(active and cp.openpilotLongitudinalControl)
+  command.actuators.torque = .4
+  for tick in range(4):
+    clock[0] = 1_000_000_000 + tick * 10_000_000
+    address, body, _ = template(packer, bus.CAM, (tick + 173) % 256)
+    body = bytearray(body)
+    body[10] = (body[10] & 0xFC) | mode
+    body[:2] = hkg_can_fd_checksum(address, None, body).to_bytes(2, 'little')
+    stock = address, bytes(body), bus.CAM
+    state = ci.update([(clock[0], physical_frames(ci, packer, tick, stock))])
+    assert state.canValid and not state.canTimeout
+    _, packets = ci.apply(command.as_reader(), clock[0])
+    own = [packet for packet in packets if packet[0] == 0x12A and packet[2] == bus.ECAN]
+    assert len(own) == 1
+    decoder.update([(clock[0], own)])
+    assert decoder.vl['LFA']['LKA_UsmMod'] == mode
+    assert decoder.vl['LFA']['ActToiSta'] == int(active)
+    assert abs(decoder.vl['LFA']['StrTqReqVal']) <= ci.CC.params.STEER_MAX
+    assert decoder.vl['LFA']['LKA_SysWrn'] == 0
+    assert int.from_bytes(own[0][1][:2], 'little') == hkg_can_fd_checksum(0x12A, None, bytearray(own[0][1]))
+    if not active:
+      assert decoder.vl['LFA']['StrTqReqVal'] == 0

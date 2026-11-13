@@ -1507,6 +1507,12 @@ class TransportPauseFeedback:
           return True
       if current and continuity and self._angle_stop_intent_current(sm, cp, cs, axis, stamp, now_ns,
           latched=latched, producer=intent_producer_session):
+        previous = self.signature
+        if (cp.brand == 'hyundai' and not axis.lateralActive and previous is not None and
+            previous[9] and previous[11] and previous[13] and
+            0 < previous[8] <= previous[2] <= now_ns <= previous[4] and
+            now_ns - previous[8] <= AXIS_MAX_AGE_NS):
+          self.hkg_eps_join_until_ns = min(previous[4], self.lateral_source_ns + AXIS_MAX_AGE_NS)
         self.sequence, self.signature = int(axis.sequence), signature
         return False
       if current and continuity and (reason == 'critical' or self.lag_withdrawal_ns and not axis.lateralActive or

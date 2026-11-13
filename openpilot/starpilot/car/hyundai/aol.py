@@ -328,6 +328,7 @@ def early_native_long_withdrawal_supported(CP) -> bool:
   """Exact LONG profiles whose native policy grants lateral independently."""
   return bool(CP.openpilotLongitudinalControl and
               (qualified_ioniq6(CP) or qualified_canfd_long(CP, marked_only=True) or
+               qualified_ccnc_long_aol(CP, marked_only=True) or
                qualified_classic_long(CP, marked_only=True) and
                CP.safetyConfigs[0].safetyModel == car.CarParams.SafetyModel.hyundai or
                CP.carFingerprint == HyundaiCAR.HYUNDAI_PALISADE_2023 and qualified_blended_alpha(CP, marked_only=True)))

@@ -25,7 +25,8 @@ from opendbc.car.gm.interface import CarInterface as GMInterface
 from opendbc.car.gm.profiles import profiles_supported as gm_profiles_supported
 from opendbc.car.hyundai.ioniq6_handoff import (IONIQ6_LONG_PREARM_ENABLED, HandoffOutcome,
                                                 TimestampedCanPacket, build_ioniq6_hda2_long_candidate,
-                                                prepare_ioniq6_long_candidate, confirm_ioniq6_prepared_takeover, restore_ioniq6_adas,
+                                                confirm_ioniq6_prepared_takeover, restore_ioniq6_adas,
+                                                finalize_ioniq6_prepublication, Ioniq6StartupKeepalive,
                                                 inspect_ioniq6_long_sources)
 from opendbc.car.hyundai.hyundaicanfd import CanBus as HyundaiCanBus
 from opendbc.car.hyundai.ioniq6_media import Ioniq6MediaButtons
@@ -230,6 +231,7 @@ class Car:
     self.ioniq6_long_lost = False
     self.ioniq6_keepalive = None
     self.ioniq6_restore_callbacks = None
+    self.ioniq6_restore_bus = None
     self.ioniq6_restore_attempted = False
     self.ioniq6_init_complete = False
 
@@ -290,9 +292,23 @@ class Car:
             # Bit 11 is AOL only inside the exact Ioniq 6 bit-15 namespace.
             # This immutable choice precedes the ECU transaction and CP publish.
             long_cp.safetyConfigs[-1].safetyParam |= 0x0800
-          cp, self.ioniq6_long_pending = prepare_ioniq6_long_candidate(
-            cp, long_cp, enabled=eligible, is_release=is_release)
-          self.ioniq6_long_selected = self.ioniq6_long_pending
+          if long_cp is not None and not self.startup_diagnostic_admission(cp=long_cp):
+            long_cp = None
+          if long_cp is not None:
+            self.ioniq6_restore_callbacks = self.can_callbacks
+            self.ioniq6_restore_bus = HyundaiCanBus(long_cp).ECAN
+          cp, self.ioniq6_long_prearmed, self.ioniq6_handoff_result = finalize_ioniq6_prepublication(
+            cp, long_cp, *self.can_callbacks, enabled=eligible, is_release=is_release)
+          self.ioniq6_long_selected = self.ioniq6_long_prearmed
+          if self.ioniq6_long_prearmed:
+            ecan_bus = self.ioniq6_restore_bus
+            self.ioniq6_keepalive = Ioniq6StartupKeepalive(
+              self.can_callbacks[1], lambda: restore_ioniq6_adas(*self.can_callbacks, ecan_bus=ecan_bus),
+              lambda: setattr(self, 'ioniq6_long_lost', True),
+              lambda restored: setattr(self, 'ioniq6_restore_attempted', True), ecan_bus=ecan_bus)
+            self.ioniq6_keepalive.start()
+          else:
+            self.ioniq6_restore_callbacks = None
         cp = startup_preferences.prepare(cp, fingerprints=fingerprints)
         from openpilot.starpilot.car.ford.longitudinal_preferences import prepare_release_long as prepare_ford_release_long
         cp = prepare_ford_release_long(cp, self.params, is_release=is_release, enabled=openpilot_enabled_toggle)
@@ -1379,7 +1395,7 @@ class Car:
                        panda_recv_ns=panda_receipt + boot_ns - mono_ns if panda_current else 0,
                        panda_current=panda_current)
 
-  def startup_diagnostic_admission(self):
+  def startup_diagnostic_admission(self, *, cp=None):
     from openpilot.starpilot.aol.panda_faults import blocking_fault_list
     self.sm.update(0)
     now, boot = time.monotonic_ns(), time.clock_gettime_ns(time.CLOCK_BOOTTIME)
@@ -1387,8 +1403,12 @@ class Car:
     stamp, receipt = int(sm.logMonoTime['pandaStates']), int(sm.recv_time['pandaStates'] * 1e9)
     pandas = sm['pandaStates']
     owner = getattr(self.vehicle_startup, 'owner', None)
-    count = 2 if (isinstance(owner, CapturedADRVStartup) and owner.continuity_required() and
-                  hyundai_canfd_config_index(owner.cp) == 1) else 1
+    ioniq_owner = None if cp is None else hyundai_canfd_config_index(cp)
+    if cp is not None and (not ioniq6_long_eligible(cp) or ioniq_owner is None):
+      return False
+    count = (len(cp.safetyConfigs) if cp is not None else
+             2 if (isinstance(owner, CapturedADRVStartup) and owner.continuity_required() and
+                   hyundai_canfd_config_index(owner.cp) == 1) else 1)
     ignition_pandas = pandas
     if (count == 2 and len(pandas) == 2 and
         pandas[0].pandaType == log.PandaState.PandaType.dos and
@@ -1400,9 +1420,11 @@ class Car:
                 sm.seen['pandaStates'] and sm.valid['pandaStates'] and sm.alive['pandaStates'] and
                 0 < stamp <= boot and boot - stamp <= 300_000_000 and
                 0 < receipt <= now and now - receipt <= 300_000_000 and len(pandas) == count and
-                all(ps.safetyModel == structs.CarParams.SafetyModel.elm327 and ps.safetyParam == 1 and
+                all(ps.safetyModel == structs.CarParams.SafetyModel.elm327 and
+                    ps.safetyParam in ((0, 1) if ioniq_owner == 1 and index == 0 else (1,)) and
                     not ps.controlsAllowed and not ps.safetyRxChecksInvalid and
-                    not blocking_fault_list(getattr(ps, 'faults', None), getattr(owner, 'cp', None)) for ps in pandas) and
+                    not blocking_fault_list(getattr(ps, 'faults', None), cp if cp is not None else getattr(owner, 'cp', None))
+                    for index, ps in enumerate(pandas)) and
                 all(ps.ignitionLine or ps.ignitionCan for ps in ignition_pandas))
 
   def startup_panda_configured(self, *, inactive_keepalive=False):
@@ -1681,6 +1703,10 @@ class Car:
           self.publish_sendcan([], valid=False)
           return
         mixed.commit_pending(self.CI, sources_current=sources, control_current=current)
+      elif self.ioniq6_long_prearmed:
+        if self.ioniq6_long_lost or not self.ioniq6_panda_diagnostic_ready():
+          self.publish_sendcan([], valid=False)
+          return
       elif getattr(self, 'ioniq6_long_pending', False):
         # Panda is still in its diagnostic safety mode here. Take over only
         # after the control producer is ready, then request Hyundai safety.
@@ -1932,7 +1958,7 @@ def main():
     if getattr(car, 'ioniq6_keepalive', None) is not None:
       car.ioniq6_long_lost = True
       car.ioniq6_keepalive.stop()
-    if getattr(car, 'ioniq6_long_prearmed', False) and not getattr(car, 'ioniq6_restore_attempted', False):
+    if getattr(car, 'ioniq6_restore_callbacks', None) is not None and not getattr(car, 'ioniq6_restore_attempted', False):
       # This Card is no longer an output owner, even if it had published a
       # qualified CP. Restore stock ECU traffic before a later Card starts.
       # Do not mutate the already published CP or claim stock on failure.
@@ -1940,7 +1966,10 @@ def main():
       if callbacks is not None:
         car.ioniq6_restore_attempted = True
         try:
-          restored = restore_ioniq6_adas(*callbacks, ecan_bus=car.CI.CC.CAN.ECAN)
+          restore_bus = getattr(car, 'ioniq6_restore_bus', None)
+          if restore_bus is None:
+            restore_bus = car.CI.CC.CAN.ECAN
+          restored = restore_ioniq6_adas(*callbacks, ecan_bus=restore_bus)
         except Exception:
           restored = False
         if not restored:

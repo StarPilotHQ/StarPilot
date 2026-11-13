@@ -98,9 +98,12 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     any(event.name == log.OnroadEvent.EventName.steerOverride for event in events) and
     not any(event.softDisable or event.userDisable for event in events))
   matched_withdrawal = bool((temporary_event or override_temporary) and axis.faultEventMonoTime == event_ns <= stamp)
+  native_first_predecessor = bool(cp.brand == 'hyundai' and str(cp.steerControlType) == 'angle' and
+    previous is not None and not previous[9] and previous[11] and previous[13] and
+    not previous[10] and not previous[12] and 0 < now_ns <= self.hkg_eps_join_until_ns)
   original_active = bool(previous is not None and previous[0] == self.session and
     previous[7] == self.session and previous[5] == 'none' and
-    previous[9] and previous[11] and previous[13] and previous[6] == event_ns and
+    (previous[9] or native_first_predecessor) and previous[11] and previous[13] and previous[6] == event_ns and
     axis.sourceCarStateMonoTime >= previous[8] and stamp >= previous[2] and
     previous[14] == producer and previous[15] == self.availability_epoch and
     0 < self.lateral_source_ns <= previous[8] <= previous[2] <= now_ns <= previous[4] and
