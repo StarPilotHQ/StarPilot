@@ -25,7 +25,7 @@ from opendbc.car.hyundai.ioniq6_bsm import Ioniq6BlindspotSources
 from opendbc.car.hyundai.ray_pedal import ray_pedal_enabled
 from opendbc.car.hyundai.values import is_blended, HyundaiFlags, HyundaiSafetyFlags, CAR, DBC, Buttons, CarControllerParams
 from opendbc.car.interfaces import CarStateBase
-from opendbc.car.dashboard_speed_limit import Tracker as LimitTracker, hyundai_canfd_sign, parser_expiry
+from opendbc.car.dashboard_speed_limit import Tracker as LimitTracker, hyundai_can_sign, hyundai_canfd_sign, parser_expiry
 
 ButtonType = structs.CarState.ButtonEvent.Type
 
@@ -137,6 +137,8 @@ class CarState(CarStateBase):
     self.ccnc_1b5_ts_ns = 0
     self.dashboard_limit = LimitTracker()
     self.dashboard_stop_sign = None
+    # Classic CAN only; CAN-FD and blended cars have their own sources.
+    self.can_limit_sources = not (CP.flags & HyundaiFlags.CANFD) and not is_blended(CP)
     self.ioniq6_bsm_sources = (Ioniq6BlindspotSources()
                                if CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and CP.openpilotLongitudinalControl else None)
     self.ioniq6_bsm_now_ns = 0
@@ -411,6 +413,9 @@ class CarState(CarStateBase):
 
     ret.blockPcmEnable = not self.recent_button_interaction()
 
+    if self.can_limit_sources:
+      self.update_can_dashboard_limit(cp)
+
     # low speed steer alert hysteresis logic (only for cars with steer cut off above 10 m/s)
     if ret.vEgo < (self.CP.minSteerSpeed + 2.) and self.CP.minSteerSpeed > 10.:
       self.low_speed_alert = True
@@ -617,6 +622,13 @@ class CarState(CarStateBase):
 
     return ret
 
+  def update_can_dashboard_limit(self, cp):
+    sample_ns, expiry = parser_expiry(cp, "Navi_HU", "SpeedLim_Nav_Clu")
+    if sample_ns <= self.dashboard_limit.observation.observed_ns:
+      return
+    status, value_mps = hyundai_can_sign(int(cp.vl["Navi_HU"]["SpeedLim_Nav_Clu"]), self.is_metric)
+    self.dashboard_limit.update(sample_ns, status, value_mps, valid_until_ns=expiry)
+
   def get_can_parsers_canfd(self, CP):
     msgs = []
     if ev9_long_qualified(CP) or pe_long_qualified(CP):
@@ -755,6 +767,8 @@ class CarState(CarStateBase):
       msgs.extend((name, 0) for name in {available_msg, enabled_msg, speed_msg})
       if not CP.flags & HyundaiFlags.NON_SCC_NO_FCA:
         (msgs if CP.flags & HyundaiFlags.NON_SCC_RADAR_FCA else cam_msgs).append(("FCA11", math.nan))
+    # Non-gating: many cars don't send it.
+    msgs.append(("Navi_HU", math.nan))
     parsers = {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], msgs, 0),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], cam_msgs, 2),

@@ -87,3 +87,10 @@ def hyundai_canfd_sign(speed: int, system_status: int, is_metric: bool) -> tuple
   if 1 <= speed <= 252:
     return Status.VALID, speed * (1 / 3.6 if is_metric else 0.44704)
   return (Status.ABSENT, 0.0) if speed in (0, 253) else (Status.UNKNOWN, 0.0)
+
+
+def hyundai_can_sign(raw: int, is_metric: bool) -> tuple[Status, float]:
+  # Cluster units; 0 and 255 mean nothing is shown, which isn't evidence of no limit (UNKNOWN, not ABSENT).
+  if 1 <= raw <= 254:
+    return Status.VALID, raw * (1 / 3.6 if is_metric else 0.44704)
+  return Status.UNKNOWN, 0.0
