@@ -686,8 +686,8 @@ class StarShellSession:
         from openpilot.starpilot.controllers.toyota_cruise import capability
         return capability(cp) is not None
       if group == "vehicle":
-        from opendbc.car.toyota.interface import toyota_auto_hold_supported
-        return toyota_auto_hold_supported(cp)
+        from openpilot.starpilot.feature_capabilities import vehicle_preferences_supported
+        return vehicle_preferences_supported(cp)
       if group == "lane_change":
         return not cp.notCar and not cp.passive and not cp.dashcamOnly
       if group == "switchback_wheel":
