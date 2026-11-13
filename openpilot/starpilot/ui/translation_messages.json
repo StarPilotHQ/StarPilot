@@ -32228,6 +32228,42 @@
       "refs": [
         "openpilot/starpilot/ui/sounds_owner.py"
       ]
+    },
+    {
+      "source": "Rally Car 1",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Synth Car 1",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Big Car 1",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Rally Car 2",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Synth Car 2",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Big Car 2",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
     }
   ]
 }

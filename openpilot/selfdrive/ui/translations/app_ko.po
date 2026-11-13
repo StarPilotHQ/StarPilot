@@ -23534,3 +23534,27 @@ msgstr "엔진 미리 듣기"
 #: openpilot/starpilot/ui/sounds_owner.py
 msgid "Revs the selected engine once on the car speakers, or on the comma when no car is connected."
 msgstr "선택한 엔진을 차량 스피커로 한 번 레브합니다. 차량이 연결되어 있지 않으면 comma에서 재생합니다."
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Rally Car 1"
+msgstr "랠리카 1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Synth Car 1"
+msgstr "신스카 1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Big Car 1"
+msgstr "빅카 1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Rally Car 2"
+msgstr "랠리카 2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Synth Car 2"
+msgstr "신스카 2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Big Car 2"
+msgstr "빅카 2"

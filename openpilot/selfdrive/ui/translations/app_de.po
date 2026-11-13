@@ -23538,3 +23538,27 @@ msgstr "Motor anhören"
 #: openpilot/starpilot/ui/sounds_owner.py
 msgid "Revs the selected engine once on the car speakers, or on the comma when no car is connected."
 msgstr "Lässt den gewählten Motor einmal über die Fahrzeuglautsprecher aufheulen, oder über den comma, wenn kein Auto verbunden ist."
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Rally Car 1"
+msgstr "Rallyeauto 1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Synth Car 1"
+msgstr "Synth-Auto 1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Big Car 1"
+msgstr "Großes Auto 1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Rally Car 2"
+msgstr "Rallyeauto 2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Synth Car 2"
+msgstr "Synth-Auto 2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Big Car 2"
+msgstr "Großes Auto 2"

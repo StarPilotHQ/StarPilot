@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from openpilot.starpilot.engine_sound import settings
+from openpilot.starpilot.engine_sound.loops import BankError, LoopSynth, find_bank, load_bank
 from openpilot.starpilot.engine_sound.model import EngineModel
 from openpilot.starpilot.engine_sound.profiles import get
 from openpilot.starpilot.engine_sound.synth import SAMPLE_RATE, Synth, to_pcm
@@ -33,14 +34,15 @@ TRIGGER_BLOCKS = 10
 class Engine:
   """Car state in, PCM blocks out. No I/O, so it runs the same in tests and the offline renderer."""
 
-  def __init__(self, profile_name: str):
+  def __init__(self, profile_name: str, bank_root: Path | None = None):
     self.volume = 0.0
+    self.bank_root = bank_root
     self.select(profile_name)
 
   def select(self, profile_name: str) -> None:
     self.profile = get(profile_name)
     self.model = EngineModel(self.profile)
-    self.synth = Synth(self.profile)
+    self.synth = voice(self.profile, self.bank_root)
 
   def block(self, pedal: float, speed: float, accel: float, in_gear: bool, volume: float) -> bytes:
     self.volume = volume + (self.volume - volume) * math.exp(-BLOCK_SECONDS / FADE_SECONDS)
@@ -81,6 +83,16 @@ def trigger_stamp(path: Path) -> int:
     return path.stat().st_mtime_ns
   except OSError:
     return 0
+
+
+def voice(profile, bank_root: Path | None = None):
+  directory = find_bank(profile.loops, bank_root)
+  if directory is not None:
+    try:
+      return LoopSynth(profile, load_bank(directory))
+    except BankError:
+      pass
+  return Synth(profile)
 
 
 def audible(sm, no_alert) -> bool:

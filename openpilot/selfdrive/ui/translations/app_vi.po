@@ -23534,3 +23534,27 @@ msgstr "Nghe thử động cơ"
 #: openpilot/starpilot/ui/sounds_owner.py
 msgid "Revs the selected engine once on the car speakers, or on the comma when no car is connected."
 msgstr "Rồ ga động cơ đã chọn một lần trên loa xe, hoặc trên comma khi chưa kết nối xe."
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Rally Car 1"
+msgstr "Xe rally 1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Synth Car 1"
+msgstr "Xe synth 1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Big Car 1"
+msgstr "Xe lớn 1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Rally Car 2"
+msgstr "Xe rally 2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Synth Car 2"
+msgstr "Xe synth 2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Big Car 2"
+msgstr "Xe lớn 2"

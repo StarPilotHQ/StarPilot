@@ -23534,3 +23534,27 @@ msgstr "エンジンを試聴"
 #: openpilot/starpilot/ui/sounds_owner.py
 msgid "Revs the selected engine once on the car speakers, or on the comma when no car is connected."
 msgstr "選んだエンジンを車のスピーカーで一度空ぶかしします。車が接続されていない場合はcommaで再生します。"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Rally Car 1"
+msgstr "ラリーカー1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Synth Car 1"
+msgstr "シンセカー1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Big Car 1"
+msgstr "ビッグカー1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Rally Car 2"
+msgstr "ラリーカー2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Synth Car 2"
+msgstr "シンセカー2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Big Car 2"
+msgstr "ビッグカー2"

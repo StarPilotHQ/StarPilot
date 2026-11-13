@@ -23538,3 +23538,27 @@ msgstr "Probar motor"
 #: openpilot/starpilot/ui/sounds_owner.py
 msgid "Revs the selected engine once on the car speakers, or on the comma when no car is connected."
 msgstr "Acelera una vez el motor elegido en los altavoces del coche, o en el comma si no hay coche conectado."
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Rally Car 1"
+msgstr "Coche de rally 1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Synth Car 1"
+msgstr "Coche sintético 1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Big Car 1"
+msgstr "Coche grande 1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Rally Car 2"
+msgstr "Coche de rally 2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Synth Car 2"
+msgstr "Coche sintético 2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Big Car 2"
+msgstr "Coche grande 2"

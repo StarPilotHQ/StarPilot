@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "source": "enginesound preset example5.esc",
+  "layers": {
+    "on": [
+      {
+        "rpm": 800,
+        "file": "on_800.wav"
+      },
+      {
+        "rpm": 1300,
+        "file": "on_1300.wav"
+      },
+      {
+        "rpm": 1800,
+        "file": "on_1800.wav"
+      },
+      {
+        "rpm": 2300,
+        "file": "on_2300.wav"
+      },
+      {
+        "rpm": 2800,
+        "file": "on_2800.wav"
+      },
+      {
+        "rpm": 3300,
+        "file": "on_3300.wav"
+      },
+      {
+        "rpm": 3800,
+        "file": "on_3800.wav"
+      },
+      {
+        "rpm": 4300,
+        "file": "on_4300.wav"
+      },
+      {
+        "rpm": 4800,
+        "file": "on_4800.wav"
+      },
+      {
+        "rpm": 5300,
+        "file": "on_5300.wav"
+      },
+      {
+        "rpm": 5800,
+        "file": "on_5800.wav"
+      },
+      {
+        "rpm": 6300,
+        "file": "on_6300.wav"
+      },
+      {
+        "rpm": 6800,
+        "file": "on_6800.wav"
+      },
+      {
+        "rpm": 7300,
+        "file": "on_7300.wav"
+      }
+    ],
+    "off": [
+      {
+        "rpm": 800,
+        "file": "off_800.wav"
+      },
+      {
+        "rpm": 1300,
+        "file": "off_1300.wav"
+      },
+      {
+        "rpm": 1800,
+        "file": "off_1800.wav"
+      },
+      {
+        "rpm": 2300,
+        "file": "off_2300.wav"
+      },
+      {
+        "rpm": 2800,
+        "file": "off_2800.wav"
+      },
+      {
+        "rpm": 3300,
+        "file": "off_3300.wav"
+      },
+      {
+        "rpm": 3800,
+        "file": "off_3800.wav"
+      },
+      {
+        "rpm": 4300,
+        "file": "off_4300.wav"
+      },
+      {
+        "rpm": 4800,
+        "file": "off_4800.wav"
+      },
+      {
+        "rpm": 5300,
+        "file": "off_5300.wav"
+      },
+      {
+        "rpm": 5800,
+        "file": "off_5800.wav"
+      },
+      {
+        "rpm": 6300,
+        "file": "off_6300.wav"
+      },
+      {
+        "rpm": 6800,
+        "file": "off_6800.wav"
+      },
+      {
+        "rpm": 7300,
+        "file": "off_7300.wav"
+      }
+    ]
+  }
+}

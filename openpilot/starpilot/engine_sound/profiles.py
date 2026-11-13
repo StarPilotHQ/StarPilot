@@ -1,4 +1,4 @@
-"""Engine sound profiles. `kind` selects the renderer; only 'synth' exists so far."""
+"""Engine sound profiles. A profile with an installed loop bank plays it; otherwise it falls back to the synth voice."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,7 +10,7 @@ DEFAULT_PROFILE = 'race_car'
 class Profile:
   name: str
   label: str
-  kind: str = 'synth'
+  loops: str = ''                     # loop bank directory name under loops.BANK_ROOT
 
   idle_rpm: float = 900.0
   redline_rpm: float = 7000.0
@@ -50,6 +50,24 @@ def _engine_partials(firing: int, count: int, rough: float, bright: float) -> tu
   return tuple(out)
 
 
+RACE_GEARS = (520.0, 340.0, 250.0, 198.0, 165.0, 142.0)
+RACE_REDLINE = 8600.0
+
+
+def _recorded(name: str, label: str, *, cylinders: int, idle: float, redline: float) -> Profile:
+  """A bundled loop bank of the same name, geared like the race car but scaled to its own rev range."""
+  scale = redline / RACE_REDLINE
+  return Profile(
+    name=name, label=label, loops=name,
+    idle_rpm=idle, redline_rpm=redline,
+    gears=tuple(ratio * scale for ratio in RACE_GEARS),
+    upshift_rpm=(0.38 * redline, 0.96 * redline), downshift_rpm=(0.2 * redline, 0.6 * redline),
+    launch_slip_rpm=0.4 * redline, rise_seconds=0.08, fall_seconds=0.35, limiter=True,
+    partials=_engine_partials(firing=cylinders, count=40, rough=0.25, bright=0.5),
+    noise=(0.03, 0.18), gain=(0.7, 1.0),
+  )
+
+
 PROFILES: dict[str, Profile] = {profile.name: profile for profile in (
   Profile(
     name='race_car', label='Race Car',
@@ -60,6 +78,12 @@ PROFILES: dict[str, Profile] = {profile.name: profile for profile in (
     partials=_engine_partials(firing=8, count=40, rough=0.22, bright=0.55),
     noise=(0.03, 0.22), gain=(0.30, 1.0),
   ),
+  _recorded('rally_car_1', 'Rally Car 1', cylinders=3, idle=900.0, redline=6800.0),
+  _recorded('rally_car_2', 'Rally Car 2', cylinders=4, idle=900.0, redline=7300.0),
+  _recorded('synth_car_1', 'Synth Car 1', cylinders=5, idle=850.0, redline=7300.0),
+  _recorded('synth_car_2', 'Synth Car 2', cylinders=4, idle=750.0, redline=5800.0),
+  _recorded('big_car_1', 'Big Car 1', cylinders=10, idle=1000.0, redline=8800.0),
+  _recorded('big_car_2', 'Big Car 2', cylinders=10, idle=1000.0, redline=8800.0),
   Profile(
     name='diesel', label='Diesel Truck',
     idle_rpm=650.0, redline_rpm=3400.0,

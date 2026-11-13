@@ -12,6 +12,7 @@ import argparse
 import re
 import sys
 import wave
+from dataclasses import replace
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
@@ -19,7 +20,8 @@ sys.path.insert(0, str(REPO))
 
 from openpilot.starpilot.engine_sound.model import EngineModel  # noqa: E402
 from openpilot.starpilot.engine_sound.profiles import PROFILES  # noqa: E402
-from openpilot.starpilot.engine_sound.synth import SAMPLE_RATE, Synth, to_pcm  # noqa: E402
+from openpilot.starpilot.engine_sound.daemon import voice  # noqa: E402
+from openpilot.starpilot.engine_sound.synth import SAMPLE_RATE, to_pcm  # noqa: E402
 
 DT = 0.01
 FRAMES = int(SAMPLE_RATE * DT)
@@ -82,8 +84,8 @@ def demo_samples():
   return out
 
 
-def render(samples, profile, volume: float) -> bytes:
-  model, synth = EngineModel(profile), Synth(profile)
+def render(samples, profile, volume: float, banks: Path | None = None) -> bytes:
+  model, synth = EngineModel(profile), voice(profile, banks)
   chunks = []
   for pedal, speed, accel, in_gear in samples:
     rpm, load = model.update(DT, pedal, speed, accel, in_gear)
@@ -100,6 +102,8 @@ def main():
   parser.add_argument('--seconds', type=float, default=120.0)
   parser.add_argument('--volume', type=float, default=0.8)
   parser.add_argument('--profile', choices=sorted(PROFILES), action='append')
+  parser.add_argument('--banks', type=Path, help='loop bank root (default: the device location)')
+  parser.add_argument('--bank', help="audition this bank with each chosen profile instead of the profile's own")
   args = parser.parse_args()
   if not args.demo and args.route is None:
     parser.error('give a route directory or --demo')
@@ -109,12 +113,13 @@ def main():
     raise SystemExit('No carState in that range')
   args.out.mkdir(parents=True, exist_ok=True)
   for name in args.profile or sorted(PROFILES):
-    target = args.out / f'{"demo" if args.demo else "drive"}_{name}.wav'
+    profile = replace(PROFILES[name], loops=args.bank) if args.bank else PROFILES[name]
+    target = args.out / f'{"demo" if args.demo else "drive"}_{name}{"_" + args.bank if args.bank else ""}.wav'
     with wave.open(str(target), 'wb') as out:
       out.setnchannels(1)
       out.setsampwidth(2)
       out.setframerate(SAMPLE_RATE)
-      out.writeframes(render(samples, PROFILES[name], args.volume))
+      out.writeframes(render(samples, profile, args.volume, args.banks))
     print(f'{target}  ({len(samples) * DT:.0f} s)')
 
 
