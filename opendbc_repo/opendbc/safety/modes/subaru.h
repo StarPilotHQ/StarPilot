@@ -113,6 +113,7 @@
 
 static bool subaru_gen2 = false;
 static bool subaru_longitudinal = false;
+static bool subaru_ascent_long_throttle = false;
 static bool subaru_stop_and_go = false;
 static bool subaru_lkas_angle = false;
 static bool subaru_d_platform = false;
@@ -227,7 +228,7 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
 
   const LongitudinalLimits SUBARU_LONG_LIMITS = {
     .min_gas = 808,       // appears to be engine braking
-    .max_gas = 3400,      // approx  2 m/s^2 when maxing cruise_rpm and cruise_throttle
+    .max_gas = subaru_ascent_long_throttle ? 3800 : 3400, // 2019-21 Ascent; 3400 by default
     .inactive_gas = 1818, // this is zero acceleration
     .max_brake = 600,     // approx -3.5 m/s^2
 
@@ -457,6 +458,9 @@ static safety_config subaru_init(uint16_t param) {
 
   const uint16_t SUBARU_PARAM_ASCENT_LKAS_ALERT = 2048;
   const bool subaru_ascent_lkas_alert = GET_FLAG(param, SUBARU_PARAM_ASCENT_LKAS_ALERT);
+
+  const uint16_t SUBARU_PARAM_ASCENT_LONG_THROTTLE = 4096;
+  subaru_ascent_long_throttle = GET_FLAG(param, SUBARU_PARAM_ASCENT_LONG_THROTTLE);
 
 #ifdef ALLOW_DEBUG
   const uint16_t SUBARU_PARAM_LONGITUDINAL = 2;

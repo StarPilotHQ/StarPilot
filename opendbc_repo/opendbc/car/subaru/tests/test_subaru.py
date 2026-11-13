@@ -8,14 +8,51 @@ from opendbc.can import CANPacker, CANParser
 from opendbc.car import Bus, fw_versions, gen_empty_fingerprint, structs
 from opendbc.car.fw_query_definitions import StdQueries
 from opendbc.car.subaru import subarucan
-from opendbc.car.subaru.carcontroller import CarController, _ASCENT_AOL_ARM_FRAMES
+from opendbc.car.subaru.carcontroller import CarController, _ASCENT_AOL_ARM_FRAMES, _ascent_adaptive_accel_request, \
+  _throttle_max_for_car
 from opendbc.car.subaru.carstate import CarState
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
 from opendbc.car.fw_versions import match_fw_to_car
 from opendbc.car.subaru.interface import CarInterface
 from opendbc.car.subaru.values import CAR, DBC, FW_QUERY_CONFIG, SUBARU_ALT_VERSION_REQUEST, SUBARU_VERSION_REQUEST, CanBus, \
-  SubaruFlags, SubaruSafetyFlags
+  CarControllerParams, SubaruFlags, SubaruSafetyFlags
 from opendbc.car.structs import CarParams
+
+
+def test_ascent_adaptive_accel_feedback_is_speed_gated_and_bounded():
+  accel, filtered_error = _ascent_adaptive_accel_request(
+    requested_accel=0.4, measured_accel=0.0, v_ego=80 / 3.6, filtered_error=0.0, dt=0.01,
+  )
+  assert filtered_error > 0.0
+  assert 0.4 < accel < 0.41
+
+  for _ in range(1000):
+    accel, filtered_error = _ascent_adaptive_accel_request(
+      requested_accel=0.4, measured_accel=-0.2, v_ego=110 / 3.6, filtered_error=filtered_error, dt=0.01,
+    )
+  assert accel == pytest.approx(1.05)
+
+
+def test_ascent_adaptive_accel_feedback_reaches_full_weight_by_80_kph():
+  accel, _ = _ascent_adaptive_accel_request(
+    requested_accel=0.4, measured_accel=0.4, v_ego=75 / 3.6, filtered_error=1.0, dt=0.01,
+  )
+
+  assert accel == pytest.approx(0.725, abs=0.001)
+
+
+def test_ascent_adaptive_accel_feedback_does_not_boost_braking_or_low_speed():
+  low_speed_accel, low_speed_error = _ascent_adaptive_accel_request(
+    requested_accel=0.4, measured_accel=0.0, v_ego=60 / 3.6, filtered_error=0.0, dt=0.01,
+  )
+  braking_accel, braking_error = _ascent_adaptive_accel_request(
+    requested_accel=-0.5, measured_accel=-1.0, v_ego=110 / 3.6, filtered_error=0.4, dt=0.01,
+  )
+
+  assert low_speed_accel == pytest.approx(0.4)
+  assert low_speed_error == pytest.approx(0.0)
+  assert braking_accel == pytest.approx(-0.5)
+  assert braking_error == pytest.approx(0.0)
 
 
 def make_sng_controller(flags=0, prev_close_distance=4.0):
@@ -234,6 +271,19 @@ def test_torque_platform_does_not_enable_angle_safety():
   assert not (CP.flags & SubaruFlags.LKAS_ANGLE)
   assert CP.steerControlType == CarParams.SteerControlType.torque
   assert not (CP.safetyConfigs[0].safetyParam & SubaruSafetyFlags.LKAS_ANGLE)
+
+
+def test_ascent_throttle_limit_is_vehicle_specific():
+  ascent_cp = CarInterface.get_non_essential_params(CAR.SUBARU_ASCENT)
+  other_cp = CarInterface.get_non_essential_params(CAR.SUBARU_IMPREZA_2020)
+
+  assert CarControllerParams.THROTTLE_MAX == 3400
+  assert CarControllerParams.ASCENT_THROTTLE_MAX == 3800
+  assert _throttle_max_for_car(CAR.SUBARU_ASCENT) == 3800
+  assert _throttle_max_for_car(CAR.SUBARU_ASCENT_2023) == 3400
+  assert _throttle_max_for_car(CAR.SUBARU_IMPREZA_2020) == 3400
+  assert ascent_cp.safetyConfigs[0].safetyParam & SubaruSafetyFlags.ASCENT_LONG_THROTTLE
+  assert not (other_cp.safetyConfigs[0].safetyParam & SubaruSafetyFlags.ASCENT_LONG_THROTTLE)
 
 
 def test_outback_2023_uses_d_platform_bus_layout():

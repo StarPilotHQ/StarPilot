@@ -35,6 +35,8 @@ class CarInterface(CarInterfaceBase):
       bsm_bus = CanBus.main
       ret.enableBsm = 0x228 in fingerprint[bsm_bus]
       ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.subaru)]
+      if candidate == CAR.SUBARU_ASCENT:
+        ret.safetyConfigs[0].safetyParam |= SubaruSafetyFlags.ASCENT_LONG_THROTTLE.value
       if ret.flags & SubaruFlags.GLOBAL_GEN2:
         ret.safetyConfigs[0].safetyParam |= SubaruSafetyFlags.GEN2.value
       if ret.flags & SubaruFlags.LKAS_ANGLE:
