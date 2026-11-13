@@ -143,6 +143,12 @@ def update_jetlink_alert() -> None:
     jetlink_alert_usable = False
     cloudlog.warning("Offroad_JetlinkUnavailable is not in this params library: Jetlink's offroad alert is off")
 
+def read_aggressive_cooling(params) -> bool:
+  try:
+    return params.get_bool("AggressiveCoolingEnabled")
+  except (UnknownKeyName, OSError, ValueError):
+    return False
+
 def touch_thread(end_event):
   count = 0
 
@@ -280,6 +286,8 @@ def hardware_thread(end_event, hw_queue) -> None:
   thermal_config = HARDWARE.get_thermal_config()
 
   fan_controller = FanController(int(1./DT_HW))
+  aggressive_cooling = read_aggressive_cooling(params)
+  cooling_ignition_prev = False
   chestnut = Chestnut()
   chestnut_status = ChestnutStatus()
   branch = get_short_branch()
@@ -383,7 +391,10 @@ def hardware_thread(end_event, hw_queue) -> None:
     msg.deviceState.maxTempC = all_comp_temp
 
     timing.mark("fan_control")
-    msg.deviceState.fanSpeedPercentDesired = fan_controller.update(all_comp_temp, onroad_conditions["ignition"])
+    if onroad_conditions["ignition"] and not cooling_ignition_prev:
+      aggressive_cooling = read_aggressive_cooling(params)
+    cooling_ignition_prev = onroad_conditions["ignition"]
+    msg.deviceState.fanSpeedPercentDesired = fan_controller.update(all_comp_temp, onroad_conditions["ignition"], aggressive_cooling)
 
     is_offroad_for_5_min = (started_ts is None) and ((not started_seen) or (off_ts is None) or (time.monotonic() - off_ts > 60 * 5))
     if is_offroad_for_5_min and offroad_comp_temp > OFFROAD_DANGER_TEMP:

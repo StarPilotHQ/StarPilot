@@ -203,6 +203,11 @@ assert.equal(SettingsPage.computed.atSectionRoot.call({ activeSection: deviceDat
 const dataLinks = SettingsPage.computed.visibleRows.call({ initialPage: "hub", activeSection: deviceData,
   state: { query: "", data: { page: "hub", rows: [] } } })
 assert.deepEqual(dataLinks.map(({ row }) => row.page), ["power", "display", "data"])
+assert.equal(dataLinks[2].row.label, "Data Uploads")
+const coolingLinks = SettingsPage.computed.visibleRows.call({ initialPage: "hub", activeSection: deviceData,
+  state: { query: "", data: { page: "hub", rows: [], coolingAvailable: true } } })
+assert.deepEqual(coolingLinks.map(({ row }) => row.page), ["power", "display", "data"])
+assert.equal(coolingLinks[2].row.label, "Data & Cooling")
 
 assert.equal(SettingsPage.computed.atSectionRoot.call({initialPage:'hub',state:{data:null,parents:[]}}),true,
   'section tabs stay mounted while loading a new section')

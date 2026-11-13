@@ -13,7 +13,7 @@ import threading
 import time
 from typing import Protocol, cast
 
-from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
+from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner, cooling_available
 from openpilot.starpilot.galaxy.setting_descriptions import description
 from openpilot.starpilot.galaxy.localization_settings import LocalizationSettingsOwner
 from openpilot.starpilot.ui.controller_feature import SETUP_ACTION, SETUP_QUESTION
@@ -689,6 +689,7 @@ class SettingsGateway:
     scope = hashlib.sha256(_session_key(token) + generation + (ctx.cp_raw or b"")).digest()
     result = {"page": page, "title": state.title, "subtitle": state.subtitle, "parked": state.parked,
               "vehicleIdentified": bool(ctx.cp is not None and getattr(ctx.cp, "carFingerprint", None)),
+              "coolingAvailable": cooling_available(),
               "rows": [{**_projection(row), "revision": hashlib.sha256(scope + repr(row).encode()).hexdigest()}
                        for row in state.rows], "view": view_id}
     if page == "hub" or any(row.page for row in state.rows):

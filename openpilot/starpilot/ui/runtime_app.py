@@ -31,7 +31,8 @@ from openpilot.starpilot.drive_state.owner import DriveStateOwner, Rejected as D
 from openpilot.starpilot.drive_state.evidence import PhysicalSource
 from openpilot.starpilot.drive_state.control import DriveStateControl, LABELS
 from openpilot.starpilot.storage import starpilot_storage_root
-from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
+from openpilot.starpilot.ui.feature_settings_owner import (AGGRESSIVE_COOLING_DESCRIPTION, AGGRESSIVE_COOLING_KEY, FeatureSettingsOwner,
+                                                           cooling_available)
 from openpilot.starpilot.ui.conditional_feature import confirmation_question as conditional_question
 from openpilot.starpilot.ui.appearance_owner import AppearanceOwner
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
@@ -95,7 +96,7 @@ from openpilot.starpilot.ui.software_state import DownloadLabel, SoftwareAction,
 from openpilot.starpilot.ui.toggles_state import Personality, ToggleKey, ToggleRequest
 from openpilot.system.ui.lib.application import MouseEvent, MousePos, gui_app
 from openpilot.system.ui.widgets import Widget
-from openpilot.system.ui.widgets.list_view import button_item, text_item
+from openpilot.system.ui.widgets.list_view import button_item, text_item, toggle_item
 from openpilot.starpilot.ui.compact_settings_page import StarCompactSettings
 
 NATIVE_SETTINGS_PANELS = (Destination.DEVICE, Destination.SOFTWARE, Destination.BLUETOOTH, Destination.TOGGLES, Destination.DEVELOPER)
@@ -1853,6 +1854,8 @@ class StarMainLayout(MainLayout):
     toggle_items = self._large_panels[Destination.TOGGLES]._scroller._items
     toggle_items.insert(2, text_item("Safe Mode", "N/A"))
     from openpilot.common.hardware import HARDWARE
+    if cooling_available():
+      self._add_aggressive_cooling(self._large_panels[Destination.DEVICE])
     from openpilot.starpilot.ui.starpilot_settings_adapter_large import StarPilotSettingsAdapterLarge
     for destination, owner in self._large_panels.items():
       if destination == Destination.DEVELOPER and HARDWARE.get_device_type() in ('mici', 'tici', 'tizi'):
@@ -1868,6 +1871,31 @@ class StarMainLayout(MainLayout):
     self.star.set_request_owner(self._deliver_settings_request)
     self.star._native_favorite_actions = self._native_favorites
     self.star._publish_bookmark = self._on_bookmark_clicked
+
+  @staticmethod
+  def _add_aggressive_cooling(device_panel) -> None:
+    from openpilot.common.params import UnknownKeyName
+
+    def saved() -> bool:
+      try:
+        return ui_state.params.get_bool(AGGRESSIVE_COOLING_KEY)
+      except UnknownKeyName:
+        return False
+
+    def save(state: bool) -> None:
+      try:
+        ui_state.params.put_bool(AGGRESSIVE_COOLING_KEY, state, block=True)
+      except UnknownKeyName:
+        item.action_item.set_state(False)
+
+    item = toggle_item("Aggressive Cooling", AGGRESSIVE_COOLING_DESCRIPTION, initial_state=saved(), callback=save)
+    device_panel._scroller.add_widget(item)
+    native_show = device_panel.show_event
+
+    def show_event():
+      item.action_item.set_state(saved())
+      native_show()
+    device_panel.show_event = show_event
 
   def _exit_spacepilot(self) -> None:
     gui_app.pop_widgets_to(self, instant=True)
