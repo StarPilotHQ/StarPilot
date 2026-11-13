@@ -272,6 +272,8 @@ DEBUG_SAFETY_CLASS_TARGETS = {
 
 
 RELEASE_TARGETS = (
+  "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_stopped_feedback_gap_retains_only_armed_intent",
+  "openpilot/starpilot/aol/tests/test_subaru_temporary_eps.py",
   "opendbc_repo/opendbc/car/subaru/tests/test_jacobw_angle.py",
   "opendbc_repo/opendbc/car/rivian/tests/test_radar_reachability.py",
   "opendbc_repo/opendbc/car/tesla/tests/test_radar_pairs.py",

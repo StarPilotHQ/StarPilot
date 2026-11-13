@@ -26,7 +26,8 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
                                                                       hard_stop_native_first=False, main_only=False, preferences=None, firmware=None,
                                                                       deadline_gap=False, fixed_angle_handoff=False, host_first_stop=False,
                                                                       source_outage=False, vm_angle_handoff=0, crawl=False, eps_brake_join=False,
-                                                                      high_angle_guard=False, main_on_brake=False, guard_brake_release=False):
+                                                                      high_angle_guard=False, main_on_brake=False, guard_brake_release=False,
+                                                                      stopped_feedback_gap=False):
   angle_handoff = fixed_angle_handoff or vm_angle_handoff
   fw = firmware_records(candidate, FW_VERSIONS, 'subaru') if firmware is None else firmware
   rows = []
@@ -72,8 +73,10 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
       pending_eps_event = None
       for elapsed, tick in enumerate(ticks):
         now = base + elapsed * 10_000_000 + (22_504_479 if deadline_gap and elapsed >= gap_tick else 0)
+        if stopped_feedback_gap and elapsed >= 131:
+          now += 3_919_864
         cruise = not main_only and (30 <= tick < 110 or tick >= 410)
-        brake = (90 <= tick < 110 or eps_brake_join and 225 <= tick < 270 or
+        brake = (stopped_feedback_gap and 125 <= tick < 135 or 90 <= tick < 110 or eps_brake_join and 225 <= tick < 270 or
                  main_on_brake and 30 <= tick < 55 or guard_brake_release and 225 <= tick < 245)
         reverse = 150 <= tick < 185
         temporary = not guard_brake_release and 225 <= tick < 260
@@ -144,6 +147,8 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           pending_eps_event = None
         for service in ('onroadEvents', 'selfdriveState', 'aolAxisState'):
           if service not in driven_new or service not in card.sm.data:
+            continue
+          if stopped_feedback_gap and service == 'aolAxisState' and 130 <= elapsed < 133:
             continue
           if eps_brake_join and service == 'onroadEvents' and tick == 236:
             # Deliver the existing event one Card cycle after its axis update.
@@ -300,6 +305,10 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           assert row['cardLatch'] and row['armed'] and not row['lat'] and row['permission'] == 0, ('SUBARU_BRAKED_MAIN_INTENT_LOST', row)
         if guard_brake_release and 245 <= tick < 260:
           assert row['cardLatch'] and row['armed'] and not row['lat'] and row['permission'] == 0, ('SUBARU_GUARD_BRAKE_RELEASE_LOST', row)
+        if stopped_feedback_gap and 131 <= elapsed < 133:
+          assert card.aol_card_intent.allowed_latch, ('SUBARU_STOPPED_FEEDBACK_GAP_CLEARED', row)
+          assert not command.latActive and not command.longActive and row['permission'] == 0, row
+          assert row['fault'] == 'none' and 'controlsMismatch' not in row['events'], row
         if stopped:
           assert not row['lat'] and row['cardLatch'] and row['permission'] == 0 and row['fault'] == 'none', ('SUBARU_STOP_LOST_ARMED_INTENT', row)
         if source_outage and 78 <= tick < 81:
@@ -496,3 +505,10 @@ def test_actual_impreza_main_while_braking_waits_for_native_grant(subaru_native_
 def test_actual_impreza_guard_brake_release_keeps_intent(subaru_native_pair, tmp_path):
   test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
     CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, guard_brake_release=True)
+
+
+
+def test_actual_stopped_feedback_gap_retains_only_armed_intent(subaru_native_pair, tmp_path):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True,
+    stop_resume=True, hard_stop_native_first=True, stopped_feedback_gap=True)

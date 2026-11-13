@@ -151,3 +151,43 @@ def retain_braked_main_intent(feedback, sm, cp, state, axis, now_ns, *, arm_ns, 
   feedback.subaru_braked_main = (arm_ns, producer, epoch, now_ns if state.brakePressed else pending[3])
   feedback.subaru_main_retained_native_ns = int(native.observedMonoTime)
   return True
+
+
+
+def retain_stopped_intent(feedback, sm, cp, state, axis, now_ns, *, latched, producer, signature):
+  from openpilot.cereal import log
+  from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS
+  from openpilot.starpilot.aol.transport_pause import _healthy_transport_native, cp_identity
+
+  previous = feedback.signature
+  if (cp.carFingerprint != CAR.SUBARU_IMPREZA_2020 or not qualified(cp, marked_only=True) or
+      not latched or not feedback.ever_lateral_active or feedback.failed or feedback.paused or
+      feedback.pending_event or feedback.retention_started_ns or feedback.source_retention_started_ns or
+      not feedback.session or cp_identity(cp) != feedback.cp or previous is None or signature != previous or
+      previous[0] != feedback.session or previous[7] != feedback.session or previous[5] != 'none' or
+      any(previous[9:13]) or not previous[13] or not producer or previous[14] != producer or
+      not sm.seen['aolAxisState'] or not sm.valid['aolAxisState'] or not sm.alive['aolAxisState'] or
+      not axis.qualified or str(axis.mode) != 'off' or
+      not 0 < previous[8] <= previous[2] <= now_ns or not 0 < feedback.healthy_feedback_ns <= now_ns or
+      previous[2] - previous[8] > AXIS_MAX_AGE_NS or previous[4] != previous[2] + AXIS_MAX_AGE_NS or
+      not previous[4] < now_ns or now_ns - previous[8] > SAFETY_MAX_AGE_NS or
+      not state.canValid or state.canTimeout or not state.standstill or not state.brakePressed or
+      state.gearShifter != structs.CarState.GearShifter.drive or not state.cruiseState.available or
+      state.cruiseState.enabled or state.gasPressed or state.regenBraking or state.buttonEvents or
+      state.steerFaultTemporary or state.steerFaultPermanent or state.accFaulted or state.doorOpen or
+      state.seatbeltUnlatched or state.vehicleSensorsInvalid or state.steeringDisengage):
+    return False
+  event_ns = int(sm.logMonoTime['onroadEvents'])
+  allowed = (log.OnroadEvent.EventName.preEnableStandstill, log.OnroadEvent.EventName.pcmDisable,
+             log.OnroadEvent.EventName.userBookmarkNotPaired)
+  if (not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
+      not 0 < axis.faultEventMonoTime <= event_ns <= now_ns or now_ns - event_ns > 1_500_000_000 or
+      any(event.name not in allowed or event.immediateDisable or event.softDisable or
+          event.userDisable and event.name != log.OnroadEvent.EventName.pcmDisable for event in sm['onroadEvents'])):
+    return False
+  native = _healthy_transport_native(sm, cp, state, feedback.session, now_ns)
+  # Retain only the original OFF intent receipt; no source, output or native lease is renewed.
+  return bool(native is not None and native.pandaInventory and
+    not (native.requestedLateral or native.lateralAllowed or native.requestedLongitudinal or native.longitudinalAllowed) and
+    native.observedMonoTime >= feedback.healthy_native_ns and feedback.healthy_inventory ==
+      (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory)))

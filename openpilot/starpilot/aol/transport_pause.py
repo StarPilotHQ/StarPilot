@@ -1388,6 +1388,11 @@ class TransportPauseFeedback:
         cp_identity(cp) == self.cp)
       continuity = bool(not self.session or axis.sessionId == self.session and
         (axis.sequence > self.sequence or axis.sequence == self.sequence and signature == self.signature))
+      if not current and continuity and cp.brand == 'subaru':
+        from openpilot.starpilot.car.subaru.aol import retain_stopped_intent
+        if retain_stopped_intent(self, sm, cp, cs, axis, now_ns, latched=latched,
+            producer=intent_producer_session, signature=signature):
+          return False
       if not current and continuity and self._inactive_gear_source_gap(sm, cp, cs, axis, stamp, now_ns, latched=latched,
           producer=intent_producer_session):
         return False
