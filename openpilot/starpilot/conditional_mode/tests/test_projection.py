@@ -533,6 +533,17 @@ class TestSceneProjector(unittest.TestCase):
     self.assertIsNone(repeated.scene.lead)
     self.assertEqual(projector.lead_detector.filter_value, previous_filter)
 
+  def test_bend_does_not_shorten_the_stop_horizon(self):
+    from openpilot.starpilot.conditional_mode.projection import _horizon
+    model = messaging.new_message('modelV2').modelV2
+    angles = [1.25 * index / 32 for index in range(33)]
+    model.position.x = [200. * math.sin(angle) for angle in angles]
+    model.position.y = [200. * (1. - math.cos(angle)) for angle in angles]
+    self.assertLess(model.position.x[-1], 190.)
+    self.assertAlmostEqual(_horizon(model), 250., delta=.5)
+    model.position.y = [0.] * 33
+    self.assertEqual(_horizon(model), model.position.x[-1])
+
   def test_stationary_clear_endpoint_does_not_relax_spatial_path_validation(self):
     from openpilot.starpilot.conditional_mode.projection import _horizon, _standstill_clear_horizon
     from openpilot.starpilot.conditional_mode.tests.test_stop_commit_transport import CLEAR_97_X

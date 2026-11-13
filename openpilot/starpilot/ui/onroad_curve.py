@@ -8,6 +8,7 @@ import math
 
 from openpilot.starpilot.ui.raylib import rl
 
+from openpilot.starpilot.ui.onroad_conditional import curve_slowing
 from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadState
 
 
@@ -114,12 +115,11 @@ def render_glow(rect: rl.Rectangle, state: OnroadState, *, border_width: float, 
     active = True
     strength = intensity(preview_curve)
   else:
-    if not glowing(state) and not (state.show_curve_status and training(state)):
+    active = glowing(state) or curve_slowing(state)
+    if not active and not (state.show_curve_status and training(state)):
       return
     curve = state.curve
-    assert curve is not None
-    active = glowing(state)
-    strength = intensity(curve.road_curvature) if active else BASE_INTENSITY
+    strength = intensity(curve.road_curvature if curve is not None else None) if active else BASE_INTENSITY
   color = glow_color(strength) if active else TRAINING
   cycle = period(strength)
   fraction = max(0.0, min(1.0, (strength - BASE_INTENSITY) / (1.0 - BASE_INTENSITY)))

@@ -11,8 +11,8 @@ from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
-from openpilot.starpilot.ui.onroad_conditional import reason, status
-from openpilot.starpilot.ui.onroad_curve import controlling, glow_color, intensity
+from openpilot.starpilot.ui.onroad_conditional import curve_slowing, reason, status
+from openpilot.starpilot.ui.onroad_curve import controlling, glow_color, glowing, intensity
 from openpilot.starpilot.ui.onroad_customization import CEM_GAUGE_FRAME, CEM_GAUGE_INSET, placement
 from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadState
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole
@@ -142,9 +142,10 @@ def gauge_data(state: OnroadState, *, lead_stopped: bool = False) -> AetherGauge
     return AetherGaugeData('STOP', color=COLOR_FORCE_STOP, indicator_type=IndicatorType.STOP_LIGHT,
                            indicator_extra='red')
   curve = state.curve
-  if controlling(state) or current == 'cem_curve':
+  curve_glow = glowing(state)
+  if curve_glow or curve_slowing(state):
     speed = state.speed_mps
-    target = curve.ceiling_mps if controlling(state) and curve is not None else None
+    target = curve.ceiling_mps if curve_glow and controlling(state) and curve is not None else None
     shown = min(speed, target) if speed is not None and target is not None else speed
     curvature = curve.road_curvature if curve is not None else None
     preview = state.visual_preview

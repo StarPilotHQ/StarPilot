@@ -14,6 +14,7 @@ _CCM_HOLD_REASONS = {4: "ccm_lead", 6: "ccm_speed"}
 
 _REASONS = {reason.value: (reason.name[4:] if reason.name.startswith(('CEM_', 'CCM_')) else reason.name).replace('_', ' ')
             for reason in Reason}
+CURVE_SLOWING_DELTA_MPS = 1.0
 _HIDDEN_REASONS = frozenset((Reason.SCENE_UNAVAILABLE.value, Reason.UNAVAILABLE.value))
 
 
@@ -30,6 +31,17 @@ def reason(state: OnroadState) -> str | None:
   if value.reason == 'ccm_hold' and value.choice is ModeChoice.CCM:
     return _CCM_HOLD_REASONS.get(getattr(value, 'status_code', 0))
   return value.reason
+
+
+def curve_slowing(state: OnroadState) -> bool:
+  """CEM Curves holding the car under the driver's cruise speed."""
+  if reason(state) != 'cem_curve':
+    return False
+  preview = state.visual_preview
+  if preview is not None and preview.cem_reason == 'CURVE':
+    return state.alert.size != AlertSize.FULL
+  return bool(state.alert.size == AlertSize.NONE and not state.longitudinal_overridden and state.longitudinal_active and state.speed_mps is not None and state.cruise_kph is not None and
+              state.speed_mps < state.cruise_kph / 3.6 - CURVE_SLOWING_DELTA_MPS)
 
 
 def stop_active(state: OnroadState) -> bool:
