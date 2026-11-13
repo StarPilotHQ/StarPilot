@@ -18,7 +18,7 @@ from openpilot.starpilot.galaxy.setting_descriptions import description
 DISPLAY_GROUPS = {
   "DeveloperSidebar": "Big layout",
   "ShowBrakeStatus": "widget", "StockConfidenceBallWidget": "widget",
-  "HideLeadMarker": "Lead car (Small layout)", "LeadInfo": "Lead car (Small layout)",
+  "HideLeadMarker": "Lead car", "LeadInfo": "Lead car",
   "CameraView": "Camera (Small layout)", "DriverCamera": "Camera (Small layout)",
   "HidePersonalityAlerts": "Alerts and borders", "SignalMetrics": "Alerts and borders", "BlindSpotMetrics": "Alerts and borders",
 }
