@@ -514,6 +514,7 @@ class Car:
     # Update carState from CAN
     observe_controller_can(self.CI, can_list)
     CS = self.CI.update(can_list)
+    self.RI.v_ego = CS.vEgo   # the Honda Bosch-A decoder bounds a reversing coast with it
     from openpilot.starpilot.car.gm.aol import f1_conventional_lateral_owner
     cancel_boot_ns = (time.clock_gettime_ns(time.CLOCK_BOOTTIME)
                       if (getattr(self.CI.CS, 'ev6_aol_source_healthy', False) or
