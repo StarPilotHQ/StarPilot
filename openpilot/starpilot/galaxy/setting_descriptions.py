@@ -5,6 +5,7 @@ This presentation catalog supplies the purpose before any genuine prerequisite.
 """
 from openpilot.starpilot.ui.long_profile_feature import CATEGORY_HELP, VALUE_HELP
 from openpilot.starpilot.ui.feature_settings_state import SLC_OFFSET_KEYS
+from openpilot.starpilot.ui.slc_custom_feature import KEYS as SLC_CUSTOM_KEYS, SOURCE_HELP as SLC_SOURCE_HELP
 
 DESCRIPTIONS = {
   'DriveModeProfiles': 'Matches acceleration and deceleration profiles to the vehicle’s Eco, Normal or Sport drive mode.',
@@ -71,7 +72,11 @@ DESCRIPTIONS = {
   'CurveSpeedControllerNoLead': 'Pauses curve-speed adjustments while following a lead vehicle.',
   'ShowCSCStatus': 'Shows when Curve Speed Controller is adjusting speed on the driving screen.',
   'curve_reset': 'Deletes saved cornering learning so Curve Speed Controller can learn your preferences again.',
-  'SpeedLimitController': 'Follows accepted limits plus offsets up to SET speed. Missing data uses the previous accepted limit.',
+  'SpeedLimitController': ('On: StarPilot keeps you to the speed limit plus your offset. The limit caps your set speed, or becomes ' +
+                           'your set speed with SLC sets the set speed on. Off: the set speed is left to you.'),
+  'SLCSetsSetSpeed': ('Off: the speed limit with your offset is a maximum under your own set speed, and your set speed never ' +
+                      'changes. On: the speed limit with your offset becomes your set speed, so the set speed follows each new ' +
+                      'limit and the speed buttons change it from there. Only on cars where StarPilot controls the set speed.'),
   'SLCOnEngage': ('Starts software cruise SET at the SLC limit plus offset. ' +
                   'A limit accepted this session remains available during data gaps. Previous-drive history does not initialize SET. ' +
                   'RES restores the previous SET.'),
@@ -85,9 +90,11 @@ DESCRIPTIONS = {
                              'Existing adoption and confirmation settings still apply.'),
   'SLCAdvanceLowerSeconds': ('Offers lower mapped limits early using road distance and current speed. ' +
                             'Existing adoption and confirmation settings still apply.'),
-  'SLCPriority1': 'Chooses the first source checked for a fresh speed limit.',
-  'SLCPriority2': 'Chooses the source used when the primary source has no fresh speed limit.',
-  'SLCPriority3': 'Chooses an optional third source when neither earlier source has a fresh speed limit.',
+  'SLCPriority1': SLC_SOURCE_HELP['SLCPriority1'],
+  'SLCPriority2': SLC_SOURCE_HELP['SLCPriority2'],
+  'SLCPriority3': 'Used when neither of the first two sources has a speed limit. Off: no third source.',
+  'SLCLastLimitFallback': ('On: when no source has a speed limit at the start of a drive, StarPilot uses the last limit it ' +
+                           'accepted on an earlier drive. Off: it waits for a source.'),
   'slc_reset': 'Resets saved speed-limit offsets while retaining valid configured speed ranges.',
   'reset_calibration': 'Clears saved camera and steering calibration. The device recalibrates on the next drive.',
   'reset_driver_monitoring': 'Clear saved wheel-side detection. Automatic detection restarts on the next drive.',
@@ -140,6 +147,7 @@ DESCRIPTIONS = {
   'SoundPack': 'Chooses the sounds used for driving alerts and chimes.',
   'WarningImmediateVolume': 'Sets the starting volume of immediate warnings. These warnings still ramp to full volume.',
   'WarningSoftVolume': 'Sets the starting volume of soft warnings. Warning volume keeps its required minimum.',
+  'SLCWarningVolume': 'Sets the volume of the chime before Speed Limit Controller changes speed for a new limit. 0% mutes it.',
   'RefuseVolume': 'Sets the volume of the engagement-refused sound.',
   'PromptDistractedVolume': 'Sets the volume of distracted-driver prompts.',
   'EngageVolume': 'Sets the engagement-chime volume.',
@@ -359,6 +367,8 @@ def purpose(row):
     parts = key.split(':')
     category = parts[2] if len(parts) >= 3 else None
     if category in CATEGORY_HELP:
+      if len(parts) == 4 and parts[3] == 'slc_limit':
+        return row.reason  # each personality's SLC acceleration and braking limits carry their own text
       if len(parts) == 3:
         return CATEGORY_HELP[category]
       return {'following': 'Sets following time at this speed. Higher values leave more space.',
@@ -370,6 +380,8 @@ def purpose(row):
     suffix = next((name for name in VALUE_HELP if key.endswith(name)), None)
     value = VALUE_HELP.get(suffix)
     return value + ' Blends toward Relaxed as speed rises in Traffic mode.' if value and key.startswith('Traffic') else value
+  if key in SLC_CUSTOM_KEYS:
+    return row.reason  # the Speed Limit Controller settings explain themselves, with examples
   if key in SLC_OFFSET_KEYS:
     return 'Adds or subtracts this offset from the accepted speed limit within the displayed speed range.'
   if key.startswith('long_repair:'):

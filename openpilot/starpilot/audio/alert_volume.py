@@ -19,7 +19,10 @@ VOLUMES = (
   ("EngageVolume", "Engagement Chime", 0),
   ("DisengageVolume", "Disengagement Alert", 0),
   ("PromptVolume", "General Prompt", 0),
+  ("SLCWarningVolume", "SLC Limit Change", 0),
 )
+# Optional sounds are silent when their saved volume is unreadable or invalid; an unsaved volume is Auto, like the others.
+OPTIONAL = frozenset(("SLCWarningVolume",))
 SPECS = {key: (label, minimum) for key, label, minimum in VOLUMES}
 
 
@@ -65,7 +68,9 @@ def effective_volume(key: str, saved: int | None, ambient: float, *, immediate_r
   """Return gain without changing the stock Auto path or immediate-warning ramp."""
   if key not in SPECS:
     raise KeyError(key)
-  if saved is None or saved == AUTO:
+  if saved is None:
+    return 0.0 if key in OPTIONAL else ambient
+  if saved == AUTO:
     return ambient
   selected = saved / 100.0
   return max(selected, immediate_ramp) if immediate_ramp is not None else selected

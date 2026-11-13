@@ -40,6 +40,7 @@ from openpilot.starpilot.feature_capabilities import longitudinal_supported
 from openpilot.starpilot.conditional_mode.projection import paired_clocks_ns
 from openpilot.starpilot.conditional_mode.ui_action import observation as ui_manual_observation
 from openpilot.starpilot.longitudinal.cruise_ceiling import CurveCeiling
+from openpilot.starpilot.speed_limits.mapped_timing import acceleration_profile_from_host, profile_from_host
 from openpilot.starpilot.feature_runtime import enabled as feature_enabled, requested as feature_requested, slc_transport_capable
 import time
 
@@ -232,14 +233,16 @@ def update_curve_frame(planner: LongitudinalPlanner, sm, CP, now_ns: int, *, hos
                        event: CurveDriverEvent | None = None, lane_change_policy=None,
                        global_braking_response: str | None = None, selected_profiles=None, conditional_handoff: ConditionalHandoff | None = None,
                        lead_approach_key: LeadApproachKey | None = None, force_stop_provider=None,
-                       faster_lead_takeoff: bool = False, wheel_coast=None, experimental_speed_nudge: bool = True):
+                       faster_lead_takeoff: bool = False, wheel_coast=None, slc_comfort=None, slc_easing=None,
+                       experimental_speed_nudge: bool = True):
   """One model cycle: MPC chooses follow time, then Curve samples and receives winner feedback."""
   if host is None:
     planner.update(sm, cruise_ceiling=cruise_ceiling, profile_tuning=profile_tuning, traffic_mode=traffic_mode,
                    lane_change_policy=lane_change_policy, global_braking_response=global_braking_response, selected_profiles=selected_profiles,
                    conditional_handoff=conditional_handoff, lead_approach_key=lead_approach_key,
                    force_stop_provider=force_stop_provider, faster_lead_takeoff=faster_lead_takeoff, wheel_coast=wheel_coast,
-                   takeoff_drive_id=drive_id, now_ns=now_ns, drive_id=drive_id, experimental_speed_nudge=experimental_speed_nudge)
+                   takeoff_drive_id=drive_id, now_ns=now_ns, drive_id=drive_id, slc_comfort=slc_comfort, slc_easing=slc_easing,
+                   experimental_speed_nudge=experimental_speed_nudge)
     return None
   results = []
   def provider(follow_time_s: float | None):
@@ -252,7 +255,8 @@ def update_curve_frame(planner: LongitudinalPlanner, sm, CP, now_ns: int, *, hos
                  curve_provider=provider, traffic_mode=traffic_mode, lane_change_policy=lane_change_policy,
                  global_braking_response=global_braking_response, selected_profiles=selected_profiles, conditional_handoff=conditional_handoff,
                  lead_approach_key=lead_approach_key, force_stop_provider=force_stop_provider, faster_lead_takeoff=faster_lead_takeoff, wheel_coast=wheel_coast,
-                   takeoff_drive_id=drive_id, now_ns=now_ns, drive_id=drive_id, experimental_speed_nudge=experimental_speed_nudge)
+                   takeoff_drive_id=drive_id, now_ns=now_ns, drive_id=drive_id, slc_comfort=slc_comfort, slc_easing=slc_easing,
+                   experimental_speed_nudge=experimental_speed_nudge)
   confirm_curve_frame(host, planner, now_ns)
   return results[0] if results else None
 
@@ -338,8 +342,9 @@ def starpilot_main():
   traffic_capable = longitudinal_supported(CP) and feature_requested(params, 'conditional')
   traffic_settings = ConditionalSettingsOwner(params) if traffic_capable else None
   profile_request_ns = -1_000_000_000
-  profile_host = ProfileHost(params) if profile_host_needed(CP, profile_enabled=profile_replay,
-                                                            conditional_enabled=conditional_replay) or traffic_capable else None
+  profile_host = ProfileHost(params) if (profile_host_needed(CP, profile_enabled=profile_replay,
+                                                             conditional_enabled=conditional_replay) or traffic_capable or
+                                         slc_available and CP.openpilotLongitudinalControl) else None
   lane_gap_preferences = LaneGapPreferences(params) if CP.openpilotLongitudinalControl else None
   approach_preferences = LeadApproachPreferences(params) if CP.openpilotLongitudinalControl else None
   curve_preferences = CurvePreferenceHost(params) if curve_replay else None
@@ -374,6 +379,10 @@ def starpilot_main():
   publish_services = ['longitudinalPlan', 'starpilotLongitudinalPlan', 'driverAssistance']
   if slc_available or curve_host is not None or conditional_host is not None or traffic_owner is not None or mode_owner is not None:
     publish_services.append('slcState')
+  from openpilot.selfdrive.car.cruise import slc_sets_set_speed
+  from openpilot.starpilot.saved_source import read_saved
+  if slc_available and slc_sets_set_speed(CP, read_saved(params, 'SLCSetsSetSpeed', 1) == (b'1', True)):
+    publish_services.append('slcCruiseCommand')  # only a car where SLC sets the set speed sends set-speed commands
   pm = messaging.PubMaster(publish_services)
   native_plan_checks = list(NATIVE_PLAN_INPUTS)
   subscribed_services = list(NATIVE_PLAN_INPUTS)
@@ -455,11 +464,6 @@ def starpilot_main():
         pending_wheel = waiting_wheel
         # Curve observes the press before SLC sees the release. A queued Curve press can still own the tap.
         curve_event = current_cruise_event(pending_curve_events, now_ns)
-        slc_output = slc_lifecycle.step(sm, now_ns, pending_slc_actions, pending_slc_cruise, drive_changed=drive_changed,
-          wheel_override_blocked=wheel_override_blocked(force_stop_owner, curve_host, curve_backlog=bool(pending_curve_events)))
-        cruise_ceiling = slc_output.result.ceiling if slc_output is not None else None
-        if slc_output is not None:
-          planner_status = slc_output.message
         needs_clock = conditional_host is not None or traffic_owner is not None or force_stop_owner is not None or mode_owner is not None
         clock_pair = paired_clocks_ns() if needs_clock and 'REPLAY' not in os.environ else None
         controller_traffic_toggle = bool(wheel_coast.traffic_toggles % 2)
@@ -516,6 +520,26 @@ def starpilot_main():
                               drive_mode=observe_drive_mode(sm, now_ns=now_ns))
                              if profile_replay and profile_host is not None and
                              _profile_frame_valid(sm, now_ns) else None)
+        # SLC runs after profile selection: limit-change timing reads this frame's braking and acceleration curves and
+        # each personality's SLC acceleration and braking limits.
+        slc_runtime = slc_lifecycle.runtime
+        if slc_runtime is not None:
+          profile_ok = _profile_frame_valid(sm, now_ns)
+          slc_runtime.comfort_limits = (profile_host.sample_slc_limits(now_ns, sm['selfdriveState'].personality, CP,
+            traffic_mode=traffic_mode) if profile_host is not None and profile_ok else None)
+          slc_runtime.braking_profile = profile_from_host(profile_host, now_ns, sm['selfdriveState'].personality, CP,
+            traffic=traffic_mode, enabled=bool(profile_replay or traffic_mode is True), qualified=profile_ok,
+            previous=longitudinal_planner.last_profile, slc_limit=(slc_runtime.comfort_limits or {}).get("braking"))
+          slc_runtime.acceleration_profile = acceleration_profile_from_host(profile_host, now_ns, sm['selfdriveState'].personality, CP,
+            traffic=traffic_mode, enabled=bool(profile_replay or traffic_mode is True), qualified=profile_ok,
+            slc_limit=(slc_runtime.comfort_limits or {}).get("acceleration"))
+        slc_output = slc_lifecycle.step(sm, now_ns, pending_slc_actions, pending_slc_cruise, drive_changed=drive_changed,
+          wheel_override_blocked=wheel_override_blocked(force_stop_owner, curve_host, curve_backlog=bool(pending_curve_events)))
+        cruise_ceiling = slc_output.result.ceiling if slc_output is not None else None
+        if slc_output is not None:
+          planner_status = slc_output.message
+        if slc_output is not None and slc_output.command is not None:
+          pm.send('slcCruiseCommand', slc_output.command)
         lane_change_policy = lane_gap_preferences.sample(now_ns) if lane_gap_preferences is not None else None
         lead_approach_key = lead_approach_for_frame(approach_preferences, sm, CP, now_ns)
         if curve_preferences is not None and curve_host is not None:
@@ -544,6 +568,8 @@ def starpilot_main():
                                           lead_approach_key=lead_approach_key, force_stop_provider=force_stop_provider,
                                           drive_id=current_start_ns, event=curve_event,
                                           faster_lead_takeoff=faster_lead_takeoff, wheel_coast=(wheel_coast, params),
+                                          slc_comfort=slc_runtime.comfort_request if slc_runtime is not None else None,
+                                          slc_easing=slc_runtime.easing_request if slc_runtime is not None else None,
                                           experimental_speed_nudge=nudge_preferences.sample(now_ns))
         if curve_preferences is not None and curve_host is not None and curve_result is not None:
           curve_preferences.persist(curve_host, curve_result, now_ns)

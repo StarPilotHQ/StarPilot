@@ -12,7 +12,7 @@ from openpilot.starpilot.longitudinal.profile_document import (
   ACCELERATION_PRESETS, ACCELERATION_SPEEDS_MPH, BRAKING_PRESETS, FOLLOWING_PRESETS, CURVE_BOUNDS,
   DEFAULT_DECELERATION_PROFILE, MAX_EXTRA_STOPPED_GAP_M, default_personality_profiles, initial_custom_curve,
   FOLLOWING_SPEEDS_MPH, is_truck_fingerprint, personality_reference_curves, serialize_personality_profiles,
-  update_personality_profile, profile_document,
+  update_personality_profile, profile_document, default_slc_limits, SLC_LIMIT_DEFAULTS, SLC_LIMIT_BOUNDS,
 )
 from openpilot.starpilot.speed_limits.offset_document import MPH_TO_MPS
 from openpilot.starpilot.ui.long_profile_feature import preset_value
@@ -57,6 +57,7 @@ def edit_document(self: FeatureSettingsOwner, key: str, value: str, *, seed_capa
     return serialize_personality_profiles(profiles, False, truck, enabled=document['enabled'] if document is not None else False,
                                           selected_acceleration_profile=selected if category == 'acceleration' else acceleration,
                                           selected_deceleration_profile=selected if category == 'braking' else braking,
+                                          slc_limits=document["slcLimits"] if document is not None else None,
                                           extra_stopped_gap_m=document.get("extraStoppedGapM", 0.) if document is not None else 0.)
   if len(parts) not in (3, 4) or parts[1] not in DOCUMENT_PROFILE_NAMES or parts[2] not in PRESETS:
     return None
@@ -73,6 +74,22 @@ def edit_document(self: FeatureSettingsOwner, key: str, value: str, *, seed_capa
         seed_capability is not None and seed_capability[1] == car.CarParams.TransmissionType.direct)
   truck = is_truck_fingerprint(fingerprint) and not ev if name == "traffic" or seed_capability is not None else is_truck_fingerprint(fingerprint)
   profiles = document["profiles"] if document is not None else default_personality_profiles(ev, truck)
+  if len(parts) == 4 and parts[3] == 'slc_limit':
+    # The SLC acceleration / braking limit for this personality (used while Use SLC acceleration / braking limits is on).
+    if category not in SLC_LIMIT_DEFAULTS:
+      return None
+    try:
+      limit = float(value)
+    except (TypeError, ValueError):
+      return None
+    if not math.isfinite(limit) or not SLC_LIMIT_BOUNDS[0] <= limit <= SLC_LIMIT_BOUNDS[1]:
+      return None
+    limits = document['slcLimits'] if document is not None else default_slc_limits()
+    limits[name][category] = limit
+    return serialize_personality_profiles(profiles, ev, truck, enabled=document['enabled'] if document is not None else False,
+      selected_acceleration_profile=document['selectedAccelerationProfile'] if document is not None else 'dom_default',
+      selected_deceleration_profile=document['selectedDecelerationProfile'] if document is not None else DEFAULT_DECELERATION_PROFILE,
+      slc_limits=limits, extra_stopped_gap_m=document.get("extraStoppedGapM", 0.) if document is not None else 0.)
   config = profiles[name][category]
   seed_config = config
   if config['preset'] == 'selected_profile':
@@ -123,4 +140,5 @@ def edit_document(self: FeatureSettingsOwner, key: str, value: str, *, seed_capa
                                         selected_acceleration_profile=document["selectedAccelerationProfile"] if document is not None else "dom_default",
                                         selected_deceleration_profile=(document["selectedDecelerationProfile"] if document is not None
                                                                        else DEFAULT_DECELERATION_PROFILE),
+                                        slc_limits=document["slcLimits"] if document is not None else None,
                                         extra_stopped_gap_m=document.get("extraStoppedGapM", 0.) if document is not None else 0.)

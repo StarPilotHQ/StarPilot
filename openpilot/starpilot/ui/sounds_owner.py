@@ -50,6 +50,8 @@ class SoundsOwner:
         reason = (("StarPilot Auto keeps a 50% baseline; ramps to full volume" if selected == DEFAULT_PACK else
                    "Follows ambient sound; ramps to full volume") if saved.value == AUTO else
                   "Minimum starting level; still ramps to full volume")
+      if key == "SLCWarningVolume":
+        reason += ". 0% mutes the chime before a speed-limit change"
       rows.append(FeatureRow(key, label, value, source=saved.raw, choices=("Auto",) if numeric else choices(key),
                              step=5.0 if saved.valid else 0.0, minimum=float(SPECS[key][1]), maximum=100.0,
                              unit="%" if saved.valid else "",

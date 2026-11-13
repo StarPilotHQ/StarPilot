@@ -1,6 +1,7 @@
 from openpilot.starpilot.gps.publisher import CarGpsPublisher
 #!/usr/bin/env python3
 import os
+from collections import deque
 import time
 import threading
 import uuid
@@ -33,7 +34,7 @@ from opendbc.car.hyundai.ioniq6_media import Ioniq6MediaButtons
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
 from opendbc.car.interfaces import CarInterfaceBase, RadarInterfaceBase
 from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
-from openpilot.selfdrive.car.cruise import SlcWheelContext, VCruiseHelper
+from openpilot.selfdrive.car.cruise import slc_sets_set_speed, SlcPendingConfirmation, SlcWheelContext, VCruiseHelper
 from openpilot.starpilot.speed_limits import physical_actions as slc_physical
 from openpilot.starpilot.aol.intent import AolProcessFaultContext, independent_axis_requested, read_settings
 from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback, cp_identity
@@ -190,6 +191,12 @@ class Car:
     self.slc_cruise_event_id = 0
     self.slc_producer_session = uuid.uuid4().hex
     self.slc_receipts: list[tuple[str, object, float, float, int]] = []
+    # SLC set-speed commands, only where SLC sets the set speed (cruise.slc_sets_set_speed).
+    self.slc_command_sock = None
+    self.slc_set_speed_startup = False
+    self.slc_commands = deque(maxlen=8)
+    self.slc_last_command_id = 0
+    self.slc_command_session = ''
     self.manual_receipt = None
     self.manual_event_sequence = 0
     self.traffic_receipt = None
@@ -441,6 +448,10 @@ class Car:
       for ignored in (self.sm.ignore_alive, self.sm.ignore_valid, self.sm.ignore_average_freq):
         if 'slcState' not in ignored:
           ignored.append('slcState')
+      # Chosen at startup: only a car where SLC sets the set speed takes its commands (slc_sets_set_speed).
+      self.slc_set_speed_startup = slc_sets_set_speed(self.CP, read_saved(self.params, 'SLCSetsSetSpeed', 1) == (b'1', True))
+      if self.slc_command_sock is None and self.slc_set_speed_startup:
+        self.slc_command_sock = messaging.sub_sock('slcCruiseCommand', conflate=False)
       if 'slcDashboardObservation' not in self.pm.sock:
         self.pm.sock['slcDashboardObservation'] = messaging.pub_sock('slcDashboardObservation')
     self.slc_requested_configuration = self.read_slc_configuration()
@@ -500,6 +511,9 @@ class Car:
     self.slc_control_enabled = self.slc_replay and configuration[1].enabled
     # Invalidate old SLC choices while keeping consumed buttons latched until release.
     self.slc_source_floor_ns = max(getattr(self, 'slc_source_floor_ns', 0), now_ns)
+    self.slc_commands.clear()
+    self.slc_command_session = ''
+    self.slc_last_command_id = 0
 
   def observe_distance_personality(self, CS: car.CarState, now_ns: int) -> None:
     tracker = getattr(self, 'distance_personality_tracker', None)
@@ -810,6 +824,50 @@ class Car:
                                         slc_replay=self.slc_replay, host_long_active=host_long_active, observed_ns=now_ns)
     if curve_receipt is not None:
       self.slc_receipts.append(curve_receipt)
+    # SLC sets the set speed (slc_sets_set_speed): apply SLC's qualified command to the software set speed.
+    if getattr(self, 'slc_command_sock', None) is not None and self.slc_set_speed_rule():
+      for _ in range(8):
+        command_message = messaging.recv_one_or_none(self.slc_command_sock)
+        if command_message is None:
+          break
+        if self.slc_replay and command_message.valid:
+          self.slc_commands.append(command_message)
+      for _ in range(len(self.slc_commands)):
+        command_message = self.slc_commands.popleft()
+        command = command_message.slcCruiseCommand
+        if int(command.issuedMonoTime) <= floor_ns:
+          continue
+        if now_ns < int(command.issuedMonoTime):
+          if now_ns <= int(command.expiresMonoTime):
+            self.slc_commands.append(command_message)
+          continue
+        state = slc_physical.state_current(self.sm, observation, self.slc_producer_session, now_ns)
+        if (state is None or int(self.sm.logMonoTime['slcState']) < int(command.issuedMonoTime)) and now_ns < int(command.expiresMonoTime):
+          self.slc_commands.append(command_message)
+          continue
+        if state is not None and str(state.sessionId) != self.slc_command_session:
+          self.slc_command_session = str(state.sessionId)
+          self.slc_last_command_id = 0
+        if not self.slc_command_session:
+          self.slc_command_session = str(command.sessionId)
+        if str(command.sessionId) != self.slc_command_session or int(command.commandId) <= self.slc_last_command_id:
+          continue
+        self.slc_last_command_id = int(command.commandId)
+        previous_mps = float(self.v_cruise_helper.v_cruise_kph / 3.6)
+        origin = SlcPendingConfirmation(str(command.sessionId), int(command.decisionId), int(command.presentationId))
+        owners = {**self.v_cruise_helper.slc_suppression_owner, **self.v_cruise_helper.slc_released_owner}
+        allowed_buttons = {button for button, owner in owners.items() if owner == origin} if int(command.decisionId) > 0 else set()
+        intervening_button = (bool(self.v_cruise_helper.slc_cruise_change) or
+                              any(b.type.raw not in allowed_buttons for b in CS.buttonEvents) or
+                              any(timer > 0 and button not in allowed_buttons
+                                  for button, timer in self.v_cruise_helper.button_timers.items()))
+        applicable = slc_physical.command_applicable(
+          command, state, observation, self.slc_producer_session, now_ns, previous_mps,
+          long_active=slc_long_active, button_event=intervening_button)
+        if applicable:
+          self.v_cruise_helper.apply_slc_target(float(command.targetMps), self.is_metric)
+        self.slc_receipts.append(('commandApplied' if applicable else 'commandRejected', command,
+                                  previous_mps, float(self.v_cruise_helper.v_cruise_kph / 3.6), now_ns))
     blocked_keys = set()
     if self.manual_receipt is not None:
       blocked_keys.add(key_for(self.manual_receipt[0]))
@@ -824,6 +882,17 @@ class Car:
     CS.vCruiseCluster = float(self.v_cruise_helper.v_cruise_cluster_kph)
 
     return CS, RD
+
+  def slc_set_speed_rule(self) -> bool:
+    # SLC writes the set speed on this car (cruise.slc_sets_set_speed). The choice made at startup holds for the drive,
+    # as the command channel does.
+    return bool(getattr(self, 'slc_set_speed_startup', False))
+
+  def slc_pedal_sets_speed(self) -> bool:
+    # Speed Limit Controller's "Set new speed with pedal override", only while SLC sets the set speed.
+    configuration = getattr(self, 'slc_configuration', None)
+    return bool(getattr(self, 'slc_control_enabled', False) and configuration is not None and self.slc_set_speed_rule() and
+                getattr(getattr(configuration[1], 'custom', None), 'pedal_sets_speed', False))
 
   def apply_slc_adopt(self, now_ns: int, *, host_control_enabled: bool, after_ns: int = 0) -> None:
     pending = getattr(self, 'slc_wheel_adopt', None)
@@ -844,11 +913,15 @@ class Car:
   def update_cruise_speed(self, CS, pending=None, *, wheel_context: SlcWheelContext | None = None):
     self.v_cruise_helper.update_v_cruise(CS, self.sm['carControl'].enabled, self.is_metric, pending,
                                        slc_enabled=getattr(self, 'slc_control_enabled', getattr(self, 'slc_replay', False)),
+                                       pedal_sets_speed=self.slc_pedal_sets_speed(),
                                        wheel_context=wheel_context)
     if self.sm['carControl'].enabled and not self.CC_prev.enabled:
       target, initial = None, None
       now_ns = int(self.can_log_mono_time) if REPLAY and hasattr(self, 'can_log_mono_time') else time.monotonic_ns()
-      if (getattr(self, 'slc_match_on_engage', False) and getattr(self, 'slc_control_enabled', False) and
+      # Where SLC sets the set speed, engaging always starts SET at the current limit + offset; otherwise Match Speed
+      # Limit on Engage decides, for cars without their own cruise.
+      set_speed_rule = self.slc_set_speed_rule()
+      if ((set_speed_rule or getattr(self, 'slc_match_on_engage', False)) and getattr(self, 'slc_control_enabled', False) and
           not self.CP.pcmCruise and self.CP.openpilotLongitudinalControl and
           CS.canValid and not CS.canTimeout and CS.cruiseState.available and
           self.sm.valid['carControl'] and self.sm.alive['carControl'] and
@@ -861,9 +934,15 @@ class Car:
           long_requested = axis is not None and axis.nativeAcknowledged and axis.desiredLongitudinal
         if long_requested:
           evidence = getattr(self.CI.CS, 'dashboard_limit', None)
-          target, initial = slc_physical.engagement_target(
-            self.sm, evidence.observation if evidence is not None else None, self.slc_producer_session,
-            now_ns, after_ns=getattr(self, 'slc_source_floor_ns', 0))
+          if set_speed_rule:
+            initial = slc_physical.engagement_state(
+              self.sm, evidence.observation if evidence is not None else None, self.slc_producer_session,
+              now_ns, after_ns=getattr(self, 'slc_source_floor_ns', 0))
+            target = float(initial.presentationAdjustedLimit) if initial is not None else None
+          else:
+            target, initial = slc_physical.engagement_target(
+              self.sm, evidence.observation if evidence is not None else None, self.slc_producer_session,
+              now_ns, after_ns=getattr(self, 'slc_source_floor_ns', 0))
       adopted = self.v_cruise_helper.initialize_v_cruise(
         self.CS_prev, self.experimental_mode, resume=self.vehicle_startup.consume_cruise_resume(), initial_speed=self.initial_cruise_speed,
         slc_target_mps=target, is_metric=self.is_metric)
@@ -1217,6 +1296,12 @@ class Car:
           record.decisionId = int(detail.decisionId)
           record.presentationId = int(detail.presentationId)
           record.button = 'decel'
+        elif kind in ('commandApplied', 'commandRejected'):
+          # card's receipt for an SLC set-speed command; the runtime matches it to the command it issued.
+          record.sessionId = str(detail.sessionId)
+          record.commandId = int(detail.commandId)
+          record.decisionId = int(detail.decisionId)
+          record.presentationId = int(detail.presentationId)
         self.pm.send('slcCruiseEvent', event)
 
     if getattr(self, 'conditional_replay', False) and self.manual_receipt is not None:

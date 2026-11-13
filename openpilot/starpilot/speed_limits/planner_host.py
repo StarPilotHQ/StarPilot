@@ -42,6 +42,8 @@ class SavedSlcLifecycle:
     saved_slc = read_slc_settings(self.params)
     admitted = feature_enabled(self.params, self.cp, 'slc', self.environment, saved_slc=saved_slc)
     settings = slc_runtime_settings(self.params, self.cp, self.environment, saved_slc=saved_slc)
+    # Card rounding follows current display units.
+    settings = replace(settings, metric=self.params.get_bool('IsMetric'))
     vision = admitted and feature_enabled(self.params, self.cp, 'vision', self.environment, saved_slc=saved_slc)
     configuration = (admitted and not settings.errors, settings, vision,
                      vision_control_enabled(self.params, self.cp, saved_slc=saved_slc),
@@ -57,6 +59,11 @@ class SavedSlcLifecycle:
       old_admitted, old_settings, *old_display = self.configuration
       retimed = replace(old_settings, advance_higher_seconds=settings.advance_higher_seconds,
                         advance_lower_seconds=settings.advance_lower_seconds)
+      # Limit-change timing, offset type, fallback delay, limit switches and units are edited in place unless manual
+      # memory or re-engage change, which own per-drive state.
+      if (settings.custom.manual_memory == old_settings.custom.manual_memory and
+          settings.custom.reengage == old_settings.custom.reengage):
+        retimed = replace(retimed, custom=settings.custom, metric=settings.metric)
       timing_only = configuration == (old_admitted, retimed, *old_display)
       preserve_runtime |= configuration[:-1] == (old_admitted, replace(retimed, offsets=settings.offsets), *old_display[:-1])
     if preserve_runtime:
@@ -72,6 +79,8 @@ class SavedSlcLifecycle:
       if settings.wheel_override != self.runtime.settings.wheel_override:
         self.runtime.state = replace(self.runtime.state, wheel_override_metric=None, wheel_override_since_ns=0)
       self.runtime.settings = settings
+      self.runtime.mapped.cache = None
+      self.runtime.mapped.higher_cache = None
       self.runtime.vision_enabled = vision
       self.runtime.vision_control_qualified = vision and configuration[3]
       self.runtime.vision_display_qualified = bool(vision and configuration[4] and settings.display and not settings.enabled)
@@ -80,17 +89,28 @@ class SavedSlcLifecycle:
         self.runtime.reset()
       session_id = secrets.token_hex(16)
       saved_history, _ = read_saved(self.params, 'SLCQualifiedHistory', history.MAX_BYTES)
+      # Where SLC sets the set speed, an earlier drive's limit seeds the session only with Use the last limit on.
+      if not self._carry_last_limit():
+        saved_history = None
       self.runtime = (SlcRuntime(settings, vision_enabled=vision,
                                  vision_control_qualified=configuration[3],
                                  vision_display_qualified=configuration[4], is_metric=configuration[5],
                                  session_id=session_id, previous_limit=history.decode(saved_history, session_id=session_id))
                       if configuration[0] else None)
+    if self.runtime is not None:
+      self.runtime.carry_last_limit = self._carry_last_limit()
     self.configuration = configuration
     if pending_actions is not None and not timing_only:
       pending_actions.clear()
     if pending_cruise is not None and (self.runtime is None or self.runtime is not previous_runtime):
       pending_cruise.clear()
     return self.runtime, True
+
+  def _carry_last_limit(self):
+    # Where SLC sets the set speed, an earlier limit seeds a new session only with Use the last limit switched on.
+    from openpilot.selfdrive.car.cruise import slc_sets_set_speed
+    return not (slc_sets_set_speed(self.cp, read_saved(self.params, 'SLCSetsSetSpeed', 1) == (b'1', True)) and
+                read_saved(self.params, 'SLCLastLimitFallback', 1) != (b'1', True))
 
   def step(self, sm, now_ns, pending_actions, pending_cruise, *, drive_changed, wheel_override_blocked=False):
     runtime = self.runtime

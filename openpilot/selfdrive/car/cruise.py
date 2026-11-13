@@ -8,6 +8,15 @@ from openpilot.common.constants import CV
 from openpilot.starpilot.longitudinal.cruise_intervals import CruiseIntervals
 
 
+def slc_sets_set_speed(CP, option: bool = False) -> bool:
+  """Whether Speed Limit Controller writes the software set speed (limit + offset becomes SET) instead of supplying a
+  ceiling beneath the driver's SET: the saved choice (SLCSetsSetSpeed, off by default) on cars where StarPilot owns the
+  set speed (no PCM cruise). Needs StarPilot longitudinal control."""
+  if not option or not CP.openpilotLongitudinalControl:
+    return False
+  return not CP.pcmCruise
+
+
 # WARNING: this value was determined based on the model's training distribution,
 #          model predictions above this speed can be unpredictable
 # V_CRUISE's are in kph
@@ -72,6 +81,9 @@ class VCruiseHelper:
     self.slc_cruise_change: tuple[float, float, str, bool] | None = None
     self.slc_consumed_button: SlcConsumedButton | None = None
     self.slc_suppressed_buttons: set[ButtonType] = set()
+    # Which pending confirmation each consumed button answered (card matches SLC set-speed commands to it).
+    self.slc_suppression_owner: dict[ButtonType, SlcPendingConfirmation] = {}
+    self.slc_released_owner: dict[ButtonType, SlcPendingConfirmation] = {}
     self.slc_released_suppressed = False
     self.slc_wheel_press: SlcWheelContext | None = None
     self.slc_wheel_tap: SlcWheelContext | None = None
@@ -81,13 +93,14 @@ class VCruiseHelper:
     return self.v_cruise_kph != V_CRUISE_UNSET
 
   def update_v_cruise(self, CS, enabled, is_metric, slc_pending: SlcPendingConfirmation | None = None, *,
-                      slc_enabled: bool = False, wheel_context: SlcWheelContext | None = None):
+                      slc_enabled: bool = False, wheel_context: SlcWheelContext | None = None, pedal_sets_speed: bool = False):
     from opendbc.car.subaru.software_cruise import selected as subaru_software_selected
     subaru_software = subaru_software_selected(self.CP)
     software_cruise = not self.CP.pcmCruise or subaru_software
     self.slc_cruise_change = None
     self.slc_consumed_button = None
     self.slc_released_suppressed = False
+    self.slc_released_owner = {}
     self.slc_wheel_tap = None
     self.v_cruise_kph_last = self.v_cruise_kph
     now_ns = monotonic_ns()
@@ -120,6 +133,7 @@ class VCruiseHelper:
           stock_kph = CS.cruiseState.speed * CV.MS_TO_KPH
           self.v_cruise_kph = stock_kph if 0 < stock_kph < V_CRUISE_UNSET else V_CRUISE_UNSET
         self._update_v_cruise_non_pcm(CS, enabled, is_metric)
+        self._pedal_set_speed(CS, enabled, is_metric, pedal_sets_speed)
         self.v_cruise_cluster_kph = self.v_cruise_kph
         self.update_button_timers(CS, enabled)
       else:
@@ -182,6 +196,9 @@ class VCruiseHelper:
         continue
       if not b.pressed and button in self.slc_suppressed_buttons:
         self.slc_suppressed_buttons.remove(button)
+        prior_owner = self.slc_suppression_owner.pop(button, None)
+        if prior_owner is not None:
+          self.slc_released_owner[button] = prior_owner
         self.slc_released_suppressed = True
         self.button_timers[button] = 0
       elif (b.pressed and enabled and CS.cruiseState.available and slc_pending is not None and
@@ -189,6 +206,7 @@ class VCruiseHelper:
                  (CS.standstill or CS.cruiseState.standstill or not CS.cruiseState.enabled)) and
             button not in self.slc_suppressed_buttons):
         self.slc_suppressed_buttons.add(button)
+        self.slc_suppression_owner[button] = slc_pending
         self.slc_consumed_button = SlcConsumedButton(slc_pending, 'accel' if button == ButtonType.accelCruise else 'decel')
 
   def _update_v_cruise_non_pcm(self, CS, enabled, is_metric):
@@ -233,6 +251,29 @@ class VCruiseHelper:
     changed = self.adjust_v_cruise(button_type, CS, is_metric, long_press=long_press)
     if changed and button_type == ButtonType.accelCruise and not long_press and self.button_timers[button_type] > 0:
       self.slc_wheel_tap = self.slc_wheel_press
+
+  def _pedal_set_speed(self, CS, enabled, is_metric, active: bool) -> bool:
+    """Set new speed with pedal override: releasing the accelerator above the set speed, or the brake below it while
+    still engaged (where braking does not disengage), makes the speed at release the new set speed, rounded to whole
+    display units. Reported like a button change, so Speed Limit Controller treats it as the driver's own speed."""
+    gas, brake = bool(CS.gasPressed), bool(CS.brakePressed)
+    gas_released = getattr(self, 'pedal_gas_was', False) and not gas
+    brake_released = getattr(self, 'pedal_brake_was', False) and not brake
+    self.pedal_gas_was, self.pedal_brake_was = gas, brake
+    direction = 1 if gas_released else -1 if brake_released else 0
+    if (not active or not direction or not enabled or self.slc_cruise_change is not None or
+        not 0 < self.v_cruise_kph < V_CRUISE_UNSET or CS.cruiseState.standstill):
+      return False
+    speed = CS.vEgoCluster if CS.vEgoCluster > 0 else CS.vEgo
+    unit = 1. if is_metric else CV.MPH_TO_KPH
+    target = float(np.clip(round(round(speed * CV.MS_TO_KPH / unit) * unit, 1), V_CRUISE_MIN, V_CRUISE_MAX))
+    # Only a change of at least one display unit in the pedal's direction (accelerator up, brake down).
+    if direction * (target - self.v_cruise_kph) < unit - 0.05:
+      return False
+    previous_kph = self.v_cruise_kph
+    self.v_cruise_kph = target
+    self.slc_cruise_change = (float(previous_kph / 3.6), float(target / 3.6), 'accel' if direction > 0 else 'decel', False)
+    return True
 
   def adjust_v_cruise(self, button_type, CS, is_metric: bool, *, long_press: bool = False) -> bool:
     """Apply the normal software cruise step without synthesizing button events."""
@@ -279,7 +320,7 @@ class VCruiseHelper:
         self.button_change_states[b.type.raw] = {"standstill": CS.cruiseState.standstill, "enabled": enabled}
 
   def apply_slc_target(self, target_mps: float, is_metric: bool) -> None:
-    """Set the software cruise ceiling for engagement or a qualified driver request."""
+    """Set the software cruise speed: engagement, a qualified driver request or a qualified SLC set-speed command."""
     # Match ordinary button precision so stepping away and back restores this target.
     self.v_cruise_kph = slc_target_kph(target_mps, is_metric)
     self.v_cruise_cluster_kph = self.v_cruise_kph
