@@ -11,6 +11,8 @@ from typing import Any
 
 from openpilot.cereal import messaging
 from openpilot.common.params import Params
+from openpilot.common.swaglog import cloudlog
+from openpilot.starpilot.flm.offroad_route import RouteInputError
 from openpilot.starpilot.flm.offroad_worker import OffroadWorker
 from openpilot.starpilot.flm.training_report import report_path, READ_MAX_BYTES, _report_bounded
 
@@ -277,6 +279,28 @@ def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic):
     timeout = 20
 
 
+def run_parked_analysis(worker, report):
+  """Advance promptly only after an unreadable input was durably skipped."""
+  try:
+    report.set(worker.run_once())
+  except (ValueError, OSError, RuntimeError) as error:
+    if isinstance(error, RouteInputError):
+      cloudlog.warning(
+        'FLM skipped unreadable drive %s: %s; continuing with other drives',
+        error.route_id or 'last local recording', str(error)[:300],
+      )
+    else:
+      traceback.print_exc()
+    try:
+      failure = worker.record_failure(error)
+    except (ValueError, OSError, RuntimeError) as checkpoint_error:
+      traceback.print_exc()
+      failure = {'status': 'unavailable', 'reason': f'Could not record route failure: {checkpoint_error}'[:300]}
+    report.set(failure if failure is not None else {'status': 'unavailable', 'reason': str(error)[:300]})
+    return isinstance(error, RouteInputError) and type(failure) is dict and failure.get('route_skipped') is True
+  return False
+
+
 def main():
   from openpilot.common.hardware.hw import Paths
   from openpilot.starpilot.flm.offroad_cache import directory_for_params
@@ -346,16 +370,8 @@ def main():
         )
       elif parked() and time.monotonic() >= next_analysis:
         next_analysis = time.monotonic() + 10.0
-        try:
-          report.set(worker.run_once())
-        except (ValueError, OSError, RuntimeError) as error:
-          traceback.print_exc()
-          try:
-            failure = worker.record_failure(error)
-          except (ValueError, OSError, RuntimeError) as checkpoint_error:
-            traceback.print_exc()
-            failure = {'status': 'unavailable', 'reason': f'Could not record route failure: {checkpoint_error}'[:300]}
-          report.set(failure if failure is not None else {'status': 'unavailable', 'reason': str(error)[:300]})
+        if run_parked_analysis(worker, report):
+          next_analysis = time.monotonic()
       report.publish()
       if not stopped:
         time.sleep(0.05)

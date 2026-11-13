@@ -9,6 +9,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import zstandard as zstd
+
 from opendbc.car import structs
 from openpilot.cereal import log
 from openpilot.common.params import Params
@@ -52,6 +54,24 @@ def recording(root, counter, *, corrupt=False, closed=True, segment=0):
   return name, path, raw
 
 
+def zstd_recording(root, counter, *, fault=None, **kwargs):
+  name, original, compressed = recording(root, counter, **kwargs)
+  data = bz2.decompress(compressed)
+  compressor = zstd.ZstdCompressor(write_content_size=False)
+  complete = compressor.compress(data)
+  if fault == 'unfinished':
+    stream = compressor.compressobj()
+    compressed = stream.compress(data) + stream.flush(zstd.COMPRESSOBJ_FLUSH_BLOCK)
+  elif fault == 'trailing':
+    compressed = complete + b'declared trailing bytes'
+  else:
+    compressed = complete
+  path = original.with_name('rlog.zst')
+  path.write_bytes(compressed)
+  original.unlink()
+  return name, path, complete
+
+
 class TestRouteFaultIsolation(unittest.TestCase):
   def setup_worker(self, directory, latest):
     root = Path(directory)
@@ -60,6 +80,73 @@ class TestRouteFaultIsolation(unittest.TestCase):
     params.put('RouteCount', int(latest.split('--')[0], 16) + 1, block=True)
     worker = OffroadWorker(params, root / 'logs', root / 'cache', permitted=lambda: True, scope_for=lambda *args: scope())
     return params, worker
+
+  def test_interrupted_zstd_tail_does_not_stop_daemon_or_admit_its_valid_prefix(self):
+    from openpilot.starpilot.flm import offroad_daemon as daemon
+
+    for fault in ('unfinished', 'trailing'):
+      with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
+        root = Path(directory) / 'logs'
+        bad, _, _ = zstd_recording(root, 18, closed=False)
+        _, damaged, complete = zstd_recording(root, 18, segment=1, fault=fault)
+        good, _, _ = zstd_recording(root, 17)
+        params, worker = self.setup_worker(directory, bad)
+        report = daemon.StatusReport(path=Path(directory) / 'status.json')
+        with patch.object(daemon.traceback, 'print_exc') as trace, patch.object(daemon.cloudlog, 'warning') as warning:
+          self.assertTrue(daemon.run_parked_analysis(worker, report))
+          self.assertTrue(report.current['route_skipped'])
+          self.assertNotIn('completed_route', report.current)
+          self.assertNotIn('recorded_tracking', report.current)
+          self.assertEqual(report.current['skipped_routes'][0][0], bad)
+          if fault == 'unfinished':
+            self.assertIn('incomplete or trailing zstd frame', report.current['reason'])
+          warning.assert_called_once()
+          self.assertFalse(daemon.run_parked_analysis(worker, report))
+          self.assertEqual(report.current['completed_route'], good)
+          self.assertEqual(report.current['analysis_counts']['recorded_lateral_request_rows'], 50)
+          trace.assert_not_called()
+        self.assertIsNone(params.get(KEY))
+        restarted = OffroadWorker(params, root, worker.cache, permitted=lambda: True, scope_for=lambda *args: scope())
+        with patch('openpilot.starpilot.flm.offroad_route.decode_full_rlog_segment', side_effect=AssertionError('Do not retry damaged input')):
+          self.assertFalse(daemon.run_parked_analysis(restarted, report))
+        self.assertEqual(report.current['completed_route'], good)
+        damaged.write_bytes(complete)
+        self.assertFalse(daemon.run_parked_analysis(restarted, report))
+        self.assertEqual(report.current['completed_route'], bad)
+        self.assertEqual(report.current['analysis_counts']['recorded_lateral_request_rows'], 100)
+        self.assertIsNone(params.get(KEY))
+
+  def test_unexpected_analysis_failure_keeps_diagnostics_and_normal_retry_delay(self):
+    from openpilot.starpilot.flm import offroad_daemon as daemon
+
+    def failed_run():
+      raise RuntimeError('declared unexpected analysis failure')
+
+    report = daemon.StatusReport()
+    worker = SimpleNamespace(run_once=failed_run, record_failure=lambda error: None)
+    with patch.object(daemon.traceback, 'print_exc') as trace, patch.object(daemon.cloudlog, 'warning') as warning:
+      self.assertFalse(daemon.run_parked_analysis(worker, report))
+      trace.assert_called_once()
+      warning.assert_not_called()
+    self.assertEqual(report.current['status'], 'unavailable')
+    self.assertIn('declared unexpected analysis failure', report.current['reason'])
+
+  def test_failed_skip_checkpoint_does_not_trigger_immediate_retry(self):
+    from openpilot.starpilot.flm import offroad_daemon as daemon
+
+    def failed_run():
+      raise RouteInputError('00000012--aaaaaaaaaa', 'declared incomplete zstd recording')
+
+    def failed_checkpoint(error):
+      raise OSError('declared unavailable checkpoint storage')
+
+    report = daemon.StatusReport()
+    worker = SimpleNamespace(run_once=failed_run, record_failure=failed_checkpoint)
+    with patch.object(daemon.traceback, 'print_exc') as trace, patch.object(daemon.cloudlog, 'warning') as warning:
+      self.assertFalse(daemon.run_parked_analysis(worker, report))
+      trace.assert_called_once()
+      warning.assert_called_once()
+    self.assertIn('Could not record route failure', report.current['reason'])
 
   def test_corrupt_newest_does_not_block_real_older_analysis_or_repeat_each_poll(self):
     with tempfile.TemporaryDirectory() as directory:
