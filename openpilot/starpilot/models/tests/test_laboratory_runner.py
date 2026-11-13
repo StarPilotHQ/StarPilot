@@ -63,7 +63,7 @@ class TestLaboratoryFrame(unittest.TestCase):
     import ast
     source = Path(__file__).resolve().parents[3] / "selfdrive/modeld/modeld.py"
     main = next(node for node in ast.parse(source.read_text()).body if isinstance(node, ast.FunctionDef) and node.name == "main")
-    assignments = [node for node in ast.walk(main) if isinstance(node, ast.Assign) and
+    assignments: list[ast.stmt] = [node for node in ast.walk(main) if isinstance(node, ast.Assign) and
                    any(isinstance(target, ast.Name) and target.id in ("bufs", "transforms") for target in node.targets)]
     caller = compile(ast.fix_missing_locations(ast.Module(body=assignments, type_ignores=[])), str(source), "exec")
     pair = make_pair()
