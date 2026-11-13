@@ -75,6 +75,13 @@ class TestLegacyRecordings(unittest.TestCase):
     for folder in (before, unsynced, synced):
       self.delete(folder)
 
+  def test_route_counts_are_chained_only_within_one_root(self):
+    # Route 2 in the legacy root does not follow route 1 in the current root.
+    unsynced = self.segment(self.konik, route='00000002--abcdef1234', age=1)
+    current = self.segment(self.current, route='00000001--abcdef1234', age=50)
+    for folder in (unsynced, current):
+      self.delete(folder)
+
   def test_preserve_predecessors_do_not_preserve_same_named_other_root(self):
     protected = [self.segment(self.konik, number=i, age=i + 1, preserved=i == 2) for i in range(3)]
     other = self.segment(self.hd, number=1, age=10)
