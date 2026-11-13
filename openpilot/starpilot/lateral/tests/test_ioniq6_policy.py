@@ -274,7 +274,7 @@ class Ioniq6StandardFrictionTests(Ioniq6HighwayFrictionTests):
     if center is None:
       _, vm = self.controller(firmware_2025=firmware_2025, long=long)
       center = math.degrees(vm.get_steer_from_curvature(-.001, speed, 0.0))
-    with mock.patch.object(tune, 'IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE', .50 if tuning else 0.0):
+    with mock.patch.object(tune, 'IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE', tune.IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE if tuning else 0.0):
       return super().trace(speed=speed, firmware_2025=firmware_2025, long=long, tuning=False, pressed=pressed, center=center)
 
   def test_low_speed_and_older_firmware_are_unchanged(self):
@@ -301,9 +301,27 @@ class Ioniq6StandardFrictionTests(Ioniq6HighwayFrictionTests):
       cs = structs.CarState.new_message(vEgo=32.0, steeringAngleDeg=-3.0,
                                         gearShifter=structs.CarState.GearShifter.drive)
       curve = -vm.calc_curvature(math.radians(cs.steeringAngleDeg), cs.vEgo, 0.0)
-      with mock.patch.object(tune, 'IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE', .50 if tuning else 0.0):
+      with mock.patch.object(tune, 'IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE', tune.IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE if tuning else 0.0):
         for index in range(400):
           output, _, _ = controller.update(index != 0, cs, vm, SimpleNamespace(angleOffsetDeg=0.0, roll=0.0),
                                            True, curve, False, .322)
         results.append(output)
     self.assertAlmostEqual(*results, places=12)
+
+  def test_small_corrections_are_softer_than_previous_standard_tune(self):
+    _, actual = self.trace()
+    with mock.patch.object(tune, 'IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE', .50):
+      _, previous = self.trace()
+    def variation(rows):
+      return sum(abs(b[0] - a[0]) for a, b in zip(rows[100:-1], rows[101:], strict=True))
+    self.assertLess(variation(actual), .98 * variation(previous))
+    for row, old in zip(actual, previous, strict=True):
+      self.assertEqual(row[2:], old[2:])
+
+  def test_other_firmware_low_speed_and_driver_override_keep_previous_commands(self):
+    for kwargs in ({'firmware_2025': True}, {'speed': 3.0}, {'pressed': True}, {'center': 20.0}):
+      with self.subTest(**kwargs):
+        actual = self.trace(**kwargs)[1]
+        with mock.patch.object(tune, 'IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE', .50):
+          previous = self.trace(**kwargs)[1]
+        self.assertEqual(actual[100:], previous[100:])
