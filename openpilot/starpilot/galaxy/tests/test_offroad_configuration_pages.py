@@ -104,7 +104,7 @@ class TestOffroadConfigurationPages(unittest.TestCase):
     self.assertTrue(self.gateway.confirm(intent['intent'], 'session', b'generation'))
     expected = {
       'aol': ('Enable Always On Lateral', 'Brake pause below'),
-      'conditional': ('Saved driving mode',),
+      'conditional': ('Driving Mode',),
       'conditional/cem': ('Speed threshold', 'Speed with lead', 'Stop lights'),
       'lane_change': ('Allow lane changes', 'Minimum lane-change speed', 'Automatic Lane Changes', 'Lane Change Speed'),
       'slc': ('Speed Limit Controller', 'Confirm limits'),

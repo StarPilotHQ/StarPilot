@@ -33,7 +33,7 @@ LABELS = {
   "signal_lane_detection": "Signal lane detection", "signal_lane_width_m": "Signal lane width",
   "set_speed_margin_mps": "Set speed margin", "launch_assist": "Launch assist",
 }
-MODES = ("Chill", "Experimental", "Conditional Experimental", "Conditional Chill")
+MODES = ("Automatic", "Chill", "Experimental")
 SIGNAL_LANE_FIELDS = frozenset(("signal_lane_detection", "signal_lane_width_m"))
 SIGNAL_LANE_HELP = {
   "signal_lane_detection": "Distinguish a turn from a lane change using the space beside your car. With this on, a turn signal requests " +
@@ -137,6 +137,8 @@ class ConditionalFeature:
     return self._media_rows(document, safe, safe_readable, config_valid=valid)
 
   def rows(self, page: str, parked: bool) -> list[FeatureRow]:
+    if page == "conditional/ccm":
+      return []
     document, units, readable, valid_units, metric = self._source()
     allowed = self.owner.authority("preferences")
     repair_allowed = parked and self.owner.authority("parked_preferences")
@@ -163,17 +165,16 @@ class ConditionalFeature:
       mode_valid = (mode_readable and mode_document == document and baseline_readable and baseline in (None, b"0", b"1") and
                     mode_safe_readable and mode_safe in (None, b"0", b"1"))
       choice = {"stock": "Experimental" if baseline == b"1" else "Chill",
-                "conditional_experimental": "Conditional Experimental", "conditional_chill": "Conditional Chill"}[preferences.mode.value]
+                "conditional_experimental": "Automatic", "conditional_chill": "Automatic"}[preferences.mode.value]
       cp = self.owner.vehicle_params()
       choices = MODES if choice == "Experimental" or experimental_available(cp) and mode_safe in (None, b"0") else tuple(
         mode for mode in MODES if mode != "Experimental")
-      rows.append(FeatureRow(MODE, "Saved driving mode", choice if mode_valid else "Unavailable", document,
+      rows.append(FeatureRow(MODE, "Driving Mode", choice if mode_valid else "Unavailable", document,
                              choices if mode_valid else (), default_value=MODES[0], available=allowed and mode_valid,
-                             reason="Choose Chill, Experimental, or automatic switching from your saved conditions." if allowed and mode_valid else unavailable,
+                             reason="Automatic switches between Chill and Experimental using your saved conditions." if allowed and mode_valid else unavailable,
                              vehicle_fingerprint=self.owner.vehicle_fingerprint(), capability=_mode_capability(cp),
                              dependencies=dependencies + (("ExperimentalMode", baseline), ("SafeMode", mode_safe))))
-      rows.append(FeatureRow("", "Experimental conditions", "Saved options", page="conditional/cem", available=True))
-      rows.append(FeatureRow("", "Chill conditions", "Saved options", page="conditional/ccm", available=True))
+      rows.append(FeatureRow("", "Automatic conditions", "Saved options", page="conditional/cem", available=True))
       if manual.status in ("invalid", "read_error"):
         rows.append(FeatureRow("", "Remembered manual choices", "Invalid" if manual.status == "invalid" else "Unavailable"))
       if manual.status == "invalid":
@@ -220,6 +221,8 @@ class ConditionalFeature:
     return rows
 
   def apply(self, request: FeatureSettingsRequest) -> bool:
+    if request.key.startswith(PREFIX + "ccm:"):
+      return False
     if request.key.startswith(BUTTON_PREFIX):
       key = request.key.removeprefix(BUTTON_PREFIX)
       if key not in (*MEDIA_KEYS, *DISTANCE_KEYS) or not request.vehicle_fingerprint or request.capability is None:
@@ -257,7 +260,7 @@ class ConditionalFeature:
         return False
       try:
         preferences = SavedPreferences() if document is None else decode_preferences(document)
-        value = "Stock" if request.value in ("Chill", "Experimental") else request.value
+        value = "Stock" if request.value in ("Chill", "Experimental") else "Conditional Experimental"
         raw = edit(preferences, MODE, value, metric=units == b"1")
       except PreferenceError:
         return False

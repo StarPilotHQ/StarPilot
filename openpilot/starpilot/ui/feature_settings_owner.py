@@ -890,7 +890,7 @@ class FeatureSettingsOwner:
               FeatureRow("", "Lane Centering", "Adjust lane positioning, lane detection, and steering alerts", page=FeaturePage.LANE, available=True),
               FeatureRow("", "Lane Changes", "Configure lane-change speed, automatic timing, and driver nudges", page=FeaturePage.LANE_CHANGE, available=True),
               FeatureRow("", "Long Planner", "Tune acceleration, braking, and following distances", page=FeaturePage.PROFILES, available=True),
-              FeatureRow("", "Conditional Driving Modes", "Choose when to switch between Chill and Experimental", page=FeaturePage.CONDITIONAL, available=True),
+              FeatureRow("", "Driving Modes", "Choose Automatic, Chill or Experimental", page=FeaturePage.CONDITIONAL, available=True),
               FeatureRow("", "Steering and Torque", "Select the steering controller and tune its response", page=FeaturePage.TORQUE, available=True),
               FeatureRow("", "Always On Lateral", "Keep steering assistance active independently of cruise control", page=FeaturePage.AOL, available=True),
               FeatureRow("", "Wheel Controls", "Assign steering-wheel buttons and cruise behavior", page=FeaturePage.WHEEL, available=True)]
@@ -1038,9 +1038,9 @@ class FeatureSettingsOwner:
                                        if valid and nostalgia in ("0", "1") else
                                        "Choose Off to repair the saved preference"),
                                capability=capability, repair_value="Off" if nostalgia not in ("0", "1") else ""))
-    elif page in (FeaturePage.CONDITIONAL, FeaturePage.CONDITIONAL_CEM, FeaturePage.CONDITIONAL_CCM):
-      title = "Conditional Driving Modes" if page == FeaturePage.CONDITIONAL else \
-              "Experimental Conditions" if page == FeaturePage.CONDITIONAL_CEM else "Chill Conditions"
+    elif page in (FeaturePage.CONDITIONAL, FeaturePage.CONDITIONAL_CEM):
+      title = "Driving Modes" if page == FeaturePage.CONDITIONAL else \
+              "Automatic Conditions"
       rows.extend(self.conditional.rows(page, parked))
     elif page == FeaturePage.CURVE:
       title = "Curve Speed Controller"
@@ -1389,7 +1389,6 @@ class FeatureSettingsOwner:
         if page in (
             FeaturePage.CONDITIONAL,
             FeaturePage.CONDITIONAL_CEM,
-            FeaturePage.CONDITIONAL_CCM,
         ) else
         "Changes apply during this drive. Pace and trigger changes wait until the current signal and maneuver end."
         if page == FeaturePage.LANE_CHANGE else

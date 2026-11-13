@@ -20,7 +20,7 @@ export const DRIVING_GROUPS = Object.freeze([
     { page: "torque", title: "Torque tuning", detail: "Saved steering tune and vehicle-source selection" },
   ] },
   { title: "Speed and longitudinal", items: [
-    { page: "conditional", title: "Conditional driving modes", detail: "Experimental and Chill conditions" },
+    { page: "conditional", title: "Driving Modes", detail: "Automatic, Chill and Experimental" },
     { page: "curve", title: "Curve Speed Controller", detail: "Saved curve-speed choices" },
     { page: "slc", title: "Speed Limit Controller", detail: "Dashboard and qualified vision source choices" },
     { page: "profiles", title: "Longitudinal profiles", detail: "Saved acceleration, braking, and following profiles" },

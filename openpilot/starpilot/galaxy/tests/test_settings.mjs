@@ -193,7 +193,7 @@ await conditional.reply(0, { ...lane, page: "hub", rows: [{ label: "Conditional 
   value: "Development saved settings", available: true, action: false }] })
 conditional.feed.load("conditional")
 assert.equal(conditional.requests[1].url, "./api/settings/pages/conditional")
-await conditional.reply(1, { ...lane, page: "conditional", rows: [{ ...lane.rows[0], label: "Saved driving mode",
+await conditional.reply(1, { ...lane, page: "conditional", rows: [{ ...lane.rows[0], label: "Driving Mode",
   value: "Stock", choices: ["Stock", "Conditional Experimental", "Conditional Chill"] }] })
 conditional.feed.preview(0, 1)
 await conditional.reply(2, { intent: "mode-once", question: "Save for a later drive?", proposed: "Conditional Experimental" })

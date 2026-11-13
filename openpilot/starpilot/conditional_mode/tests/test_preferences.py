@@ -63,7 +63,7 @@ class ConditionalModePreferencesTest(unittest.TestCase):
   def test_drive_binding_preserves_existing_typed_api_and_does_not_grant_authority(self):
     preferences = SavedPreferences(mode=ModeChoice.CCM)
     selection = saved_selection_for_drive(preferences, 42)
-    self.assertEqual(selection, selection_for_drive(ModeChoice.CCM, preferences.mode_settings(), 42))
+    self.assertEqual(selection, selection_for_drive(ModeChoice.CEM, preferences.mode_settings(), 42))
     self.assertIsNone(saved_selection_for_drive(preferences, 0))
     self.assertIsNone(saved_selection_for_drive(preferences, True))
     self.assertIsNone(manual_for_drive('force_chill', 42, 100))

@@ -58,7 +58,7 @@ class ManualSavedTests(unittest.TestCase):
         self.assertEqual(read_codes(self.params).status, 'invalid')
         self.assertEqual(Path(self.params.get_param_path(KEY)).read_bytes(), raw)
 
-  def test_persisted_modes_restore_independently_and_auto_zero_is_saved(self):
+  def test_auto_zero_is_saved_and_retired_manual_choice_cannot_restore(self):
     self.params.put(KEY, json.loads(encode(SavedCodes(2, 1))), block=True)
     owner, snapshot = self.owner(ModeChoice.CEM, persist=True)
     start = owner.begin_drive(snapshot, choice=ModeChoice.CEM, drive_id=self.drive_id, now_ns=self.now)
@@ -75,7 +75,9 @@ class ManualSavedTests(unittest.TestCase):
     self.addCleanup(second.close)
     restored = second.begin_drive(second_snapshot, choice=ModeChoice.CCM, drive_id=self.drive_id + 2_000_000_000,
                                   now_ns=self.now)
-    self.assertEqual((restored.code, restored.intent), (1, ManualIntent.FORCE_EXPERIMENTAL))
+    self.assertEqual((restored.code, restored.intent), (None, None))
+    self.assertEqual(second_snapshot.preferences.mode, ModeChoice.CEM)
+    self.assertEqual(read_codes(self.params).codes, SavedCodes(0, 1))
 
   def test_optout_clears_selected_code_only(self):
     self.params.put(KEY, json.loads(encode(SavedCodes(1, 2))), block=True)

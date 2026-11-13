@@ -297,7 +297,7 @@ class TestStopCommitTransport(unittest.TestCase):
       for _ in range(25):
         proposal, result = self.sample(manual=ManualIntent.FORCE_CHILL)
         self.assertTrue(result.accepted and result.experimental)
-      self.assertEqual(proposal.choice, choice)
+      self.assertEqual(proposal.choice, ModeChoice.CEM if choice is ModeChoice.CCM else choice)
     for _ in range(30):
       proposal, result = self.sample(horizon=192., model_should_stop=False)
     self.assertFalse(result.experimental)

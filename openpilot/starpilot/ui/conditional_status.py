@@ -24,7 +24,8 @@ def configured_choice(params) -> ModeChoice | None:
     raw, readable = read_saved(params, 'ConditionalModeConfig', MAX_DOCUMENT_BYTES)
     if not readable:
       return None
-    return ModeChoice.CEM if raw is None else decode_preferences(raw).mode
+    choice = ModeChoice.CEM if raw is None else decode_preferences(raw).mode
+    return ModeChoice.CEM if choice is ModeChoice.CCM else choice
   except (AttributeError, PreferenceError, OSError, TypeError, ValueError):
     return None
 

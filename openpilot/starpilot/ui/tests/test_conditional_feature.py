@@ -54,7 +54,7 @@ class ConditionalFeatureTests(unittest.TestCase):
                                       vehicle_fingerprint=lambda: getattr(self.cp, "carFingerprint", None),
                                       vehicle_params=lambda: self.cp)
 
-  def test_four_saved_modes_round_trip_through_actual_baseline_owner(self):
+  def test_three_saved_modes_round_trip_through_actual_baseline_owner(self):
     original = SavedPreferences(cem=replace(SavedPreferences().cem, speed_mps=13.0))
     self.params.put("ConditionalModeConfig", json.loads(encode_preferences(original)), block=True)
     manual = encode_manual(SavedCodes())
@@ -65,9 +65,9 @@ class ConditionalFeatureTests(unittest.TestCase):
     drive.conditional_replay = False
     now = 1_000_000_000
     for value, choice, baseline in (("Experimental", ModeChoice.STOCK, True), ("Chill", ModeChoice.STOCK, False),
-                                    ("Conditional Experimental", ModeChoice.CEM, False), ("Conditional Chill", ModeChoice.CCM, False)):
+                                    ("Automatic", ModeChoice.CEM, False)):
       row = self.row("conditional:mode")
-      self.assertEqual(row.choices, ("Chill", "Experimental", "Conditional Experimental", "Conditional Chill"))
+      self.assertEqual(row.choices, ("Automatic", "Chill", "Experimental"))
       self.assertTrue(self.owner.apply(replace(required_change(row), value=value)))
       self.assertEqual(self.row("conditional:mode").value, value)
       saved = decode_preferences(Path(self.params.get_param_path("ConditionalModeConfig")).read_bytes())
@@ -230,12 +230,30 @@ class ConditionalFeatureTests(unittest.TestCase):
     self.assertIsNone(self.params.get("ConditionalModeConfig"))
     self.assertIn(FeaturePage.CONDITIONAL, [row.page for row in self.rows(FeaturePage.HUB)])
     mode = self.row("conditional:mode")
-    self.assertEqual(mode.value, "Conditional Experimental")
+    self.assertEqual(mode.value, "Automatic")
     self.assertTrue(mode.available)
     self.assertTrue(self.owner.apply(required_change(mode)))
     saved = decode_preferences(Path(self.params.get_param_path("ConditionalModeConfig")).read_bytes())
-    self.assertEqual(saved.mode.value, "conditional_chill")
+    self.assertEqual(saved.mode.value, "stock")
     self.assertFalse(saved.cem.persist_manual)
+
+  def test_retired_chill_mode_uses_automatic_and_has_no_editable_menu(self):
+    from openpilot.starpilot.ui.conditional_status import configured_choice
+    path = Path(self.params.get_param_path("ConditionalModeConfig"))
+    raw = encode_preferences(replace(SavedPreferences(), mode=ModeChoice.CCM))
+    path.write_bytes(raw)
+    self.assertEqual(self.row("conditional:mode").value, "Automatic")
+    self.assertEqual(configured_choice(self.params), ModeChoice.CEM)
+    settings = ConditionalSettingsOwner(self.params)
+    snapshot = settings.refresh(1_000_000_000)
+    verdict = settings.verdict(snapshot, now_mono_ns=1_000_000_000, drive_id=1)
+    assert verdict.selection is not None
+    self.assertEqual(verdict.selection.choice, ModeChoice.CEM)
+    self.assertFalse(any(row.page == FeaturePage.CONDITIONAL_CCM for row in self.rows()))
+    self.assertEqual(self.rows(FeaturePage.CONDITIONAL_CCM), ())
+    retired = FeatureSettingsRequest("conditional:ccm:launch_assist", raw, "On", confirmation=True)
+    self.assertFalse(self.owner.apply(retired))
+    self.assertEqual(path.read_bytes(), raw)
 
   def test_chill_label_and_signal_rows_preserve_existing_consumers(self):
     path = Path(self.params.get_param_path("ConditionalModeConfig"))
@@ -269,7 +287,7 @@ class ConditionalFeatureTests(unittest.TestCase):
     threshold = self.row("conditional:cem:speed_mps", FeaturePage.CONDITIONAL_CEM)
     self.assertTrue(threshold.available)
     self.assertTrue(self.owner.apply(required_change(threshold)))
-    pending = required_change(self.row("conditional:ccm:launch_assist", FeaturePage.CONDITIONAL_CCM))
+    pending = required_change(self.row("conditional:cem:open_road", FeaturePage.CONDITIONAL_CEM))
     self.parked = False
     self.assertFalse(self.owner.apply(pending))
 
@@ -355,12 +373,12 @@ class ConditionalFeatureTests(unittest.TestCase):
     self.assertTrue(self.owner.apply(required_change(speed)))
     saved = decode_preferences(Path(self.params.get_param_path("ConditionalModeConfig")).read_bytes())
     self.assertAlmostEqual(saved.cem.speed_mps, 1 / 3.6)
-    stale = required_change(self.row("conditional:ccm:launch_assist", FeaturePage.CONDITIONAL_CCM))
+    stale = required_change(self.row("conditional:cem:open_road", FeaturePage.CONDITIONAL_CEM))
     Path(self.params.get_param_path("ConditionalModeConfig")).write_bytes(b'{"bad":true}')
     self.assertFalse(self.owner.apply(stale))
 
   def test_bounds_and_manual_persistence_clears_only_selected_code(self):
-    row = self.row("conditional:ccm:set_speed_margin_mps", FeaturePage.CONDITIONAL_CCM)
+    row = self.row("conditional:cem:model_stop_s", FeaturePage.CONDITIONAL_CEM)
     forged = FeatureSettingsRequest(row.key, row.source, "100", vehicle_fingerprint=row.vehicle_fingerprint,
                                     capability=row.capability, dependencies=row.dependencies, display_unit=row.display_unit)
     self.assertFalse(self.owner.apply(forged))
@@ -454,7 +472,7 @@ class ConditionalFeatureTests(unittest.TestCase):
   def test_invalid_manual_bytes_need_explicit_confirmed_reset(self):
     manual_path = Path(self.params.get_param_path("ConditionalManualState"))
     manual_path.write_bytes(b'{"version":9}')
-    persist = self.row("conditional:ccm:persist_manual", FeaturePage.CONDITIONAL_CCM)
+    persist = self.row("conditional:cem:persist_manual", FeaturePage.CONDITIONAL_CEM)
     self.assertFalse(persist.available)
     reset = self.row("conditional:manual_reset")
     request = FeatureSettingsRequest(reset.key, reset.source, "confirm", vehicle_fingerprint=reset.vehicle_fingerprint,
@@ -511,8 +529,7 @@ class ConditionalFeatureTests(unittest.TestCase):
                           ccm=replace(preferences.ccm, set_speed_margin_mps=30 / 3.6))
     path.write_bytes(encode_preferences(preferences))
     self.params.put_bool("IsMetric", False, block=True)
-    for key, page, old in (("conditional:cem:signal_lane_width_m", FeaturePage.LANE_CHANGE, 15.0),
-                           ("conditional:ccm:set_speed_margin_mps", FeaturePage.CONDITIONAL_CCM, 30 / 3.6)):
+    for key, page, old in (("conditional:cem:signal_lane_width_m", FeaturePage.LANE_CHANGE, 15.0),):
       row = self.row(key, page)
       self.assertGreater(float(row.value), 15.0)
       self.assertTrue(self.owner.apply(required_change(row, -1)))
@@ -633,12 +650,12 @@ class ConditionalFeatureTests(unittest.TestCase):
          patch.object(compact.gui_app, "get_active_widget", side_effect=lambda: stack[-1]):
       adapter = compact.FeatureSettingsCompact(Session(self.owner))
       adapter.open(FeaturePage.HUB)
-      next(card for card in stack[-1].items if card.text == "conditional driving modes").click()
+      next(card for card in stack[-1].items if card.text == "driving modes").click()
       child = stack[-1]
-      next(card for card in child.items if card.text == "saved driving mode").click()
+      next(card for card in child.items if card.text == "driving mode").click()
       self.assertEqual(decode_preferences(Path(self.params.get_param_path("ConditionalModeConfig")).read_bytes()).mode.value,
-                       "conditional_chill")
-      next(card for card in child.items if card.text == "experimental conditions").click()
+                       "stock")
+      next(card for card in child.items if card.text == "automatic conditions").click()
       self.assertTrue(any(card.text.startswith("speed threshold") for card in stack[-1].items))
       stack.pop()
       Path(self.params.get_param_path("ConditionalModeConfig")).write_bytes(b'{"version":2}')
@@ -669,10 +686,10 @@ class ConditionalFeatureTests(unittest.TestCase):
          patch.object(large.clip, "begin_scissor_mode"), \
          patch.object(large.clip, "end_scissor_mode"):
       large.FeatureSettingsView(Mock(spec=BitmapFonts, **vars(fonts))).render(state)
-    self.assertIn("Conditional Driving Modes", labels)
-    self.assertIn("Saved driving mode", labels)
-    self.assertIn("Experimental conditions", labels)
-    self.assertIn("Chill conditions", labels)
+    self.assertIn("Driving Modes", labels)
+    self.assertIn("Driving Mode", labels)
+    self.assertIn("Automatic conditions", labels)
+    self.assertNotIn("Chill conditions", labels)
 
   def test_large_manual_reset_confirmation_revoked_on_navigation(self):
     from openpilot.starpilot.ui.runtime_app import StarShellSession

@@ -265,7 +265,7 @@ class SettingsGatewayTest(unittest.TestCase):
                      "vehicle", "personalities"])
     self.assertEqual([row["page"] for row in self.page("personalities")["rows"]],
                      ["aggressive", "standard", "relaxed", "traffic"])
-    for page in ("slc", "lane", "lane_change", "profiles", "conditional", "conditional/cem", "conditional/ccm",
+    for page in ("slc", "lane", "lane_change", "profiles", "conditional", "conditional/cem",
                  "curve", "torque", "aol", "appearance", "display", "sounds", "pip", "sentry", "personalities",
                  "aggressive", "standard", "relaxed", "traffic", "aggressive/following"):
       with self.subTest(page=page):
@@ -648,13 +648,13 @@ class SettingsGatewayTest(unittest.TestCase):
     from openpilot.starpilot.conditional_mode.preferences import decode_preferences
     self.context.value.cp.pcmCruise = True  # Nidec still supports native long.
     page = self.page("conditional")
-    self.assertEqual(page["rows"][0]["value"], "Conditional Experimental")
+    self.assertEqual(page["rows"][0]["value"], "Automatic")
     intent = self.gateway.preview(page["view"], 0, 1, self.session, self.generation)
-    self.assertIn("Conditional Chill", intent["question"])
+    self.assertIn("Chill", intent["question"])
     self.context.value = AuthorityContext(False, self.context.value.cp, b"verified-cp")
     self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
     self.assertEqual(decode_preferences(Path(self.params.get_param_path("ConditionalModeConfig")).read_bytes()).mode.value,
-                     "conditional_chill")
+                     "stock")
     page = self.page("conditional/cem")
     index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Open road")
     intent = self.gateway.preview(page["view"], index, 1, self.session, self.generation)
@@ -691,7 +691,7 @@ class SettingsGatewayTest(unittest.TestCase):
     source = Path(self.params.get_param_path("ConditionalModeConfig"))
     source.write_bytes(b'{"version":2}')
     page = self.page("conditional")
-    self.assertFalse(any(row["label"] == "Saved driving mode" for row in page["rows"]))
+    self.assertFalse(any(row["label"] == "Driving Mode" for row in page["rows"]))
     index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Restore Chill defaults")
     self.assertTrue(page["rows"][index]["confirm"])
     intent = self.gateway.preview(page["view"], index, 0, self.session, self.generation)
@@ -1827,7 +1827,7 @@ class SettingsHttpTest(SettingsHttpFixture):
     cookie = self.login()
     status, page, _ = self.request("/api/settings/pages/conditional", cookie=cookie)
     self.assertEqual(status, 200)
-    self.assertEqual(page["rows"][0]["value"], "Conditional Experimental")
+    self.assertEqual(page["rows"][0]["value"], "Automatic")
     status, preview, _ = self.request("/api/settings/preview", cookie=cookie,
       payload={"view": page["view"], "row": 0, "direction": 1})
     self.assertEqual(status, 200)
@@ -1837,7 +1837,7 @@ class SettingsHttpTest(SettingsHttpFixture):
       payload={"intent": preview["intent"], "confirmed": True})
     self.assertEqual((status, result), (200, {"saved": True}))
     saved = Path(self.params.get_param_path("ConditionalModeConfig")).read_bytes()
-    self.assertEqual(decode_preferences(saved).mode.value, "conditional_chill")
+    self.assertEqual(decode_preferences(saved).mode.value, "stock")
 
   def test_conditional_manual_persist_over_authenticated_loopback_http(self):
     from openpilot.starpilot.conditional_mode.manual_saved import SavedCodes, decode, encode
