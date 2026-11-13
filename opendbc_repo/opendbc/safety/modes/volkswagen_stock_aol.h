@@ -85,7 +85,7 @@ static uint8_t vw_aol_request_mask(void) {
     (safety_get_ts_elapsed(microsecond_timer_get(), aol_host_request_ts) > AOL_HOST_REQUEST_TIMEOUT_US);
   const uint32_t grant_age = safety_get_ts_elapsed(microsecond_timer_get(), vw_aol_grant_ts);
   const bool pending_expired = vw_aol_pending && (grant_age > AOL_HOST_REQUEST_TIMEOUT_US);
-  const bool vw_controls_heartbeat_lost = !heartbeat_engaged && (!vw_aol_longitudinal || vw_aol_session);
+  const bool vw_controls_heartbeat_lost = !heartbeat_engaged && (!vw_aol_longitudinal || vw_aol_session) && !vw_aol_main_neutral;
   uint8_t request = 0U;
   if (!vw_aol_enabled || relay_malfunction || expired || safety_rx_checks_invalid ||
       vw_controls_heartbeat_lost || pending_expired || !aol_rx_healthy() || !vw_aol_current()) {
@@ -178,15 +178,16 @@ static void vw_aol_rx(const CANPacket_t *msg) {
       vw_aol_cruise_engaged = engaged;
       vw_aol_seen |= 1U;
       vw_aol_main_ts = microsecond_timer_get();
-      if ((!heartbeat_engaged && (!vw_aol_longitudinal || vw_aol_session)) ||
-          !aol_rx_healthy() || !vw_aol_current() || safety_rx_checks_invalid) {
+      if (!aol_rx_healthy() || !vw_aol_current() || safety_rx_checks_invalid) {
         vw_aol_clear();
       } else if (!acc_main_on) {
         vw_aol_initial_main = false;
         vw_aol_clear();
-        // Only a valid OFF observation may prepare a subsequent main-ON edge.
+        // A fresh physical OFF may wait for the host heartbeat; all output remains denied.
         vw_aol_main_neutral = ((msg->data[3] & 7U) < 2U);
-      } else if (heartbeat_engaged && vw_aol_initial_main && vw_aol_gear_drive && vw_aol_eps_ready && !brake_pressed) {
+      } else if (!heartbeat_engaged && (!vw_aol_longitudinal || vw_aol_session) && !vw_aol_main_neutral) {
+        vw_aol_clear();
+      } else if (heartbeat_engaged && vehicle_moving && vw_aol_initial_main && vw_aol_gear_drive && vw_aol_eps_ready && !brake_pressed) {
         // Fresh complete physical MAIN-on startup grants LAT only. It never restores a cleared drive session.
         vw_aol_initial_main = false;
         vw_aol_token = true;
@@ -194,15 +195,21 @@ static void vw_aol_rx(const CANPacket_t *msg) {
         // A fresh stock engagement supplies native arm; host still requires its own current intent.
         vw_aol_token = true;
         vw_aol_main_neutral = false;
-      } else if (vw_aol_main_neutral) {
+      } else if (vw_aol_main_neutral && heartbeat_engaged && vehicle_moving && vw_aol_gear_drive && vw_aol_eps_ready && !brake_pressed) {
         vw_aol_token = true;
         vw_aol_main_neutral = false;
       } else {
       }
     } else if (msg_matches(msg, MSG_GRA_ACC_01, 0U, 8U)) {
       if (GET_BIT(msg, 13U)) {
-        vw_aol_initial_main = false;
-        vw_aol_clear();
+        // CANCEL preserves an acknowledged lateral session, never a pending SET/RES grant.
+        if (!vw_aol_session || vw_aol_pending) {
+          vw_aol_token = false;
+          vw_aol_initial_main = false;
+        }
+        vw_aol_long_armed = false;
+        vw_aol_buttons = 0U;
+        vw_aol_pending = false;
       } else if (vw_aol_longitudinal) {
         const bool healthy = (heartbeat_engaged || !vw_aol_session) && !relay_malfunction && aol_rx_healthy() && vw_aol_current() && !safety_rx_checks_invalid;
         const uint8_t buttons = (GET_BIT(msg, 16U) ? 1U : 0U) | (GET_BIT(msg, 19U) ? 2U : 0U);

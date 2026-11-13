@@ -74,6 +74,7 @@ class VolkswagenStockCardIntent(AolCardIntent):
 
   def __init__(self, cp, settings):
     self.cp = cp
+    self.mqb = stock_qualified(cp) or long_qualified(cp)
     self.physical_eps_pause = False
     self.eps_recovery_ns = 0
     self.main_seen = False
@@ -81,7 +82,8 @@ class VolkswagenStockCardIntent(AolCardIntent):
     self.main_available = False
     self.main_neutral = False
     self.main_pulse = False
-    super().__init__(settings, explicit_latch=True, lkas_button_supported=False)
+    super().__init__(settings, explicit_latch=True, lkas_button_supported=False,
+                     preserve_unassigned_cancel=self.mqb)
 
   def update(self, CS, **kwargs):
     from openpilot.starpilot.aol.runtime import SAFETY_MAX_AGE_NS
@@ -110,8 +112,13 @@ class VolkswagenStockCardIntent(AolCardIntent):
     available = bool(state.cruiseState.available)
     if (not self.settings.enabled or self.settings.main_action == AOL_TOGGLE or self.settings.lkas_action == AOL_TOGGLE or
         (state.canValid and not state.canTimeout and (state.steerFaultPermanent or state.accFaulted)) or
-        any(event.type == ButtonType.cancel and event.pressed for event in CS.buttonEvents)):
+        any(event.type == ButtonType.cancel and event.pressed for event in CS.buttonEvents) and
+        (not self.mqb or any(self.settings.cancel_actions))):
       self.main_startup_pending = False
+    if (self.mqb and self.settings.enabled and state.canValid and not state.canTimeout and
+        not state.steerFaultPermanent and not state.accFaulted and available and self.main_neutral and
+        not self.main_available and self.settings.main_action != AOL_TOGGLE and self.settings.lkas_action != AOL_TOGGLE):
+      self.main_startup_pending = True
     default_main_edge = (available and (self.main_startup_pending or (self.main_neutral and not self.main_available)) and
                          self.settings.main_action != AOL_TOGGLE and self.settings.lkas_action != AOL_TOGGLE)
     if state.canValid and not state.canTimeout:
@@ -132,7 +139,8 @@ class VolkswagenStockCardIntent(AolCardIntent):
     state.buttonEvents = events
     super().update(state.as_reader(), **kwargs)
     if (default_main_edge and state.canValid and not state.canTimeout and self.settings.enabled and
-        not state.steerFaultPermanent and not state.accFaulted and not self._fault_inhibit):
+        not state.steerFaultPermanent and not state.accFaulted and not self._fault_inhibit and
+        (not self.mqb or not lateral_output_inhibited(self.cp, state))):
       self.allowed_latch = True
       self.main_startup_pending = False
       self.main_neutral = False
@@ -201,3 +209,33 @@ def retain_eps_recovery(feedback, sm, cp, state, axis, now_ns, *, latched, produ
       (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) == feedback.lateral_inventory)
   except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
     return False
+
+
+def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previous,
+                                    source_ns, now_ns, axis_session_id) -> bool:
+  """Let the mapped intent owner apply Cancel while retaining a granted LAT axis."""
+  from openpilot.starpilot.aol.intent import ButtonType
+  from openpilot.starpilot.aol.runtime import (AXIS_MAX_AGE_NS, INTENT_MAX_AGE_NS, SAFETY_MAX_AGE_NS,
+                                               native_inventory_matches_cp)
+  try:
+    return bool((stock_qualified(cp, marked_only=True) or long_qualified(cp, marked_only=True)) and
+      settings is not None and settings.enabled and not any(settings.cancel_actions) and
+      previous is not None and previous.lateral_active and previous.native_acknowledged and
+      intent is not None and intent.settingsQualified and intent.allowedLatch and intent.lateralArmed and
+      not intent.pauseLateral and intent.producerSessionId and intent.carStateLogMonoTime == source_ns and
+      0 < source_ns <= intent.observedMonoTime <= now_ns <= intent.validUntilMonoTime and
+      now_ns - source_ns <= AXIS_MAX_AGE_NS and now_ns - intent.observedMonoTime <= INTENT_MAX_AGE_NS and
+      intent.validUntilMonoTime - intent.observedMonoTime <= SAFETY_MAX_AGE_NS and
+      cs.canValid and not cs.canTimeout and cs.cruiseState.available and not cs.steerFaultTemporary and
+      not cs.steerFaultPermanent and not cs.accFaulted and not cs.doorOpen and
+      any(event.type == ButtonType.cancel for event in cs.buttonEvents) and
+      native is not None and native.compatible and int(native.protocolVersion) == 1 and
+      axis_session_id and native.axisSessionId == axis_session_id and native.requestedLateral and native.lateralAllowed and
+      native_accepts_cp(cp, native.safetyModel, native.safetyParam) and native.pandaInventory and
+      native_inventory_matches_cp(native, cp) and
+      0 < native.observedMonoTime <= now_ns <= native.validUntilMonoTime and
+      now_ns - native.observedMonoTime <= SAFETY_MAX_AGE_NS and
+      native.validUntilMonoTime - native.observedMonoTime <= SAFETY_MAX_AGE_NS)
+  except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
+    return False
+
