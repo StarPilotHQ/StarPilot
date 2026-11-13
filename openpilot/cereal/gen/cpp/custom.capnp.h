@@ -3613,6 +3613,8 @@ public:
   inline bool hasSteeringLimitInfo() const;
   inline  ::cereal::StarPilotCarControl::SteeringLimitInfo::Reader getSteeringLimitInfo() const;
 
+  inline float getAcceleratorPedal() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -3788,6 +3790,9 @@ public:
   inline  ::cereal::StarPilotCarControl::SteeringLimitInfo::Builder initSteeringLimitInfo();
   inline void adoptSteeringLimitInfo(::capnp::Orphan< ::cereal::StarPilotCarControl::SteeringLimitInfo>&& value);
   inline ::capnp::Orphan< ::cereal::StarPilotCarControl::SteeringLimitInfo> disownSteeringLimitInfo();
+
+  inline float getAcceleratorPedal();
+  inline void setAcceleratorPedal(float value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -18180,6 +18185,20 @@ inline void StarPilotCarState::Builder::adoptSteeringLimitInfo(
 inline ::capnp::Orphan< ::cereal::StarPilotCarControl::SteeringLimitInfo> StarPilotCarState::Builder::disownSteeringLimitInfo() {
   return ::capnp::_::PointerHelpers< ::cereal::StarPilotCarControl::SteeringLimitInfo>::disown(_builder.getPointerField(
       ::capnp::bounded<6>() * ::capnp::POINTERS));
+}
+
+inline float StarPilotCarState::Reader::getAcceleratorPedal() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotCarState::Builder::getAcceleratorPedal() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotCarState::Builder::setAcceleratorPedal(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
 }
 
 inline  ::uint16_t StarPilotCarState::ToyotaCruise::Reader::getVersion() const {

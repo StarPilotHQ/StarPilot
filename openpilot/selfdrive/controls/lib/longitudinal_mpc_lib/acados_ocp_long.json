@@ -1,7 +1,7 @@
 {
-    "acados_include_path": "/work/.venv-linux-arm64/lib/python3.12/site-packages/acados/install/include",
-    "acados_lib_path": "/work/.venv-linux-arm64/lib/python3.12/site-packages/acados/install/lib",
-    "code_export_directory": "/work/openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code",
+    "acados_include_path": "/usr/local/venv/lib/python3.12/site-packages/acados/install/include",
+    "acados_lib_path": "/usr/local/venv/lib/python3.12/site-packages/acados/install/lib",
+    "code_export_directory": "/data/build_engine_sound/openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code",
     "constraints": {
         "C": [],
         "C_e": [],
@@ -351,8 +351,8 @@
         ]
     },
     "cython_include_dirs": [
-        "/work/.venv-linux-arm64/lib/python3.12/site-packages/numpy/_core/include",
-        "/work/.cache/uv-python/cpython-3.12.13-linux-aarch64-gnu/include/python3.12"
+        "/usr/local/venv/lib/python3.12/site-packages/numpy/_core/include",
+        "/usr/include/python3.12"
     ],
     "dims": {
         "N": 12,
@@ -388,7 +388,7 @@
         "ny_e": 5,
         "nz": 0
     },
-    "json_file": "/work/openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/acados_ocp_long.json",
+    "json_file": "/data/build_engine_sound/openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/acados_ocp_long.json",
     "model": {
         "con_h_expr": "jhpnnagiieahaaaadaaaaaaaaaaaaaaaaaegiaaaaaaaaaaaaaaaeaaaaaaaaaaaaaaabaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaeaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabaaaaaaaaaaaaaaacaaaaaaaaaaaaaaadaaaaaaaaaaaaaaaeaaaaaaaaaaaaaaaegpcaaaaaaaaaaaaaafaaaaaaaghpffghgpgegcaaaaaaaaaaaaaaaegpcaaaaaaaaaaaaaafaaaaaaabgpffghgpgegpcaaaaaaaaaaaaaafaaaaaaabgpfngjgogegcaaaaaaaaaaaaaaaegpcaaaaaaaaaaaaaafaaaaaaabgpfngbgihchcaaaaaaaaaaaaaaaegeaaaaaaaaaaaaaaaegcaaaaaaaaaaaaaaaegcaaaaaaaaaaaaaaaegpcaaaaaaaaaaaaaakaaaaaaaihpfpgcgdhehbgdgmgfgegpcaaaaaaaaaaaaaafaaaaaaaihpffghgpgegdaaaaaaaaaaaaaaaegpcaaaaaaaaaaaaaacbaaaaaamgfgbgegpfegbgoghgfgchpfggbgdgehpgchegbaaaaaaaaaaaaaaaegbaaaaaaaaaaaaaaaegeaaaaaaaaaaaaaaaeglaaaaaaaaaaaaaaachbaaaaaaaaaaaaaaaegmcaaaaaaaaaaaaaajgfaaaaaaaegdaaaaaaaaaaaaaaaegpcaaaaaaaaaaaaaanaaaaaaamgfgbgegpfehpfggpgmgmgpghhchbaaaaaaaaaaaaaaaegmcaaaaaaaaaaaaaajggaaaaaaaegbaaaaaaaaaaaaaaachbaaaaaaaaaaaaaaaegmcaaaaaaaaaaaaaajgkaaaaaaa",
         "con_h_expr_e": "jhpnnagiieahaaaadaaaaaaaaaaaaaaaaaegiaaaaaaaaaaaaaaaeaaaaaaaaaaaaaaabaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaeaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabaaaaaaaaaaaaaaacaaaaaaaaaaaaaaadaaaaaaaaaaaaaaaeaaaaaaaaaaaaaaaegpcaaaaaaaaaaaaaafaaaaaaaghpffghgpgegcaaaaaaaaaaaaaaaegpcaaaaaaaaaaaaaafaaaaaaabgpffghgpgegpcaaaaaaaaaaaaaafaaaaaaabgpfngjgogegcaaaaaaaaaaaaaaaegpcaaaaaaaaaaaaaafaaaaaaabgpfngbgihchcaaaaaaaaaaaaaaaegeaaaaaaaaaaaaaaaegcaaaaaaaaaaaaaaaegcaaaaaaaaaaaaaaaegpcaaaaaaaaaaaaaakaaaaaaaihpfpgcgdhehbgdgmgfgegpcaaaaaaaaaaaaaafaaaaaaaihpffghgpgegdaaaaaaaaaaaaaaaegpcaaaaaaaaaaaaaacbaaaaaamgfgbgegpfegbgoghgfgchpfggbgdgehpgchegbaaaaaaaaaaaaaaaegbaaaaaaaaaaaaaaaegeaaaaaaaaaaaaaaaeglaaaaaaaaaaaaaaachbaaaaaaaaaaaaaaaegmcaaaaaaaaaaaaaajgfaaaaaaaegdaaaaaaaaaaaaaaaegpcaaaaaaaaaaaaaanaaaaaaamgfgbgegpfehpfggpgmgmgpghhchbaaaaaaaaaaaaaaaegmcaaaaaaaaaaaaaajggaaaaaaaegbaaaaaaaaaaaaaaachbaaaaaaaaaaaaaaaegmcaaaaaaaaaaaaaajgkaaaaaaa",
