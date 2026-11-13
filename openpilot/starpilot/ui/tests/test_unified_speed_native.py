@@ -584,3 +584,32 @@ def test_contour_accepts_raylib_standard_color_tuples():
   draw_text(font, 'Dash', FontRole.NORMAL, 22, 100, 50, rl.WHITE)
   color = font.draw.call_args.args[-1]
   assert (color.r, color.g, color.b, color.a) == (255, 255, 255, 255)
+
+
+@pytest.mark.parametrize('profile', list(Profile))
+@pytest.mark.parametrize('automatic', [False, True])
+def test_purple_sign_renders_three_full_cycles_across_retention(profile, automatic):
+  font = fonts(profile)
+  sign = SpeedLimitWidget(font, profile)
+  current = state(observed_ns=11_400_000_000, drive_frame=1)
+  obs = replace(current.speed_limit, action_enabled=automatic, automatic_adoption_pending=automatic,
+                pending_speed_limit_mps=50 / 3.6 if automatic else None)
+  current = replace(current, speed_limit=obs)
+  sign.render(current)
+  # The source can expire/adopt while the same posted sign stays visible.
+  retained = replace(current, speed_limit=replace(obs, kind=ObservationKind.STALE, speed_limit_mps=None,
+                     last_received_speed_limit_mps=50 / 3.6, last_received_source='map',
+                     pending_speed_limit_mps=None, automatic_adoption_pending=False))
+  for frame in range(1, 181):
+    elapsed = frame / 60
+    font.draw.reset_mock()
+    sign.render(replace(retained, observed_ns=11_400_000_000 + round(elapsed * 1e9)))
+    colors = [rgba_tuple(call.args[-1]) for call in foreground_calls(font.draw)]
+    assert colors
+    if frame in (30, 90, 150):
+      assert (188, 132, 255, 255) in colors
+    if frame in (60, 120, 180):
+      assert (188, 132, 255, 255) not in colors
+  font.draw.reset_mock()
+  sign.render(replace(current, observed_ns=14_900_000_000))
+  assert all(rgba_tuple(call.args[-1]) != (188, 132, 255, 255) for call in foreground_calls(font.draw))

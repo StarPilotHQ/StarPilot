@@ -1,4 +1,4 @@
-"""Controller-timed automatic pulses and the stationary manual confirmation rhythm."""
+"""Three visible purple pulses and the unchanged manual confirmation rhythm."""
 from dataclasses import replace
 
 from openpilot.starpilot.ui.raylib import rl
@@ -18,9 +18,9 @@ def state(automatic=True, **changes):
   return replace(OnroadState(True, False, 10., 80., obs, drive_frame=1), **changes)
 
 
-def test_three_slow_flashes_stop_at_the_controller_deadline():
+def test_three_slow_flashes_stop_after_three_visible_seconds():
   pulse = SpeedLimitPulse()
-  pulse.update(state(), 10.25)
+  pulse.update(state(), 10.)
   assert pulse.start_time == 10.
   for now in (10., 11., 12., 13., 14.):
     assert rgba(pulse.color(rl.WHITE, now)) == rgba(rl.WHITE)
@@ -93,12 +93,14 @@ def test_switching_between_manual_and_automatic_uses_the_current_rhythm():
   assert rgba(pulse.color(rl.WHITE, 13.)) == rgba(rl.WHITE)
 
 
-def test_reappearing_widget_uses_remaining_controller_time():
+def test_reappearing_automatic_widget_gets_three_visible_cycles():
   pulse = SpeedLimitPulse()
   pulse.update(state(), 10., visible=False)
   pulse.update(state(), 12.)
   assert rgba(pulse.color(rl.WHITE, 12.5)) == (188, 132, 255, 255)
-  assert rgba(pulse.color(rl.WHITE, 13.)) == rgba(rl.WHITE)
+  assert rgba(pulse.color(rl.WHITE, 13.5)) == (188, 132, 255, 255)
+  assert rgba(pulse.color(rl.WHITE, 14.5)) == (188, 132, 255, 255)
+  assert rgba(pulse.color(rl.WHITE, 15.)) == rgba(rl.WHITE)
 
 
 def display_state(limit=20., **changes):
@@ -178,3 +180,41 @@ def test_new_held_value_does_not_start_or_inherit_a_highlight(held_fields):
   held = replace(display_state(25.), speed_limit=replace(display_state(25.).speed_limit, **held_fields))
   pulse.update(held, 10.5)
   assert rgba(pulse.color(rl.WHITE, 10.5)) == rgba(rl.WHITE)
+
+
+@pytest.mark.parametrize('kind', [ObservationKind.STALE, ObservationKind.ABSENT, ObservationKind.UNKNOWN])
+def test_same_retained_sign_finishes_all_three_purple_pulses(kind):
+  pulse = SpeedLimitPulse()
+  current = display_state()
+  pulse.update(current, 10.)
+  retained = replace(current, speed_limit=replace(current.speed_limit, kind=kind, speed_limit_mps=None,
+                     last_received_speed_limit_mps=20.))
+  for now in (10.5, 11.5, 12.5):
+    pulse.update(retained, now)
+    assert rgba(pulse.color(rl.WHITE, now)) == (188, 132, 255, 255)
+  pulse.update(current, 13.5)
+  assert rgba(pulse.color(rl.WHITE, 13.5)) == rgba(rl.WHITE)
+
+
+def test_late_automatic_observation_gets_three_complete_visible_pulses():
+  pulse = SpeedLimitPulse()
+  current = state()
+  pulse.update(current, 11.4)
+  # Controller timing governs adoption, not the local visual notification.
+  for now in (11.9, 12.9, 13.9):
+    pulse.update(current, now)
+    assert rgba(pulse.color(rl.WHITE, now)) == (188, 132, 255, 255)
+  pulse.update(current, 14.4)
+  assert rgba(pulse.color(rl.WHITE, 14.4)) == rgba(rl.WHITE)
+
+
+def test_repeated_pending_timestamp_changes_do_not_restart_purple_pulse():
+  pulse = SpeedLimitPulse()
+  current = state()
+  pulse.update(current, 10.)
+  for now in (10.5, 11.5, 12.5):
+    changed = replace(current, speed_limit=replace(current.speed_limit, pending_since_ns=int(now * 1e9)))
+    pulse.update(changed, now)
+    assert rgba(pulse.color(rl.WHITE, now)) == (188, 132, 255, 255)
+  pulse.update(current, 13.5)
+  assert rgba(pulse.color(rl.WHITE, 13.5)) == rgba(rl.WHITE)
