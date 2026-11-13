@@ -52,6 +52,28 @@ def left_panel_region(image):
   return matches[0][1] if len(matches) == 1 else None
 
 
+def feedback_panel_region(image):
+  height, width = image.shape[:2]
+  if image.dtype != np.uint8 or min(height, width) < 384:
+    return None
+  left, bottom = int(width * .45), int(height * .65)
+  hsv = model.cv2.cvtColor(image[:bottom, left:], model.cv2.COLOR_BGR2HSV)
+  amber = model.cv2.inRange(hsv, np.array((5, 160, 120)), np.array((35, 255, 255)))
+  joined = model.cv2.morphologyEx(amber, model.cv2.MORPH_CLOSE, np.ones((21, 21), np.uint8))
+  _, _, stats, _ = model.cv2.connectedComponentsWithStats(joined)
+  matches = []
+  for x, y, w, h, area in stats[1:]:
+    if (8 <= w <= 160 and 5 <= h <= 100 and .8 <= w / h <= 4 and
+        area >= max(10, .12 * w * h) and np.count_nonzero(amber[y:y + h, x:x + w]) >= 10):
+      matches.append((int(x + left), int(y), int(w), int(h)))
+  if len(matches) != 1:
+    return None
+  x, y, w, h = matches[0]
+  x1 = max(0, min(width - 384, int(x + w / 2) - 192))
+  y1 = max(0, min(height - 384, y - 2 * h - 192))
+  return (x1, y1, x1 + 384, y1 + 384), matches[0]
+
+
 @dataclass(frozen=True)
 class SignDetections:
   speed: model.Detection | None
@@ -163,7 +185,8 @@ class TrafficSignModelCore(model.VisionModelCore):
     detection = super()._detect_sign_from_detector_classifier(frame_bgr)
     if detection is not None or self.net is None or model.DETECTOR_CLASSIFIER_REGION_MODE != 'right_roi':
       return detection
-    region = left_panel_region(frame_bgr)
+    feedback = feedback_panel_region(frame_bgr)
+    region = feedback[0] if feedback is not None else left_panel_region(frame_bgr)
     if region is not None:
       face = self._speed_face_filter
       count, elapsed = face.last_forward_count, face.last_forward_duration_s
@@ -172,6 +195,13 @@ class TrafficSignModelCore(model.VisionModelCore):
         x1, y1, x2, y2 = region
         proposals = model.VisionModelCore._collect_detector_classifier_proposals_from_region(
           self, frame_bgr[y1:y2, x1:x2], x1, y1, frame_bgr.shape[1], frame_bgr.shape[0], model.US_DETECTOR_MIN_CONFIDENCE)
+        if feedback is not None:
+          x, y, w, h = feedback[1]
+          # Read only a separately detected plate above the feedback digits.
+          proposals = sorted((p for p in proposals if p[1] == 0 and p[2][3] <= y and
+                              p[2][1] >= y - 6 * max(w, h) and
+                              abs((p[2][0] + p[2][2]) / 2 - (x + w / 2)) <= max(w, h)),
+                             reverse=True)[:model.MODEL_PROPOSAL_MAX_COUNT]
         detection = super()._detect_sign_from_detector_classifier(frame_bgr, proposals=proposals)
       finally:
         face.last_forward_count += count
