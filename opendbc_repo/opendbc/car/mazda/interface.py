@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import math
 from math import exp, fabs
 import numpy as np
 
@@ -17,11 +18,39 @@ NON_LINEAR_TORQUE_PARAMS = {
   CAR.MAZDA_CX_50: (4.68689, 0.79999, 0.18244, 0.38763)
 }
 
+# Opt-in steering gain for the sigmoid+linear torque table (Param MazdaSteerTorqueScale, default 1.0).
+# The table converts the controller's whole lateral-acceleration command (feedforward + PID +
+# friction) to torque, so this scales the whole controller, feedback included, not only the
+# feedforward. It is an explicit per-car calibration, never a fingerprint default; validate the
+# transient response on the car after changing it. Evidence that motivated it: a 2023 Mazda3 with
+# a TI2 interceptor (drives 00000050-53) reached 67-89% of requested lateral acceleration in
+# sustained highway curves and 45-65% at the 0.1-0.3 Hz weave, output unsaturated.
+STEER_TORQUE_SCALE_PARAM = "MazdaSteerTorqueScale"
+# 0.8 keeps every table covering the full [-1, 1] torque range (its assert); 1.5 caps the gain.
+STEER_TORQUE_SCALE_MIN, STEER_TORQUE_SCALE_MAX = 0.8, 1.5
+
+
+def steer_torque_scale(params=None) -> float:
+  """The saved steering gain, or 1.0 when unset, unreadable, non-finite or out of range."""
+  try:
+    value = float((params or Params()).get(STEER_TORQUE_SCALE_PARAM, return_default=True))
+  except Exception:
+    return 1.0
+  if not math.isfinite(value) or not STEER_TORQUE_SCALE_MIN <= value <= STEER_TORQUE_SCALE_MAX:
+    return 1.0
+  return value
+
+
 class CarInterface(CarInterfaceBase):
   CarState = CarState
   CarController = CarController
 
   def get_lataccel_torque_siglin(self) -> float:
+
+    # Read once per interface: the forward and inverse tables must use the same gain.
+    if getattr(self, '_steer_torque_scale', None) is None:
+      self._steer_torque_scale = steer_torque_scale()
+    scale = self._steer_torque_scale
 
     def torque_from_lateral_accel_siglin_func(lateral_acceleration: float) -> float:
       # The "lat_accel vs torque" relationship is assumed to be the sum of "sigmoid + linear" curves
@@ -32,7 +61,7 @@ class CarInterface(CarInterfaceBase):
       a, b, c, _ = non_linear_torque_params
       sig_input = a * lateral_acceleration
       sig = np.sign(sig_input) * (1 / (1 + exp(-fabs(sig_input))) - 0.5)
-      steer_torque = (sig * b) + (lateral_acceleration * c)
+      steer_torque = ((sig * b) + (lateral_acceleration * c)) * scale
       return float(steer_torque)
 
     lataccel_values = np.arange(-8.0, 8.0, 0.01)
