@@ -364,6 +364,7 @@ enum class MapdInputType_859f26628fc24358: uint16_t {
 };
 CAPNP_DECLARE_ENUM(MapdInputType, 859f26628fc24358);
 CAPNP_DECLARE_SCHEMA(a4f1eb3323f5f582);
+CAPNP_DECLARE_SCHEMA(e6800c25a9de24f2);
 CAPNP_DECLARE_SCHEMA(965a7a6975ef2b9e);
 enum class SampleStatus_965a7a6975ef2b9e: uint16_t {
   UNKNOWN,
@@ -509,7 +510,7 @@ struct StarPilotCarControl::Navigation {
   struct Lane;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(83e5f5472aa434b0, 4, 7)
+    CAPNP_DECLARE_STRUCT_HEADER(83e5f5472aa434b0, 5, 8)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -1493,6 +1494,7 @@ struct MapdOut {
   class Reader;
   class Builder;
   class Pipeline;
+  struct NavigationBranch;
   typedef ::capnp::schemas::SampleStatus_965a7a6975ef2b9e SampleStatus;
 
   typedef ::capnp::schemas::GpsSource_f2b4452cefd6d128 GpsSource;
@@ -1505,7 +1507,22 @@ struct MapdOut {
 
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(a4f1eb3323f5f582, 16, 7)
+    CAPNP_DECLARE_STRUCT_HEADER(a4f1eb3323f5f582, 16, 8)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
+struct MapdOut::NavigationBranch {
+  NavigationBranch() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(e6800c25a9de24f2, 5, 1)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -2235,6 +2252,15 @@ public:
 
   inline  ::uint16_t getVersion() const;
 
+  inline bool hasSource() const;
+  inline  ::capnp::Text::Reader getSource() const;
+
+  inline  ::uint64_t getObservationMonoTime() const;
+
+  inline bool getDistanceKnown() const;
+
+  inline bool getTotalsKnown() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -2329,6 +2355,22 @@ public:
 
   inline  ::uint16_t getVersion();
   inline void setVersion( ::uint16_t value);
+
+  inline bool hasSource();
+  inline  ::capnp::Text::Builder getSource();
+  inline void setSource( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initSource(unsigned int size);
+  inline void adoptSource(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownSource();
+
+  inline  ::uint64_t getObservationMonoTime();
+  inline void setObservationMonoTime( ::uint64_t value);
+
+  inline bool getDistanceKnown();
+  inline void setDistanceKnown(bool value);
+
+  inline bool getTotalsKnown();
+  inline void setTotalsKnown(bool value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -10898,6 +10940,9 @@ public:
 
   inline  ::int64_t getPreviewWayId() const;
 
+  inline bool hasNavigationBranches() const;
+  inline  ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>::Reader getNavigationBranches() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -11068,6 +11113,13 @@ public:
   inline  ::int64_t getPreviewWayId();
   inline void setPreviewWayId( ::int64_t value);
 
+  inline bool hasNavigationBranches();
+  inline  ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>::Builder getNavigationBranches();
+  inline void setNavigationBranches( ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>::Reader value);
+  inline  ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>::Builder initNavigationBranches(unsigned int size);
+  inline void adoptNavigationBranches(::capnp::Orphan< ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>>&& value);
+  inline ::capnp::Orphan< ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>> disownNavigationBranches();
+
 private:
   ::capnp::_::StructBuilder _builder;
   template <typename, ::capnp::Kind>
@@ -11081,6 +11133,117 @@ private:
 class MapdOut::Pipeline {
 public:
   typedef MapdOut Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
+class MapdOut::NavigationBranch::Reader {
+public:
+  typedef NavigationBranch Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline  ::int64_t getWayId() const;
+
+  inline double getJunctionLatitude() const;
+
+  inline double getJunctionLongitude() const;
+
+  inline float getDistanceMeters() const;
+
+  inline float getAngleDegrees() const;
+
+  inline bool hasRoadName() const;
+  inline  ::capnp::Text::Reader getRoadName() const;
+
+  inline  ::cereal::MapdOut::HighwayClass getHighwayClass() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class MapdOut::NavigationBranch::Builder {
+public:
+  typedef NavigationBranch Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline  ::int64_t getWayId();
+  inline void setWayId( ::int64_t value);
+
+  inline double getJunctionLatitude();
+  inline void setJunctionLatitude(double value);
+
+  inline double getJunctionLongitude();
+  inline void setJunctionLongitude(double value);
+
+  inline float getDistanceMeters();
+  inline void setDistanceMeters(float value);
+
+  inline float getAngleDegrees();
+  inline void setAngleDegrees(float value);
+
+  inline bool hasRoadName();
+  inline  ::capnp::Text::Builder getRoadName();
+  inline void setRoadName( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initRoadName(unsigned int size);
+  inline void adoptRoadName(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownRoadName();
+
+  inline  ::cereal::MapdOut::HighwayClass getHighwayClass();
+  inline void setHighwayClass( ::cereal::MapdOut::HighwayClass value);
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class MapdOut::NavigationBranch::Pipeline {
+public:
+  typedef NavigationBranch Pipelines;
 
   inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
   inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
@@ -15824,6 +15987,82 @@ inline  ::uint16_t StarPilotCarControl::Navigation::Builder::getVersion() {
 inline void StarPilotCarControl::Navigation::Builder::setVersion( ::uint16_t value) {
   _builder.setDataField< ::uint16_t>(
       ::capnp::bounded<9>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotCarControl::Navigation::Reader::hasSource() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotCarControl::Navigation::Builder::hasSource() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader StarPilotCarControl::Navigation::Reader::getSource() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder StarPilotCarControl::Navigation::Builder::getSource() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS));
+}
+inline void StarPilotCarControl::Navigation::Builder::setSource( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder StarPilotCarControl::Navigation::Builder::initSource(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), size);
+}
+inline void StarPilotCarControl::Navigation::Builder::adoptSource(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> StarPilotCarControl::Navigation::Builder::disownSource() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS));
+}
+
+inline  ::uint64_t StarPilotCarControl::Navigation::Reader::getObservationMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t StarPilotCarControl::Navigation::Builder::getObservationMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotCarControl::Navigation::Builder::setObservationMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotCarControl::Navigation::Reader::getDistanceKnown() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<130>() * ::capnp::ELEMENTS);
+}
+
+inline bool StarPilotCarControl::Navigation::Builder::getDistanceKnown() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<130>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotCarControl::Navigation::Builder::setDistanceKnown(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<130>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotCarControl::Navigation::Reader::getTotalsKnown() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<131>() * ::capnp::ELEMENTS);
+}
+
+inline bool StarPilotCarControl::Navigation::Builder::getTotalsKnown() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<131>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotCarControl::Navigation::Builder::setTotalsKnown(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<131>() * ::capnp::ELEMENTS, value);
 }
 
 inline double StarPilotCarControl::Navigation::Coordinate::Reader::getLatitude() const {
@@ -29520,6 +29759,158 @@ inline  ::int64_t MapdOut::Builder::getPreviewWayId() {
 inline void MapdOut::Builder::setPreviewWayId( ::int64_t value) {
   _builder.setDataField< ::int64_t>(
       ::capnp::bounded<15>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool MapdOut::Reader::hasNavigationBranches() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS).isNull();
+}
+inline bool MapdOut::Builder::hasNavigationBranches() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>::Reader MapdOut::Reader::getNavigationBranches() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>>::get(_reader.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>::Builder MapdOut::Builder::getNavigationBranches() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>>::get(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS));
+}
+inline void MapdOut::Builder::setNavigationBranches( ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>>::set(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>::Builder MapdOut::Builder::initNavigationBranches(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>>::init(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), size);
+}
+inline void MapdOut::Builder::adoptNavigationBranches(
+    ::capnp::Orphan< ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>> MapdOut::Builder::disownNavigationBranches() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::MapdOut::NavigationBranch,  ::capnp::Kind::STRUCT>>::disown(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS));
+}
+
+inline  ::int64_t MapdOut::NavigationBranch::Reader::getWayId() const {
+  return _reader.getDataField< ::int64_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline  ::int64_t MapdOut::NavigationBranch::Builder::getWayId() {
+  return _builder.getDataField< ::int64_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void MapdOut::NavigationBranch::Builder::setWayId( ::int64_t value) {
+  _builder.setDataField< ::int64_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline double MapdOut::NavigationBranch::Reader::getJunctionLatitude() const {
+  return _reader.getDataField<double>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+
+inline double MapdOut::NavigationBranch::Builder::getJunctionLatitude() {
+  return _builder.getDataField<double>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+inline void MapdOut::NavigationBranch::Builder::setJunctionLatitude(double value) {
+  _builder.setDataField<double>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline double MapdOut::NavigationBranch::Reader::getJunctionLongitude() const {
+  return _reader.getDataField<double>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline double MapdOut::NavigationBranch::Builder::getJunctionLongitude() {
+  return _builder.getDataField<double>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void MapdOut::NavigationBranch::Builder::setJunctionLongitude(double value) {
+  _builder.setDataField<double>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline float MapdOut::NavigationBranch::Reader::getDistanceMeters() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+
+inline float MapdOut::NavigationBranch::Builder::getDistanceMeters() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+inline void MapdOut::NavigationBranch::Builder::setDistanceMeters(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
+}
+
+inline float MapdOut::NavigationBranch::Reader::getAngleDegrees() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS);
+}
+
+inline float MapdOut::NavigationBranch::Builder::getAngleDegrees() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS);
+}
+inline void MapdOut::NavigationBranch::Builder::setAngleDegrees(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool MapdOut::NavigationBranch::Reader::hasRoadName() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool MapdOut::NavigationBranch::Builder::hasRoadName() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader MapdOut::NavigationBranch::Reader::getRoadName() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder MapdOut::NavigationBranch::Builder::getRoadName() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void MapdOut::NavigationBranch::Builder::setRoadName( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder MapdOut::NavigationBranch::Builder::initRoadName(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), size);
+}
+inline void MapdOut::NavigationBranch::Builder::adoptRoadName(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> MapdOut::NavigationBranch::Builder::disownRoadName() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline  ::cereal::MapdOut::HighwayClass MapdOut::NavigationBranch::Reader::getHighwayClass() const {
+  return _reader.getDataField< ::cereal::MapdOut::HighwayClass>(
+      ::capnp::bounded<16>() * ::capnp::ELEMENTS);
+}
+
+inline  ::cereal::MapdOut::HighwayClass MapdOut::NavigationBranch::Builder::getHighwayClass() {
+  return _builder.getDataField< ::cereal::MapdOut::HighwayClass>(
+      ::capnp::bounded<16>() * ::capnp::ELEMENTS);
+}
+inline void MapdOut::NavigationBranch::Builder::setHighwayClass( ::cereal::MapdOut::HighwayClass value) {
+  _builder.setDataField< ::cereal::MapdOut::HighwayClass>(
+      ::capnp::bounded<16>() * ::capnp::ELEMENTS, value);
 }
 
 inline  ::uint16_t LearningControlEvidence::Reader::getVersion() const {
