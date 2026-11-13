@@ -1,4 +1,55 @@
-## Current speed-head recall refinement (November 12, 2026)
+## Current small-sign recovery branch (November 12, 2026)
+
+The joint detector is 9,742,928 bytes, SHA-256
+`dd9398ca0df68abdbc1120d41859d17d634a21a625b1191d10b5e4ddf88de7c8`.
+Every existing node and initializer from the preceding qualified detector
+`fe54ea8d47cb89cd44697e0a7e85ce8814a12f285c811ccd89ac2bba341c4228`
+is retained byte-for-byte. Six added nodes share existing features and expose
+`tiny/scores`, float32 `[1, 1, 1024]`. The original speed and STOP outputs and
+box regression are retained. The new head adds 4,160 learned parameters and
+approximately 4.26 million convolution multiply-accumulates per joint forward.
+It does not add another detector forward. STOP-only uses its unchanged
+projection asset and does not execute this branch.
+
+The recovery head uses three brightness views of one newly reviewed small
+speed sign, the 1,190-image original training teacher cache, and preservation
+views of the previously reviewed training signs. The original 296 validation
+images receive no gradients. These new drive views are correlated training
+examples; repeated qualification and error analysis limit generalization claims.
+Original source media, frozen teacher features, annotations, training and
+rejected-candidate receipts are retained privately. Existing author attribution,
+notices and licenses are preserved.
+
+Existing numeric readings, including weak readings and median recovery, take
+precedence. Only after those paths return no reading may one unique small
+previously unadmitted object receive recovery. The new score must be at least
+0.8; the original score must be below its existing admission threshold. Native
+minimum pixel floors remain 14 by 18. Recovery requires three distinct crop
+bounds with the same value, every read at least 0.96, a best read at least 0.995,
+and isolated identity evidence with logit at least 2.75 bound to that exact
+current-frame proposal. Only this dedicated recovery path may overcome the
+ordinary small-box confidence cap; weak recovery outputs are discarded. Existing
+low-speed adoption thresholds, freshness, identity, clocks and authority checks
+remain unchanged. At most one additional identity check and three numeric
+crops are attempted after the original paths fail.
+
+All 1,486 original replay business results and all 50 previously examined window
+frame results are exactly unchanged. The newly recovered small sign reads 20 at
+0.95 confidence on the recorded inference-frame index and passes the existing
+controlled prior-state low-speed confirmation rule. Thirteen actual-network
+Linux OpenCV 4.11 cases retain the earlier reported fixes, older correct readings,
+and negative confidence-boundary cases. Native producer, identity, display and
+control checks have 734 passes and no skips. The unchanged secondary-speed-source
+settings test still expects Maps where the parent supplies Dashboard; its parent
+failure is retained and is not counted as a pass. Focused Ruff and type checks
+pass. No full hosted-CI-green claim is made.
+
+The original processing-cost cooldown and result-age budgets are unchanged.
+This is offline qualification, not AGNOS raw-frame parity, a device FPS bound,
+field deployment or closed-loop road proof. The additional head and rare recovery
+work have a CPU cost; existing stale-result rejection and backoff remain active.
+
+## Previous speed-head recall refinement (November 12, 2026)
 
 The joint detector is 9,725,446 bytes, SHA-256
 `fe54ea8d47cb89cd44697e0a7e85ce8814a12f285c811ccd89ac2bba341c4228`.

@@ -59,7 +59,7 @@ class SignDetections:
 
 
 class TrafficSignModelCore(model.VisionModelCore):
-  DETECTOR_SHA256 = 'fe54ea8d47cb89cd44697e0a7e85ce8814a12f285c811ccd89ac2bba341c4228'
+  DETECTOR_SHA256 = 'dd9398ca0df68abdbc1120d41859d17d634a21a625b1191d10b5e4ddf88de7c8'
   PROPOSAL_LOGIT_CALIBRATION = .16
   PUBLISHED_SCORE_MARGIN = .001
   STOP_PROJECTION_SHA256 = "a744df1b585bfd80a2a983229509f52bf2f09714d9df011109ad1b8b875aaecc"
@@ -71,6 +71,8 @@ class TrafficSignModelCore(model.VisionModelCore):
   _stop_face_filter: StopFaceVerifier | None = None
 
   def __init__(self, *, is_metric: bool, speed_enabled: bool = True):
+    self._tiny_candidate = None
+    self._tiny_recovery = False
     self.stop_detections: tuple[StopDetection, ...] = ()
     self.speed_enabled = speed_enabled
     self._speed_face_filter = None
@@ -114,6 +116,8 @@ class TrafficSignModelCore(model.VisionModelCore):
   def reset(self) -> None:
     super().reset()
     self.stop_detections = ()
+    self._tiny_candidate = None
+    self._tiny_recovery = False
     if self._speed_face_filter is not None:
       self._speed_face_filter.begin_frame()
       self._speed_face_filter.end_frame()
@@ -136,6 +140,8 @@ class TrafficSignModelCore(model.VisionModelCore):
       self.reset()
       raise
     finally:
+      self._tiny_candidate = None
+      self._tiny_recovery = False
       self.net.rgb256 = None
 
   def infer_signs(self, frame_bgr: np.ndarray) -> SignDetections:
@@ -144,6 +150,7 @@ class TrafficSignModelCore(model.VisionModelCore):
     return SignDetections(speed, self.stop_detections)
 
   def _collect_detector_classifier_proposals(self, frame_bgr):
+    self._tiny_candidate = None
     proposals = super()._collect_detector_classifier_proposals(frame_bgr)
     callback = getattr(self, '_stop_ready_callback', None)
     if callback is not None and self.net is not None:
@@ -157,19 +164,64 @@ class TrafficSignModelCore(model.VisionModelCore):
     if detection is not None or self.net is None or model.DETECTOR_CLASSIFIER_REGION_MODE != 'right_roi':
       return detection
     region = left_panel_region(frame_bgr)
-    if region is None:
+    if region is not None:
+      face = self._speed_face_filter
+      count, elapsed = face.last_forward_count, face.last_forward_duration_s
+      face.begin_frame()
+      try:
+        x1, y1, x2, y2 = region
+        proposals = model.VisionModelCore._collect_detector_classifier_proposals_from_region(
+          self, frame_bgr[y1:y2, x1:x2], x1, y1, frame_bgr.shape[1], frame_bgr.shape[0], model.US_DETECTOR_MIN_CONFIDENCE)
+        detection = super()._detect_sign_from_detector_classifier(frame_bgr, proposals=proposals)
+      finally:
+        face.last_forward_count += count
+        face.last_forward_duration_s += elapsed
+      if detection is not None:
+        return detection
+    return self._recover_small_sign(frame_bgr)
+
+  def _recover_small_sign(self, frame_bgr):
+    record = getattr(self, '_tiny_candidate', None)
+    self._tiny_candidate = None
+    if record is None:
       return None
+    candidate, rgb, raw, index = record
     face = self._speed_face_filter
     count, elapsed = face.last_forward_count, face.last_forward_duration_s
     face.begin_frame()
+    self._tiny_recovery = True
     try:
-      x1, y1, x2, y2 = region
-      proposals = model.VisionModelCore._collect_detector_classifier_proposals_from_region(
-        self, frame_bgr[y1:y2, x1:x2], x1, y1, frame_bgr.shape[1], frame_bgr.shape[0], model.US_DETECTOR_MIN_CONFIDENCE)
-      return super()._detect_sign_from_detector_classifier(frame_bgr, proposals=proposals)
+      face.capture_blob(rgb[None])
+      face.remember(candidate, raw, index)
+      detection = super()._detect_sign_from_detector_classifier(frame_bgr, proposals=[candidate])
+      return detection if detection is not None and detection.strong_consensus and detection.confidence >= .9 else None
     finally:
+      self._tiny_recovery = False
       face.last_forward_count += count
       face.last_forward_duration_s += elapsed
+
+  def _capture_small_sign(self, *, ratio, pad_width, pad_height, width, height, origin_x, origin_y, full_width, full_height):
+    tiny, speed = self.net.tiny_scores, self.net.speed
+    indices = np.flatnonzero((tiny[0, 0] >= .8) & (speed[0, 4, :1024] < model.US_DETECTOR_MIN_CONFIDENCE))
+    indices = indices[np.argsort(-tiny[0, 0, indices], kind='stable')[:32]]
+    candidates, boxes, scores = [], [], []
+    for index in indices:
+      cx, cy, w, h = speed[0, :4, index]
+      x1 = max(int((cx - w / 2 - pad_width) / ratio), 0) + origin_x
+      y1 = max(int((cy - h / 2 - pad_height) / ratio), 0) + origin_y
+      x2 = min(int((cx + w / 2 - pad_width) / ratio), width) + origin_x
+      y2 = min(int((cy + h / 2 - pad_height) / ratio), height) + origin_y
+      w, h = x2 - x1, y2 - y1
+      if not (14 <= w and 18 <= h <= 55 and x1 >= full_width * .52 and
+              w * h <= full_width * full_height * .002 and
+              (w < 27 or h < 40 or w * h < 28 * 40)):
+        continue
+      confidence = float(tiny[0, 0, index])
+      candidates.append(((confidence, 0, (x1, y1, x2, y2)), self.net.rgb256, speed[0, :4, index].copy(), int(index)))
+      boxes.append((x1, y1, w, h))
+      scores.append(confidence)
+    keep = np.asarray(model.cv2.dnn.NMSBoxes(boxes, scores, .8, .4)).reshape(-1) if boxes else []
+    self._tiny_candidate = candidates[int(keep[0])] if len(keep) == 1 else None
 
   def _collect_detector_classifier_proposals_from_region(self, frame_bgr, origin_x, origin_y,
                                                         full_frame_width, full_frame_height, min_confidence):
@@ -190,6 +242,11 @@ class TrafficSignModelCore(model.VisionModelCore):
         region_width=width, region_height=height, origin_x=origin_x, origin_y=origin_y,
         full_frame_width=full_frame_width, full_frame_height=full_frame_height, threshold=self.STOP_THRESHOLD,
         accept_dense_id=lambda index: self._stop_face_filter.accept(self.net.rgb256, self.net.stops, index))
+      if getattr(self, 'speed_enabled', True) and model.DETECTOR_CLASSIFIER_REGION_MODE == 'right_roi' and origin_x > 0:
+        self._capture_small_sign(ratio=ratio, pad_width=(self.detector_input_size - round(width * ratio)) / 2,
+                                 pad_height=(self.detector_input_size - round(height * ratio)) / 2,
+                                 width=width, height=height, origin_x=origin_x, origin_y=origin_y,
+                                 full_width=full_frame_width, full_height=full_frame_height)
     return speed
 
   def _load_detector_net(self):

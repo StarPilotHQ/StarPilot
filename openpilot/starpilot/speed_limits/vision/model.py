@@ -955,6 +955,8 @@ class VisionModelCore:
 
       speed_scores: dict[int, float] = {}
       speed_best_confidences: dict[int, float] = {}
+      speed_worst_confidences: dict[int, float] = {}
+      speed_read_boxes: dict[int, set[tuple[int, int, int, int]]] = {}
       speed_support_counts: dict[int, int] = {}
       speed_regulatory_support: dict[int, int] = {}
       speed_trusted_model_support: dict[int, int] = {}
@@ -1148,6 +1150,8 @@ class VisionModelCore:
 
         speed_scores[speed_limit_mph] = speed_scores.get(speed_limit_mph, 0.0) + score
         speed_best_confidences[speed_limit_mph] = max(speed_best_confidences.get(speed_limit_mph, 0.0), read_confidence)
+        speed_worst_confidences[speed_limit_mph] = min(speed_worst_confidences.get(speed_limit_mph, 1.), read_confidence)
+        speed_read_boxes.setdefault(speed_limit_mph, set()).add((expanded_x1, expanded_y1, expanded_x2, expanded_y2))
         speed_support_counts[speed_limit_mph] = speed_support_counts.get(speed_limit_mph, 0) + 1
         if raw_is_regulatory and any((expand_left, expand_top, expand_right, expand_bottom)):
           expanded_regulatory_speeds.add(speed_limit_mph)
@@ -1238,6 +1242,21 @@ class VisionModelCore:
         rescue_max_score = (
           DETECTOR_CLASSIFIER_STRONG_RESCUE_MAX_SCORE if strong_rescue else DETECTOR_CLASSIFIER_RESCUE_MAX_SCORE
         )
+        identity_logit = getattr(face_filter, 'last_identity_logit', None)
+        verified_small = (
+          getattr(self, '_tiny_recovery', False) is True and
+          class_id == 0 and expansions is DETECTOR_CLASSIFIER_EXPANSIONS and
+          proposal_confidence >= .8 and len(speed_scores) == 1 and
+          support_count == len(speed_read_boxes[speed_limit_mph]) == 3 and
+          speed_worst_confidences[speed_limit_mph] >= .96 and read_confidence >= .995 and
+          getattr(face_filter, 'last_verified_candidate', None) == (proposal_confidence, class_id, (x1, y1, x2, y2)) and
+          getattr(face_filter, 'last_isolated_face', False) is True and
+          type(identity_logit) is float and math.isfinite(identity_logit) and identity_logit >= 2.75
+        )
+        if verified_small:
+          # Three consistent crops and the bound isolated identity can overcome the size cap.
+          rescue_max_score = .95
+          strong_rescue = True
         published_score = min(score, rescue_max_score)
         if speed_trusted_model_support.get(speed_limit_mph, 0) < DETECTOR_CLASSIFIER_TRUSTED_MODEL_MIN_SUPPORT:
           selection_score = published_score

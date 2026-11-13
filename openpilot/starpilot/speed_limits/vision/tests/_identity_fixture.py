@@ -46,7 +46,11 @@ class Net:
     stops = np.zeros((1, 5, 4096), np.float32)
     if self.stop_hits:
       stops[0, :, 0] = [128, 128, 20, 20, 0.9]
-    return [stops] if self.kind == 'stop' else (speed, stops)
+    if self.kind == 'stop':
+      return [stops]
+    if names != ['output0', 'stop/output0', 'tiny/scores']:
+      raise AssertionError('Expected all joint detector outputs')
+    return speed, stops, np.zeros((1, 1, 1024), np.float32)
 
 
 def load(path):

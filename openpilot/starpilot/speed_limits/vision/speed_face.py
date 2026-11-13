@@ -148,8 +148,14 @@ class SpeedFaceVerifier:
     self.last_forward_duration_s = 0.
     self.last_rejected = False
     self.last_dense_id = None
+    self.last_identity_logit: float | None = None
+    self.last_verified_candidate = None
+    self.last_isolated_face = False
 
   def end_frame(self):
+    self.last_identity_logit = None
+    self.last_verified_candidate = None
+    self.last_isolated_face = False
     self._blob = None
     self._proposals.clear()
 
@@ -199,6 +205,9 @@ class SpeedFaceVerifier:
       output = self.net.forward(['speed_face_logit'])[0]
       if output.shape != (1, 1) or output.dtype != np.float32 or not np.isfinite(output).all():
         raise ValueError('Invalid speed-face output')
+      self.last_identity_logit = float(output[0, 0])
+      self.last_verified_candidate = candidate
+      self.last_isolated_face = context_box is None
       self.last_rejected = bool(output[0, 0] < (0.0 if inset is not None else KEEP_LOGIT))
       return self.last_rejected
     finally:
