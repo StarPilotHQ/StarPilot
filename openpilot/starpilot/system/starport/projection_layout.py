@@ -89,7 +89,7 @@ def layout_metadata_for_viewport(viewport):
   timer_w, _ = timer_size('large')
   widgets[STOPPED_TIMER_WIDGET]['default'].update(x=(width - timer_w) / 2, y=520)
   card_w, card_h = NAV_CARD_SIZE
-  card_x, card_bottom = 1230 + width - 1860, 415 + card_h + 15
+  card_x, card_bottom = 1230 + width - 1860, 355 + card_h + 15
   widgets[NAV_CARD]['default'].update(x=card_x)
   # The map scales with the screen: about 30% of its width in a 4:3 frame,
   # right-aligned with the turn card and sitting just below it.

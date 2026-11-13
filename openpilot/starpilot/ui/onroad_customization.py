@@ -189,10 +189,10 @@ for _profile, _geometry in {"large": (280, 100, 640, 540), "compact": (112, 48, 
   PROFILES[_profile]["widgets"][WEATHER_WIDGET] = _weather_widget
 
 NAV_CARD_WIDGET, NAV_MAP_WIDGET = "nav_card", "nav_map"
-NAV_CARD_SIZE = (560, 195)
+NAV_CARD_SIZE = (560, 255)  # sized for 3X glance legibility; grows up so its bottom edge stays put
 MAP_MIN_SIZE = (280, 200)
 MAP_OPACITY = (15, 100, 50)  # percent: min, max, default
-_nav_card = _widget("Turn-by-turn", NAV_CARD_WIDGET, *NAV_CARD_SIZE, 1230, 415)
+_nav_card = _widget("Turn-by-turn", NAV_CARD_WIDGET, *NAV_CARD_SIZE, 1230, 355)
 _nav_card["note"] = "The next maneuver while a route is active"
 PROFILES["large"]["widgets"][NAV_CARD_WIDGET] = _nav_card
 _nav_map = _widget("Map overlay", NAV_MAP_WIDGET, 560, 420, 1230, 625)

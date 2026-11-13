@@ -8,6 +8,7 @@ import pytest
 
 from openpilot.cereal import messaging
 from openpilot.starpilot.ui.navigation_state import NavigationDisplay, distance_text, navigation_display
+from openpilot.starpilot.ui.onroad_customization import NAV_CARD_SIZE
 from openpilot.starpilot.ui.onroad_navigation import ASSETS, MANIFEST, NavigationCard, arrival_time, icon_name
 from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadAlert, OnroadState, SpeedLimitObservation
 from openpilot.starpilot.ui.presentation import FontRole, Profile
@@ -40,7 +41,7 @@ def test_large_navigation_optional_widget_controls_draw_and_touch_bounds():
   placed = observed.customization['layouts']['large']['nav_card']
   placed.update(x=900, y=650)
   bounds = card.bounds(observed)
-  assert (bounds.x, bounds.y, bounds.width, bounds.height) == (900, 650, 560, 195)
+  assert (bounds.x, bounds.y, bounds.width, bounds.height) == (900, 650, *NAV_CARD_SIZE)
   assert card.bounds(replace(observed, viewport_width=2160)).x == 1200
   assert card.press(920, 670, observed)
   placed['enabled'] = False
@@ -303,8 +304,8 @@ def test_progress_bar_tracks_the_longest_remaining_distance_per_trip():
     card.render(observed)
     card.render(replace(observed, navigation=replace(observed.navigation, remaining_distance_m=2150.)))
   track, fill = (call.args[0] for call in rounded.call_args_list[-2:])
-  eta_width = len('ETA 3:50 PM') * 28 * .48
-  assert track.width == pytest.approx(560 - 48 - eta_width - 18), 'the bar stops short of the ETA beside it'
+  eta_width = len('ETA 3:50 PM') * 32 * .48
+  assert track.width == pytest.approx(NAV_CARD_SIZE[0] - 48 - eta_width - 18), 'the bar stops short of the ETA beside it'
   assert fill.width == pytest.approx(track.width * .5)
   card.bounds(replace(observed, navigation=replace(observed.navigation, key=('other', 1))))
   assert card._total == 0

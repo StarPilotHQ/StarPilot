@@ -7,6 +7,7 @@ from openpilot.starpilot.ui.raylib import rl
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
 from openpilot.starpilot.ui.navigation_icons import ASSETS, MANIFEST, icon_name
 from openpilot.starpilot.ui.navigation_state import distance_text
+from openpilot.starpilot.ui.onroad_customization import NAV_CARD_SIZE
 from openpilot.starpilot.ui.presentation import FontRole, Profile
 
 
@@ -55,9 +56,10 @@ class NavigationCard:
     placed = state.customization["layouts"]["large"].get("nav_card")
     if placed is not None and not placed["enabled"]:
       return None
-    x, y = (placed["x"], placed["y"]) if placed is not None else (1230, 415)
+    x, y = (placed["x"], placed["y"]) if placed is not None else (1230, 355)
     x += state.viewport_width - 1860
-    return rl.Rectangle(x + 448, y, 112, 112) if self.collapsed else rl.Rectangle(x, y, 560, 195)
+    width, height = NAV_CARD_SIZE
+    return rl.Rectangle(x + width - 112, y, 112, 112) if self.collapsed else rl.Rectangle(x, y, width, height)
 
   def press(self, x, y, state):
     self.cancel()
@@ -147,7 +149,7 @@ class NavigationCard:
                           rl.Rectangle(rect.x + padding, rect.y + (header - size) / 2, size, size), rl.Vector2(0, 0), 0, rl.WHITE)
     x = rect.x + padding * (1 if lanes else 2) + (0 if lanes else size)
     width = rect.x + rect.width - padding - x
-    distance_size, text_size = (32, 20) if compact else (54, 30 if lanes else 28)
+    distance_size, text_size = (32, 20) if compact else (66, 38)
     distance = 'Arrived' if nav.arrived else distance_text(nav.distance_m, state.metric)
     far = not nav.arrived and nav.distance_m > FAR_TURN_M
     y = rect.y + (8 if compact else 12)
@@ -163,7 +165,7 @@ class NavigationCard:
     eta = f'ETA {arrival_time(nav.remaining_seconds, now)}' if now is not None else ''
     right = rect.x + rect.width - padding
     bar_center = rect.y + rect.height - (11 if compact else 21)
-    eta_size = 19 if compact else 28
+    eta_size = 19 if compact else 32
     bar_right = right
     if eta:
       eta_width = self.fonts.measure(eta, FontRole.SEMI_BOLD, eta_size).width
@@ -173,11 +175,11 @@ class NavigationCard:
       lane_top = top + (6 if compact else 9)
       self._lane_strip(lanes, rect.x + padding, lane_top, right, bar_center - (8 if compact else 12) - 6 - lane_top)
     else:
-      chip = 20 if compact else 24
+      chip = 20 if compact else 28
       self._then(nav, rect.x + padding, top + 7, chip)
       if not compact:
         trip = f'{distance_text(nav.remaining_distance_m, state.metric)} | {max(1, round(nav.remaining_seconds / 60))} min'
-        trip_size = 27
+        trip_size = 32
         trip_width = self.fonts.measure(trip, FontRole.MEDIUM, trip_size).width
         self.fonts.draw(trip, FontRole.MEDIUM, trip_size, right - trip_width, top, rl.Color(214, 210, 226, 255))
     if self._total > 0:

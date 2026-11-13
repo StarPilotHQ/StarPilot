@@ -11,7 +11,7 @@ from openpilot.starpilot.system.starport.projection_layout import (
   projection_customization, ProjectionLayoutSource,
   PROJECTION_WIDGETS, NAV_CARD, NAV_MAP, FAVORITE_WIDGETS, BOOKMARK_WIDGET, CAR_EXIT, ACTION_WIDGETS, placement_size,
 )
-from openpilot.starpilot.ui.onroad_customization import CLOCK_WIDGET, MODE_WIDGET, STOPPED_TIMER_WIDGET, default_document, customization_metadata
+from openpilot.starpilot.ui.onroad_customization import CLOCK_WIDGET, MODE_WIDGET, STOPPED_TIMER_WIDGET, default_document, customization_metadata, NAV_CARD_SIZE
 from openpilot.starpilot.saved_document import commit_exact
 
 SCREEN = {'version': 1, 'width': 1280, 'height': 720, 'margin_width': 0,
@@ -523,8 +523,8 @@ class TestProjectionLayout(unittest.TestCase):
     small, wide = default_layout_for_viewport((1860, 1080)), default_layout_for_viewport((2880, 1080))
     for document in (small, wide):
       card, overlay = document['widgets'][NAV_CARD], document['widgets'][NAV_MAP]
-      self.assertEqual(card['x'] + 560, overlay['x'] + overlay['width'], 'right edges line up')
-      self.assertGreaterEqual(overlay['y'], card['y'] + 195)
+      self.assertEqual(card['x'] + NAV_CARD_SIZE[0], overlay['x'] + overlay['width'], 'right edges line up')
+      self.assertGreaterEqual(overlay['y'], card['y'] + NAV_CARD_SIZE[1])
       self.assertLessEqual(overlay['y'] + overlay['height'], document['canvas']['height'] - 30)
     self.assertLess(small['widgets'][NAV_MAP]['width'], wide['widgets'][NAV_MAP]['width'])
 
