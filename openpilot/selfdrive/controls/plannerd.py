@@ -14,6 +14,7 @@ from openpilot.starpilot.speed_limits.planner_host import (
   SLC_ACTIONS, SavedSlcLifecycle, action_from_message, cruise_event_from_message, current_cruise_event, receive_slc_events,
 )
 from openpilot.starpilot.longitudinal.profile_runtime import ProfileHost
+from openpilot.starpilot.longitudinal.drive_mode import capable as drive_mode_capable, observe as observe_drive_mode
 from openpilot.starpilot.longitudinal.lane_change_gap import LaneGapPreferences
 from openpilot.starpilot.longitudinal.experimental_release import ConditionalHandoff
 from openpilot.starpilot.longitudinal.lead_approach import LeadApproachKey
@@ -380,7 +381,7 @@ def starpilot_main():
   if conditional_host is not None:
     subscribed_services.append('starpilotRadarState')
   optional_slc = slc_lifecycle.source_services() if slc_available else []
-  if force_stop_owner is not None:
+  if force_stop_owner is not None or drive_mode_capable(CP):
     optional_slc.append('starpilotCarState')
   if force_stop_owner is not None and 'slcVisionObservation' not in optional_slc:
     optional_slc.append('slcVisionObservation')
@@ -511,7 +512,8 @@ def starpilot_main():
         # selected response supersedes the old global-only channel.
         global_braking_response = None
         selected_profiles = (profile_host.sample_selected(now_ns, sm['selfdriveState'].personality,
-                              sm['carState'].vEgo, CP, traffic_mode=traffic_mode, legacy=profile_tuning)
+                              sm['carState'].vEgo, CP, traffic_mode=traffic_mode, legacy=profile_tuning,
+                              drive_mode=observe_drive_mode(sm, now_ns=now_ns))
                              if profile_replay and profile_host is not None and
                              _profile_frame_valid(sm, now_ns) else None)
         lane_change_policy = lane_gap_preferences.sample(now_ns) if lane_gap_preferences is not None else None

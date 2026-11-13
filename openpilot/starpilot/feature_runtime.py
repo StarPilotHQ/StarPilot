@@ -14,6 +14,7 @@ from openpilot.starpilot.aol.intent import independent_axis_requested, read_sett
 from openpilot.starpilot.aol.vehicle import policy_for as aol_policy_for
 from openpilot.starpilot.feature_capabilities import display_supported, longitudinal_supported
 from openpilot.starpilot.longitudinal.profile_runtime import read_settings as read_profile_settings, selected_profiles_requested, read_global_powertrain_preset
+from openpilot.starpilot.longitudinal.drive_mode import KEY as DRIVE_MODE_KEY
 from openpilot.starpilot.longitudinal.profile_preferences import read_document_value
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.speed_limits.runtime_settings import Settings as SlcSettings, read_params as read_slc_settings
@@ -55,7 +56,8 @@ def requested(params, feature: str, *, include_auxiliary: bool = False, saved_sl
     document = read_document_value(params)
     return (read_profile_settings(params) is not None or
             (document.valid and isinstance(document.value, dict) and
-             selected_profiles_requested(document.value)))
+             selected_profiles_requested(document.value)) or
+            (document.valid and _read(params, DRIVE_MODE_KEY, 8) == (b'1', True)))
   if feature in ('slc', 'vision'):
     settings = read_slc_settings(params) if saved_slc is None else saved_slc
     return (settings.enabled or settings.display) if feature == 'slc' else (

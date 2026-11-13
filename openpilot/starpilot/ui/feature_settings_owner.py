@@ -83,8 +83,11 @@ from openpilot.starpilot.controllers.toyota_cruise import capability as toyota_c
 
 GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, "DisengageOnAccelerator"))
 
+DRIVE_MODE_KEYS = ("DriveModeProfiles", "DriveModeAcceleration", "DriveModeDeceleration")
+
 BOOL_DEFAULTS = {
   "GMPedalLongitudinal": False, "ForceStops": True, "AlwaysAllowUploads": False, "TurnAssist": True,
+  "DriveModeProfiles": False, "DriveModeAcceleration": True, "DriveModeDeceleration": True,
   "SubaruAvhStartup": False,
   "SubaruStopStartOff": False,
   "SubaruSNG": False,
@@ -1227,6 +1230,17 @@ class FeatureSettingsOwner:
       if self._galaxy():
         rows.append(self._bool_row("DisengageOnAccelerator", "Disengage on Accelerator Pedal", self.authority("preferences")))
       document, raw, valid = self._document()
+      from openpilot.starpilot.longitudinal.drive_mode import capable as drive_mode_capable
+      if drive_mode_capable(self.vehicle_params()):
+        match_enabled, _, _ = self._value("DriveModeProfiles")
+        rows.append(self._bool_row("DriveModeProfiles", "Match Drive Mode", allowed,
+                                   reason="Eco, Normal and Sport select Eco, Standard and Sport+ acceleration with Eco, "
+                                          "Standard and Sport deceleration, replacing the selected profiles below. Traffic Mode is unchanged."))
+        if match_enabled == "1":
+          rows.append(self._bool_row("DriveModeAcceleration", "Match Acceleration", allowed,
+                                     reason="Eco, Normal and Sport select Eco, Standard and Sport+ acceleration."))
+          rows.append(self._bool_row("DriveModeDeceleration", "Match Deceleration", allowed,
+                                     reason="Eco, Normal and Sport select Eco, Standard and Sport deceleration."))
       for category, field, label, choices in (
         ('acceleration', 'selectedAccelerationProfile', 'Selected Acceleration Profile',
          ('dom_default', 'standard', 'eco', 'sport', 'sport_plus')),
@@ -1529,7 +1543,7 @@ class FeatureSettingsOwner:
       group = "long"
     elif key in BOOL_DEFAULTS or key in FLOAT_SPECS or key in (*SOURCE_PRIORITY_KEYS, *ADVANCE_KEYS, 'SLCConfirmation', PEDAL_OVERRIDE_KEY):
       source_key = key
-      long_key = (key in ("CustomPersonalities", "ForceStops", "ForceStopDistanceOffset") or "Personality" in key or
+      long_key = (key in ("CustomPersonalities", "ForceStops", "ForceStopDistanceOffset", *DRIVE_MODE_KEYS) or "Personality" in key or
                   key.endswith(("Follow", "FollowHigh")) or "Jerk" in key)
       if key in ("ShowSpeedLimits", "AlwaysAllowUploads", *SOURCE_PRIORITY_KEYS) or (key == "ForceStops" and request.value == "Off"):
         group = "preferences"
