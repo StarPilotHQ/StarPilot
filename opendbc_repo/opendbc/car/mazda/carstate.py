@@ -229,7 +229,9 @@ class CarState(CarStateBase):
     self.steer_torque_samples.append(ret.steeringTorque)
     if ret.leftBlinker or ret.rightBlinker:
       return abs(ret.steeringTorque) > self.params.STEER_DRIVER_ALLOWANCE   # lane-change nudge, as before
-    return abs(sum(self.steer_torque_samples) / len(self.steer_torque_samples)) > self.params.STEER_PRESSED_THRESHOLD
+    # Mean of magnitudes, not of signed torque: a hard reversal (+6000 then -6000) must not
+    # average to zero and drop the override for half the window.
+    return sum(abs(t) for t in self.steer_torque_samples) / len(self.steer_torque_samples) > self.params.STEER_PRESSED_THRESHOLD
 
   def update_gen2(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
