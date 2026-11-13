@@ -9,11 +9,11 @@ KEY = "ExperimentalSpeedNudge"
 SOURCES = ('carState', 'carControl', 'controlsState', 'selfdriveState', 'radarState', 'modelV2')
 MAX_SOURCE_AGE_NS = 250_000_000
 MAX_BOOST = .6
-BOOST_RATE = .1
-SETTLE_SECONDS = 3.
+BOOST_RATE = .25
+SETTLE_SECONDS = 1.5
 MIN_HESITATION_GAP = 1.
-HESITATION_ACCEL = .15
-RECOVERY_ACCEL = .3
+HESITATION_ACCEL = .3
+RECOVERY_ACCEL = .6
 HESITATION_FILTER_SECONDS = .5
 
 
