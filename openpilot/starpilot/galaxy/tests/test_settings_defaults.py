@@ -39,6 +39,25 @@ class TestSettingsDefaults(TestCase):
   def confirm(self, intent):
     return self.gateway.confirm(intent['intent'], self.session, self.generation)
 
+  def test_torque_sliders_keep_defaults_without_duplicate_reset_rows(self):
+    from openpilot.starpilot.lateral.tests.test_lane_runtime import ioniq_candidate
+    _, cp = ioniq_candidate()
+    self.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
+    for label in ('Lat Accel', 'Friction'):
+      page = self.page('torque')
+      self.assertFalse(any('Reset to Default' in row['label'] for row in page['rows']))
+      index = next(i for i, row in enumerate(page['rows']) if row['label'] == label)
+      row = page['rows'][index]
+      previous = float(row['value'])
+      direction = -1 if previous >= row['maximum'] else 1
+      intent = self.gateway.preview(page['view'], index, direction, self.session, self.generation)
+      self.assertTrue(self.confirm(intent))
+      row, intent = self.reset('torque', label)
+      self.assertEqual(row['defaultValue'], 'Vehicle/learned')
+      self.assertTrue(self.confirm(intent))
+      restored = next(row for row in self.page('torque')['rows'] if row['label'] == label)
+      self.assertAlmostEqual(float(restored['value']), previous)
+
   def test_boolean_and_numeric_defaults_are_owner_values(self):
     self.params.put_bool('LaneCentering', True, block=True)
     self.params.put_bool('LaneCenteringPauseOnSignal', False, block=True)
