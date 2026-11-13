@@ -13,7 +13,7 @@ import threading
 import time
 from typing import Protocol, cast
 
-from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner, cooling_available
+from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner, AGGRESSIVE_COOLING_KEY
 from openpilot.starpilot.galaxy.setting_descriptions import description
 from openpilot.starpilot.galaxy.localization_settings import LocalizationSettingsOwner
 from openpilot.starpilot.ui.controller_feature import SETUP_ACTION, SETUP_QUESTION
@@ -639,7 +639,9 @@ class SettingsGateway:
                            minimum=1 if row.key == HOURS else 11.8, maximum=30 if row.key == HOURS else 12.5,
                            step=1 if row.key == HOURS else 0.1, unit="h" if row.key == HOURS else "V")
                    if row.key in (HOURS, VOLTS) else row for row in state.rows)
-      return replace(state, rows=rows)
+      cooling = self._owner(ctx).snapshot("power", parked=ctx.parked, system_long=False, lateral_context=False,
+                                          metric=ctx.metric, configure_while_driving=True)
+      return replace(state, title="Power and Cooling", rows=rows + tuple(cooling.rows))
     if page == "display":
       return self._display_owner(ctx).snapshot(Profile.COMPACT if HARDWARE.get_device_type() == "mici" else Profile.LARGE)
     if page == "pip":
@@ -689,7 +691,6 @@ class SettingsGateway:
     scope = hashlib.sha256(_session_key(token) + generation + (ctx.cp_raw or b"")).digest()
     result = {"page": page, "title": state.title, "subtitle": state.subtitle, "parked": state.parked,
               "vehicleIdentified": bool(ctx.cp is not None and getattr(ctx.cp, "carFingerprint", None)),
-              "coolingAvailable": cooling_available(),
               "rows": [{**_projection(row), "revision": hashlib.sha256(scope + repr(row).encode()).hexdigest()}
                        for row in state.rows], "view": view_id}
     if page == "hub" or any(row.page for row in state.rows):
@@ -856,7 +857,7 @@ class SettingsGateway:
       return self._appearance_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
     if intent.page == "sounds":
       return self._sounds_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
-    if intent.page == "power":
+    if intent.page == "power" and intent.request.key != AGGRESSIVE_COOLING_KEY:
       return self._power_owner(ctx, live=True, session_valid=session_valid).apply(_power_request(intent.request))
     if intent.page == "display":
       return self._display_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)

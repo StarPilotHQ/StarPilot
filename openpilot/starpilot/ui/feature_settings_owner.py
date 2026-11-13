@@ -876,9 +876,11 @@ class FeatureSettingsOwner:
     title = {FeaturePage.HUB: "Driving Controls", FeaturePage.LANE: "Lane Centering"}.get(page, page.replace("_", " ").title())
     rows: list[FeatureRow] = []
     if page == "data":
-      title = "Data & Cooling" if cooling_available() else "Data Uploads"
+      title = "Data Uploads"
       rows = [self._bool_row("AlwaysAllowUploads", "Always Allow Uploads", self.authority("preferences"),
                              "Allow queued full logs and videos on metered networks. Uses mobile data.")]
+    elif page == "power":
+      title = "Power and Cooling"
       if cooling_available():
         rows.append(self._bool_row(AGGRESSIVE_COOLING_KEY, "Aggressive Cooling", self.authority("preferences"),
                                    AGGRESSIVE_COOLING_DESCRIPTION))
@@ -913,6 +915,17 @@ class FeatureSettingsOwner:
     elif page == FeaturePage.VEHICLE:
       title = "Vehicle Settings"
       rows = list(self._alpha_long_rows(parked))
+      from openpilot.starpilot.longitudinal.drive_mode import capable as drive_mode_capable
+      if drive_mode_capable(self.vehicle_params()):
+        match_enabled, _, _ = self._value("DriveModeProfiles")
+        rows.append(self._bool_row("DriveModeProfiles", "Match Drive Mode", configurable and system_long,
+                                   reason="Eco, Normal and Sport select Eco, Standard and Sport+ acceleration with Eco, "
+                                          "Standard and Sport deceleration, replacing the selected profiles below. Traffic Mode is unchanged."))
+        if match_enabled == "1":
+          rows.append(self._bool_row("DriveModeAcceleration", "Match Acceleration", configurable and system_long,
+                                     reason="Eco, Normal and Sport select Eco, Standard and Sport+ acceleration."))
+          rows.append(self._bool_row("DriveModeDeceleration", "Match Deceleration", configurable and system_long,
+                                     reason="Eco, Normal and Sport select Eco, Standard and Sport deceleration."))
       rows.extend(FordRearFogFeature(self).rows(parked))
       capability = self._auto_hold_capability()
       allowed = configurable and capability is not None and self.authority("vehicle")
@@ -1242,17 +1255,6 @@ class FeatureSettingsOwner:
       if self._galaxy():
         rows.append(self._bool_row("DisengageOnAccelerator", "Disengage on Accelerator Pedal", self.authority("preferences")))
       document, raw, valid = self._document()
-      from openpilot.starpilot.longitudinal.drive_mode import capable as drive_mode_capable
-      if drive_mode_capable(self.vehicle_params()):
-        match_enabled, _, _ = self._value("DriveModeProfiles")
-        rows.append(self._bool_row("DriveModeProfiles", "Match Drive Mode", allowed,
-                                   reason="Eco, Normal and Sport select Eco, Standard and Sport+ acceleration with Eco, "
-                                          "Standard and Sport deceleration, replacing the selected profiles below. Traffic Mode is unchanged."))
-        if match_enabled == "1":
-          rows.append(self._bool_row("DriveModeAcceleration", "Match Acceleration", allowed,
-                                     reason="Eco, Normal and Sport select Eco, Standard and Sport+ acceleration."))
-          rows.append(self._bool_row("DriveModeDeceleration", "Match Deceleration", allowed,
-                                     reason="Eco, Normal and Sport select Eco, Standard and Sport deceleration."))
       for category, field, label, choices in (
         ('acceleration', 'selectedAccelerationProfile', 'Selected Acceleration Profile',
          ('dom_default', 'standard', 'eco', 'sport', 'sport_plus')),
