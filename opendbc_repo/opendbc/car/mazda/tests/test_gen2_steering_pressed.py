@@ -71,6 +71,20 @@ def test_release_clears_once_the_mean_falls():
   assert not feed.step(500, n=10).steeringPressed
 
 
+@pytest.mark.parametrize("first", [6000, -6000])
+def test_a_reversal_stays_an_override(first):
+  # A signed mean would pass through zero here and drop the override for about 5 frames.
+  feed = Feed()
+  assert feed.step(first, n=10).steeringPressed
+  for _ in range(10):
+    assert feed.step(-first).steeringPressed
+
+
+def test_alternating_resting_noise_is_not_an_override():
+  feed = Feed()
+  for i in range(20):
+    assert not feed.step(2500 if i % 2 else -2500).steeringPressed
+
 @pytest.mark.parametrize("side", ["left", "right"])
 def test_lane_change_nudge_keeps_the_1400_test(side):
   feed = Feed()
