@@ -282,8 +282,10 @@ def test_braked_main_retains_only_intent_until_fresh_native_grant(epoch):
 @pytest.mark.parametrize('veto', ('permanent', 'temporary', 'invalid_can', 'timeout', 'acc', 'door', 'seatbelt',
   'sensors', 'steering', 'gas', 'regen', 'main_off', 'reverse', 'cancel', 'event_fault', 'initializing',
   'wrong_producer', 'axis_fault', 'expired_axis', 'bad_native', 'missing_native', 'native_heartbeat', 'native_fault'))
-def test_pending_braked_main_preserves_independent_vetoes(veto):
-  cp, state, feedback = cold_main_baseline()
+@pytest.mark.parametrize('prior_active', (False, True))
+def test_pending_braked_main_preserves_independent_vetoes(veto, prior_active):
+  cp, state, feedback = baseline() if prior_active else cold_main_baseline()
+  state.brakePressed = True
   now = NOW + 10_000_000
   sm, native = braked_main_sample(cp, now, 2)
   fields = {'permanent': 'steerFaultPermanent', 'temporary': 'steerFaultTemporary', 'invalid_can': 'canValid',
@@ -456,3 +458,42 @@ def test_stopped_feedback_retention_preserves_independent_vetoes(fault):
     cp.carFingerprint = CAR.SUBARU_OUTBACK_2023
   assert feedback.observe(sm, cp, state, now, latched=True,
                           intent_producer_session='changed' if fault == 'wrong_producer' else PRODUCER)
+
+
+@pytest.mark.parametrize('epoch', (0, 1))
+def test_new_main_after_prior_grant_waits_for_brake_without_renewing_leases(epoch):
+  cp, state, feedback = baseline()
+  assert feedback.ever_lateral_active and feedback.subaru_lateral_grant_ns == NOW
+  state.brakePressed = True
+  off = NOW + 10_000_000
+  sm, _ = sample(cp, off, off, 2, active=False, requested=False, allowed=False, event_stamp=off)
+  assert not feedback.observe(sm, cp, state, off, latched=False, intent_producer_session=PRODUCER)
+  before = leases(feedback)
+  arm = off + 10_000_000
+  for tick in range(100):
+    now = arm + tick * 10_000_000
+    sm, native = braked_main_sample(cp, now, tick + 3)
+    change(sm, 'aolAxisState', lambda axis: setattr(axis, 'intentIntegrityEpoch', epoch))
+    assert not feedback.observe(sm, cp, state, now, latched=True, intent_producer_session=PRODUCER, main_arm_ns=arm)
+    assert not feedback.failed and not native.lateralAllowed and leases(feedback) == before
+    assert feedback.subaru_lateral_grant_ns == NOW
+  state.brakePressed = False
+  now += 10_000_000
+  sm, native = sample(cp, now, now, 103, event_stamp=now)
+  change(sm, 'aolAxisState', lambda axis: setattr(axis, 'intentIntegrityEpoch', epoch))
+  assert not feedback.observe(sm, cp, state, now, latched=True, intent_producer_session=PRODUCER, main_arm_ns=arm)
+  assert native.lateralAllowed and feedback.subaru_lateral_grant_ns == now
+
+
+@pytest.mark.parametrize('arm_offset', (-10_000_000, 0))
+def test_braked_main_cannot_reinterpret_granted_gesture_as_first_grant(arm_offset):
+  from openpilot.starpilot.car.subaru.aol import retain_braked_main_intent
+
+  cp, state, feedback = baseline()
+  state.brakePressed = True
+  now = NOW + 10_000_000
+  sm, _ = braked_main_sample(cp, now, 2)
+  before = leases(feedback)
+  assert not retain_braked_main_intent(feedback, sm, cp, state, sm['aolAxisState'], now,
+                                      arm_ns=NOW + arm_offset, producer=PRODUCER)
+  assert feedback.subaru_braked_main is None and leases(feedback) == before

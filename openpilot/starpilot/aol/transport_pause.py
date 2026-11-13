@@ -287,6 +287,7 @@ class TransportPauseFeedback:
     self.lateral_only_baseline = False
     self.temporary_eps_gas_override = False
     self.subaru_braked_main = None
+    self.subaru_lateral_grant_ns = 0
     self.subaru_main_retained_native_ns = 0
     self.subaru_eps_brake_event_ns = 0
     self.hkg_eps_join_until_ns = 0
@@ -1825,6 +1826,8 @@ class TransportPauseFeedback:
         if lateral_baseline and native is not None:
           self.ordinary_warning_retained = False
           self.ever_lateral_active = True
+          if cp.brand == 'subaru' and self.availability_producer:
+            self.subaru_lateral_grant_ns = max(self.subaru_lateral_grant_ns, int(native.observedMonoTime))
           self.subaru_braked_main = None
           self.subaru_eps_brake_event_ns = 0
           self.lag_withdrawal_ns = 0

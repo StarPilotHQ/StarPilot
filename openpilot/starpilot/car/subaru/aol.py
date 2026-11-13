@@ -118,7 +118,7 @@ def retain_braked_main_intent(feedback, sm, cp, state, axis, now_ns, *, arm_ns, 
   pending = feedback.subaru_braked_main
   epoch = int(axis.intentIntegrityEpoch)
   if (cp.carFingerprint != CAR.SUBARU_IMPREZA_2020 or not qualified(cp, marked_only=True) or
-      feedback.failed or feedback.paused or feedback.pending_event or feedback.ever_lateral_active or
+      feedback.failed or feedback.paused or feedback.pending_event or arm_ns <= feedback.subaru_lateral_grant_ns or
       not producer or axis.intentProducerSessionId != producer or
       not 0 < arm_ns <= axis.sourceCarStateMonoTime <= now_ns or
       str(axis.faultReason) != 'none' or not axis.nativeAcknowledged or not axis.desiredLateral or axis.lateralActive or
