@@ -299,7 +299,8 @@ try {
   await capture('steady-background-analysis')
   await change('saved-retained')
   const savedReading = await execute('return document.querySelector(".gx-tuner__drive-copy").innerText')
-  assert(savedReading.includes('A tune is saved for your next drive') && savedReading.includes('1 saved'))
+  assert(savedReading.includes('Auto Learn saved a tune') && savedReading.includes('1 saved'))
+  assert(savedReading.includes('last reported saved values') && savedReading.includes('match your setup before using them'))
   for (let pass=0;pass<6;pass++) {
     await execute('window.flm.report.current.details["Earlier analysis shown while updating"]=!window.flm.report.current.details["Earlier analysis shown while updating"];return window.flm.$nextTick()')
     assert.equal(await execute('return document.querySelector(".gx-tuner__drive-copy").innerText'), savedReading)

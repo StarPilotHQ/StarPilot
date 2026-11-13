@@ -46,8 +46,8 @@ export function reviewModel(route, historical = false, updating = false) {
   let tone = count ? 'review' : 'neutral'
   let next = count ? 'Auto Learn will save changes it can confirm. You can also review these suggestions and adjust the manual settings while parked.' : 'No action is needed. Auto Learn can review the next completed drive when it is enabled.'
   if (route.configurationState === 'ready_for_next_drive') {
-    title = 'A tune is saved for your next drive'
-    description = 'Auto Learn will compare it with new driving. A saved trial is not yet a confirmed improvement.'
+    title = 'Auto Learn saved a tune'
+    description = 'These are the last reported saved values. The controller checks that they match your setup before using them.'
     tone = 'saved'
     next = 'A new drive is needed to measure the saved trial. Saved does not mean verified or currently in use.'
   } else if (route.configurationState === 'rolled_back') {
