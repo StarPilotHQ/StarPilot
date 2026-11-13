@@ -18,6 +18,7 @@ from openpilot.common.swaglog import cloudlog
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.vehicle_model import VehicleModel
 from openpilot.selfdrive.controls.lib.drive_helpers import clip_curvature
+from openpilot.selfdrive.controls.lib.highway_correction_gain import HighwayCorrectionGain, predicted_lateral_accels, read_gain
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
 from openpilot.selfdrive.controls.lib.lateral_controller_factory import create_lateral_controller
@@ -50,7 +51,7 @@ from openpilot.starpilot.lateral.lane_change_preferences import LiveLaneChangePo
 from openpilot.starpilot.lateral.lane_change_smoothing import LaneChangeSmoother, limit_rate
 from openpilot.starpilot.lateral.lane_runtime import LaneCenteringHost, runtime_supported as lane_runtime_supported
 from openpilot.starpilot.lateral.torque_runtime import TorqueHost, runtime_enabled as torque_runtime_enabled
-from openpilot.starpilot.lateral.controller_selection import learning_allowed, read_selection
+from openpilot.starpilot.lateral.controller_selection import learning_allowed, read_selection, turn_assist_supported
 from openpilot.starpilot.lateral.gain_runtime import create_gain_owner
 from openpilot.starpilot.flm.global_runtime import GlobalRuntime
 from openpilot.starpilot.flm.evidence_hooks import control_message
@@ -122,6 +123,9 @@ class Controls:
     self.lane_centering_controller = (
       LaneCenteringController(body=interface_dimensions(self.CI, self.CP), body_required=True) if predict_lane_clearance else LaneCenteringController()
     )
+    self.highway_correction_gain = HighwayCorrectionGain()
+    self.highway_smoothing_supported = turn_assist_supported(self.CP)
+    self.highway_gain = read_gain(self.params) if self.highway_smoothing_supported else 1.0
     self.lateral_pause = LateralPause(read_lateral_pause(self.params), self.params)
     self.lane_change_preferences = LiveLaneChangePolicy(self.params, now_ns=0 if os.getenv('REPLAY') == '1' else time.monotonic_ns())
     self.lane_change_policy = self.lane_change_preferences.applied
@@ -499,6 +503,27 @@ class Controls:
     elif getattr(self, 'model_turn_assist', None) is not None:
       self.model_turn_assist.reset()
       self.model_turn_assist.twitch_guard_armed = update_twitch_guard(False, CS.vEgo, CS.standstill)
+    if self.highway_smoothing_supported:
+      if self.sm.frame % 100 == 0:
+        self.highway_gain = read_gain(self.params)
+      predicted = None
+      if self.sm.all_checks(['modelV2']):
+        predicted = predicted_lateral_accels(model_v2.position.t, model_v2.velocity.x, model_v2.orientationRate.z)
+      # before lane centering so its guard measures only its own correction against the smoothed base
+      new_desired_curvature = self.highway_correction_gain.update(
+        new_desired_curvature,
+        CS.vEgo,
+        CC.latActive,
+        self.highway_gain,
+        bypass=bool(
+          CS.leftBlinker
+          or CS.rightBlinker
+          or CS.steeringPressed
+          or model_v2.meta.laneChangeState != LaneChangeState.off
+          or self.sm.valid['lateralManeuverPlan']
+        ),
+        predicted=predicted,
+      )
     lane_base_curvature = new_desired_curvature
     self.lane_centering_applied = 0.0
     self.lane_centering_inactive_reason = 'inactive'

@@ -801,6 +801,50 @@ class FeatureSettingsOwner:
                           authorized=authorized, temp_prefix=".turn-assist-")
     return result.committed and result.verified
 
+  def _highway_smoothing_capability(self) -> tuple | None:
+    from openpilot.starpilot.lateral.controller_selection import turn_assist_supported
+    cp = self.vehicle_params()
+    if cp is None or not turn_assist_supported(cp):
+      return None
+    return (cp.carFingerprint, cp.lateralTuning.which(), str(cp.steerControlType), cp.passive, cp.dashcamOnly, cp.notCar,
+            tuple((str(config.safetyModel), int(config.safetyParam)) for config in cp.safetyConfigs))
+
+  def _highway_smoothing_row(self, configurable: bool) -> FeatureRow:
+    from openpilot.selfdrive.controls.lib.highway_correction_gain import KEY, MAX_SETTING, MIN_SETTING
+    capability = self._highway_smoothing_capability()
+    value, raw, valid = self._value(KEY)
+    try:
+      number = float(value)
+      valid = valid and self._readable(KEY) and math.isfinite(number) and MIN_SETTING <= number <= MAX_SETTING
+    except ValueError:
+      valid, number = False, MAX_SETTING
+    allowed = configurable and self.authority("torque") and capability is not None
+    return FeatureRow(KEY, "Highway Smoothing", f"{number:g}" if valid else "Invalid saved value", raw,
+                      step=1.0 if valid else 0., minimum=MIN_SETTING, maximum=MAX_SETTING,
+                      available=allowed and (valid or self.authority("parked_preferences") and self._readable(KEY)),
+                      repair_value=f"{MAX_SETTING:g}" if not valid else "", default_value=f"{MAX_SETTING:g}",
+                      vehicle_fingerprint=self.vehicle_fingerprint(), capability=capability,
+                      reason="Calms steering wheel weave on highways above about 40 mph. Lower values smooth more; 10 is off.")
+
+  def _apply_highway_smoothing(self, request: FeatureSettingsRequest) -> bool:
+    from openpilot.selfdrive.controls.lib.highway_correction_gain import KEY, MAX_SETTING, MIN_SETTING
+    def authorized():
+      row = self._highway_smoothing_row(self.authority("preferences"))
+      return (row.available and (not row.repair_value or request.value == row.repair_value) and
+              row.capability == request.capability and row.vehicle_fingerprint == request.vehicle_fingerprint and
+              row.source == request.expected and request.related_source is None and not request.direction)
+    if not authorized():
+      return False
+    try:
+      number = float(request.value)
+    except ValueError:
+      return False
+    if not math.isfinite(number) or not MIN_SETTING <= number <= MAX_SETTING:
+      return False
+    result = commit_exact(self.params, key=KEY, max_bytes=128, raw=f"{number:g}".encode(), expected=request.expected,
+                          authorized=authorized, temp_prefix=".highway-smoothing-")
+    return result.committed and result.verified
+
   def snapshot(self, page: str, *, parked: bool, system_long: bool, lateral_context: bool, metric: bool,
                configure_while_driving: bool = False) -> FeatureSettingsState:
     selected_vehicle = self._vehicle_params_source()
@@ -1030,6 +1074,8 @@ class FeatureSettingsOwner:
       cp = self.vehicle_params()
       if cp is not None and turn_assist_supported(cp):
         rows.append(self._turn_assist_row(configurable))
+      if self._highway_smoothing_capability() is not None:
+        rows.append(self._highway_smoothing_row(configurable))
       setup_row = self.controller.setup_row()
       if setup_row is not None:
         rows.append(setup_row)
@@ -1373,6 +1419,8 @@ class FeatureSettingsOwner:
       return FordBluePilotFeature(self).apply(request)
     if key == "TurnAssist":
       return self._apply_turn_assist(request)
+    if key == "HighwaySmoothingLevel":
+      return self._apply_highway_smoothing(request)
     if key == 'LateralControllerSelection':
       return self.controller.apply(request)
     if key == SETUP_ACTION:
