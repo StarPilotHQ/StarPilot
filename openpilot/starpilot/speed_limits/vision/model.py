@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter, deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 import hashlib
@@ -801,7 +802,8 @@ class VisionModelCore:
     return speed_limit, confidence
 
 
-  def _detect_sign_from_detector_classifier(self, frame_bgr, *, proposals=None):
+  def _detect_sign_from_detector_classifier(
+      self, frame_bgr, *, proposals: Iterable[tuple[float, int, tuple[int, int, int, int]]] | None = None):
     frame_height, frame_width = frame_bgr.shape[:2]
     best_detection = None
     best_score = 0.0

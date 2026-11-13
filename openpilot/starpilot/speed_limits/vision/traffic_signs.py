@@ -150,7 +150,9 @@ class TrafficSignModelCore(model.VisionModelCore):
       callback(tuple(self.stop_detections))
     return proposals
 
-  def _detect_sign_from_detector_classifier(self, frame_bgr):
+  def _detect_sign_from_detector_classifier(self, frame_bgr, *, proposals=None):
+    if proposals is not None:
+      return super()._detect_sign_from_detector_classifier(frame_bgr, proposals=proposals)
     detection = super()._detect_sign_from_detector_classifier(frame_bgr)
     if detection is not None or self.net is None or model.DETECTOR_CLASSIFIER_REGION_MODE != 'right_roi':
       return detection

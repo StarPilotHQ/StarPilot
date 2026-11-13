@@ -1,11 +1,12 @@
 import unittest
-from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import cv2
 import numpy as np
 
 from openpilot.starpilot.speed_limits.vision.model import Detection, VisionModelCore
+from openpilot.starpilot.speed_limits.vision.speed_face import SpeedFaceVerifier
+from openpilot.starpilot.speed_limits.vision.stop_signs import StopDetection
 from openpilot.starpilot.speed_limits.vision.traffic_signs import TrafficSignModelCore, left_panel_region
 
 
@@ -13,9 +14,9 @@ class TestMedianFallback(unittest.TestCase):
   def setUp(self):
     self.core = TrafficSignModelCore.__new__(TrafficSignModelCore)
     self.core.net = object()
-    self.core.stop_detections = ('original STOP result',)
+    self.core.stop_detections = (StopDetection(.8, (800, 200, 860, 260)),)
     self.frame = np.zeros((760, 1344, 3), np.uint8)
-    self.face = SimpleNamespace(last_forward_count=1, last_forward_duration_s=.01)
+    self.face = Mock(spec=SpeedFaceVerifier, last_forward_count=1, last_forward_duration_s=.01)
     def begin():
       self.face.last_forward_count = 0
       self.face.last_forward_duration_s = 0.
@@ -55,7 +56,7 @@ class TestMedianFallback(unittest.TestCase):
       self.assertEqual(args[2:6], (377, 243, 1344, 760))
       self.assertEqual(self.face.last_forward_count, 2)
       self.assertAlmostEqual(self.face.last_forward_duration_s, .03)
-      self.assertEqual(self.core.stop_detections, ('original STOP result',))
+      self.assertEqual(self.core.stop_detections, (StopDetection(.8, (800, 200, 860, 260)),))
 
   def test_failure_propagates_without_losing_cost(self):
     with patch.object(VisionModelCore, '_detect_sign_from_detector_classifier', return_value=None), \

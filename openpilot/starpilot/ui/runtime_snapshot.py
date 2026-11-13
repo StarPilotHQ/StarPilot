@@ -340,7 +340,7 @@ class RuntimeSnapshotAdapter:
     self._replay_stopped_history = False
     self._developer_metrics = DeveloperMetrics()
     self._reverse_driver_camera = ReverseDriverCamera()
-    self._vision_stop = StopConfirmation()
+    self._vision_stop = StopConfirmation(display_only=True)
     self._slc_sign_cache: tuple[int, tuple[int, int], str, SpeedLimitObservation] | None = None
     self._slc_last_sign: tuple[tuple[int, int], str, str, float] | None = None
     self._slc_sign_recovery_ns: int | None = None
