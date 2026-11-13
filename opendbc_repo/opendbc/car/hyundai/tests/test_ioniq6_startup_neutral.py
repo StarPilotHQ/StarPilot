@@ -169,3 +169,70 @@ def test_verified_handoff_starts_neutral_before_first_control_message(monkeypatc
   assert decoder.vl['SCC_CONTROL']['ACCMode'] == 0
   assert decoder.vl['SCC_CONTROL']['aReqRaw'] == decoder.vl['SCC_CONTROL']['aReqValue'] == 0
   assert decoder.vl['LFA']['ActToiSta'] == decoder.vl['LFA']['StrTqReqVal'] == 0
+
+
+@pytest.mark.parametrize('offset', (0, 4))
+@pytest.mark.parametrize('fault', (None, 'not_prepared', 'already_configured', 'stale_panda', 'hardware_fault', 'wrong_model'))
+def test_native_startup_readiness_is_immediate_before_selfdrive_events(monkeypatch, offset, fault):
+  from openpilot.cereal import log
+
+  owner, _, control, panda = prepared_card(monkeypatch, alternate=True, offset=offset, aol=True)
+  owner.ci_initialized = False
+  owner.ioniq6_host_warmed = False
+  owner.sm.seen['carControl'] = owner.sm.seen['onroadEvents'] = False
+  owner.sm.valid['carControl'] = owner.sm.alive['carControl'] = False
+  owner.sm.update = Mock()
+  pandas = owner.sm['pandaStates']
+  for index, state in enumerate(pandas):
+    state.safetyModel, state.safetyParam = structs.CarParams.SafetyModel.elm327, 1
+    state.controlsAllowed = False
+    state.ignitionLine, state.ignitionCan = True, False
+    state.pandaType = log.PandaState.PandaType.redPanda if index == len(pandas) - 1 else log.PandaState.PandaType.dos
+  if fault == 'not_prepared':
+    owner.ioniq6_long_prearmed = False
+  elif fault == 'already_configured':
+    owner.ci_initialized = True
+  elif fault == 'stale_panda':
+    owner.sm.logMonoTime['pandaStates'] -= 300_000_001
+  elif fault == 'hardware_fault':
+    panda.faults = [log.PandaState.FaultType.interruptRateCan1]
+  elif fault == 'wrong_model':
+    panda.safetyModel = structs.CarParams.SafetyModel.hyundaiCanfd
+
+  class QueuedParams:
+    def __init__(self):
+      self.visible = False
+      self.queued = []
+
+    def get_bool(self, name):
+      return self.visible if name == 'ControlsReady' else False
+
+    def put_bool(self, name, value, *, block=False):
+      assert name == 'ControlsReady'
+      if block:
+        self.visible = value
+      else:
+        self.queued.append(value)
+
+  owner.params = QueuedParams()
+  original_sm = owner.sm
+
+  class BeforeEvents:
+    def __getattr__(self, name):
+      return getattr(original_sm, name)
+
+    def __getitem__(self, key):
+      return [] if key == 'onroadEvents' else original_sm[key]
+
+  owner.sm = BeforeEvents()
+  owner.state_update = Mock(return_value=(owner.CI.CS.out, None))
+  owner.state_publish = Mock()
+  owner.radar_publish = Mock()
+  owner.radar_update = Mock(return_value=None)
+  owner._deferred_radar_can = None
+  owner.step()
+  assert owner.params.visible is (fault is None), 'VERIFIED_STARTUP_READY_MUST_NOT_WAIT_FOR_BACKGROUND_WRITES_OR_MODEL_EVENTS'
+  assert not owner.params.queued
+  owner.publish_sendcan.assert_not_called()
+  assert not owner.ioniq6_host_warmed
+  assert owner.CI.CC.frame == 0
