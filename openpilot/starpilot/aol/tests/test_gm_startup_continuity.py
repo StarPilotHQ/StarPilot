@@ -31,7 +31,8 @@ def test_all_gm_initializing_steps_keep_servicing_handoff(cp):
   card.sm = type('SM', (), {'seen': {'onroadEvents': True}, '__getitem__': lambda _, key: events if key == 'onroadEvents' else None})()
   for method in ('gm_startup_keepalive', 'volt_startup_keepalive', 'volt_sdgm_startup_keepalive'):
     setattr(card, method, getattr(Car, method).__get__(card))
-  for method in ('ev6_startup_keepalive', 'classic_startup_keepalive', 'torque_ev_startup_keepalive', 'mixed_startup_keepalive'):
+  for method in ('ioniq6_startup_keepalive', 'ev6_startup_keepalive', 'classic_startup_keepalive',
+                 'torque_ev_startup_keepalive', 'mixed_startup_keepalive'):
     setattr(card, method, lambda: False)
   with patch('openpilot.selfdrive.car.card.EventName', SimpleNamespace(selfdriveInitializing=1)):
     for _ in range(600):
@@ -128,7 +129,8 @@ def test_card_replaces_bolt_camera_stream_during_initialization():
                          startup_panda_configured=Mock(return_value=True),
                          publish_sendcan=Mock(), _invalidate_feedback_output=Mock())
   card.gm_startup_keepalive = Car.gm_startup_keepalive.__get__(card)
-  for method in ('ev6_startup_keepalive', 'classic_startup_keepalive', 'torque_ev_startup_keepalive', 'mixed_startup_keepalive'):
+  for method in ('ioniq6_startup_keepalive', 'ev6_startup_keepalive', 'classic_startup_keepalive',
+                 'torque_ev_startup_keepalive', 'mixed_startup_keepalive'):
     setattr(card, method, lambda: False)
   for tick in range(600):
     now = 12_380_000_000 + tick * 10_000_000
