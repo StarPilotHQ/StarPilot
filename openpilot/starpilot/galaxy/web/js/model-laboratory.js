@@ -111,7 +111,6 @@ export const LaboratoryPage = {
     readyModels() { return laboratoryReady(this.status) },
     candidates() { return this.readyModels.filter(m => m.value !== this.configuration.lateralModel) },
     selectionError() { return laboratorySelectionError(this.status, this.configuration) },
-    runtimeState() { return !this.status ? "Status unavailable" : !this.status.runtimeSupported ? "Unavailable" : this.status.runtime.active ? "Pair active" : this.status.runtime.requested ? "Pair requested" : "Inactive" },
   },
   created() {
     this.feed = new LaboratoryFeed({ unauthorized: this.unauthorized, publish: update => {
@@ -139,7 +138,6 @@ export const LaboratoryPage = {
     statusLabel: laboratoryStatusLabel,
     actionAvailable(action, model = null) { return laboratoryActionAllowed(this.status, action, model, this.configuration) },
     can(action, model = null) { return !this.busy && this.actionAvailable(action, model) },
-    modelLabel(id) { return this.status?.models.find(m => m.value === id)?.label || id || "Not selected" },
     changeLateral(value) {
       this.configuration.lateralModel = value
       if (this.configuration.longitudinalModel === value) this.configuration.longitudinalModel = this.candidates[0]?.value || ""
@@ -173,6 +171,7 @@ export const LaboratoryPage = {
       <GxState v-else-if="loading" loading>Loading Model Laboratory…</GxState>
       <GxNotice tone="danger" v-if="error">{{ error }}</GxNotice>
       <GxNotice tone="danger" v-if="status?.configurationError">{{ status.configurationError }}</GxNotice>
+      <GxNotice v-if="status?.runtime.error" tone="danger">{{ status.runtime.error }}</GxNotice>
       <GxNotice v-if="message" tone="info">{{ message }}</GxNotice>
       <template v-if="mode === 'local' && !loading">
       <section class="gx-card">
@@ -198,7 +197,6 @@ export const LaboratoryPage = {
         <article v-for="m in availableModels" :key="m.value" class="gx-row gx-row--wrap"><div class="gx-row__info gx-row__info--wide"><span class="gx-row__label">{{ m.label }}</span><span class="gx-row__desc">{{ m.value }} · {{ m.small ? 'Small' : 'Big' }} · {{ m.series || 'Unknown series' }} · {{ m.version }}</span><span class="gx-row__desc">{{ m.modelLabReason || 'Pair artifact status unavailable' }}</span></div><div class="gx-actions"><span class="gx-chip">{{ statusLabel(m) }}</span><button v-if="m.modelLabEligible && m.modelLabArtifactAvailable && !m.modelLabArtifactInstalled" class="gx-btn gx-btn--tonal" :disabled="!actionAvailable('download',m)" @click="act('download',m)">{{ m.small ? (m.modelLabChestnut === false ? 'Download Small model' : 'Download pair variants') : 'Download Big model' }}</button><button v-else-if="m.small && m.modelLabChestnut !== false && m.modelLabArtifactInstalled" class="gx-btn gx-btn--tonal" :disabled="!actionAvailable('delete',m)" @click="act('delete',m)">Delete eGPU variant</button></div></article>
         <div v-if="status?.download.downloading" class="gx-row"><div class="gx-row__info"><span class="gx-row__desc">{{ status.download.progress || 'Downloading…' }}</span></div><button class="gx-btn gx-btn--tonal" :disabled="!actionAvailable('cancel')" @click="act('cancel')">Cancel download</button></div>
       </section>
-      <section class="gx-card"><div class="gx-section__header"><i class="bi bi-activity"></i><span class="gx-section__title">Runtime</span><span class="gx-chip">{{ runtimeState }}</span></div><div class="gx-row"><div class="gx-row__info"><span class="gx-row__desc">Lateral: {{ modelLabel(status?.runtime.lateralModel) }}</span><span class="gx-row__desc">Longitudinal: {{ modelLabel(status?.runtime.longitudinalModel) }}</span><span v-if="status && !status.runtimeSupported" class="gx-row__desc">{{ status.runtimeUnavailableReason || 'Pair runtime is unavailable.' }}</span></div></div><GxNotice v-if="status?.runtime.error" tone="danger">{{ status.runtime.error }}</GxNotice></section>
       </template>
     </div>`,
 }
