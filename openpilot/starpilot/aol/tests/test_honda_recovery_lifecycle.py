@@ -160,6 +160,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
         for tick in range(145):
           now = base + tick * 10_000_000
           reengage = host_scenario == 'long_reengage' and tick >= 131
+          cancelled = host_scenario == 'cancel' and tick >= 40
           if host_scenario == 'settings_off' and tick == 135:
             from openpilot.starpilot.aol.intent import read_settings
             saved.put_bool('AlwaysOnLateral', False, block=True)
@@ -167,8 +168,9 @@ class TestHondaCurrentCaller(unittest.TestCase):
             sd.aol_settings = read_settings(saved)
           # SET press/release is the real first ordinary native grant, preceding engaged HB.
           incoming = stream.frames(
-            cruise_button=3 if tick == 20 or host_scenario == 'long_reengage' and tick == 130 else 0,
-            cruise=int(21 <= tick < 50 or reengage),
+            cruise_button=2 if host_scenario == 'cancel' and tick == 40 else
+              3 if tick == 20 or host_scenario == 'long_reengage' and tick == 130 else 0,
+            cruise=int(21 <= tick < 50 and not cancelled or reengage),
             brake=50 <= tick < 55 or eps_pedal == 'brake' and 80 <= tick < 95,
             eps=(2 if eps_pedal else 6) if 80 <= tick < 95 else 0,
             gas=20 if eps_pedal == 'gas' and 80 <= tick < 95 else 0,
@@ -269,7 +271,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
           self.assertEqual(cs.gearShifter, structs.CarState.GearShifter.reverse if 110 <= tick < 125 else structs.CarState.GearShifter.drive)
           self.assertEqual(cs.brakePressed, 50 <= tick < 55 or eps_pedal == 'brake' and 80 <= tick < 95)
           self.assertTrue(cs.cruiseState.available)
-          self.assertEqual(cs.cruiseState.enabled, 21 <= tick < 50 or reengage)
+          self.assertEqual(cs.cruiseState.enabled, 21 <= tick < 50 and not cancelled or reengage)
           intent = decode_intent(published['aolIntentWire'].aolIntentWire)
           self.assertIsNotNone(intent)
           # Initial receipt is unavailable until actual negotiator completes its zero acknowledgment.
@@ -346,6 +348,10 @@ class TestHondaCurrentCaller(unittest.TestCase):
             'permission': int(safety.aol_get_permission_mask()),
             'intent': intent.allowedLatch,
             'stored_latch': card.aol_card_intent.allowed_latch,
+            'latch_clear_reason': card.aol_card_intent.latch_clear_reason,
+            'transport_failed': card.aol_transport_feedback.failed,
+            'axis': published.get('aolAxisState').to_dict() if 'aolAxisState' in published else None,
+            'previous_events': [(str(e.name), e.immediateDisable, e.softDisable, e.userDisable) for e in card.sm['onroadEvents']],
             'armed': intent.lateralArmed,
             'standard_enabled': sd.enabled,
             'lat': command.latActive,
@@ -373,8 +379,8 @@ class TestHondaCurrentCaller(unittest.TestCase):
               if not previous.latActive:
                 self.assertEqual((tx['torque'], tx['request']), (0, False), row)
             else:
-              if (alpha and address in (0x1DF, 0x1C8) or pedal and address == 0x200) and tick == 50:
-                # Card applies the prior Controls envelope. Physical brake has
+              if (alpha and address in (0x1DF, 0x1C8) or pedal and address == 0x200) and tick == (40 if host_scenario == 'cancel' else 50):
+                # Card applies the prior Controls envelope. Cancel or brake has
                 # already revoked LONG; the native hook must reject this
                 # in-flight positive command before the new envelope arrives.
                 self.assertFalse(accepted, row)
@@ -435,6 +441,13 @@ class TestHondaCurrentCaller(unittest.TestCase):
           if host_scenario == "long_reengage" and tick == 144:
             self.assertTrue(command.latActive and command.longActive, row)
             self.assertEqual(row["permission"], 3, row)
+          if cancelled and tick >= 42:
+            self.assertTrue(card.aol_card_intent.allowed_latch and intent.lateralArmed, row)
+            self.assertFalse(command.longActive or row['permission'] & 2, row)
+            if tick < 80 or 105 <= tick < 110 or tick >= 135:
+              self.assertTrue(command.latActive and row['permission'] & 1, row)
+            if (95 <= tick < 105 or 125 <= tick < 135) and not row['permission'] & 1:
+              self.assertFalse(command.latActive, row)
           if tick >= 55 and not reengage:
             self.assertFalse(command.longActive, row)
           if fault == 'relay' and tick >= 120:

@@ -23483,3 +23483,10 @@ msgstr "Alerta de punto ciego con control lateral desactivado"
 #: openpilot/starpilot/ui/sounds_owner.py
 msgid "Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. Independent of Loud Blindspot Alert. Hazards do not trigger it."
 msgstr "Advierte al señalizar hacia un vehículo detectado en el punto ciego con la asistencia de dirección desactivada o en pausa. Es independiente de la Alerta fuerte de punto ciego. Los intermitentes de emergencia no la activan."
+
+msgid "Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue."
+msgstr "Mejora la detención en los semáforos y permite detenerse automáticamente ante las señales de stop detectadas. Pisa el acelerador para continuar."
+
+msgid "Enhanced Stops"
+msgstr "Paradas mejoradas"
+

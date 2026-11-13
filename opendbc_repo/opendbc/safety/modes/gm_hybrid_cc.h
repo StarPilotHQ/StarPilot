@@ -78,9 +78,10 @@ static bool gm_hybrid_current(void) {
   return current;
 }
 
-static bool gm_hybrid_ready(void) {
+static bool gm_hybrid_ready(const bool allow_gas) {
   return gm_hybrid_current() && gm_hybrid_main && gm_hybrid_drive && gm_hybrid_eps &&
-         !brake_pressed && !gas_pressed && !gm_hybrid_regen && (!gm_hybrid_pedal || !gm_hybrid_sensor_gas);
+         !brake_pressed && !gm_hybrid_regen &&
+         (allow_gas || (!gas_pressed && (!gm_hybrid_pedal || !gm_hybrid_sensor_gas)));
 }
 
 static uint8_t gm_hybrid_request(void) {
@@ -124,6 +125,8 @@ static uint8_t gm_hybrid_semantic(const CANPacket_t *msg) {
     else if ((word == 0x55AEU) || (word == 0x5F8CU)) { button = 2U; }
     else if ((word == 0x2ACDU) || (word == 0x20EFU)) { button = 5U; }
     else if ((word == 0x60AFU) || (word == 0x6A8DU)) { button = 6U; }
+    else if ((msg->data[4] == 0U) && ((word == 0x30DFU) || (word == 0x35CEU) ||
+                                      (word == 0x3ABDU) || (word == 0x3FACU))) { button = 3U; }
     else {
       const unsigned int checksum = 0xDFU + ((unsigned int)msg->data[4] * 0x4EFU);
       if ((msg->data[3] == 1U) && (word == (0x3000U | checksum))) { button = 3U; }
@@ -183,7 +186,7 @@ static void gm_hybrid_rx(const CANPacket_t *msg) {
         if (i == 2U) {
           gm_hybrid_credit = false;
           if (gm_hybrid_requalify) {
-            if (gm_hybrid_ready()) {
+            if (gm_hybrid_ready(false)) {
               gm_hybrid_phase_seen = false; gm_hybrid_requalify = false;
               gm_hybrid_button_seen = false; gm_hybrid_semantic_reset = true;
             }
@@ -199,7 +202,7 @@ static void gm_hybrid_rx(const CANPacket_t *msg) {
             const uint8_t button = gm_hybrid_semantic(msg);
             if (button != 0U) {
               if (!gm_hybrid_button_seen) { gm_hybrid_semantic_reset = button != 1U; }
-              else if (!gm_hybrid_stock && !gm_hybrid_semantic_reset && gm_hybrid_ready() &&
+              else if (!gm_hybrid_stock && !gm_hybrid_semantic_reset && gm_hybrid_ready(gm_hybrid_pedal) &&
                        (((button == 2U) && (gm_hybrid_button != 2U)) || ((button == 1U) && (gm_hybrid_button == 3U)))) {
                 controls_allowed = true;
               } else {
@@ -232,7 +235,7 @@ static void gm_hybrid_rx(const CANPacket_t *msg) {
     gm_hybrid_clear_credit(); controls_allowed = false;
   }
   // Driver intervention withdraws actuation, not the physical cancellation slot.
-  if (brake_pressed || gm_hybrid_regen || ((gm_hybrid_stock || gm_hybrid_pedal) && gas_pressed) || (gm_hybrid_pedal && gm_hybrid_sensor_gas)) {
+  if (brake_pressed || gm_hybrid_regen || (gm_hybrid_stock && gas_pressed)) {
     controls_allowed = false;
   }
 }
@@ -289,7 +292,7 @@ static bool gm_hybrid_tx(const CANPacket_t *msg) {
     const uint8_t counter = msg->data[4] & 15U;
     const int difference = track1 - (2 * track2);
     const bool inactive = !enabled && (track1 == 0) && (track2 == 0);
-    const bool active = enabled && gm_hybrid_ready() && !gm_hybrid_stock_active && get_longitudinal_allowed() &&
+    const bool active = enabled && gm_hybrid_ready(false) && !gm_hybrid_stock_active && get_longitudinal_allowed() &&
       (track1 >= 604) && (track1 <= 2633) && (track2 >= 304) && (track2 <= 1316) &&
       (difference >= -16) && (difference <= 16);
     allowed = (inactive || active) && ((msg->data[4] & 0x70U) == 0U) &&

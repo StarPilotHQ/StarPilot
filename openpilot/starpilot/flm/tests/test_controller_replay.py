@@ -113,6 +113,7 @@ SEQUENCE = (
 
 
 class TestIoniq6ControllerReplay(unittest.TestCase):
+  @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE", 0.0)
   def test_frozen_stateful_controller_trace(self):
     self.assertEqual(_GOLDEN["sourceCommit"], "678af783")
     self.assertEqual(_GOLDEN["controllerSha256"], "3561d5ac43a72f9b68bc9e44042b8f5cbdca406dec940e7648c64607862a60f7")
@@ -127,6 +128,7 @@ class TestIoniq6ControllerReplay(unittest.TestCase):
           _assert_rows(self, actual, expected)
 
   @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0)
+  @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE", 0.0)
   def test_extended_frozen_filter_limit_override_and_reset_trace(self):
     self.assertEqual(_EXTENDED["sourceCommit"], "678af783")
     self.assertEqual(_EXTENDED["controllerSha256"], _GOLDEN["controllerSha256"])
@@ -147,6 +149,7 @@ class TestIoniq6ControllerReplay(unittest.TestCase):
           _assert_rows(self, actual, expected)
 
   @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0)
+  @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE", 0.0)
   def test_actual_torque_parameter_update_recalculates_frozen_pid_limits(self):
     self.assertEqual(_LIVE["sourceControllerSha256"], _GOLDEN["controllerSha256"])
     self.assertEqual(_LIVE["fields"], _GOLDEN["fields"])
@@ -166,6 +169,7 @@ class TestIoniq6ControllerReplay(unittest.TestCase):
           _assert_rows(self, actual, expected["rows"])
 
   @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0)
+  @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE", 0.0)
   def test_guarded_extended_trace_preserves_model_pid_inputs_and_manual_surface(self):
     for firmware, fw in (("2023", False), ("2025", True)):
       for mode in ("default", "tuned"):

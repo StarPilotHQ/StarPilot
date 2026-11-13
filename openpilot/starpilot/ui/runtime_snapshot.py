@@ -340,7 +340,7 @@ class RuntimeSnapshotAdapter:
     self._replay_stopped_history = False
     self._developer_metrics = DeveloperMetrics()
     self._reverse_driver_camera = ReverseDriverCamera()
-    self._vision_stop = StopConfirmation()
+    self._vision_stop = StopConfirmation(display_only=True)
     self._slc_sign_cache: tuple[int, tuple[int, int], str, SpeedLimitObservation] | None = None
     self._slc_last_sign: tuple[tuple[int, int], str, str, float] | None = None
     self._slc_sign_recovery_ns: int | None = None
@@ -677,12 +677,10 @@ class RuntimeSnapshotAdapter:
                                       car=display_car if display_car_valid else None, read_message=display_message)
     experimental = bool(display_selfdrive.experimentalMode) if display_selfdrive is not None else _flag(params, "ExperimentalMode")
     observed_experimental = bool(display_selfdrive.experimentalMode) if display_selfdrive is not None else False
-    persona = _personality(_text(params, "LongitudinalPersonality", "1"))
-    if display_selfdrive is not None:
-      try:
-        persona = _personality(log.LongitudinalPersonality.schema.enumerants[str(display_selfdrive.personality)])
-      except (AttributeError, KeyError, TypeError, ValueError):
-        pass
+    try:
+      persona = _personality(log.LongitudinalPersonality.schema.enumerants[str(display_selfdrive.personality)])
+    except (AttributeError, KeyError, TypeError, ValueError):
+      persona = _personality(_text(params, "LongitudinalPersonality", "1"))
     torque = observe_torque_feedback(
       display_car, display_control, display_controls,
       display_message(sm, "carOutput", now_ns, after_frame=after) if started else None,
@@ -726,6 +724,11 @@ class RuntimeSnapshotAdapter:
         if gps is not None and gps.hasFix and valid_location((gps.latitude, gps.longitude)):
           weather_location = (gps.latitude, gps.longitude)
           break
+    aol_latched = (display_aol_latch(sm, now_ns, after_frame=after)
+                   if started and getattr(ui, "aol_runtime", False) else None)
+    armed_at_stop = bool(aol_latched and cp is not None and getattr(cp, 'brand', '') == 'subaru' and display_car_valid and
+                         display_car.standstill and str(display_car.gearShifter) == 'drive' and
+                         not display_car.steerFaultTemporary and not display_car.steerFaultPermanent and not display_car.accFaulted)
     onroad = OnroadState(weather_location=weather_location, developer_metrics=developer_metrics, stop_sign_observed_ns=stop_observed_ns,
                          engaged=display_lat_active or display_long_active or longitudinal_overridden, camera_available=started,
                          speed_mps=raw_speed, cruise_kph=cruise, speed_limit=observation,
@@ -749,8 +752,7 @@ class RuntimeSnapshotAdapter:
                          torque_is_demand=torque.source == "lateral_acceleration_demand",
                          torque_drive_frame=after if started else None, drive_frame=after if started else None, observed_ns=now_ns,
                          wheel_acceleration=observe_wheel_acceleration(display_car),
-                         aol_latched=(display_aol_latch(sm, now_ns, after_frame=after)
-                                      if started and getattr(ui, "aol_runtime", False) else None),
+                         aol_latched=aol_latched, aol_armed_at_stop=armed_at_stop,
                          lateral_active=display_lat_active, longitudinal_active=display_long_active,
                          longitudinal_overridden=longitudinal_overridden,
                          driver_override_active=bool(display_car_valid and (

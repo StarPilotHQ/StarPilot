@@ -412,7 +412,7 @@ const conflictingAdvisory = structuredClone(singleAdvisory)
 conflictingAdvisory.current.details['Recorded coordinate recommendations'][0][2] = null
 conflictingAdvisory.current.details['Recorded coordinate recommendations'][0][4] = 'conflicting_recorded_candidates'
 assert(validTrainingResults(conflictingAdvisory))
-assert(recommendationText(offroadView(conflictingAdvisory).suggestions[0]).includes('no single suggested setting'))
+assert.equal(offroadView(conflictingAdvisory).suggestions.length, 0, 'Conflicting evidence is not a recommendation')
 for (const row of [ ['unknown', 0, .005, 6, 'unconfirmed'], ['ff_gain_left', 0, NaN, 6, 'unconfirmed'],
   ['ff_gain_left', 0, .02, 6, 'unconfirmed'], ['ff_gain_left', true, .005, 6, 'unconfirmed'],
   ['ff_gain_left', 0, .005, -1, 'unconfirmed'], ['ff_gain_left', 0, null, 6, 'unconfirmed'] ]) {
@@ -449,4 +449,3 @@ assert.equal(nowSavedAdvisory.current.application.applied, false, 'A saved recom
 await import('./test_plots.mjs')
 await import('./test_settings_controls.mjs')
 await import('./test_flm_review.mjs')
-if (process.env.CI && process.platform === 'linux') await import('./test_flm_ux_browser.mjs')

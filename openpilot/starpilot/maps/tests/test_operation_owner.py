@@ -235,10 +235,23 @@ class TestMapSnapshotOperationOwner(unittest.TestCase):
 
   def test_catalog_accepts_bundled_oversize_unavailable_regions(self):
     rows = [{**REGION, 'token': f'nation.region{i}'} for i in range(229)]
-    rows[0] = {**rows[0], 'groups': 120, 'available': False, 'unavailable': 'too_large'}
+    rows[0] = {**rows[0], 'groups': 1200, 'available': False, 'unavailable': 'too_large'}
     completed = subprocess.CompletedProcess([], 0, json.dumps(rows).encode(), b'')
     with patch.object(ops.subprocess, 'run', return_value=completed):
       self.assertEqual(ops._catalog()[0]['unavailable'], 'too_large')
+
+  def test_catalog_accepts_canada_and_japan_within_snapshot_budget(self):
+    rows = [{**REGION, 'token': f'nation.region{i}'} for i in range(229)]
+    for i, (token, groups) in enumerate((('nation.CA', 765), ('nation.JP', 72))):
+      rows[i] = {**rows[i], 'token': token, 'groups': groups}
+    completed = subprocess.CompletedProcess([], 0, json.dumps(rows).encode(), b'')
+    with patch.object(ops.subprocess, 'run', return_value=completed):
+      self.assertEqual([row['groups'] for row in ops._catalog()[:2]], [765, 72])
+    rows[0]['groups'] = ops.MAX_REGION_GROUPS + 1
+    completed = subprocess.CompletedProcess([], 0, json.dumps(rows).encode(), b'')
+    with patch.object(ops.subprocess, 'run', return_value=completed):
+      with self.assertRaises(ops.OperationError):
+        ops._catalog()
 
   def test_boolean_version_is_not_v1(self):
     owner = self.owner(lambda *args: GEN_A)

@@ -19,7 +19,9 @@ class TestStopProjection(unittest.TestCase):
       calls.append(names)
       if name == 'speed_limit_us_value_classifier.onnx':
         return np.zeros((1, 19), np.float32)
-      return [stops] if names == ['stop/output0'] else [speed, stops]
+      if names == ['stop/output0']:
+        return [stops]
+      return [speed, stops, np.zeros((1, 1, 1024), np.float32)]
 
     return SimpleNamespace(setInput=lambda _: None, forward=forward, getLayerId=lambda _: 0, calls=calls)
 

@@ -106,7 +106,7 @@ def test_long_only_full_activation_does_not_depend_on_a_lateral_command(ford_nat
 
 
 @pytest.mark.parametrize('word', LONG_WORDS)
-@pytest.mark.parametrize('gas,accel', ((2.1, 0.5), (-0.6, 0.5), (0.5, 2.1), (0.5, -3.6)))
+@pytest.mark.parametrize('gas,accel', ((3.6, 0.5), (-0.6, 0.5), (0.5, 3.6), (0.5, -3.6)))
 def test_new_long_permission_preserves_existing_accel_gas_and_bus_limits(ford_native, word, gas, accel):
   n = ford_native
   select(n, word)

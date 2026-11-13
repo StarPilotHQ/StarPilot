@@ -162,7 +162,12 @@ static void honda_rx_hook(const CANPacket_t *msg) {
     // exit controls once main or cancel are pressed
     if ((button == HONDA_BTN_MAIN) || (button == HONDA_BTN_CANCEL)) {
       controls_allowed = false;
-      aol_set_host_request(0U);
+      if ((button == HONDA_BTN_CANCEL) && honda_stock_aol_flag(HONDA_STOCK_ENABLED)) {
+        // Retain only the existing lateral request without renewing its deadline.
+        aol_host_axis_mask &= 1U;
+      } else {
+        aol_set_host_request(0U);
+      }
     }
     cruise_button_prev = button;
   }
@@ -213,7 +218,7 @@ static void honda_rx_hook(const CANPacket_t *msg) {
 
 static bool honda_tx_hook(const CANPacket_t *msg) {
   const LongitudinalLimits HONDA_BOSCH_LONG_LIMITS = {
-    .max_accel = 200,   // accel is used for brakes
+    .max_accel = 350,   // accel is used for brakes
     .min_accel = -350,
 
     .max_gas = honda_rdx_high_gas ? 2200 : 2000,

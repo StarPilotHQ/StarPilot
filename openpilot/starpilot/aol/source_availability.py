@@ -13,7 +13,8 @@ EventName = log.OnroadEvent.EventName
 AlertLevel = log.DriverMonitoringState.AlertLevel
 
 
-def stock_lateral_role(self, CS, native, intent=None, *, allow_independent_cancel=False, allow_independent_brake=False, allow_independent_gas=False, now_ns=0):
+def stock_lateral_role(self, CS, native, intent=None, *, allow_independent_cancel=False, allow_independent_brake=False,
+                       allow_independent_gas=False, allow_expired_source=False, now_ns=0):
   """Current stock USER role while an established independent LAT owner remains."""
   from opendbc.car.hyundai.classic_scc_aol import qualified as classic_stock_qualified
   hkg_stock = bool(self.CP.brand == 'hyundai' and classic_stock_qualified(self.CP, marked_only=True))
@@ -37,9 +38,9 @@ def stock_lateral_role(self, CS, native, intent=None, *, allow_independent_cance
     settings = getattr(self, 'aol_settings', None)
     previous = getattr(self, 'aol_axis_decision', None)
     brake_role = held_lateral_pedal(self, CS) or bool(settings is not None and settings.enabled and CS.brakePressed and not CS.regenBraking and
-      previous is not None and (previous.lateral_active or hkg_stock and
+      previous is not None and (previous.lateral_active or allow_expired_source or hkg_stock and
        getattr(self, 'aol_fault_reason', 'none') == 'availabilityPause' and previous.desired_lateral) and
-      previous.native_acknowledged and not previous.longitudinal_active and
+      (previous.native_acknowledged or allow_expired_source) and not previous.longitudinal_active and
       (toyota_qualified(self.CP, marked_only=True) and CS.standstill and not CS.cruiseState.enabled and
        CS.gearShifter == car.CarState.GearShifter.drive and isfinite(CS.vEgoRaw) and isfinite(CS.vEgo) or
        CS.vEgo >= settings.pause_brake_mps and command_allowed(self.CP, CS) or
@@ -60,9 +61,9 @@ def stock_lateral_role(self, CS, native, intent=None, *, allow_independent_cance
       not self.CP.openpilotLongitudinalControl or
       self.CP.brand == 'subaru' and subaru_qualified(self.CP, marked_only=True)) and settings is not None and settings.enabled and
       CS.gasPressed and not CS.brakePressed and not CS.regenBraking and
-      previous is not None and (previous.lateral_active or (self.CP.brand in ('gm', 'subaru') or hkg_stock) and
+      previous is not None and (previous.lateral_active or allow_expired_source or (self.CP.brand in ('gm', 'subaru') or hkg_stock) and
        getattr(self, 'aol_fault_reason', 'none') == 'availabilityPause' and previous.desired_lateral) and
-      previous.native_acknowledged and not previous.longitudinal_active and
+      (previous.native_acknowledged or allow_expired_source) and not previous.longitudinal_active and
       (CS.gearShifter == car.CarState.GearShifter.drive or self.CP.brand == 'gm' and
        CS.gearShifter == car.CarState.GearShifter.low) and isfinite(CS.vEgoRaw) and isfinite(CS.vEgo))
   rules = self.events.event_rules
@@ -151,11 +152,21 @@ def ordinary_source_availability(self, CS, now_ns, native=None, *, replay: bool,
       event.userDisable and not event.softDisable and not event.immediateDisable)]
   stock_user = None
   stock_gas = False
+  withdrawn_source = False
   if any(event.name in (EventName.pcmDisable, EventName.cruiseDisabled) and event.userDisable for event in events):
     # Resolve the native value once, as this classifier already does below.
     # Normal healthy frames never enter this nominal stock-role branch.
     native = native or native_provider(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
-    if stock_lateral_role(self, CS, native, allow_independent_brake=held_pedal, allow_independent_gas=True):
+    prior_native = anchor[1] if anchor is not None else None
+    withdrawn_source = bool(anchor is not None and native is not None and prior_native is not None and
+      anchor[0][6] and not anchor[0][7] and anchor[0][8] and not anchor[0][9] and
+      0 < anchor[0][3] < native.observedMonoTime <= now_ns and
+      not any((native.requestedLateral, native.lateralAllowed, native.requestedLongitudinal, native.longitudinalAllowed)) and
+      prior_native.requestedLateral and prior_native.lateralAllowed and not prior_native.requestedLongitudinal and
+      0 < prior_native.observedMonoTime <= now_ns <= prior_native.validUntilMonoTime)
+    role_native = prior_native if withdrawn_source else native
+    if stock_lateral_role(self, CS, role_native, allow_independent_brake=held_pedal,
+                          allow_independent_gas=True, allow_expired_source=withdrawn_source):
       stock_gas = bool(CS.gasPressed and anchor is not None and anchor[4].gasPressed)
       stock_user = stock_lateral_user_event(self.CP)
       events = [event for event in events if not ((event.name == stock_user or
@@ -289,7 +300,7 @@ def ordinary_source_availability(self, CS, now_ns, native=None, *, replay: bool,
   if (native is None or toyota_pedal and (native.requestedLongitudinal or native.longitudinalAllowed) or
       lateral_intent_only and not (accepted.allowedLatch and accepted.lateralArmed and
         not accepted.pauseLateral and not getattr(self, 'aol_dm_lateral_inhibit', False) and
-        native.requestedLateral and native.lateralAllowed) or
+        (native.requestedLateral and native.lateralAllowed or withdrawn_source)) or
       not ford_gas and not healthy_transport(self.sm, self.CP, CS, self.aol_session_id, now_ns, native) or
       native.observedMonoTime < prior_native.observedMonoTime or
       native.pandaSerial != prior_native.pandaSerial or

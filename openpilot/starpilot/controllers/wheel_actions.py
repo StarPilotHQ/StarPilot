@@ -186,10 +186,12 @@ class WheelPublisher:
     self.suppress_distance_release = any(event.type == structs.CarState.ButtonEvent.Type.gapAdjustCruise and not event.pressed
                                          for event in state.buttonEvents)
     # Repeated neutral packets are not button edges. Keep held-input audits,
-    # the periodic audit, and the final read before emitted commands below.
+    # periodic held-input audits, and the final read before emitted commands below.
     media_edge = self.media_audit_needed(media)
     edge = bool(state.buttonEvents) or media_edge
-    audit = self.mapping is None or drive_id != self.drive or edge or now_ns - self.checked_ns >= 1_000_000_000
+    held = self.paddle_held or any(tracker.distance_held or tracker.media_held is not None
+                                    for tracker in (self.tracker, self.cancel_tracker, self.main_tracker))
+    audit = self.mapping is None or drive_id != self.drive or edge or held and now_ns - self.checked_ns >= 1_000_000_000
     source_eligible = bool(eligible(cp) and state.canValid and not state.canTimeout and type(now_ns) is int and
                            type(drive_id) is int and 0 < drive_id < now_ns)
     mapping = capture(params) if audit and source_eligible else self.mapping

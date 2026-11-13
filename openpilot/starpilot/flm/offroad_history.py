@@ -159,6 +159,13 @@ class EvidenceBank:
       raise ValueError('Bounded historical steering evidence required')
     return value['profiles']
 
+  def revision(self):
+    try:
+      packed = self.cache._read('history.z', MAX_PACKED)
+    except FileNotFoundError:
+      return None
+    return hashlib.sha256(packed).hexdigest()
+
   def read(self, identity):
     rows = self._profiles().get(identity, [])
     if type(rows) is not list or len(rows) > MAX_DRIVES:
@@ -210,14 +217,35 @@ class EvidenceBank:
       oldest = min(profiles, key=lambda key: max((r['receipt']['completed_wall_ns'] for r in profiles[key]), default=0))
       del profiles[oldest]  # Derived evidence only; original recordings and saved tune history remain untouched.
     profiles[identity] = history
-    raw = json.dumps({'version': 1, 'profiles': profiles}, separators=(',', ':'), allow_nan=False).encode()
-    if len(raw) > MAX_UNPACKED:
-      raise ValueError('Historical steering evidence size bound')
-    packed = zlib.compress(raw, 6)
-    if len(packed) > MAX_PACKED or not permitted():
-      raise ValueError('Historical steering evidence bound or parked authority lost')
+    while True:
+      if not permitted():
+        raise ValueError('Parked authority lost before retaining steering history')
+      raw = json.dumps({'version': 1, 'profiles': profiles}, separators=(',', ':'), allow_nan=False).encode()
+      packed = zlib.compress(raw, 6) if len(raw) <= MAX_UNPACKED else None
+      if packed is not None and len(packed) <= MAX_PACKED:
+        break
+      # Capacity is not conflicting driving evidence. Retire derived history
+      # by source age, never by fit error, before refusing a new drive.
+      others = [key for key in profiles if key != identity]
+      if others:
+        oldest = min(others, key=lambda key: (max((r['receipt']['completed_wall_ns'] for r in profiles[key]), default=0), key))
+        del profiles[oldest]
+      elif len(profiles[identity]) > 1:
+        profiles[identity] = profiles[identity][1:]
+      else:
+        current = profiles[identity][0]
+        if len(current['windows']) <= 1:
+          # A single oversized whole window need not stop this drive's own
+          # analysis. Leave the existing optional history file untouched.
+          return self.read(identity)
+        count = len(current['windows']) // 2
+        windows = list(_spread(current['windows'], count)) if count > 1 else current['windows'][:1]
+        profiles[identity] = [{**current, 'windows': windows,
+          'metadata': {key: value for key, value in current['metadata'].items() if key in {w['context'] for w in windows}}}]
+    if not permitted():
+      raise ValueError('Parked authority lost before retaining steering history')
     self.cache._write('history.z', packed, maximum=MAX_PACKED)
-    return history
+    return profiles[identity]
 
 
 def combine(collected, inventory, history):

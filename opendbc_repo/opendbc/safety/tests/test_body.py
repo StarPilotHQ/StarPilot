@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
+from pathlib import Path
+import subprocess
+import sys
 import unittest
+
+from opendbc.safety.tests.libsafety import libsafety_py
 
 from opendbc.car.structs import CarParams
 import opendbc.safety.tests.common as common
@@ -47,6 +52,35 @@ class TestBody(common.SafetyTest):
     for _ in range(common.MAX_WRONG_COUNTERS + 1):
       valid = self._rx(msg)
     self.assertFalse(valid)
+
+  def test_rx_callback_finishes(self):
+    try:
+      mutant = self.safety.mutation_get_active_mutant()
+    except AttributeError:
+      mutant = None
+    script = """import sys, unittest
+from opendbc.safety.tests.libsafety import libsafety_py
+libsafety_py.load(sys.argv[1])
+if sys.argv[2] != 'None':
+  libsafety_py.libsafety.mutation_set_active_mutant(int(sys.argv[2]))
+suite = unittest.TestLoader().loadTestsFromName('opendbc.safety.tests.test_body.TestBody.test_rx_hook')
+print('NATIVE_BODY_CALLBACK_READY', flush=True)
+result = unittest.TextTestRunner().run(suite)
+raise SystemExit(2 if result.errors or result.testsRun != 1 or result.skipped else 1 if result.failures else 0)
+"""
+    try:
+      result = subprocess.run([sys.executable, '-c', script, libsafety_py.libpath, str(mutant)],
+                              cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired as exc:
+      output = exc.stdout or b''
+      if isinstance(output, bytes):
+        output = output.decode(errors='replace')
+      if 'NATIVE_BODY_CALLBACK_READY' not in output:
+        raise RuntimeError('Native callback child did not reach its test') from exc
+      self.fail('Native CRC/RX callback did not finish within ten seconds')
+    if 'NATIVE_BODY_CALLBACK_READY' not in result.stdout or result.returncode not in (0, 1):
+      raise RuntimeError(f'Native callback child infrastructure failure ({result.returncode}): {result.stdout}{result.stderr}')
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
   def test_tx_hook(self):
     self.assertFalse(self._tx(self._torque_cmd_msg(0, 0)))

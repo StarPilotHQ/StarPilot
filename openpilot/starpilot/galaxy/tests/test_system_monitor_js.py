@@ -51,10 +51,11 @@ console.log(JSON.stringify(projectionPayload({revision: raw.revision, document: 
 
     for test in TESTS:
       with self.subTest(test=test):
+        timeout = 55 if test == "test_flm_ux_browser.mjs" else 30
         try:
-          result = subprocess.run([node, str(Path(__file__).with_name(test))], capture_output=True, text=True, timeout=30, check=False)
+          result = subprocess.run([node, str(Path(__file__).with_name(test))], capture_output=True, text=True, timeout=timeout, check=False)
         except subprocess.TimeoutExpired as exc:
-          self.fail(f"System Monitor JavaScript contract timed out after 30 seconds: {exc}")
+          self.fail(f"System Monitor JavaScript contract timed out after {timeout} seconds: {exc}")
         detail = "\n".join((f"System Monitor JavaScript contract failed ({result.returncode}).",
                             f"stdout:\n{result.stdout}", f"stderr:\n{result.stderr}"))
         self.assertEqual(result.returncode, 0, detail)

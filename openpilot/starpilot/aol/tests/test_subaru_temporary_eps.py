@@ -234,3 +234,118 @@ def test_brake_warning_event_change_preserves_existing_eps_intent(axis_first):
     assert not feedback.observe(sm, cp, state, now, latched=True, intent_producer_session=PRODUCER)
     assert not feedback.failed and leases(feedback) == before
     assert not native.lateralAllowed and not native.longitudinalAllowed
+
+
+def braked_main_sample(cp, now, sequence):
+  sm, native = sample(cp, now, now, sequence, active=False, allowed=False, event_stamp=now)
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'desiredLateral', True))
+  event = sm.messages['onroadEvents'].as_builder()
+  event.onroadEvents = [{'name': 'pcmDisable', 'userDisable': True},
+                       {'name': 'pedalPressed', 'userDisable': True, 'noEntry': True},
+                       {'name': 'steerOverride', 'overrideLateral': True}]
+  sm.messages['onroadEvents'] = event.as_reader()
+  return sm, native
+
+
+def cold_main_baseline():
+  cp, state, _ = baseline()
+  feedback = TransportPauseFeedback(cp)
+  sm, _ = sample(cp, NOW, NOW, 1, active=False, requested=False, allowed=False)
+  assert not feedback.observe(sm, cp, state, NOW, latched=False, intent_producer_session=PRODUCER)
+  state.brakePressed = state.steeringPressed = True
+  return cp, state, feedback
+
+
+@pytest.mark.parametrize('epoch', (0, 1))
+def test_braked_main_retains_only_intent_until_fresh_native_grant(epoch):
+  cp, state, feedback = cold_main_baseline()
+  before = leases(feedback)
+  arm_ns = NOW + 10_000_000
+  for tick in range(1, 101):
+    now = NOW + tick * 10_000_000
+    sm, native = braked_main_sample(cp, now, tick + 1)
+    change(sm, 'aolAxisState', lambda a: setattr(a, 'intentIntegrityEpoch', epoch))
+    assert not feedback.observe(sm, cp, state, now, latched=True, intent_producer_session=PRODUCER, main_arm_ns=arm_ns)
+    assert not feedback.failed and not native.lateralAllowed and not feedback.ever_lateral_active
+    assert leases(feedback) == before
+  state.brakePressed = state.steeringPressed = False
+  now += 10_000_000
+  sm, _ = braked_main_sample(cp, now, 102)
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'intentIntegrityEpoch', epoch))
+  assert not feedback.observe(sm, cp, state, now, latched=True, intent_producer_session=PRODUCER, main_arm_ns=arm_ns)
+  recovered, native = sample(cp, now + 10_000_000, now + 10_000_000, 103, event_stamp=now + 10_000_000)
+  change(recovered, 'aolAxisState', lambda a: setattr(a, 'intentIntegrityEpoch', epoch))
+  assert not feedback.observe(recovered, cp, state, now + 10_000_000, latched=True, intent_producer_session=PRODUCER, main_arm_ns=arm_ns)
+  assert feedback.ever_lateral_active and native.lateralAllowed
+
+
+@pytest.mark.parametrize('veto', ('permanent', 'temporary', 'invalid_can', 'timeout', 'acc', 'door', 'seatbelt',
+  'sensors', 'steering', 'gas', 'regen', 'main_off', 'reverse', 'cancel', 'event_fault', 'initializing',
+  'wrong_producer', 'axis_fault', 'expired_axis', 'bad_native', 'missing_native', 'native_heartbeat', 'native_fault'))
+def test_pending_braked_main_preserves_independent_vetoes(veto):
+  cp, state, feedback = cold_main_baseline()
+  now = NOW + 10_000_000
+  sm, native = braked_main_sample(cp, now, 2)
+  fields = {'permanent': 'steerFaultPermanent', 'temporary': 'steerFaultTemporary', 'invalid_can': 'canValid',
+            'timeout': 'canTimeout', 'acc': 'accFaulted', 'door': 'doorOpen', 'seatbelt': 'seatbeltUnlatched',
+            'sensors': 'vehicleSensorsInvalid', 'steering': 'steeringDisengage', 'gas': 'gasPressed', 'regen': 'regenBraking'}
+  if veto in fields:
+    setattr(state, fields[veto], veto != 'invalid_can')
+  elif veto == 'main_off':
+    state.cruiseState.available = False
+  elif veto == 'reverse':
+    state.gearShifter = 'reverse'
+  elif veto == 'cancel':
+    state.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
+  elif veto in ('event_fault', 'initializing'):
+    change(sm, 'onroadEvents', lambda e: setattr(e[0], 'immediateDisable' if veto == 'event_fault' else 'noEntry', True))
+  elif veto == 'axis_fault':
+    change(sm, 'aolAxisState', lambda a: setattr(a, 'faultReason', 'critical'))
+  elif veto == 'expired_axis':
+    change(sm, 'aolAxisState', lambda a: setattr(a, 'validUntilMonoTime', now - 1))
+  elif veto == 'bad_native':
+    sm.valid['aolSafetyWire'] = False
+  elif veto == 'missing_native':
+    sm.seen['aolSafetyWire'] = False
+  elif veto in ('native_heartbeat', 'native_fault'):
+    native_change(sm, native, pandaInventory=(replace(native.pandaInventory[0],
+      **({'heartbeatLost': True} if veto == 'native_heartbeat' else {'faults': 1})),))
+  assert feedback.observe(sm, cp, state, now, latched=True, main_arm_ns=now,
+                          intent_producer_session='wrong' if veto == 'wrong_producer' else PRODUCER)
+
+
+def test_eps_brake_release_joins_only_the_previously_verified_pedal_event():
+  cp, state, feedback = baseline()
+  state.steerFaultTemporary = state.brakePressed = state.steeringPressed = True
+  now = NOW + 10_000_000
+  sm, _ = braked_main_sample(cp, now, 2)
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'desiredLateral', False))
+  before = leases(feedback)
+  assert not feedback.observe(sm, cp, state, now, latched=True, intent_producer_session=PRODUCER)
+  state.brakePressed = False
+  newer, _ = braked_main_sample(cp, now + 10_000_000, 3)
+  change(newer, 'aolAxisState', lambda a: setattr(a, 'desiredLateral', False))
+  old_event = sm.messages['onroadEvents']
+  newer.messages['onroadEvents'] = old_event
+  newer.logMonoTime['onroadEvents'] = now
+  change(newer, 'aolAxisState', lambda a: setattr(a, 'faultEventMonoTime', now))
+  assert not feedback.observe(newer, cp, state, now + 10_000_000, latched=True, intent_producer_session=PRODUCER)
+  assert leases(feedback) == before
+  # A different pedal event has no receipt-bound physical brake proof.
+  different, _ = braked_main_sample(cp, now + 20_000_000, 4)
+  change(different, 'aolAxisState', lambda a: setattr(a, 'desiredLateral', False))
+  assert feedback.observe(different, cp, state, now + 20_000_000, latched=True, intent_producer_session=PRODUCER)
+
+
+def test_pending_braked_main_epoch_and_release_timeout_are_not_renewed():
+  for changed in ('epoch', 'release_timeout'):
+    cp, state, feedback = cold_main_baseline()
+    arm = NOW + 10_000_000
+    sm, _ = braked_main_sample(cp, arm, 2)
+    assert not feedback.observe(sm, cp, state, arm, latched=True, intent_producer_session=PRODUCER, main_arm_ns=arm)
+    state.brakePressed = False
+    now = arm + (200_000_001 if changed == 'release_timeout' else 10_000_000)
+    sm, _ = braked_main_sample(cp, now, 3)
+    if changed == 'epoch':
+      change(sm, 'aolAxisState', lambda a: setattr(a, 'intentIntegrityEpoch', 2))
+    assert feedback.observe(sm, cp, state, now, latched=True, intent_producer_session=PRODUCER, main_arm_ns=arm)

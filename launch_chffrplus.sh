@@ -64,7 +64,7 @@ function update_is_ready {
 # A validated legacy return records the OS it was staged against. Check it on
 # every boot before swapping trees, including manual reboots.
 # Keep this in sync with TRUSTED_LEGACY_RELEASES in updated.py.
-TRUSTED_LEGACY_STARPILOT_COMMIT="4a553da9ac22a14e34513c011aed04c1e93b4619"
+TRUSTED_LEGACY_STARPILOT_COMMIT="a732375f8ede713379b9a7a98f275a0525482945"
 
 function staged_os_is_compatible {
   local staged="$1" marker="$1/.git/starpilot-retain-agnos" commit

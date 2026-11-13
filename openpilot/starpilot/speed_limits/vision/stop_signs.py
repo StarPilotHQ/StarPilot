@@ -65,7 +65,24 @@ def decode_stop_signs(predictions, *, ratio, pad_width, pad_height, region_width
 class CapturedSignDetectorOutputs(SignDetectorOutputs):
   rgb256 = None
 
+  speed = None
+  tiny_scores = None
+
+  def forward(self):
+    self.speed = self.stops = self.tiny_scores = None
+    outputs = self.net.forward(['output0', 'stop/output0', 'tiny/scores'])
+    if not isinstance(outputs, (tuple, list)) or len(outputs) != 3:
+      raise ValueError('Expected speed, STOP and small-sign outputs')
+    speed, stops, tiny = outputs
+    if (speed.shape != (1, 5, 1344) or stops.shape != (1, 5, 4096) or tiny.shape != (1, 1, 1024) or
+        any(value.dtype != np.float32 or not np.isfinite(value).all() for value in outputs) or
+        not (0 <= tiny).all() or not (tiny <= 1).all()):
+      raise ValueError('Invalid speed, STOP or small-sign output')
+    self.speed, self.stops, self.tiny_scores = speed, stops, tiny
+    return speed
+
   def setInput(self, blob):
+    self.speed = self.tiny_scores = None
     self.rgb256 = None
     if blob.shape != (1, 3, 256, 256) or blob.dtype != np.float32 or (not np.isfinite(blob).all()) or (blob.min() < 0) or (blob.max() > 1):
       raise ValueError('Invalid owned current detector tensor')

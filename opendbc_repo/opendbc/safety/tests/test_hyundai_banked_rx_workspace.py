@@ -1,5 +1,8 @@
 """Banked CAN-FD RX definitions and status must survive warm profile switches."""
 import unittest
+import shutil
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from opendbc.safety.tests.libsafety import libsafety_py
 
@@ -100,7 +103,22 @@ class TestHyundaiBankedRxWorkspace(unittest.TestCase):
   @classmethod
   def setUpClass(cls):
     # Separate real native libraries exercise both build policies.
-    cls.safety = libsafety_py.ffi.dlopen(libsafety_py._build_libsafety(release=cls.RELEASE))
+    native = libsafety_py.__dict__.get('libsafety')
+    try:
+      mutant = native.mutation_get_active_mutant() if native is not None else None
+    except AttributeError:
+      mutant = None
+    if not cls.RELEASE and type(mutant) is int:
+      directory = TemporaryDirectory(prefix='hkg-mutation-native-')
+      cls.addClassCleanup(directory.cleanup)
+      library = Path(directory.name) / 'debug.so'
+      shutil.copyfile(libsafety_py.libpath, library)
+      cls.safety = libsafety_py.ffi.dlopen(str(library))
+      cls.safety.mutation_set_active_mutant(mutant)
+    else:
+      library = libsafety_py._build_libsafety(release=cls.RELEASE)
+      cls.addClassCleanup(Path(library).unlink, missing_ok=True)
+      cls.safety = libsafety_py.ffi.dlopen(library)
 
   @classmethod
   def tearDownClass(cls):

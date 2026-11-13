@@ -1,10 +1,109 @@
+## Current small-sign recovery branch (November 12, 2026)
+
+The joint detector is 9,742,928 bytes, SHA-256
+`dd9398ca0df68abdbc1120d41859d17d634a21a625b1191d10b5e4ddf88de7c8`.
+Every existing node and initializer from the preceding qualified detector
+`fe54ea8d47cb89cd44697e0a7e85ce8814a12f285c811ccd89ac2bba341c4228`
+is retained byte-for-byte. Six added nodes share existing features and expose
+`tiny/scores`, float32 `[1, 1, 1024]`. The original speed and STOP outputs and
+box regression are retained. The new head adds 4,160 learned parameters and
+approximately 4.26 million convolution multiply-accumulates per joint forward.
+It does not add another detector forward. STOP-only uses its unchanged
+projection asset and does not execute this branch.
+
+The recovery head uses three brightness views of one newly reviewed small
+speed sign, the 1,190-image original training teacher cache, and preservation
+views of the previously reviewed training signs. The original 296 validation
+images receive no gradients. These new drive views are correlated training
+examples; repeated qualification and error analysis limit generalization claims.
+Original source media, frozen teacher features, annotations, training and
+rejected-candidate receipts are retained privately. Existing author attribution,
+notices and licenses are preserved.
+
+Existing numeric readings, including weak readings and median recovery, take
+precedence. Only after those paths return no reading may one unique small
+previously unadmitted object receive recovery. The new score must be at least
+0.8; the original score must be below its existing admission threshold. Native
+minimum pixel floors remain 14 by 18. Recovery requires three distinct crop
+bounds with the same value, every read at least 0.96, a best read at least 0.995,
+and isolated identity evidence with logit at least 2.75 bound to that exact
+current-frame proposal. Only this dedicated recovery path may overcome the
+ordinary small-box confidence cap; weak recovery outputs are discarded. Existing
+low-speed adoption thresholds, freshness, identity, clocks and authority checks
+remain unchanged. At most one additional identity check and three numeric
+crops are attempted after the original paths fail.
+
+All 1,486 original replay business results and all 50 previously examined window
+frame results are exactly unchanged. The newly recovered small sign reads 20 at
+0.95 confidence on the recorded inference-frame index and passes the existing
+controlled prior-state low-speed confirmation rule. Thirteen actual-network
+Linux OpenCV 4.11 cases retain the earlier reported fixes, older correct readings,
+and negative confidence-boundary cases. Native producer, identity, display and
+control checks have 734 passes and no skips. The unchanged secondary-speed-source
+settings test still expects Maps where the parent supplies Dashboard; its parent
+failure is retained and is not counted as a pass. Focused Ruff and type checks
+pass. No full hosted-CI-green claim is made.
+
+The original processing-cost cooldown and result-age budgets are unchanged.
+This is offline qualification, not AGNOS raw-frame parity, a device FPS bound,
+field deployment or closed-loop road proof. The additional head and rare recovery
+work have a CPU cost; existing stale-result rejection and backoff remain active.
+
+## Previous speed-head recall refinement (November 12, 2026)
+
+The joint detector is 9,725,446 bytes, SHA-256
+`fe54ea8d47cb89cd44697e0a7e85ce8814a12f285c811ccd89ac2bba341c4228`.
+The preceding joint detector was
+`52bb30f73bf0d166342f33d1b32b29b726bf036004e0359fef10ef7bf1f5556f`.
+Training changes 4,161 existing speed-classification parameters across three
+initializers. The backbone, box regression, STOP output dependency path, numeric
+reader, independent identity model, graph operators, tensor shapes and output
+ABI are unchanged. No inference pass or scheduling change is introduced by this
+refinement. Existing contributor attribution and licensing are retained.
+
+The training-only teacher cache contains all 1,190 original training images.
+Thirty-nine augmented views of four newly reviewed physical speed signs and
+four preservation views supplement that cache. These new drive views are
+correlated training examples, not independent validation. The original 296
+validation images receive no gradients and do not select either calibration
+constant. Repeated qualification and error analysis informed iterations, so this
+is not an untouched-test result. Source media, teacher outputs and fit receipts
+are retained privately.
+
+A training-selected 0.16 speed-logit intercept preserves the original training
+strong-proposal scores at the existing proposal gate. Numeric published-score
+arithmetic removes that intercept and applies a training-selected conservative
+0.001 margin. Existing temporal confirmation thresholds are unchanged. A
+near-tied, contained upper regulatory plate is preferred over a combined tall
+regulatory/MINIMUM proposal, preserving the actual detector and identity
+bindings rather than treating the lower plate as part of the posted limit.
+
+Paired actual-network replay of 1,486 original images retains every correct
+numeric result, introduces no new wrong-value or zero-ground-truth reads and
+leaves every STOP result identical. Correct numeric results increase from 414
+to 418; the same two wrong positive-image values and 26 zero-ground-truth reads
+remain. Some zero-ground-truth entries are crop-rejection cases, so these counts
+are not a whole-road false-positive rate. All 6,120 tested fresh-history
+confirmation profiles retain accepted true readings without adding a false
+acceptance. These controlled histories do not exhaust all mixed field histories.
+
+Ten actual-network cases pass with Linux OpenCV 4.11, including the reviewed
+clear 55/60/30 signs, retained median 65, later 20, conditional-board rejection,
+and existing confidence-boundary regressions. Native producer, display and
+control qualification has 715 passing tests and no skips. One unchanged
+speed-source settings test fails because the secondary default is Dashboard
+rather than its expected Maps; the same failure is reproduced on the unmodified
+parent revision. That failure is not counted as a pass. No fresh device timing,
+AGNOS raw-frame parity, deployment or closed-loop road qualification is claimed.
+Difficult small signs and missed field scenes remain open limitations.
+
 ## Current numeric classifier asset
 
 | File | Bytes | SHA-256 |
 | --- | ---: | --- |
 | `speed_limit_us_value_classifier.onnx` | 6,240,534 | `f70477aa34a5557b69103ed65066b5a7a678f5bc35dfb4ee19914aec3c108918` |
 
-## Current STOP-head refinement (November 5, 2026)
+## Previous STOP-head refinement (November 5, 2026)
 
 The current joint detector is 9,725,049 bytes, SHA-256
 `52bb30f73bf0d166342f33d1b32b29b726bf036004e0359fef10ef7bf1f5556f`.

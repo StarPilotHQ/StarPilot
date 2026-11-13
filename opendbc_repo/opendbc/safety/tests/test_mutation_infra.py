@@ -4,6 +4,7 @@ from concurrent.futures.process import BrokenProcessPool
 import importlib.util
 from collections import Counter
 import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -70,6 +71,121 @@ class TestMutationInfrastructureAccounting(unittest.TestCase):
       native.mutation_set_active_mutant(comparison.site_id)
       self.assertEqual((native.permit(3), native.permit(4)), (0, 1))
 
+  def test_mutation_targets_production_safety_not_its_test_harness(self):
+    production = mutation.SAFETY_DIR / "helpers.h"
+    fixture = mutation.SAFETY_TESTS_DIR / "libsafety/safety.c"
+    code = '\n'.join((f'#line 1 "{production}"',
+                       'int allowed(int value) { return value > 0; }',
+                       f'#line 1 "{fixture}"',
+                       'int fixture(int value) { return value > 0; }', ''))
+    with TemporaryDirectory() as directory:
+      source = Path(directory) / "input.c"
+      source.write_text(code)
+      sites, _counts, _pruned, _source = mutation.enumerate_sites(source, Path(directory) / "input.i")
+    self.assertTrue(sites)
+    self.assertEqual({site.origin_file for site in sites}, {production})
+    self.assertEqual({site.mutator for site in sites}, {"comparison", "boundary"})
+
+  def test_pytest_fixture_keeps_mutant_debug_and_actual_release(self):
+    source = """import pytest
+from opendbc.car import structs
+from opendbc.safety.tests.libsafety import libsafety_py
+@pytest.fixture(params=(False, False, True, True), ids=('DEBUG_A', 'DEBUG_B', 'RELEASE_A', 'RELEASE_B'))
+def native_variant(request):
+  previous = libsafety_py.libpath
+  libsafety_py.load(libsafety_py._build_libsafety(release=request.param))
+  try:
+    yield request.param
+  finally:
+    libsafety_py.load(previous)
+def test_native_variant(native_variant):
+  assert not libsafety_py.libsafety.get_controls_allowed()
+  libsafety_py.libsafety.set_controls_allowed(True)
+  if native_variant:
+    assert libsafety_py.libsafety.set_safety_hooks(structs.CarParams.SafetyModel.allOutput, 0) != 0
+    with pytest.raises(AttributeError):
+      libsafety_py.libsafety.mutation_get_active_mutant()
+  else:
+    assert libsafety_py.libsafety.mutation_get_active_mutant() == 73
+"""
+    with TemporaryDirectory() as directory, patch.dict(libsafety_py.__dict__):
+      root = Path(directory)
+      release = libsafety_py._build_libsafety(release=True, output_dir=root)
+      debug = root / "instrumented.so"
+      fixture_source = "\n".join(("#include <stdbool.h>", "static bool fixture_controls;",
+                                  "void set_controls_allowed(bool value) { fixture_controls = value; }",
+                                  "bool get_controls_allowed(void) { return fixture_controls; }", ""))
+      mutation.compile_mutated_library(fixture_source, [], debug)
+      libsafety_py.load(debug)
+      libsafety_py.libsafety.mutation_set_active_mutant(73)
+      libsafety_py.libsafety.set_controls_allowed(True)
+      target = root / "test_native_variant.py"
+      target.write_text(source)
+      builds = []
+      build_roots = []
+
+      def build_variant(release=False, output_dir=None):
+        self.assertIsNotNone(output_dir)
+        self.assertTrue(release, "active Debug library must not be rebuilt")
+        builds.append(release)
+        build_roots.append(Path(output_dir))
+        return release_library
+
+      release_library = release
+      with patch.object(libsafety_py, "_build_libsafety", side_effect=build_variant):
+        result = mutation._run_pytest(["pytest:" + str(target)])
+      self.assertEqual((result.ran, result.skipped, result.failures, result.errors), (4, 0, (), ()), result.output_tail)
+      self.assertEqual(builds, [True])
+      self.assertTrue(all(not path.exists() for path in build_roots))
+      self.assertTrue(Path(release).is_file())
+      self.assertEqual(libsafety_py.libsafety.mutation_get_active_mutant(), 73)
+      self.assertTrue(libsafety_py.libsafety.get_controls_allowed())
+
+  def test_native_build_removes_objects_and_failed_outputs(self):
+    with TemporaryDirectory() as directory:
+      root = Path(directory)
+      library = Path(libsafety_py._build_libsafety(release=True, output_dir=root))
+      notes = set(root.glob("*.gcno"))
+      self.assertEqual(len(notes), int(os.environ.get("SAFETY_COVERAGE") == "1"))
+      self.assertEqual(set(root.iterdir()), {library, *notes})
+      library.unlink()
+      for note in notes:
+        note.unlink()
+      for calls in ((RuntimeError("compiler failed"),), (None, RuntimeError("compiler failed"))):
+        with self.subTest(calls=len(calls)), patch.object(libsafety_py.subprocess, "check_call", side_effect=calls):
+          with self.assertRaisesRegex(RuntimeError, "compiler failed"):
+            libsafety_py._build_libsafety(output_dir=root)
+        self.assertEqual(list(root.iterdir()), [])
+      make_temp = libsafety_py.tempfile.mkstemp
+
+      def fail_shared_output(*args, **kwargs):
+        if kwargs.get("suffix") == ".so":
+          raise OSError("output allocation failed")
+        return make_temp(*args, **kwargs)
+
+      with patch.object(libsafety_py.tempfile, "mkstemp", side_effect=fail_shared_output):
+        with self.assertRaisesRegex(OSError, "output allocation failed"):
+          libsafety_py._build_libsafety(output_dir=root)
+      self.assertEqual(list(root.iterdir()), [])
+
+  def test_honda_callback_probes_precede_in_process_native_calls(self):
+    site = mutation.MutationSite(1, 0, 1, 0, 1, 1, "==", "!=", "comparison", mutation.SAFETY_DIR / "modes/honda.h", 1)
+    probe = "test_honda_interceptor.TestHondaInterceptor.test_all_stock_honda_rx_callbacks_finish_without_native_memory_faults"
+    catalog = {"test_honda.py": ["test_honda.TestHonda.test_rx_hook"], "test_honda_interceptor.py": [probe]}
+    expected = [target for targets in catalog.values() for target in targets]
+    ordered = mutation.build_priority_tests(site, catalog, expected)
+    self.assertEqual(Counter(ordered), Counter(expected))
+    self.assertEqual(ordered[0], probe)
+
+  def test_toyota_callback_probe_precedes_in_process_native_calls(self):
+    site = mutation.MutationSite(1, 0, 1, 0, 1, 1, "==", "!=", "comparison", mutation.SAFETY_DIR / "modes/toyota.h", 1)
+    probe = "test_toyota.TestToyotaNativeCallbacks.test_valid_native_callbacks_finish_without_memory_faults"
+    catalog = {"test_toyota.py": ["test_toyota.TestToyota.test_rx_hook", probe]}
+    expected = catalog["test_toyota.py"]
+    ordered = mutation.build_priority_tests(site, catalog, expected)
+    self.assertEqual(Counter(ordered), Counter(expected))
+    self.assertEqual(ordered[0], probe)
+
   def test_worker_crash_is_infrastructure_error(self):
     site = self.site()
     future = Future()
@@ -127,6 +243,45 @@ class TestMutationInfrastructureAccounting(unittest.TestCase):
       result = mutation.run_unittest(targets, Path("unused.so"), -1, False)
     safety.mutation_set_active_mutant.assert_called_once_with(-1)
     self.assertEqual((result.ran, result.skipped, result.suppressed, result.failures, result.errors), (1, 0, 3, (), ()))
+
+  def test_failfast_does_not_load_later_test_modules(self):
+    class Failing(unittest.TestCase):
+      def runTest(self):
+        self.fail('declared mutation witness')
+    safety = MagicMock()
+    with (patch.object(libsafety_py, 'load'), patch.dict(libsafety_py.__dict__, {'libsafety': safety}),
+          patch.object(unittest.TestLoader, 'loadTestsFromName', side_effect=[unittest.TestSuite([Failing()]),
+                                                                           AssertionError('must not import later')]) as load):
+      result = mutation.run_unittest(['first', 'later'], Path('unused.so'), 0, False)
+    self.assertEqual(load.call_count, 1)
+    self.assertEqual(result.ran, 1)
+    self.assertTrue(result.failures)
+    self.assertFalse(result.errors)
+
+  def test_successful_baseline_loads_every_target(self):
+    safety = MagicMock()
+    with (patch.object(libsafety_py, 'load'), patch.dict(libsafety_py.__dict__, {'libsafety': safety}),
+          patch.object(unittest.TestLoader, 'loadTestsFromName',
+                       side_effect=lambda name: unittest.TestSuite([unittest.FunctionTestCase(lambda: None)])) as load):
+      result = mutation.run_unittest(['first', 'later'], Path('unused.so'), -1, False)
+    self.assertEqual([call.args[0] for call in load.call_args_list], ['first', 'later'])
+    self.assertEqual((result.ran, result.failures, result.errors), (2, (), ()))
+
+  def test_callback_child_infrastructure_is_not_mutation_kill_credit(self):
+    from opendbc.safety.tests import test_body
+    case = test_body.TestBody('test_rx_callback_finishes')
+    case.safety = MagicMock()
+    ready = 'NATIVE_BODY_CALLBACK_READY'
+    for code, output in ((-11, ready), (2, ready), (0, ''), (1, '')):
+      with self.subTest(code=code, output=output), patch.dict(libsafety_py.__dict__, {'libpath': 'declared.so'}), \
+           patch.object(test_body.subprocess, 'run', return_value=MagicMock(returncode=code, stdout=output, stderr='')):
+        with self.assertRaises(RuntimeError):
+          case.test_rx_callback_finishes()
+    for output, error in ((b'', RuntimeError), (ready.encode(), AssertionError)):
+      with self.subTest(output=output), patch.dict(libsafety_py.__dict__, {'libpath': 'declared.so'}), \
+           patch.object(test_body.subprocess, 'run', side_effect=test_body.subprocess.TimeoutExpired('declared', 10, output=output)):
+        with self.assertRaises(error):
+          case.test_rx_callback_finishes()
 
   def test_family_targets_include_new_ioniq_and_carnival_suites(self):
     catalog = {"test_hyundai.py": ["base"], "test_hyundai_canfd.py": ["canfd"],
@@ -186,6 +341,58 @@ class TestMutationInfrastructureAccounting(unittest.TestCase):
         mutation.write_results_json(Path(directory) / "incomplete.json", discovered_sites=[site],
                                     pruned_ids=set(), results=[], site_targets={},
                                     preprocessed_source="frozen preprocessed C", baseline_sec=2.5)
+
+@unittest.skipUnless(mutation is not None, "tree-sitter mutation dependencies required")
+class TestPytestMutationCatalog(unittest.TestCase):
+  def test_actual_pytest_parametrization_skips_and_error_classification(self):
+    with TemporaryDirectory() as directory:
+      path = Path(directory) / 'test_mutation_runner_fixture.py'
+      path.write_text('''import pytest
+@pytest.mark.parametrize('value', [1, 2])
+def test_pass(value):
+  assert value > 0
+@pytest.mark.skip(reason='declared unavailable fixture')
+def test_skip():
+  pass
+def test_failure():
+  assert False
+def test_error():
+  raise ValueError('infrastructure witness')
+def test_missing_fixture(unavailable_fixture):
+  pass
+''')
+      prefix = 'pytest:' + str(path)
+      success = mutation._run_pytest([prefix + '::test_pass', prefix + '::test_skip'])
+      self.assertEqual((success.ran, success.skipped, success.suppressed), (3, 1, 0))
+      self.assertFalse(success.failures or success.errors)
+      failure = mutation._run_pytest([prefix + '::test_failure'])
+      self.assertEqual(failure.failures, (prefix + '::test_failure',))
+      self.assertFalse(failure.errors)
+      for name in ('test_error', 'test_missing_fixture'):
+        result = mutation._run_pytest([prefix + '::' + name])
+        self.assertEqual(result.errors, (prefix + '::' + name,))
+        self.assertFalse(result.failures)
+
+  def test_actual_collection_retains_unittest_and_expands_pytest_parameters(self):
+    with TemporaryDirectory() as directory:
+      root = Path(directory)
+      path = root / 'test_mutation_mixed_fixture.py'
+      path.write_text('''import unittest, pytest
+class TestLegacy(unittest.TestCase):
+  def test_legacy(self):
+    pass
+@pytest.mark.parametrize('value', [1, 2])
+def test_function(value):
+  assert value > 0
+''')
+      legacy = unittest.FunctionTestCase(lambda: None)
+      suite = unittest.TestSuite([unittest.TestSuite([legacy])])
+      with patch.object(mutation, 'ROOT', root), patch.object(mutation, 'SAFETY_TESTS_DIR', root), \
+           patch.object(mutation, 'BLUEPILOT_SAFETY_DIR', root / 'absent'), \
+           patch.object(unittest.TestLoader, 'loadTestsFromName', return_value=suite):
+        catalog = mutation._discover_test_catalog()
+      self.assertEqual(catalog[path.name], [legacy.id(), 'pytest:' + str(path) + '::test_function[1]',
+                                           'pytest:' + str(path) + '::test_function[2]'])
 
 
 if __name__ == "__main__":

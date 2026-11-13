@@ -95,7 +95,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     self.owner.configuration_vehicle = lambda: False
     self.assertTrue(self.owner.apply(required_change(self._row('aol', 'AlwaysOnLateral'))))
     self.assertFalse(self.params.get_bool('AlwaysOnLateral'))
-    self.assertFalse(self._row('aol', 'AlwaysOnLateral').available)
+    self.assertTrue(self._row('aol', 'AlwaysOnLateral').available)
     ordinary = CarInterface.get_params(CAR.TOYOTA_PRIUS, gen_empty_fingerprint(), [], False, False, False)
     self.owner.vehicle_params = lambda: ordinary
     self.fingerprint = ordinary.carFingerprint
@@ -106,7 +106,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     unconfigured = ordinary.as_reader().as_builder()
     unconfigured.safetyConfigs = []
     self.owner.vehicle_params = lambda: unconfigured
-    self.assertFalse(self._row('aol', 'AlwaysOnLateral').available)
+    self.assertTrue(self._row('aol', 'AlwaysOnLateral').available)
     self.assertFalse(policy_for(unconfigured).runtime_supported)
     self.assertFalse(policy_for(unconfigured).intent_supported)
     fw = [structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x7A1, brand='toyota', bus=0,
@@ -419,6 +419,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     self.assertIsNone(self.params.get("QOLLongitudinal"))
 
   def test_force_stop_preserves_cruise_master_and_offset_bounds(self):
+    self.params.put_bool("ForceStops", False, block=True)
     self.assertTrue(self._row("profiles", "ForceStops").available)
     self.params.put_bool("QOLLongitudinal", True, block=True)
     force = self._row("profiles", "ForceStops")

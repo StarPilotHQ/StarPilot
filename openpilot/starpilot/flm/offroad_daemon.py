@@ -33,19 +33,23 @@ class StatusReport:
       self.next_ns = 0
 
   def analyzing(self, value):
-    # Historical findings survive a new fit. Never carry a saved/current map,
-    # enabled flag or application evidence forward from a previous report.
+    # Keep the last completed findings and saved values readable during a fit.
+    # They are historical display data, never current application or permission.
     fields = ('completed_route', 'vehicle', 'analysis_counts', 'recorded_tracking', 'source_sha256', 'assessment_sha256',
-              'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest')
+              'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest', 'latest_recording')
     previous = {key: self.previous[key] for key in fields if key in self.previous}
     if previous:
-      previous['retained_decision'] = self.previous.get('reason', 'waiting_for_completed_drive')
+      previous['retained_decision'] = self.previous.get('retained_decision', self.previous.get('reason', 'waiting_for_completed_drive'))
+      if self.previous.get('configuration_state') in ('ready_for_next_drive', 'accepted', 'accepted_after_drive', 'rolled_back'):
+        for key in ('configuration_state', 'configured_values', 'saved_adjustments', 'qualification_summary'):
+          if key in self.previous:
+            previous[key] = self.previous[key]
     self.set({**(previous or value), 'status': 'fitting', 'reason': value['reason'], 'retained_analysis': bool(previous)})
 
   def restore(self, cache):
     """Recover historical display data, never a current tune or permission."""
     from types import SimpleNamespace
-    from openpilot.starpilot.flm.offroad_worker import _recorded_values, recorded_recommendations
+    from openpilot.starpilot.flm.offroad_worker import _recorded_values, recorded_recommendations, reported_checkpoint
     from openpilot.starpilot.flm.offroad_surface import route_values
 
     try:
@@ -53,6 +57,21 @@ class StatusReport:
       if latest is None or type(latest.get('result')) is not dict:
         return
       result = dict(latest['result'])
+      ordered = []
+      for index, row in enumerate(cache.checkpoints()):
+        value = row['result']
+        if 'assessment_sha256' not in value:
+          continue
+        document = cache.get(value['assessment_sha256'])
+        source = document['assessment']['route']
+        if (document['kind'] != 'completed_assessment' or source['route_id'] != value.get('completed_route')
+            or source['source_sha256'] != value.get('source_sha256')):
+          raise ValueError('Historical report source changed')
+        stamp = source.get('completed_wall_ns')
+        if type(stamp) is int and stamp > 0:
+          ordered.append((stamp, index, value))
+      if ordered:
+        result = dict(reported_checkpoint(cache, [value for _, _, value in sorted(ordered, key=lambda row: row[:2], reverse=True)]))
       if result.get('completed_route') and 'recommendations' not in result:
         saved = cache.get(result['assessment_sha256'])
         assessment = saved['assessment']
@@ -96,6 +115,11 @@ class StatusReport:
       details['Earlier analysis shown while updating'] = value.get('retained_analysis') is True
       details['Completed drive analyzed'] = value['completed_route']
       details['Earlier completed drive reviewed'] = value.get('source_is_latest') is False
+      latest_recording = value.get('latest_recording')
+      if type(latest_recording) is dict:
+        details['Latest completed recording reviewed'] = latest_recording['completed_route']
+        details['Latest recording analysis decision'] = latest_recording['reason']
+        details['Findings retained from earlier drive'] = value['completed_route']
       details['Recorded steering observations'] = count('recorded_tracking')
       reviewed, available = count('original_segments_reviewed'), count('original_segments_available')
       if reviewed and available:
@@ -294,7 +318,7 @@ def main():
           'recorded_tracking': a.recorded_tracking,
         }
       ),
-      on_recommendations=lambda value: report.set({**value, 'status': 'fitting', 'reason': 'checking_recorded_steering_recommendations'}),
+      on_recommendations=lambda value: report.analyzing({**value, 'reason': 'checking_recorded_steering_recommendations'}),
     )
     report.restore(worker.cache)
     next_analysis = 0.0

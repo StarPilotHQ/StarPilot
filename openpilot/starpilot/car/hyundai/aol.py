@@ -396,7 +396,8 @@ def source_deadline_supported(CP) -> bool:
 
 def independent_cruise_buttons_supported(CP, *, marked_only=False) -> bool:
   # Dedicated EV6 LONG raw-button/optional-release behavior stays unchanged.
-  if CP.carFingerprint == HyundaiCAR.KIA_EV6 and CP.openpilotLongitudinalControl:
+  if (CP.carFingerprint == HyundaiCAR.KIA_EV6 and CP.openpilotLongitudinalControl and
+      CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG):
     return False
   return bool(qualified_ccnc_long_aol(CP, marked_only=marked_only) or qualified_sonata_independent(CP) or
               qualified_angle_aol(CP, marked_only=marked_only) or

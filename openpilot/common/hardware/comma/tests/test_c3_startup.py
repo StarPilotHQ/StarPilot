@@ -1,6 +1,5 @@
 import ast
 from pathlib import Path
-import subprocess
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, call
 
@@ -137,20 +136,21 @@ def test_pandad_enumeration_and_recovery(device, failure):
   pandad_path = SOURCE.parents[3] / 'selfdrive/pandad/pandad.py'
   tree = ast.parse(pandad_path.read_text())
   functions: list[ast.stmt] = [node for node in tree.body if isinstance(node, ast.FunctionDef) and
-                              node.name in {'wait_for_internal_panda', 'main'}]
+                              node.name == 'main']
   events = Mock()
-  first_discovery = {'missing': [], 'usb': OSError(), 'multiple': ['one', 'two'], 'wait': []}.get(failure, ['serial'])
-  initial_ready = device != 'tici' or failure not in ('wait', 'initial_wait')
+  first_discovery = {'missing': [], 'usb': OSError(), 'multiple': ['serial', 'serial'], 'wait': []}.get(failure, ['serial'])
+  initial_ready = failure not in ('wait', 'initial_wait')
   initial_discovery = ['serial'] if failure == 'heartbeat' else []
   events.list.side_effect = [*([initial_discovery] if initial_ready else []), first_discovery,
                              *([] if failure == 'multiple' else [['serial']]), KeyboardInterrupt()]
   events.health.return_value = {'heartbeat_lost': True}
   panda = MagicMock(list=events.list)
-  panda.return_value.__enter__.return_value = SimpleNamespace(health=events.health, is_internal=lambda: True)
+  panda.return_value.__enter__.return_value = SimpleNamespace(health=events.health, is_internal=lambda: True,
+    get_type=lambda: b'\x06', get_usb_serial=lambda: 'serial')
   events.dfu_list.return_value = ['dfu'] if failure == 'dfu' else []
-  events.udev.return_value = SimpleNamespace(returncode=1 if failure == 'wait' else 0)
+  events.ready.return_value = failure != 'wait'
   if failure == 'initial_wait':
-    events.udev.side_effect = [SimpleNamespace(returncode=1), SimpleNamespace(returncode=0)]
+    events.ready.side_effect = [False, True]
   dfu = Mock(return_value=SimpleNamespace(recover=events.dfu_recover), list=events.dfu_list)
   flash = Mock(side_effect=[RuntimeError(), None] if failure == 'protocol' else None)
   process = Mock()
@@ -162,15 +162,16 @@ def test_pandad_enumeration_and_recovery(device, failure):
                'time': SimpleNamespace(sleep=events.sleep), 'cloudlog': Mock(), 'signal': Mock(),
                'usb1': SimpleNamespace(USBErrorNoDevice=OSError, USBErrorPipe=BrokenPipeError), 'PandaProtocolMismatch': RuntimeError,
                'Params': Mock(return_value=SimpleNamespace(put_bool=events.put_bool)),
-               'flash_panda': flash, 'subprocess': SimpleNamespace(Popen=launch, run=events.udev, DEVNULL=subprocess.DEVNULL), 'BASEDIR': 'base',
+               'flash_panda': flash, 'subprocess': SimpleNamespace(Popen=launch), 'BASEDIR': 'base',
+               'wait_for_internal_panda': events.ready, 'startup_choice': Mock(return_value='choice'),
+               'firmware_environment': Mock(return_value={'verified': True}),
                'os': SimpleNamespace(environ={}, path=SimpleNamespace(join=lambda *parts: '/'.join(parts)))}
   exec(compile(ast.Module(body=functions, type_ignores=[]), str(pandad_path), 'exec'), namespace)
   with pytest.raises(KeyboardInterrupt):
     namespace['main']()
 
-  wait = [call.udev(['udevadm', 'wait', '--timeout=15', '/sys/bus/usb/devices/1-1.2'], check=False, stderr=None)] if device == 'tici' else []
-  expected = [call.udev(['udevadm', 'wait', '--timeout=0', '/sys/bus/usb/devices/1-1.2'], check=False,
-                        stderr=subprocess.DEVNULL)] if device == 'tici' else []
+  wait = [call.ready()]
+  expected = [call.ready(timeout=0)]
   if initial_ready:
     expected += [call.list()]  # Initial health inspection.
     if failure == 'heartbeat':
@@ -187,5 +188,76 @@ def test_pandad_enumeration_and_recovery(device, failure):
     flash.assert_not_called()
     launch.assert_not_called()
   else:
-    assert flash.call_args_list == [call('serial')] * (2 if failure == 'protocol' else 1)
-    launch.assert_called_once_with(['./pandad', 'serial'], cwd='base/openpilot/selfdrive/pandad')
+    assert flash.call_args_list == [call('serial', 'choice')] * (2 if failure == 'protocol' else 1)
+    launch.assert_called_once_with(['./pandad', 'serial'], cwd='base/openpilot/selfdrive/pandad', env={'verified': True})
+
+
+@pytest.mark.parametrize('device', ['tici', 'tizi', 'mici'])
+@pytest.mark.parametrize('ids', [(0xbbaa, 0xddee), (0xbbaa, 0xddcc), (0x3801, 0xddee), (0x0483, 0xdf11)])
+def test_internal_panda_ready_without_udev(tmp_path, device, ids):
+  tree = ast.parse((SOURCE.parents[3] / 'selfdrive/pandad/pandad.py').read_text())
+  method = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'wait_for_internal_panda')
+  usb = tmp_path / 'usb'
+  usb.mkdir()
+  for name, value in {'idVendor': f'{ids[0]:04x}', 'idProduct': f'{ids[1]:04x}', 'busnum': '1', 'devnum': '7'}.items():
+    (usb / name).write_text(value)
+  access = Mock(return_value=True)
+  clock = Mock(monotonic=Mock(return_value=0), sleep=Mock())
+  namespace: dict = {'HARDWARE': SimpleNamespace(get_device_type=lambda: device), 'Path': lambda _: usb,
+               'Panda': SimpleNamespace(USB_VIDS=(0xbbaa, 0x3801), USB_PIDS=(0xddee, 0xddcc)),
+               'os': SimpleNamespace(access=access, R_OK=4, W_OK=2), 'time': clock,
+               'subprocess': SimpleNamespace(run=Mock(side_effect=FileNotFoundError('udevadm')))}
+  exec(compile(ast.Module(body=[method], type_ignores=[]), 'pandad.py', 'exec'), namespace)
+  assert namespace['wait_for_internal_panda'](timeout=0)
+  namespace['subprocess'].run.assert_not_called()
+  if device == 'tici':
+    access.assert_called_once_with('/dev/bus/usb/001/007', 6)
+  else:
+    access.assert_not_called()
+  clock.sleep.assert_not_called()
+
+
+@pytest.mark.parametrize('failure', ['absent', 'wrong_vendor', 'wrong_product', 'malformed', 'no_access', 'zero_device'])
+def test_internal_panda_readiness_refuses_unready_device(tmp_path, failure):
+  tree = ast.parse((SOURCE.parents[3] / 'selfdrive/pandad/pandad.py').read_text())
+  method = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'wait_for_internal_panda')
+  usb = tmp_path / 'usb'
+  usb.mkdir()
+  values = {'idVendor': 'bbaa', 'idProduct': 'ddee', 'busnum': '1', 'devnum': '7'}
+  if failure == 'wrong_vendor':
+    values['idVendor'] = '1234'
+  elif failure == 'wrong_product':
+    values['idProduct'] = '1234'
+  elif failure == 'malformed':
+    values['devnum'] = 'broken'
+  elif failure == 'zero_device':
+    values['devnum'] = '0'
+  if failure != 'absent':
+    for name, value in values.items():
+      (usb / name).write_text(value)
+  clock = Mock(monotonic=Mock(side_effect=[0, 0, 0.01, 0.02]), sleep=Mock())
+  namespace: dict = {'HARDWARE': SimpleNamespace(get_device_type=lambda: 'tici'), 'Path': lambda _: usb,
+               'Panda': SimpleNamespace(USB_VIDS=(0xbbaa, 0x3801), USB_PIDS=(0xddee, 0xddcc)),
+               'os': SimpleNamespace(access=Mock(return_value=failure != 'no_access'), R_OK=4, W_OK=2), 'time': clock,
+               'subprocess': SimpleNamespace(run=Mock(side_effect=FileNotFoundError('udevadm')))}
+  exec(compile(ast.Module(body=[method], type_ignores=[]), 'pandad.py', 'exec'), namespace)
+  assert not namespace['wait_for_internal_panda'](timeout=0.02)
+  assert clock.sleep.call_args_list == [call(0.01), call(0.01)]
+
+
+def test_internal_panda_readiness_waits_for_read_write_permission(tmp_path):
+  tree = ast.parse((SOURCE.parents[3] / 'selfdrive/pandad/pandad.py').read_text())
+  method = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'wait_for_internal_panda')
+  usb = tmp_path / 'usb'
+  usb.mkdir()
+  for name, value in {'idVendor': 'bbaa', 'idProduct': 'ddee', 'busnum': '1', 'devnum': '7'}.items():
+    (usb / name).write_text(value)
+  clock = Mock(monotonic=Mock(return_value=0), sleep=Mock())
+  access = Mock(side_effect=[False, True])
+  namespace: dict = {'HARDWARE': SimpleNamespace(get_device_type=lambda: 'tici'), 'Path': lambda _: usb,
+               'Panda': SimpleNamespace(USB_VIDS=(0xbbaa, 0x3801), USB_PIDS=(0xddee, 0xddcc)),
+               'os': SimpleNamespace(access=access, R_OK=4, W_OK=2), 'time': clock}
+  exec(compile(ast.Module(body=[method], type_ignores=[]), 'pandad.py', 'exec'), namespace)
+  assert namespace['wait_for_internal_panda']()
+  assert access.call_count == 2
+  clock.sleep.assert_called_once_with(0.01)

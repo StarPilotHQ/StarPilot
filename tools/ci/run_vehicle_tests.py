@@ -271,6 +271,10 @@ DEBUG_SAFETY_CLASS_TARGETS = {
 
 
 RELEASE_TARGETS = (
+  "opendbc_repo/opendbc/car/rivian/tests/test_radar_reachability.py",
+  "opendbc_repo/opendbc/car/tesla/tests/test_radar_pairs.py",
+  "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_impreza_main_while_braking_waits_for_native_grant",
+  "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_impreza_guard_brake_release_keeps_intent",
   "openpilot/starpilot/car/subaru/tests/test_high_angle_guard.py",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_impreza_high_angle_refusal_guard",
   "openpilot/starpilot/car/toyota/tests/test_radar_filter_buttons.py",
@@ -437,6 +441,9 @@ RELEASE_TARGETS = (
   "opendbc_repo/opendbc/car/hyundai/tests/test_dom_radar_vehicle_bindings.py",
   "opendbc_repo/opendbc/car/hyundai/tests/test_dom_radar_complete_paths.py",
   "opendbc_repo/opendbc/car/hyundai/tests/test_dom_firmware_catalog.py",
+  "opendbc_repo/opendbc/car/hyundai/tests/test_canfd_lfa_status.py",
+  "opendbc_repo/opendbc/car/hyundai/tests/test_ioniq6_dash_icons.py",
+  "opendbc_repo/opendbc/car/hyundai/tests/test_torque_ev_scc.py",
   "opendbc_repo/opendbc/safety/tests/test_hyundai_classic_long_aol.py",
   "openpilot/starpilot/aol/tests/test_classic_long_profiles.py",
   "opendbc_repo/opendbc/safety/tests/test_hyundai_shared_canfd_stock_aol.py",

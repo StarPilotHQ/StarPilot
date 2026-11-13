@@ -238,7 +238,7 @@ static void volkswagen_meb_rx_hook(const CANPacket_t *msg) {
 static bool volkswagen_meb_tx_hook(const CANPacket_t *msg) {
   // acceleration in m/s2 * 1000 to avoid floating point math
   const LongitudinalLimits VOLKSWAGEN_MEB_LONG_LIMITS = {
-    .max_accel = 2000,
+    .max_accel = 3000,
     .min_accel = -3500,
     .inactive_accel = 3010,  // VW sends one increment above the max range when inactive
   };

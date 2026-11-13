@@ -165,7 +165,7 @@ static bool volkswagen_pq_tx_hook(const CANPacket_t *msg) {
   // longitudinal limits
   // acceleration in m/s2 * 1000 to avoid floating point math
   const LongitudinalLimits VOLKSWAGEN_PQ_LONG_LIMITS = {
-    .max_accel = 2000,
+    .max_accel = 3000,
     .min_accel = -3500,
     .inactive_accel = 3010,  // VW sends one increment above the max range when inactive
   };

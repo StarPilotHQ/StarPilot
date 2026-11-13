@@ -433,7 +433,7 @@ class TestHondaBoschLongSafety(HondaButtonEnableBase, TestHondaBoschSafetyBase):
 
   NO_GAS = -30000
   MAX_GAS = 2000
-  MAX_ACCEL = 2.0  # accel is used for brakes, but openpilot can set positive values
+  MAX_ACCEL = 3.5  # accel is used for brakes, but openpilot can set positive values
   MIN_ACCEL = -3.5
 
   STEER_BUS = 1
@@ -516,6 +516,7 @@ class TestHondaBoschRadarlessAltBrakeSafety(HondaPcmEnableBase, TestHondaBoschRa
 
 class TestHondaBoschRadarlessLongSafety(common.LongitudinalAccelSafetyTest, HondaButtonEnableBase,
                                         TestHondaBoschRadarlessSafetyBase):
+  MAX_ACCEL = 3.5
   """
     Covers the Honda Bosch Radarless safety mode with longitudinal control
   """

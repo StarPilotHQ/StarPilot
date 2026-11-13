@@ -12,12 +12,21 @@ const status = { schemaVersion: 1, ownerSession: 's1', operationId: null, state:
   bounds: null, completedGroups: 0, totalGroups: 0, transferredBytes: 0, transferBudgetBytes: 0,
   preparedGeneration: null, selectedGeneration: '', errorCode: null, selectedForNextShadowStart: false }
 assert.equal(validCatalog(catalog), true)
+const largeCatalog = { ...catalog, maxGroups: 1024, regions: [
+  { ...region, token: 'nation.CA', name: 'Canada', bounds: [40, -142, 74, -52], groups: 765 },
+  { ...region, token: 'nation.JP', name: 'Japan', bounds: [30, 128, 46, 146], groups: 72 },
+] }
+assert.equal(validCatalog(largeCatalog), true)
+assert.equal(validCatalog({ ...largeCatalog, regions: [{ ...region, groups: 1025 }] }), false)
 assert.equal(validCatalog({ ...catalog, regions: [{ ...region, available: false, unavailable: 'too_large' }] }), true)
 assert.equal(validCatalog({ ...catalog, regions: [{ ...region, token: '<script>' }] }), false)
 assert.equal(validOperation(status), true)
 assert.equal(validOperation({ ...status, operationId: 's1:1', state: 'transferring' }), true)
 assert.equal(NavigationPage.components.MapOperationsPanel, MapOperationsPanel)
 assert.match(MapOperationsPanel.template, /Start download/)
+assert.match(MapOperationsPanel.template, /Add Offline Coverage/)
+assert.match(MapOperationsPanel.template, /Existing regions are kept/)
+assert.doesNotMatch(MapOperationsPanel.template, /Replace Selected Map|replaces the selected map/)
 assert.doesNotMatch(MapOperationsPanel.template, /Retry maps/)
 assert.match(MapOperationsPanel.template, /next map service start/)
 assert.doesNotMatch(MapOperationsPanel.template, /v-html/)

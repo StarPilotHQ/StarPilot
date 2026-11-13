@@ -11,7 +11,7 @@ from opendbc.safety import LEN_TO_DLC
 libsafety_dir = os.path.dirname(os.path.abspath(__file__))
 
 
-def _build_libsafety(release: bool = False) -> str:
+def _build_libsafety(release: bool = False, output_dir: str | Path | None = None) -> str:
   """Compile libsafety.so to a temp file and return its path."""
   root = str(Path(libsafety_dir).parents[3])
   safety_c = os.path.join(libsafety_dir, "safety.c")
@@ -30,13 +30,20 @@ def _build_libsafety(release: bool = False) -> str:
   if not release:
     cflags += ['-DALLOW_DEBUG']
 
-  fd, safety_os = tempfile.mkstemp(suffix='.os', dir=libsafety_dir)
+  fd, safety_os = tempfile.mkstemp(suffix='.os', dir=output_dir or libsafety_dir)
   os.close(fd)
-  fd, libsafety_so = tempfile.mkstemp(suffix='.so')
-  os.close(fd)
-
-  subprocess.check_call(['cc', '-fPIC', *cflags, '-I', root, '-c', safety_c, '-o', safety_os])
-  subprocess.check_call(['cc', '-shared', safety_os, '-o', libsafety_so, *ldflags])
+  libsafety_so = None
+  try:
+    fd, libsafety_so = tempfile.mkstemp(suffix='.so', dir=output_dir)
+    os.close(fd)
+    subprocess.check_call(['cc', '-fPIC', *cflags, '-I', root, '-c', safety_c, '-o', safety_os])
+    subprocess.check_call(['cc', '-shared', safety_os, '-o', libsafety_so, *ldflags])
+  except BaseException:
+    if libsafety_so is not None:
+      Path(libsafety_so).unlink(missing_ok=True)
+    raise
+  finally:
+    Path(safety_os).unlink(missing_ok=True)
   return libsafety_so
 
 

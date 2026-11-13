@@ -6,7 +6,7 @@ from opendbc.car.structs import CarParams
 from opendbc.car.volkswagen.values import VolkswagenSafetyFlags
 import opendbc.safety.tests.common as common
 
-MAX_ACCEL = 2.0
+MAX_ACCEL = 3.0
 MIN_ACCEL = -3.5
 
 # ACC_18.ACC_Anforderung_HMS

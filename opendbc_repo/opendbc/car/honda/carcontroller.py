@@ -1,4 +1,5 @@
 import numpy as np
+from opendbc.car import ACCEL_MAX_TAKEOFF
 
 from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL, rate_limit, make_tester_present_msg, structs
@@ -227,7 +228,7 @@ class CarController(CarControllerBase):
           if self.bosch_longitudinal is not None:
             self.accel, self.gas, gas_force, braking = self.bosch_longitudinal.update(CC, CS, accel)
           else:
-            self.accel = float(np.clip(accel, self.params.BOSCH_ACCEL_MIN, self.params.BOSCH_ACCEL_MAX))
+            self.accel = float(np.clip(accel, self.params.BOSCH_ACCEL_MIN, ACCEL_MAX_TAKEOFF))
             self.gas = float(np.interp(accel, self.params.BOSCH_GAS_LOOKUP_BP, self.params.BOSCH_GAS_LOOKUP_V))
 
           stopping = actuators.longControlState == LongCtrlState.stopping

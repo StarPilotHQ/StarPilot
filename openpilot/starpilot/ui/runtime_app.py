@@ -752,7 +752,7 @@ class StarShellSession:
     self._poll_aol_save()
     if getattr(self, "_aol_save_closed", False) or getattr(self, "_aol_save", None) is not None:
       return False
-    group = "preferences" if request.value == "Off" else "aol"
+    group = "preferences"
     if not self._feature_authority(group):
       self._unavailable("AOL preference is unavailable in this context")
       return False

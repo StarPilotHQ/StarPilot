@@ -265,7 +265,7 @@ class TestToyotaSecocAol(unittest.TestCase):
       self.init()
       self.physical(cruise=False)
       self.assertEqual(self.steer(torque), allowed)
-    for accel, allowed in ((-3501, False), (-3500, True), (2000, True), (2001, False)):
+    for accel, allowed in ((-3501, False), (-3500, True), (2000, True), (3500, True), (3501, False)):
       self.init()
       self.physical(cruise=True)
       packet = libsafety_py.make_CANPacket(0x183, 0, (accel & 0xffff).to_bytes(2, 'big') + bytes(6))

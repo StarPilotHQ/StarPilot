@@ -55,7 +55,7 @@ def check_controller(cp):
     assert len(icons) == int((not lka or cp.openpilotLongitudinalControl) and not ccnc_display)
     if icons:
       cluster.update([(1_000_000_000 + index * 50_000_000, icons)])
-      assert cluster.vl['LFAHDA_CLUSTER']['LFA_ICON'] == (2 if enabled or lateral else 3 if index == 4 else 0)
+      assert cluster.vl['LFAHDA_CLUSTER']['LFA_ICON'] == (0, 2, 2, 3, 3)[index]
       assert cluster.vl['LFAHDA_CLUSTER']['HDA_ICON'] == int(enabled)
 
 

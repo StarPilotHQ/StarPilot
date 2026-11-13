@@ -384,7 +384,7 @@ class SpeedLimitWidget:
       if not vienna:
         left, right, a, b = ink(offset_text, FontRole.MEDIUM, offset_size)
         offset_size *= min(1, 108 / (right - left), 24 / (b - a))
-        offset_top = 120
+        offset_top = 112
       centered(offset_text, FontRole.MEDIUM, offset_size, offset_top, color if vienna else secondary)
     if shown.limit_in_use:
       centered('IN USE', FontRole.SEMI_BOLD, 15 if vienna else 22, 98 if vienna else 117, IN_USE)

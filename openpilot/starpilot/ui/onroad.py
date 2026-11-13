@@ -75,6 +75,8 @@ def driving_mode_description(state: OnroadState) -> str:
     return "ACC - Experimental" if experimental else "ACC - Chill"
   if state.lateral_active:
     return "Always On Lateral"
+  if state.aol_latched and state.aol_armed_at_stop:
+    return "AOL Armed"
   return "Stock ACC" if state.stock_cruise_active else "Disengaged"
 
 
@@ -107,6 +109,8 @@ def axis_status_color(state: OnroadState) -> rl.Color:
     return rl.Color(22, 127, 64, 255) if state.stock_cruise_active else rl.Color(10, 186, 181, 255)
   if state.longitudinal_active:
     return rl.Color(255, 105, 180, 255)
+  if state.aol_latched and state.aol_armed_at_stop:
+    return rl.Color(10, 100, 98, 255)
   return rl.Color(18, 40, 57, 255)
 
 
@@ -227,10 +231,9 @@ class OnroadView:
         state.appearance.camera_view == CameraViewChoice.DRIVER or state.reverse_driver_camera):
       return
     width, height = widget_size(state.customization, profile, MODE_WIDGET)
-    if profile == Profile.LARGE:
-      x, y = position["x"] + center_shift, position["y"]
-      if slc_action_occludes(profile, state, (x, y, x + width, y + height)):
-        return
+    x, y = position["x"] + center_shift, position["y"]
+    if slc_action_occludes(profile, state, (x, y, x + width, y + height)):
+      return
     size = 40 if profile == Profile.LARGE else 18
     role = FontRole.SEMI_BOLD
     lines = [""]
@@ -268,11 +271,10 @@ class OnroadView:
     measured = self.fonts.measure(text, role, size)
     x = position["x"] + center_shift + (width - measured.width) / 2
     y = position["y"] + (height - measured.height) / 2
-    if profile == Profile.LARGE:
-      left, right = self.fonts.horizontal_ink(text, role, size)
-      top, bottom = self.fonts.vertical_ink(text, role, size)
-      if slc_action_occludes(profile, state, (x + left, y + top, x + right, y + bottom)):
-        return
+    left, right = self.fonts.horizontal_ink(text, role, size)
+    top, bottom = self.fonts.vertical_ink(text, role, size)
+    if slc_action_occludes(profile, state, (x + left, y + top, x + right, y + bottom)):
+      return
     color = rl.Color(*rgba(state.customization, "text", profile, CLOCK_WIDGET))
     offset_px = 2 if profile == Profile.LARGE else 1
     self.fonts.draw(text, role, size, x + offset_px, y + offset_px, rl.Color(0, 0, 0, min(color.a, 170)))
@@ -282,12 +284,11 @@ class OnroadView:
     if (not placement(state.customization, self.fonts.profile, 'weather')['enabled'] or
         state.alert.size != AlertSize.NONE or state.appearance.camera_view == CameraViewChoice.DRIVER or state.reverse_driver_camera):
       return
-    if self.fonts.profile == Profile.LARGE:
-      position = placement(state.customization, self.fonts.profile, 'weather')
-      width, height = widget_size(state.customization, self.fonts.profile, 'weather')
-      x, y = position['x'] + center_shift, position['y']
-      if slc_action_occludes(self.fonts.profile, state, (x, y, x + width, y + height)):
-        return
+    position = placement(state.customization, self.fonts.profile, 'weather')
+    width, height = widget_size(state.customization, self.fonts.profile, 'weather')
+    x, y = position['x'] + center_shift, position['y']
+    if slc_action_occludes(self.fonts.profile, state, (x, y, x + width, y + height)):
+      return
     from openpilot.starpilot.ui.weather import WeatherClient
     from openpilot.starpilot.ui.onroad_weather import render_weather
     if not hasattr(self, '_weather_client'):

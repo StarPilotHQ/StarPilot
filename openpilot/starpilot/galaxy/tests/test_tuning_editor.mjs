@@ -4,7 +4,11 @@ import { PlotsPage } from '../web/js/plots.js'
 import { SettingsFeed } from '../web/js/settings.js'
 import { SURFACE_GROUPS } from '../web/js/flm-training-results.js'
 
-const vm = { ...FlmPage.data(), activePage: true, mode: 'local', unauthorized() {} }
+const vm = { $nextTick: callback => {
+  const before = globalThis.document
+  globalThis.document = { getElementById: () => null }
+  try { callback() } finally { globalThis.document = before }
+}, ...FlmPage.data(), activePage: true, mode: 'local', unauthorized() {} }
 for (const [name, method] of Object.entries(FlmPage.methods)) vm[name] = method.bind(vm)
 for (const [name, method] of Object.entries(FlmPage.computed)) Object.defineProperty(vm, name, { get: () => method.call(vm) })
 const names = [...new Set(SURFACE_GROUPS.flatMap(group => group.names))]

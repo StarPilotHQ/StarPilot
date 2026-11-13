@@ -149,11 +149,12 @@ def test_manual_descriptions_explain_direction_dependencies_and_pid_limits():
 
 def test_alpha_longitudinal_has_one_plain_description(monkeypatch):
   from types import SimpleNamespace
+  from typing import cast
   from openpilot.starpilot.ui import feature_settings_owner as owner_module
   monkeypatch.setattr(owner_module, 'read_saved', lambda *args: (b'0', True))
   owner = SimpleNamespace(_alpha_long_capability=lambda: ('qualified',), params=object(),
                           authority=lambda name: True, vehicle_fingerprint=lambda: 'HYUNDAI_IONIQ_6')
-  row = owner_module.FeatureSettingsOwner._alpha_long_rows(owner, True)[0]
+  row = owner_module.FeatureSettingsOwner._alpha_long_rows(cast(owner_module.FeatureSettingsOwner, owner), True)[0]
   expected = ('Let StarPilot control acceleration and braking instead of factory ACC. ' +
               'Takes effect next drive. May disable factory Automatic Emergency Braking.')
   assert description(row) == expected

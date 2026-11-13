@@ -23483,3 +23483,10 @@ msgstr "Totwinkelwarnung bei deaktivierter Querführung"
 #: openpilot/starpilot/ui/sounds_owner.py
 msgid "Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. Independent of Loud Blindspot Alert. Hazards do not trigger it."
 msgstr "Warnt beim Blinken in Richtung eines erkannten Fahrzeugs im toten Winkel, wenn die Lenkunterstützung ausgeschaltet oder pausiert ist. Unabhängig von der Lauten Totwinkelwarnung. Die Warnblinkanlage löst sie nicht aus."
+
+msgid "Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue."
+msgstr "Verbessert das Anhalten an Ampeln und ermöglicht automatisches Anhalten an erkannten Stoppschildern. Zum Weiterfahren das Gaspedal betätigen."
+
+msgid "Enhanced Stops"
+msgstr "Verbessertes Anhalten"
+

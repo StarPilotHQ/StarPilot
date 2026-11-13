@@ -210,7 +210,7 @@ static bool tesla_tx_hook(const CANPacket_t *msg) {
   };
 
   const LongitudinalLimits TESLA_LONG_LIMITS = {
-    .max_accel = 425,       // 2 m/s^2
+    .max_accel = 463,       // 3.5 m/s^2 rounded to 0.04 m/s^2 CAN resolution
     .min_accel = 288,       // -3.48 m/s^2
     .inactive_accel = 375,  // 0. m/s^2
   };

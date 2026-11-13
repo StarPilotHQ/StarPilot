@@ -189,7 +189,7 @@ def test_valid_vision_limit_has_persistent_sign_without_action_receipt():
     renderer._speed_limit_sign(shown)
     fill.assert_not_called()
     outline.assert_called_once()
-    assert outline.call_args.args[:2] == (384, 81)
+    assert outline.call_args.args[:2] == (384, 90)
     assert [call.args[0] for call in foreground_calls(fonts.draw)] == ['VISION', '55']
     outline.reset_mock()
     renderer._speed_limit_sign(replace(shown, speed_limit=SpeedLimitObservation(kind=ObservationKind.STALE)))

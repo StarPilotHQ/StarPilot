@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 from openpilot.cereal import log
 from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX
+from openpilot.starpilot.longitudinal.lead_takeoff_preferences import MAX_ACCEL as TAKEOFF_ACCEL_MAX
 from openpilot.common.realtime import DT_MDL
 from openpilot.common.swaglog import cloudlog
 # WARNING: imports outside of constants will not trigger a rebuild
@@ -96,6 +97,10 @@ def build_model_lead_trajectory(model_lead, radar_lead, v_ego, model_v_ego=None)
   raw_d_rel = float(getattr(radar_lead, "dRel", float("nan")))
   raw_v_lead = float(getattr(radar_lead, "vLead", float("nan")))
   if not np.isfinite(raw_d_rel) or not np.isfinite(raw_v_lead):
+    return None
+
+  # A predicted departure cannot override a radar lead still measured stopped.
+  if radar_lead.radar and raw_v_lead < 0.5:
     return None
 
   raw_accel = float(getattr(radar_lead, "aLeadK", float("nan")))
@@ -538,7 +543,7 @@ class LongitudinalMpc:
     return lead_xv
 
   def update(self, radarstate, personality=log.LongitudinalPersonality.standard,
-             *, follow_seconds: float | None = None, acceleration_max: float | None = None, stop_line_m: float | None = None,
+             *, follow_seconds: float | None = None, acceleration_max: float | None = None, stop_line_m: float | None = None, faster_takeoffs: bool = False,
              modelV2=None, extra_stopped_gap_m: float = 0.0):
     t_follow = get_T_FOLLOW(personality)
     if follow_seconds is not None and math.isfinite(follow_seconds) and 0.5 <= follow_seconds <= 3.0:
@@ -577,9 +582,10 @@ class LongitudinalMpc:
     self.solver.set(N, "yref", self.yref[N][:COST_E_DIM])
 
     self.params[:,0] = ACCEL_MIN
+    ceiling = TAKEOFF_ACCEL_MAX if faster_takeoffs else ACCEL_MAX
     bounded_accel = (acceleration_max is not None and math.isfinite(acceleration_max) and
-                     0.0 <= acceleration_max <= ACCEL_MAX)
-    self.params[:,1] = min(ACCEL_MAX, acceleration_max) if bounded_accel else ACCEL_MAX
+                     0.0 <= acceleration_max <= TAKEOFF_ACCEL_MAX)
+    self.params[:,1] = min(ceiling, acceleration_max) if bounded_accel else ceiling
     self.params[:,2] = np.min(x_obstacles, axis=1)
     self.params[:,3] = np.copy(self.a_prev)
     self.params[:,4] = t_follow

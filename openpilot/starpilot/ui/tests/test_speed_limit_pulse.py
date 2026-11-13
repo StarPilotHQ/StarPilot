@@ -134,16 +134,21 @@ def test_display_only_hidden_stale_and_reappearance_do_not_invent_new_limit():
 
 
 @pytest.mark.parametrize('held_fields', [{'status': 'display_hold'}, {'sign_recovering': True}])
-def test_retained_display_stops_pulsing_until_a_new_live_limit(held_fields):
+def test_retained_display_finishes_existing_pulse_without_restarting(held_fields):
   pulse = SpeedLimitPulse()
   current = display_state()
   pulse.update(current, 10.)
   assert rgba(pulse.color(rl.WHITE, 10.5)) != rgba(rl.WHITE)
   held = replace(current, speed_limit=replace(current.speed_limit, **held_fields))
   pulse.update(held, 10.5)
-  assert rgba(pulse.color(rl.WHITE, 10.5)) == rgba(rl.WHITE)
-  pulse.update(display_state(25.), 11.)
-  assert rgba(pulse.color(rl.WHITE, 11.5)) != rgba(rl.WHITE)
+  assert rgba(pulse.color(rl.WHITE, 10.5)) != rgba(rl.WHITE)
+  for now in (11.5, 12.5):
+    pulse.update(held, now)
+    assert rgba(pulse.color(rl.WHITE, now)) == (188, 132, 255, 255)
+  pulse.update(held, 13.5)
+  assert rgba(pulse.color(rl.WHITE, 13.5)) == rgba(rl.WHITE)
+  pulse.update(display_state(25.), 14.)
+  assert rgba(pulse.color(rl.WHITE, 14.5)) != rgba(rl.WHITE)
 
 
 def test_display_only_new_drive_can_highlight_its_first_limit():
@@ -151,3 +156,25 @@ def test_display_only_new_drive_can_highlight_its_first_limit():
   pulse.update(display_state(), 10.)
   pulse.update(display_state(drive_frame=2), 20.)
   assert rgba(pulse.color(rl.WHITE, 20.5)) == (188, 132, 255, 255)
+
+
+def test_automatic_adoption_finishes_existing_highlight():
+  pulse = SpeedLimitPulse()
+  current = state()
+  pulse.update(current, 10.)
+  accepted = replace(current, speed_limit=replace(current.speed_limit, pending_speed_limit_mps=None,
+                     automatic_adoption_pending=False, pending_since_ns=0, accepted_speed_limit_mps=20.))
+  for now in (11.5, 12.5):
+    pulse.update(accepted, now)
+    assert rgba(pulse.color(rl.WHITE, now)) == (188, 132, 255, 255)
+  pulse.update(accepted, 13.5)
+  assert rgba(pulse.color(rl.WHITE, 13.5)) == rgba(rl.WHITE)
+
+
+@pytest.mark.parametrize('held_fields', [{'status': 'display_hold'}, {'sign_recovering': True}])
+def test_new_held_value_does_not_start_or_inherit_a_highlight(held_fields):
+  pulse = SpeedLimitPulse()
+  pulse.update(display_state(), 10.)
+  held = replace(display_state(25.), speed_limit=replace(display_state(25.).speed_limit, **held_fields))
+  pulse.update(held, 10.5)
+  assert rgba(pulse.color(rl.WHITE, 10.5)) == rgba(rl.WHITE)

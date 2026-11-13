@@ -116,7 +116,9 @@ def test_reached_controller_emits_original_steering_map(candidate):
   command = structs.CarControl(enabled=True, latActive=True, longActive=False)
   command.actuators.torque = 0.6
   parser = CANParser(DBC[candidate][Bus.pt], [("STEERING_CONTROL", 100)], ci.CC.CAN.lkas)
-  bp, values = PROFILES[candidate]
+  mapping = PROFILES[candidate]
+  assert mapping is not None
+  bp, values = mapping
   limited = 0.0
   for tick in range(25):
     _, frames = ci.apply(command.as_reader(), 1_000_000_000 + tick * 10_000_000)
@@ -126,3 +128,25 @@ def test_reached_controller_emits_original_steering_map(candidate):
     limited = min(0.6, limited + 0.03)
     expected = int(-np.interp(limited * bp[-1], bp, values))
     assert parser.vl["STEERING_CONTROL"]["STEER_TORQUE"] == expected
+
+
+@pytest.mark.parametrize("alpha", (False, True))
+def test_crv_standard_eps_crawl_feedback_preserves_high_speed_and_wire_limits(alpha):
+  from openpilot.common.pid import PIDController
+  cp = factory(CAR.HONDA_CRV_5G, alpha)
+  tune = cp.lateralTuning.pid
+  pid = PIDController((tune.kpBP, tune.kpV), (tune.kiBP, tune.kiV), pos_limit=1., neg_limit=-1.)
+  # Small alternating near-stop errors must not demand full alternating torque.
+  for speed in (0., 1., 3., 5.):
+    outputs = [pid.update(error, speed=speed, freeze_integrator=True) for error in (1.5, -1.5)]
+    assert max(abs(value) for value in outputs) <= .75 * (.64 * 1.5)
+    assert outputs[0] == pytest.approx(-outputs[1])
+  for speed in (10., 20., 35.):
+    pid.speed = speed
+    assert pid.k_p == pytest.approx(.64)
+    assert pid.k_i == pytest.approx(.192)
+  assert cp.lateralTuning.pid.kf == pytest.approx(.00006)
+  controller = CarController(DBC[CAR.HONDA_CRV_5G], cp)
+  assert controller.params.STEER_MAX == 3840
+  assert controller.params.STEER_LOOKUP == [-3840, 0, 3840]
+  assert controller.params.STEER_LOOKUP_V == [-3840, 0, 3840]

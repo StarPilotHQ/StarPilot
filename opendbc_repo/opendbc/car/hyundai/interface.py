@@ -1,3 +1,4 @@
+from opendbc.car import ACCEL_MAX_TAKEOFF
 from opendbc.car.hyundai.ioniq5pe_long_profile import required as pe_long_required, candidate as pe_long_candidate
 from opendbc.car.pedal import supported_pedal_detected
 from opendbc.car.hyundai.classic_scc_aol import CLASSIC_SCC_IDS
@@ -112,13 +113,13 @@ class CarInterface(CarInterfaceBase):
   DRIVABLE_GEARS = (structs.CarState.GearShifter.sport, structs.CarState.GearShifter.manumatic)
 
   @staticmethod
-  def get_pid_accel_limits(CP, current_speed, cruise_speed):
+  def get_pid_accel_limits(CP, current_speed, cruise_speed, *, faster_takeoffs=False):
     from opendbc.car.hyundai.ev9_longitudinal import qualified as ev9_long_qualified
     if ev9_long_qualified(CP):
-      return -3.5, 2.2
+      return -3.5, ACCEL_MAX_TAKEOFF if faster_takeoffs else 2.2
     if is_blended_alpha(CP):
       return -3.5, 3.5
-    return CarInterfaceBase.get_pid_accel_limits(CP, current_speed, cruise_speed)
+    return CarInterfaceBase.get_pid_accel_limits(CP, current_speed, cruise_speed, faster_takeoffs=faster_takeoffs)
 
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
@@ -407,7 +408,8 @@ class CarInterface(CarInterfaceBase):
       can_packets = list(can_packets)
       recovery.observe(can_packets, self.CC.frame)
     if (self.CS.pe_ready is not None or self.CS.gv70_camera_lead is not None or self.CS.ev9_camera_lead is not None or
-        self.CS.ioniq6_camera_lead is not None or self.CS.torque_ev_camera_lead is not None or self.CS.forte_lkas_sources is not None):
+        self.CS.ioniq6_camera_lead is not None or self.CS.torque_ev_camera_lead is not None or
+        self.CS.forte_lkas_sources is not None or self.CS.stock_lfa_status is not None):
       # This isolated optional parser must never join required controls health.
       can_packets = list(can_packets)
       if self.CS.gv70_camera_lead is not None:
@@ -422,6 +424,9 @@ class CarInterface(CarInterfaceBase):
         self.CS.torque_ev_camera_lead.update(can_packets)
       if self.CS.forte_lkas_sources is not None:
         self.CS.forte_lkas_sources.update(can_packets)
+      if self.CS.stock_lfa_status is not None:
+        self.CS.stock_lfa_status.update(can_packets)
+        self.CS.stock_cluster_status.update(can_packets)
     ret = super().update(can_packets)
     self.CS.finalize_blended_cancel(ret)
     return ret

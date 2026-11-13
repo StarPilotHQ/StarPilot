@@ -16,6 +16,7 @@ from opendbc.car.hyundai.pe_long_aol import qualified as pe_long_aol_qualified
 from opendbc.car.common.filter_simple import FirstOrderFilter
 from opendbc.car.lateral import get_max_angle_vm, get_max_angle_delta_vm
 import numpy as np
+from opendbc.car import ACCEL_MAX_TAKEOFF
 from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL, make_tester_present_msg, rate_limit, structs
 from opendbc.car.lateral import apply_driver_steer_torque_limits, apply_steer_angle_limits_vm, common_fault_avoidance
@@ -229,7 +230,7 @@ class CarController(CarControllerBase):
       lead_data = self.g90_lead_state.update(self.g90_lead_inputs.update(), hud_control.leadVisible)
 
     # accel + longitudinal
-    accel = float(np.clip(actuators.accel, self.params.ACCEL_MIN, self.params.ACCEL_MAX))
+    accel = float(np.clip(actuators.accel, self.params.ACCEL_MIN, ACCEL_MAX_TAKEOFF))
     stopping = actuators.longControlState == LongCtrlState.stopping
     if self.pe_longitudinal is not None:
       request = self.pe_longitudinal.update(self.frame, active=CC.enabled and CC.longActive,
@@ -530,8 +531,12 @@ class CarController(CarControllerBase):
                                  self.CP.safetyConfigs[-1].safetyParam in (0x8815, 0x8895))):
         # AOL may steer while ordinary cruise engagement remains off.
         steering_status_active |= CC.latActive
+      stock_source = getattr(CS, "stock_lfa_status", None)
+      stock_lfa = stock_source.current(clock_boot_ns()) if stock_source is not None else None
+      stock_faults = stock_source.last_fault() if stock_source is not None and stock_lfa is None else None
       can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
-                                                            steering_status_active, apply_steer_req, apply_torque))
+                                                            steering_status_active, apply_steer_req, apply_torque,
+                                                            stock_lfa=stock_lfa, stock_lfa_faults=stock_faults))
       if _projection is not None:
         _projection.emit('hyundai.CANFD_TORQUE', apply_torque, apply_steer_req, can_sends[-1])
 
@@ -567,7 +572,10 @@ class CarController(CarControllerBase):
           self.last_ccnc_161_ts_ns = CS.ccnc_161_ts_ns
           self.last_ccnc_162_ts_ns = CS.ccnc_162_ts_ns
       else:
-        can_sends.append(hyundaicanfd.create_lfahda_cluster(self.packer, self.CAN, CC.enabled, lfa_icon=canfd_lfa_icon))
+        cluster_source = getattr(CS, "stock_cluster_status", None)
+        stock_cluster = cluster_source.current(clock_boot_ns()) if cluster_source is not None else None
+        can_sends.append(hyundaicanfd.create_lfahda_cluster(self.packer, self.CAN, CC.enabled, lfa_icon=canfd_lfa_icon,
+                                                         stock_cluster=stock_cluster))
 
     # blinkers
     if lka_steering and self.CP.flags & HyundaiFlags.CANFD_ENABLE_BLINKERS:
@@ -649,7 +657,7 @@ class CarController(CarControllerBase):
           lead = (self.ev9_lead_inputs.update(CS.ev9_camera_lead, hud_control.leadVisible, now_nanos)
                   if self.ev9_lead_inputs is not None else ABSENT)
           lead_visible, lead_distance, lead_rel_speed = lead.visible, lead.distance, lead.relative_speed
-          accel = float(np.clip(accel, -3.5, 2.0 if pe_long else 2.2))
+          accel = float(np.clip(accel, -3.5, ACCEL_MAX_TAKEOFF))
           can_sends.append(long_sender.create_ccnc_acc_control(
             self.packer, self.CAN, CC.enabled, accel, ccnc_longitudinal.stop.stop_request,
             ccnc_longitudinal.stop.cruise_standstill, CC.cruiseControl.override, set_speed_in_units,

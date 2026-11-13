@@ -72,6 +72,29 @@ class TestOnroadAxes(unittest.TestCase):
     self.assertFalse(self.state(False, False).aol_latched)
     self.assertEqual(rgba(axis_status_color(self.state(False, False))), (18, 40, 57, 255))
 
+  def test_subaru_armed_stop_has_distinct_standby_border_without_active_axes(self):
+    self.ui.aol_runtime = True
+    self.ui.CP.brand = 'subaru'
+    car = self.ui.sm['carState']
+    car.vEgo, car.standstill, car.gearShifter = 0, True, 'drive'
+    car.steerFaultTemporary = car.steerFaultPermanent = car.accFaulted = False
+    self.publish_latch()
+    stopped = self.state(False, False)
+    self.assertTrue(stopped.aol_armed_at_stop)
+    self.assertFalse(stopped.engaged or stopped.lateral_active or stopped.longitudinal_active)
+    self.assertEqual(rgba(axis_status_color(stopped)), (10, 100, 98, 255))
+    self.assertEqual(driving_mode_description(stopped), 'AOL Armed')
+    self.assertNotEqual(rgba(axis_status_color(stopped)), rgba(axis_status_color(self.state(True, False))))
+    for field, value in (('standstill', False), ('gearShifter', 'reverse'), ('canValid', False), ('steerFaultTemporary', True)):
+      old = getattr(car, field)
+      setattr(car, field, value)
+      with self.subTest(field=field):
+        self.assertFalse(self.state(False, False).aol_armed_at_stop)
+        self.assertEqual(rgba(axis_status_color(self.state(False, False))), (18, 40, 57, 255))
+      setattr(car, field, old)
+    self.publish_latch(False)
+    self.assertFalse(self.state(False, False).aol_armed_at_stop)
+
   def test_missing_model_cannot_show_armed_aol_as_active_steering(self):
     self.ui.aol_runtime = True
     self.publish_latch()

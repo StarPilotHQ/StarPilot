@@ -1,7 +1,7 @@
 """EV9 optional LONG actual parser/controller and reached-cadence boundaries."""
 import unittest
 from types import SimpleNamespace
-from opendbc.can import CANPacker
+from opendbc.can import CANPacker, CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.hyundai.ev9_longitudinal import candidate, qualified, EV9LongitudinalPolicy, LongCtrlState
 from opendbc.car.hyundai.interface import CarInterface
@@ -115,7 +115,11 @@ class TestEV9LongController(unittest.TestCase):
     cb = next(p for p in packets if p[0] == 0xcb)
     self.assertEqual((cb[1][3] >> 4) & 0xf, 1)
     self.assertEqual(cb[1][6], 0)
-    self.assertEqual(ci.CC.accel_last, 2.2)
+    self.assertEqual(ci.CC.accel_last, 3.5)
+    decoded = CANParser(DBC[ci.CP.carFingerprint][Bus.pt], [('SCC_CONTROL', 50)], 1)
+    decoded.update([(1_000_000_000, packets)])
+    self.assertAlmostEqual(decoded.vl['SCC_CONTROL']['aReqRaw'], 3.5)
+    self.assertAlmostEqual(decoded.vl['SCC_CONTROL']['aReqValue'], 3.5)
 
   def test_exact_ev9_pid_ceiling_and_sibling_limits_unchanged(self):
     stock = params(candidate=CAR.KIA_EV9)

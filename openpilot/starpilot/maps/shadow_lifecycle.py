@@ -107,7 +107,7 @@ def _selected_receipt(root: Path):
         receipt.get('tileSchema') != 'offline.capnp:0xda3a0d9284ca402f' or
         receipt.get('attribution') != '© OpenStreetMap contributors; https://www.openstreetmap.org/copyright (ODbL)' or
         receipt.get('sourceVerified') is not False or
-        receipt.get('sourceKind') not in ('local-pbf', 'provided-group-archives') or
+        receipt.get('sourceKind') not in ('local-pbf', 'provided-group-archives', 'combined-group-archives') or
         type(receipt.get('tiles')) is not list or not 0 < len(receipt['tiles']) <= 65536 or
         type(receipt.get('inputs')) is not list or not receipt['inputs']):
       return None

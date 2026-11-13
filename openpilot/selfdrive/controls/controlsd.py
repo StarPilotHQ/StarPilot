@@ -456,12 +456,14 @@ class Controls:
 
     # accel PID loop
     publish_takeoff_state = getattr(self.LoC, 'takeoff_starting', False)
-    pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, CS.vCruise * CV.KPH_TO_MS)
+    longitudinal_context = self.longitudinal_inputs.context(CC.longActive)
+    pid_accel_limits = self.CI.get_pid_accel_limits(
+      self.CP, CS.vEgo, CS.vCruise * CV.KPH_TO_MS, faster_takeoffs=longitudinal_context.faster_takeoffs)
     from opendbc.car.tesla.preap.pedal_profile import accel_limits as preap_pedal_limits
 
     pid_accel_limits = preap_pedal_limits(self.CP, CS.vEgo, getattr(self.sm['selfdriveState'].personality, 'raw', 1), pid_accel_limits)
     longitudinal_output = self.LoC.update(
-      CC.longActive, CS, long_plan.aTarget, long_plan.shouldStop, pid_accel_limits, context=self.longitudinal_inputs.context(CC.longActive)
+      CC.longActive, CS, long_plan.aTarget, long_plan.shouldStop, pid_accel_limits, context=longitudinal_context
     )
     actuators.accel = final_output(longitudinal_output)
     if self.longitudinal_inputs.publish_state or publish_takeoff_state:

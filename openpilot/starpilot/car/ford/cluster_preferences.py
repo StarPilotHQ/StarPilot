@@ -23,8 +23,12 @@ class FordClusterPreference:
     self.params = params
     self.enabled = bool(read_choice(params)[0])
     self.frames = 0
+    self.pending_enabled = self.enabled
+
+  def refresh_settings(self):
+    self.pending_enabled = bool(read_choice(self.params)[0])
 
   def update(self):
     if self.frames % 100 == 0:
-      self.enabled = bool(read_choice(self.params)[0])
+      self.enabled = self.pending_enabled
     self.frames += 1

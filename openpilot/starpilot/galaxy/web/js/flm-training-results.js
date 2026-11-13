@@ -151,7 +151,7 @@ const frictionCoordinates = rows => Array.isArray(rows) && rows.length === 5 && 
   Number.isFinite(row[1]) && Math.abs(row[1]) <= .25) ? Object.fromEntries(rows) : null
 
 export function recommendationText(row, unit = null) {
-  if (row.target === null) return 'Conflicting recorded candidates; no single suggested setting'
+  if (row.target === null) return 'No consistent suggested value'
   if (row.target === undefined) return `change ${coordinateText(row.delta)}`
   // The setting owner displays every canonical coordinate as percent, including window edges.
   const suffix = unit ?? '%'
@@ -169,7 +169,7 @@ export function offroadCoordinateEvidence(report, name, live = false, unit = nul
   if (saved !== undefined && saved !== 0)
     statements.push(`Auto Learn saved: ${display(saved)}${route.configurationState === 'ready_for_next_drive' ? ' for the next drive' : ''}.`)
   for (const suggestion of route?.suggestions || []) if (suggestion.parameter === name)
-    statements.push(`${route.retained ? 'Earlier analyzed drive' : 'Previous-drive recommendation'}: ${recommendationText(suggestion, unit)}; not saved.${suggestion.reason ? ` ${learningReason(suggestion.reason)}` : ''}`)
+    statements.push(`${route.retained || route.earlierDrive ? 'Earlier analyzed drive' : 'Previous-drive recommendation'}: ${recommendationText(suggestion, unit)}; not saved.${suggestion.reason ? ` ${learningReason(suggestion.reason)}` : ''}`)
   if (route && !statements.length) statements.push('No recommendation from this analyzed drive for this dial.')
   return statements.join(' ')
 }
@@ -191,10 +191,13 @@ export const SURFACE_GROUPS = Object.freeze([
 ])
 
 const REASONS = {
+  "candidate encoder clipping regression": "This change did not pass the steering-limit checks.",
+  newer_drive_refused_same_adjustment: "A newer drive did not support this same adjustment. Auto Learn left the tune unchanged.",
+  controller_checks_did_not_support_change: "This change did not pass the steering-command checks. Auto Learn kept your existing tune.",
   heldout_profile_does_not_support_training_step: "Part of the drive suggested this setting; separate windows did not confirm it.",
-  independent_support_for_frozen_training_profile: "Separate recorded windows support this starting point. Automatic approval is separate.",
+  independent_support_for_frozen_training_profile: "Separate parts of your drive support this suggestion. The controller checks must also pass before it is saved.",
   training_candidate_not_independently_confirmed: "Training windows suggested this setting; it is not independently confirmed.",
-  recorded_candidate_requires_automatic_checks: "A recorded-drive starting point, not approved for automatic saving.",
+  recorded_candidate_requires_automatic_checks: "Your drive suggests this change. Auto Learn needs to confirm it before saving it automatically.",
   conflicting_recorded_candidates: "Different windows suggested different settings. No single setting is recommended.",
   trial_started_waiting_for_comparable_drive: "The trial ran, but this drive lacked matching comparison windows. The same bounded trial will be checked on another drive.",
   trial_measurement_inconclusive: "The comparison did not establish improvement or worsening. The same bounded trial will be checked on another drive.",
@@ -202,7 +205,7 @@ const REASONS = {
   next_drive_observed_tracking_worse: "Comparable driving showed a steering regression, so the prior tune was restored.",
   analyzing_last_completed_drive: "Analyzing the last completed drive while parked.",
   checking_recorded_steering_recommendations: "Checking the recorded-drive recommendations against the original controller and steering outputs.",
-  recorded_tracking_suggestion_not_yet_qualified_for_automatic_application: "Recommendations were found, but none has passed the controller and steering-output checks required for automatic saving.",
+  recorded_tracking_suggestion_not_yet_qualified_for_automatic_application: "Auto Learn reviewed the drive and left your tune unchanged. Consistent suggestions are listed when available.",
   original_controller_or_registered_encoder_check_refused: "A tune was suggested, but at least one original controller or encoder check refused it. Your saved tune was kept.",
   original_scored_frame_not_eligible: "An original frame was inactive, limited or otherwise ineligible.",
   "candidate changed an actual limiter/support": "The candidate triggered an encoder limiter that the recorded request did not.",
@@ -276,6 +279,11 @@ export function validCoordinateRecommendations(rows) {
       stamp(row[3]) && row[3] > 0 && text(row[4], 240))
 }
 
+export function isConsistentSuggestion(row) {
+  return row.target !== null && !['conflicting_recorded_candidates', 'heldout_profile_does_not_support_training_step',
+    'controller_checks_did_not_support_change'].includes(row.reason)
+}
+
 export function offroadView(report) {
   const details = report?.current?.details
   if (!record(details) || !text(details['Completed drive analyzed'], 180) || !details['Completed drive analyzed'] ||
@@ -289,6 +297,10 @@ export function offroadView(report) {
   const recommendations = details['Recorded coordinate recommendations']
   if (recommendations !== undefined && !validCoordinateRecommendations(recommendations)) return null
   const savedCount = details['Saved route adjustment count']
+  const latestRecording = details['Latest completed recording reviewed'], earlierSource = details['Findings retained from earlier drive']
+  const earlierDrive = latestRecording !== undefined || earlierSource !== undefined
+  if (earlierDrive && (!text(latestRecording, 180) || !latestRecording || latestRecording === details['Completed drive analyzed'] ||
+      earlierSource !== details['Completed drive analyzed'])) return null
   const checked = details['Controller and encoder check windows'], refused = details['Automatic tune refusal reasons']
   const checks = Array.isArray(checked) && checked.length === 2 && checked.every(stamp) && checked[0] <= checked[1] && checked[1] <= 36 &&
     Array.isArray(refused) && refused.length <= 36 && refused.every(r => Array.isArray(r) && r.length === 2 && text(r[0]) && stamp(r[1])) ?
@@ -304,10 +316,11 @@ export function offroadView(report) {
     configurationState, savedValues: savedSurface ? { ...savedSurface, ...(savedFriction || {}) } : null,
     observed, checks, savedCount: stamp(savedCount) && savedCount <= 35 ? savedCount : null,
     retained: details['Earlier analysis shown while updating'] === true,
-    suggestions: recommendations === undefined ? rows.map(([parameter, delta, windows, qualification]) => ({ parameter, delta, windows, qualification })) :
+    earlierDrive, latestRecording: earlierDrive ? latestRecording : null,
+    suggestions: (recommendations === undefined ? rows.map(([parameter, delta, windows, qualification]) => ({ parameter, delta, windows, qualification })) :
       recommendations.map(([parameter, baseline, target, windows, reason]) => ({ parameter, baseline, target,
         delta: target === null ? null : target - baseline, windows, reason, qualification: 'controller_native_checks_not_passed' }))
-        .filter(row => row.target === null || row.target !== { ...savedSurface, ...savedFriction }[row.parameter]),
+        .filter(row => row.target === null || row.target !== { ...savedSurface, ...savedFriction }[row.parameter])).filter(isConsistentSuggestion),
     moreSuggestions: details['More recorded suggestions omitted'] === true }
 }
 

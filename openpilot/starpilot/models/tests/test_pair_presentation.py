@@ -1,4 +1,5 @@
 from dataclasses import replace
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 from openpilot.starpilot.models.catalog import BUNDLED_CURRENT, model_entries
@@ -21,14 +22,14 @@ def test_actual_pair_status_reaches_home_and_galaxy_and_expires():
        patch.object(source, 'laboratory_configuration', return_value=config), \
        patch('openpilot.starpilot.models.runtime.process_start_ticks', return_value=54321), \
        patch('openpilot.starpilot.models.runtime.read_pair_receipt', return_value=load) as receipt:
-    status = source.json()['laboratory']
+    status = cast(dict[str, Any], source.json())['laboratory']
     assert status['active'] and status['pendingNextStart']
     assert (status['lateralModel'], status['longitudinalModel']) == tuple(ids)
     assert '/' in source.home_label()
     sm.valid['drivingModelData'] = False
-    assert source.json()['laboratory']['health'] == 'stale'
+    assert cast(dict[str, Any], source.json())['laboratory']['health'] == 'stale'
     assert source.home_label() == '/'.join(model_display_text(model_entries()[mid].name) for mid in reversed(ids))
     sm.valid['drivingModelData'] = True
     receipt.return_value = replace(load, process_start_ticks=99999)
-    assert not source.json()['laboratory']['active']
+    assert not cast(dict[str, Any], source.json())['laboratory']['active']
     assert '/' in source.home_label()
