@@ -1890,6 +1890,34 @@ class SelfdriveD:
     native = _healthy_transport_native(self.sm, self.CP, CS, self.aol_session_id, now_ns)
     return cold_main_readiness(self.CP, CS, native, self.events.to_msg(), recovering=recovering)
 
+  def aol_native_permission_lost(self, CS, native, previous, requested, *, source_current, driver_override,
+                                 lost_honda_lateral_grant, ordinary_long_withdrawal, now_ns):
+    """An active, still-requested AOL axis lost its native grant with no explained cause (a hard fault).
+
+    Panda's lateral withdrawal at a stop is explained (Hyundai angle and Mazda GEN2 helpers), as are a
+    driver override and the ordinary longitudinal withdrawal. The Mazda helper also accepts a delayed
+    sample taken during a stop the host has just left (its stop history, bounded and per session).
+    """
+    from openpilot.starpilot.car.hyundai.aol import expected_stopped_lateral_denial
+    from openpilot.starpilot.car.mazda.aol import (expected_stopped_lateral_denial as mazda_stopped_lateral_denial,
+                                                   note_standstill as mazda_note_standstill)
+    if source_current:
+      self.aol_mazda_stop_history = mazda_note_standstill(getattr(self, 'aol_mazda_stop_history', None), self.CP, CS,
+                                                          self.aol_car_state_log_ns, self.aol_session_id)
+    stopped_lateral_withdrawal = bool(source_current and requested.desired_lateral and (
+      expected_stopped_lateral_denial(self.CP, CS, native, sm=self.sm,
+        axis_session_id=self.aol_session_id, now_ns=now_ns) or
+      mazda_stopped_lateral_denial(self.CP, CS, native, sm=self.sm,
+        axis_session_id=self.aol_session_id, now_ns=now_ns,
+        stop_history=getattr(self, 'aol_mazda_stop_history', None))))
+    return bool(lost_honda_lateral_grant or native is not None and not driver_override and (
+      previous.lateral_active and requested.desired_lateral and native.requestedLateral and
+      not native.lateralAllowed and not stopped_lateral_withdrawal and
+      not CS.steeringPressed and not self.events.contains(ET.OVERRIDE_LATERAL) or
+      previous.longitudinal_active and requested.desired_longitudinal and native.requestedLongitudinal and
+      not native.longitudinalAllowed and not ordinary_long_withdrawal and
+      not self.events.contains(ET.OVERRIDE_LONGITUDINAL)))
+
   def ordinary_native_long_withdrawal(self, CS, native, previous, requested, intent, *, source_current, now_ns):
     """Keep the existing ordinary Panda mismatch owner for a LONG-only drop.
 
@@ -2103,17 +2131,10 @@ class SelfdriveD:
       ordinary_long_withdrawal = bool(native is not None and not native.longitudinalAllowed and
         self.ordinary_native_long_withdrawal(
           CS, native, previous, requested, intent, source_current=source_current, now_ns=now_ns))
-      from openpilot.starpilot.car.hyundai.aol import expected_stopped_lateral_denial
-      stopped_lateral_withdrawal = bool(source_current and requested.desired_lateral and
-        expected_stopped_lateral_denial(self.CP, CS, native, sm=self.sm,
-          axis_session_id=self.aol_session_id, now_ns=now_ns))
-      lost_permission = bool(lost_honda_lateral_grant or native is not None and not driver_override and (
-        previous.lateral_active and requested.desired_lateral and native.requestedLateral and
-        not native.lateralAllowed and not stopped_lateral_withdrawal and
-        not CS.steeringPressed and not self.events.contains(ET.OVERRIDE_LATERAL) or
-        previous.longitudinal_active and requested.desired_longitudinal and native.requestedLongitudinal and
-        not native.longitudinalAllowed and not ordinary_long_withdrawal and
-        not self.events.contains(ET.OVERRIDE_LONGITUDINAL)))
+      lost_permission = self.aol_native_permission_lost(
+        CS, native, previous, requested, source_current=source_current, driver_override=driver_override,
+        lost_honda_lateral_grant=lost_honda_lateral_grant, ordinary_long_withdrawal=ordinary_long_withdrawal,
+        now_ns=now_ns)
       if not hasattr(self, 'aol_transport_pause'):
         self.aol_transport_pause = TransportPause(self.CP, self.aol_session_id)
       pause, upgraded = self.aol_transport_pause.observe(

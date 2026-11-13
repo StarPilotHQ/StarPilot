@@ -49,6 +49,18 @@ def _configured_transport_native(sm, cp, session, now_ns, native=None, *, requir
     return None
 
 
+def _mazda_combined_stopped(cp, cs):
+  """GEN2 with openpilot longitudinal, stopped in Drive: panda's vehicle_moving gate withholds lateral."""
+  from opendbc.car.mazda.stock_aol import gen2_qualified
+  from opendbc.car.structs import car
+  try:
+    return bool(cs.standstill and cs.canValid and not cs.canTimeout and
+      cs.gearShifter == car.CarState.GearShifter.drive and
+      cp.brand == 'mazda' and cp.openpilotLongitudinalControl and gen2_qualified(cp, marked_only=True))
+  except (AttributeError, TypeError, ValueError):
+    return False
+
+
 def _healthy_transport_native(sm, cp, cs, session, now_ns, native=None, *, require_longitudinal=True):
   try:
     if not cs.canValid or cs.canTimeout or cs.steerFaultTemporary or cs.steerFaultPermanent:
@@ -272,6 +284,12 @@ class TransportPauseFeedback:
     # Last observation at which a Mazda temporary restriction held (see
     # opendbc.car.mazda.stock_aol.RESTRICTION_RELEASE_GRACE_NS).
     self.mazda_restricted_ns = 0
+    # Last observation at which a GEN2 car with openpilot longitudinal was stopped in
+    # Drive (see _mazda_restricted_lateral_current: combined stops).
+    self.mazda_stopped_ns = 0
+    # Last observation at which a combined stop was retained. A panda sample taken before
+    # it may still show longitudinal requested after the driver cancels cruise at the stop.
+    self.mazda_combined_ns = 0
     # Session anchors from the last healthy observation, active lateral or not (see
     # _mazda_restricted_lateral_current).
     self.mazda_inventory = None
@@ -1282,18 +1300,27 @@ class TransportPauseFeedback:
     fault is itself a restriction, so a pause's first frames are covered before its event
     arrives. Every other check stays: session, freshness, Drive, no permanent fault, no
     disabling event, no longitudinal request. A Mazda denial with no restriction still fails.
+
+    Combined stops (GEN2, openpilot longitudinal): panda withholds lateral at a stop but
+    keeps longitudinal, and openpilot holds the car. Retain lateral intent then too, but
+    only while the car is stopped (or within the release grace after it was), the axis
+    still has longitudinal desired and active, and panda still requests and allows
+    longitudinal with controls allowed. A TI2 pause or a low-speed restriction while
+    moving with longitudinal engaged is not covered.
     """
     from opendbc.car.mazda.stock_aol import admitted, temporary_restriction, within_restriction_grace
     from opendbc.car.structs import car
+    combined_stop = bool(axis.desiredLongitudinal and axis.longitudinalActive and not cs.accFaulted and
+      (_mazda_combined_stopped(cp, cs) or within_restriction_grace(self.mazda_stopped_ns, now_ns)))
     if (not admitted(cp, marked_only=True) or not latched or self.failed or self.paused or self.pending_event or
         self.retention_started_ns or cs.steerFaultPermanent or not cs.canValid or cs.canTimeout or
         cs.gearShifter != car.CarState.GearShifter.drive or
-        not (temporary_restriction(cp, cs) or within_restriction_grace(self.mazda_restricted_ns, now_ns)) or
+        not (temporary_restriction(cp, cs) or combined_stop or within_restriction_grace(self.mazda_restricted_ns, now_ns)) or
         not self.session or str(axis.sessionId) != self.session or str(axis.faultReason) != 'none' or
         not producer or producer != self.mazda_producer or str(axis.intentProducerSessionId) != producer or
         self.mazda_epoch is None or int(axis.intentIntegrityEpoch) != self.mazda_epoch or
         not self.mazda_inventory or not axis.nativeAcknowledged or
-        axis.desiredLongitudinal or axis.longitudinalActive or
+        (axis.desiredLongitudinal or axis.longitudinalActive) and not combined_stop or
         not 0 < axis.sourceCarStateMonoTime <= stamp <= now_ns or
         now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS):
       return False
@@ -1307,10 +1334,20 @@ class TransportPauseFeedback:
             for event in sm['onroadEvents'])):
       return False
     native = _configured_transport_native(sm, cp, self.session, now_ns, allow_restricted_lateral=True)
-    return bool(native is not None and native.pandaInventory and
-      not native.requestedLongitudinal and not native.longitudinalAllowed and
-      not (native.requestedLateral and native.lateralAllowed) and
+    if native is None or not native.pandaInventory:
+      return False
+    if combined_stop:
+      longitudinal = native.requestedLongitudinal and native.longitudinalAllowed
+    else:
+      # Longitudinal withdrawn, or a sample from before the host dropped it at a combined
+      # stop (driver cancelled cruise; panda's report lags). A newer sample must agree.
+      longitudinal = (not native.requestedLongitudinal and not native.longitudinalAllowed or
+                      0 < native.observedMonoTime <= self.mazda_combined_ns)
+    retained = bool(longitudinal and not (native.requestedLateral and native.lateralAllowed) and
       (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) == self.mazda_inventory)
+    if retained and combined_stop:
+      self.mazda_combined_ns = now_ns
+    return retained
 
   def _inactive_gear_source_gap(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
     from opendbc.car import structs
@@ -1415,6 +1452,8 @@ class TransportPauseFeedback:
       from opendbc.car.mazda.stock_aol import temporary_restriction as mazda_restriction
       if mazda_restriction(cp, cs):
         self.mazda_restricted_ns = now_ns
+      if _mazda_combined_stopped(cp, cs):
+        self.mazda_stopped_ns = now_ns
     try:
       axis = sm['aolAxisState']
       if not latched or cp_identity(cp) != self.cp or self.session and str(axis.sessionId) != self.session:
