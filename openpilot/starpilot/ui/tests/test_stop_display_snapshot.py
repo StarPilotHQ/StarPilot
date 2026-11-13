@@ -9,7 +9,8 @@ from openpilot.starpilot.ui.tests.test_runtime_snapshot import RuntimeSnapshotAd
 class TestStopDisplaySnapshot(unittest.TestCase):
   def test_actual_snapshot_accepts_approaching_pair_without_control_authority(self):
     for pair in (((.6765813, (874, 338, 914, 379)), (.7417721, (1018, 289, 1089, 358))),
-                 ((.6999748, (794, 338, 830, 380)), (.7953088, (924, 302, 988, 367)))):
+                 ((.6999748, (794, 338, 830, 380)), (.7953088, (924, 302, 988, 367))),
+                 ((.6666467, (939, 332, 974, 366)), (.8388339, (1093, 290, 1144, 342)))):
       with self.subTest(pair=pair):
         ui = ui_fake()
         ui.sm.messages['deviceState'].startedMonoTime = DRIVE

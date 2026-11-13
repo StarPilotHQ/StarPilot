@@ -93,12 +93,13 @@ def stop_distance(sample: StopEvidence, box: StopBox) -> float | None:
   return focal * STOP_SIGN_HEIGHT_M / (y2 - y1) / math.sqrt(1 + across ** 2 + up ** 2) + STOP_RANGE_OFFSET_M
 
 
-def _matches(a: StopBox, b: StopBox) -> bool:
+def _matches(a: StopBox, b: StopBox, *, display_only: bool = False) -> bool:
   ax, ay, ar, ab = a.bbox
   bx, by, br, bb = b.bbox
   aw, ah, bw, bh = ar - ax, ab - ay, br - bx, bb - by
+  horizontal = 6.5 if display_only and min(a.confidence, b.confidence) < STOP_CONFIRM_CONFIDENCE else 6
   return (0.5 <= bw * bh / (aw * ah) <= 4 and
-          abs(bx + br - ax - ar) <= 6 * max(aw, bw) and
+          abs(bx + br - ax - ar) <= horizontal * max(aw, bw) and
           abs(by + bb - ay - ab) <= 3 * max(ah, bh))
 
 
@@ -175,7 +176,7 @@ class StopConfirmation:
     candidates = tuple(box for box in sample.boxes if box.confidence >= minimum)
     matched = tuple(new for new in candidates if previous is not None and
                     100_000_000 <= sample.observed_ns - previous.observed_ns < STOP_MAX_AGE_NS and
-                    any(_matches(old, new) and _display_pair(old, new)
+                    any(_matches(old, new, display_only=self._display_only) and _display_pair(old, new)
                         for old in previous.boxes if old.confidence >= minimum))
     if not candidates:
       self.first_seen_ns = 0

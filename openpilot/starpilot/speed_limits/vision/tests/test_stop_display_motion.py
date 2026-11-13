@@ -2,7 +2,7 @@ from dataclasses import replace
 import unittest
 from typing import cast
 
-from openpilot.starpilot.speed_limits.vision.stop_observation import StopBox, StopConfirmation, StopEvidence, STOP_MAX_AGE_NS
+from openpilot.starpilot.speed_limits.vision.stop_observation import StopBox, StopConfirmation, StopEvidence, STOP_MAX_AGE_NS, _matches
 
 BASE = 100_000_000_000
 
@@ -84,3 +84,13 @@ class StopDisplayConfirmationTests(unittest.TestCase):
     for value in (1, None, 'true'):
       with self.assertRaises(ValueError):
         StopConfirmation(display_only=cast(bool, value))
+
+  def test_mixed_display_pair_allows_bounded_faster_horizontal_approach(self):
+    first = StopBox(.6666467, (939, 332, 974, 366))
+    second = StopBox(.8388339, (1093, 290, 1144, 342))
+    self.assertFalse(_matches(first, second))
+    self.assertTrue(_matches(first, second, display_only=True))
+    strong_first = replace(first, confidence=.8)
+    self.assertFalse(_matches(strong_first, second, display_only=True))
+    farther = replace(second, bbox=(1110, 290, 1161, 342))
+    self.assertFalse(_matches(first, farther, display_only=True))
