@@ -1,18 +1,20 @@
 # jacobw Subaru angle adapter
 
 The explicit `jacobw_angle.py` adapter integrates the Crosstrek angle work from
-[Jacob Waller's jul-angle-based fork](https://github.com/jacobwaller/opendbc/tree/8acbeccdab45a47aa7af170d2d17b61f0eb5e4f0).
-Jacob integrated the implementation and corrected the VehicleModel limit type.
-The low-speed filter comes from lukasloetkolben, and target-before-jerk limiting
-from elkoled. Original source authors and titles remain in `ORIGIN_HISTORY.tsv`.
+[Jacob Waller's hackathon-crosstrek fork](https://github.com/jacobwaller/openpilot/tree/118bb0409520433c3e09119ee61c8a57546272e0),
+pinned to opendbc `753fdd383a18c3f9e86af801f1e0e9db2a168e72`.
+Jacob authored its speed-dependent angle filter and 13:1 Crosstrek safety model.
+The implementation retains earlier contributions from lukasloetkolben and elkoled. Original source authors and titles remain in `ORIGIN_HISTORY.tsv`.
 
 Only `SUBARU_CROSSTREK_2025` selects this adapter, including the Impreza vehicles
-identified by that profile. It adds the upstream 6-to-3 degree low-speed
-deadzone below 10 m/s, clips the target before jerk limiting, and retains the
+identified by that profile. It updates the angle filter on every 100 Hz control frame, with time constants
+of 0.3/0.1/0 seconds at 5/10/20 m/s and an inactive-target reset. There is no
+low-speed deadzone. It clips the target before jerk limiting and retains the
 190 degree EPS bound. A small native header mirrors that bound for this exact
 VM profile. Other Subaru profiles and the shared lateral helper are unchanged.
 
-StarPilot retains its matched platform vehicle model, the stricter 1 degree
+Host and native Crosstrek geometry both use the branch's 13:1 steering ratio.
+StarPilot retains the stricter 1 degree
 per-command rate instead of upstream's 5, and all existing driver handoff,
 MAIN/gear/stop/fault, source-health and AOL permission guards. An impossible
 intersection of acceleration and jerk limits withdraws the steering request

@@ -36,6 +36,8 @@ Subaru angle support includes implementation maintained and integrated by **Jaco
 
 The inherited source covers Subaru angle platform/firmware definitions, `ES_Status` cruise state, angle controller/CAN integration, vehicle-model limits and native angle enforcement. StarPilot has additional platform-specific limits, driver handoff, discovery and AOL safety guards; this attribution does not claim identical tuning or complete parity with the reference fork. Original source commits, author names, emails and titles are recorded in [the Subaru origin history](opendbc_repo/opendbc/car/subaru/ORIGIN_HISTORY.tsv).
 
+The preferred Crosstrek/2024+ Impreza angle controller is adapted from **Jacob Waller (jacobw)**'s [hackathon-crosstrek branch](https://github.com/jacobwaller/openpilot/tree/118bb0409520433c3e09119ee61c8a57546272e0), pinned to [opendbc 753fdd383a18c3f9e86af801f1e0e9db2a168e72](https://github.com/jacobwaller/opendbc/tree/753fdd383a18c3f9e86af801f1e0e9db2a168e72). Jacob authored its 100 Hz speed-dependent angle filter and 13:1 safety model.
+
 The explicit StarPilot [jacobw Subaru adapter](opendbc_repo/opendbc/car/subaru/JACOBW.md) additionally integrates that branch's low-speed filter, target-first limiting and Crosstrek EPS envelope. Its preserved stricter guards and platform scope are documented alongside the code.
 
 ## StarPilot Ford demand tuning

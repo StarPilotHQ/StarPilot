@@ -196,7 +196,7 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
   // vehicle model instead of the frozen generic angle example's Ascent geometry.
   const AngleSteeringParams SUBARU_CROSSTREK_2025_ANGLE_PARAMS = {
     .slip_factor = -0.0006281955319491566,
-    .steer_ratio = 17.0,
+    .steer_ratio = 13.0,
     .wheelbase = 2.6700000762939453,
   };
 

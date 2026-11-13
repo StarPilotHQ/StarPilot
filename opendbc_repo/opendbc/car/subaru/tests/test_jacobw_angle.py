@@ -16,9 +16,9 @@ from openpilot.starpilot.car.subaru.tests.caller_helpers import CompleteCan
 @pytest.mark.parametrize('sign', (-1, 1))
 def test_real_controller_tracks_small_low_speed_changes(speed, sign):
   _, controller, command, state = setup_controller(CAR.SUBARU_CROSSTREK_2025)
-  state.out.vEgoRaw = speed
+  state.out.vEgoRaw = state.out.vEgo = speed
   command.actuators.steeringAngleDeg = sign * 2.0
-  for _ in range(20):
+  for _ in range(200):
     _, decoded = step(controller, command, state)
     assert decoded['LKAS_Request'] == 1
     assert sign * decoded['LKAS_Output'] > 0
@@ -129,3 +129,56 @@ def test_native_absolute_bound_independent_of_rate_and_accel(sign):
     safety.set_alternative_experience(0)
     safety.set_safety_hooks(0, 0)
     safety.init_tests()
+
+
+@pytest.mark.parametrize('speed,tau', ((0., .3), (5., .3), (7.5, .2), (10., .1), (15., .05), (20., 0.), (25., 0.)))
+def test_hackathon_filter_updates_at_control_rate(speed, tau):
+  _, controller, command, state = setup_controller(CAR.SUBARU_CROSSTREK_2025)
+  state.out.vEgo = state.out.vEgoRaw = speed
+  # Keep the production motion gate satisfied even for the zero-speed filter case.
+  command.enabled = True
+  command.actuators.steeringAngleDeg = .1
+  controller.update(command.as_reader(), state, 1_000_000_000)
+  alpha = .01 / (tau + .01)
+  assert controller.angle_filter.x == pytest.approx(.1 * alpha)
+  _, odd_sends = controller.update(command.as_reader(), state, 1_010_000_000)
+  assert not any(frame[0] == 0x124 for frame in odd_sends)
+  assert controller.angle_filter.x == pytest.approx(.1 * (1. - (1. - alpha) ** 2))
+  command.latActive = False
+  command.actuators.steeringAngleDeg = -.2
+  controller.update(command.as_reader(), state, 1_020_000_000)
+  assert controller.angle_filter.x == command.actuators.steeringAngleDeg
+
+
+def test_hackathon_geometry_is_scoped_and_native_bound_remains_strict():
+  cp, controller, _, _ = setup_controller(CAR.SUBARU_CROSSTREK_2025)
+  assert cp.steerRatio == 13.
+  assert controller.VM.sR == 13.
+  assert controller.p.ANGLE_LIMITS.MAX_ANGLE_RATE == 1.
+  assert not cp.alphaLongitudinalAvailable and not cp.openpilotLongitudinalControl
+  forester, other, _, _ = setup_controller(CAR.SUBARU_FORESTER_2022)
+  assert forester.steerRatio == 17.
+  assert other.angle_filter is None
+
+
+@pytest.mark.parametrize('sign', (-1, 1))
+def test_hackathon_acceleration_sweep(sign):
+  import math
+
+  from opendbc.car.lateral import MAX_LATERAL_ACCEL
+
+  # Jacob's forced-demand sweep, through the production controller and wire codec.
+  for half_speed in range(4, 81):
+    speed = half_speed / 2.
+    _, controller, command, state = setup_controller(CAR.SUBARU_CROSSTREK_2025)
+    state.out.vEgo = state.out.vEgoRaw = speed
+    command.actuators.steeringAngleDeg = sign * math.degrees(controller.VM.get_steer_from_curvature(6. / speed ** 2, speed, 0.))
+    peak = 0.
+    for _ in range(300):
+      _, wire = step(controller, command, state)
+      angle = wire['LKAS_Output']
+      peak = max(peak, abs(controller.VM.calc_curvature(math.radians(angle), speed, 0.)) * speed ** 2)
+      assert abs(angle) <= 190.
+    # The wire quantizes to .01 degree; allow only that quantization in acceleration.
+    quantization = abs(controller.VM.calc_curvature(math.radians(.01), speed, 0.)) * speed ** 2
+    assert peak <= MAX_LATERAL_ACCEL + quantization + 1e-3
