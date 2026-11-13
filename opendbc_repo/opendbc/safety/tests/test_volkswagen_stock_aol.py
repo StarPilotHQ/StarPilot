@@ -77,9 +77,10 @@ class TestVolkswagenStockAol(unittest.TestCase):
       assert self.safety.aol_get_permission_mask() == 0
       assert self.safety.safety_fwd_hook(2, 0x126) == 0
       self.feed(cancel=True)
-      assert self.safety.aol_get_permission_mask() == 0
+      assert not self.safety.get_controls_allowed()
+      assert self.safety.aol_get_permission_mask() == 1
       self.feed()
-      assert self.safety.aol_get_permission_mask() == 0
+      assert self.safety.aol_get_permission_mask() == 1
 
   def test_temporary_brake_and_fault_recovery_preserves_only_arm(self):
     for word in (8, 24):
