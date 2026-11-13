@@ -761,6 +761,14 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         else:
           self.camera_video(path.removeprefix('/api/recordings/media/'))
         return
+      if path == '/api/companion/location':
+        if not self.require_session():
+          return
+        if getattr(self.server, 'remote_transport', False) or not self.direct_local():
+          self.json(403, {'error': 'Phone location requires a direct local connection'})
+          return
+        self.json(200, phone_location_source.timing())
+        return
       if path == '/api/connect/proxy':
         if not self.require_session():
           return
@@ -1948,7 +1956,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       'resolveShare': {'text'}, 'share': {'text'}}
             action = payload.get('action')
             optional = ({'label'} if action in ('favorite', 'favoritePlace') and 'label' in payload else
-                        {'key'} if action == 'testGoogleKey' and 'key' in payload else set())
+                        {'key'} if action == 'testGoogleKey' and 'key' in payload else
+                        {'intentId'} if action == 'share' and 'intentId' in payload else set())
             if type(action) is not str or action not in fields or set(payload) != {'action', 'revision'} | fields[action] | optional:
               raise ValidationError('Invalid navigation action')
             needs_park = action == 'configure' and isinstance(payload['patch'], dict) and bool({'token', 'googleKey'} & payload['patch'].keys())
@@ -1966,7 +1975,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
               elif action == 'resolveShare':
                 result = dict(nav.snapshot(), sharedText=nav.resolve_share(payload['text']))
               elif action == 'share':
-                result = nav.share(payload['text'], **keywords)
+                result = nav.share(payload['text'], intent_id=payload.get('intentId'), **keywords)
               elif action == 'selectPlace':
                 result = nav.select_place(payload['id'], payload['searchId'], identity, **keywords)
               elif action == 'cancelSearch':
