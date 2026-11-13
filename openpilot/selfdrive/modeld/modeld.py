@@ -704,7 +704,7 @@ def main(demo=False):
 
       fill_driving_model_data(drivingdata_send, modelv2_send)
       fill_pose_msg(posenet_send, model_output, meta_main.frame_id, vipc_dropped_frames, meta_main.timestamp_eof, extrinsics_calibration_seen)
-      receipt_owner.publish(pm, time.monotonic_ns())
+      receipt_owner.publish(pm, time.monotonic_ns(), remote=HOOKS.runtime if model is jetlink_model else None)
       pm.send('modelV2', modelv2_send)
       if lane_status_msg is not None:
         pm.send('laneChangeAssistWire', lane_status_msg)
