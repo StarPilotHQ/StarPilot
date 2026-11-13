@@ -104,6 +104,7 @@ class TurnIntent:
     self.guidance = LiveLaneChangePolicy(params) if params is not None else None
     self.steering_capable = steering_capable(cp)
     self.signal_stop_hold = False
+    self.signal_stop_completed = False
     self.key = None
     self.stop_hold = False
 
@@ -141,15 +142,11 @@ class TurnIntent:
       signaling = bool(cs.leftBlinker or cs.rightBlinker)
       policy = self.guidance.sample(now_ns, signaling=signaling,
                                     maneuver_active=current_desire != log.Desire.none)
-      if not signaling or cs.standstill:
-        self.signal_stop_hold = False
-      if model_stop or plan.shouldStop:
-        self.signal_stop_hold = True
       if (not supported or not self.steering_capable or not policy.turn_signal_guidance or
-          current_desire != log.Desire.none or self.signal_stop_hold or not cc.latActive or
-          not cs.canValid or cs.canTimeout or str(cs.gearShifter) != 'drive' or cs.standstill or
-          not math.isfinite(cs.vEgo) or not 0.1 < cs.vEgo < 20 * CV.MPH_TO_MS or
-          cs.leftBlinker == cs.rightBlinker or not device.started):
+          current_desire != log.Desire.none or not cc.latActive or
+          not cs.canValid or cs.canTimeout or str(cs.gearShifter) != 'drive' or
+          not math.isfinite(cs.vEgo) or cs.vEgo >= 20 * CV.MPH_TO_MS or
+          not device.started):
         return current_desire
       for service, age in (('carState', 100_000_000), ('carControl', 100_000_000),
                            ('longitudinalPlan', 150_000_000), ('deviceState', 2_000_000_000)):
@@ -158,6 +155,18 @@ class TurnIntent:
             not 0 < device.startedMonoTime <= stamp <= now_ns <= stamp + age):
           return current_desire
       if not device.startedMonoTime <= plan.modelMonoTime <= sm.logMonoTime['longitudinalPlan']:
+        return current_desire
+      if not signaling:
+        self.signal_stop_hold = self.signal_stop_completed = False
+      elif cs.standstill:
+        self.signal_stop_hold = False
+        self.signal_stop_completed = True
+      elif model_stop or plan.shouldStop:
+        self.signal_stop_hold = True
+      elif self.signal_stop_completed:
+        # A completed stop may release after its final planner sample clears.
+        self.signal_stop_hold = self.signal_stop_completed = False
+      if self.signal_stop_hold or cs.standstill or cs.vEgo <= 0.1 or cs.leftBlinker == cs.rightBlinker:
         return current_desire
       if cs.leftBlinker and not cs.leftBlindspot:
         return log.Desire.turnLeft
