@@ -84,13 +84,3 @@ def standstill_clear_horizon(model) -> float | None:
     return finite[-1] if forward_tail else None
   except (AttributeError, TypeError, ValueError, OverflowError):
     return None
-
-
-def tesla_stationary_zero(car, cp):
-  """One signed speed count is quantization only with independent stopped/Drive evidence."""
-  try:
-    v, raw = _finite(car.vEgo, low=-.025, high=.025), _finite(car.vEgoRaw, low=-.025, high=.025)
-    return bool(cp.carFingerprint in ('TESLA_MODEL_3', 'TESLA_MODEL_Y') and car.standstill is True and str(car.gearShifter) == 'drive' and
-      car.canValid is True and car.canTimeout is False and v is not None and raw is not None)
-  except (AttributeError, TypeError, ValueError):
-    return False

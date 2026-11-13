@@ -114,8 +114,7 @@ DESCRIPTIONS = {
   'TruckTuning': 'Softens small acceleration requests, reduces grade correction and smooths light braking on supported GM trucks.',
   'EVTuning': 'Selects EV acceleration curves for inherited acceleration presets.',
   'TeslaAOLScreenTap': 'Lets a three-finger tap on a supported Tesla screen toggle Always On Lateral.',
-  'TeslaAOLDisengageOnBrake': ('On: pressing the brake turns Always On Lateral steering off; engage cruise or tap the screen ' +
-                               'to steer again. Off: Always On Lateral keeps steering while you brake.'),
+  'TeslaAOLDisengageOnBrake': 'Disarms Tesla Always On Lateral when you press the brake, with either harness.',
   'RemoteStartBootsComma': 'Wakes comma during GM remote start.',
   'HKGRemoteStartBootsComma': 'Wakes comma during Hyundai, Kia or Genesis remote climate operation.',
   'IgnoreIgnitionLine': 'Uses GM CAN ignition instead of the harness ignition signal.',
@@ -209,7 +208,7 @@ INITIALIZATION = {
     'permission. An already admitted mode can be disabled live.'),
   'VoltSNG': 'Applies when the vehicle controller next starts: its fresh resume-plan input is created for the selected stop-and-go mode.',
   'TeslaAOLScreenTap': 'Requires the next vehicle startup to configure the screen-button CAN source and matching safety permission.',
-  'TeslaAOLDisengageOnBrake': 'Applies after the next startup.',
+  'TeslaAOLDisengageOnBrake': 'Requires the next vehicle startup to configure the Tesla brake/disarm safety permission.',
   'RemoteStartBootsComma': 'Requires a device restart to load the matching Panda ignition firmware.',
   'HKGRemoteStartBootsComma': 'Requires a device restart to load the matching Panda ignition firmware.',
   'IgnoreIgnitionLine': 'Requires a device restart to load the matching Panda ignition firmware.',

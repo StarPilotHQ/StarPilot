@@ -1,49 +1,12 @@
-"""Cruise-transition helpers shared by the SLC limit-change forecast (speed_limits/mapped_timing.py), and gentle Tesla
-acceleration during a selected-speed change."""
+"""Cruise-transition helpers shared by the SLC limit-change forecast (speed_limits/mapped_timing.py)."""
 
 import math
-
-UP_JERK = 0.2  # m/s^3
-DOWN_JERK = 0.4  # Cruise slowing only; MPC/model/hazard braking keeps priority.
-
-
-class SetSpeedComfort:
-  def __init__(self):
-    self.previous = None
-    self.profile_owned = False
-    self.active = False
-
-  def update(self, cp, *, selected, speed, enabled, profile_owned=False):
-    valid = (enabled and cp.carFingerprint in ('TESLA_MODEL_3', 'TESLA_MODEL_Y') and
-             cp.openpilotLongitudinalControl and all(math.isfinite(v) for v in (selected, speed)) and
-             0 < selected < 80 and speed > 1.)
-    if not valid:
-      self.previous, self.active, self.profile_owned = None, False, False
-      return False
-    previous, self.previous = self.previous, selected
-    if previous is None:
-      self.active = False
-    elif abs(selected - previous) > .05:
-      self.active = True
-    if previous is None or abs(selected - previous) > .05 or not self.active:
-      self.profile_owned = False
-    if self.active and profile_owned:
-      self.profile_owned = True
-    return self.active
 
 
 def braking_lower_bound(previous, dt, native_jerk, braking_jerk):
   """Release positive acceleration normally, then ramp into cruise braking."""
   release_time = min(dt, max(previous, 0.0) / native_jerk)
   return previous - native_jerk * release_time - min(native_jerk, braking_jerk) * (dt - release_time)
-
-
-def owns_selected_target(request, now_ns, selected):
-  from openpilot.starpilot.longitudinal.slc_coast import EasingRequest
-  return (isinstance(request, EasingRequest) and type(request.now_ns) is int and
-          0 <= now_ns - request.now_ns <= 100_000_000 and
-          math.isfinite(request.target) and math.isfinite(selected) and
-          abs(request.target - selected) <= .01)
 
 
 class CruiseTransition:

@@ -84,7 +84,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"UsageStatsStatus", {CLEAR_ON_MANAGER_START | DONT_LOG, JSON}},
     {"TeslaCoopSteering", {PERSISTENT, BOOL, "0"}},
     {"TeslaAOLScreenTap", {PERSISTENT, BOOL, "0"}},
-    {"TeslaAOLDisengageOnBrake", {PERSISTENT, BOOL, "1"}},
+    {"TeslaAOLDisengageOnBrake", {PERSISTENT, BOOL, "0"}},
     {"TeslaIndependentSetSpeed", {PERSISTENT, BOOL, "1"}},
     {"TeslaSpeedSync", {PERSISTENT, BOOL, "0"}},
     {"TeslaOverrideSetSpeed", {PERSISTENT, BOOL, "1"}},

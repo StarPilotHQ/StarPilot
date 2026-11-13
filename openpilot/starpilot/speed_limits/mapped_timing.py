@@ -75,9 +75,7 @@ def braking_distance(speed, target, acceleration, profile):
 
 
 def profile_from_host(host, now_ns, personality, cp, *, traffic=False, enabled=False, previous=None, qualified=True, slc_limit=0.8):
-  # A Tesla Model 3/Y eases cruise slowing with its set-speed comfort jerk; other cars keep the native schedule.
-  from openpilot.starpilot.longitudinal.set_speed_comfort import DOWN_JERK
-  jerk = DOWN_JERK if getattr(cp, "carFingerprint", None) in ("TESLA_MODEL_3", "TESLA_MODEL_Y") else None
+  jerk = None  # optional cruise braking jerk cap (BrakingProfile.jerk); None keeps the native schedule
   # Runtime freshness is not a different saved braking curve. Unknown inputs
   # prohibit a new lower preview; they must not manufacture a softer profile.
   if qualified is not True or type(traffic) is not bool or type(slc_limit) not in (int, float) or not math.isfinite(slc_limit) or not 0.1 <= slc_limit <= 3.5:
