@@ -129,6 +129,7 @@ DESCRIPTIONS = {
   'LeadInfo': 'Shows the lead vehicle distance or speed beside its indicator.',
   'SignalMetrics': 'Shows an amber border for turn signals on comma 4.',
   'BlindSpotMetrics': 'Shows a red border for blind-spot warnings on comma 4.',
+  'UseVienna': 'Draws speed-limit signs in the round European Vienna style instead of the rectangular US style.',
   'StarPilotDisplayPreferencesEnabled': 'Uses your configured screen brightness and display timeouts.',
   'ScreenBrightness': 'Sets screen brightness while parked. Auto follows the normal brightness policy.',
   'ScreenBrightnessOnroad': 'Sets screen brightness while driving. Auto follows the normal brightness policy.',
