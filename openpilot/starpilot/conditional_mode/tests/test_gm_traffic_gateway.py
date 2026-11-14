@@ -31,6 +31,7 @@ def test_gm_traffic_actual_planner_loop_uses_independent_settings_without_condit
     called.append(verdict)
     raise EndFrame
   with (patch.object(plannerd, 'Params', return_value=params),
+        patch('openpilot.common.params.Params', return_value=params),
         patch.object(plannerd, 'config_realtime_process'),
         patch.object(plannerd, 'feature_enabled', return_value=False),
         patch.object(plannerd, 'feature_requested', side_effect=lambda p, feature: feature == 'conditional'),
