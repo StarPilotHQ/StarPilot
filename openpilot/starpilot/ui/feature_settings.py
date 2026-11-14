@@ -9,10 +9,11 @@ from openpilot.starpilot.ui.raylib import rl
 from openpilot.starpilot.ui import clip
 from openpilot.starpilot.ui.feature_settings_state import (
   FeatureRow, FeatureSettingsState, FeatureUiAction, FEATURE_CONFIRM_ACTIONS, is_long_confirm_action, boolean_value as _boolean_value,
-  FEATURE_ROW_HEIGHT, FEATURE_VISIBLE_ROWS, FEATURE_CONTROL_LEFT, FEATURE_CONTROL_RIGHT,
+  FEATURE_ROW_HEIGHT, FEATURE_CONTROL_LEFT, FEATURE_CONTROL_RIGHT,
   FEATURE_BUTTON_TOP, FEATURE_BUTTON_HEIGHT, FEATURE_ACTION_MARGIN, FEATURE_HEADER_HEIGHT,
   FEATURE_TAP_SLOP, FEATURE_FLICK_DISTANCE, FEATURE_PAGE_COUNTER_WIDTH, TOOLBAR_LABEL_WIDTH,
-  toolbar_rects, feature_body_top, feature_page_rows, feature_scroll, feature_action_left, feature_action_rects, feature_row_top, feature_page_counter_left, feature_footer_buttons,
+  toolbar_rects, feature_body_top, feature_page_rows, feature_scroll, feature_action_left, feature_action_rects, feature_row_top,
+  feature_page_counter_left, feature_footer_buttons,
   value_buttons, value_editor_rect, value_done_rect, value_text, value_reason,
 )
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile

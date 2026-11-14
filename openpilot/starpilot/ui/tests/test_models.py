@@ -8,8 +8,8 @@ from unittest import mock
 
 from openpilot.starpilot.models.catalog import BUNDLED_CURRENT, BY_ID
 from openpilot.starpilot.models.status import ModelHealth, ModelStatus, ModelVariant
-from openpilot.starpilot.ui.feature_settings_state import (feature_action_rects, feature_page_rows, feature_row_top, feature_scroll, toolbar_rects, FeatureInput,
-                                                           FeatureUiAction)
+from openpilot.starpilot.ui.feature_settings_state import (feature_action_rects, feature_page_rows, feature_row_top, feature_scroll, toolbar_rects,
+                                                           FeatureInput, FeatureUiAction)
 from openpilot.starpilot.ui.models_compact import ModelsCompact, _ModelsPage, _display_text
 from openpilot.starpilot.ui.models_state import (model_page, model_action_allowed, model_catalog_rows, model_list_rows, model_manager_rows,
                                                 model_request, model_row_intent, home_model_label)

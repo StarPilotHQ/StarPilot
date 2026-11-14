@@ -50,8 +50,8 @@ def reference_models_page(scene: str) -> FeatureSettingsState:
             "installed": False, "selectable": False, "downloadAvailable": True, "requiresGpu": False} | extra
   data = {"schemaVersion": 1, "isOnroad": False, "downloading": True, "modelToDownload": "tr16", "progress": "TR16 👀📡: 42%",
           "activeSmallModel": "rdf4", "activeBigModel": "", "randomizer": False, "summary": {"installed": 2, "total": 101},
-          "capabilities": {key: True for key in ("select", "download", "downloadAll", "cancel", "refresh", "favorites", "delete",
-                                                 "randomizer", "exclusions")},
+          "capabilities": dict.fromkeys(("select", "download", "downloadAll", "cancel", "refresh", "favorites", "delete",
+                                          "randomizer", "exclusions"), True),
           "models": [model("rdf4", "Regret Driven Framework V4 👀📡", installed=True, selectable=True, builtin=True),
                      model("wd40", "WD40", installed=True, selectable=True, userFavorite=True, communityFavorite=True),
                      model("tr16", "TR16 👀📡"), model("cinque", "Cinque Terre", requiresGpu=True)]}
