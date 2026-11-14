@@ -42,6 +42,7 @@ export const withAlpha = (color, factor) => color.slice(0, 7) + Math.floor(parse
 // Steering wheels resize as a square ("size"); box widgets such as the Android Auto map take a width and height.
 export function widgetSize(widget, position) {
   if (widget.iconSize && position?.display === "icons") return [widget.iconSize, widget.iconSize]
+  if (widget.sizes && Array.isArray(widget.sizes[position?.size])) return [...widget.sizes[position.size]]
   if (widget.box) return [position?.width ?? widget.width, position?.height ?? widget.height]
   if (widget.resizable) return [position?.size ?? widget.width, position?.size ?? widget.height]
   return [widget.width, widget.height]
@@ -173,10 +174,11 @@ export function validDocument(document, metadata) {
       const widget = profile.widgets[id], limits = placementLimits(profile, id, layout)
       const resizable = widget.resizable, box = widget.box, opacity = widget.opacity
       return keysEqual(position, ["x", "y", "enabled", ...(resizable ? ["size"] : []), ...(box ? ["width", "height"] : []),
-        ...(opacity ? ["opacity"] : []), ...(widget.iconSize ? ["display"] : []), ...(widget.backgroundToggle ? ["background"] : []), ...(widget.collapseToggle ? ["collapse"] : [])]) &&
+        ...(opacity ? ["opacity"] : []), ...(widget.iconSize ? ["display"] : []), ...(widget.backgroundToggle ? ["background"] : []), ...(widget.collapseToggle ? ["collapse"] : []), ...(widget.sizes ? ["size"] : [])]) &&
         (!widget.iconSize || ["words", "icons"].includes(position.display)) &&
         (!widget.backgroundToggle || typeof position.background === "boolean") &&
         (!widget.collapseToggle || typeof position.collapse === "boolean") &&
+        (!widget.sizes || Object.hasOwn(widget.sizes, position.size)) &&
         (!opacity || (Number.isInteger(position.opacity) && position.opacity >= opacity.min && position.opacity <= opacity.max)) &&
         (!resizable || (Number.isInteger(position.size) && position.size >= resizable.min && position.size <= resizable.max)) &&
         (!box || (Number.isInteger(position.width) && position.width >= box.minWidth && position.width <= box.maxWidth &&
@@ -259,6 +261,9 @@ export function validSnapshot(data) {
         widget.opacity.min < 0 || widget.opacity.max > 100 || widget.opacity.min > widget.opacity.default ||
         widget.opacity.default > widget.opacity.max)) return false
       if (widget.collapseToggle != null && (!projection || widget.kind !== "now_playing" || widget.collapseToggle !== true)) return false
+      if (widget.sizes != null && (!projection || widget.kind !== "now_playing" || !object(widget.sizes) ||
+        !Object.values(widget.sizes).every(size => Array.isArray(size) && size.length === 2 && size.every(positive) &&
+          size[0] <= area.width && size[1] <= area.height))) return false
       if (widget.backgroundToggle != null && (!projection || !["nav_home", "nav_work", "bookmark", "car_exit"].includes(widget.kind) ||
         widget.backgroundToggle !== true || !widget.opacity)) return false
       if (widget.resizable && (!["steering_wheel", "driver_monitor"].includes(widget.kind) || !Number.isInteger(widget.resizable.min) ||

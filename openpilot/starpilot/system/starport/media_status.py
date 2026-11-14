@@ -67,7 +67,7 @@ class MediaStatus:
       return None
     if feed is None:
       from openpilot.starpilot.system.starport.projection_now_playing import ProjectionNowPlayingFeed
-      feed = ProjectionNowPlayingFeed(read=routed_snapshot)
+      feed = ProjectionNowPlayingFeed(read=routed_snapshot, fetch=lambda _url: None)
       feed.set_enabled(True)
     return cls(session, channel, feed, log, **kwargs)
 

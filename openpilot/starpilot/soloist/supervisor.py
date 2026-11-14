@@ -29,6 +29,7 @@ A2DP_SINK = '0000110b-0000-1000-8000-00805f9b34fb'
 EXIT_EXPIRED = 10
 STOP_SECONDS = 5.0
 OUTPUT_RETRY_SECONDS = 20.0
+PULL_RETRY_SECONDS = 15.0
 PAIRING_PROFILE_SECONDS = 180.0  # the pairing window plus time for the phone to save the comma's services
 MAX_FAST_FAILURES = 5
 UNRESPONSIVE_SECONDS = 120.0
@@ -158,6 +159,7 @@ class Supervisor:
     self.phone_track = None
     self.phone_profile = False
     self.pairing_profile_until = 0.0
+    self.pull_at = 0.0
     self.output_available = True
     self.output_check_at = 0.0
     self.output_lock = threading.Lock()
@@ -187,7 +189,8 @@ class Supervisor:
     if state == 'running' and player is not None:
       state = ('connecting' if not player['connected'] else 'waiting' if not player['loggedIn'] else
                'playing' if player['status'] == 'playing' and player['active'] else 'ready')
-    now_playing = (now_playing_module.from_phone(self.phone_track) if self.phone_prefs is not None and self.player is not None
+    phone = self.phone_prefs if self.player is not None else None
+    now_playing = (now_playing_module.from_phone(self.phone_track, device=phone.phone_name) if phone is not None
                    else now_playing_module.from_spotify(player))
     with self.log_lock:
       log = list(self.log)[-20:]
@@ -377,6 +380,7 @@ class Supervisor:
       self.retry_at = 0
     elif self.phone_profile and (prefs.output != 'bluetooth' or self.launched is None) and self.clock() >= self.pairing_profile_until:
       self._release_profile()
+    pull = prefs.pull_onroad
     state, message, launch_key = self.desired()
     now = self.clock()
     if launch_key != self.launched:
@@ -394,6 +398,8 @@ class Supervisor:
           self.retry_at = 0.0
           return
       self._watch(now, target)
+      if pull:
+        self._pull(now)
       return
     if now < self.retry_at:
       return
@@ -474,6 +480,13 @@ class Supervisor:
       return
     detail = 'audio output closed' if server_dead and code is None else f'player exited ({code})'
     self._fail(now, f'Spotify stopped: {detail}. Retrying…')
+
+  def _pull(self, now: float) -> None:
+    snapshot = self.client.snapshot() if self.client is not None else {}
+    if now < self.pull_at or not (snapshot.get('connected') and snapshot.get('loggedIn')) or snapshot.get('active') or parked():
+      return
+    self.pull_at = now + PULL_RETRY_SECONDS
+    self.client.send('activate', {})
 
   def _retry_login(self, now: float) -> None:
     self.stop_children()

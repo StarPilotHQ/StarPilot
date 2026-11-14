@@ -77,11 +77,15 @@ class ProjectionFavorites:
     placed = placements.get(key)
     return placed if placed is not None and placed['enabled'] else None
 
-  def hit(self, x, y, state):
+  def hit(self, x, y, state, overlay=None):
     order = state.customization.get('widgetOrder', {}).get('large')
     if order is None:
       order = [*widget_order(state.customization, 'large'), *DISPLAY_WIDGETS]
     for key in reversed(order):
+      if overlay is not None and key == overlay[0]:
+        rect = overlay[1]
+        if rect.x <= x < rect.x + rect.width and rect.y <= y < rect.y + rect.height:
+          return key
       placed = state.customization['layouts']['large'].get(key)
       if placed is not None and placed['enabled']:
         px, py = placed['x'], placed['y']

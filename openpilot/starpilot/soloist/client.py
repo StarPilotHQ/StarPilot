@@ -32,15 +32,23 @@ def _name(entity: Any) -> str:
   return _text(((entity or {}).get('decorations') or {}).get('identity', {}).get('name')) if isinstance(entity, dict) else ''
 
 
+def artwork_url(value: Any) -> str:
+  if not isinstance(value, str) or len(value) > 512:
+    return ''
+  try:
+    parts = urlsplit(value)
+    ok = parts.scheme == 'https' and parts.hostname in ARTWORK_HOSTS and not parts.username and parts.port is None
+  except ValueError:
+    return ''
+  return value if ok else ''
+
+
 def _artwork(entity: dict) -> str:
   covers = ((entity.get('decorations') or {}).get('visual_identity') or {}).get('cover') or []
   ranked = {'default': 0, 'large': 1, 'small': 2, 'xlarge': 3}
   for cover in sorted((c for c in covers if isinstance(c, dict)), key=lambda c: ranked.get(c.get('size'), 9)):
-    url = cover.get('url')
-    if isinstance(url, str) and len(url) <= 512:
-      parts = urlsplit(url)
-      if parts.scheme == 'https' and parts.hostname in ARTWORK_HOSTS and not parts.username and parts.port is None:
-        return url
+    if url := artwork_url(cover.get('url')):
+      return url
   return ''
 
 

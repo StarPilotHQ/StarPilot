@@ -229,7 +229,8 @@ class _Canvas:
         from openpilot.starpilot.system.starport.projection_exit import ProjectionExit
         self.view.projection_exit_layer = ProjectionExit(rl).render
         self.view.now_playing.track = {'source': 'spotify', 'status': 'playing', 'title': 'Midnight City', 'artist': 'M83', 'album': '',
-                                       'durationMs': 243000, 'position': {'ms': 92000, 'at': 0, 'speed': 0.0}}
+                                       'durationMs': 243000, 'position': {'ms': 92000, 'at': 0, 'speed': 0.0},
+                                       'shuffle': False, 'repeat': 'off', 'artwork': '', 'device': 'StarPilot'}
       if profile == Profile.LARGE:
         from openpilot.starpilot.ui.onroad_map import MapOverlay, SampleTileReader
         self.map = MapOverlay(reader=SampleTileReader(), fonts=self.fonts)

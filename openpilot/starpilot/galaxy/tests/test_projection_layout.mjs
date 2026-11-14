@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { compile } from "../web/vendor/vue/vue.esm-browser.js"
 import { snapshot } from "./test_onroad_layout.mjs"
 import { editorSnapshot, projectionPayload } from "../web/js/projection-layout.js"
-import { LayoutWidgetPreview, OnroadLayoutFeed, OnroadLayoutPage, validSnapshot, validDocument } from "../web/js/onroad-layout.js"
+import { LayoutWidgetPreview, OnroadLayoutFeed, OnroadLayoutPage, validSnapshot, validDocument, widgetSize } from "../web/js/onroad-layout.js"
 
 const copy = (v) => JSON.parse(JSON.stringify(v))
 const native = snapshot()
@@ -276,3 +276,44 @@ assert.deepEqual(orderedSnapshot.document.widgetOrder.large, orderedRaw.document
 assert.deepEqual(projectionPayload({revision: raw.revision, document: orderedSnapshot.document}, orderedSnapshot.metadata).document,
   orderedRaw.document)
 console.log('Projection layers survive editor translation and save payload')
+
+// Now playing: big or small, mirroring projection_layout's metadata; layouts saved before the choice are small.
+{
+  const npMetadata = copy(metadata)
+  npMetadata.widgets.now_playing = { label: "Now playing", kind: "now_playing", width: 520, height: 96, colors: {},
+    opacity: { min: 0, max: 100, default: 85 }, collapseToggle: true, sizes: { small: [520, 96], big: [640, 264] },
+    default: { x: 2330, y: 954, enabled: true, opacity: 85, collapse: false, size: "small" } }
+  npMetadata.widgetOrder = [...metadata.widgetOrder.filter(id => id !== "car_exit"), "now_playing", "car_exit"]
+  const npDoc = copy(doc)
+  npDoc.widgets.now_playing = { ...npMetadata.widgets.now_playing.default }
+  const npData = editorSnapshot({ ...raw, metadata: npMetadata, document: npDoc, defaults: copy(npDoc) })
+  assert.equal(validSnapshot(npData), true)
+  const npProfile = npData.metadata.profiles.large
+  assert.deepEqual(widgetSize(npProfile.widgets.now_playing, npData.document.layouts.large.now_playing), [520, 96])
+  assert.deepEqual(widgetSize(npProfile.widgets.now_playing, { ...npData.document.layouts.large.now_playing, size: "big" }), [640, 264])
+  for (const size of ["medium", undefined, 1]) {
+    const broken = copy(npData.document)
+    broken.layouts.large.now_playing.size = size
+    assert.equal(validDocument(broken, npData.metadata), false)
+  }
+  const badSizes = copy(npData)
+  badSizes.metadata.profiles.large.widgets.now_playing.sizes.big = [640]
+  assert.equal(validSnapshot(badSizes), false)
+  const sizeChanges = []
+  const sizeVm = { editable: true, finishColorEdit() {}, recordChange: before => sizeChanges.push(before),
+    state: { draft: copy(npData.document), drag: null, layerDrag: null, notice: "", selected: "now_playing" } }
+  Object.defineProperty(sizeVm, "layout", { get: () => sizeVm.state.draft.layouts.large })
+  sizeVm.selectedWidget = npProfile.widgets.now_playing
+  Object.defineProperty(sizeVm, "selectedPosition", { get: () => sizeVm.layout.now_playing })
+  sizeVm.limitProfile = npProfile
+  OnroadLayoutPage.methods.setWidgetSize.call(sizeVm, "big")
+  const grown = sizeVm.layout.now_playing
+  assert.equal(grown.size, "big")
+  assert.ok(grown.x + 640 <= npProfile.bounds.x + npProfile.bounds.width && grown.y + 264 <= npProfile.bounds.y + npProfile.bounds.height,
+    "a bigger card slides back on screen")
+  assert.equal(sizeChanges.length, 1)
+  assert.equal(validDocument(sizeVm.state.draft, npData.metadata), true)
+  OnroadLayoutPage.methods.setWidgetSize.call(sizeVm, "huge")
+  assert.equal(grown.size, "big")
+  assert.match(OnroadLayoutPage.template, /setWidgetSize\(size\)/)
+}

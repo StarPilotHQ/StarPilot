@@ -248,6 +248,15 @@ export const ONROAD_LAYOUT_TEMPLATE = `
                 </template>
                 <GalaxySettingRow feedback="draft" v-if="selectedWidget.backgroundToggle" :row="switchRow('Show background', selectedPosition.background === true)" :index="0"
                   :disabled="!editAvailable || !!state.drag || !!state.layerDrag" :save-value="(index, value) => setWidgetBackground(value)" />
+                <div v-if="projection && selectedWidget.sizes" class="gx-layout__favorite-display">
+                  <span>Size</span>
+                  <div class="gx-segment" role="group" :aria-label="selectedWidget.label + ' size'">
+                    <button v-for="size in ['big', 'small']" :key="size" class="gx-btn" type="button"
+                      :class="selectedPosition.size === size ? 'gx-btn--primary' : 'gx-btn--tonal'"
+                      :aria-pressed="selectedPosition.size === size" :disabled="!editAvailable || !!state.drag || !!state.layerDrag"
+                      @click="setWidgetSize(size)">{{ size === 'big' ? 'Big' : 'Small' }}</button>
+                  </div>
+                </div>
                 <GalaxySettingRow v-if="selectedWidget.collapseToggle" :row="switchRow('Collapse when paused', selectedPosition.collapse === true)" :index="0"
                   :disabled="!editAvailable || !!state.drag || !!state.layerDrag" :save-value="(index, value) => setWidgetCollapse(value)" />
                 <p v-if="selectedWidget.defaultAnchor === 'driver_side'" class="gx-note">The default position follows the driver’s side. A moved position stays where you place it.</p>

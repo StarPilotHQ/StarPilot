@@ -224,15 +224,39 @@ export const LayoutWidgetPreview = {
           :font-size="profile === 'large' ? 48 : 21" font-weight="600"
           style="filter: drop-shadow(2px 2px 1px #000000aa)">{{ clock24Hour ? '18:00' : '12:00 PM' }}</text>
       </template>
+      <g v-else-if="widget.kind === 'now_playing' && widget.size === 'big'">
+        <defs><linearGradient id="gx-np-wash" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8a3a52" /><stop offset=".45" stop-color="#5a2350" /><stop offset="1" stop-color="#22143f" /></linearGradient></defs>
+        <rect x="0" y="0" :width="widget.width" :height="widget.height" rx="40" fill="url(#gx-np-wash)" :fill-opacity="(widget.opacity ?? 85) / 100" />
+        <rect x="40" y="20" width="138" height="36" rx="18" fill="#000000" fill-opacity=".35" stroke="#ffffff" stroke-opacity=".12" />
+        <path d="M61 47 V29 H69 V32 H63.6 V45" fill="#c7aef7" /><circle cx="61" cy="46" r="4.3" fill="#c7aef7" />
+        <text x="82" y="44" font-size="18" font-weight="600" fill="#f5f2fc">StarPilot</text>
+        <text :x="widget.width - 40" y="44" text-anchor="end" font-size="18" fill="#d6d2e0">Spotify</text>
+        <text :x="widget.width / 2" y="92" text-anchor="middle" font-size="30" font-weight="600" fill="#f5f2fc">Midnight City<tspan font-weight="400" fill="#d6d2e0">  •  M83</tspan></text>
+        <rect x="40" y="112" :width="widget.width - 80" height="10" rx="5" fill="#ffffff" fill-opacity=".18" />
+        <rect x="40" y="112" :width="(widget.width - 80) * .38" height="10" rx="5" fill="#ffffff" />
+        <text x="40" y="144" font-size="16" fill="#b8b2c8">1:32</text>
+        <text :x="widget.width - 40" y="144" text-anchor="end" font-size="16" fill="#b8b2c8">4:03</text>
+        <g :transform="'translate(' + (widget.width / 2 - 192) + ' 208)'" fill="none" stroke="#d6d2e0" stroke-width="3.5" stroke-linecap="round">
+          <path d="M-16 -10 C0 -10 0 10 18 10 M-16 10 C0 10 0 -10 18 -10 M13 -16 L19 -10 L13 -4 M13 4 L19 10 L13 16" />
+        </g>
+        <g :transform="'translate(' + (widget.width / 2 - 96) + ' 208)'"><circle r="32" fill="#ffffff" fill-opacity=".14" /><path d="M9 -12 L9 12 L-9 0 Z M-14 -12 H-9 V12 H-14 Z" fill="#f5f2fc" /></g>
+        <g :transform="'translate(' + widget.width / 2 + ' 208)'"><circle r="36" fill="#f5f2fc" /><path d="M-10 -13 H-3 V13 H-10 Z M3 -13 H10 V13 H3 Z" fill="#0f0d17" /></g>
+        <g :transform="'translate(' + (widget.width / 2 + 96) + ' 208)'"><circle r="32" fill="#ffffff" fill-opacity=".14" /><path d="M-9 -12 L-9 12 L9 0 Z M9 -12 H14 V12 H9 Z" fill="#f5f2fc" /></g>
+        <g :transform="'translate(' + (widget.width / 2 + 192) + ' 208)'" fill="none" stroke="#d6d2e0" stroke-width="4" stroke-linecap="round">
+          <path d="M-14 -9 H12 M14 9 H-12 M-16 -11 V4 M16 11 V-4" /><path d="M10 -16 L19 -9 L10 -2 Z M-10 16 L-19 9 L-10 2 Z" fill="#d6d2e0" stroke="none" />
+        </g>
+      </g>
       <g v-else-if="widget.kind === 'now_playing'">
-        <rect x="0" y="0" :width="widget.width" :height="widget.height" :rx="widget.height / 2" fill="#0f0d17" :fill-opacity="(widget.opacity ?? 85) / 100 * .92" />
-        <circle :cx="widget.height / 2" :cy="widget.height / 2" r="30" fill="#c7aef7" />
-        <rect :x="widget.height / 2 - 9" :y="widget.height / 2 - 12" width="6" height="24" rx="3" fill="#0f0d17" />
-        <rect :x="widget.height / 2 + 3" :y="widget.height / 2 - 12" width="6" height="24" rx="3" fill="#0f0d17" />
-        <text :x="widget.height + 4" y="40" font-size="30" font-weight="600" fill="#f5f2fc">Midnight City</text>
-        <text :x="widget.height + 4" y="68" font-size="22" fill="#b8b2c8">M83</text>
-        <rect :x="widget.height + 4" :y="widget.height - 16" :width="widget.width - widget.height * 1.5 - 4" height="4" rx="2" fill="#ffffff" fill-opacity=".2" />
-        <rect :x="widget.height + 4" :y="widget.height - 16" :width="(widget.width - widget.height * 1.5 - 4) * .38" height="4" rx="2" fill="#c7aef7" />
+        <defs><linearGradient id="gx-np-wash-small" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8a3a52" /><stop offset=".45" stop-color="#5a2350" /><stop offset="1" stop-color="#22143f" /></linearGradient></defs>
+        <rect x="0" y="0" :width="widget.width" :height="widget.height" :rx="widget.height / 2" fill="url(#gx-np-wash-small)" :fill-opacity="(widget.opacity ?? 85) / 100" />
+        <circle :cx="widget.height / 2" :cy="widget.height / 2" r="36" fill="#f5f2fc" />
+        <rect :x="widget.height / 2 - 10" :y="widget.height / 2 - 13" width="7" height="26" rx="3" fill="#0f0d17" />
+        <rect :x="widget.height / 2 + 3" :y="widget.height / 2 - 13" width="7" height="26" rx="3" fill="#0f0d17" />
+        <text :x="widget.height + 4" y="42" font-size="26" font-weight="600" fill="#f5f2fc">Midnight City</text>
+        <text :x="widget.height + 4" y="71" font-size="19" fill="#d6d2e0">M83</text>
+        <g :transform="'translate(' + (widget.width - 42) + ' ' + widget.height / 2 + ') scale(1.3)'" fill="#c7aef7">
+          <path d="M0 7 V-11 H8 V-7.8 H2.6 V7" /><circle cx="-3" cy="7" r="5" />
+        </g>
       </g>
       <g v-else-if="widget.kind === 'jetlink_status'">
         <rect x="0" y="0" :width="widget.width" :height="widget.height" :rx="widget.height / 2" fill="#0f0d17" :fill-opacity="(widget.opacity ?? 85) / 100 * .92" />
@@ -544,7 +568,8 @@ export const OnroadLayoutPage = {
           ...widget, width, height, ...(widget.iconSize ? { display: this.layout[widget.id].display } : {}),
           ...(widget.opacity ? { opacity: this.layout[widget.id].opacity } : {}),
           ...(widget.backgroundToggle ? { background: this.layout[widget.id].background } : {}),
-          ...(widget.collapseToggle ? { collapse: this.layout[widget.id].collapse } : {})
+          ...(widget.collapseToggle ? { collapse: this.layout[widget.id].collapse } : {}),
+          ...(widget.sizes ? { size: this.layout[widget.id].size } : {})
         }
       })
     },
@@ -1171,6 +1196,17 @@ export const OnroadLayoutPage = {
       this.finishColorEdit()
       const before = clone(this.state.draft)
       this.selectedPosition.background = value === 'On'
+      this.recordChange(before)
+      this.state.notice = ""
+    },
+    setWidgetSize(size) {
+      if (!this.editable || this.state.drag || this.state.layerDrag || !this.selectedWidget?.sizes ||
+        !Object.hasOwn(this.selectedWidget.sizes, size)) return
+      this.finishColorEdit()
+      const before = clone(this.state.draft)
+      this.selectedPosition.size = size
+      Object.assign(this.selectedPosition, clampPlacement(this.limitProfile, this.state.selected,
+        this.selectedPosition.x, this.selectedPosition.y, this.layout))
       this.recordChange(before)
       this.state.notice = ""
     },
