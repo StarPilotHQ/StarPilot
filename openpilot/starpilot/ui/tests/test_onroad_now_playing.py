@@ -454,7 +454,9 @@ def test_pending_skip_ignores_routine_position_updates(timed):
   card.track = TRACK
   card.press('next')
   card.release('next')
-  card.track = {**TRACK, 'position': {**TRACK['position'], 'ms': 51000}}
+  position = TRACK['position']
+  assert isinstance(position, dict)
+  card.track = {**TRACK, 'position': {**position, 'ms': 51000}}
   assert card._busy(card.track, clock())
   card.track = {**card.track, 'title': 'The next song'}
   assert not card._busy(card.track, clock())

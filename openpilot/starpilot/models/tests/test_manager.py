@@ -163,7 +163,9 @@ class ModelManagerTest(unittest.TestCase):
         seen.append(dict(kwargs['detail']))
       return publish(**kwargs)
 
-    self.manager._publish_job = spy
+    progress_spy = patch.object(self.manager, '_publish_job', side_effect=spy)
+    progress_spy.start()
+    self.addCleanup(progress_spy.stop)
     return seen
 
   def test_progress_reports_phases_bytes_and_position(self):
