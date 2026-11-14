@@ -605,7 +605,14 @@ class ProjectionOnroad:
       return False
     state = self._state if self.native.ui_state.started else None
     placed = state.customization['layouts']['large'].get('now_playing') if state is not None else None
-    return touch.touch(kind, x, y, state, placed, self.onroad.now_playing.showing())
+    track = self.onroad.now_playing.showing()
+    if state is not None and self.favorites is not None:
+      from openpilot.starpilot.ui.onroad_now_playing import card_layout
+      shape = card_layout(placed, track, state.viewport_width)
+      if shape is not None and self.favorites.hit(x, y, state, overlay=('now_playing', shape[0])) != 'now_playing':
+        touch.cancel()
+        return False
+    return touch.touch(kind, x, y, state, placed, track)
 
   def _slc_touch(self, kind, x, y) -> bool:
     """Speed-limit confirmation taps; True while one owns the touch."""

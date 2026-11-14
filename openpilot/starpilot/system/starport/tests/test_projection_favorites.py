@@ -48,6 +48,22 @@ def test_destination_label_names_home_and_work(favorites):
   assert destination_label({**document, 'destination': other}) == 'Costco'
 
 
+@pytest.mark.parametrize('key', ['nav_home', 'nav_work', 'bookmark'])
+def test_music_overlay_and_actions_follow_saved_layer_order(favorites, key):
+  view = state(ordered=True)
+  placed = view.customization['layouts']['large'][key]
+  placed.update(enabled=True, display='icons')
+  overlay = ('now_playing', NS(x=placed['x'], y=placed['y'], width=520, height=96))
+  order = view.customization['widgetOrder']['large']
+  order.remove('now_playing')
+  order.append('now_playing')
+  x, y = point(view, key)
+  assert favorites.hit(x, y, view, overlay=overlay) == 'now_playing'
+  order.remove(key)
+  order.append(key)
+  assert favorites.hit(x, y, view, overlay=overlay) == key
+
+
 def state(*, ordered=False):
   layout = default_layout_for_viewport(VIEWPORT)
   for key in FAVORITE_WIDGETS:

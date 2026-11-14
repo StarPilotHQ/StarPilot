@@ -5,9 +5,8 @@ import json
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
-from openpilot.starpilot.soloist.client import ARTWORK_HOSTS, REPEATS
+from openpilot.starpilot.soloist.client import REPEATS, artwork_url
 
 MAX_TEXT = 120
 STALE_SECONDS = 10.0
@@ -20,14 +19,6 @@ def _text(value: Any) -> str:
 
 def _whole(value: Any, limit: int = 86400000) -> int | None:
   return int(value) if type(value) in (int, float) and 0 <= value < limit else None
-
-
-def artwork_url(value: Any) -> str:
-  if not isinstance(value, str) or len(value) > 512:
-    return ''
-  parts = urlsplit(value)
-  ok = parts.scheme == 'https' and parts.hostname in ARTWORK_HOSTS and not parts.username and parts.port is None
-  return value if ok else ''
 
 
 def snapshot(source: str, status: str, title: str, artist: str, album: str, duration_ms: int | None,

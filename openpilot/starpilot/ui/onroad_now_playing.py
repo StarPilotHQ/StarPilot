@@ -291,7 +291,7 @@ class TrackText:
 
 
 def _song_key(track):
-  return track.get('title'), track.get('artist'), track.get('status'), track.get('position')
+  return track.get('source'), track.get('title'), track.get('artist'), track.get('status')
 
 
 class NowPlayingWidget:

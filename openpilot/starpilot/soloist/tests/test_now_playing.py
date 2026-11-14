@@ -100,7 +100,7 @@ def test_spotify_cover_is_kept_only_on_spotify_image_hosts():
   found = present(now_playing.from_spotify({**PLAYER, 'track': {**PLAYER['track'], 'artwork': cover}}))
   assert found['artwork'] == cover
   for bad in ('http://i.scdn.co/image/a', 'https://evil.example/a.jpg', 'https://i.scdn.co:8443/a', 'https://u@i.scdn.co/a',
-              'https://i.scdn.co/' + 'a' * 600, None, 7):
+              'https://i.scdn.co:abc/a', 'https://[bad/a', 'https://i.scdn.co/' + 'a' * 600, None, 7):
     assert present(now_playing.from_spotify({**PLAYER, 'track': {**PLAYER['track'], 'artwork': bad}}))['artwork'] == ''
 
 

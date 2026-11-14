@@ -164,6 +164,26 @@ class TestProjectionOnroad(unittest.TestCase):
         self.tap(view, box.x + box.width / 2, box.y + box.height / 2)
         native.now_playing_control.assert_called_once_with('activate', {})
 
+  def test_overlapping_bookmark_and_music_follow_saved_layer_order(self):
+    from openpilot.starpilot.ui.onroad_now_playing import card_layout
+    view, native, _ = self.touch_view('icons')
+    layouts = view._state.customization['layouts']['large']
+    box = card_layout(layouts['now_playing'], view.onroad.now_playing.track, 1860)[1]['play_pause']
+    x, y = box.x + box.width / 2, box.y + box.height / 2
+    layouts['bookmark'].update(x=x - 55, y=y - 55, enabled=True, display='icons')
+    order = view._state.customization['widgetOrder']['large']
+    order.remove('bookmark')
+    order.append('bookmark')
+    self.tap(view, x, y)
+    view.favorites.bookmark.assert_called_once()
+    native.now_playing_control.assert_not_called()
+    view.favorites.bookmark.reset_mock()
+    order.remove('now_playing')
+    order.append('now_playing')
+    self.tap(view, x, y)
+    native.now_playing_control.assert_called_once_with('play_pause', {})
+    view.favorites.bookmark.assert_not_called()
+
   def test_home_work_and_bookmark_respond_to_touch_beside_the_now_playing_card(self):
     from openpilot.starpilot.system.starport.projection_layout import FAVORITE_ICON_SIZE, FAVORITE_SIZE
     for display in ('icons', 'words'):

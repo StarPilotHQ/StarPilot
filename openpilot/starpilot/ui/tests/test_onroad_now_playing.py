@@ -449,6 +449,17 @@ def test_card_holds_the_last_song_while_the_player_buffers_the_next(timed):
   assert drawn == [] and card.showing() is None
 
 
+def test_pending_skip_ignores_routine_position_updates(timed):
+  card, _, _, clock = timed
+  card.track = TRACK
+  card.press('next')
+  card.release('next')
+  card.track = {**TRACK, 'position': {**TRACK['position'], 'ms': 51000}}
+  assert card._busy(card.track, clock())
+  card.track = {**card.track, 'title': 'The next song'}
+  assert not card._busy(card.track, clock())
+
+
 def test_play_button_spins_until_the_player_answers_a_skip(timed):
   from openpilot.starpilot.ui.onroad_now_playing import NowPlayingTouch
   card, drawn, _, clock = timed
