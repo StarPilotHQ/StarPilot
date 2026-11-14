@@ -79,6 +79,7 @@
 
 static bool subaru_gen2 = false;
 static bool subaru_forester_angle = false;
+static bool subaru_impreza_angle = false;
 static bool subaru_d_platform = false;
 static bool subaru_lkas_angle = false;
 static bool subaru_fixed_angle_limits = false;
@@ -200,6 +201,13 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
     .wheelbase = 2.6700000762939453,
   };
 
+  // 2025 Impreza RS: Subaru spec 13.0:1 steering ratio, 105.1 in wheelbase.
+  const AngleSteeringParams SUBARU_IMPREZA_2025_ANGLE_PARAMS = {
+    .slip_factor = -0.0006281955319491566,
+    .steer_ratio = 13.0,
+    .wheelbase = 2.6700000762939453,
+  };
+
   const AngleSteeringParams SUBARU_FORESTER_2022_ANGLE_PARAMS = {
     .slip_factor = -0.0006281956135115129,
     .steer_ratio = 17.0,
@@ -253,7 +261,9 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
         if (!subaru_forester_angle) {
           violation |= SAFETY_ABS(desired_angle) > SUBARU_ANGLE_STEERING_LIMITS.max_angle;
         }
-        violation |= steer_angle_cmd_checks_vm(desired_angle, lkas_request, SUBARU_ANGLE_STEERING_LIMITS, subaru_forester_angle ? SUBARU_FORESTER_2022_ANGLE_PARAMS : SUBARU_CROSSTREK_2025_ANGLE_PARAMS);
+        violation |= steer_angle_cmd_checks_vm(desired_angle, lkas_request, SUBARU_ANGLE_STEERING_LIMITS,
+                                               subaru_impreza_angle ? SUBARU_IMPREZA_2025_ANGLE_PARAMS :
+                                               (subaru_forester_angle ? SUBARU_FORESTER_2022_ANGLE_PARAMS : SUBARU_CROSSTREK_2025_ANGLE_PARAMS));
       }
     }
 
@@ -373,6 +383,7 @@ static safety_config subaru_init(uint16_t raw_param) {
   const uint16_t SUBARU_PARAM_GEN2 = 1;
   const uint16_t SUBARU_PARAM_LKAS_ANGLE = 16;
   const uint16_t SUBARU_PARAM_FIXED_ANGLE = 128;
+  const uint16_t SUBARU_PARAM_IMPREZA_ANGLE = 8192;
 
   const uint16_t SUBARU_PARAM_ANGLE_MAIN_BUS = 32;
   subaru_d_platform = (base_param == 209U) &&
@@ -381,12 +392,13 @@ static safety_config subaru_init(uint16_t raw_param) {
 
   subaru_forester_angle = (param == 16U) &&
     (((unsigned int)alternative_experience == 0U) || ((unsigned int)alternative_experience == 32U));
+  subaru_impreza_angle = GET_FLAG(param, SUBARU_PARAM_IMPREZA_ANGLE);
   subaru_gen2 = GET_FLAG(param, SUBARU_PARAM_GEN2);
   subaru_lkas_angle = GET_FLAG(param, SUBARU_PARAM_LKAS_ANGLE);
   subaru_fixed_angle_limits = GET_FLAG(param, SUBARU_PARAM_FIXED_ANGLE);
   subaru_angle_invalid = (subaru_lkas_angle && (base_param != (SUBARU_PARAM_GEN2 | SUBARU_PARAM_LKAS_ANGLE)) &&
                           (base_param != (SUBARU_PARAM_GEN2 | SUBARU_PARAM_LKAS_ANGLE | SUBARU_PARAM_FIXED_ANGLE)) &&
-                          (base_param != (SUBARU_PARAM_GEN2 | SUBARU_PARAM_LKAS_ANGLE | SUBARU_PARAM_FIXED_ANGLE | SUBARU_PARAM_ANGLE_MAIN_BUS)) && !ascent_alert && !subaru_forester_angle && !subaru_d_platform) ||
+                          (base_param != (SUBARU_PARAM_GEN2 | SUBARU_PARAM_LKAS_ANGLE | SUBARU_PARAM_FIXED_ANGLE | SUBARU_PARAM_ANGLE_MAIN_BUS)) && !ascent_alert && !subaru_forester_angle && !subaru_d_platform && !subaru_impreza_angle) ||
                          ((subaru_fixed_angle_limits || subaru_angle_main_bus) && !subaru_lkas_angle);
 
   // TODO: re-enable once more work is done on the limits
@@ -402,8 +414,8 @@ static safety_config subaru_init(uint16_t raw_param) {
   subaru_aol_gear_bus = (uint8_t)(subaru_d_platform ? SUBARU_ALT_BUS : SUBARU_MAIN_BUS);
   subaru_aol_enabled = ((unsigned int)alternative_experience == 32U) &&
     ((param == 209U) || (param == 465U) || (param == 16U) || (param == 0U) || (param == 1U) || (param == 17U) || (param == 145U) ||
-     avh || (param == 177U) || (param == 401U) || (param == 8U) || (param == 520U) || (param == 512U) || (param == 2225U));
-  subaru_aol_main_arm = subaru_aol_enabled && ((param == 17U) || impreza_main || subaru_d_platform);
+     avh || (param == 177U) || (param == 401U) || (param == 8U) || (param == 520U) || (param == 512U) || (param == 2225U) || (param == 8209U));
+  subaru_aol_main_arm = subaru_aol_enabled && ((param == 17U) || (param == 8209U) || impreza_main || subaru_d_platform);
   if (subaru_aol_enabled) {
     static const AolSafetyPolicy policy = {
       .reset = subaru_aol_reset,

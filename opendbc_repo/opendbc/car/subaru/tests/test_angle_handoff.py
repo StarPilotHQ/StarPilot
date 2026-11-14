@@ -5,6 +5,10 @@ from opendbc.car.subaru.values import CAR
 
 
 class TestAngleHandoff(unittest.TestCase):
+  def test_impreza_uses_the_jacobw_filtered_angle_path(self):
+    _, controller, _, _ = setup_controller(CAR.SUBARU_IMPREZA_2025)
+    self.assertIsNotNone(controller.angle_filter)
+
   def test_override_release_waits_for_low_torque_and_settled_wheel(self):
     for car, high, low in ((CAR.SUBARU_CROSSTREK_2025, 150, 100), (CAR.SUBARU_LEGACY_2025, 200, 150)):
       for sign in (-1, 1):

@@ -80,7 +80,7 @@ def policy_for(cp):
 
 def native_profile_supported(model, param):
   return model == int(structs.CarParams.SafetyModel.subaru) and param in (
-    0, 1, 8, 16, 17, 145, 177, 209, 401, 465, 512, 520, 1169, 1425, 2225, 4096, 4104, 4608, 4616)
+    0, 1, 8, 16, 17, 145, 177, 209, 401, 465, 512, 520, 1169, 1425, 2225, 4096, 4104, 4608, 4616, 8209)
 
 
 def native_accepts_cp(cp, model, param):
@@ -101,7 +101,7 @@ def ordinary_axis_request_allowed(cp, state):
 
 
 def create_intent(cp, settings):
-  main_arm = (cp.carFingerprint == CAR.SUBARU_CROSSTREK_2025 or
+  main_arm = (cp.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025) or
               (cp.carFingerprint in (CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_OUTBACK_2023) and qualified(cp)))
   return SubaruStockCardIntent(settings, main_arm=main_arm)
 

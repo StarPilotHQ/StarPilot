@@ -78,6 +78,7 @@ class SubaruSafetyFlags(IntFlag):
   AVH_STARTUP = 1024
   STOP_START_BUTTON = 256
   ASCENT_LKAS_ALERT = 2048
+  IMPREZA_2025_ANGLE = 8192
 
 
 class SubaruFlags(IntFlag):
@@ -246,6 +247,12 @@ class CAR(Platforms):
   SUBARU_CROSSTREK_2025 = SubaruGen2PlatformConfig(
     [SubaruCarDocs("Subaru Crosstrek 2025", "All", car_parts=CarParts.common([CarHarness.subaru_d]))],
     CarSpecs(mass=1529, wheelbase=2.67, steerRatio=13),
+    flags=SubaruFlags.LKAS_ANGLE,
+  )
+  SUBARU_IMPREZA_2025 = SubaruGen2PlatformConfig(
+    [SubaruCarDocs("Subaru Impreza 2025", "All", car_parts=CarParts.common([CarHarness.subaru_d]))],
+    # 2025 Impreza RS curb weight 3,275 lb; Subaru spec steering ratio 13.0:1, wheelbase 105.1 in.
+    CarSpecs(mass=1486, wheelbase=2.67, steerRatio=13.0),
     flags=SubaruFlags.LKAS_ANGLE,
   )
 

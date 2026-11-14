@@ -613,6 +613,21 @@ FW_VERSIONS = {
     ],
   },
 
+  CAR.SUBARU_IMPREZA_2025: {
+    (Ecu.abs, 0x7b0, None): [
+      b'\xa2 $\x07\x05',
+    ],
+    (Ecu.eps, 0x746, None): [
+      b'\xc2 $\x01\x01',
+    ],
+    (Ecu.fwdCamera, 0x787, None): [
+      b'\x1d!\x08\x00F\x00\x00\x00\x00\x00',
+    ],
+    (Ecu.engine, 0x7a2, None): [
+      b'\x04"ep\x07',
+    ],
+  },
+
   CAR.SUBARU_LEGACY_2025: {
     (Ecu.abs, 0x7b0, None): [
       b'\xa1 $\x11\x00',

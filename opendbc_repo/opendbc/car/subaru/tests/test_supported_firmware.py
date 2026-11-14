@@ -20,6 +20,10 @@ RESTORED = [
   ('SUBARU_CROSSTREK_2025', 'fwdCamera', 1927, '1b21080044112108013b'),
   ('SUBARU_CROSSTREK_2025', 'engine', 1954, '0422635007'),
   ('SUBARU_CROSSTREK_2025', 'engine', 1954, 'e821637007'),
+  ('SUBARU_IMPREZA_2025', 'abs', 1968, 'a220240705'),
+  ('SUBARU_IMPREZA_2025', 'eps', 1862, 'c220240101'),
+  ('SUBARU_IMPREZA_2025', 'fwdCamera', 1927, '1d210800460000000000'),
+  ('SUBARU_IMPREZA_2025', 'engine', 1954, '0422657007'),
   ('SUBARU_LEGACY_2025', 'abs', 1968, 'a120241100'),
   ('SUBARU_LEGACY_2025', 'eps', 1862, '5bc0d11000'),
   ('SUBARU_LEGACY_2025', 'fwdCamera', 1927, '1a210800430e21080138'),
@@ -51,7 +55,7 @@ class TestSupportedSubaruFirmware(unittest.TestCase):
           self.assertNotIn(platform, match_fw_to_car_exact(live, match_brand='subaru', log=False))
 
   def test_existing_stock_admission_and_disabled_alpha_are_preserved(self):
-    words = {CAR.SUBARU_ASCENT_2023: 177, CAR.SUBARU_CROSSTREK_2025: 17, CAR.SUBARU_LEGACY_2025: 145}
+    words = {CAR.SUBARU_ASCENT_2023: 177, CAR.SUBARU_CROSSTREK_2025: 17, CAR.SUBARU_LEGACY_2025: 145, CAR.SUBARU_IMPREZA_2025: 8209}
     for platform, word in words.items():
       for alpha in (False, True):
         for release in (False, True):
