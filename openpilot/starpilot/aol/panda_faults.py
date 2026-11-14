@@ -31,6 +31,14 @@ def _diagnostic_mask(cp):
       return (1 << 3) if (int(cp.flags) == int(recorded_flags) and
                          len(cp.safetyConfigs) == 1 and int(cp.safetyConfigs[0].safetyParam) == 0xC02 and cp.alternativeExperience == 32 and
                          qualified(cp, marked_only=True)) else 0
+    if cp.brand == 'leapmotor':
+      from opendbc.car.leapmotor.values import CAR
+      # The B10's CAN-FD traffic always exceeds the panda's CAN2 interrupt-rate limit: recorded on every
+      # pandaStates sample of upstream-based drives, with valid RX checks and normal engagement. Only that
+      # diagnostic is exempt; every other or mixed fault still blocks.
+      return (1 << 3) if (cp.carFingerprint == CAR.LEAPMOTOR_B10 and len(cp.safetyConfigs) == 1 and
+                          cp.safetyConfigs[0].safetyModel == 'leapmotor' and
+                          not cp.passive and not cp.dashcamOnly and not cp.notCar) else 0
     from opendbc.car.gm.aol import qualified_gm
     from opendbc.car.gm.values import CAR, is_volt_sdgm_profile, is_bolt_present_no_acc_pedal_profile
     if cp.brand != 'gm' or len(cp.safetyConfigs) != 1:
