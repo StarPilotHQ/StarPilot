@@ -26,6 +26,36 @@ def test_settings_private_atomic_and_revision_scoped(owner):
   assert 'pk.test' not in json.dumps(owner.snapshot())
 
 
+def test_share_intent_retry_after_cancel_or_restart_does_not_restart_route(owner):
+  owner.configure({'token': 'pk.test'}, '0', True)
+  first_revision = owner.read()['revision']
+  first = owner.share('geo:40.5,-89.5', first_revision, True, intent_id='phone-intent-1')
+  assert first['destination'] is not None
+  owner.clear(owner.read()['revision'], True)
+  cancelled_revision = owner.read()['revision']
+  restarted = NavigationOwner(owner.root, runtime_source=lambda: None, transient_root=owner.transient_root)
+  replay = restarted.share('geo:40.5,-89.5', first_revision, True, intent_id='phone-intent-1')
+  assert replay['destination'] is None and replay['revision'] == cancelled_revision
+  with pytest.raises(ValidationError, match='already used'):
+    restarted.share('geo:41,-89.5', cancelled_revision, True, intent_id='phone-intent-1')
+  with pytest.raises(PermissionError):
+    restarted.share('geo:40.5,-89.5', cancelled_revision, False, intent_id='phone-intent-1')
+  restarted.share('geo:40.5,-89.5', cancelled_revision, True, intent_id='phone-intent-2')
+  assert restarted.read()['destination'] is not None
+
+
+@pytest.mark.parametrize('ledger', [None, [{}], [{'id': '../bad', 'digest': '0' * 64}],
+                                    [{'id': 'test', 'digest': 'bad'}],
+                                    [{'id': 'test', 'digest': '0' * 64}] * 2,
+                                    [{'id': str(i), 'digest': '0' * 64} for i in range(65)]])
+def test_corrupt_share_intent_history_is_rejected(owner, ledger):
+  owner.configure({'token': 'pk.test'}, '0', True)
+  saved = json.loads(owner.path.read_text())
+  owner.path.write_text(json.dumps({**saved, 'shareIntents': ledger}))
+  with pytest.raises(ValidationError):
+    owner.read()
+
+
 def test_authority_rechecked_after_flush(owner):
   calls = iter((True, False))
   with pytest.raises(PermissionError):

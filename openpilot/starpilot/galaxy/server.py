@@ -1904,7 +1904,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       'resolveShare': {'text'}, 'share': {'text'}}
             action = payload.get('action')
             optional = ({'label'} if action in ('favorite', 'favoritePlace') and 'label' in payload else
-                        {'key'} if action == 'testGoogleKey' and 'key' in payload else set())
+                        {'key'} if action == 'testGoogleKey' and 'key' in payload else
+                        {'intentId'} if action == 'share' and 'intentId' in payload else set())
             if type(action) is not str or action not in fields or set(payload) != {'action', 'revision'} | fields[action] | optional:
               raise ValidationError('Invalid navigation action')
             needs_park = action == 'configure' and isinstance(payload['patch'], dict) and bool({'token', 'googleKey'} & payload['patch'].keys())
@@ -1922,7 +1923,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
               elif action == 'resolveShare':
                 result = dict(nav.snapshot(), sharedText=nav.resolve_share(payload['text']))
               elif action == 'share':
-                result = nav.share(payload['text'], **keywords)
+                result = nav.share(payload['text'], intent_id=payload.get('intentId'), **keywords)
               elif action == 'selectPlace':
                 result = nav.select_place(payload['id'], payload['searchId'], identity, **keywords)
               elif action == 'cancelSearch':

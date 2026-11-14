@@ -94,10 +94,12 @@ class RouteRuntime:
     destination_key = None if selected is None else (selected['id'], selected['longitude'], selected['latitude'])
     exclusions = tuple(value for key, value in ROUTE_AVOIDANCES.items() if settings[key])
     credentials = (settings['token'], settings['googleKey'] if settings['routeProvider'] == 'google' else '')
-    key = settings['enabled'], hashlib.sha256('\0'.join(credentials).encode()).digest(), destination_key, drive_id, exclusions
+    key = (settings['enabled'], hashlib.sha256('\0'.join(credentials).encode()).digest(), destination_key,
+           drive_id, exclusions, settings['routeProvider'], settings['routingRevision'])
     if key != self.key:
       self.key, self.route = key, None
       self.routes = []
+      self.fetch_key = None
       self.preview_only = False
       self.retry_after = self.off_route_since = self.arrived_since = 0
     # A saved origin can draw a preview, but a fresh fix must calculate its own route.

@@ -216,6 +216,21 @@ class NavigationHttpTest(unittest.TestCase):
     self.assertEqual(self.action('share')[0], 400)
     self.assertNotIn('query', self.action('share', text='x' * 8193)[1])
 
+  def test_shared_intent_retry_after_cancel_does_not_restart_navigation(self):
+    self.navigation.configure({'token': 'pk.test'}, self.navigation.read()['revision'], True)
+    request = {'action': 'share', 'revision': self.navigation.read()['revision'],
+               'text': 'geo:40.5,-89.5', 'intentId': 'durable-phone-share'}
+    first = self.request('/api/navigation/action', payload=request, remote=True, cookie=self.remote_cookie)
+    self.assertEqual(first[0], 200)
+    self.assertIsNotNone(first[1]['destination'])
+    cancelled = self.action('clear', remote=True)
+    replay = self.request('/api/navigation/action', payload=request, remote=True, cookie=self.remote_cookie)
+    self.assertEqual(replay[0], 200)
+    self.assertIsNone(replay[1]['destination'])
+    self.assertEqual(replay[1]['revision'], cancelled[1]['revision'])
+    changed = dict(request, text='geo:41,-89.5')
+    self.assertEqual(self.request('/api/navigation/action', payload=changed, remote=True, cookie=self.remote_cookie)[0], 400)
+
   def test_stale_or_invalid_actions_never_overwrite_configuration(self):
     self.action('configure', patch={'enabled': True})
     before = self.navigation.path.read_bytes()

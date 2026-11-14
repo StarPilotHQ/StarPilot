@@ -58,8 +58,8 @@ def valid_google_key(key: str) -> bool:
 
 
 def default_settings() -> dict:
-  return {'version': 1, 'revision': '0', 'enabled': False, 'token': '', 'destination': None, 'favorites': [], 'recents': [], 'gpsSource': 'backup',
-          'mapProvider': 'mapbox', 'routeProvider': 'mapbox', 'googleKey': '', **dict.fromkeys(ROUTE_AVOIDANCES, False)}
+  return {'version': 1, 'revision': '0', 'routingRevision': '0', 'enabled': False, 'token': '', 'destination': None, 'favorites': [], 'recents': [],
+          'gpsSource': 'backup', 'mapProvider': 'mapbox', 'routeProvider': 'mapbox', 'googleKey': '', **dict.fromkeys(ROUTE_AVOIDANCES, False)}
 
 
 class ValidationError(ValueError):
@@ -210,6 +210,18 @@ class NavigationOwner:
         raise ValueError
       if value.get('destination') is not None:
         value['destination'] = destination(value['destination'])
+      routing_revision = value.setdefault('routingRevision', value['revision'])
+      if (not isinstance(routing_revision, str) or not 1 <= len(routing_revision) <= 64 or
+          any(ch not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for ch in routing_revision)):
+        raise ValueError
+      intents = value.setdefault('shareIntents', [])
+      if (not isinstance(intents, list) or len(intents) > 64 or
+          any(not isinstance(row, dict) or set(row) != {'id', 'digest'} or
+              not isinstance(row['id'], str) or re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', row['id']) is None or
+              not isinstance(row['digest'], str) or re.fullmatch('[0-9a-f]{64}', row['digest']) is None for row in intents)):
+        raise ValueError
+      if len({row['id'] for row in intents}) != len(intents):
+        raise ValueError
       value['favorites'] = [favorite_place(item) for item in value['favorites']]
       value['recents'] = [destination(item) for item in value.get('recents', [])][:MAX_RECENTS]
       for setting in ROUTE_AVOIDANCES:
@@ -313,10 +325,14 @@ class NavigationOwner:
         raise ConflictError('Navigation changed; refresh and try again')
       self._sweep_active(current)
       active = self._read_active(current) if preserve_active else None
+      routing_fields = ('enabled', 'token', 'routeProvider', 'googleKey', *ROUTE_AVOIDANCES)
+      routing_before = tuple(current[key] for key in routing_fields)
       transform(current)
       if not (authorized() if callable(authorized) else authorized is True):
         raise PermissionError('Navigation changes are not available right now')
       current['revision'] = uuid.uuid4().hex
+      if not preserve_active or routing_before != tuple(current[key] for key in routing_fields):
+        current['routingRevision'] = current['revision']
       if active_destination is not None:
         active = {'version':1, 'destination':active_destination, 'expires':time.monotonic() + ACTIVE_TTL}
       if active is not None:
@@ -626,11 +642,22 @@ class NavigationOwner:
       current = following
     return text.replace(match.group(0), current) if current != match.group(0) else text
 
-  def share(self, text, expected_revision: str, authorized) -> dict:
+  def share(self, text, expected_revision: str, authorized, intent_id=None) -> dict:
     """A place shared from a phone: turns navigation on and starts the route."""
     if not isinstance(text, str) or not text.strip() or len(text) > 8192:
       raise ValidationError('The shared text could not be read')
+    if intent_id is not None and (not isinstance(intent_id, str) or re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', intent_id) is None):
+      raise ValidationError('The shared destination identity could not be read')
+    if not (authorized() if callable(authorized) else authorized is True):
+      raise PermissionError('Navigation changes are not available right now')
+    digest = hashlib.sha256(text.encode()).hexdigest()
     current = self.read()
+    if intent_id is not None:
+      previous = next((row for row in current.get('shareIntents', []) if row['id'] == intent_id), None)
+      if previous is not None:
+        if previous['digest'] != digest:
+          raise ValidationError('The shared destination identity was already used')
+        return self.snapshot()
     if not current['token']:
       raise ValidationError('Add your Mapbox access token first')
     if not isinstance(expected_revision, str) or current['revision'] != expected_revision:
@@ -653,6 +680,8 @@ class NavigationOwner:
       self._reject_temporary_promotion(doc, selected)
       doc['enabled'] = True
       self._navigate(doc, selected)
+      if intent_id is not None:
+        doc['shareIntents'] = [*doc.get('shareIntents', [])[-63:], {'id': intent_id, 'digest': digest}]
     result = self._change(update, expected_revision, authorized)
     return dict(result, shared={key: selected[key] for key in ('name', 'latitude', 'longitude')})
 
