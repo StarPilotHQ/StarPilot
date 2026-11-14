@@ -544,6 +544,11 @@ def test_route_line_keeps_corners_and_thins_straight_road():
   assert len(simplify(wiggle)) == PREVIEW_POINTS
 
 
+def test_route_line_preserves_a_collinear_turnaround():
+  from openpilot.starpilot.navigation.route_engine import simplify
+  assert simplify([(0., 0.), (.01, 0.), (.005, 0.)]) == [0, 1, 2]
+
+
 def garage_runtime(tmp_path, monkeypatch):
   monkeypatch.setattr(NavigationOwner, '_is_metric', lambda self: True)
   owner = NavigationOwner(tmp_path, runtime_source=lambda: None)

@@ -15,10 +15,10 @@ export const ChoiceGroup = {
     },
   },
   template: `
-    <fieldset class="gx-choice" :disabled="disabled">
+    <fieldset class="gx-choice" :disabled="disabled" :aria-label="label">
       <div class="gx-choice__head">
-        <legend class="gx-choice__legend">{{ label }}</legend>
-        <button type="button" class="gx-choice__info-btn" :aria-expanded="infoOpen" :aria-label="'More info about ' + label"
+        <strong class="gx-choice__legend">{{ label }}</strong>
+        <button type="button" class="gx-icon-btn gx-choice__info-btn" :aria-expanded="infoOpen" :aria-label="'More info about ' + label"
           :title="'More info about ' + label" @click="infoOpen = !infoOpen">
           <i class="bi" :class="infoOpen ? 'bi-info-circle-fill' : 'bi-info-circle'" aria-hidden="true"></i>
         </button>
@@ -40,7 +40,7 @@ export const ChoiceGroup = {
       <div v-if="infoOpen" class="gx-choice__popover" role="region" :aria-label="label + ' details'">
         <div class="gx-choice__popover-head">
           <strong>{{ label }} options</strong>
-          <button type="button" class="gx-choice__popover-close" aria-label="Close details" @click="infoOpen = false">
+          <button type="button" class="gx-icon-btn gx-choice__popover-close" aria-label="Close details" @click="infoOpen = false">
             <i class="bi bi-x-lg" aria-hidden="true"></i>
           </button>
         </div>
@@ -54,9 +54,9 @@ export const ChoiceGroup = {
     </fieldset>`,
 }
 
-// What each service does and where it stops. Mapbox always does search and offline roads.
+// Provider capabilities and limits.
 export const COMPARE_ROWS = [
-  ["Place search and addresses", "Yes", "No, Mapbox does this"],
+  ["Place search and addresses", "Yes", "Yes, when Google gives directions; Mapbox is the fallback"],
   ["Offline road maps", "Yes", "No, Google tiles can't be saved"],
   ["Lane arrows on the turn card", "Yes", "No"],
   ["Traffic in route times", "Yes", "Yes, with a correction every 7½ minutes"],

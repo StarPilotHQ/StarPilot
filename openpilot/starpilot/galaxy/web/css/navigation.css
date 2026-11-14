@@ -148,8 +148,8 @@
 /* Setup choices: compact M3 choice buttons with an expandable info popover. */
 .gx-choice { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: var(--sp-2); }
 .gx-choice__head { display: flex; align-items: center; gap: var(--sp-2); }
-.gx-choice__legend { padding: 0; font-weight: var(--fw-medium); float: left; }
-.gx-choice__info-btn { display: inline-grid; place-items: center; width: 32px; height: 32px; min-height: 32px !important; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); font-size: .95rem; cursor: pointer; transition: background var(--motion-fast), color var(--motion-fast); }
+.gx-choice__legend { font-weight: var(--fw-medium); }
+.gx-choice__info-btn { color: var(--text-muted); font-size: .95rem; }
 .gx-choice__info-btn:hover, .gx-choice__info-btn[aria-expanded="true"] { background: var(--surface-container-high); color: var(--primary); }
 .gx-choice__hint { margin: 0; color: var(--text-muted); font-size: .85rem; }
 .gx-choice__grid { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
@@ -166,7 +166,7 @@
 .gx-choice__active-summary { margin: 0; color: var(--text-muted); font-size: .83rem; line-height: 1.4; }
 .gx-choice__popover { display: grid; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--outline); border-radius: var(--radius-md); background: var(--surface-container-high, var(--surface-container)); font-size: .85rem; }
 .gx-choice__popover-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
-.gx-choice__popover-close { display: inline-grid; place-items: center; width: 28px; height: 28px; min-height: 28px !important; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); cursor: pointer; }
+.gx-choice__popover-close { color: var(--text-muted); }
 .gx-choice__popover-close:hover { background: var(--glass-active-bg); color: var(--on-surface); }
 .gx-choice__popover-list { margin: 0; display: grid; gap: var(--sp-2); }
 .gx-choice__popover-item { display: grid; gap: 2px; padding-top: var(--sp-2); border-top: 1px solid var(--outline); }

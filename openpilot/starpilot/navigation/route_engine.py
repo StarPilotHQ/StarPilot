@@ -73,7 +73,8 @@ def simplify(points, limit: int = PREVIEW_POINTS, tolerance: float = PREVIEW_TOL
     if length < 1e-9:
       deviation = np.hypot(*(inner - a).T)
     else:
-      deviation = np.abs(direction[0] * (inner[:, 1] - a[1]) - direction[1] * (inner[:, 0] - a[0])) / length
+      fraction = np.clip((inner - a) @ direction / length ** 2, 0., 1.)
+      deviation = np.hypot(*(inner - (a + fraction[:, None] * direction)).T)
     index = int(np.argmax(deviation))
     if deviation[index] <= tolerance:
       continue
