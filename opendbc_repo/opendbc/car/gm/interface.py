@@ -75,6 +75,10 @@ NON_LINEAR_TORQUE_PARAMS = {
     "left": [3.8060, 0.8282, 0.1702, 0],
     "right": [3.8060, 0.8282, 0.1702, 0],
   },
+  CAR.BUICK_ENVISION_SDGM: {
+    "left": [2.4, 1.05, 0.20, 0.0],
+    "right": [2.4, 1.05, 0.20, 0.0],
+  },
 }
 
 NON_LINEAR_TORQUE_PARAM_ALIASES = {
@@ -434,6 +438,11 @@ class CarInterface(CarInterfaceBase):
         ret.flags |= GMFlags.PEDAL_LONG.value
 
     elif candidate == CAR.GMC_ACADIA:
+      ret.minEnableSpeed = -1.  # engage speed is decided by pcm
+      ret.steerActuatorDelay = 0.2
+      CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
+
+    elif candidate == CAR.BUICK_ENVISION_SDGM:
       ret.minEnableSpeed = -1.  # engage speed is decided by pcm
       ret.steerActuatorDelay = 0.2
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
