@@ -79,6 +79,7 @@ def fit_independent_route(assessment, group, cohort, prior, proposal, previous, 
     or not 6 <= len(validation) <= 12
     or len(set(train + validation)) != len(train + validation)
     or assessment.receipt.source_sha256 == prior.receipt.source_sha256
+    or {row[1] for row in assessment.receipt.segments}.intersection(row[1] for row in prior.receipt.segments)
     or assessment.receipt.route_id == prior.receipt.route_id
     or prior.receipt.completed_wall_ns >= assessment.receipt.completed_wall_ns
     or prior.receipt.cp_sha256 != assessment.receipt.cp_sha256

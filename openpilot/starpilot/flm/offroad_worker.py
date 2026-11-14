@@ -171,6 +171,23 @@ def trial_document(cache, digest):
   raise ValueError('Bounded original next-drive trial lineage required')
 
 
+def trial_segment_history(cache, digest):
+  from openpilot.starpilot.flm.offroad_route import original_segment_hashes
+
+  segments = set()
+  for _ in range(8):
+    document = cache.get(digest)
+    assessment = document.get('assessment', {})
+    for receipt in (assessment.get('route', {}), *assessment.get('evidence_sources', ())):
+      segments.update(original_segment_hashes(receipt.get('segments', ())))
+    if document.get('kind') == 'next_drive_trial':
+      return segments
+    if document.get('kind') != 'next_drive_outcome':
+      break
+    digest = document['trial_analysis_sha256']
+  raise ValueError('Bounded original next-drive source history required')
+
+
 def quality_withdrawn(assessment, scope, values):
   from openpilot.starpilot.flm.offroad_surface import stop_marker, STOP_REASONS
 
@@ -210,7 +227,7 @@ def pending_routes(root, latest, *, on_skip=None):
   return [latest] + [route for distance, _, route in sorted(candidates) if distance not in ambiguous]
 
 
-def assess_next_drive(trial, assessment, scope, *, trial_started=True, recorded_backlog=False):
+def assess_next_drive(trial, assessment, scope, *, trial_started=True, recorded_backlog=False, previous_segments=()):
   """Compare independently held-out actual observations; no raw-RMS reward."""
   if trial.get('policy') != POLICY or trial.get('kind') != 'next_drive_trial':
     raise ValueError('Exact provisional assessment provenance required')
@@ -238,6 +255,13 @@ def assess_next_drive(trial, assessment, scope, *, trial_started=True, recorded_
         'outcome': 'pending', 'reason': 'recorded_drive_precedes_trial_configuration',
         'counts_as_new_drive': False, 'observed_only': True, 'causal_road_benefit_proven': False, 'comparisons': [],
       }
+  from openpilot.starpilot.flm.offroad_route import original_segment_hashes
+
+  if previous_segments and set(previous_segments).intersection(original_segment_hashes(assessment.receipt.segments)):
+    return {
+      'outcome': 'pending', 'reason': 'recording_repeats_previous_trial_evidence',
+      'counts_as_new_drive': False, 'observed_only': True, 'causal_road_benefit_proven': False, 'comparisons': [],
+    }
   before = trial['original_metadata']
   comparisons = []
   stable = trial['before']['training'].get('kind') == 'uncommanded_residual_v1'
@@ -318,7 +342,7 @@ def recorded_recommendations(assessment, previous, report):
 
   found: dict[str, dict[str, Any]] = {}
 
-  def add(proposal, windows, reason, baseline=None):
+  def add(proposal, windows, reason, baseline=None, feedback=()):
     baseline = previous if baseline is None else baseline
     if type(proposal) is not dict or type(windows) is not int or windows <= 0:
       return
@@ -346,18 +370,21 @@ def recorded_recommendations(assessment, previous, report):
       low, high = route_bounds(name)
       if not low <= target <= high or not 1e-12 < abs(target - base) <= MAX_ROUTE_STEP + 1e-12:
         continue
+      coordinate_reason = next((r['reason'] for r in feedback if r['parameter'] == name and abs(r['target'] - target) <= 1e-12), reason)
+      if coordinate_reason == 'conflicting_recorded_candidates':
+        target = None
       if name in found:
         row = found[name]
-        if row['target'] is None or (row['target'] - base) * (target - base) < 0:
+        if row['target'] is None or target is None or (row['target'] - base) * (target - base) < 0:
           row.update(target=None, reason='conflicting_recorded_candidates')
         elif abs(target - base) < abs(row['target'] - base) - 1e-12:
-          row.update(target=target, whole_windows=windows, reason=reason)
+          row.update(target=target, whole_windows=windows, reason=coordinate_reason)
         elif abs(row['target'] - target) <= 1e-12:
           row['whole_windows'] = max(windows, row['whole_windows'])
-          if reason == 'heldout_profile_does_not_support_training_step':
-            row['reason'] = reason
+          if coordinate_reason in ('heldout_profile_does_not_support_training_step', 'independent_support_for_frozen_training_profile'):
+            row['reason'] = coordinate_reason
       else:
-        found[name] = {'parameter': name, 'baseline': base, 'target': target, 'whole_windows': windows, 'reason': reason}
+        found[name] = {'parameter': name, 'baseline': base, 'target': target, 'whole_windows': windows, 'reason': coordinate_reason}
 
   for group in (*assessment.groups, *assessment.diagnostic_groups):
     for cohort in group['cohorts']:
@@ -367,15 +394,16 @@ def recorded_recommendations(assessment, previous, report):
   for proof in (*report.get('stable_profile_reports', ()), *report.get('short_turn_profile_reports', ())):
     roles = proof.get('roles', {})
     windows = sum(len(roles.get(role, {}).get('original_windows', ())) for role in ('training', 'heldout'))
-    add(proof.get('frozen_training_profile'), windows, proof.get('reason', 'recorded_candidate_requires_automatic_checks'))
+    feedback = proof.get('coordinate_review', ())
+    add(proof.get('frozen_training_profile'), windows, proof.get('reason', 'recorded_candidate_requires_automatic_checks'), feedback=feedback)
     add(proof.get('observed_candidate'), windows, 'recorded_candidate_not_independently_confirmed')
     for proposal in roles.get('training', {}).get('coordinate_candidates', ()):
-      add(proposal, windows, 'training_candidate_not_independently_confirmed')
+      add(proposal, windows, 'training_candidate_not_independently_confirmed', feedback=feedback)
   for proof in report.get('observed_profile_reports', ()):
     for proposal in proof.get('coordinate_candidates', ()):
       add(proposal, len(proof['original_windows']), 'recorded_candidate_not_independently_confirmed', proof.get('source_baseline'))
   for name in report.get('refused_parameters', ()):
-    if name in found:
+    if name in found and found[name]['target'] is not None:
       found[name]['reason'] = 'controller_checks_did_not_support_change'
   return [found[name] for name in NAMES if name in found]
 
@@ -826,7 +854,8 @@ class OffroadWorker:
       attempts = self.cache.get(row['analysis_sha256']).get('inconclusive_drives', 0)
       if type(attempts) is not int or not 0 <= attempts < MAX_INCONCLUSIVE_DRIVES:
         raise ValueError('Bounded inconclusive trial history required')
-      outcome = assess_next_drive(trial, actual_drive, scope, trial_started=started, recorded_backlog=route != latest)
+      outcome = assess_next_drive(trial, actual_drive, scope, trial_started=started, recorded_backlog=route != latest,
+                                  previous_segments=trial_segment_history(self.cache, row['analysis_sha256']))
       counts_as_new_drive = outcome.get('counts_as_new_drive', True)
       if outcome['outcome'] == 'pending' and started and counts_as_new_drive:
         attempts += 1

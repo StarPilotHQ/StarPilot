@@ -46,6 +46,32 @@ def independent_profile_support(training, heldout, previous):
   return changed
 
 
+def coordinate_review(training, heldout, previous):
+  """Review each frozen setting without letting a failed bundle hide usable ideas."""
+  observed = {}
+  for proposal in heldout:
+    if proposal is not None:
+      for name, value in proposal['values'].items():
+        if value != previous[name]:
+          observed.setdefault(name, []).append(value - previous[name])
+  result = {}
+  for proposal in training:
+    if proposal is None:
+      continue
+    for name, value in proposal['values'].items():
+      delta = value - previous[name]
+      if delta == 0:
+        continue
+      support = observed.get(name, ())
+      reason = 'training_candidate_not_independently_confirmed'
+      if any(delta * other < 0 for other in support):
+        reason = 'conflicting_recorded_candidates'
+      elif any(delta * other > 0 and abs(delta) <= abs(other) for other in support):
+        reason = 'independent_support_for_frozen_training_profile'
+      result[name, value] = {'parameter': name, 'target': value, 'reason': reason}
+  return list(result.values())
+
+
 def profile_sections(windows, rows, contexts):
   """Join adjacent observations within ONE role; never fill a source gap."""
   if any(not rows.get(key) for key in windows):
@@ -356,6 +382,7 @@ class StableRouteSelector:
     # These alternatives are frozen before held-out summaries are read.
     coordinate_training = training_report.get('coordinate_candidates', [])
     heldout, heldout_report = self.profile(ids['heldout'], cohort['cohort'])
+    feedback = coordinate_review([training, *coordinate_training], [heldout, *heldout_report.get('coordinate_candidates', ())], self.previous)
     independent = {p['parameter']: p for p in heldout_report.get('coordinate_candidates', [])}
     coordinate_supported = [p for p in coordinate_training if independent_profile_support(p, independent.get(p['parameter']), self.previous)]
     # A one-coordinate recipe plus the recorded prior is exact; avoid repeating
@@ -375,6 +402,7 @@ class StableRouteSelector:
       'all_original_windows_still_required': True,
       'physical_improvement_proven': False,
       'coordinate_candidates': coordinate_supported,
+      'coordinate_review': feedback,
     }
     if not agrees:
       return None, proof

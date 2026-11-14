@@ -1794,7 +1794,9 @@ class TestOffroadTrackingPolicy(unittest.TestCase):
       stable_windows={metadata_key: profile, other_key: wrong_map},
     )
     route = {'routeId': prior_id, 'segments': [{'files': {'rlog': True}} for _ in range(8)]}
-    assessment = SimpleNamespace(receipt=SimpleNamespace(route_id=current_id, cp_sha256='a' * 64, completed_wall_ns=10))
+    assessment = SimpleNamespace(receipt=SimpleNamespace(
+      route_id=current_id, cp_sha256='a' * 64, completed_wall_ns=10, segments=((current_id + '--0', 'c' * 64, 1),),
+    ))
     with (
       patch.object(module, 'route_inventory', return_value={'scanIncomplete': False, 'routes': [route]}),
       patch.object(module, 'collect_route_inputs', return_value=collected),

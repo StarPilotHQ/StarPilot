@@ -16,7 +16,7 @@ from openpilot.starpilot.flm.log_decode import LogDecodeCancelled
 from openpilot.starpilot.flm.offroad_analysis import cohort, _spread
 from openpilot.starpilot.flm.offroad_cache import AssessmentCache, _pairs
 from openpilot.starpilot.flm.offroad_evidence import RoutePoint, RouteWindow
-from openpilot.starpilot.flm.offroad_route import RouteInputCancelled, RouteReceipt, SelectedSourceReceipt, route_permission
+from openpilot.starpilot.flm.offroad_route import RouteInputCancelled, RouteReceipt, SelectedSourceReceipt, route_permission, original_segment_hashes
 
 MAX_DRIVES = 8
 MAX_WINDOWS_PER_DRIVE = 64
@@ -310,6 +310,7 @@ def combine(collected, inventory, history, *, root=None, permitted=lambda: True,
   pooled.bookends = dict(collected.bookends)
   sources = {collected.receipt.route_id: CompletedAssessment(collected.receipt, (), {}, collected.state['cp'], (), inventory)}
   order = {collected.receipt.route_id: collected.receipt.completed_wall_ns}
+  source_bytes = original_segment_hashes(collected.receipt.segments)
   for row in history:
     saved = row.get('receipt') if type(row) is dict else None
     route_id = saved.get('route_id', 'Unavailable stored recording') if type(saved) is dict else 'Unavailable stored recording'
@@ -321,6 +322,8 @@ def combine(collected, inventory, history, *, root=None, permitted=lambda: True,
       receipt = _receipt(row)
       if receipt.cp_sha256 != collected.receipt.cp_sha256 or receipt.route_id in sources or row['quality_stops']:
         continue
+      if source_bytes.intersection(original_segment_hashes(receipt.segments)):
+        raise ValueError('Original recording bytes already counted in another drive')
       if type(row['inventory']) is not dict or type(row['metadata']) is not dict or type(row['windows']) is not list:
         raise ValueError('Historical drive input structure changed')
       if row['inventory'].get('routeId') != receipt.route_id or len(row['windows']) > MAX_WINDOWS_PER_DRIVE:
@@ -356,6 +359,7 @@ def combine(collected, inventory, history, *, root=None, permitted=lambda: True,
     # source receipt enters the pool. A bad late window invalidates its drive.
     pooled.context_metadata.update(metadata)
     sources[receipt.route_id] = CompletedAssessment(receipt, (), {}, collected.state['cp'], (), row['inventory'])
+    source_bytes.update(original_segment_hashes(receipt.segments))
     order[receipt.route_id] = receipt.completed_wall_ns
     for record, window in checked:
       getattr(pooled, record['kind']).setdefault(record['context'], []).append(window)

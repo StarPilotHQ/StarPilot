@@ -189,7 +189,22 @@ class RouteStorage:
     current, readable = read_saved(self.params, KEY, MAX_BYTES)
     if not readable or current != expected:
       return False
-    desired = remember(expected, row)
+    from openpilot.starpilot.flm.learned_lifecycle import decode, encode
+
+    document = decode(expected)
+    rows = document.get(NAMESPACE, {})
+    retired = False
+    if validate_row(row).key() not in rows and len(rows) >= MAX_SCOPES:
+      oldest = min(rows, key=lambda key: (rows[key]['completed_wall_ns'], key))
+      del rows[oldest]
+      retired = True
+    desired = remember(encode(document), row)
+    if retired:
+      from openpilot.starpilot.flm.offroad_saved_history import SavedHistory
+
+      SavedHistory(self.params).preserve(expected)
+      if not permitted():
+        return False
     result = commit_exact(self.params, key=KEY, max_bytes=MAX_BYTES, raw=desired, expected=expected, authorized=permitted, temp_prefix='.route-steering-')
     return result.committed and result.verified
 

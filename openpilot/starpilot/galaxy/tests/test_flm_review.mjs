@@ -130,6 +130,21 @@ assert.equal(context.review.curve.length, 5)
 for (const group of context.navigationGroups) assert(context.groupHasIdeas(group))
 assert.equal(context.navigationGroups.reduce((sum, group) => sum + offroadView(data).suggestions.filter(row => group.names.includes(row.parameter)).length, 0), 35)
 assert.equal(context.currentApplied, false)
+const mixed = structuredClone(data)
+mixed.current.details['Recorded coordinate recommendations'] = [
+  ['turn_in_boost_left', 0, .005, 6, 'independent_support_for_frozen_training_profile'],
+  ['friction_threshold_low', 0, .002, 6, 'training_candidate_not_independently_confirmed'],
+  ['unwind_taper_right', 0, null, 6, 'conflicting_recorded_candidates'],
+  ['ff_gain_right', 0, .005, 6, 'controller_checks_did_not_support_change'],
+]
+assert(validTrainingResults(mixed))
+const mixedReview = reviewModel(offroadView(mixed))
+assert.equal(mixedReview.count, 2, 'Supported and provisional neighbors survive a rejected bundled profile')
+assert.equal(mixedReview.manual.length, 1)
+assert.equal(mixedReview.curve.length, 1)
+assert.equal(ideaStatus(mixedReview.manual[0]), 'Repeated finding')
+assert.equal(ideaStatus(mixedReview.curve[0]), 'Possible change')
+assert.equal(offroadView(mixed).saved, false)
 const rendered = compile(FlmPage.template, { decodeEntities: value => value.replaceAll('&amp;', '&') })
 const walk = node => Array.isArray(node) ? node.flatMap(walk) : node && typeof node === 'object' ? [node, ...walk(node.children)] : []
 context.view = 'tune'

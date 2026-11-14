@@ -207,6 +207,11 @@ class RouteReceipt:
   original_controller_contexts: tuple
 
 
+def original_segment_hashes(segments):
+  """Recording bytes identify evidence even when a route directory is renamed."""
+  return {digest for _, digest, _ in segments}
+
+
 @dataclass(frozen=True)
 class SelectedSourceReceipt(RouteReceipt):
   """Whole-file identity with selected dense inputs, NOT a whole-drive assessment."""

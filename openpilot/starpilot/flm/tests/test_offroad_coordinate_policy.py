@@ -1,6 +1,12 @@
 """Coordinate proposal contracts using declared unit fixtures."""
 
 import json
+from dataclasses import replace
+from types import SimpleNamespace
+from openpilot.starpilot.flm.offroad_cache import AssessmentCache
+from openpilot.starpilot.flm.offroad_stable_bridge import StableRouteSelector, coordinate_review
+from openpilot.starpilot.flm.offroad_surface import route_bounds
+from openpilot.starpilot.flm.offroad_worker import recorded_recommendations, assess_next_drive, trial_segment_history, POLICY
 from pathlib import Path
 import tempfile
 import unittest
@@ -51,7 +57,7 @@ class TestCrossDriveEvidence(unittest.TestCase):
       points = tuple(points)
       windows.append(RouteWindow(window_identity(points), points))
     cp = SimpleNamespace(carFingerprint='declared-car', lateralTuning=SimpleNamespace(which=lambda: 'torque'))
-    receipt = RouteReceipt(route, f'{number:064x}', ((route + '--0', 'd' * 64, 1), (route + '--1', 'e' * 64, 1)),
+    receipt = RouteReceipt(route, f'{number:064x}', tuple((route + '--' + str(n), hashlib.sha256((route + str(n)).encode()).hexdigest(), 1) for n in (0, 1)),
                            'a' * 64, 1_000_000_000, 8_000_000_000, number * 10_000_000_000, ())
     inventory = {'routeId': route, 'segments': [{'files': {'rlog': True}}, {'files': {'rlog': True}}]}
     collected = RecordedInputs(receipt, {'cp': cp}, {context: windows}, {}, {}, {}, {}, {context: metadata}, {}, [])
@@ -1723,3 +1729,178 @@ class TestNewerDriveRefusal(unittest.TestCase):
       self.assertIsNone(newer_original_refusal(cache, SimpleNamespace(completed_wall_ns=300), scope(), target))
       self.assertIsNotNone(newer_original_refusal(cache, SimpleNamespace(completed_wall_ns=200), scope(), target))
       self.assertEqual(len(cache.checkpoints()), 1, 'The refusal check never changes the source or saved state')
+
+
+class TestProvisionalRecommendations(unittest.TestCase):
+  def test_every_supported_coordinate_can_remain_provisional_without_bundle_approval(self):
+    targets = {name: .005 if route_bounds(name)[1] >= .005 else -.005 for name in ROUTE_NAMES}
+    frozen = {'values': targets}
+    feedback = coordinate_review([frozen], [], values())
+    proof = {'reason': 'heldout_profile_does_not_support_training_step', 'frozen_training_profile': frozen,
+             'coordinate_review': feedback, 'roles': {role: {'original_windows': ['a', 'b', 'c']} for role in ('training', 'heldout')}}
+    assessment = TestRecordedRecommendationMetadata.assessment()
+    rows = recorded_recommendations(assessment, values(), {'stable_profile_reports': [proof]})
+    self.assertEqual({r['parameter'] for r in rows}, set(ROUTE_NAMES))
+    self.assertEqual(len(rows), 35)
+    self.assertTrue(all(r['reason'] == 'training_candidate_not_independently_confirmed' for r in rows))
+    self.assertEqual({r['parameter']: r['target'] for r in rows}, targets)
+
+  def test_one_opposed_setting_does_not_hide_supported_and_unconfirmed_neighbors(self):
+    train = {'values': dict(values(), turn_in_boost_left=.005, unwind_taper_right=.005, friction_threshold_low=.002)}
+    independent = {'values': dict(values(), turn_in_boost_left=.006, unwind_taper_right=-.005)}
+    before = dict(train['values'])
+    feedback = coordinate_review([train], [independent], values())
+    proof = {'reason': 'heldout_profile_does_not_support_training_step', 'frozen_training_profile': train,
+             'coordinate_review': feedback, 'roles': {role: {'original_windows': ['a', 'b', 'c']} for role in ('training', 'heldout')}}
+    rows = recorded_recommendations(TestRecordedRecommendationMetadata.assessment(), values(), {'stable_profile_reports': [proof]})
+    by_name = {r['parameter']: r for r in rows}
+    self.assertEqual(by_name['turn_in_boost_left']['reason'], 'independent_support_for_frozen_training_profile')
+    self.assertIsNone(by_name['unwind_taper_right']['target'])
+    self.assertEqual(by_name['friction_threshold_low']['reason'], 'training_candidate_not_independently_confirmed')
+    self.assertEqual(train['values'], before, 'Independent results must not resize the frozen candidate')
+    hard = recorded_recommendations(TestRecordedRecommendationMetadata.assessment(), values(), {
+      'stable_profile_reports': [proof], 'refused_parameters': ['turn_in_boost_left', 'unwind_taper_right']})
+    self.assertEqual(next(r for r in hard if r['parameter'] == 'turn_in_boost_left')['reason'], 'controller_checks_did_not_support_change')
+    self.assertEqual(next(r for r in hard if r['parameter'] == 'unwind_taper_right')['reason'], 'conflicting_recorded_candidates')
+
+  def test_missing_replication_offers_an_idea_without_entering_automatic_choices(self):
+    roles = trial()['before']
+    selector = object.__new__(StableRouteSelector)
+    selector.previous = values()
+    selector.rows = dict.fromkeys(roles['training']['windows'] + roles['heldout']['windows'], [])
+    train = {'values': dict(values(), turn_in_boost_left=.005)}
+
+    def profile(ids, cohort):
+      return (train if ids == tuple(roles['training']['windows']) else None), {'original_windows': ids, 'coordinate_candidates': []}
+
+    with patch.object(selector, 'profile', new=profile):
+      automatic, proof = selector.propose({}, {'cohort': 'declared', **roles})
+    self.assertIsNone(automatic)
+    self.assertEqual(proof['coordinate_candidates'], [])
+    rows = recorded_recommendations(TestRecordedRecommendationMetadata.assessment(), values(), {'short_turn_profile_reports': [proof]})
+    self.assertEqual(rows[0]['target'], .005)
+    self.assertEqual(rows[0]['reason'], 'training_candidate_not_independently_confirmed')
+
+
+class TestIndependentRecordingBytes(unittest.TestCase):
+  def test_renamed_or_partly_copied_segments_do_not_add_an_independent_drive(self):
+    from openpilot.starpilot.flm.offroad_history import EvidenceBank, combine
+
+    with tempfile.TemporaryDirectory() as directory:
+      bank = EvidenceBank(Path(directory) / 'cache')
+      first, first_inventory = TestCrossDriveEvidence.inputs(1)
+      second, second_inventory = TestCrossDriveEvidence.inputs(2)
+      history = bank.retain(first, first_inventory, 'same-settings', permitted=lambda: True)
+      pooled, sources, _ = combine(second, second_inventory, history)
+      self.assertEqual(len(sources), 2, 'Different recordings remain independent')
+      for number_of_copies in (1, 2):
+        segments = list(second.receipt.segments)
+        for number in range(number_of_copies):
+          name, _, size = segments[number]
+          segments[number] = (name, first.receipt.segments[number][1], size)
+        second.receipt = replace(second.receipt, segments=tuple(segments))
+        skipped = []
+        pooled, sources, _ = combine(second, second_inventory, history, on_skip=lambda *row, skipped=skipped: skipped.append(row))
+        self.assertEqual(set(sources), {second.receipt.route_id})
+        self.assertEqual(sum(len(rows) for rows in pooled.windows.values()), 2)
+        self.assertIn('already counted', skipped[0][1])
+
+  def test_trial_lineage_covers_original_and_previously_measured_drives(self):
+    with tempfile.TemporaryDirectory() as directory:
+      cache = AssessmentCache(directory)
+      first = cache.put({'kind': 'next_drive_trial', 'assessment': {'route': {'segments': [['a', 'a' * 64, 1]]},
+        'evidence_sources': [{'segments': [['b', 'b' * 64, 1]]}]}})
+      second = cache.put({'kind': 'next_drive_outcome', 'trial_analysis_sha256': first,
+                          'assessment': {'route': {'segments': [['c', 'c' * 64, 1]]}}})
+      self.assertEqual(trial_segment_history(cache, second), {letter * 64 for letter in 'abc'})
+      declared = dict(trial(), policy=POLICY, values=values(.01), original_metadata={})
+      assessment = SimpleNamespace(receipt=SimpleNamespace(route_id='00000009--aaaaaaaaaa', segments=[['renamed', 'c' * 64, 1]]),
+                                   quality_stop_markers=(), groups=(), stable_groups=())
+      outcome = assess_next_drive(declared, assessment, scope(), previous_segments=trial_segment_history(cache, second))
+      self.assertEqual(outcome['outcome'], 'pending')
+      self.assertFalse(outcome['counts_as_new_drive'])
+      self.assertEqual(outcome['comparisons'], [])
+
+
+class TestSavedSetupCapacity(unittest.TestCase):
+  @staticmethod
+  def row(number):
+    return {'scope': replace(scope(), persistent_source_epoch=f'{number:064x}').document(), 'values': values(.005), 'previous': values(),
+            'route_sha256s': [f'{number:064x}'], 'source_start_ns': 1, 'source_end_ns': 2, 'completed_wall_ns': number,
+            'analysis_sha256': 'd' * 64, 'sequence': 1, 'state': 'ready_for_next_drive'}
+
+  def test_ninth_setup_saves_after_exact_prior_document_is_preserved(self):
+    from openpilot.starpilot.flm.learned_lifecycle import decode
+    from openpilot.starpilot.flm.offroad_saved_history import SavedHistory
+    from openpilot.starpilot.flm.offroad_store import RouteScope
+    from openpilot.starpilot.galaxy.flm_diagnostics import diagnostics
+
+    with tempfile.TemporaryDirectory() as directory:
+      params = Params(directory)
+      owner = RouteStorage(params)
+      expected = None
+      for number in range(1, 10):
+        before = expected
+        self.assertTrue(owner.save(self.row(number), expected=expected, authorized=lambda: True))
+        expected, readable = read_saved(params, KEY, MAX_BYTES)
+        self.assertTrue(readable)
+      self.assertEqual(len(decode(expected)['routeSurfaces']), 8)
+      archive = SavedHistory(params)
+      assert before is not None
+      self.assertEqual(list(archive.read().values()), [before.decode()])
+      self.assertIsNone(startup_row(params, RouteScope(**self.row(1)['scope']))[0], 'The historical backup never supplies startup authority')
+      self.assertEqual(startup_row(params, RouteScope(**self.row(9)['scope']))[0]['values'], values(.005))
+      self.assertEqual(diagnostics({}, params)['saved_history']['snapshots'], 1)
+      self.assertTrue(diagnostics({}, params)['saved_history']['historical_only'])
+
+  def test_failed_backup_permission_loss_and_stale_save_leave_current_settings_unchanged(self):
+    from openpilot.starpilot.flm.offroad_saved_history import SavedHistory
+
+    with tempfile.TemporaryDirectory() as directory:
+      params = Params(directory)
+      owner = RouteStorage(params)
+      expected = None
+      for number in range(1, 9):
+        self.assertTrue(owner.save(self.row(number), expected=expected, authorized=lambda: True))
+        expected, _ = read_saved(params, KEY, MAX_BYTES)
+      with patch.object(SavedHistory, 'preserve', side_effect=OSError('declared backup failure')):
+        with self.assertRaisesRegex(OSError, 'backup failure'):
+          owner.save(self.row(9), expected=expected, authorized=lambda: True)
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES)[0], expected)
+      with patch('openpilot.starpilot.flm.offroad_saved_history.MAX_PACKED', 1), self.assertRaisesRegex(ValueError, 'history full'):
+        owner.save(self.row(9), expected=expected, authorized=lambda: True)
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES)[0], expected)
+      allowed = [True]
+      preserve = SavedHistory.preserve
+
+      def lose_permission(history, raw):
+        result = preserve(history, raw)
+        allowed[0] = False
+        return result
+
+      with patch.object(SavedHistory, 'preserve', new=lose_permission):
+        self.assertFalse(owner.save(self.row(9), expected=expected, authorized=lambda: allowed[0]))
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES)[0], expected)
+      self.assertFalse(owner.save(self.row(9), expected=expected, authorized=lambda: False))
+      self.assertFalse(owner.save(self.row(9), expected=None, authorized=lambda: True))
+      self.assertEqual(read_saved(params, KEY, MAX_BYTES)[0], expected)
+
+  def test_interrupted_or_corrupt_history_cannot_replace_current_settings(self):
+    import zlib
+    from openpilot.starpilot.flm.offroad_saved_history import SavedHistory
+
+    with tempfile.TemporaryDirectory() as directory:
+      params = Params(directory)
+      owner = RouteStorage(params)
+      expected = None
+      for number in range(1, 9):
+        self.assertTrue(owner.save(self.row(number), expected=expected, authorized=lambda: True))
+        expected, _ = read_saved(params, KEY, MAX_BYTES)
+      archive = SavedHistory(params)
+      cache = AssessmentCache(archive.directory)
+      original = zlib.compress(b'{"version":1,"snapshots":{}}')
+      for raw in (original[:-1], original + b'trailing', zlib.compress(b'{"version":2,"snapshots":{}}')):
+        cache._write('history.z', raw, maximum=len(raw))
+        with self.assertRaises(ValueError):
+          owner.save(self.row(9), expected=expected, authorized=lambda: True)
+        self.assertEqual(read_saved(params, KEY, MAX_BYTES)[0], expected)

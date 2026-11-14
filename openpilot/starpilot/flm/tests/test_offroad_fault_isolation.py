@@ -431,7 +431,7 @@ class TestRouteFaultIsolation(unittest.TestCase):
     valid, _ = fixtures.TestCrossDriveEvidence.inputs(16)
     metadata = next(iter(valid.context_metadata.values()))
     assessment = SimpleNamespace(receipt=SimpleNamespace(route_id='00000012--aaaaaaaaaa', cp_sha256='a' * 64,
-      completed_wall_ns=180_000_000_000))
+      completed_wall_ns=180_000_000_000, segments=(('00000012--aaaaaaaaaa--0', 'c' * 64, 1),)))
     routes = [{'routeId': f'{i:08x}--aaaaaaaaaa', 'segments': [{'files': {'rlog': True}}]} for i in (17, 16)]
     group = {'original_metadata': metadata}
     selected = {'cohort': cohort(next(iter(valid.windows.values()))[0])}

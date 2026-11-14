@@ -152,6 +152,11 @@ def _prior_originals(assessment, group, selected_cohort, root, *, permitted, sta
     if collected.receipt.completed_wall_ns >= assessment.receipt.completed_wall_ns:
       logging.getLogger(__name__).warning('Skipping prior drive %s: independent chronology invalid', route['routeId'])
       continue
+    from openpilot.starpilot.flm.offroad_route import original_segment_hashes
+
+    if original_segment_hashes(collected.receipt.segments).intersection(original_segment_hashes(assessment.receipt.segments)):
+      logging.getLogger(__name__).warning('Skipping prior drive %s: original recording bytes overlap the current drive', route['routeId'])
+      continue
     compatible = []
     profile_windows = {}
     if stable:

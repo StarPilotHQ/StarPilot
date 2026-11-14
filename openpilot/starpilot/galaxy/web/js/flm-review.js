@@ -9,6 +9,8 @@ export function dialPercent(value) {
 export function ideaStatus(row) {
   if (row.target === null) return 'Conflicting findings'
   if (row.reason === 'heldout_profile_does_not_support_training_step') return 'Not confirmed across the drive'
+  if (row.reason === 'training_candidate_not_independently_confirmed') return 'Possible change'
+  if (row.reason === 'independent_support_for_frozen_training_profile') return 'Repeated finding'
   return 'Suggested change'
 }
 
