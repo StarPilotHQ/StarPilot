@@ -81,7 +81,7 @@ class CAR(Platforms):
   # steerRatio 15.2 is measured from slow figure-eights (steering angle vs. yaw rate / speed).
   LEAPMOTOR_B10 = LeapmotorPlatformConfig(
     [LeapmotorCarDocs("Leapmotor B10 2025")],
-    CarSpecs(mass=1885, wheelbase=2.735, steerRatio=15.2),
+    CarSpecs(mass=1780, wheelbase=2.735, steerRatio=15.2),
   )
 
 
