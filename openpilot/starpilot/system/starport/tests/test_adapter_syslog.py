@@ -106,7 +106,9 @@ class FakeSupervisor:
     if stopped:
       self._stop.set()
     self.fetched = []
-    self._adapter_syslog = type("Syslog", (), {"fetch": lambda _, host, local_ip: self.fetched.append((host, local_ip))})()
+    self.watched = []
+    self._adapter_syslog = type("Syslog", (), {"fetch": lambda _, host, local_ip, force=False: self.fetched.append((host, local_ip, force)),
+                                               "watch": lambda _, host, local_ip, done: self.watched.append((host, local_ip))})()
 
   def car_type(self):
     if self._car_type is None:
@@ -126,7 +128,7 @@ def save(supervisor, endpoint=True):
 
 
 def test_supervisor_fetches_only_for_the_aawireless_adapter():
-  assert save(FakeSupervisor()) == [("10.42.1.1", "10.42.1.77")]
+  assert save(FakeSupervisor()) == [("10.42.1.1", "10.42.1.77", True)]
   assert save(FakeSupervisor(profile="unofficial")) == []
   assert save(FakeSupervisor(profile="")) == []
   assert save(FakeSupervisor(car_type="builtin")) == []
@@ -161,3 +163,52 @@ def test_a_trickling_download_stops_at_the_deadline(monkeypatch):
     assert clock.now - 100.0 <= adapter_syslog.DEADLINE_S + 1
   else:
     raise AssertionError("trickling download was not cut off")
+
+
+def test_while_connected_the_supervisor_starts_the_copier():
+  import threading
+  from types import SimpleNamespace
+  from openpilot.starpilot.system.starport.supervisor import Supervisor
+  supervisor = FakeSupervisor()
+  result = SimpleNamespace(endpoint=SimpleNamespace(ip="10.42.1.1", port=5000))
+  Supervisor._save_adapter_syslog(supervisor, result, SimpleNamespace(local_ip="10.42.1.77"), threading.Event())
+  assert supervisor.watched == [("10.42.1.1", "10.42.1.77")] and supervisor.fetched == []
+  other = FakeSupervisor(profile="unofficial")
+  Supervisor._save_adapter_syslog(other, result, SimpleNamespace(local_ip=""), threading.Event())
+  assert other.watched == []
+
+
+def test_copies_are_taken_while_connected_and_stop_with_the_session(tmp_path, monkeypatch):
+  import threading
+  monkeypatch.setattr(adapter_syslog, "FIRST_COPY_S", 0.01)
+  monkeypatch.setattr(adapter_syslog, "MIN_INTERVAL_S", 0.01)
+  copied = threading.Event()
+
+  def download(host, local_ip):
+    copied.set()
+    return 200, b"live line\n"
+
+  syslog = AdapterSyslog(lambda *a, **k: None, log_dir=tmp_path, download=download)
+  done = threading.Event()
+  thread = syslog.watch("10.42.1.1", "", done)
+  assert copied.wait(2)
+  done.set()
+  thread.join(2)
+  assert not thread.is_alive()
+  assert (tmp_path / adapter_syslog.FILE_NAME).read_text().endswith("live line\n")
+
+
+def test_the_end_of_session_copy_ignores_the_throttle(tmp_path):
+  calls = []
+  syslog, _, clock = make(tmp_path, lambda host, local_ip: (calls.append(host), (200, b"x\n"))[1])
+  assert syslog.fetch("10.42.1.1")
+  clock.now += 1
+  assert not syslog.fetch("10.42.1.1")
+  assert syslog.fetch("10.42.1.1", force=True)
+  assert len(calls) == 2
+
+
+def test_overlapping_copies_are_skipped(tmp_path):
+  syslog, _, _ = make(tmp_path, lambda host, local_ip: (200, b"x\n"))
+  with syslog.busy:
+    assert not syslog.fetch("10.42.1.1", force=True)

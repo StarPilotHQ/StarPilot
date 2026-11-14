@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import http.client
+import threading
 import time
 import zlib
 from collections.abc import Callable
@@ -20,6 +21,7 @@ DEADLINE_S = 6.0  # whole download, so a trickling adapter cannot hold session c
 MAX_DOWNLOAD_BYTES = 8 << 20
 MAX_TEXT_BYTES = 2 << 20  # newest part kept; the bundle takes the last 1 MiB of it
 MIN_INTERVAL_S = 30.0
+FIRST_COPY_S = 3.0  # while connected: a first copy soon after video starts, then one every MIN_INTERVAL_S
 
 
 def _text(body: bytes) -> bytes:
@@ -57,10 +59,28 @@ class AdapterSyslog:
     self.log, self.download, self.clock = log, download, clock
     self.path = (log_dir or identity_store.LOG_DIR) / FILE_NAME
     self.last = -MIN_INTERVAL_S
+    self.busy = threading.Lock()
 
-  def fetch(self, host: str, local_ip: str = "") -> bool:
-    if not host or self.clock() - self.last < MIN_INTERVAL_S:
+  def fetch(self, host: str, local_ip: str = "", force: bool = False) -> bool:
+    if not host or (not force and self.clock() - self.last < MIN_INTERVAL_S) or not self.busy.acquire(blocking=False):
       return False
+    try:
+      return self._fetch(host, local_ip)
+    finally:
+      self.busy.release()
+
+  def watch(self, host: str, local_ip: str, done: threading.Event) -> threading.Thread:
+    """Copies the syslog while connected, so a crash that takes the adapter's Wi-Fi down still leaves a recent copy."""
+    def run():
+      wait = FIRST_COPY_S
+      while not done.wait(wait):
+        self.fetch(host, local_ip)
+        wait = MIN_INTERVAL_S
+    thread = threading.Thread(target=run, name="adapter_syslog", daemon=True)
+    thread.start()
+    return thread
+
+  def _fetch(self, host: str, local_ip: str) -> bool:
     self.last = self.clock()
     started = self.clock()
     try:

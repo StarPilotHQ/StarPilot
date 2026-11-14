@@ -2019,12 +2019,17 @@ class Supervisor:
       self.log("adapter_address_unavailable", kind=type(error).__name__, error=str(error)[:120])
       return ""
 
-  def _save_adapter_syslog(self, result, lease) -> None:
+  def _save_adapter_syslog(self, result, lease, done: threading.Event | None = None) -> None:
+    """With the AAWireless profile: copy the adapter's syslog every so often while connected (done given), or once now."""
     try:
       endpoint = getattr(result, "endpoint", None)
       if endpoint is None or self._stop.is_set() or self.car_type() != "adapter" or car_profiles.resolve(self.config)[0] != "aawireless":
         return
-      self._adapter_syslog.fetch(str(endpoint.ip), getattr(lease, "local_ip", "") or "")
+      host, local_ip = str(endpoint.ip), getattr(lease, "local_ip", "") or ""
+      if done is not None:
+        self._adapter_syslog.watch(host, local_ip, done)
+      else:
+        self._adapter_syslog.fetch(host, local_ip, force=True)
     except Exception as error:  # diagnostics only; never block cleanup
       self.log("adapter_syslog", ok=False, error=str(error)[:160], kind=type(error).__name__)
 
@@ -2109,12 +2114,15 @@ class Supervisor:
     except Exception as error:  # turn-by-turn is optional; projection must never depend on it
       self.log("nav_status_unavailable", error=str(error))
     car_ended = False
+    syslog_done = threading.Event()
+    self._save_adapter_syslog(result, lease, syslog_done)
     try:
       self._stream(session, encoder, source, watch, interval)
     except PeerRequestedStop:
       car_ended = True
       raise
     finally:
+      syslog_done.set()
       self._note_streamed(session)
       self._record_fix_outcome(session, car_ended)
       if session.audio is not None:
