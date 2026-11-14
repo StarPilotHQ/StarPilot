@@ -48,6 +48,13 @@ class CarControllerParams:
   RAMP_BOOST_LAG = 3.  # deg
   RAMP_BOOST_CAUGHT_UP = 1.5  # deg
   RAMP_BOOST_MAX_SPEED = 60.  # km/h
+  # Past about 150 of STEER_TORQUE_EPS the EPS sets its own DRIVER_OVERRIDE flag with the driver's hands off, and
+  # openpilot lets go like the stock LCC does: engaged frames with the flag set were 0-1% below 130, 9% at 130-160
+  # and 50% above 160 (route 00000005, 56 steps; 28% above 160 on route 273 at 52 steps). In a tightening turn at
+  # 25 km/h the boost drove it to -167..-218 three times, the EPS let go each time and the wheel sprang back 25-30 deg.
+  # So the boost goes no deeper from RAMP_BOOST_EPS_TORQUE_HOLD and backs off from RAMP_BOOST_EPS_TORQUE_BACK.
+  RAMP_BOOST_EPS_TORQUE_HOLD = 100
+  RAMP_BOOST_EPS_TORQUE_BACK = 120
 
   # Longitudinal (alpha): ADAS_LKA.ACC_ACCEL_REQ, 0.05 m/s^2 per bit, raw 100 = 0. Must match opendbc/safety/modes/leapmotor.h.
   # Stock ACC never asked for less than -2.7 m/s^2 in about 5 h of engaged driving; the car follows the request
