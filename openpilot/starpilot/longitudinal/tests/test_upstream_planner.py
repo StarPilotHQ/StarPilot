@@ -1,5 +1,6 @@
 """Import actual upstream planner/MPC; mock only native solver and process IPC."""
 from pathlib import Path
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -161,7 +162,12 @@ def test_upstream_planner_applies_confirmed_slc_with_op_long(tmp_path, monkeypat
   else:
     assert state.hasCeiling and state.actionStatus == 'accept'
     assert cruise.call_args.args[1] == 15.
-    assert params.get('SLCQualifiedHistory')['speed_mps'] == 15.
+    # The planner queues history persistence without blocking its control loop.
+    deadline = time.monotonic() + 5.
+    while (saved_history := params.get('SLCQualifiedHistory')) is None and time.monotonic() < deadline:
+      time.sleep(.01)
+    assert saved_history is not None
+    assert saved_history['speed_mps'] == 15.
 
 
 if __name__ == '__main__':
