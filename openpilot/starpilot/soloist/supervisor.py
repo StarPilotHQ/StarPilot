@@ -30,6 +30,9 @@ EXIT_EXPIRED = 10
 STOP_SECONDS = 5.0
 OUTPUT_RETRY_SECONDS = 20.0
 SINK_CHECK_SECONDS = 10.0
+# The car can open the link without encrypting it, and the comma then refuses its audio channel until the link is redone.
+LINK_RESET_FAILURES = 3
+LINK_RESET_SECONDS = 60.0
 PAIRING_PROFILE_SECONDS = 180.0  # the pairing window plus time for the phone to save the comma's services
 MAX_FAST_FAILURES = 5
 UNRESPONSIVE_SECONDS = 120.0
@@ -130,6 +133,22 @@ class BluetoothOutput:
       self._reset()
     return False
 
+  def reconnect(self, address: str, sleep: Callable[[float], None] = time.sleep) -> None:
+    """Drop the link and connect from this side, which secures the link before the audio channel opens."""
+    try:
+      from openpilot.starpilot.bluetooth.owner import BlueZ, DEVICE
+      if self.client is None:
+        self.client = BlueZ()
+      for path, interfaces in self.client._objects().items():
+        props = interfaces.get(DEVICE)
+        if props and str(props.get('Address', '')).upper() == address:
+          self.client._call(path, DEVICE, 'Disconnect', timeout=10.0)
+          sleep(2.0)
+          self.client._call(path, DEVICE, 'ConnectProfile', 's', (A2DP_SINK,), timeout=15.0)
+          return
+    except Exception:
+      self._reset()
+
   def _reset(self) -> None:
     client, self.client = self.client, None
     if client is not None:
@@ -151,6 +170,8 @@ class Supervisor:
     self.hold_output = False
     self.hold_check_at = 0.0
     self.sink_check_at = 0.0
+    self.car_failures = 0
+    self.link_reset_at = 0.0
     self.server_key: tuple | None = None
     self.make_client = make_client or (lambda data: PlayerClient(data))
     self.server: subprocess.Popen | None = None
@@ -289,18 +310,22 @@ class Supervisor:
     self.hold_check_at = now + OUTPUT_RETRY_SECONDS
     if (prefs.output == 'bluetooth' and not prefs.output_address) or not backend.bundle_ready():
       return
+    speaker = False
     try:
-      speaker = True
       if prefs.output == 'bluetooth':
         if not self.phone_profile:
           phone_audio.profile('acquire')
           self.phone_profile = True
         speaker = self._output_ready(prefs.output_address)
+      else:
+        speaker = True
       self._ensure_server(prefs, silent=not speaker)
       self.output_available = speaker
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
       with self.log_lock:
         self.log.append(f'audio: could not open the output for engine sound: {error}')
+      if prefs.output == 'bluetooth' and speaker:
+        self._car_refused(prefs.output_address)
 
   def _heal_sink(self, prefs: preferences.Preferences) -> None:
     """The server can start while BlueALSA is still being swapped for the bundled one, so the car's sink fails to load
@@ -316,9 +341,23 @@ class Supervisor:
         backend.switch_output(self.layout, True)
         with self.log_lock:
           self.log.append('audio: the car output had not loaded; loaded it')
+      self.car_failures = 0
     except (OSError, subprocess.SubprocessError) as error:
       with self.log_lock:
         self.log.append(f'audio: could not load the car output yet: {error}')
+      self._car_refused(prefs.output_address)
+
+  def _car_refused(self, address: str) -> None:
+    self.car_failures += 1
+    now = self.clock()
+    if self.car_failures < LINK_RESET_FAILURES or now < self.link_reset_at or not self._output_ready(address):
+      return
+    self.car_failures, self.link_reset_at = 0, now + LINK_RESET_SECONDS
+    with self.log_lock:
+      self.log.append('audio: the car is connected but refuses audio; reconnecting from the comma')
+    with self.output_lock:
+      self.output.reconnect(address)
+    self.sink_check_at = self.clock() + SINK_CHECK_SECONDS
 
   def _output_ready(self, address: str) -> bool:
     with self.output_lock:

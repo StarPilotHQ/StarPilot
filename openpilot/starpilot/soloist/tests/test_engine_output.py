@@ -20,8 +20,10 @@ class Phone:
 
 
 class Speaker:
-  connected = False
+  def __init__(self):
+    self.connected, self.reconnects = False, []
   def ready(self, address): return self.connected
+  def reconnect(self, address): self.reconnects.append(address)
 
 
 @pytest.fixture
@@ -140,6 +142,72 @@ def test_no_healing_while_the_car_is_away_or_when_the_check_fails(held, monkeypa
     now[0] += supervisor.OUTPUT_RETRY_SECONDS + 1
     sup.tick()
   assert any('could not load the car output yet' in line for line in sup.log)
+
+
+def test_car_that_keeps_refusing_audio_is_reconnected_from_the_comma_at_most_once_a_minute(held, monkeypatch):
+  sup, now, _, _, _ = held
+  preferences.save(preferences.Preferences(output='bluetooth', output_address=CAR), sup.layout)
+  sup.output.connected = True
+  monkeypatch.setattr(supervisor.backend, 'can_switch', lambda: True)
+  monkeypatch.setattr(supervisor.backend, 'has_sink', lambda layout: False)
+
+  def refused(layout, speaker):
+    raise subprocess.CalledProcessError(1, 'pactl')
+  monkeypatch.setattr(supervisor.backend, 'switch_output', refused)
+  sup.tick()
+  for _ in range(supervisor.LINK_RESET_FAILURES - 1):
+    now[0] += supervisor.SINK_CHECK_SECONDS + 1
+    sup.tick()
+  assert sup.output.reconnects == []
+  sup.output.connected = False
+  now[0] += supervisor.SINK_CHECK_SECONDS + 1
+  sup.tick()
+  assert sup.output.reconnects == []
+  sup.output.connected = True
+  now[0] += supervisor.SINK_CHECK_SECONDS + 1
+  sup.tick()
+  assert sup.output.reconnects == [CAR]
+  for _ in range(supervisor.LINK_RESET_FAILURES):
+    now[0] += supervisor.SINK_CHECK_SECONDS + 1
+    sup.tick()
+  assert sup.output.reconnects == [CAR]
+  now[0] += supervisor.LINK_RESET_SECONDS
+  sup.tick()
+  assert sup.output.reconnects == [CAR, CAR]
+
+
+def test_a_loaded_car_output_clears_the_refusal_count(held, monkeypatch):
+  sup, now, _, _, _ = held
+  preferences.save(preferences.Preferences(output='bluetooth', output_address=CAR), sup.layout)
+  sup.output.connected = True
+  sinks = iter([False, False, True] * 4)
+  monkeypatch.setattr(supervisor.backend, 'can_switch', lambda: True)
+  monkeypatch.setattr(supervisor.backend, 'has_sink', lambda layout: next(sinks))
+
+  def refused(layout, speaker):
+    raise subprocess.CalledProcessError(1, 'pactl')
+  monkeypatch.setattr(supervisor.backend, 'switch_output', refused)
+  for _ in range(12):
+    sup.tick()
+    now[0] += supervisor.SINK_CHECK_SECONDS + 1
+  assert sup.output.reconnects == []
+
+
+class FakeBlueZ:
+  def __init__(self, calls):
+    self.calls = calls
+  def _objects(self):
+    return {'/org/bluez/hci0/dev_X': {'org.bluez.Device1': {'Address': CAR.lower(), 'Connected': True}}}
+  def _call(self, path, interface, member, *args, **kwargs):
+    self.calls.append(member)
+
+
+def test_reconnect_drops_the_link_then_connects_audio_from_this_side():
+  calls = []
+  output = supervisor.BluetoothOutput()
+  output.client = FakeBlueZ(calls)
+  output.reconnect(CAR, sleep=lambda _: calls.append('wait'))
+  assert calls == ['Disconnect', 'wait', 'ConnectProfile']
 
 
 def test_engine_sound_opens_the_car_with_the_short_buffer_and_music_alone_does_not(held, monkeypatch):
