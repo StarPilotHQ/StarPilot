@@ -5,13 +5,16 @@ import math
 
 from openpilot.starpilot.engine_sound.profiles import Profile
 
-FREE_REV_CURVE = 0.7
+FREE_REV_CURVE = 1.2
+SHIFT_CURVE = 1.6            # part throttle shifts early; only a deep pedal holds a gear to the top
+PEDAL_ACTIVE = 0.02          # above this the driver's foot alone sets the load
 ACCEL_FULL_LOAD = 3.0        # m/s^2 that counts as full load when openpilot is driving and the pedal is at rest
+MIN_REV_RATE = 0.4           # share of the full-throttle rev rate available with no demand (rev-matching a downshift)
 MIN_SHIFT_SECONDS = 0.45
 SHIFT_CUT_SECONDS = 0.12
 LIMITER_CUT_SECONDS = 0.07
 LIMITER_DROP_RPM = 700.0
-LOAD_SECONDS = 0.05
+LOAD_SECONDS = 0.02
 
 
 def _lerp(pair: tuple[float, float], x: float) -> float:
@@ -44,7 +47,8 @@ class EngineModel:
       target = p.idle_rpm + pedal ** FREE_REV_CURVE * (p.redline_rpm - p.idle_rpm)
       self.gear = 0
     else:
-      demand = max(pedal, min(max(accel / ACCEL_FULL_LOAD, 0.0), 1.0))
+      # An EV pulls hard on little pedal, so acceleration only stands in for load when no foot is on the pedal.
+      demand = pedal if pedal > PEDAL_ACTIVE else min(max(accel / ACCEL_FULL_LOAD, 0.0), 1.0)
       if p.gears:
         self._shift(speed, demand)
         target = max(speed * p.gears[self.gear], p.idle_rpm + demand * p.launch_slip_rpm)
@@ -62,7 +66,10 @@ class EngineModel:
     seconds = p.rise_seconds if target > self.rpm else p.fall_seconds
     if in_gear and p.gears:
       seconds = min(seconds, 0.12)
-    self.rpm = _toward(self.rpm, target, dt, seconds * (0.3 if limiting else 1.0))
+    rpm = _toward(self.rpm, target, dt, seconds * (0.3 if limiting else 1.0))
+    # Engine inertia: revs cannot climb faster than the throttle can spin the engine up.
+    climb = (p.redline_rpm - p.idle_rpm) / p.rev_seconds * (MIN_REV_RATE + (1 - MIN_REV_RATE) * demand) * dt
+    self.rpm = min(rpm, self.rpm + climb)
 
     load = 0.0 if limiting else demand * (0.25 if self.cut > 0.0 else 1.0)
     self.load = _toward(self.load, load, dt, LOAD_SECONDS)
@@ -72,7 +79,8 @@ class EngineModel:
     p = self.profile
     if self.since_shift < MIN_SHIFT_SECONDS:
       return
-    up, down = _lerp(p.upshift_rpm, demand), _lerp(p.downshift_rpm, demand)
+    depth = demand ** SHIFT_CURVE
+    up, down = _lerp(p.upshift_rpm, depth), _lerp(p.downshift_rpm, depth)
     rpm = speed * p.gears[self.gear]
     gear = self.gear
     if rpm > up and gear < len(p.gears) - 1:

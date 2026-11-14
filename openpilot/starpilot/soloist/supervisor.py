@@ -268,7 +268,8 @@ class Supervisor:
     if self.server is not None and self.server.poll() is None and self.server_key == key and socket_path.exists():
       return
     self._stop_server()
-    self.server = self._start(backend.server_launch(self.layout, prefs, silent=silent), 'audio')
+    # Engine sound follows the driver's foot, so it gets the short buffer; a speaker that refuses it is picked up by _heal_sink.
+    self.server = self._start(backend.server_launch(self.layout, prefs, silent=silent, low_latency=self.hold_output), 'audio')
     deadline = clock() + 5
     while not socket_path.exists() and self.server.poll() is None and clock() < deadline:
       time.sleep(0.1)

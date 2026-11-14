@@ -20,6 +20,7 @@ class Profile:
   upshift_rpm: tuple[float, float] = (2500.0, 6500.0)    # at zero and full load
   downshift_rpm: tuple[float, float] = (1300.0, 3800.0)
   launch_slip_rpm: float = 2200.0     # rpm above idle a full pedal reaches before the wheels catch up
+  rev_seconds: float = 0.9            # idle to redline with the pedal down and no load
   rise_seconds: float = 0.12
   fall_seconds: float = 0.45
   limiter: bool = False
@@ -62,7 +63,7 @@ def _recorded(name: str, label: str, *, cylinders: int, idle: float, redline: fl
     idle_rpm=idle, redline_rpm=redline,
     gears=tuple(ratio * scale for ratio in RACE_GEARS),
     upshift_rpm=(0.38 * redline, 0.96 * redline), downshift_rpm=(0.2 * redline, 0.6 * redline),
-    launch_slip_rpm=0.4 * redline, rise_seconds=0.08, fall_seconds=0.35, limiter=True,
+    launch_slip_rpm=0.4 * redline, rev_seconds=0.8, rise_seconds=0.08, fall_seconds=0.35, limiter=True,
     partials=_engine_partials(firing=cylinders, count=40, rough=0.25, bright=0.5),
     noise=(0.03, 0.18), gain=(0.7, 1.0),
   )
@@ -74,7 +75,7 @@ PROFILES: dict[str, Profile] = {profile.name: profile for profile in (
     idle_rpm=1100.0, redline_rpm=8600.0,
     gears=(520.0, 340.0, 250.0, 198.0, 165.0, 142.0),
     upshift_rpm=(3200.0, 8300.0), downshift_rpm=(1700.0, 5200.0),
-    launch_slip_rpm=3400.0, rise_seconds=0.07, fall_seconds=0.32, limiter=True,
+    launch_slip_rpm=3400.0, rev_seconds=0.6, rise_seconds=0.07, fall_seconds=0.32, limiter=True,
     partials=_engine_partials(firing=8, count=40, rough=0.22, bright=0.55),
     noise=(0.03, 0.22), gain=(0.30, 1.0),
   ),
@@ -94,7 +95,7 @@ PROFILES: dict[str, Profile] = {profile.name: profile for profile in (
     idle_rpm=650.0, redline_rpm=3400.0,
     gears=(300.0, 190.0, 130.0, 95.0, 74.0, 60.0),
     upshift_rpm=(1500.0, 3100.0), downshift_rpm=(850.0, 1700.0),
-    launch_slip_rpm=900.0, rise_seconds=0.28, fall_seconds=0.8,
+    launch_slip_rpm=900.0, rev_seconds=1.8, rise_seconds=0.28, fall_seconds=0.8,
     partials=_engine_partials(firing=6, count=36, rough=0.45, bright=0.25),
     noise=(0.10, 0.20), noise_pulse=0.9, pulse_partial=6, gain=(0.45, 1.0),
   ),

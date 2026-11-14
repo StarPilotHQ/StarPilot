@@ -140,3 +140,14 @@ def test_no_healing_while_the_car_is_away_or_when_the_check_fails(held, monkeypa
     now[0] += supervisor.OUTPUT_RETRY_SECONDS + 1
     sup.tick()
   assert any('could not load the car output yet' in line for line in sup.log)
+
+
+def test_engine_sound_opens_the_car_with_the_short_buffer_and_music_alone_does_not(held, monkeypatch):
+  sup, now, processes, _, _ = held
+  monkeypatch.setattr(supervisor.backend, 'can_switch', lambda: False)
+  preferences.save(preferences.Preferences(output='bluetooth', output_address=CAR), sup.layout)
+  sup.output.connected = True
+  sup.tick()
+  assert supervisor.backend.LOW_LATENCY in ' '.join(processes[-1].argv)
+  launch = supervisor.backend.server_launch(sup.layout, preferences.load(sup.layout))
+  assert 'module-alsa-sink' in ' '.join(launch.argv) and 'fragment' not in ' '.join(launch.argv)

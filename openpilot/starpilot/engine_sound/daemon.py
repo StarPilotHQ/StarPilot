@@ -20,8 +20,8 @@ from openpilot.starpilot.engine_sound.synth import SAMPLE_RATE, Synth, to_pcm
 BLOCK_SECONDS = 0.01
 FRAMES = int(SAMPLE_RATE * BLOCK_SECONDS)
 BLOCK_BYTES = FRAMES * 2
-# Mono s16: 100 ms maximum, 40 ms target, start immediately, 10 ms requests.
-BUFFER = (BLOCK_BYTES * 10, BLOCK_BYTES * 4, 0, BLOCK_BYTES)
+# Mono s16: 100 ms maximum, 30 ms target, start immediately, 10 ms requests.
+BUFFER = (BLOCK_BYTES * 10, BLOCK_BYTES * 3, 0, BLOCK_BYTES)
 FADE_SECONDS = 0.08
 SETTINGS_SECONDS = 1.0
 RECONNECT_SECONDS = 2.0

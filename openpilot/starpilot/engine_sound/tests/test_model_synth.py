@@ -105,3 +105,32 @@ def test_zero_volume_is_silent_and_volume_changes_ramp(name):
   assert not synth.render(2000, 0.5, 480, volume=0.0).any()
   rising = synth.render(2000, 0.5, 480, volume=1.0)
   assert abs(rising[0]) < 0.01
+
+
+def test_drivers_pedal_sets_the_load_even_when_the_car_pulls_hard():
+  model = EngineModel(PROFILES['lfa'])
+  assert run(model, 1.0, 0.25, 8.0, 2.5, True)[1] == pytest.approx(0.25, abs=0.02)
+
+
+@pytest.mark.parametrize('name', [name for name, profile in PROFILES.items() if profile.gears])
+def test_light_pedal_shifts_well_below_the_top_of_the_rev_range(name):
+  profile = PROFILES[name]
+  model = EngineModel(profile)
+  speed, peak = 0.0, 0.0
+  while speed < 30.0:
+    speed += 1.2 * DT
+    peak = max(peak, model.update(DT, 0.25, speed, 1.2, True)[0])
+  assert (peak - profile.idle_rpm) / (profile.redline_rpm - profile.idle_rpm) < 0.5
+  assert model.gear >= 3
+
+
+@pytest.mark.parametrize('name', sorted(PROFILES))
+def test_free_rev_climbs_at_the_engines_pace_not_instantly(name):
+  profile = PROFILES[name]
+  model = EngineModel(profile)
+  span = profile.redline_rpm - profile.idle_rpm
+  early = run(model, profile.rev_seconds * 0.25, 1.0)[0]
+  assert profile.idle_rpm + 0.1 * span < early < profile.idle_rpm + 0.4 * span
+  assert run(model, profile.rev_seconds * 1.5, 1.0)[0] > profile.idle_rpm + 0.85 * span
+  quarter = EngineModel(profile)
+  assert run(quarter, 5.0, 0.25)[0] < profile.idle_rpm + 0.25 * span

@@ -80,16 +80,20 @@ def starport_pipe(layout: Layout | None = None) -> Path:
   return runtime_paths(layout or Layout.default())['starport']
 
 
-def _sink(output: str, paths: dict[str, Path]) -> tuple[str, str]:
+# 30 ms of 48 kHz stereo in place of PulseAudio's default 100 ms, for sound that has to follow the driver's foot.
+LOW_LATENCY = 'fragments=3 fragment_size=1920'
+
+
+def _sink(output: str, paths: dict[str, Path], low_latency: bool = False) -> tuple[str, str]:
   if output == 'bluetooth':
-    return 'module-alsa-sink', f'device={PCM_NAME} sink_name={SINK_NAME} channels=2 tsched=0'
+    return 'module-alsa-sink', f'device={PCM_NAME} sink_name={SINK_NAME} channels=2 tsched=0' + (f' {LOW_LATENCY}' if low_latency else '')
   if output == 'starport':
     return 'module-pipe-sink', (f'file={paths["starport"]} sink_name={SINK_NAME} format=s16le rate={PIPE_RATE} ' +
                                 f'channels={PIPE_CHANNELS} use_system_clock_for_timing=yes')
   return 'module-null-sink', f'sink_name={SILENT_SINK if output == "silent" else SINK_NAME}'
 
 
-def server_launch(layout: Layout, prefs: Preferences, *, silent: bool = False, alsa_base: Path = SYSTEM_ALSA_CONFIG,
+def server_launch(layout: Layout, prefs: Preferences, *, silent: bool = False, low_latency: bool = False, alsa_base: Path = SYSTEM_ALSA_CONFIG,
                   root: Path = SERVER_ROOT) -> Launch:
   paths = runtime_paths(layout)
   for key in ('run', 'home', 'pulse'):
@@ -108,7 +112,7 @@ def server_launch(layout: Layout, prefs: Preferences, *, silent: bool = False, a
     env['ALSA_CONFIG_PATH'] = str(paths['alsa'])
   elif prefs.output == 'starport':
     paths['starport'].unlink(missing_ok=True)
-  sink = ' '.join(_sink('silent' if silent else prefs.output, paths))
+  sink = ' '.join(_sink('silent' if silent else prefs.output, paths, low_latency))
   argv = [str(root / 'bin' / 'pulseaudio'), '--daemonize=no', '--system=no', '--use-pid-file=no', '-n',
           '--exit-idle-time=-1', '--realtime=no', '--high-priority=yes', '--disallow-exit', '--log-target=stderr',
           '--log-level=notice', '--resample-method=speex-float-3', f'--dl-search-path={root / "modules"}',
