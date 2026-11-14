@@ -222,6 +222,8 @@ class Car:
     self.ioniq_media_map = IoniqMediaMapCache() if self.conditional_replay else None
     self.manual_settings_owner = ConditionalSettingsOwner(self.params) if self.conditional_replay else None
     self.ioniq6_long_prearmed = False
+    self.ioniq6_readiness_staged = False
+    self.ioniq6_previous_cp_saved = False
     self.ioniq6_long_pending = False
     self.ioniq6_long_selected = False
     self.ioniq6_last_preflight_at = 0.0
@@ -280,6 +282,12 @@ class Car:
                             any(ps.ignitionLine or ps.ignitionCan for ps in self.sm['pandaStates']))
           long_cp = build_ioniq6_hda2_long_candidate(cp, fingerprints) if eligible else None
           if long_cp is not None:
+            self.save_previous_car_params()
+            self.ioniq6_previous_cp_saved = True
+            self.ioniq6_readiness_staged = self.stage_ioniq6_startup_readiness(long_cp)
+            if not self.ioniq6_readiness_staged:
+              long_cp = None
+          if long_cp is not None:
             preflight = inspect_ioniq6_long_sources(self.can_callbacks[0], ecan_bus=HyundaiCanBus(cp).ECAN)
             cloudlog.event('ioniq6_long_preflight', reason=preflight.reason)
             if preflight.source_period is None or preflight.vehicle_ready is not False:
@@ -292,14 +300,20 @@ class Car:
             # Bit 11 is AOL only inside the exact Ioniq 6 bit-15 namespace.
             # This immutable choice precedes the ECU transaction and CP publish.
             long_cp.safetyConfigs[-1].safetyParam |= 0x0800
-          if long_cp is not None and not self.startup_diagnostic_admission(cp=long_cp):
+          if long_cp is not None and not self.startup_diagnostic_admission(cp=long_cp, readiness_staged=True):
             long_cp = None
+          if long_cp is None and self.ioniq6_readiness_staged:
+            self.params.put_bool('ControlsReady', False, block=True)
+            self.ioniq6_readiness_staged = False
           if long_cp is not None:
             self.ioniq6_restore_callbacks = self.can_callbacks
             self.ioniq6_restore_bus = HyundaiCanBus(long_cp).ECAN
           cp, self.ioniq6_long_prearmed, self.ioniq6_handoff_result = finalize_ioniq6_prepublication(
             cp, long_cp, *self.can_callbacks, enabled=eligible, is_release=is_release)
           self.ioniq6_long_selected = self.ioniq6_long_prearmed
+          if not self.ioniq6_long_prearmed and self.ioniq6_readiness_staged:
+            self.params.put_bool('ControlsReady', False, block=True)
+            self.ioniq6_readiness_staged = False
           if self.ioniq6_long_prearmed:
             self.ioniq6_handoff_source_floor_ns = time.clock_gettime_ns(time.CLOCK_BOOTTIME)
             ecan_bus = self.ioniq6_restore_bus
@@ -450,11 +464,8 @@ class Car:
     self.slc_match_on_engage = self.slc_transport_available and self.read_slc_match_on_engage()
     self.slc_source_floor_ns = 0
 
-    # Write previous route's CarParams
-    prev_cp = get_cache(self.params, "CarParamsPersistent")
-    if prev_cp is not None:
-      with car.CarParams.from_bytes(prev_cp) as previous:
-        put_cache(self.params, "CarParamsPrevRoute", previous, block=True)
+    if not self.ioniq6_previous_cp_saved:
+      self.save_previous_car_params()
 
     # Write CarParams for controls and radard
     self.vehicle_startup.seal_publication()
@@ -481,6 +492,8 @@ class Car:
     # card is driven by can recv, expected at 100Hz
     self.rk = Ratekeeper(100, print_delay_threshold=None)
     self.ioniq6_init_complete = True
+    if self.ioniq6_long_prearmed and self.ioniq6_readiness_staged:
+      self.ci_initialized = True
 
   def read_slc_configuration(self):
     settings = slc_runtime_settings(self.params, self.CP, os.environ)
@@ -1399,7 +1412,23 @@ class Car:
                        panda_recv_ns=panda_receipt + boot_ns - mono_ns if panda_current else 0,
                        panda_current=panda_current)
 
-  def startup_diagnostic_admission(self, *, cp=None):
+  def save_previous_car_params(self):
+    prev_cp = get_cache(self.params, "CarParamsPersistent")
+    if prev_cp is not None:
+      with car.CarParams.from_bytes(prev_cp) as previous:
+        put_cache(self.params, "CarParamsPrevRoute", previous, block=True)
+
+  def stage_ioniq6_startup_readiness(self, cp):
+    if (self.params.get_bool('FirmwareQueryDone') or self.params.get('CarParams') or
+        not self.startup_diagnostic_admission(cp=cp)):
+      return False
+    self.params.put_bool('ControlsReady', True, block=True)
+    if not self.startup_diagnostic_admission(cp=cp, readiness_staged=True):
+      self.params.put_bool('ControlsReady', False, block=True)
+      return False
+    return True
+
+  def startup_diagnostic_admission(self, *, cp=None, readiness_staged=False):
     from openpilot.starpilot.aol.panda_faults import blocking_fault_list
     self.sm.update(0)
     now, boot = time.monotonic_ns(), time.clock_gettime_ns(time.CLOCK_BOOTTIME)
@@ -1420,7 +1449,8 @@ class Car:
       # pandad clears the internal DOS ignition line in this exact topology.
       # The external captured-ADRV owner must still observe vehicle ignition.
       ignition_pandas = (pandas[1],)
-    return bool(not self.params.get_bool('IsOffroad') and not self.params.get_bool('ControlsReady') and
+    return bool(not self.params.get_bool('IsOffroad') and self.params.get_bool('ControlsReady') == readiness_staged and
+                (not readiness_staged or (not self.params.get_bool('FirmwareQueryDone') and not self.params.get('CarParams'))) and
                 sm.seen['pandaStates'] and sm.valid['pandaStates'] and sm.alive['pandaStates'] and
                 0 < stamp <= boot and boot - stamp <= 300_000_000 and
                 0 < receipt <= now and now - receipt <= 300_000_000 and len(pandas) == count and
