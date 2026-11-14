@@ -135,6 +135,8 @@ DESCRIPTIONS = {
   'ScreenTimeout': 'Sets how long the parked screen remains on after interaction.',
   'ScreenTimeoutOnroad': 'Sets the wait after interaction before returning to the driving view or turning off the screen if configured.',
   'KeepScreenOnGpuLoading': 'Keeps the driving screen visible while an eGPU model loads. Manual Screen Off still works.',
+  'DimStaticPixels': 'Dims any static areas of the display to reduce burn in on the comma screen.',
+  'DimStaticPixelsStrength': 'How much brightness is taken off a pixel that has stopped changing. Higher means more dimming on static elements.',
   'TurnOffCommaScreen': 'Pauses comma UI rendering to reduce CPU and GPU use. Tap once to wake the screen.',
   'LoudBlindspotAlert': 'Uses the soft-warning sound when a lane change is blocked by a detected blind-spot vehicle.',
   'LoudBlindspotAlertWhenDisengaged': ('Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. ' +

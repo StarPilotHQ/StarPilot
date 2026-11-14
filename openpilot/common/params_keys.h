@@ -173,6 +173,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ScreenTimeoutOnroad", {PERSISTENT, INT}},
     {"TurnOffCommaScreen", {PERSISTENT, BOOL, "0"}},
     {"KeepScreenOnGpuLoading", {PERSISTENT, BOOL, "0"}},
+    {"DimStaticPixels", {PERSISTENT, BOOL, "0"}},
+    {"DimStaticPixelsStrength", {PERSISTENT, INT, "40"}},
     {"LKASButtonControl", {PERSISTENT, INT, "0"}},
     {"SonataHybridLKASButtonControlMigrated", {PERSISTENT, BOOL, "0"}},
     {"MainCruiseButtonControl", {PERSISTENT, INT, "0"}},
