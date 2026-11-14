@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { ModelStatusFeed, ModelManagerFeed, ModelsPage, modelActionAllowed, fitsModelProfile } from "../web/js/models.js"
+import { ModelStatusFeed, ModelManagerFeed, ModelsPage, modelActionAllowed, fitsModelProfile, formatRate, formatEta, describeProgress } from "../web/js/models.js"
 
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve() }
 function fixture() {
@@ -80,7 +80,7 @@ const listeners = new Map()
 globalThis.document = { hidden: false,
   addEventListener: (name, fn) => listeners.set(name, fn),
   removeEventListener: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name) } }
-const page = { mode: "local", finishDialog() {}, manager: { start() {}, stop() {} }, feed: { starts: 0, stops: 0, start() { this.starts++ }, stop() { this.stops++ } } }
+const page = { mode: "local", finishDialog() {}, manager: { start() {}, stop() {} }, laboratory: { starts: 0, stops: 0, start() { this.starts++ }, stop() { this.stops++ } }, feed: { starts: 0, stops: 0, start() { this.starts++ }, stop() { this.stops++ } } }
 ModelsPage.mounted.call(page)
 assert.equal(page.feed.starts, 1)
 document.hidden = true
@@ -91,6 +91,7 @@ listeners.get("visibilitychange")()
 assert.equal(page.feed.starts, 2)
 ModelsPage.beforeUnmount.call(page)
 assert.equal(page.feed.stops, 2)
+assert.deepEqual([page.laboratory.starts, page.laboratory.stops], [2, 2])
 assert.equal(listeners.size, 0)
 globalThis.document = priorDocument
 
@@ -224,7 +225,7 @@ assert.equal(modelActionAllowed({ ...randomPayload, isOnroad: true }, 'favorite'
 assert.equal(modelActionAllowed(randomPayload, 'exclude', pending), true)
 assert.match(ModelsPage.template, /Model Randomizer/)
 assert.match(ModelsPage.template, /Include in Randomizer/)
-assert.match(ModelsPage.template, /An external GPU is not detected/)
+assert.match(ModelsPage.computed.gpuNote.call({ status: { gpuAvailable: false }, setup: '' }), /An external GPU is not detected/)
 const randomManagement = managerFixture()
 randomManagement.manager.start()
 await randomManagement.reply(0, randomPayload)
@@ -244,17 +245,61 @@ console.log('Randomizer and exclusion interactions passed')
 
 assert.match(ModelsPage.template, /Selections apply next onroad cycle/)
 assert.doesNotMatch(ModelsPage.template, /Onroad: switching/)
-assert.equal((ModelsPage.template.match(/class="gx-model-control"/g) || []).length, 2)
-assert.equal(ModelsPage.data().hardwareFilter, 'both')
-const hardware = { hardwareFilter: 'both', setHardwareFilter(value) { this.hardwareFilter = value } }
-ModelsPage.methods.toggleHardware.call(hardware, 'gpu', false)
-assert.equal(hardware.hardwareFilter, 'comma')
-ModelsPage.methods.toggleHardware.call(hardware, 'comma', false)
-assert.equal(hardware.hardwareFilter, 'none')
-ModelsPage.methods.toggleHardware.call(hardware, 'gpu', true)
-assert.equal(hardware.hardwareFilter, 'gpu')
-ModelsPage.methods.toggleHardware.call(hardware, 'comma', true)
-assert.equal(hardware.hardwareFilter, 'both')
+// Active Small, Active Big summary items, and the Laboratory pair's lateral and longitudinal pickers
+assert.equal((ModelsPage.template.match(/class="gx-model-control[\s"]/g) || []).length, 4)
+// the library tab is only a view: every model is one tap away, and a sleeping GPU never hides anything
+assert.equal(ModelsPage.data().tab, 'both')
+assert.equal(ModelsPage.computed.libraryTab.call({ tab: 'gpu' }), 'gpu')
+assert.equal(ModelsPage.computed.libraryTab.call({ tab: 'bogus' }), 'both')
+const tabsFor = models => ModelsPage.computed.tabs.call({ models }).map(tab => [tab.id, tab.count])
+assert.deepEqual(tabsFor([{ requiresGpu: false }, { requiresGpu: false }, { requiresGpu: true }]), [['comma', 2], ['gpu', 1], ['both', 3]])
+assert.deepEqual(tabsFor([]), [['comma', 0], ['gpu', 0], ['both', 0]])
+const view = { models: [{ value: 'a', label: 'A', requiresGpu: false }, { value: 'b', label: 'B', requiresGpu: true }], libraryTab: 'gpu', userFilter: 'all', communityFilter: 'all', sortMode: 'alphabetical' }
+assert.deepEqual(ModelsPage.computed.sorted.call(view).map(m => m.value), ['b'])
+assert.deepEqual(ModelsPage.computed.sorted.call({ ...view, libraryTab: 'comma' }).map(m => m.value), ['a'])
+assert.deepEqual(ModelsPage.computed.sorted.call({ ...view, libraryTab: 'both' }).map(m => m.value), ['a', 'b'])
+assert.equal(modelActionAllowed(managerPayload, 'setup'), false)
+
+// download progress: bytes when the backend sends them, the old text line otherwise
+assert.equal(formatRate(6.4e6), '6.4 MB/s')
+assert.equal(formatRate(12e6), '12 MB/s')
+assert.equal(formatRate(0), '')
+assert.equal(formatEta(20), 'less than a minute left')
+assert.equal(formatEta(125), 'about 2 min left')
+assert.equal(formatEta(3900), 'about 1 hr 5 min left')
+assert.equal(formatEta(NaN), '')
+assert.deepEqual([formatEta(20, true), formatEta(125, true), formatEta(3900, true)], ['under 1 min', '~2 min', '~1 hr 5 min'])
+const GB = 1e9
+const labels = [{ value: 'big', label: 'Big model' }, { value: 'small', label: 'Small model' }]
+const running = describeProgress({ downloading: true, modelToDownload: 'big', downloadProgress: { phase: 'downloading', model: 'big',
+  received: 0.5 * GB, total: 1.4 * GB, rate: 6.4e6, index: 1, count: 1 } }, labels)
+assert.deepEqual([running.name, running.percent, running.amount, running.rate, running.eta, running.queue, running.indeterminate],
+  ['Big model', 35, '500.0 MB of 1.40 GB', '6.4 MB/s', 'about 2 min left', '', false])
+const queued = describeProgress({ downloadProgress: { phase: 'downloading', model: 'small', received: 90e6, total: 210e6, rate: 8e6, index: 2, count: 4 } }, labels)
+assert.deepEqual([queued.queue, queued.percent], ['Model 2 of 4', 42])
+assert.equal(describeProgress({ downloadProgress: { phase: 'downloading', model: 'big', received: 1, total: 100, rate: 0 } }, labels).eta, '')
+const verifying = describeProgress({ downloadProgress: { phase: 'verifying', model: 'big', received: GB, total: GB } }, labels)
+assert.deepEqual([verifying.indeterminate, verifying.title, verifying.rate], [true, 'Verifying download', ''])
+const failed = describeProgress({ downloadProgress: { phase: 'failed', model: 'big', received: 5e8, total: 1.4e9, error: 'Not enough storage.' } }, labels)
+assert.deepEqual([failed.failed, failed.error, failed.percent], [true, 'Not enough storage.', 35])
+const legacy = describeProgress({ progress: 'Big model: 38%', modelToDownload: 'big' }, labels)
+assert.deepEqual([legacy.percent, legacy.indeterminate, legacy.name], [38, false, 'Big model'])
+assert.equal(describeProgress({ progress: 'Refreshing catalog' }, labels).indeterminate, true)
+const panel = (status, dismissed = false) => ModelsPage.computed.progressInfo.call({ status, models: labels, failureDismissed: dismissed })
+assert.equal(panel({ downloading: false }), null)
+assert.equal(panel({ downloading: false, downloadProgress: { phase: 'failed', model: 'big' } }).failed, true)
+assert.equal(panel({ downloading: false, downloadProgress: { phase: 'failed', model: 'big' } }, true), null)
+assert.equal(panel({ downloading: true, refreshing: true, progress: 'Refreshing catalog' }).indeterminate, true)
+const labelFor = info => ModelsPage.computed.cardProgressLabel.call({ progressInfo: info })
+assert.equal(labelFor(null), '')
+assert.equal(labelFor(running), 'Downloading 35% · 6.4 MB/s · ~2 min')
+assert.equal(labelFor(describeProgress({ downloadProgress: { phase: 'downloading', model: 'big', received: 1, total: 100, rate: 0 } }, labels)), 'Downloading 1%')
+assert.equal(labelFor(verifying), 'Verifying download')
+assert.equal(ModelsPage.computed.cancelLabel.call({ progressInfo: queued }), 'Cancel · 2 of 4')
+assert.equal(ModelsPage.computed.cancelLabel.call({ progressInfo: running }), 'Cancel download')
+assert.equal(ModelsPage.computed.cancelLabel.call({ progressInfo: null }), 'Cancel download')
+assert.equal(ModelsPage.computed.progressTitle.call({ progressInfo: failed }), 'Couldn’t download Big model')
+assert.doesNotMatch(ModelsPage.template, /gx-model-progress/)
 const randomSwitch = { target: { checked: true } }
 let randomAction = ''
 ModelsPage.methods.toggleRandomizer.call({ status: { randomizer: false }, runAction(action) { randomAction = action } }, randomSwitch)
@@ -312,7 +357,7 @@ assert.equal(liveLink.manager.data.jetlink.active, false)
 assert.equal(liveLink.manager.data.jetlink.state, "checking execution")
 liveLink.manager.stop()
 
-assert.ok(ModelsPage.template.includes('href="https://github.com/StarPilotHQ/StarPilot/blob/SecretGoodStarPilot/openpilot/starpilot/models/JETLINK.md"'), "Jetlink setup guide points at the branch that contains it")
+assert.ok(ModelsPage.template.includes('href="https://github.com/StarPilotHQ/StarPilot/blob/Dom/openpilot/starpilot/models/JETLINK.md"'), "Jetlink setup guide points at Dom")
 
 const refreshingCatalog = { ...managerPayload, downloading: true, refreshing: true }
 assert.equal(modelActionAllowed(refreshingCatalog, "select-small", small), true)
@@ -343,31 +388,93 @@ for (const label of ["Polaris R3 A ⚠️🧪", "Polaris R3 B ⚠️🧪", "Pola
 }
 assert.deepEqual(ModelsPage.methods.polarisTitleParts({value: "spz_polaris_r3a"}), ["spz_polaris_r3a", ""])
 
-
 // Laboratory overrides normal selections until the next model start.
-const labConfig = { enabled: true, lateralModel: 'small', longitudinalModel: 'big' }
-const labView = { ...managerPayload, laboratory: labConfig, capabilities: { ...managerPayload.capabilities, configureLaboratory: true } }
-assert.equal(modelActionAllowed(labView, 'disable-laboratory'), true)
-assert.equal(modelActionAllowed({ ...labView, isOnroad: true }, 'disable-laboratory'), false)
-assert.equal(modelActionAllowed({ ...labView, downloading: true }, 'disable-laboratory'), false)
-assert.equal(modelActionAllowed({ ...labView, laboratory: { ...labConfig, enabled: false } }, 'disable-laboratory'), false)
-const labManager = managerFixture()
-labManager.manager.start()
-await labManager.reply(0, labView)
-const disabledLab = labManager.manager.action('disable-laboratory')
-assert.equal(labManager.requests[1].url, './api/models/laboratory')
-assert.deepEqual(JSON.parse(labManager.requests[1].options.body), { ...labConfig, enabled: false })
-await labManager.reply(1, { message: 'Model Laboratory configuration saved' })
-await labManager.reply(2, { ...labView, laboratory: { ...labConfig, enabled: false } })
-await disabledLab
-assert.equal(labManager.manager.data.laboratory.enabled, false)
-labManager.manager.stop()
 const pairData = { catalog: [{ id: 'small', name: 'Small model' }, { id: 'big', name: 'Big model' }],
   laboratory: { active: true, lateralModel: 'small', longitudinalModel: 'big' } }
 const pairPage = { selectionUncertain: false, status: {}, runtime: { status: 'ready', data: pairData } }
 assert.equal(ModelsPage.computed.runningModelLabel.call(pairPage), 'Small model/Big model')
 assert.equal(ModelsPage.computed.runningModelLabel.call({ ...pairPage, runtime: { status: 'stale', data: pairData } }), 'Status unavailable')
 assert.equal(ModelsPage.computed.runningModelLabel.call({ ...pairPage, runtime: { status: 'ready', data: { ...pairData, laboratory: { ...pairData.laboratory, active: false } } } }), 'Laboratory output unavailable')
-assert.match(ModelsPage.template, /Turn off Laboratory/)
-assert.match(ModelsPage.template, /href="#\/model_laboratory"/)
 assert.match(ModelsPage.template, /fallback choices/)
+const pendingStart = data => ModelsPage.computed.pendingNextStart.call({ runtime: { status: 'ready', data } })
+assert.equal(pendingStart({ ...pairData, pendingNextStart: false }), false)
+assert.equal(pendingStart({ ...pairData, pendingNextStart: true }), true)
+assert.equal(pendingStart({ ...pairData, laboratory: { ...pairData.laboratory, pendingNextStart: true } }), true)
+assert.equal(ModelsPage.computed.pendingNextStart.call({ runtime: { status: 'stale', data: { pendingNextStart: true } } }), false)
+assert.equal(ModelsPage.template.match(/v-if="pendingNextStart"> · saved changes pending next start/g).length, 2)
+
+// Merged page: search, row list, Single model / Model pair mode switcher, and pair saving.
+{
+  const { matchesSearch, laboratoryActionAllowed, hardwareTag } = await import("../web/js/models.js")
+  const row = { value: 'tr16223', label: 'TR16 👀📡', series: 'TR Series', version: 'v8', released: '2025-07-21' }
+  assert.equal(matchesSearch(row, ''), true)
+  assert.equal(matchesSearch(row, 'tr16'), true)
+  assert.equal(matchesSearch(row, 'TR16223'), true)
+  assert.equal(matchesSearch(row, 'tr series v8'), true)
+  assert.equal(matchesSearch(row, 'v9'), false)
+
+  assert.match(ModelsPage.template, /<ul v-else class="gx-model-list" aria-label="Models">/)
+  assert.match(ModelsPage.template, /placeholder="Search models…"/)
+  assert.deepEqual([true, false, undefined].map(requiresGpu => hardwareTag({ requiresGpu }).tone), ["egpu", "small", "unknown"])
+
+  const page = { ...ModelsPage.data(), activeSmallModel: 'a', activeBigModel: 'b', currentModel: 'a',
+    lab: { configuration: { enabled: false, lateralModel: 'a', longitudinalModel: 'c' } } }
+  assert.deepEqual(ModelsPage.methods.activeRoles.call(page, { value: 'a' }), ['Active Small'])
+  assert.deepEqual(ModelsPage.methods.activeRoles.call(page, { value: 'b' }), ['Active Big'])
+  assert.deepEqual(ModelsPage.methods.activeRoles.call(page, { value: 'c' }), [])
+  assert.deepEqual(ModelsPage.methods.pairRoles.call(page, { value: 'a' }), ['Pair · lateral'])
+  assert.deepEqual(ModelsPage.methods.pairRoles.call(page, { value: 'c' }), ['Pair · longitudinal'])
+
+  const listed = (extra) => ModelsPage.computed.sorted.call({ ...ModelsPage.data(), libraryTab: 'both', isPairable: m => m.pairable === true,
+    models: [{ value: 'x1', label: 'Alpha', requiresGpu: false, pairable: true }, { value: 'x2', label: 'Beta', requiresGpu: false, pairable: false }], ...extra }).map(m => m.value)
+  assert.deepEqual(listed({ pairableFilter: true }), ['x1'])
+  assert.deepEqual(listed({ search: 'bet' }), ['x2'])
+
+  const lab = { schemaVersion: 1, isOnroad: false, chestnutReady: false, runtimeSupported: false,
+    configuration: { enabled: false, lateralModel: '', longitudinalModel: '' }, download: { downloading: false },
+    capabilities: { configure: true }, models: ['a', 'b'].map(value => ({ value, label: value, small: true, modelLabEligible: true, modelLabArtifactAvailable: true, modelLabArtifactInstalled: true })) }
+  assert.equal(laboratoryActionAllowed(lab, 'save', null, { lateralModel: 'a', longitudinalModel: 'b' }), true)
+  assert.equal(laboratoryActionAllowed(lab, 'save', null, { lateralModel: 'a', longitudinalModel: 'a' }), false)
+  assert.equal(laboratoryActionAllowed(lab, 'save', null, { lateralModel: 'a', longitudinalModel: 'missing' }), false)
+  assert.equal(laboratoryActionAllowed({ ...lab, isOnroad: true }, 'save', null, { lateralModel: 'a', longitudinalModel: 'b' }), false)
+  assert.equal(laboratoryActionAllowed({ ...lab, configuration: { enabled: true, lateralModel: 'a', longitudinalModel: 'b' } }, 'save', null, { lateralModel: 'b', longitudinalModel: 'a' }), false)
+  assert.equal(ModelsPage.computed.labChoiceProblem.call({ labSelectionError: 'Pair inference is not available in this build yet.' }), false)
+  assert.equal(ModelsPage.computed.labChoiceProblem.call({ labSelectionError: 'Choose two different models' }), true)
+  console.log('Merged page search, row list, and pair saving passed')
+}
+
+// Retrying a failed pair artifact must retain its variant and keep errors visible on failure.
+{
+  const model = { value: 'small', installed: true }
+  const row = { value: 'small', small: true, modelLabChestnut: true }
+  const context = { busy: '', models: [model], status: { downloadVariant: 'amd', downloadProgress: { model: 'small', count: 1 } },
+    labRow: () => row, labActionAvailable: () => true, actionAvailable: () => false }
+  const request = ModelsPage.computed.retryDownloadRequest.call(context)
+  assert.deepEqual(request, { laboratory: true, action: 'download', model: row })
+  assert.equal(ModelsPage.computed.retryDownloadRequest.call({ ...context, labActionAvailable: () => false }), null)
+  assert.equal(ModelsPage.computed.retryDownloadRequest.call({ ...context, busy: 'download:' }), null)
+  const attempts = []
+  const retry = { retryDownloadRequest: request, failureDismissed: false, disposed: false,
+    runLabAction: async (...args) => { attempts.push(args); return null },
+    runAction: () => assert.fail('AMD retry must not download the standard variant') }
+  await ModelsPage.methods.retryDownload.call(retry)
+  assert.deepEqual(attempts, [['download', row]])
+  assert.equal(retry.failureDismissed, false)
+  retry.runLabAction = async () => ({ message: 'Starting download' })
+  await ModelsPage.methods.retryDownload.call(retry)
+  assert.equal(retry.failureDismissed, false, 'readback replaces the failure; a fast new failure must remain visible')
+  const standard = { ...context, status: { downloadVariant: 'standard', downloadProgress: { model: 'small', count: 1 } },
+    actionAvailable: () => true }
+  assert.deepEqual(ModelsPage.computed.retryDownloadRequest.call(standard), { action: 'download', model })
+  assert.deepEqual(ModelsPage.computed.retryDownloadRequest.call({ ...standard,
+    status: { downloadProgress: { model: 'small', count: 3 } } }), { action: 'downloadAll', model })
+
+  const downloading = { lab: { download: { downloading: true, variant: 'standard', model: 'small' } }, labRow: () => row }
+  assert.equal(ModelsPage.methods.isPairDownloading.call(downloading, model), false)
+  downloading.lab.download.variant = 'amd'
+  assert.equal(ModelsPage.methods.isPairDownloading.call(downloading, model), true)
+  downloading.lab.download.model = 'other'
+  assert.equal(ModelsPage.methods.isPairDownloading.call(downloading, model), false)
+}
+
+

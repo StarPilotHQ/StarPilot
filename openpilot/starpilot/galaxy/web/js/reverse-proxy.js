@@ -39,14 +39,14 @@ export const ReverseProxySettings = {
   template: `<section v-if="mode === 'local'" class="gx-card gx-settings__section">
     <div class="gx-section__header"><i class="bi bi-hdd-network" aria-hidden="true"></i><span class="gx-section__title">Reverse proxy</span></div>
     <form @submit.prevent="save">
-      <fieldset :disabled="busy || !status?.canEdit" style="border:0; padding:0; min-width:0">
+      <fieldset :disabled="busy || !status?.canEdit" style="border:0; margin:0; padding:0; min-width:0">
         <div class="gx-row"><label for="gx-proxy-enabled" class="gx-row__info"><span class="gx-row__label">Enable reverse proxy</span></label>
           <label class="gx-switch"><input id="gx-proxy-enabled" type="checkbox" role="switch" v-model="enabled" aria-label="Enable reverse proxy"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label></div>
-        <div class="gx-row"><label class="gx-settings__developer-provider">Proxy IP address
+        <div class="gx-row gx-row--stack"><label class="gx-field-group">Proxy IP address
           <input class="gx-field" v-model="address" placeholder="192.168.1.2" maxlength="64" :required="enabled" autocomplete="off" spellcheck="false"></label></div>
-        <div class="gx-row"><label class="gx-settings__developer-provider">Public HTTPS origin
+        <div class="gx-row gx-row--stack"><label class="gx-field-group">Public HTTPS origin
           <input class="gx-field" type="url" v-model="origin" placeholder="https://galaxy.example.com" maxlength="256" :required="enabled" autocomplete="off" spellcheck="false"></label></div>
-        <button class="gx-btn" type="submit" :disabled="enabled && !status?.passwordConfigured"><i class="bi bi-check-lg" aria-hidden="true"></i> Save</button>
+        <div class="gx-panel gx-actions"><button class="gx-btn" type="submit" :disabled="enabled && !status?.passwordConfigured"><i class="bi bi-check-lg" aria-hidden="true"></i> Save</button></div>
       </fieldset>
     </form>
     <GxNotice v-if="status && !status.canEdit" tone="warn">Turn off the vehicle to change reverse proxy settings.</GxNotice>

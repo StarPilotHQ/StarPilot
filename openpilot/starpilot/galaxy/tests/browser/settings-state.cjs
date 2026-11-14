@@ -152,12 +152,12 @@ const { execFileSync } = require('node:child_process')
         ['onroad-layout', 'OnroadLayoutPage', prepareLayout],
         ['onroad-layout', 'OnroadLayoutPage', prepareLayout, { projection: true }],
         ['models', 'ModelsPage', prepareModels],
-        ['model-laboratory', 'LaboratoryPage', vm => Object.assign(vm, { loading: false,
-          configuration: { enabled: false, lateralModel: 'one', longitudinalModel: 'two' }, status: {
+        ['models', 'ModelsPage', vm => { prepareModels(vm); Object.assign(vm, { pairView: 'pair',
+          labConfig: { enabled: false, lateralModel: 'one', longitudinalModel: 'two' }, lab: {
             configuration: { enabled: false, lateralModel: 'one', longitudinalModel: 'two' },
-            isOnroad: false, runtimeSupported: true, chestnutReady: true, runtime: {}, download: { downloading: false },
+            isOnroad: false, runtimeSupported: true, chestnutReady: true, runtime: {}, download: { downloading: false }, summary: { published: 2 },
             models: ['one', 'two'].map(value => ({ value, label: value, small: true, modelLabEligible: true, modelLabArtifactAvailable: true, modelLabArtifactInstalled: true })),
-            capabilities: { configure: true, download: true, delete: true, cancel: true, refresh: true } } })],
+            capabilities: { configure: true, download: true, delete: true, cancel: true, refresh: true } } }) }],
         ['sentry-notifications', 'SentryNotifications', vm => { vm.notifications = { subscriptionCount: 0, subscriptions: [],
           channels: Object.fromEntries(vm.channels.map(name => [name, { enabled: true, configured: true, pending: 0, lastState: 'idle', lastError: '' }])) } }],
         ['drive-state', 'DriveStatePanel', vm => { vm.state = { mode: 'auto', available: true, effective: 'offroad', overrideAllowed: true } }],
@@ -213,13 +213,12 @@ const { execFileSync } = require('node:child_process')
       return cases.map(([, name]) => name)
     }, layout)
     for (const success of [false, true]) {
-      await page.getByRole('combobox', { name: /^Active Small/ }).click()
-      await page.getByRole('option', { name: 'two', exact: true }).click()
+      await page.getByRole('button', { name: 'Set Active Small' }).click()
       await page.waitForFunction(() => !!vm.busy)
-      assert.equal(await page.getByRole('combobox', { name: /^Active Small/, includeHidden: true }).textContent(), 'two')
+      assert.equal(await page.locator('.gx-model-summary-item__value').first().textContent(), 'two')
       await page.evaluate(success => finishModel(success), success)
       await page.waitForFunction(() => !vm.busy)
-      assert.equal(await page.getByRole('combobox', { name: /^Active Small/ }).textContent(), success ? 'two' : 'one')
+      assert.equal(await page.locator('.gx-model-summary-item__value').first().textContent(), success ? 'two' : 'one')
     }
     assert.deepEqual(errors, [])
     console.log(`Settings state: ${pages.length} settings pages and ${audited.length} specialized pages; delayed preview/save/readback, Default/download buttons, stable control nodes/opacity and failed-save recovery passed.`)

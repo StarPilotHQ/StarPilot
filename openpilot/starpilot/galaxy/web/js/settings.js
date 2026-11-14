@@ -291,6 +291,7 @@ export const SettingsPage = {
   computed: {
     sentryStatus() { return sentryMonitorStatus(this.state.data, this.state.error) },
     busy() { return settingsBusy(this.state) || !!this.state.testingSound || !!this.$refs?.vehicleEditor?.busy },
+    vehicleSection() { return this.initialPage === "hub" && this.activeSection.id === "vehicle" },
     activeSection() {
       if (this.state.developerOpen) return this.sections.at(-1)
       const page = (this.state.data?.page || "hub").split("/")[0]
@@ -483,16 +484,17 @@ export const SettingsPage = {
       <GxState v-if="mode !== 'local'">Local settings are unavailable in preview.</GxState>
       <template v-else>
         <GxNotice v-if="state.data && state.data.vehicleIdentified === false" tone="info">Vehicle not identified yet. Turn on the car and wait for fingerprinting; vehicle-specific settings will then appear here.</GxNotice>
-        <CloudProviderPage ref="cloudProvider" v-if="state.developerOpen" :mode="mode" :unauthorized="unauthorized" />
-        <ReverseProxySettings v-if="state.developerOpen" :mode="mode" :unauthorized="unauthorized" />
         <GxState v-if="state.status === 'loading'" loading>Reading your device’s saved preferences…</GxState>
         <GxNotice tone="danger" v-else-if="state.status === 'unavailable' && !state.error">The device could not read these preferences. Reconnecting automatically…</GxNotice>
         <GxNotice tone="danger" v-if="state.error">{{ state.error }}
           </GxNotice>
-        <VehicleControlsPage ref="vehicleEditor" v-if="initialPage === 'hub' && activeSection.id === 'vehicle'" :mode="mode" :unauthorized="unauthorized" />
-        <div v-else-if="!state.developerOpen || state.data?.page === 'developer'" class="gx-panel-stage" :style="{'--panel-direction': state.panelDirection}">
-          <Transition name="gx-panel">
-          <div v-if="state.data" :key="state.data.page + activeSection.id" class="gx-settings__body">
+        <div class="gx-panel-stage" :style="{'--panel-direction': state.panelDirection}">
+          <Transition name="gx-panel" @before-enter="$event.inert = false" @before-leave="$event.inert = true">
+          <div v-if="state.data || state.developerOpen || vehicleSection" :key="state.developerOpen ? 'developer' : vehicleSection ? 'vehicle' : state.data.page + activeSection.id" class="gx-settings__body">
+            <VehicleControlsPage ref="vehicleEditor" v-if="vehicleSection" :mode="mode" :unauthorized="unauthorized" />
+            <CloudProviderPage ref="cloudProvider" v-if="state.developerOpen" :mode="mode" :unauthorized="unauthorized" />
+            <ReverseProxySettings v-if="state.developerOpen" :mode="mode" :unauthorized="unauthorized" />
+            <template v-if="!vehicleSection && state.data && (!state.developerOpen || state.data.page === 'developer')">
             <div v-if="state.data.page === 'pip'" class="gx-settings__actions gx-actions">
               <button type="button" class="gx-btn gx-btn--tonal" @click="openCropEditor"><i class="bi bi-crop" aria-hidden="true"></i> Crop editor</button>
             </div>
@@ -513,6 +515,7 @@ export const SettingsPage = {
               <div v-if="!cardIndex && !visibleRows.length" class="gx-empty">No matching settings.</div>
             </section>
             <SoundPacks v-if="state.data.page === 'sounds'" :unauthorized="unauthorized" :busy="busy" @installed="refreshSoundChoices" />
+            </template>
           </div>
           </Transition>
         </div>

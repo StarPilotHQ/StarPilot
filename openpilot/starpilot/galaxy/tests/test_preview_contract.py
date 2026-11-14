@@ -18,7 +18,7 @@ class PreviewContractTest(unittest.TestCase):
     self.assertTrue(all(path.startswith("/") and path != "/tools" for path in paths))
     self.assertEqual([tool["path"] for tool in catalog["tools"] if tool["availability"] == "partial-preview"], ["/logs"])
     self.assertEqual([tool["path"] for tool in catalog["tools"] if tool["availability"] == "local-only"],
-                     ["/bluetooth", "/cameras", "/galaxy", "/manage_models", "/model_laboratory", "/navigation", "/system",
+                     ["/bluetooth", "/cameras", "/galaxy", "/manage_models", "/navigation", "/system",
                       "/theme_maker", "/tuning", "/starport"])
     self.assertEqual([tool["path"] for tool in catalog["tools"] if tool["availability"] == "always"], [])
     self.assertTrue(all(tool["availability"] in {"always", "unavailable", "partial-preview", "local-only"} for tool in catalog["tools"]))

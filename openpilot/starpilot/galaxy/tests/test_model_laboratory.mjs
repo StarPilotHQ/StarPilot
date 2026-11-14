@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { LaboratoryFeed, LaboratoryPage, laboratoryModels, laboratoryReady, laboratorySelectionError, laboratoryActionAllowed, laboratoryDraft, laboratoryStatusLabel } from "../web/js/model-laboratory.js"
+import { LaboratoryFeed, ModelsPage, laboratoryModels, laboratoryReady, laboratorySelectionError, laboratoryActionAllowed, laboratoryDraft, laboratoryStatusLabel } from "../web/js/models.js"
 
 const model = (value, version = 'v9') => ({ value, label: `Model ${value}`, version, small: true, modelLabEligible: true, modelLabArtifactAvailable: true, modelLabArtifactInstalled: true })
 const payload = () => ({ schemaVersion: 1, isOnroad: false, chestnutReady: true, runtimeSupported: true,
@@ -72,24 +72,30 @@ assert.equal(download.requests[1].url,'./api/models/laboratory/download');assert
 await download.reply(1,{message:'Starting download'});await download.reply(2,{...p,download:{downloading:true,jobId:'job',progress:'40%'}});await downloading
 const canceling=download.feed.action('cancel');assert.equal(download.requests[3].url,'./api/models/cancel');assert.deepEqual(JSON.parse(download.requests[3].options.body),{jobId:'job'})
 await download.reply(3,{message:'Cancelling'});await download.reply(4,p);await canceling;download.feed.stop()
-assert.deepEqual([...LaboratoryPage.template.matchAll(/class="gx-section__title">([^<]+)<\/span>/g)].map(match => match[1]),
-  ['Compose a pair', 'Available models'])
-for (const label of ['Lateral model', 'Longitudinal model', 'Enable model pair', 'Check model catalog']) {
-  const position = LaboratoryPage.template.indexOf(label)
-  assert.ok(position >= 0 && position < LaboratoryPage.template.indexOf('v-for="m in availableModels"'),
-    `${label} must appear before the model catalog`)
-}
-assert.doesNotMatch(LaboratoryPage.template,/runtimeState|modelLabel\(status\?\.runtime/ )
-assert.match(LaboratoryPage.template,/status\?\.runtime.error/)
-assert.equal(LaboratoryPage.methods.modelLabel.call({status:p},'a'),'Model a')
-assert.equal(LaboratoryPage.methods.modelLabel.call({status:p},'unknown'),'unknown')
-assert.equal(LaboratoryPage.methods.modelLabel.call({status:null},''),'Not selected')
-assert.match(LaboratoryPage.template,/GalaxySelect/)
-assert.match(LaboratoryPage.template,/Catalog models/)
-assert.match(LaboratoryPage.template,/modelLabReason/)
+// Model Laboratory lives on the Models page: Single model / Model pair mode switcher and eGPU variants on the model rows
+const template = ModelsPage.template
+const labCard = template.indexOf('id="gx-model-laboratory"')
+assert.ok(template.indexOf('Single model') < labCard && labCard < template.indexOf('gx-model-list'))
+assert.match(template,/aria-label="Lateral model"/)
+assert.match(template,/aria-label="Longitudinal model"/)
+assert.ok(template.includes(`@click="setDriveMode('pair')"><i aria-hidden="true" class="bi bi-bezier2"></i> Model pair</button>`))
+assert.match(template,/Verified downloads/)
+assert.match(template,/eGPU variant/)
+assert.match(template,/Pairable/)
+assert.doesNotMatch(template,/Available models|Compose a pair|Catalog models/)
 assert.equal(laboratoryStatusLabel({modelLabStatus:"runtime-unavailable"}), "Downloaded")
 assert.equal(laboratoryStatusLabel({modelLabStatus:"unsupported"}), "Not supported")
+assert.doesNotMatch(template,/20 Hz/)
+const save=fixture();save.feed.start();await save.reply(0,p)
+const saving=save.feed.action('save',null,{enabled:true,lateralModel:'b',longitudinalModel:'a'})
+assert.equal(save.requests[1].url,'./api/models/laboratory')
+assert.deepEqual(JSON.parse(save.requests[1].options.body),{enabled:false,lateralModel:'b',longitudinalModel:'a'})
+await save.reply(1,{...p,message:'saved'});await save.reply(2,p);await saving;save.feed.stop()
 const performanceNotice = 'Two Big models cannot run together at the required speed. Choose a Small model for one role. Other combinations can also cause model lag warnings.'
-assert.ok(LaboratoryPage.template.includes(performanceNotice))
-assert.doesNotMatch(LaboratoryPage.template.replace(performanceNotice,''),/20 Hz/)
+assert.ok(template.includes(performanceNotice))
+assert.match(template,/lab\.runtime\.error/)
 console.log('Model Laboratory contracts passed')
+assert.match(template,/steers · \{\{ labModelLabel\(labConfig\.longitudinalModel\) \}\} paces/)
+assert.match(template,/The pair takes effect the next time the driving model starts/)
+assert.match(template,/row\?\.small \|\| row\?\.modelLabEligible/)
+assert.match(template,/Pair lateral judgment from one model with longitudinal judgment from another\./)

@@ -136,6 +136,7 @@ class LocalModelManagerHttpTest(unittest.TestCase):
         status, snapshot = request('/api/models/manager')
         self.assertEqual(status, 200)
         self.assertFalse(snapshot['randomizer'])
+        self.assertIsNone(snapshot['downloadProgress'])
         self.assertEqual(request('/api/models/jetlink', {'mode': 'usb'})[0], 200)
         self.assertEqual(link.mode, 'usb')
         status, snapshot = request('/api/models/manager')

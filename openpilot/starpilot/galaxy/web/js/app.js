@@ -16,7 +16,6 @@ const Logs = page(() => import("./logs.js").then((module) => module.Logs))
 const SoftwarePage = page(() => import("./software-status.js").then((module) => module.SoftwarePage))
 const NavigationPage = page(() => import("./navigation.js").then((module) => module.NavigationPage))
 const ModelsPage = page(() => import("./models.js").then((module) => module.ModelsPage))
-const LaboratoryPage = page(() => import("./model-laboratory.js").then((module) => module.LaboratoryPage))
 import { SettingsPage } from "./settings.js"
 import { SettingsRecoveryPage } from "./settings-recovery.js"
 import { ToggleSearch } from "./toggle-search.js"
@@ -87,13 +86,13 @@ const auth = new LocalAuth({ publish: (update) => {
 
 
 createApp({
-  components: { BottomNav, Home, LocalAccess, Tools, Logs, SoftwarePage, NavigationPage, ModelsPage, LaboratoryPage, SettingsPage, SettingsRecoveryPage, ToggleSearch, SaveFeedback, FlmPage, LocalRecordingsPage, CamerasPage, SentryEventsPage, VasmPage, PipPage, DrivingPage, DevicePreferencesPage, BluetoothPage, StarPortPage, SpotifyPage, LongitudinalCurvesPage, OnroadLayoutPage, GalaxyPage, DevicePicker, DeviceState, MenuTile },
+  components: { BottomNav, Home, LocalAccess, Tools, Logs, SoftwarePage, NavigationPage, ModelsPage, SettingsPage, SettingsRecoveryPage, ToggleSearch, SaveFeedback, FlmPage, LocalRecordingsPage, CamerasPage, SentryEventsPage, VasmPage, PipPage, DrivingPage, DevicePreferencesPage, BluetoothPage, StarPortPage, SpotifyPage, LongitudinalCurvesPage, OnroadLayoutPage, GalaxyPage, DevicePicker, DeviceState, MenuTile },
   data: () => ({ state, authState, authForm, route, NAV, routeDirection: 1, updateRestart, deviceRestart, nextLayoutLeavePresentation: "inline" }),
   computed: {
     visibleTools() { return state.tools.filter(tool => tool.visibility !== "authenticated" ||
       (state.monitorMode === "local" && authState.status === "authenticated")).sort((a, b) =>
         Number(a.path === "/galaxy") - Number(b.path === "/galaxy")) },
-    currentTool() { return state.tools.find((tool) => route.path === tool.path || route.path.startsWith(tool.path + "/")) },
+    currentTool() { return state.tools.find((tool) => this.isActive(tool.path)) },
     drivingSettingsPage() { return drivingPage(route.path) },
     deviceSettingsPage() { return devicePage(route.path) },
     pageName() {
@@ -147,7 +146,7 @@ createApp({
       state.drawerOpen = state.navPinned
       save(PIN_KEY, String(state.navPinned))
     },
-    isActive(path) { return route.path === path || route.path.startsWith(path + "/") },
+    isActive(path) { return route.path === path || route.path.startsWith(path + "/") || (path === "/manage_models" && route.path === "/model_laboratory") },
     async signIn() {
       const password = authForm.password
       authForm.password = ""
@@ -252,8 +251,7 @@ createApp({
           :preparing="baseline => updateRestart.prepare({ ...baseline, instance: deviceRestart.instance })" :cancel-preparation="() => updateRestart.cancelPreparation()" />
         <NavigationPage v-else-if="['/navigation', '/navigation/maps', '/navigation/setup'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" :tabs="currentTool?.children || []"
           :initial-tab="route.path === '/navigation/maps' ? 'maps' : route.path === '/navigation/setup' ? 'setup' : 'route'" />
-        <ModelsPage v-else-if="route.path === '/manage_models'" :mode="state.monitorMode" :unauthorized="sessionExpired" />
-        <LaboratoryPage v-else-if="route.path === '/model_laboratory'" :mode="state.monitorMode" :unauthorized="sessionExpired" />
+        <ModelsPage v-else-if="['/manage_models', '/model_laboratory'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" :focus="route.path === '/model_laboratory' ? 'laboratory' : ''" />
         <BluetoothPage v-else-if="route.path === '/bluetooth'" :mode="state.monitorMode" :unauthorized="sessionExpired" />
         <StarPortPage v-else-if="route.path === '/starport'" :mode="state.monitorMode" :local-access="authState.localAccess" :unauthorized="sessionExpired" />
         <SpotifyPage v-else-if="['/starport/audio', '/spotify'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" />
