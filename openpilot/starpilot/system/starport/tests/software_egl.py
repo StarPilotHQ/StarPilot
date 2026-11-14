@@ -3,6 +3,23 @@
 import ctypes as C
 
 
+class ContextGL:
+  """Resolve readback entry points from the same EGL implementation as Raylib."""
+
+  def __init__(self, egl):
+    self.get_address = egl.eglGetProcAddress
+    self.get_address.restype = C.c_void_p
+    self.get_address.argtypes = [C.c_char_p]
+
+  def __getattr__(self, name):
+    address = self.get_address(name.encode())
+    if not address:
+      raise AttributeError(f"EGL did not provide {name}")
+    function = C.CFUNCTYPE(None)(address)
+    setattr(self, name, function)
+    return function
+
+
 class SoftwareEGLContext:
   def __init__(self, rl, width=64, height=64):
     self.rl = rl
@@ -39,6 +56,7 @@ class SoftwareEGLContext:
       self.context = self.egl.eglCreateContext(self.display, config, None, (C.c_int * 3)(0x3098, 3, 0x3038))
       self.check(self.context, "GLES3 context")
       self.check(self.egl.eglMakeCurrent(self.display, self.surface, self.surface, self.context), "make current")
+      self.gl = ContextGL(self.egl)
       rl.rl_load_extensions(C.cast(self.egl.eglGetProcAddress, C.c_void_p).value)
       rl.rlgl_init(width, height)
       self.ready = True
