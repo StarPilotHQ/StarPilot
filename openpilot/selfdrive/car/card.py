@@ -12,7 +12,7 @@ from openpilot.cereal import log
 from opendbc.car.structs import car
 
 from openpilot.common.params import Params
-from openpilot.common.realtime import config_realtime_process, Priority, Ratekeeper
+from openpilot.common.realtime import config_realtime_process, lock_memory, Priority, Ratekeeper
 from openpilot.common.swaglog import cloudlog, ForwardingHandler
 
 from opendbc.car import DT_CTRL, structs
@@ -1982,6 +1982,7 @@ class Car:
 
 def main():
   config_realtime_process(4, Priority.CTRL_HIGH)
+  cloudlog.info(f"card memory lock: {lock_memory()}")
   # Retain the partially initialized object so its diagnostic worker can be
   # stopped even if construction fails after a confirmed ECU handoff.
   car = Car.__new__(Car)
