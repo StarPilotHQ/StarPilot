@@ -1933,11 +1933,13 @@ class SelfdriveD:
       ford_native_accepts_cp(self.CP, int(car.CarParams.SafetyModel.ford), self.CP.safetyConfigs[-1].safetyParam))
     # Driver steering does not invalidate a still-current native LAT grant.
     from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
+    from opendbc.car.volkswagen.pq_aol import qualified as volkswagen_pq_qualified
     from openpilot.starpilot.car.toyota.aol import qualified as toyota_aol_qualified
     toyota_longitudinal = bool(self.CP.brand == 'toyota' and self.CP.openpilotLongitudinalControl and
                               toyota_aol_qualified(self.CP, marked_only=True))
     steering_override_allowed = (ordinary_ford or toyota_longitudinal or self.CP.brand == 'hyundai' or
-                                 volkswagen_long_qualified(self.CP, marked_only=True))
+                                 volkswagen_long_qualified(self.CP, marked_only=True) or
+                                 self.CP.openpilotLongitudinalControl and volkswagen_pq_qualified(self.CP, marked_only=True))
     # Paused Ford steering has no LAT grant to retain. The same ordinary
     # mismatch owner can observe denied LONG with both outputs inactive.
     ford_long_only = bool(ordinary_ford and not previous.lateral_active and
