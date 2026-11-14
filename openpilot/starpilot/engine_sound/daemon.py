@@ -163,6 +163,8 @@ def main() -> None:
                              channels=1, buffer=BUFFER)
         cloudlog.info(f'enginesoundd connected after {tries} retries')
         tries = 0
+        # Fade back in after a dropped output instead of resuming at full level with a click.
+        engine.volume = 0.0
       except (OSError, RuntimeError) as error:
         if tries == 0 or tries == FAST_RECONNECT_TRIES:
           cloudlog.info(f'enginesoundd waiting for audio output: {error}')
