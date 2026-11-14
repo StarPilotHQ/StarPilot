@@ -199,8 +199,7 @@ def compute_routes(http, key: str, body: dict, timeout=TIMEOUT) -> list[Navigati
 
 
 class GoogleRouteEngine:
-  """Traffic-aware (Pro) routes, with the car's heading when it is moving; free Essentials routes once the Pro allowance
-  or the hourly reroute limit is used up."""
+  """Traffic-aware Pro routes, falling back to Essentials once the Pro or hourly reroute limit is used up."""
 
   def __init__(self, session, budget: GoogleBudget, essentials: GoogleBudget, clock=time.monotonic):
     self.session = session

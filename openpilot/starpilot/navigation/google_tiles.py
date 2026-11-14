@@ -1,8 +1,4 @@
-"""Google Map Tiles for the nav map widget, with the user's own key.
-
-The map widget writes which tiles it is about to show; navtilesd fetches only those, stores each
-for as long as Google's Cache-Control allows, and stops at 99% of the free monthly and daily tiles.
-"""
+"""Google Map Tiles for the nav map widget, fetched only as requested and capped below the free allowance."""
 
 from __future__ import annotations
 

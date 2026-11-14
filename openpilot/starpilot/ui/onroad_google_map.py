@@ -1,7 +1,4 @@
-"""Google map tiles for the map widget: planned and decoded on a worker thread, uploaded on the render thread.
-
-navtilesd downloads the tiles this layer asks for; nothing here touches the network.
-"""
+"""Google map tiles for the map widget: decoded on a worker thread, uploaded on the render thread."""
 
 from __future__ import annotations
 

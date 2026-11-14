@@ -295,10 +295,7 @@ class LiveContextSource:
         return False
 
   def _refreshed_snapshot(self, deadline):
-    """Wait for the shared collector's next deviceState and pandaStates, then sample it again.
-
-    Called with self.lock held; it is released while waiting so concurrent Galaxy requests wait in parallel.
-    """
+    """Wait for the next deviceState and pandaStates, then sample again; call with self.lock held."""
     refresh = getattr(self.messages, "refresh", None)
     remaining_ms = int((deadline - self.wait_clock()) * 1000)
     if refresh is None or remaining_ms <= 0:

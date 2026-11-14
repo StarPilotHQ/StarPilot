@@ -44,6 +44,24 @@ def test_share_intent_retry_after_cancel_or_restart_does_not_restart_route(owner
   assert restarted.read()['destination'] is not None
 
 
+def test_settings_saved_before_share_intents_still_load_and_save(owner):
+  owner.configure({'token': 'pk.test'}, '0', True)
+  saved = json.loads(owner.path.read_text())
+  owner.path.write_text(json.dumps({key: value for key, value in saved.items() if key not in ('routingRevision', 'shareIntents')}))
+  current = owner.read()
+  assert current['routingRevision'] == current['revision'] and current['shareIntents'] == []
+  owner.favorite(PLACE, current['revision'], True)
+  assert owner.read()['favorites'][0]['name'] == 'Home'
+
+
+def test_share_intent_history_keeps_the_newest_64(owner):
+  owner.configure({'token': 'pk.test'}, '0', True)
+  for index in range(65):
+    owner.share('geo:40.5,-89.5', owner.read()['revision'], True, intent_id=f'intent-{index}')
+  intents = owner.read()['shareIntents']
+  assert len(intents) == 64 and intents[0]['id'] == 'intent-1' and intents[-1]['id'] == 'intent-64'
+
+
 @pytest.mark.parametrize('ledger', [None, [{}], [{'id': '../bad', 'digest': '0' * 64}],
                                     [{'id': 'test', 'digest': 'bad'}],
                                     [{'id': 'test', 'digest': '0' * 64}] * 2,

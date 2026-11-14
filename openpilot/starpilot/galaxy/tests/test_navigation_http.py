@@ -231,6 +231,13 @@ class NavigationHttpTest(unittest.TestCase):
     changed = dict(request, text='geo:41,-89.5')
     self.assertEqual(self.request('/api/navigation/action', payload=changed, remote=True, cookie=self.remote_cookie)[0], 400)
 
+  def test_invalid_shared_intent_is_rejected(self):
+    self.navigation.configure({'token': 'pk.test'}, self.navigation.read()['revision'], True)
+    for intent in ('../bad', '', 'x' * 65, 7):
+      request = {'action': 'share', 'revision': self.navigation.read()['revision'], 'text': 'geo:40.5,-89.5', 'intentId': intent}
+      self.assertEqual(self.request('/api/navigation/action', payload=request, remote=True, cookie=self.remote_cookie)[0], 400)
+    self.assertIsNone(self.navigation.read()['destination'])
+
   def test_stale_or_invalid_actions_never_overwrite_configuration(self):
     self.action('configure', patch={'enabled': True})
     before = self.navigation.path.read_bytes()

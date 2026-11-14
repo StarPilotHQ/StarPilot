@@ -51,6 +51,7 @@ GOOGLE_MAP_HOST = re.compile(r'(?:maps\.app\.goo\.gl|goo\.gl|(?:[a-z0-9-]+\.)*go
 CONFIGURABLE = {'enabled', 'token', 'gpsSource', 'mapProvider', 'routeProvider', 'googleKey'}
 KEEPS_ACTIVE = {'gpsSource', 'mapProvider', 'routeProvider', 'googleKey'}
 GOOGLE_KEY_CHARS = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-')
+SAFE_ID = re.compile(r'[a-zA-Z0-9_-]{1,64}')
 
 
 def valid_google_key(key: str) -> bool:
@@ -211,13 +212,12 @@ class NavigationOwner:
       if value.get('destination') is not None:
         value['destination'] = destination(value['destination'])
       routing_revision = value.setdefault('routingRevision', value['revision'])
-      if (not isinstance(routing_revision, str) or not 1 <= len(routing_revision) <= 64 or
-          any(ch not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for ch in routing_revision)):
+      if not isinstance(routing_revision, str) or SAFE_ID.fullmatch(routing_revision) is None:
         raise ValueError
       intents = value.setdefault('shareIntents', [])
       if (not isinstance(intents, list) or len(intents) > 64 or
           any(not isinstance(row, dict) or set(row) != {'id', 'digest'} or
-              not isinstance(row['id'], str) or re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', row['id']) is None or
+              not isinstance(row['id'], str) or SAFE_ID.fullmatch(row['id']) is None or
               not isinstance(row['digest'], str) or re.fullmatch('[0-9a-f]{64}', row['digest']) is None for row in intents)):
         raise ValueError
       if len({row['id'] for row in intents}) != len(intents):
@@ -646,7 +646,7 @@ class NavigationOwner:
     """A place shared from a phone: turns navigation on and starts the route."""
     if not isinstance(text, str) or not text.strip() or len(text) > 8192:
       raise ValidationError('The shared text could not be read')
-    if intent_id is not None and (not isinstance(intent_id, str) or re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', intent_id) is None):
+    if intent_id is not None and (not isinstance(intent_id, str) or SAFE_ID.fullmatch(intent_id) is None):
       raise ValidationError('The shared destination identity could not be read')
     if not (authorized() if callable(authorized) else authorized is True):
       raise PermissionError('Navigation changes are not available right now')
@@ -662,8 +662,6 @@ class NavigationOwner:
       raise ValidationError('Add your Mapbox access token first')
     if not isinstance(expected_revision, str) or current['revision'] != expected_revision:
       raise ConflictError('Navigation changed; refresh and try again')
-    if not (authorized() if callable(authorized) else authorized is True):
-      raise PermissionError('Navigation changes are not available right now')
     from openpilot.starpilot.navigation.share import map_link_query, search_text, shared_coordinates
     text = self.resolve_share(text)
     shared = shared_coordinates(text)

@@ -82,12 +82,13 @@ def test_reaching_the_arrive_maneuver_reads_arrived_before_the_car_stops():
                      'distanceMeters': 150, 'remainingDistanceMeters': 150, 'remainingDurationSeconds': 20}
   nav.nextManeuver = {'maneuverType': 'arrive', 'maneuverModifier': 'straight', 'distanceMeters': 150}
   approaching = navigation_display(nav, now_ns=NOW, drive_id=DRIVE)
-  assert not approaching.arrived and approaching.text == 'Arrive at your destination'
+  assert approaching is not None and not approaching.arrived and approaching.text == 'Arrive at your destination'
   nav.instruction.distanceMeters = nav.instruction.remainingDistanceMeters = 0
   there = navigation_display(nav, now_ns=NOW, drive_id=DRIVE)
-  assert there.arrived and there.text == 'You have arrived' and there.then_type == '', "no '0 ft' while still rolling"
+  assert there is not None and there.arrived and there.text == 'You have arrived' and there.then_type == '', "no '0 ft' while still rolling"
   nav.instruction.maneuverType = 'turn'
-  assert not navigation_display(nav, now_ns=NOW, drive_id=DRIVE).arrived, "only the final maneuver means arrival"
+  turning = navigation_display(nav, now_ns=NOW, drive_id=DRIVE)
+  assert turning is not None and not turning.arrived, "only the final maneuver means arrival"
 
 
 @pytest.mark.parametrize('meters,metric,expected', [(120, False, '400 ft'), (120, True, '125 m'),

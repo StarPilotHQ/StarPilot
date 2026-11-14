@@ -29,7 +29,7 @@ class NavigationFavorites:
     action = self.error or ('End route' if active else 'Navigate' if available else 'Set in Galaxy' if place is None else 'Enable navigation')
     title = label if bookmark else action
     detail = 'Save event' if bookmark else label
-    if active and not (place and doc['destination']['id'] == place['id']):
+    if active and doc is not None and not (place and doc['destination']['id'] == place['id']):
       detail = self.fit(doc['destination'].get('name') or 'Route', FontRole.SEMI_BOLD, 34, 290)
     icons = placed.get('display') == 'icons'
     rect = rl.Rectangle(placed['x'], placed['y'], 110 if icons else 320, 110)

@@ -49,7 +49,7 @@ class ProjectionFavorites:
       return ('bookmark',)
     doc = self.document
     if key == MAP_END:
-      return ('end', doc['revision'], doc['destination']) if self.bounds(key, state) is not None else None
+      return ('end', doc['revision'], doc['destination']) if doc is not None and self.bounds(key, state) is not None else None
     if doc is None or key not in FAVORITE_WIDGETS:
       return None
     if doc['destination'] is not None:

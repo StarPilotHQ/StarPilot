@@ -190,7 +190,7 @@ class RouteRuntime:
       self.joined = True
     if distance(coordinates, (destination['longitude'], destination['latitude'])) < PARKED_RADIUS_M:
       return False
-    return self.joined or distance(coordinates, self.route.points[0]) >= UNJOINED_REROUTE_M
+    return self.joined or (self.route is not None and distance(coordinates, self.route.points[0]) >= UNJOINED_REROUTE_M)
 
   def _traffic_eta(self, now_ns: int, key: str, coordinates, speed, bearing, destination, exclusions, instruction: dict) -> None:
     """The route's own remaining time, scaled by how far off Google's latest traffic said it was."""
@@ -236,8 +236,7 @@ class RouteRuntime:
             distance(coordinates, (selected['longitude'], selected['latitude'])) < PARKED_RADIUS_M)
 
   def _parked_at_destination(self, now_ns: int, position, drive_id: int, settings) -> bool:
-    """A parking garage loses GPS before the route ends, so the stopped-at-the-end check never fires there.
-    A drive that ends near the destination arrived, as does one that starts near it (after a reboot, say)."""
+    """A drive that ends or starts near the destination counts as arrived, even without a final GPS fix."""
     fresh = position is not None and 0 < position[0] <= now_ns <= position[0] + GPS_MAX_AGE_NS
     if not drive_id:
       if not self.drive:

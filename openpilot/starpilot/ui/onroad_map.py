@@ -117,11 +117,7 @@ def zoom_for_speed(speed_mps: float) -> float:
 
 
 def zoom_target(speed_mps: float, maneuver_m: float | None = None, stopped_s: float = 0.0, guided: bool = False) -> float:
-  """Meters per screen pixel: closer ahead of a maneuver, wider after sitting still.
-
-  Without a route the zoom follows speed. On a route it holds one steady level and only zooms in for
-  the next turn, so the map does not breathe in and out with every change of speed.
-  """
+  """Meters per screen pixel: follows speed off-route, holds steady on a route and zooms in for the next turn."""
   base = ZOOM_ROUTE_M_PER_PX if guided else zoom_for_speed(speed_mps)
   near = maneuver_m is not None and maneuver_m <= OVERVIEW_MIN_MANEUVER_M
   if stopped_s >= OVERVIEW_AFTER_S and not near:
@@ -296,8 +292,7 @@ def visible_runs(points: np.ndarray, bounds: tuple[float, float, float, float]) 
 
 def snap_to_route(route: np.ndarray, position: tuple[float, float], bearing: float | None, max_offset: float,
                   start: int | None = None) -> tuple[tuple[float, float], int, float] | None:
-  """The nearest point on the route ahead of ``start`` within ``max_offset`` world units (and heading along it):
-  (point, segment, segment bearing), or None."""
+  """(point, segment, bearing) of the nearest route point ahead of ``start`` within ``max_offset``, or None."""
   if route is None or len(route) < 2:
     return None
   first = 0 if start is None else max(0, start - 1)
@@ -328,11 +323,7 @@ def route_lengths(route: np.ndarray) -> np.ndarray:
 
 def lookahead_heading(route: np.ndarray, lengths: np.ndarray, segment: int, point: tuple[float, float],
                       ahead: float) -> float | None:
-  """Bearing from ``point`` (on ``segment``) to the spot ``ahead`` world units farther along the route.
-
-  Facing a point down the line, rather than the segment under the car, keeps the map steady across the
-  small kinks of a simplified route line and starts a turn's rotation smoothly as the car approaches it.
-  """
+  """Bearing from ``point`` (on ``segment``) to the spot ``ahead`` world units farther along the route."""
   segment = min(max(segment, 0), len(route) - 2)
   a = route[segment]
   along = float(lengths[segment]) + math.hypot(point[0] - a[0], point[1] - a[1]) + ahead
@@ -603,8 +594,7 @@ class MapOverlay:
         self._bearing = self._heading_target = road_bearing % 360.0
         self._has_heading, self._turning = True, False
       else:
-        # Smooth the heading first so GPS noise and route kinks never reach the map, then rotate with
-        # hysteresis: start past the deadband, finish close to the heading instead of parking at the edge.
+        # Smooth the heading, then rotate with hysteresis past the deadband.
         self._heading_target = (self._heading_target + angle_delta(road_bearing, self._heading_target) *
                                 min(1.0, dt * HEADING_FILTER_RATE)) % 360.0
         delta = angle_delta(self._heading_target, self._bearing)
@@ -835,8 +825,7 @@ class MapOverlay:
     try:
       rl.clear_background(rl.BLANK)
       rl.begin_blend_mode(rl.BlendMode.BLEND_ALPHA_PREMULTIPLY)
-      # Render textures have no MSAA: the guidance layer is drawn larger and its bilinear sample in the
-      # mask shader averages each 2x2 block, so the route line's edges stay smooth at any rotation.
+      # Drawn at 2x and downsampled in the mask shader, since render textures have no MSAA.
       rl.rl_push_matrix()
       if guidance:
         rl.rl_scalef(GUIDANCE_SUPERSAMPLE, GUIDANCE_SUPERSAMPLE, 1)
@@ -997,7 +986,7 @@ class MapOverlay:
         text = text[:-4] + "..." if text.endswith("...") else text[:-1] + "..."
       self._attribution_layout = key, text, self.fonts.measure(text, FontRole.NORMAL, size) if text else None
     _, text, measured = self._attribution_layout
-    if text:
+    if measured is not None:
       self.fonts.draw(text, FontRole.NORMAL, size, rect.x + rect.width - inset - measured.width, bottom - measured.height,
                       rl.Color(214, 218, 230, 255))
 
