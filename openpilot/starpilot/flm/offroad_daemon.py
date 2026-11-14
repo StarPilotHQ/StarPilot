@@ -38,7 +38,8 @@ class StatusReport:
     # Keep the last completed findings and saved values readable during a fit.
     # They are historical display data, never current application or permission.
     fields = ('completed_route', 'vehicle', 'analysis_counts', 'recorded_tracking', 'source_sha256', 'assessment_sha256',
-              'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest', 'latest_recording', 'skipped_routes')
+              'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest', 'latest_recording', 'skipped_routes',
+              'partial_drive', 'partial_segments', 'omitted_segments')
     previous = {key: self.previous[key] for key in fields if key in self.previous}
     if previous:
       previous['retained_decision'] = self.previous.get('retained_decision', self.previous.get('reason', 'waiting_for_completed_drive'))
@@ -66,10 +67,11 @@ class StatusReport:
           continue
         document = cache.get(value['assessment_sha256'])
         source = document['assessment']['route']
-        if (document['kind'] != 'completed_assessment' or source['route_id'] != value.get('completed_route')
+        partial = document['kind'] == 'partial_assessment' and value.get('partial_drive') is True
+        if (document['kind'] != 'completed_assessment' and not partial or source['route_id'] != value.get('completed_route')
             or source['source_sha256'] != value.get('source_sha256')):
           raise ValueError('Historical report source changed')
-        stamp = source.get('completed_wall_ns')
+        stamp = source.get('last_intact_wall_ns') if partial else source.get('completed_wall_ns')
         if type(stamp) is int and stamp > 0:
           ordered.append((stamp, index, value))
       if ordered:
@@ -109,6 +111,10 @@ class StatusReport:
     details: dict[str, Any] = {'Analysis runs while parked': True, 'Next-drive trial is reversible': True, 'Physical road improvement proven': False}
     if value.get('skipped_routes'):
       details['Skipped recorded drives'] = [list(row) for row in value['skipped_routes'][:16]]
+    if value.get('partial_drive') is True:
+      details['Drive analysis is partial'] = True
+      details['Partial drive segments'] = value['partial_segments']
+      details['Omitted recorded segments'] = value['omitted_segments'][:16]
     for key, title in (('source_sha256', 'Original completed route hash'), ('assessment_sha256', 'Offroad assessment hash')):
       if key in value:
         details[title] = value[key]

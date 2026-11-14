@@ -17,6 +17,18 @@ from openpilot.starpilot.galaxy.server import make_server
 
 
 class TestDiagnostics(unittest.TestCase):
+  def test_partial_review_coverage_is_exported_without_claiming_a_saved_tune(self):
+    report = {'current': {'status': 'collecting', 'reason': 'partial_drive_provisional_only', 'details': {
+      'Drive analysis is partial': True, 'Partial drive segments': [9, 10],
+      'Omitted recorded segments': [[9, 'incomplete or trailing zstd frame']],
+    }}}
+    _, body = download(report, None)
+    result = json.loads(body)
+    self.assertTrue(result['current']['analysis']['Drive analysis is partial'])
+    self.assertEqual(result['current']['analysis']['Partial drive segments'], [9, 10])
+    self.assertEqual(result['current']['analysis']['Omitted recorded segments'], [[9, 'incomplete or trailing zstd frame']])
+    self.assertEqual(result['saved_profiles'], [])
+
   def test_failed_reviews_skips_counts_and_version_survive_without_private_payloads(self):
     with tempfile.TemporaryDirectory() as temporary:
       root = Path(temporary)

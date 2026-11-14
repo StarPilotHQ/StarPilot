@@ -9,7 +9,9 @@ from openpilot.starpilot.flm.offroad_baseline_windows import baseline_windows
 from openpilot.starpilot.flm.canonical_surface_adapter import NAMES as AMPLITUDE_NAMES
 from openpilot.starpilot.flm.offroad_residual import analyze_stable_windows
 from openpilot.starpilot.flm.offroad_evidence import read_point, whole_windows, eligible_points, tracking_metrics
-from openpilot.starpilot.flm.offroad_route import latest_route, walk_completed_route, RouteInputCancelled, RouteReceipt, SelectedSourceReceipt, route_permission
+from openpilot.starpilot.flm.offroad_route import (
+  latest_route, walk_completed_route, RouteInputCancelled, RouteReceipt, SelectedSourceReceipt, PartialRouteReceipt, route_permission,
+)
 from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
 
 
@@ -46,6 +48,8 @@ class CompletedAssessment:
       'evidence_sources': [asdict(source.receipt) for _, source in sorted(self.evidence_sources.items())],
       'skipped_routes': [list(row) for row in self.route_skips],
       'source_role': (
+        'Partial-drive suggestions only: excluded segments provide no evidence and completion-dependent decisions are disabled.'
+        if type(self.receipt) is PartialRouteReceipt else
         'Input-selected original drive sections; not a whole-drive assessment or live permission.'
         if type(self.receipt) is SelectedSourceReceipt
         else 'Historical diagnostic alignment, not a statement of actual Controls consumption or current permission.'
@@ -226,7 +230,7 @@ class RecordedInputs:
   quality_stops: list
 
 
-def collect_route_inputs(root, route, *, permitted, walker=None):
+def collect_route_inputs(root, route, *, permitted, walker=None, isolate_segments=False):
   from openpilot.starpilot.flm.offroad_control_metadata import read_control_metadata as read_control
 
   state = {'cp': None, 'cp_sha': None, 'context': None}
@@ -268,6 +272,8 @@ def collect_route_inputs(root, route, *, permitted, walker=None):
     }
 
   def consume(segment, events):
+    if isolate_segments:
+      state['context'] = None  # Partial sections cannot inherit metadata across a missing section.
     companions = {}
     rows = {}
     controls = []
@@ -517,7 +523,7 @@ def _assess_inputs(route, collected, previous, *, permitted, sources=None, route
 
     collected, comparisons, _ = statistical_inputs(collected)
   receipt, state = collected.receipt, collected.state
-  if type(receipt) not in (RouteReceipt, SelectedSourceReceipt):
+  if type(receipt) not in (RouteReceipt, SelectedSourceReceipt, PartialRouteReceipt):
     raise ValueError('An original whole-drive or explicit input-selected receipt is required')
   windows, stable_windows, baseline_tracking = collected.windows, collected.stable_windows, collected.baseline_tracking
   bookends, raw_windows, context_metadata = collected.bookends, collected.raw_windows, collected.context_metadata

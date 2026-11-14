@@ -2,6 +2,7 @@
 
 import bz2
 import hashlib
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -73,6 +74,26 @@ def zstd_recording(root, counter, *, fault=None, **kwargs):
 
 
 class TestRouteFaultIsolation(unittest.TestCase):
+  def test_total_inventory_matches_bounded_root_scan_without_raising_per_drive_limit(self):
+    # Metadata-only fixtures: file presence never establishes valid log data.
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      for counter, count in ((1, 180), (2, 180), (3, 152), (4, 1)):
+        for segment in range(count):
+          path = root / f'{counter:08x}--aaaaaaaaaa--{segment}'
+          path.mkdir()
+          (path / 'rlog.zst').write_bytes(b'not decoded by inventory')
+      self.assertTrue(DriveHistory(root, max_segments_per_route=180).snapshot(isolate_route_errors=True)['scanIncomplete'])
+      actual = route_inventory(root)
+      self.assertFalse(actual['scanIncomplete'])
+      self.assertEqual([row['segmentCount'] for row in actual['routes']], [180, 180, 152, 1])
+      path = root / '00000001--aaaaaaaaaa--180'
+      path.mkdir()
+      (path / 'rlog.zst').write_bytes(b'not decoded by inventory')
+      actual = route_inventory(root)
+      self.assertEqual([row['routeId'] for row in actual['routes']], [f'{n:08x}--aaaaaaaaaa' for n in (2, 3, 4)])
+      self.assertEqual(actual['routeErrors'][0]['routeId'], '00000001--aaaaaaaaaa')
+
   def setup_worker(self, directory, latest):
     root = Path(directory)
     params = Params(str(root / 'params'))
@@ -458,3 +479,145 @@ class TestRouteFaultIsolation(unittest.TestCase):
 
 if __name__ == '__main__':
   unittest.main()
+
+
+class TestPartialDriveReview(unittest.TestCase):
+  """Declared closed Cereal files; never a fabricated accepted road tune."""
+
+  def segment(self, root, counter, number, *, ending='endOfSegment', fault=None):
+    name, path, raw = recording(root, counter, segment=number)
+    messages = []
+    for event in log.Event.read_multiple_bytes(bz2.decompress(raw)):
+      event = event.as_builder()
+      event.logMonoTime += number * 2_000_000_000
+      if event.which() == 'clocks':
+        event.clocks.wallTimeNanos += number * 2_000_000_000
+      elif event.which() == 'sentinel':
+        event.sentinel.type = ending
+      messages.append(event.to_bytes())
+    body = b''.join(messages)
+    complete = zstd.ZstdCompressor().compress(body)
+    path.unlink()
+    path = path.with_name('rlog.zst')
+    raw = complete
+    if fault == 'truncated':
+      raw = complete[:-1]
+    elif fault == 'empty':
+      raw = b''
+    elif fault == 'cereal':
+      raw = zstd.ZstdCompressor().compress(b'not a Cereal record')
+    path.write_bytes(raw)
+    return name, path, complete
+
+  def test_closed_sections_only_and_no_join_across_missing_corrupt_or_locked_sections(self):
+    from openpilot.starpilot.flm.offroad_partial import partial_inventory, walk_partial_route, analyze_partial
+
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      name, _, _ = self.segment(root, 18, 0)
+      self.segment(root, 18, 2)
+      self.segment(root, 18, 3, fault='empty')
+      self.segment(root, 18, 4, fault='cereal')
+      _, locked, _ = self.segment(root, 18, 5)
+      (locked.parent / 'rlog.lock').touch()
+      route = partial_inventory(root, name, permitted=lambda: True)
+      consumed = []
+      receipt = walk_partial_route(root, route, permitted=lambda: True, consume=lambda n, events: consumed.append(n))
+      self.assertEqual(consumed, [0, 2])
+      self.assertEqual(receipt.decoded_segments, (0, 2))
+      self.assertEqual([n for n, reason in receipt.omitted_segments], [1, 3, 4, 5])
+      self.assertEqual(receipt.completed_wall_ns, 0)
+      assessment = analyze_partial(root, name, values(), permitted=lambda: True)
+      self.assertEqual(assessment.counts['recorded_lateral_request_rows'], 100)
+      self.assertEqual(assessment.counts['evidence_drives'], 0)
+      self.assertEqual(assessment.counts['original_segments_reviewed'], 2)
+      self.assertIn('Partial-drive', assessment.report()['source_role'])
+
+  def test_partial_never_saves_or_resolves_trial_and_unchanged_input_is_not_repeated(self):
+    from openpilot.starpilot.flm.offroad_store import RouteStorage
+    from openpilot.starpilot.flm.offroad_worker import assess_next_drive
+    from openpilot.starpilot.flm.offroad_checks import _original_results
+    from openpilot.starpilot.flm.offroad_history import EvidenceBank
+    from openpilot.starpilot.flm.offroad_partial import analyze_partial
+
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory) / 'logs'
+      name, _, _ = self.segment(root, 18, 0)
+      self.segment(root, 18, 1, ending='endOfRoute', fault='truncated')
+      params, worker = TestRouteFaultIsolation().setup_worker(directory, name)
+      saved = fixtures.TestSavedSetupCapacity.row(1)
+      self.assertTrue(RouteStorage(params).save(saved, expected=None, authorized=lambda: True))
+      before = params.get(KEY)
+      prior = worker.cache.put({'kind': 'declared-earlier-findings', 'findings': ['preserved']})
+      result = worker.run_once()
+      self.assertTrue(result['partial_drive'])
+      self.assertFalse(result['configuration_changed'])
+      self.assertEqual(result['partial_segments'], [1, 2])
+      self.assertEqual(params.get(KEY), before)
+      self.assertEqual(worker.cache.get(prior)['findings'], ['preserved'])
+      with patch('openpilot.starpilot.flm.offroad_partial.analyze_partial', side_effect=AssertionError('Do not repeat unchanged partial input')):
+        self.assertTrue(worker.run_once()['partial_drive'])
+      assessment = analyze_partial(root, name, values(), permitted=lambda: True)
+      self.assertFalse(assess_next_drive({}, assessment, scope())['counts_as_new_drive'])
+      with self.assertRaisesRegex(ValueError, 'Partial reviews'):
+        _original_results(assessment, [], [], values(), root, permitted=lambda: True)
+      bank = EvidenceBank(worker.cache.directory)
+      with self.assertRaisesRegex(ValueError, 'Partial reviews'):
+        bank.retain(SimpleNamespace(receipt=assessment.receipt), {}, 'declared', permitted=lambda: True)
+      self.assertEqual(params.get(KEY), before)
+
+  def test_repaired_tail_is_reanalyzed_as_one_complete_drive_and_restart_keeps_partial_label(self):
+    from openpilot.starpilot.flm.offroad_daemon import StatusReport
+
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory) / 'logs'
+      name, _, _ = self.segment(root, 18, 0)
+      _, damaged, complete = self.segment(root, 18, 1, ending='endOfRoute', fault='truncated')
+      params, worker = TestRouteFaultIsolation().setup_worker(directory, name)
+      partial = worker.run_once()
+      self.assertTrue(partial['partial_drive'])
+      status = StatusReport(path=Path(directory) / 'restored.json')
+      status.restore(worker.cache)
+      self.assertTrue(status.previous['partial_drive'])
+      status.analyzing({'reason': 'analyzing_last_completed_drive'})
+      status.publish()
+      wire = json.loads(status.path.read_text())['current']
+      self.assertTrue(wire['details']['Drive analysis is partial'])
+      self.assertFalse(wire['application']['applied'])
+      damaged.write_bytes(complete)
+      full = worker.run_once()
+      self.assertNotIn('partial_drive', full)
+      self.assertEqual(full['analysis_counts']['recorded_lateral_request_rows'], 100)
+      self.assertEqual(worker.cache.get(full['assessment_sha256'])['kind'], 'completed_assessment')
+      self.assertIsNone(params.get(KEY))
+
+  def test_copied_segment_is_not_counted_twice_and_all_bad_inputs_do_not_return_partial_success(self):
+    from openpilot.starpilot.flm.offroad_partial import analyze_partial
+
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      name, first, _ = self.segment(root, 18, 0)
+      _, copied, _ = self.segment(root, 18, 1)
+      copied.write_bytes(first.read_bytes())
+      result = analyze_partial(root, name, values(), permitted=lambda: True)
+      self.assertEqual(result.receipt.decoded_segments, (0,))
+      self.assertIn('already reviewed', result.receipt.omitted_segments[0][1])
+      self.assertEqual(result.counts['recorded_lateral_request_rows'], 50)
+      first.write_bytes(b'')
+      copied.write_bytes(b'bad compressed data')
+      with self.assertRaises(RouteInputError):
+        analyze_partial(root, name, values(), permitted=lambda: True)
+
+  def test_source_change_or_cancel_cannot_publish_a_partial_receipt(self):
+    from openpilot.starpilot.flm.offroad_partial import partial_inventory, walk_partial_route
+    from openpilot.starpilot.flm.offroad_route import RouteInputCancelled
+
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      name, first, _ = self.segment(root, 18, 0)
+      self.segment(root, 18, 1, fault='truncated')
+      inventory = partial_inventory(root, name, permitted=lambda: True)
+      with self.assertRaises(RouteInputCancelled):
+        walk_partial_route(root, inventory, permitted=lambda: True, consume=lambda n, events: first.write_bytes(b'changed'))
+      with self.assertRaises(RouteInputCancelled):
+        walk_partial_route(root, inventory, permitted=lambda: False, consume=lambda *args: None)

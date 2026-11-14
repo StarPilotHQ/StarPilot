@@ -37,7 +37,7 @@ LOCAL_ID = re.compile(r'[0-9a-f]{8}--[0-9a-f]{10}')
 
 
 class RouteInputError(ValueError):
-  """One recording is unavailable; none of its partial evidence may escape."""
+  """One recording is unavailable; no prefix may count as completed evidence."""
 
   def __init__(self, route_id, reason):
     self.route_id = route_id
@@ -96,8 +96,12 @@ def route_reader(function):
 
 
 def route_inventory(root):
+  from openpilot.starpilot.galaxy.drive_history import MAX_ROOT_ENTRIES
+
   try:
-    inventory = DriveHistory(Path(root), max_segments_per_route=MAX_SEGMENTS).snapshot(isolate_route_errors=True)
+    # Match the existing root scan budget. A 513th segment in another drive
+    # must not invalidate every otherwise complete route in that bounded scan.
+    inventory = DriveHistory(Path(root), max_segments_per_route=MAX_SEGMENTS, max_segments=MAX_ROOT_ENTRIES).snapshot(isolate_route_errors=True)
   except DriveHistoryUnavailable as error:
     raise ValueError('Local drive inventory is unavailable') from error
   if inventory['scanIncomplete']:
@@ -112,7 +116,13 @@ def logger_marker(params):
 def source_revisions(root, route):
   """Failure memoization and repair detection only; never proof of log contents."""
   paths = [Path(root)]
-  for segment in route.get('segments', ()):
+  segments = route.get('segments', ())
+  if not segments and type(route.get('routeId')) is str and LOCAL_ID.fullmatch(route['routeId']):
+    try:
+      segments = [{'segmentName': name} for name in sorted(_route_names(Path(root), route['routeId'], lambda: True))[:MAX_SEGMENTS]]
+    except _Incomplete:
+      segments = ()
+  for segment in segments:
     name = segment.get('segmentName')
     if type(name) is str and '/' not in name and name not in ('.', '..'):
       path = Path(root) / name
@@ -218,6 +228,15 @@ class SelectedSourceReceipt(RouteReceipt):
 
   decoded_segments: tuple = ()
   whole_route_decoded: bool = False
+
+
+@dataclass(frozen=True)
+class PartialRouteReceipt(RouteReceipt):
+  """Only independently closed segments; never completion or trial evidence."""
+
+  decoded_segments: tuple = ()
+  omitted_segments: tuple = ()
+  last_intact_wall_ns: int = 0
 
 
 @route_reader

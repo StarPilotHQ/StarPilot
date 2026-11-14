@@ -210,6 +210,11 @@ def pending_routes(root, latest, *, on_skip=None):
       if LOCAL_ID.fullmatch(row['routeId']) and (counter - int(row['routeId'].split('--')[0], 16)) % 2**32 < MAX_CHECKPOINTS:
         on_skip(row['routeId'], row['reason'])
   candidates = []
+  for error in inventory.get('routeErrors', ()):
+    if LOCAL_ID.fullmatch(error['routeId']):
+      distance = (counter - int(error['routeId'].split('--')[0], 16)) % 2**32
+      if 1 <= distance < MAX_CHECKPOINTS:
+        candidates.append((distance, error['routeId'], {'routeId': error['routeId'], 'segments': [], 'selection_error': error['reason']}))
   for route in inventory['routes']:
     if not LOCAL_ID.fullmatch(route['routeId']):
       continue
@@ -229,6 +234,11 @@ def pending_routes(root, latest, *, on_skip=None):
 
 def assess_next_drive(trial, assessment, scope, *, trial_started=True, recorded_backlog=False, previous_segments=()):
   """Compare independently held-out actual observations; no raw-RMS reward."""
+  from openpilot.starpilot.flm.offroad_route import PartialRouteReceipt
+
+  if type(getattr(assessment, 'receipt', None)) is PartialRouteReceipt:
+    return {'outcome': 'pending', 'reason': 'partial_drive_provisional_only', 'counts_as_new_drive': False,
+            'observed_only': True, 'causal_road_benefit_proven': False, 'comparisons': []}
   if trial.get('policy') != POLICY or trial.get('kind') != 'next_drive_trial':
     raise ValueError('Exact provisional assessment provenance required')
   if quality_withdrawn(assessment, scope, trial['values']):
@@ -658,7 +668,7 @@ class OffroadWorker:
       fingerprint = self._snapshot(route)
       fingerprints.append(fingerprint)
       if (fingerprint not in checkpoints or self.evidence_bank is not None and route == latest
-          and not checkpoints[fingerprint].get('route_skipped')
+          and not checkpoints[fingerprint].get('route_skipped') and not checkpoints[fingerprint].get('partial_drive')
           and checkpoints[fingerprint].get('evidence_revision') != self.evidence_bank.revision()):
         break
     else:
@@ -683,8 +693,23 @@ class OffroadWorker:
     options: dict[str, Any] = {} if self.evidence_bank is None else {'evidence_bank': self.evidence_bank, 'history_identity': self._history_identity}
     if route != latest:
       options['selected_route'] = route
-    assessment = self.assessor(self.params, self.root, prior, permitted=self.permitted, **options)
-    if self.on_assessment is not None:
+    try:
+      assessment = self.assessor(self.params, self.root, prior, permitted=self.permitted, **options)
+    except RouteInputError as error:
+      if self.assessor is not RECORDED_ASSESSOR or error.route_id != route['routeId']:
+        raise
+      from openpilot.starpilot.flm.offroad_partial import analyze_partial
+
+      try:
+        assessment = analyze_partial(self.root, route['routeId'], prior, permitted=self.permitted)
+      except RouteInputError:
+        raise error from None
+      self._skip_route(route['routeId'], error)
+    from openpilot.starpilot.flm.offroad_route import PartialRouteReceipt
+
+    partial = type(assessment.receipt) is PartialRouteReceipt
+    partial_revisions = source_revisions(self.root, assessment.source_inventory) if partial else None
+    if self.on_assessment is not None and not partial:
       self.on_assessment(assessment)
     if not state:
       prior(assessment.cp)
@@ -697,6 +722,11 @@ class OffroadWorker:
         and latest_route(self.params, self.root, permitted=self.permitted, inventory_only=True) == latest
       ):
         return False
+      if partial:
+        from openpilot.starpilot.flm.offroad_partial import partial_inventory
+
+        return (partial_revisions == source_revisions(self.root, assessment.source_inventory)
+                and partial_inventory(self.root, route['routeId'], permitted=self.permitted) == assessment.source_inventory)
       if route == latest and assessment.source_inventory == route:
         return True
       inventory = route_inventory(self.root)
@@ -716,6 +746,10 @@ class OffroadWorker:
       'skipped_routes': [*self.skipped_routes, *getattr(assessment, 'route_skips', ())][:16],
     }
     self.pending_failure_data = (authorized, recorded)
+    if partial:
+      recorded.update(partial_drive=True,
+                      partial_segments=[len(assessment.receipt.decoded_segments), len(assessment.receipt.segments)],
+                      omitted_segments=[list(row) for row in assessment.receipt.omitted_segments])
     report = assessment.report()
     report.update(policy=POLICY, current_scope=scope.document(), road_improvement_confirmed=False)
     current = dict(ZERO) if row is None else dict(row['values'])
@@ -821,10 +855,32 @@ class OffroadWorker:
 
     def recommendations_ready():
       recorded['recommendations'] = recorded_recommendations(assessment, current, report)
+      if partial:
+        for recommendation in recorded['recommendations']:
+          if recommendation['target'] is not None:
+            recommendation['reason'] = 'partial_drive_provisional_only'
       if self.on_recommendations is not None:
         self.on_recommendations(dict(recorded))
 
     recommendations_ready()
+    if partial:
+      recommendations = recorded['recommendations']
+      result = {**recorded, 'status': 'collecting', 'reason': 'partial_drive_provisional_only',
+                'partial_drive': True, 'partial_segments': [len(assessment.receipt.decoded_segments), len(assessment.receipt.segments)],
+                'omitted_segments': [list(row) for row in assessment.receipt.omitted_segments],
+                'configuration_changed': False, 'actual_application_proven': False, 'road_improvement_confirmed': False,
+                'recommendations': recommendations, 'recommendation_count': len(recommendations),
+                'assessment_sha256': self.cache.put({'kind': 'partial_assessment', 'assessment': report})}
+      if row is not None:
+        result.update(configured_values=dict(row['values']), configuration_state=row['state'],
+                      saved_adjustments=sum(value != 0 for value in row['values'].values()))
+      else:
+        result['saved_adjustments'] = 0
+      if not authorized() or read_saved(self.params, KEY, MAX_BYTES) != (expected, True):
+        raise RouteInputCancelled('Partial source or settings changed before checkpoint')
+      self.cache.checkpoint({'input_fingerprint': self._snapshot(route), 'result': result})
+      self.pending_failure_data = None
+      return result  # No native fit, trial resolution, evidence-bank insertion or Params write.
     reason = 'more_independent_eligible_tracking_required'
     status = 'collecting'
     saved = False

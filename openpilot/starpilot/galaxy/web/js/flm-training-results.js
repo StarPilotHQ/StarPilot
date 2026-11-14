@@ -191,6 +191,7 @@ export const SURFACE_GROUPS = Object.freeze([
 ])
 
 const REASONS = {
+  partial_drive_provisional_only: "Only intact, fully saved sections were reviewed. These suggestions will not change your tune automatically.",
   "candidate encoder clipping regression": "This change did not pass the steering-limit checks.",
   newer_drive_refused_same_adjustment: "A newer drive did not support this same adjustment. Auto Learn left the tune unchanged.",
   controller_checks_did_not_support_change: "This change did not pass the steering-command checks. Auto Learn kept your existing tune.",
@@ -299,6 +300,10 @@ export function offroadView(report) {
   const recommendations = details['Recorded coordinate recommendations']
   if (recommendations !== undefined && !validCoordinateRecommendations(recommendations)) return null
   const savedCount = details['Saved route adjustment count']
+  const partial = details['Drive analysis is partial'] === true
+  const partialSegments = details['Partial drive segments']
+  if (partial && (!Array.isArray(partialSegments) || partialSegments.length !== 2 || !partialSegments.every(stamp) ||
+      partialSegments[0] < 1 || partialSegments[0] >= partialSegments[1] || partialSegments[1] > 180)) return null
   const latestRecording = details['Latest completed recording reviewed'], earlierSource = details['Findings retained from earlier drive']
   const earlierDrive = latestRecording !== undefined || earlierSource !== undefined
   if (earlierDrive && (!text(latestRecording, 180) || !latestRecording || latestRecording === details['Completed drive analyzed'] ||
@@ -312,6 +317,7 @@ export function offroadView(report) {
   const savedSurface = stored ? fullCoordinates(details['Full surface coordinates']) : null
   const savedFriction = stored ? frictionCoordinates(details['Saved friction-curve adjustments']) : null
   return { route: details['Completed drive analyzed'], samples: details['Recorded steering observations'],
+    partial, partialSegments: partial ? partialSegments : null,
     evidenceDrives: stamp(details['Drives in steering evidence history']) && details['Drives in steering evidence history'] <= 8 ?
       details['Drives in steering evidence history'] : null,
     reason: details['Analysis decision'], saved: details['Automatic configuration changed'] === true,
@@ -350,9 +356,11 @@ export function tunerStatus(report, live = false, choiceLive = false, error = ""
   if (preference?.valid && preference.enabled === false || !preference && live && current?.enabled === false)
     return { key: "off", tone: "muted", title: "Auto Learn is off", description: "No driving samples are being collected by the learner. Turn it on in steering settings to begin." }
   if (reportFresh && current?.status === 'fitting' && ['analyzing_last_completed_drive', 'checking_recorded_steering_recommendations'].includes(current.reason))
-    return { key: 'fitting', tone: 'active', title: 'Analyzing your completed drive', description: learningReason(current.reason) + (offroadView(report)?.retained ? ' Earlier completed-drive findings remain below while this analysis runs.' : '') }
+    return { key: 'fitting', tone: 'active', title: 'Analyzing your drive', description: learningReason(current.reason) + (offroadView(report)?.retained ? ' Earlier drive findings remain below while this analysis runs.' : '') }
   const route = reportFresh && (!preference || preference.parked) ? offroadView(report) : null
   if (route) {
+    if (route.partial)
+      return { key: 'partial', tone: 'warning', title: 'Part of your drive reviewed', description: learningReason(route.reason) }
     if (route.configurationState === 'ready_for_next_drive')
       return { key: 'next-drive', tone: 'ready', title: 'Tune saved for the next drive', description: learningReason(
         ['trial_started_waiting_for_comparable_drive', 'trial_measurement_inconclusive'].includes(route.reason)

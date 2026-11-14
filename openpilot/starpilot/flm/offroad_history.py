@@ -181,6 +181,10 @@ class EvidenceBank:
 
   def retain(self, collected, inventory, identity, *, permitted):
     """Selection uses speed, side, phase and source order, never fit outcomes."""
+    from openpilot.starpilot.flm.offroad_route import PartialRouteReceipt
+
+    if type(collected.receipt) is PartialRouteReceipt:
+      raise ValueError('Partial reviews cannot supply independent-drive evidence')
     permitted = route_permission(permitted)
     buckets = []
     for kind in ('windows', 'stable_windows', 'baseline_tracking'):

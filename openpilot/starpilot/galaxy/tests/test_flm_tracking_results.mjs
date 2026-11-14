@@ -431,7 +431,7 @@ const historicalAdvisory = structuredClone(singleAdvisory)
 historicalAdvisory.current.status = 'fitting'
 historicalAdvisory.current.reason = 'analyzing_last_completed_drive'
 historicalAdvisory.current.details['Earlier analysis shown while updating'] = true
-assert(tunerStatus(historicalAdvisory, false, false, '', true).description.includes('Earlier completed-drive findings'))
+assert(tunerStatus(historicalAdvisory, false, false, '', true).description.includes('Earlier drive findings'))
 assert(offroadCoordinateEvidence(historicalAdvisory, 'ff_gain_left').startsWith('Earlier analyzed drive'))
 historicalAdvisory.preference = { version: 1, valid: true, enabled: true, parked: true, vehicle: 'OTHER_CAR' }
 assert.equal(offroadView(historicalAdvisory), null, 'Earlier advice must not be relabeled for another reported vehicle')

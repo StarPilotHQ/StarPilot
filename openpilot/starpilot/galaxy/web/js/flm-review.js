@@ -7,6 +7,7 @@ export function dialPercent(value) {
 }
 
 export function ideaStatus(row) {
+  if (row.reason === 'partial_drive_provisional_only') return 'Partial-drive suggestion'
   if (row.target === null) return 'Conflicting findings'
   if (row.reason === 'heldout_profile_does_not_support_training_step') return 'Not confirmed across the drive'
   if (row.reason === 'training_candidate_not_independently_confirmed') return 'Possible change'
@@ -18,6 +19,8 @@ export function ideaExplanation(row) {
   if (!isConsistentSuggestion(row)) return 'Different parts of the drive did not support the same change. Your tune was left unchanged.'
   const next = SURFACE_NAMES.includes(row.parameter) ? ' You can review the suggested value and adjust this setting manually while parked.' :
     ' Auto Learn will review it as more driving is recorded.'
+  if (row.reason === 'partial_drive_provisional_only')
+    return 'This suggestion comes from intact sections of an incomplete recording. Auto Learn will not save it automatically.' + next
   if (row.reason === 'independent_support_for_frozen_training_profile')
     return 'Separate parts of your drive support this suggestion. Auto Learn still needs to confirm the controller checks before saving it.' + next
   return 'Your drive suggests this change, but Auto Learn needs more evidence before saving it automatically.' + next
@@ -78,6 +81,13 @@ export function reviewModel(route, historical = false, updating = false) {
     }
   }
 
+  if (route.partial) {
+    title = 'Part of your drive could be reviewed'
+    description = `${route.partialSegments[0]} of ${route.partialSegments[1]} recorded sections were usable. Your saved tune stayed the same.`
+    next = count ? 'These are provisional suggestions from those sections. This partial review will not change your tune automatically.' :
+      'No supported suggestion was found in the usable sections. Your existing tune was kept.'
+    tone = count ? 'review' : 'neutral'
+  }
   return { title, description, next, tone, manual, manualGroups, curve, other, findings, saved, areas, count, historical }
 }
 

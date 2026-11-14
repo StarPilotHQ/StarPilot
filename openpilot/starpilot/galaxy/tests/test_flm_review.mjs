@@ -175,3 +175,17 @@ context.report.current.ageSeconds = 0
 context.now = context.receivedAt
 assert.equal(JSON.stringify(context.review), beforeExpiry)
 assert.equal(context.currentApplied, false)
+
+const partialReview = reviewModel({ ...route, partial: true, partialSegments: [9,10],
+  configurationState: 'ready_for_next_drive', savedValues: { friction_threshold_low: .002 },
+  suggestions: [ { ...idea('highway_center_taper_max'), reason: 'partial_drive_provisional_only' } ] })
+assert.equal(partialReview.count,1)
+assert.match(partialReview.title,/Part of/)
+assert.match(partialReview.description,/9 of 10/)
+assert.match(partialReview.description,/stayed the same/)
+assert.match(partialReview.next,/will not change your tune automatically/)
+const partialEmpty = reviewModel({ ...route, partial: true, partialSegments: [8,10], suggestions: [] })
+assert.equal(partialEmpty.count,0)
+assert.match(partialEmpty.next,/No supported suggestion/)
+assert.equal(ideaStatus({reason:'partial_drive_provisional_only'}),'Partial-drive suggestion')
+assert.match(ideaExplanation({ ...idea('highway_center_taper_max'), reason:'partial_drive_provisional_only' }),/will not save it automatically/)

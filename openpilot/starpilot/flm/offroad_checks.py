@@ -220,6 +220,10 @@ def _release_unused_analysis_heap():
 
 
 def _original_results(assessment, original, ids, values, root, *, permitted, source_batch=False):
+  from openpilot.starpilot.flm.offroad_route import PartialRouteReceipt
+
+  if type(getattr(assessment, 'receipt', None)) is PartialRouteReceipt:
+    raise ValueError('Partial reviews cannot qualify a tune or resolve a trial')
   permitted = route_permission(permitted)
   try:
     return _read_original_results(assessment, original, ids, values, root, permitted=permitted, source_batch=source_batch)

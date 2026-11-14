@@ -103,7 +103,19 @@ assert.equal(configured.current.application.applied, false, 'Saving is not curre
 assert.notEqual(tunerStatus(configured, false, true).title, 'Tune saved for the next drive', 'Old reports cannot assert current saved state')
 const fitting = structuredClone(completed)
 fitting.current.status = 'fitting'; fitting.current.reason = 'analyzing_last_completed_drive'
-assert.equal(tunerStatus(fitting, true, true).title, 'Analyzing your completed drive')
+assert.equal(tunerStatus(fitting, true, true).title, 'Analyzing your drive')
+const partial = structuredClone(completed)
+Object.assign(partial.current.details, {
+  'Drive analysis is partial': true, 'Partial drive segments': [9, 10], 'Analysis decision': 'partial_drive_provisional_only',
+})
+assert(validTrainingResults(partial))
+assert.equal(offroadView(partial).partial, true)
+assert.deepEqual(offroadView(partial).partialSegments, [9, 10])
+assert.equal(tunerStatus(partial, true, true).key, 'partial')
+for (const coverage of [[0, 10], [10, 10], [11, 10], [9, 181], [9.5, 10], [true, 10]]) {
+  const bad = structuredClone(partial); bad.current.details['Partial drive segments'] = coverage
+  assert.equal(offroadView(bad), null, 'Partial coverage cannot imply a complete drive or invent section counts')
+}
 const disabled = structuredClone(completed); disabled.preference.enabled = false
 assert.equal(tunerStatus(disabled, true, true).title, 'Auto Learn is off')
 for (const mutate of [v => v.current.details['Recorded route suggestions'][0][1] = .251,
