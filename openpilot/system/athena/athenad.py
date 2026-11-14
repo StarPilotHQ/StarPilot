@@ -25,6 +25,7 @@ from functools import partial, total_ordering
 from queue import Queue
 from typing import cast
 from collections.abc import Callable, Iterable
+from urllib.parse import urlsplit
 
 import requests
 from requests.adapters import HTTPAdapter, DEFAULT_POOLBLOCK
@@ -285,6 +286,13 @@ def cb(sm, item, tid, end_event: threading.Event, sz: int, cur: int) -> None:
   cur_upload_items[tid] = replace(item, progress=cur / sz if sz else 1)
 
 
+def _offline(sm) -> bool:
+  """The device reported no network at all. Attempts then cannot succeed, so they must not use up an upload's
+  retries: a queue started while driving (for example Konik's "Upload all") would otherwise be dropped after
+  about 5 minutes without internet. Items still expire through MAX_AGE."""
+  return bool(sm.seen['deviceState'] and sm['deviceState'].networkType == log.DeviceState.NetworkType.none)
+
+
 def upload_handler(end_event: threading.Event) -> None:
   sm = messaging.SubMaster(['deviceState'])
   tid = threading.get_ident()
@@ -309,7 +317,8 @@ def upload_handler(end_event: threading.Event) -> None:
       sm.update(0)
       metered = sm['deviceState'].networkMetered
       network_type = sm['deviceState'].networkType.raw
-      if phone_uplink_active() or (metered and not item.allow_cellular and not Params().get_bool("AlwaysAllowUploads")):
+      if (phone_uplink_active() or _offline(sm) or
+          (metered and not item.allow_cellular and not Params().get_bool("AlwaysAllowUploads"))):
         retry_upload(tid, end_event, False)
         continue
 
@@ -332,7 +341,9 @@ def upload_handler(end_event: threading.Event) -> None:
         UploadQueueCache.cache(upload_queue)
       except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, requests.exceptions.SSLError):
         cloudlog.event("athena.upload_handler.timeout", fn=fn, sz=sz, network_type=network_type, metered=metered)
-        retry_upload(tid, end_event)
+        # A connection lost with the network itself does not count against the upload.
+        sm.update(0)
+        retry_upload(tid, end_event, not _offline(sm))
       except AbortTransferException:
         cloudlog.event("athena.upload_handler.abort", fn=fn, sz=sz, network_type=network_type, metered=metered)
         retry_upload(tid, end_event, False)
@@ -672,6 +683,12 @@ def uploadFilesToUrls(files_data: list[UploadFileDict]) -> UploadFilesToUrlRespo
       continue
 
     path = os.path.join(Paths.log_root(), file.fn)
+    # Konik requests the bare name ("<segment>/rlog") with an upload URL for "rlog.zst", while the device stores
+    # rlog.zst. Upload the stored .zst file when that is exactly what the URL path expects (the parsed path,
+    # so a query or fragment cannot make a plain-file URL look like a .zst one, or the reverse).
+    if (not file.fn.endswith('.zst') and not os.path.exists(path) and os.path.exists(path + '.zst') and
+        urlsplit(file.url).path.endswith('/' + os.path.basename(file.fn) + '.zst')):
+      path += '.zst'
     if not owns_recording(path, Paths.log_root()) or (not os.path.exists(path) and not os.path.exists(strip_zst_extension(path))):
       failed.append(file.fn)
       continue
