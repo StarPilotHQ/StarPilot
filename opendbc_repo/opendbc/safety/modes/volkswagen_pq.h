@@ -14,6 +14,8 @@
 #define MSG_ACC_GRA_ANZEIGE     0x56AU   // TX by OP, ACC HUD
 #define MSG_LDW_1               0x5BEU   // TX by OP, Lane line recognition and text alerts
 
+#include "opendbc/safety/modes/volkswagen_pq_aol.h"
+
 static uint32_t volkswagen_pq_get_checksum(const CANPacket_t *msg) {
   return (uint32_t)msg->data[(msg->addr == MSG_MOTOR_5) ? 7 : 0];
 }
@@ -48,14 +50,14 @@ static uint32_t volkswagen_pq_compute_checksum(const CANPacket_t *msg) {
 
 static safety_config volkswagen_pq_init(uint16_t param) {
   // Transmit of GRA_Neu is allowed on bus 0 and 2 to keep compatibility with gateway and camera integration
-  static const CanMsg VOLKSWAGEN_PQ_STOCK_TX_MSGS[] = {
+  static CanMsg VOLKSWAGEN_PQ_STOCK_TX_MSGS[] = {
     {MSG_HCA_1, 0, 5, .check_relay = true},
     {MSG_LDW_1, 0, 8, .check_relay = true},
     {MSG_GRA_NEU, 0, 4, .check_relay = false},
     {MSG_GRA_NEU, 2, 4, .check_relay = false},
   };
 
-  static const CanMsg VOLKSWAGEN_PQ_LONG_TX_MSGS[] = {
+  static CanMsg VOLKSWAGEN_PQ_LONG_TX_MSGS[] = {
     {MSG_HCA_1, 0, 5, .check_relay = true},
     {MSG_LDW_1, 0, 8, .check_relay = true},
     {MSG_ACC_SYSTEM, 0, 8, .check_relay = true},
@@ -72,14 +74,38 @@ static safety_config volkswagen_pq_init(uint16_t param) {
   };
 
   volkswagen_common_init();
+  pq_aol_reset();
+#ifdef ALLOW_DEBUG
+  pq_aol_enabled = ((unsigned int)alternative_experience == 32U) && ((param == 8U) || (param == 9U));
+#endif
+  VOLKSWAGEN_PQ_STOCK_TX_MSGS[0].disable_static_blocking = pq_aol_enabled;
+  VOLKSWAGEN_PQ_STOCK_TX_MSGS[1].disable_static_blocking = pq_aol_enabled;
+  VOLKSWAGEN_PQ_LONG_TX_MSGS[0].disable_static_blocking = pq_aol_enabled;
+  VOLKSWAGEN_PQ_LONG_TX_MSGS[1].disable_static_blocking = pq_aol_enabled;
+  if (pq_aol_enabled) {
+    static const AolSafetyPolicy policy = {
+      .reset = pq_aol_reset,
+      .host_request = pq_aol_request,
+      .request_mask = pq_aol_request_mask,
+      .permission_mask = pq_aol_permission,
+      .rx_invalid = pq_aol_clear,
+    };
+    aol_policy = &policy;
+  }
+
 
 #ifdef ALLOW_DEBUG
   volkswagen_longitudinal = GET_FLAG(param, FLAG_VOLKSWAGEN_LONG_CONTROL);
 #else
   SAFETY_UNUSED(param);
 #endif
-  return volkswagen_longitudinal ? BUILD_SAFETY_CFG(volkswagen_pq_rx_checks, VOLKSWAGEN_PQ_LONG_TX_MSGS) : \
+  safety_config ret = volkswagen_longitudinal ? BUILD_SAFETY_CFG(volkswagen_pq_rx_checks, VOLKSWAGEN_PQ_LONG_TX_MSGS) : \
                                    BUILD_SAFETY_CFG(volkswagen_pq_rx_checks, VOLKSWAGEN_PQ_STOCK_TX_MSGS);
+  if ((((unsigned int)alternative_experience == 32U) || ((param & 8U) != 0U)) && !pq_aol_enabled) {
+    ret.tx_msgs = NULL;
+    ret.tx_msgs_len = 0;
+  }
+  return ret;
 }
 
 static void volkswagen_pq_rx_hook(const CANPacket_t *msg) {
@@ -148,6 +174,7 @@ static void volkswagen_pq_rx_hook(const CANPacket_t *msg) {
   if (msg_matches(msg, MSG_MOTOR_2, 0U)) {
     brake_pressed = (msg->data[2] & 0x1U);
   }
+  pq_aol_rx(msg);
 }
 
 static bool volkswagen_pq_tx_hook(const CANPacket_t *msg) {
@@ -212,12 +239,15 @@ static bool volkswagen_pq_tx_hook(const CANPacket_t *msg) {
     }
   }
 
+  pq_aol_tx_commit(msg, tx && !relay_malfunction);
   return tx;
 }
 
 const safety_hooks volkswagen_pq_hooks = {
   .init = volkswagen_pq_init,
   .rx = volkswagen_pq_rx_hook,
+  .optional_rx = pq_aol_optional_rx,
+  .fwd = pq_aol_fwd,
   .tx = volkswagen_pq_tx_hook,
   .get_counter = volkswagen_pq_get_counter,
   .get_checksum = volkswagen_pq_get_checksum,

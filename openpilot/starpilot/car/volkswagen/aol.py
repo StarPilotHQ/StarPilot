@@ -2,12 +2,14 @@ from opendbc.car import structs
 from opendbc.car.volkswagen.stock_aol import qualified as stock_qualified, safety_config as aol_safety_config, AOL_WORD, MANUAL_WORD, DIRECT_WORD, AOL_WORDS
 from opendbc.car.volkswagen.long_aol import qualified as long_qualified, WORDS as LONG_WORDS
 from opendbc.car.volkswagen.meb_modes import qualified as meb_qualified, profile_word as meb_word, base_word as meb_base_word, AOL_WORDS as MEB_WORDS
+from opendbc.car.volkswagen.pq_aol import qualified as pq_qualified, WORDS as PQ_WORDS
 from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE, ButtonType
 from openpilot.starpilot.aol.policy import AolVehiclePolicy
 
 
 def qualified(cp, *, marked_only=False):
-  return stock_qualified(cp, marked_only=marked_only) or long_qualified(cp, marked_only=marked_only) or meb_qualified(cp, marked_only=marked_only)
+  return (stock_qualified(cp, marked_only=marked_only) or long_qualified(cp, marked_only=marked_only) or
+          meb_qualified(cp, marked_only=marked_only) or pq_qualified(cp, marked_only=marked_only))
 
 
 
@@ -50,11 +52,14 @@ def policy_for(cp):
 
 def native_profile_supported(model, param):
   return (model == int(structs.CarParams.SafetyModel.volkswagen) and param in AOL_WORDS | LONG_WORDS or
-          model == int(structs.CarParams.SafetyModel.volkswagenMeb) and param in MEB_WORDS)
+          model == int(structs.CarParams.SafetyModel.volkswagenMeb) and param in MEB_WORDS or
+          model == int(structs.CarParams.SafetyModel.volkswagenPq) and param in PQ_WORDS)
 
 
 def native_accepts_cp(cp, model, param):
-  return qualified(cp, marked_only=True) and native_profile_supported(model, param) and param == aol_safety_config(cp).safetyParam
+  config = aol_safety_config(cp)
+  return (qualified(cp, marked_only=True) and config is not None and native_profile_supported(model, param) and
+          model == int(config.safetyModel.raw) and param == config.safetyParam)
 
 
 def native_latch_rejected(cp, native):
@@ -74,7 +79,7 @@ class VolkswagenStockCardIntent(AolCardIntent):
 
   def __init__(self, cp, settings):
     self.cp = cp
-    self.mqb = stock_qualified(cp) or long_qualified(cp)
+    self.cruise_lateral = stock_qualified(cp) or long_qualified(cp) or pq_qualified(cp)
     self.physical_eps_pause = False
     self.eps_recovery_ns = 0
     self.main_seen = False
@@ -83,7 +88,7 @@ class VolkswagenStockCardIntent(AolCardIntent):
     self.main_neutral = False
     self.main_pulse = False
     super().__init__(settings, explicit_latch=True, lkas_button_supported=False,
-                     preserve_unassigned_cancel=self.mqb)
+                     preserve_unassigned_cancel=self.cruise_lateral)
 
   def update(self, CS, **kwargs):
     from openpilot.starpilot.aol.runtime import SAFETY_MAX_AGE_NS
@@ -113,9 +118,9 @@ class VolkswagenStockCardIntent(AolCardIntent):
     if (not self.settings.enabled or self.settings.main_action == AOL_TOGGLE or self.settings.lkas_action == AOL_TOGGLE or
         (state.canValid and not state.canTimeout and (state.steerFaultPermanent or state.accFaulted)) or
         any(event.type == ButtonType.cancel and event.pressed for event in CS.buttonEvents) and
-        (not self.mqb or any(self.settings.cancel_actions))):
+        (not self.cruise_lateral or any(self.settings.cancel_actions))):
       self.main_startup_pending = False
-    if (self.mqb and self.settings.enabled and state.canValid and not state.canTimeout and
+    if (self.cruise_lateral and self.settings.enabled and state.canValid and not state.canTimeout and
         not state.steerFaultPermanent and not state.accFaulted and available and self.main_neutral and
         not self.main_available and self.settings.main_action != AOL_TOGGLE and self.settings.lkas_action != AOL_TOGGLE):
       self.main_startup_pending = True
@@ -140,7 +145,7 @@ class VolkswagenStockCardIntent(AolCardIntent):
     super().update(state.as_reader(), **kwargs)
     if (default_main_edge and state.canValid and not state.canTimeout and self.settings.enabled and
         not state.steerFaultPermanent and not state.accFaulted and not self._fault_inhibit and
-        (not self.mqb or not lateral_output_inhibited(self.cp, state))):
+        (not self.cruise_lateral or not lateral_output_inhibited(self.cp, state))):
       self.allowed_latch = True
       self.main_startup_pending = False
       self.main_neutral = False
@@ -218,7 +223,7 @@ def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previou
   from openpilot.starpilot.aol.runtime import (AXIS_MAX_AGE_NS, INTENT_MAX_AGE_NS, SAFETY_MAX_AGE_NS,
                                                native_inventory_matches_cp)
   try:
-    return bool((stock_qualified(cp, marked_only=True) or long_qualified(cp, marked_only=True)) and
+    return bool((stock_qualified(cp, marked_only=True) or long_qualified(cp, marked_only=True) or pq_qualified(cp, marked_only=True)) and
       settings is not None and settings.enabled and not any(settings.cancel_actions) and
       previous is not None and previous.lateral_active and previous.native_acknowledged and
       intent is not None and intent.settingsQualified and intent.allowedLatch and intent.lateralArmed and
