@@ -146,7 +146,7 @@ def manager_thread() -> None:
   ignore: list[str] = []
   from openpilot.starpilot.connect.provider import active_provider
   if os.getenv('STARPILOT_CLOUD_DISABLED') == '1' or (params.get("DongleId") in (None, UNREGISTERED_DONGLE_ID) and
-      active_provider().name != 'konik'):
+      active_provider().name not in ('konik', 'custom')):
     ignore += ["manage_athenad", "uploader"]
   if os.getenv("NOBOARD") is not None:
     ignore.append("pandad")

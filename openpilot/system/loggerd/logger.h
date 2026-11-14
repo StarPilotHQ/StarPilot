@@ -15,7 +15,7 @@
 
 // Persist ownership before any recording bytes can become visible.
 inline bool logger_write_cloud_marker(const std::string &path, const std::string &provider) {
-  if (provider != "comma" && provider != "konik" && provider != "offline") return false;
+  if (provider != "comma" && provider != "konik" && provider != "custom" && provider != "offline") return false;
   const size_t slash = path.find_last_of('/');
   if (slash == std::string::npos) return false;
   const int directory = open(path.substr(0, slash).c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);

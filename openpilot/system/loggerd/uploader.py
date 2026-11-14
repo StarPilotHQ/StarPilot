@@ -288,7 +288,7 @@ def main(exit_event: threading.Event | None = None) -> None:
   params = Params()
   dongle_id = params.get("DongleId")
 
-  while active_provider().name == 'konik' and dongle_id in (None, 'UnregisteredDevice') and not exit_event.is_set():
+  while active_provider().name in ('konik', 'custom') and dongle_id in (None, 'UnregisteredDevice') and not exit_event.is_set():
     exit_event.wait(10)
     dongle_id = params.get('DongleId')
   if exit_event.is_set():

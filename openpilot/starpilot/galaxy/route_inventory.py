@@ -9,7 +9,7 @@ import re
 import stat
 
 from openpilot.common.hardware.hw import Paths
-from openpilot.starpilot.connect.provider import PROVIDERS, ROUTE_MARKER
+from openpilot.starpilot.connect.provider import PROVIDER_NAMES, ROUTE_MARKER
 from openpilot.starpilot.galaxy.drive_history import (
   DIR_FLAGS, FILE_KINDS, FILES, MAX_ROUTES, MAX_SEGMENT_ENTRIES, ROUTE, SEGMENT_NAME, DriveHistory, _same_directory,
 )
@@ -91,7 +91,7 @@ def _provider(segment_fd: int) -> str | None:
     if not stat.S_ISREG(info.st_mode) or info.st_size > 32:
       return None
     value = os.read(fd, 32).decode('ascii')
-    return value if value in PROVIDERS else None
+    return value if value in PROVIDER_NAMES else None
   except FileNotFoundError:
     return 'comma'
   except (OSError, UnicodeError):

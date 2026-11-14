@@ -14,7 +14,7 @@ import re
 import stat
 
 from openpilot.common.hardware.hw import Paths
-from openpilot.starpilot.connect.provider import PROVIDERS, recording_provider, route_url
+from openpilot.starpilot.connect.provider import configured_provider, recording_provider, route_url
 
 MAX_ROOT_ENTRIES = 2048
 MAX_ROUTES = 100
@@ -270,6 +270,6 @@ def recording_details(inventory: dict, dates: dict, dongle_id: str | None, *, de
       provider = route.get('provider', 'comma')
       device = device_ids.get(provider) if device_ids is not None else dongle_id if provider == 'comma' else None
       local = identifier
-    provider = PROVIDERS.get(route.get('provider', 'comma'))
+    provider = configured_provider(route.get('provider', 'comma'))
     route['connectUrl'] = route_url(device, local, provider) if provider is not None else None
   return inventory

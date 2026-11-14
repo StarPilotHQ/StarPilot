@@ -4,7 +4,7 @@ import os
 
 from openpilot.common.hardware.hw import Paths
 from openpilot.common.utils import atomic_write
-from openpilot.starpilot.connect.provider import active_provider, PROVIDERS
+from openpilot.starpilot.connect.provider import active_provider, PROVIDER_NAMES
 
 
 class MissingAuthConfigError(Exception):
@@ -13,14 +13,15 @@ class MissingAuthConfigError(Exception):
 
 def _provider(provider_name=None):
   name = active_provider().name
-  if name not in PROVIDERS or provider_name not in (None, name):
+  if name not in PROVIDER_NAMES or provider_name not in (None, name):
     raise MissingAuthConfigError('Cloud provider is unavailable or changed')
   return name
 
 
 def auth_path(provider_name=None):
   name = _provider(provider_name)
-  return os.path.join(Paths.config_root(), 'auth.json' if name == 'comma' else 'auth-konik.json')
+  filename = 'auth.json' if name == 'comma' else f'auth-{name}.json'
+  return os.path.join(Paths.config_root(), filename)
 
 
 def get_token(provider_name=None):

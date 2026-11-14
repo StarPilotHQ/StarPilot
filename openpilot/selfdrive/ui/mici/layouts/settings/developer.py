@@ -79,23 +79,22 @@ class DeveloperLayoutMici(NavScroller):
                                    description="Grant SSH access to all public keys in your GitHub settings. Only enter your own username.")
     self._ssh_keys_btn.set_click_callback(ssh_keys_callback)
 
-    from openpilot.starpilot.connect.settings import CloudProviderConfirmation
-    from openpilot.starpilot.connect.provider import PROVIDERS, status
+    from openpilot.starpilot.connect.settings import CloudProviderPage
+    from openpilot.starpilot.connect.provider import status
     self._cloud_provider_btn = BigButton('Cloud Provider', 'Changes apply after the next reboot')
     def refresh_cloud():
       try:
         current = status()
-        self._cloud_provider_btn.set_value(PROVIDERS[current['selected']].label)
-      except (OSError, ValueError, TypeError):
+        labels = {item['id']: item['label'] for item in current['providers']}
+        selected = current['selected']
+        label = labels.get(selected, 'Unavailable')
+        if selected == 'custom' and current.get('custom'):
+          label = current['custom']['api']
+        self._cloud_provider_btn.set_value(label)
+      except (OSError, ValueError, TypeError, KeyError):
         self._cloud_provider_btn.set_value('Unavailable')
     def choose_cloud():
-      try:
-        current = status()
-        target = next(name for name in PROVIDERS if name != current['selected'])
-      except (OSError, ValueError, TypeError, StopIteration):
-        gui_app.push_widget(BigDialog('', 'Cloud Provider is unavailable. Refresh and try again.'))
-        return
-      gui_app.push_widget(CloudProviderConfirmation(target, current['revision'], refresh_cloud))
+      gui_app.push_widget(CloudProviderPage(on_change=refresh_cloud))
     self._cloud_provider_btn.set_click_callback(choose_cloud)
     self._cloud_provider_btn.set_enabled(ui_state.is_offroad)
     refresh_cloud()

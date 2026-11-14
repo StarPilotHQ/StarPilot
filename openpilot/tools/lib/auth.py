@@ -119,6 +119,9 @@ def login(method, timeout=180):
   if selected.name == 'konik':
     return {'error': 'Sign in at https://stable.konik.ai, open https://api.konik.ai/v2/user/token while signed in, ' +
                      'then use auth.py jwt with your Konik token. comma OAuth credentials are not used.'}
+  if selected.name == 'custom':
+    return {'error': f'Sign in at {selected.web}, obtain your token from {selected.api}, ' +
+                     'then use auth.py jwt with your custom cloud token. comma OAuth credentials are not used.'}
   if selected.name != 'comma':
     return {'error': 'Cloud provider is unavailable. Repair its configuration before signing in.'}
   try:

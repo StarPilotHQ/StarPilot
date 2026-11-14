@@ -576,7 +576,7 @@ class VideoClips:
     return available
 
   def _source_inputs(self, route, camera, start, end):
-    if (self.clip_provider not in ("comma", "konik") or not math.isfinite(start) or not math.isfinite(end) or
+    if (self.clip_provider not in ("comma", "konik", "custom") or not math.isfinite(start) or not math.isfinite(end) or
         start < 0 or end <= start):
       raise ValueError("Invalid clip source range")
     inputs = [os.path.join(Paths.log_root(), f"{route}--{segment}", camera)

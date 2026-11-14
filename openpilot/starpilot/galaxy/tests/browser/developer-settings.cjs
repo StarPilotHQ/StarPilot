@@ -15,9 +15,10 @@ const assert = require('node:assert/strict')
       const path = new URL(route.request().url()).pathname
       let data
       if (path.endsWith('/connect/provider')) data = { active: 'comma', selected: 'comma', revision: 'a'.repeat(64),
-        restartRequired: false, canSelect: parked, providers: [
+        restartRequired: false, canSelect: parked, custom: null, providers: [
           { id: 'comma', label: 'comma', url: 'https://connect.comma.ai' },
-          { id: 'konik', label: 'Konik', url: 'https://stable.konik.ai' }] }
+          { id: 'konik', label: 'Konik', url: 'https://stable.konik.ai' },
+          { id: 'custom', label: 'Custom', url: '' }] }
       else if (path.endsWith('/pages/developer')) data = { page: 'developer', title: 'Developer driving options',
         view: 'developer', parked, rows: [{ label: 'Use VOACC', value: enabled ? 'On' : 'Off', choices: ['Off', 'On'],
           available: parked, action: true, reason: 'Vision-only lead selection. Applies next drive.', defaultValue: 'Off' }] }

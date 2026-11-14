@@ -143,7 +143,7 @@ class PrimeScroller(NavScroller):
 
   def _get_pairing_url(self) -> str:
     provider = active_provider()
-    if provider.name not in ('comma', 'konik'):
+    if provider.name == 'offline' or not provider.web:
       return ''
     try:
       dongle_id = self._params.get("DongleId") or ""
