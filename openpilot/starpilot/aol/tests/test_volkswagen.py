@@ -95,6 +95,12 @@ def test_intent_main_brake_temporary_fault_and_current_serialized_native_receipt
   cs.steerFaultTemporary = False
   cs.buttonEvents = [structs.CarState.ButtonEvent(type=structs.CarState.ButtonEvent.Type.cancel, pressed=True)]
   owner.update(cs, now_ns=now + 50_000_000)
+  # Unassigned Cancel ends cruise, not separately armed lateral intent.
+  assert owner.allowed_latch
+  cs.buttonEvents = []
+  cs.cruiseState.available = False
+  owner.update(cs, now_ns=now + 60_000_000)
+  # MAIN off must still revoke the lateral latch.
   assert not owner.allowed_latch
 
 
