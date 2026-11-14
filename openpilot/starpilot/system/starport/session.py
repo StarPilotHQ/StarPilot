@@ -64,6 +64,8 @@ VIDEO_FOCUS_REQUEST = 0x8007
 VIDEO_FOCUS_INDICATION = 0x8008
 VIDEO_UI_CONFIG_REQUEST = 0x8009
 VIDEO_UI_CONFIG_REPLY = 0x800A
+TEST_ACKS_LOGGED = 100
+TEST_FRAMES_LOGGED = 20
 
 # Input channel message ids.
 INPUT_EVENT = 0x8001
@@ -104,6 +106,7 @@ FRAME_RATES = {1: 60, 2: 30}
 # Software H.264 on the comma is the constraint: prefer 720p, then 480p. 1080p
 # is accepted only when nothing smaller is offered.
 RESOLUTION_PREFERENCE = (2, 1, 3, 6)
+TALL_HEVC_RESOLUTION, TALL_HEVC_SIZE = 7, (1080, 1920)  # only with the owner's H.265 at 1080x1920 setting
 
 # A real phone pings periodically; answering pings is mandatory, sending them
 # is harmless and keeps impatient receivers from declaring the link idle.
@@ -246,7 +249,7 @@ def describe_video_configs(channels: list[dict]) -> str:
   return ", ".join(offered) or "no video"
 
 
-def choose_video_mode(channels: list[dict], allow_hevc: bool = False) -> VideoMode:
+def choose_video_mode(channels: list[dict], allow_hevc: bool = False, tall_hevc: bool = False) -> VideoMode:
   """Pick a negotiated H.264 mode the software encoder can sustain.
 
   H.265 is considered only when the owner allows it and the car offered no usable H.264 mode, so a car that works on
@@ -259,9 +262,10 @@ def choose_video_mode(channels: list[dict], allow_hevc: bool = False) -> VideoMo
     for index, config in enumerate(channel.get("video_configs", [])):
       resolution = one(config, 1)
       codec = one(config, 10, CODEC_H264_BP)
-      if resolution not in RESOLUTIONS or codec not in (CODEC_H264_BP, CODEC_H265):
+      tall = tall_hevc and resolution == TALL_HEVC_RESOLUTION and codec == CODEC_H265
+      if (resolution not in RESOLUTIONS and not tall) or codec not in (CODEC_H264_BP, CODEC_H265):
         continue
-      width, height = RESOLUTIONS[resolution]
+      width, height = TALL_HEVC_SIZE if tall else RESOLUTIONS[resolution]
       margin_width, margin_height = int(one(config, 3, 0) or 0), int(one(config, 4, 0) or 0)
       if not (0 <= margin_width < width and 0 <= margin_height < height):
         continue
@@ -280,7 +284,8 @@ def choose_video_mode(channels: list[dict], allow_hevc: bool = False) -> VideoMo
             left, top = left_edge, top_edge
       mode = VideoMode(int(channel["id"]), index, width, height, fps, margin_width, margin_height, left, top,
                        int(one(config, 5, 0) or 0), codec)
-      (candidates if codec == CODEC_H264_BP else hevc_candidates).append((RESOLUTION_PREFERENCE.index(resolution), fps != 30, index, mode))
+      rank = -1 if tall else RESOLUTION_PREFERENCE.index(resolution)
+      (candidates if codec == CODEC_H264_BP else hevc_candidates).append((rank, fps != 30, index, mode))
   if not candidates and allow_hevc:
     candidates = hevc_candidates
   if not candidates:
@@ -716,6 +721,10 @@ class ProjectionSession(Session):
     self.max_window = self.MAX_WINDOW  # raised by the supervisor for adapters that need the car's full window
     self.allow_hevc = False  # the owner's Allow H.265 video setting; used only when the car offers no H.264 mode
     self.hevc_keyframe_logged = False
+    self.tall_hevc = False  # the owner's H.265 at 1080x1920 setting: prefer that mode when the car offers it
+    self.keyframe_test = False  # the owner's keyframe-only video test: keyframe-only video and extra logging, H.265 sessions only
+    self.test_acks_logged = 0
+    self.test_frames_logged = 0
     self.phone_services = False  # open the car-data and Bluetooth channels like a phone (adapter profile)
     self.phone_frames = False  # send picture NAL units only (adapter profile)
     self.phone_address = ""  # this comma's Bluetooth address, for the pairing request
@@ -744,7 +753,7 @@ class ProjectionSession(Session):
 
   def start(self, device_name: str, device_brand: str) -> VideoMode:
     self.channels = self.discover(device_name, device_brand)
-    self.mode = choose_video_mode(self.channels, self.allow_hevc)
+    self.mode = choose_video_mode(self.channels, self.allow_hevc, self.tall_hevc)
     if self.on_discovered is not None:
       try:
         self.fix_actions = tuple(self.on_discovered(self.head_unit_info) or ())
@@ -940,6 +949,9 @@ class ProjectionSession(Session):
         self._handle_focus(one(fields, 1), one(fields, 2, 0))
       elif kind == AV_MEDIA_ACK:
         self._handle_ack(one(fields, 1), int(one(fields, 2, 0) or 0))
+        if self.keyframe_test_active() and self.test_acks_logged < TEST_ACKS_LOGGED:
+          self.test_acks_logged += 1
+          self.event("video_ack", session=one(fields, 1), count=int(one(fields, 2, 0) or 0), pending=len(self.pending))
       elif kind == VIDEO_UI_CONFIG_REQUEST and mode.codec == CODEC_H265:
         self.send(channel, VIDEO_UI_CONFIG_REPLY, data)
         self.event("ui_config_replied", channel=channel, bytes=len(data))
@@ -1137,6 +1149,13 @@ class ProjectionSession(Session):
     self.pending.append(time.monotonic())
     self.unacked += 1
     self.frames_sent += 1
+    if self.keyframe_test_active() and self.test_frames_logged < TEST_FRAMES_LOGGED:
+      self.test_frames_logged += 1
+      self.event("video_frame_sent", frame=self.frames_sent, keyframe=keyframe, config_bytes=len(config), bytes=len(data),
+                 timestamp_us=timestamp_us, nal_types=hevc_keyframe_summary(data)["nal_types"], pending=len(self.pending))
+
+  def keyframe_test_active(self) -> bool:
+    return self.keyframe_test and self.mode is not None and self.mode.codec == CODEC_H265
 
   def shutdown(self, timeout: float = 2.0) -> None:
     self.send(0, MSG_SHUTDOWN_REQUEST, field(1, SHUTDOWN_REASON_USER_SELECTION))

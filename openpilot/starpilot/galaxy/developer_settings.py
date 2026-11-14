@@ -22,6 +22,13 @@ STARPORT_NEW_SETUP_DESCRIPTION = ("Guided StarPort setup with a live checklist o
 STARPORT_HEVC_KEY = "StarPortAllowHevc"
 STARPORT_HEVC_DESCRIPTION = ("Experimental. Only for a car that offers H.265 and no H.264 video. Cars that offer H.264 are not " +
                              "affected. Applies from the next StarPort connection.")
+STARPORT_KEYFRAME_TEST_KEY = "StarPortKeyframeTest"
+STARPORT_KEYFRAME_TEST_DESCRIPTION = ("Experimental test for a car that only takes H.265. Sends every frame as a keyframe and logs the car's " +
+                                      "acknowledgments. H.264 cars are not affected. Applies from the next StarPort connection.")
+STARPORT_TALL_HEVC_KEY = "StarPortTallHevc"
+STARPORT_TALL_HEVC_DESCRIPTION = ("Experimental test for a car that only takes H.265. Uses the car's 1080x1920 screen mode instead of " +
+                                  "720x1280 when it offers one. Needs Allow H.265 video on. H.264 cars are not affected. " +
+                                  "Applies from the next StarPort connection.")
 STARPORT_EXPERIMENTS_KEY = "StarPortHeadUnitExperiments"
 STARPORT_EXPERIMENTS_DESCRIPTION = ("Shows experimental fixes for specific cars and dongles, each with its own switch. Turn off to use the " +
                                     "standard connection for every car. Applies from the next StarPort connection.")
@@ -61,6 +68,15 @@ class DeveloperSettingsOwner:
                              ("Off", "On"), available=parked, reason=STARPORT_WIFI_DESCRIPTION if parked else held, default_value="On"))
       rows.append(FeatureRow(STARPORT_HEVC_KEY, "Allow H.265 video", "On" if hevc else "Off", b"1" if hevc else b"0",
                              ("Off", "On"), available=parked, reason=STARPORT_HEVC_DESCRIPTION if parked else held, default_value="Off"))
+      keyframe_test = bool(status.get("keyframe_test"))
+      rows.append(FeatureRow(STARPORT_KEYFRAME_TEST_KEY, "Keyframe-only video test", "On" if keyframe_test else "Off",
+                             b"1" if keyframe_test else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_KEYFRAME_TEST_DESCRIPTION if parked else held,
+                             default_value="Off"))
+      tall_hevc = bool(status.get("tall_hevc"))
+      rows.append(FeatureRow(STARPORT_TALL_HEVC_KEY, "H.265 at 1080x1920", "On" if tall_hevc else "Off", b"1" if tall_hevc else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_TALL_HEVC_DESCRIPTION if parked else held,
+                             default_value="Off"))
       experiments = bool(status.get("head_unit_experiments"))
       chosen = set(status.get("head_unit_experiment_rules") or ())
       rows.append(FeatureRow(STARPORT_EXPERIMENTS_KEY, "Try experimental fixes", "On" if experiments else "Off",
@@ -134,6 +150,10 @@ class DeveloperSettingsOwner:
       return self._apply_starport(request, "dedicated_wifi_interface", "set_dedicated_wifi")
     if request.key == STARPORT_HEVC_KEY:
       return self._apply_starport(request, "allow_hevc", "set_allow_hevc")
+    if request.key == STARPORT_KEYFRAME_TEST_KEY:
+      return self._apply_starport(request, "keyframe_test", "set_keyframe_test")
+    if request.key == STARPORT_TALL_HEVC_KEY:
+      return self._apply_starport(request, "tall_hevc", "set_tall_hevc")
     if request.key == STARPORT_EXPERIMENTS_KEY:
       return self._apply_starport(request, "head_unit_experiments", "set_head_unit_experiments")
     if request.key.startswith(STARPORT_EXPERIMENT_PREFIX):
