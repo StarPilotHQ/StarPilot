@@ -1,5 +1,8 @@
 import unittest
 from dataclasses import replace
+from types import SimpleNamespace
+
+import pytest
 
 from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.subaru.interface import CarInterface
@@ -92,3 +95,81 @@ class TestSubaruStockAol(unittest.TestCase):
         state.out.gearShifter = structs.CarState.GearShifter.reverse
         _, decoded = step(controller, command, state)
         self.assertEqual(decoded['LKAS_Request'], 0)
+
+
+
+def pending_restricted_main():
+  settings = AolSettings(True, 0., 0, 0, (0, 0, 0), (0, 0, 0))
+  intent = SubaruStockCardIntent(settings, main_arm=True)
+  state = structs.CarState(canValid=True, vEgo=2., gearShifter='drive')
+  now = 1_000_000_000
+  intent.update(state, now_ns=now, fault_active=False)
+  state.cruiseState.available = state.steerFaultTemporary = True
+  now += 10_000_000
+  observe_main_event(intent, state, now)
+  intent.update(state, now_ns=now, fault_active=False)
+  assert not intent.allowed_latch and intent._pending_main_ns == now
+  return intent, state, now
+
+
+def observe_main_event(intent, state, now):
+  sm = SimpleNamespace(logMonoTime={'onroadEvents': now}, valid={'onroadEvents': True})
+  intent.observe_startup_readiness(sm, state, now_ns=now)
+
+
+def test_temporary_main_wait_preserves_original_gesture_and_requires_new_clear_event():
+  intent, state, arm = pending_restricted_main()
+  for tick in range(1, 351):
+    now = arm + tick * 10_000_000
+    observe_main_event(intent, state, now)
+    intent.update(state, now_ns=now, fault_active=False)
+    assert not intent.allowed_latch and intent._pending_main_ns == arm and intent.main_arm_ns == 0
+  state.steerFaultTemporary = False
+  intent.update(state, now_ns=now + 10_000_000, fault_active=False)
+  assert not intent.allowed_latch and intent._pending_main_ns == arm
+  observe_main_event(intent, state, now + 20_000_000)
+  intent.update(state, now_ns=now + 20_000_000, fault_active=False)
+  assert intent.allowed_latch and intent.main_arm_ns == intent._last_latch_edge_ns == arm
+  assert intent._pending_main_ns == 0
+
+
+@pytest.mark.parametrize('veto', ('main_off', 'invalid_can', 'timeout', 'permanent_eps', 'acc_fault',
+  'reverse', 'cancel', 'settings_off', 'calibration', 'calibration_rearm', 'event_fault',
+  'transport_fault_without_event', 'native_rejection'))
+def test_pending_temporary_main_is_consumed_by_independent_veto(veto):
+  intent, state, arm = pending_restricted_main()
+  if veto == 'main_off':
+    state.cruiseState.available = False
+  elif veto in ('invalid_can', 'timeout', 'permanent_eps', 'acc_fault'):
+    setattr(state, {'invalid_can': 'canValid', 'timeout': 'canTimeout',
+                    'permanent_eps': 'steerFaultPermanent', 'acc_fault': 'accFaulted'}[veto], veto != 'invalid_can')
+  elif veto == 'reverse':
+    state.gearShifter = 'reverse'
+  elif veto == 'cancel':
+    state.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
+  elif veto == 'settings_off':
+    intent.settings = replace(intent.settings, enabled=False)
+  elif veto in ('calibration', 'calibration_rearm'):
+    setattr(intent, '_calibration_inhibit' if veto == 'calibration' else '_calibration_rearm_required', True)
+  if veto != 'transport_fault_without_event':
+    observe_main_event(intent, state, arm + 10_000_000)
+  else:
+    intent._main_event_ns = 0
+  intent.update(state, now_ns=arm + 10_000_000,
+                fault_active=veto in ('event_fault', 'transport_fault_without_event'),
+                native_rejection_ns=arm + 10_000_000 if veto == 'native_rejection' else 0)
+  assert not intent.allowed_latch and intent._pending_main_ns == 0
+
+
+@pytest.mark.parametrize('observation', ('expired', 'invalid_event', 'missing_fault_result'))
+def test_pending_temporary_main_does_not_arm_from_unqualified_clear(observation):
+  intent, state, arm = pending_restricted_main()
+  state.steerFaultTemporary = False
+  now = arm + (200_000_001 if observation == 'expired' else 10_000_000)
+  if observation != 'invalid_event':
+    observe_main_event(intent, state, now)
+  else:
+    sm = SimpleNamespace(logMonoTime={'onroadEvents': now}, valid={'onroadEvents': False})
+    intent.observe_startup_readiness(sm, state, now_ns=now)
+  intent.update(state, now_ns=now, fault_active=None if observation == 'missing_fault_result' else False)
+  assert not intent.allowed_latch

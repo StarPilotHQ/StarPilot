@@ -17,6 +17,7 @@ class SubaruStockCardIntent(AolCardIntent):
     self._main_event_ns = 0
     self._pending_main_ns = 0
     self._pending_main_after_ns = 0
+    self._pending_main_restriction_ns = 0
     self.main_arm_ns = 0
 
   def observe_startup_readiness(self, sm, CS, *, now_ns, **kwargs):
@@ -32,25 +33,34 @@ class SubaruStockCardIntent(AolCardIntent):
     fresh_main = self._previous_main is False and main
     physical_safe = (self.settings.enabled and CS.canValid and not CS.canTimeout and
                      not self._calibration_inhibit and not self._calibration_rearm_required and
-                     not CS.steerFaultPermanent and not CS.steerFaultTemporary and not CS.accFaulted and
+                     not CS.steerFaultPermanent and not CS.accFaulted and
+                     not any(e.type == structs.CarState.ButtonEvent.Type.cancel and e.pressed for e in CS.buttonEvents) and
                      CS.gearShifter == structs.CarState.GearShifter.drive)
     if self.main_arm and fresh_main and physical_safe:
       self._pending_main_ns = now_ns
       self._pending_main_after_ns = self._main_observed_ns
+      self._pending_main_restriction_ns = 0
     self._previous_main = main if CS.canValid and not CS.canTimeout else None
     self._main_observed_ns = now_ns
     if self._pending_main_ns:
-      if not main or not physical_safe or not 0 <= now_ns - self._pending_main_ns <= 200_000_000:
+      if CS.steerFaultTemporary and physical_safe:
+        self._pending_main_restriction_ns = now_ns
+      pending_since = max(self._pending_main_ns, self._pending_main_restriction_ns)
+      new_fault = kwargs.get('fault_active') is True and now_ns > self._pending_main_ns
+      native_rejection = self._pending_main_ns < kwargs.get('native_rejection_ns', 0) <= now_ns
+      if not main or not physical_safe or new_fault or native_rejection or not 0 <= now_ns - pending_since <= 200_000_000:
         self._pending_main_ns = 0
       elif self._main_event_ns > self._pending_main_after_ns and kwargs.get('fault_active') is not None:
         # Wait for the event observation after MAIN; an earlier MAIN-off fault
         # cannot decide this edge. A new fault still consumes it without arming.
-        if not kwargs['fault_active'] and not self._fault_inhibit:
+        if kwargs['fault_active'] or self._fault_inhibit:
+          self._pending_main_ns = 0
+        elif not CS.steerFaultTemporary and self._main_event_ns > self._pending_main_restriction_ns:
           self.allowed_latch = True
           self.pause_lateral = False
           self._last_latch_edge_ns = self._pending_main_ns
           self.main_arm_ns = self._pending_main_ns
-        self._pending_main_ns = 0
+          self._pending_main_ns = 0
     if not main:
       self.main_arm_ns = 0
       self._record_latch_clear('subaru_main_off')

@@ -272,6 +272,7 @@ DEBUG_SAFETY_CLASS_TARGETS = {
 
 
 RELEASE_TARGETS = (
+  "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_main_during_temporary_eps_waits_for_clear",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_stopped_feedback_gap_retains_only_armed_intent",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_repeat_main_with_brake_and_signal_pause",
   "openpilot/starpilot/aol/tests/test_subaru_temporary_eps.py",
