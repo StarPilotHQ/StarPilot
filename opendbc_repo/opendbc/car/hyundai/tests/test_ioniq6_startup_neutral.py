@@ -236,3 +236,101 @@ def test_native_startup_readiness_is_immediate_before_selfdrive_events(monkeypat
   owner.publish_sendcan.assert_not_called()
   assert not owner.ioniq6_host_warmed
   assert owner.CI.CC.frame == 0
+
+
+@pytest.mark.parametrize('offset', (0, 4))
+@pytest.mark.parametrize('alternate', (False, True))
+@pytest.mark.parametrize('aol', (False, True))
+def test_actual_step_sends_neutral_before_first_selfdrive_event(monkeypatch, offset, alternate, aol):
+  owner, clock, _, _ = prepared_card(monkeypatch, offset=offset, alternate=alternate, aol=aol)
+  owner.ci_initialized = True
+  owner.sm.seen['carControl'] = False
+  owner.sm.seen['onroadEvents'] = False
+  original_sm = owner.sm
+
+  class BeforeEvents:
+    def __getattr__(self, name):
+      return getattr(original_sm, name)
+
+    def __getitem__(self, name):
+      return [] if name == 'onroadEvents' else original_sm[name]
+
+  owner.sm = BeforeEvents()
+  owner.state_update = Mock(return_value=(owner.CI.CS.out, None))
+  owner.state_publish = Mock()
+  owner.radar_update = Mock(return_value=None)
+  owner.radar_publish = Mock()
+  owner._deferred_radar_can = None
+  owner.step()
+  assert owner.publish_sendcan.called, 'VERIFIED_HANDOFF_MUST_NOT_WAIT_FOR_SELFDRIVE_EVENTS'
+  frames = owner.publish_sendcan.call_args.args[0]
+  assert any(frame[0] == 0x1A0 for frame in frames)
+  decoder = CANParser(DBC[CAR.HYUNDAI_IONIQ_6][Bus.pt], [('SCC_CONTROL', 0), ('LFA', 0)], owner.CI.CC.CAN.ECAN)
+  decoder.update([(clock[0], frames)])
+  assert decoder.vl['SCC_CONTROL']['ACCMode'] == 0
+  assert decoder.vl['SCC_CONTROL']['aReqRaw'] == decoder.vl['SCC_CONTROL']['aReqValue'] == 0
+  assert decoder.vl['LFA']['ActToiSta'] == decoder.vl['LFA']['StrTqReqVal'] == 0
+
+
+@pytest.mark.parametrize('alternate', (False, True))
+@pytest.mark.parametrize('offset', (0, 4))
+@pytest.mark.parametrize('control_seen', (False, True))
+def test_verified_startup_step_replaces_cruise_before_delayed_events(monkeypatch, alternate, offset, control_seen, native_safety):
+  owner, clock, _, _ = prepared_card(monkeypatch, alternate=alternate, offset=offset, aol=True)
+  owner.ci_initialized = True
+  owner.sm.seen['onroadEvents'] = False
+  owner.sm.seen['carControl'] = control_seen
+  owner.sm.valid['carControl'] = owner.sm.alive['carControl'] = control_seen
+  original_sm = owner.sm
+
+  class BeforeEvents:
+    def __getattr__(self, name):
+      return getattr(original_sm, name)
+
+    def __getitem__(self, key):
+      return [] if key == 'onroadEvents' else original_sm[key]
+
+  owner.sm = BeforeEvents()
+  owner.state_update = Mock(return_value=(owner.CI.CS.out, None))
+  owner.state_publish = Mock()
+  owner.radar_publish = Mock()
+  owner.radar_update = Mock(return_value=None)
+  owner._deferred_radar_can = None
+  native, release = native_safety
+  assert native.set_safety_hooks(19, 0) == 0
+  assert native.set_safety_hooks(owner.CP.safetyConfigs[-1].safetyModel.raw,
+                                 int(owner.CP.safetyConfigs[-1].safetyParam)) == 0
+  native.set_controls_allowed(False)
+  decoder = CANParser(DBC[CAR.HYUNDAI_IONIQ_6][Bus.pt], [('SCC_CONTROL', 0), ('LFA', 0)], owner.CI.CC.CAN.ECAN)
+  sent = []
+  for tick in range(60):
+    native.set_timer(clock[0] // 1000)
+    if not release:
+      for name in (owner.CI.CS.accelerator_msg_canfd, 'TCS', 'WHEEL_SPEEDS', 'MDPS', owner.CI.CS.cruise_btns_msg_canfd):
+        frame = owner.CI.CC.packer.make_can_msg(name, 1, {'COUNTER': tick % (16 if name == 'CRUISE_BUTTONS' else 256)})
+        assert native.safety_rx_hook(libsafety_py.make_CANPacket(frame[0], frame[2], frame[1]))
+    owner.sm.logMonoTime = dict.fromkeys(('carControl', 'pandaStates'), clock[0])
+    owner.sm.recv_time = dict.fromkeys(('carControl', 'pandaStates'), clock[0] / 1e9)
+    owner.publish_sendcan.reset_mock()
+    owner.step()
+    assert owner.publish_sendcan.called, 'VERIFIED_I6_REPLACEMENT_MUST_NOT_WAIT_FOR_INITIALIZATION_EVENTS'
+    frames = owner.publish_sendcan.call_args.args[0]
+    assert owner.publish_sendcan.call_args.kwargs['valid']
+    decoder.update([(clock[0], frames)])
+    for frame in frames:
+      accepted = native.safety_tx_hook(libsafety_py.make_CANPacket(frame[0], frame[2] % 4, frame[1]))
+      if not release:
+        assert accepted, (hex(frame[0]), frame[2])
+      elif frame[0] in (0x730, 0x1A0, 0x100):
+        assert not accepted
+      if frame[0] == 0x1A0:
+        sent.append(clock[0])
+        assert decoder.vl['SCC_CONTROL']['ACCMode'] == 0
+        assert decoder.vl['SCC_CONTROL']['aReqRaw'] == decoder.vl['SCC_CONTROL']['aReqValue'] == 0
+      if frame[0] == 0x12A:
+        assert decoder.vl['LFA']['ActToiSta'] == decoder.vl['LFA']['StrTqReqVal'] == 0
+    assert not native.get_controls_allowed()
+    clock[0] += 10_000_000
+  assert len(sent) == 30
+  assert all(b - a == 20_000_000 for a, b in zip(sent[:-1], sent[1:], strict=True))
+  assert not owner.sm.seen['onroadEvents']
