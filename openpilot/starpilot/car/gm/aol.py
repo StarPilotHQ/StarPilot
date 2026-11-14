@@ -150,8 +150,14 @@ def cold_gm_main_intent_current(feedback, sm, cp, cs, axis, native, now_ns, *, p
   """Cold MAIN may wait on a current SOFT occurrence without renewing output."""
   from opendbc.car.structs import car
   from openpilot.starpilot.nostalgia import physical_cancel
-  from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS
+  from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS
   event_ns = int(sm.logMonoTime['onroadEvents'])
+  source_ns = int(axis.sourceCarStateMonoTime)
+  retained_ns = getattr(feedback, 'cold_main_source_ns', 0)
+  source_current = (0 < source_ns <= axis.observedMonoTime <= now_ns and now_ns - source_ns <= AXIS_MAX_AGE_NS)
+  source_retained = (source_ns == 0 and cp.pcmCruise and not cp.openpilotLongitudinalControl and
+    not cs.cruiseState.enabled and feedback.cold_main_wait_ns > 0 and
+    0 < retained_ns <= axis.observedMonoTime <= now_ns <= retained_ns + SAFETY_MAX_AGE_NS)
   return bool(qualified_gm(cp) and aol_enabled(cp) and
     not feedback.failed and not feedback.paused and not feedback.pending_event and
     not feedback.ever_lateral_active and str(axis.faultReason) == 'availabilityPause' and
@@ -160,8 +166,7 @@ def cold_gm_main_intent_current(feedback, sm, cp, cs, axis, native, now_ns, *, p
     producer and str(axis.intentProducerSessionId) == producer and
     (feedback.signature is None or
       (str(axis.intentProducerSessionId), int(axis.intentIntegrityEpoch)) == feedback.signature[14:16]) and
-    0 < axis.sourceCarStateMonoTime <= axis.observedMonoTime <= now_ns and
-    now_ns - axis.sourceCarStateMonoTime <= AXIS_MAX_AGE_NS and
+    (source_current or source_retained) and
     axis.faultEventMonoTime == event_ns and sm.seen['onroadEvents'] and
     sm.valid['onroadEvents'] and sm.alive['onroadEvents'] and
     0 < event_ns <= axis.observedMonoTime and now_ns - event_ns <= 1_500_000_000 and
@@ -348,7 +353,11 @@ def cold_main_readiness(cp, cs, native, events, *, recovering=False):
   host_wait = not faults if recovering else bool(faults and
     all(event.softDisable and not event.immediateDisable and event.name in names for event in faults))
   return bool(qualified_gm(cp) and aol_enabled(cp) and host_wait and
-    not any(event.userDisable and not (gm_physical_pedal_withdrawal(cp, cs) and
+    not any(event.userDisable and not (
+      event.name == log.OnroadEvent.EventName.pcmDisable and cp.pcmCruise and
+      not cp.openpilotLongitudinalControl and not cs.cruiseState.enabled and
+      not event.immediateDisable and not event.softDisable or
+      gm_physical_pedal_withdrawal(cp, cs) and
       event.name == log.OnroadEvent.EventName.pedalPressed and (cs.brakePressed or cs.regenBraking) and
       not event.immediateDisable and not event.softDisable) for event in events) and
     cs.canValid and not cs.canTimeout and cs.cruiseState.available and

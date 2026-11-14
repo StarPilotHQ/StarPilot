@@ -281,6 +281,7 @@ class TransportPauseFeedback:
     self.ever_lateral_active = False
     self.lag_withdrawal_ns = 0
     self.cold_main_wait_ns = 0
+    self.cold_main_source_ns = 0
     self.cold_main_sparse_waiting = False
     self.ccnc_main_off_source_ns = 0
     self.cold_park_waiting = False
@@ -1474,6 +1475,8 @@ class TransportPauseFeedback:
             producer=intent_producer_session):
           self.session = str(axis.sessionId)
           self.sequence, self.signature = int(axis.sequence), signature
+          if axis.sourceCarStateMonoTime > 0:
+            self.cold_main_source_ns = int(axis.sourceCarStateMonoTime)
           event_ns = int(sm.logMonoTime['onroadEvents'])
           if not self.cold_main_wait_ns:
             self.cold_main_wait_ns = event_ns
@@ -1496,9 +1499,12 @@ class TransportPauseFeedback:
             axis.faultEventMonoTime == event_ns and sm.seen['onroadEvents'] and
             sm.valid['onroadEvents'] and sm.alive['onroadEvents'] and 0 < event_ns <= stamp and
             now_ns - event_ns <= AXIS_MAX_AGE_NS and
+            (axis.sourceCarStateMonoTime != 0 or not (cp.pcmCruise and not cp.openpilotLongitudinalControl) or
+             0 < self.cold_main_source_ns <= stamp <= now_ns <= self.cold_main_source_ns + SAFETY_MAX_AGE_NS) and
             cold_main_readiness(cp, cs, native, sm['onroadEvents'], recovering=recovering)):
           if recovering:
             self.cold_main_wait_ns = 0
+            self.cold_main_source_ns = 0
             self.cold_main_sparse_waiting = False
           else:
             self.cold_main_wait_ns = event_ns
@@ -1734,6 +1740,7 @@ class TransportPauseFeedback:
       if current and baseline and not latched:
         # Healthy idle ends cold MAIN recovery; cleared wait cannot block requests.
         self.cold_main_wait_ns = 0
+        self.cold_main_source_ns = 0
         self.cold_main_sparse_waiting = False
         self.cold_park_waiting = False
         self.temporary_eps_event_ns = 0
@@ -1832,6 +1839,7 @@ class TransportPauseFeedback:
           self.subaru_eps_brake_event_ns = 0
           self.lag_withdrawal_ns = 0
           self.cold_main_wait_ns = 0
+          self.cold_main_source_ns = 0
           self.cold_main_sparse_waiting = False
           self.cold_park_waiting = False
           self.temporary_eps_event_ns = 0
