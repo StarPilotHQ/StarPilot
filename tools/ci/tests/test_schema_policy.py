@@ -270,7 +270,7 @@ class SchemaPolicyTest(unittest.TestCase):
     original = b'forceStopHolding @4 :Bool;'
     self.assertIn(original, self.schemas[path])
     appended = self.schemas.copy()
-    appended[path] = appended[path].replace(original, original + b'\n  futureStatus @7 :UInt32;')
+    appended[path] = appended[path].replace(original, original + b'\n  futureStatus @9 :UInt32;')
     self.assertEqual(validate(appended, self.policy, self.sync), [])
     for replacement in (b'', b'forceStopHolding @5 :Bool;', b'forceStopHolding @4 :UInt32;',
                         b'changedHold @4 :Bool;'):
