@@ -58,6 +58,10 @@ def gpu():
         rl.rlgl_close()
         gl.CGLSetCurrentContext(None)
         gl.CGLDestroyContext(context)
+    elif os.getenv("STARPILOT_TEST_SOFTWARE_EGL") == "1":
+      from openpilot.starpilot.system.starport.tests.software_egl import SoftwareEGLContext
+      context = SoftwareEGLContext(rl)
+      close = context.close
     else:
       context = headless_egl.HeadlessContext(64, 64)
       close = context.close

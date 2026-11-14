@@ -33,6 +33,15 @@ class TestHeadlessCiEnvironment(unittest.TestCase):
       with self.subTest(job=job_name):
         self.assert_headless_step(self.runner_step(workflow, job_name, step_name))
 
+  def test_custom_pixel_tests_use_software_egl_without_a_drm_device(self):
+    workflow = (ROOT / '.github/workflows/tests.yaml').read_text()
+    step = self.runner_step(workflow, 'custom_pytest', 'Test every assigned custom pytest node serially')
+    for name in ('STARPILOT_AUTO_GL_TEST', 'STARPILOT_TEST_SOFTWARE_EGL', 'LIBGL_ALWAYS_SOFTWARE'):
+      self.assertIn(f'        {name}: "1"', step)
+    setup = self.runner_step(workflow, 'custom_pytest', 'Provide Mesa software graphics for pixel-level tests')
+    for package in ('libegl1', 'libgles-dev', 'libgl1-mesa-dri'):
+      self.assertIn(package, setup)
+
   def test_missing_or_desktop_backend_is_rejected(self):
     workflow = (ROOT / '.github/workflows/tests.yaml').read_text()
     for job_name, step_name in RUNNERS:

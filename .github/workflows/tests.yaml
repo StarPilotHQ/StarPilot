@@ -295,11 +295,17 @@ jobs:
       run: |
         uv pip install --python .venv/bin/python --only-binary av av==19.0.1
         .venv/bin/python -c "import av; assert 'libx264' in av.codecs_available"
+    - name: Provide Mesa software graphics for pixel-level tests
+      if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+      run: sudo apt-get update && sudo apt-get install -y libegl1 libgles-dev libgl1-mesa-dri
     - name: Test every assigned custom pytest node serially
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
       timeout-minutes: 15
       env:
         RAYLIB_BACKEND: headless
+        STARPILOT_AUTO_GL_TEST: "1"
+        STARPILOT_TEST_SOFTWARE_EGL: "1"
+        LIBGL_ALWAYS_SOFTWARE: "1"
       run: .venv/bin/python -m tools.ci.custom_pytest_shards run --index "${{ matrix.shard }}" --count 32 --output "ci-results/custom-pytest-${{ matrix.shard }}"
     - name: Save collection, every outcome, JUnit and durable worker diagnostics
       if: always()
