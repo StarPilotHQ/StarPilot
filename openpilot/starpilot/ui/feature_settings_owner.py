@@ -833,7 +833,7 @@ class FeatureSettingsOwner:
     return FeatureRow(KEY, "Highway Smoothing", f"{strength:.0f}" if valid else "Invalid saved value", raw,
                       step=1.0 if valid else 0., minimum=0., maximum=100., unit="%",
                       available=allowed and (valid or self.authority("parked_preferences") and self._readable(KEY)),
-                      repair_value="0" if not valid else "", default_value="0",
+                      repair_value="0" if not valid else "", default_value="70",
                       vehicle_fingerprint=self.vehicle_fingerprint(), capability=capability,
                       reason="Reduces small steering corrections on highways above about 40 mph. 0% is off; higher values add more smoothing.")
 

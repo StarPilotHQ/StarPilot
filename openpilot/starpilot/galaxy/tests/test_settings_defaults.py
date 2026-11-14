@@ -223,9 +223,9 @@ def slider(fixture):
   return page, index, page['rows'][index]
 
 
-def test_default_off_at_left(gateway):
+def test_default_is_seventy_percent_with_off_still_at_left(gateway):
   _, _, row = slider(gateway)
-  assert (row['value'], row['defaultValue'], row['minimum'], row['maximum'], row['unit']) == ('0', '0', 0, 100, '%')
+  assert (row['value'], row['defaultValue'], row['minimum'], row['maximum'], row['unit']) == ('70', '70', 0, 100, '%')
   assert row['step'] == 1 and row['resetAvailable']
   assert '0% is off' in row['reason'] and 'higher values add more smoothing' in row['reason']
   assert read_gain(gateway.params) == 1
@@ -242,7 +242,7 @@ def test_saved_effect_is_preserved_without_migration(gateway, saved, shown):
 
 
 @pytest.mark.parametrize(('strength', 'gain'), [(0, 1.), (50, .55), (100, .1)])
-def test_higher_strength_saves_more_smoothing_and_default_disables(gateway, strength, gain):
+def test_higher_strength_saves_more_smoothing_and_default_restores_seventy(gateway, strength, gain):
   page, index, _ = slider(gateway)
   intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, value=strength)
   assert gateway.gateway.confirm(intent['intent'], gateway.session, gateway.generation)
@@ -251,8 +251,8 @@ def test_higher_strength_saves_more_smoothing_and_default_disables(gateway, stre
   page, index, _ = slider(gateway)
   intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, reset_default=True)
   assert gateway.gateway.confirm(intent['intent'], gateway.session, gateway.generation)
-  assert read_gain(gateway.params) == 1
-  assert slider(gateway)[2]['value'] == '0'
+  assert read_gain(gateway.params) == pytest.approx(.37)
+  assert slider(gateway)[2]['value'] == '70'
 
 
 @pytest.mark.parametrize('value', [-1, 101, float('nan'), float('inf')])
@@ -272,3 +272,18 @@ def test_stale_source_cannot_overwrite_a_newer_setting(gateway):
   except SettingsChanged:
     pass
   assert read_gain(gateway.params) == .3
+
+
+def test_enrollment_then_galaxy_opt_out_persists_across_startups(gateway):
+  from openpilot.starpilot.settings_retirement import retire_settings
+  assert gateway.params.get_default_value(KEY) == pytest.approx(3.7)
+  retire_settings(gateway.params)
+  assert slider(gateway)[2]['value'] == '70'
+  assert read_gain(gateway.params) == pytest.approx(.37)
+  page, index, _ = slider(gateway)
+  intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, value=0)
+  assert gateway.gateway.confirm(intent['intent'], gateway.session, gateway.generation)
+  for _ in range(3):
+    retire_settings(gateway.params)
+    assert slider(gateway)[2]['value'] == '0'
+    assert read_gain(gateway.params) == 1.

@@ -1,4 +1,4 @@
-"""Retire redundant switches once, preserving their effective saved behavior."""
+"""Reconcile one-time settings changes before default creation and consumers."""
 
 import base64
 import json
@@ -22,10 +22,17 @@ def retire_settings(params):
   """Run parked after state admission and before default creation/consumers.
 
   Write child reconciliation before retiring each parent. Corrupt switches are
-  archived in an optional document and treated as Off; this never enables a
-  dormant feature. Returns concrete reconciliation issues for manager logging.
+  archived in an optional document and treated as Off. Smoothing enrollment
+  is independent of retired switches and preserves later strength changes.
+  Returns concrete reconciliation issues for manager logging.
   """
   issues = []
+  smoothing_migrated, readable = read_saved(params, "HighwaySmoothingDefaultApplied", 8)
+  if readable and smoothing_migrated is None:
+    params.put("HighwaySmoothingLevel", 3.7, block=True)
+    params.put_bool("HighwaySmoothingDefaultApplied", True, block=True)
+  elif not readable or smoothing_migrated != b"1":
+    issues.append("Invalid highway smoothing enrollment state retained; saved strength unchanged")
   evidence = {}
   evidence_writable = True
   raw, readable = read_saved(params, EVIDENCE_KEY, 65536)
