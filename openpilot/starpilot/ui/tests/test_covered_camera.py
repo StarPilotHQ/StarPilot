@@ -1,5 +1,6 @@
 """Opaque settings may omit pixels, but camera/model state must remain current."""
 from collections import defaultdict
+from dataclasses import replace
 from types import SimpleNamespace as NS
 from unittest.mock import Mock
 
@@ -10,6 +11,7 @@ import pytest
 from openpilot.selfdrive.ui.mici.onroad import augmented_road_view as native
 from openpilot.selfdrive.ui.mici.onroad import cameraview, model_renderer
 from openpilot.starpilot.ui import runtime_app
+from openpilot.starpilot.ui.appearance_preferences import LeadInfoMode
 from openpilot.starpilot.ui.onroad_state import OnroadState, SpeedLimitObservation
 from openpilot.starpilot.ui.tests import test_compact_settings_lifecycle
 from openpilot.system.ui.widgets import Widget
@@ -244,14 +246,19 @@ def test_compact_layout_propagates_paint_and_resets_after_first_touch_and_except
   assert layout._native_onroad._bookmark_icon.process_gesture.call_count == 3
 
 
-def test_large_camera_paint_is_unchanged(monkeypatch, request):
+@pytest.mark.parametrize('lead_mode', list(LeadInfoMode))
+@pytest.mark.parametrize('metric', [None, False, True])
+def test_large_camera_paint_is_unchanged(monkeypatch, request, lead_mode, metric):
   camera = Mock()
   session = make_session(monkeypatch, request, runtime_app.Profile.LARGE, camera)
   session.camera_paint = False
   state = OnroadState(True, True, 20, 80, SpeedLimitObservation())
+  state = replace(state, appearance=replace(state.appearance, lead_info_mode=lead_mode, lead_info_metric=metric))
   session.view.camera_layer(rl.Rectangle(0, 0, 2160, 1080), state)
   kwargs = camera.render_camera_model_layer.call_args.kwargs
-  assert set(kwargs) == {'road_style', 'camera_view', 'reverse_driver'}
+  assert set(kwargs) == {'road_style', 'camera_view', 'reverse_driver', 'lead_display'}
+  assert kwargs['road_style'] == state.customization['roadColors']['large']
+  assert kwargs['lead_display'] == ((True, int(lead_mode), metric) if lead_mode else None)
   assert kwargs['camera_view'] == state.appearance.camera_view
   assert kwargs['reverse_driver'] == state.reverse_driver_camera
   assert 'paint' not in kwargs
@@ -270,7 +277,6 @@ def test_shell_wires_native_gpu_status_layer(monkeypatch, request, profile):
 @pytest.mark.parametrize('choice', list(runtime_app.CameraViewChoice))
 @pytest.mark.parametrize('reverse', [False, True])
 def test_large_shell_forwards_the_saved_camera_and_temporary_reverse(monkeypatch, request, choice, reverse):
-  from dataclasses import replace
   camera = Mock()
   session = make_session(monkeypatch, request, runtime_app.Profile.LARGE, camera)
   state = OnroadState(True, True, 20, 80, SpeedLimitObservation(), reverse_driver_camera=reverse)
