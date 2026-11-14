@@ -397,6 +397,11 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
         self.assertEqual(bus.queries, [(b"\x10\x03", b"\x50\x03"), (b"\x28\x01\x01", b"\x68\x01")])
         self.assertLess(bus.now, 1.0)
         keepalive_start.assert_called_once()
+        self.assertEqual(captured_card.ioniq6_keepalive.ecan_bus, bus_offset + 1)
+        self.assertEqual(captured_card.ioniq6_restore_bus, bus_offset + 1)
+        with patch.object(card_module, "restore_ioniq6_adas", return_value=True) as restore:
+          self.assertTrue(captured_card.ioniq6_keepalive.restore())
+          restore.assert_called_once_with(*captured_card.can_callbacks, ecan_bus=bus_offset + 1)
       self.assertTrue(params.get_bool("OpenpilotEnabledToggle"))
       self.assertTrue(params.get_bool("AlphaLongitudinalEnabled"))
 

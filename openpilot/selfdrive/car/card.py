@@ -316,7 +316,7 @@ class Car:
             self.ioniq6_readiness_staged = False
           if self.ioniq6_long_prearmed:
             self.ioniq6_handoff_source_floor_ns = time.clock_gettime_ns(time.CLOCK_BOOTTIME)
-            ecan_bus = self.ioniq6_restore_bus
+            ecan_bus = HyundaiCanBus(cp).ECAN
             self.ioniq6_keepalive = Ioniq6StartupKeepalive(
               self.can_callbacks[1], lambda: restore_ioniq6_adas(*self.can_callbacks, ecan_bus=ecan_bus),
               lambda: setattr(self, 'ioniq6_long_lost', True),
