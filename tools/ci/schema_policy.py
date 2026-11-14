@@ -256,11 +256,13 @@ def validate(schemas, policy, sync):
       source = candidate.decode()
       pattern = rf'(enum {re.escape(reviewed["enum"])}\s*\{{)([^}}]*)(\}})'
       match = re.search(pattern, source)
-      field = reviewed['field']
-      if match is None or len(re.findall(rf'(?m)^\s*{re.escape(field)}\s*$', match[2])) != 1:
+      fields = reviewed.get('fields', [reviewed.get('field')])
+      if match is None or any(len(re.findall(rf'(?m)^\s*{re.escape(field)}\s*$', match[2])) != 1 for field in fields):
         errors.append(f'{path}: reviewed enum addition is missing or changed')
       else:
-        body = re.sub(rf'(?m)^[ \t]*{re.escape(field)}[ \t]*\n', '', match[2])
+        body = match[2]
+        for field in fields:
+          body = re.sub(rf'(?m)^[ \t]*{re.escape(field)}[ \t]*\n', '', body)
         source = source[:match.start(2)] + body + source[match.end(2):]
         candidate = source.encode()
     if sha256(candidate) != expected:
