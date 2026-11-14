@@ -272,6 +272,15 @@ class CAR(Platforms):
     [GMCarDocs("GMC Acadia ASCM Harness 2018", video="https://www.youtube.com/watch?v=0ZN6DdsBUZo")],
     GMC_ACADIA.specs,
   )
+  BUICK_ENVISION_SDGM = GMSDGMPlatformConfig(
+    [GMCarDocs("Buick Envision")],
+    GMCarSpecs(mass=1800, wheelbase=2.75, steerRatio=15.6, centerToFrontRatio=0.41),
+  dbc_dict={
+        Bus.pt: 'gm_global_a_powertrain_envision',
+        Bus.radar: 'gm_global_a_object',
+        Bus.chassis: 'gm_global_a_chassis',
+    },
+  )
   BUICK_LACROSSE = GMASCMPlatformConfig(
     [GMCarDocs("Buick LaCrosse 2017-19", "Driver Confidence Package 2")],
     GMCarSpecs(mass=1712, wheelbase=2.91, steerRatio=15.8, centerToFrontRatio=0.4),
@@ -575,6 +584,7 @@ SDGM_CAR = {
   CAR.CHEVROLET_MALIBU_SDGM,
   CAR.BUICK_BABYENCLAVE,
   CAR.CHEVROLET_VOLT_2019,
+  CAR.BUICK_ENVISION_SDGM,
 }
 
 CC_ONLY_CAR = {
