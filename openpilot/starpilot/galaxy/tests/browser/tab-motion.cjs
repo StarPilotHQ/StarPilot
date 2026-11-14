@@ -9,7 +9,12 @@ const assert = require('node:assert/strict')
   await page.route('**/data/runtime.json', route => route.fulfill({ json: { schemaVersion: 1, monitor: 'local' } }))
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname
-    const json = path === '/api/auth/session' ? { state: 'configured', authenticated: true, localAccess: true } :
+    const json = path === '/api/models/manager' ? { schemaVersion: 1, isOnroad: false, capabilities: {},
+      models: [{ value: 'test-model', label: 'Test model', requiresGpu: false, installed: true, selectable: true }] } :
+      path === '/api/models/laboratory' ? { schemaVersion: 1, isOnroad: false, chestnutReady: false, runtimeSupported: false,
+        configuration: { enabled: false, lateralModel: '', longitudinalModel: '' }, capabilities: {}, models: [],
+        download: { downloading: false }, runtime: { active: false, requested: false } } :
+      path === '/api/auth/session' ? { state: 'configured', authenticated: true, localAccess: true } :
       path === '/api/device/state' ? { state: 'parked', maxAgeMs: 3000 } :
         path.startsWith('/api/settings/pages/') ? { page: 'hub', view: 'test', parked: true, rows: [] } : null
     return route.fulfill({ status: json ? 200 : 503, json: json || { error: 'Unavailable in this test' } })
@@ -72,7 +77,20 @@ const assert = require('node:assert/strict')
     assert.equal(layout.overflow, false)
   }
   await page.setViewportSize({ width: 390, height: 900 })
+  for (const [name, direction] of [['Single model', -1], ['Model pair', 1]]) {
+    await page.getByRole('button', { name, exact: true }).click()
+    const entering = page.locator('.gx-model-driving .gx-panel-enter-active')
+    await entering.waitFor()
+    const x = await entering.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41)
+    assert.ok(x * direction > 0, `${name} enters from the correct side`)
+    assert.equal(await page.locator('.gx-model-driving .gx-panel-leave-active').evaluate(element => element.inert), true)
+    await page.waitForFunction(() => !document.querySelector('.gx-panel-enter-active, .gx-panel-leave-active'))
+    assert.equal(await page.locator('.gx-model-driving .gx-panel-stage > :not([inert])').count(), 1)
+  }
   await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.getByRole('button', { name: 'Single model', exact: true }).click()
+  await page.waitForTimeout(50)
+  assert.equal(await page.locator('.gx-panel-enter-active, .gx-panel-leave-active').count(), 0)
   await nav.getByRole('button', { name: 'Home', exact: true }).click()
   await page.waitForTimeout(50)
   assert.equal(await page.locator('.gx-route-enter-active, .gx-route-leave-active').count(), 0)

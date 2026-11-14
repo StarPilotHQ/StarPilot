@@ -18,6 +18,7 @@ const assert = require('node:assert/strict')
         restartRequired: false, canSelect: parked, providers: [
           { id: 'comma', label: 'comma', url: 'https://connect.comma.ai' },
           { id: 'konik', label: 'Konik', url: 'https://stable.konik.ai' }] }
+      else if (path.endsWith('/connect/proxy')) data = { enabled: false, address: '', origin: '', revision: 'proxy', canEdit: parked, passwordConfigured: true }
       else if (path.endsWith('/pages/developer')) data = { page: 'developer', title: 'Developer driving options',
         view: 'developer', parked, rows: [{ label: 'Use VOACC', value: enabled ? 'On' : 'Off', choices: ['Off', 'On'],
           available: parked, action: true, reason: 'Vision-only lead selection. Applies next drive.', defaultValue: 'Off' }] }
@@ -52,8 +53,18 @@ const assert = require('node:assert/strict')
     for (const width of [320, 1280]) {
       await page.setViewportSize({ width, height: 900 })
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+      for (const label of ['Proxy IP address', 'Public HTTPS origin']) {
+        const field = page.getByLabel(label, { exact: true })
+        const layout = await field.evaluate(element => ({ width: element.getBoundingClientRect().width,
+          parent: element.closest('.gx-row').getBoundingClientRect().width }))
+        assert.ok(layout.width > layout.parent * .75, `${label} fills its settings row`)
+      }
+      const inset = await page.locator('form .gx-panel.gx-actions').evaluate(element => parseFloat(getComputedStyle(element).paddingLeft))
+      assert.ok(inset > 0, 'proxy Save uses the shared panel inset')
     }
     await page.getByRole('button', { name: 'Longitudinal (Speed & Following)', exact: true }).click()
+    await page.locator('.gx-panel-enter-active').waitFor()
+    assert.ok(await page.locator('.gx-panel-enter-active').evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41) < 0)
     await page.getByText('Long Planner', { exact: true }).waitFor()
     await page.waitForFunction(() => document.querySelectorAll('.gx-panel-stage .gx-row').length === 5)
     const order = await page.locator('.gx-panel-stage .gx-row').allTextContents()
@@ -63,8 +74,24 @@ const assert = require('node:assert/strict')
     assert.equal(await toggle.count(), 0)
     parked = false
     await page.getByRole('button', { name: 'Developer', exact: true }).click()
+    const developerPanel = page.locator('.gx-panel-enter-active')
+    await developerPanel.waitFor()
+    assert.ok(await developerPanel.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).m41) > 0)
+    assert.equal(await developerPanel.getByText('Reverse proxy', { exact: true }).count(), 1, 'the proxy card enters with Developer')
     await toggle.waitFor()
     assert.equal(await toggle.isDisabled(), true)
+    await page.waitForFunction(() => !document.querySelector('.gx-panel-enter-active, .gx-panel-leave-active'))
+    await page.getByRole('button', { name: 'Vehicle', exact: true }).click()
+    await page.locator('.gx-panel-enter-active').waitFor()
+    await page.waitForFunction(() => !document.querySelector('.gx-panel-enter-active, .gx-panel-leave-active'))
+    await page.getByRole('button', { name: 'Developer', exact: true }).click()
+    await page.locator('.gx-panel-enter-active').getByText('Reverse proxy', { exact: true }).waitFor()
+    await page.waitForFunction(() => !document.querySelector('.gx-panel-enter-active, .gx-panel-leave-active'))
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.getByRole('button', { name: 'Longitudinal (Speed & Following)', exact: true }).click()
+    await page.getByText('Long Planner', { exact: true }).waitFor()
+    await page.waitForTimeout(50)
+    assert.equal(await page.locator('.gx-panel-enter-active, .gx-panel-leave-active').count(), 0)
     assert.deepEqual(errors, [])
     console.log('Developer VOACC: saved toggle, parked guard, phone/desktop layout and longitudinal ordering passed.')
   } finally { await browser.close() }

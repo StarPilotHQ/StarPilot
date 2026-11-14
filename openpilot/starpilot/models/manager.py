@@ -830,11 +830,11 @@ class ModelManager:
       ids = [payload["model"]] if action == "download" else [mid for mid, row in entries.items()
             if "artifact_sha256" in row and (not row.get("uses_external_gpu") or self.gpu_present() or payload.get("allowGpuWithoutGpu"))]
       if action != "refresh_manifest":
-        pending = [mid for mid in ids if not self._installed(mid, entries, variant)]
+        variants = {mid: ('standard', 'amd') if variant == 'amd' and 'artifact_sha256' in entries[mid] else (variant,) for mid in ids}
+        pending = [mid for mid in ids if any(not self._installed(mid, entries, current) for current in variants[mid])]
         for index, mid in enumerate(pending, 1):
           self._check_cancelled()
-          variants = ('standard', 'amd') if variant == 'amd' and 'artifact_sha256' in entries[mid] else (variant,)
-          for current in variants:
+          for current in variants[mid]:
             if not self._installed(mid, entries, current):
               entry = artifact_entry(mid, entries, current)
               self._publish_job(model=mid, detail={"phase": "downloading", "model": mid, "index": index, "count": len(pending),

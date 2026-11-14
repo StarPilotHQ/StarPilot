@@ -357,7 +357,7 @@ assert.equal(liveLink.manager.data.jetlink.active, false)
 assert.equal(liveLink.manager.data.jetlink.state, "checking execution")
 liveLink.manager.stop()
 
-assert.ok(ModelsPage.template.includes('href="https://github.com/StarPilotHQ/StarPilot/blob/SecretGoodStarPilot/openpilot/starpilot/models/JETLINK.md"'), "Jetlink setup guide points at the branch that contains it")
+assert.ok(ModelsPage.template.includes('href="https://github.com/StarPilotHQ/StarPilot/blob/Dom/openpilot/starpilot/models/JETLINK.md"'), "Jetlink setup guide points at Dom")
 
 const refreshingCatalog = { ...managerPayload, downloading: true, refreshing: true }
 assert.equal(modelActionAllowed(refreshingCatalog, "select-small", small), true)
@@ -441,6 +441,40 @@ assert.equal(ModelsPage.template.match(/v-if="pendingNextStart"> · saved change
   assert.equal(ModelsPage.computed.labChoiceProblem.call({ labSelectionError: 'Pair inference is not available in this build yet.' }), false)
   assert.equal(ModelsPage.computed.labChoiceProblem.call({ labSelectionError: 'Choose two different models' }), true)
   console.log('Merged page search, row list, and pair saving passed')
+}
+
+// Retrying a failed pair artifact must retain its variant and keep errors visible on failure.
+{
+  const model = { value: 'small', installed: true }
+  const row = { value: 'small', small: true, modelLabChestnut: true }
+  const context = { busy: '', models: [model], status: { downloadVariant: 'amd', downloadProgress: { model: 'small', count: 1 } },
+    labRow: () => row, labActionAvailable: () => true, actionAvailable: () => false }
+  const request = ModelsPage.computed.retryDownloadRequest.call(context)
+  assert.deepEqual(request, { laboratory: true, action: 'download', model: row })
+  assert.equal(ModelsPage.computed.retryDownloadRequest.call({ ...context, labActionAvailable: () => false }), null)
+  assert.equal(ModelsPage.computed.retryDownloadRequest.call({ ...context, busy: 'download:' }), null)
+  const attempts = []
+  const retry = { retryDownloadRequest: request, failureDismissed: false, disposed: false,
+    runLabAction: async (...args) => { attempts.push(args); return null },
+    runAction: () => assert.fail('AMD retry must not download the standard variant') }
+  await ModelsPage.methods.retryDownload.call(retry)
+  assert.deepEqual(attempts, [['download', row]])
+  assert.equal(retry.failureDismissed, false)
+  retry.runLabAction = async () => ({ message: 'Starting download' })
+  await ModelsPage.methods.retryDownload.call(retry)
+  assert.equal(retry.failureDismissed, false, 'readback replaces the failure; a fast new failure must remain visible')
+  const standard = { ...context, status: { downloadVariant: 'standard', downloadProgress: { model: 'small', count: 1 } },
+    actionAvailable: () => true }
+  assert.deepEqual(ModelsPage.computed.retryDownloadRequest.call(standard), { action: 'download', model })
+  assert.deepEqual(ModelsPage.computed.retryDownloadRequest.call({ ...standard,
+    status: { downloadProgress: { model: 'small', count: 3 } } }), { action: 'downloadAll', model })
+
+  const downloading = { lab: { download: { downloading: true, variant: 'standard', model: 'small' } }, labRow: () => row }
+  assert.equal(ModelsPage.methods.isPairDownloading.call(downloading, model), false)
+  downloading.lab.download.variant = 'amd'
+  assert.equal(ModelsPage.methods.isPairDownloading.call(downloading, model), true)
+  downloading.lab.download.model = 'other'
+  assert.equal(ModelsPage.methods.isPairDownloading.call(downloading, model), false)
 }
 
 

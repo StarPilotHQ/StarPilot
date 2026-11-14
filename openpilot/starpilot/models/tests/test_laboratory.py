@@ -103,6 +103,13 @@ class LaboratoryTest(unittest.TestCase):
     self.assertFalse(artifact_path('gwm8223', self.root, 'standard').exists())
     self.assertTrue(artifact_path('gwm8223', self.root, 'amd').exists())
 
+  def test_laboratory_download_repairs_missing_standard_with_installed_amd(self):
+    self.download()
+    standard = artifact_path('gwm8223', self.root, 'standard')
+    standard.unlink()
+    self.download()
+    self.assertEqual(standard.read_bytes(), self.payloads[standard.name])
+
   def test_direct_laboratory_page_reuses_the_existing_catalog_refresh(self):
     self.manager.refresh_catalog = True
     self.lab.snapshot()

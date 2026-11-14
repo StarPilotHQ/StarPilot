@@ -495,9 +495,27 @@ export const MODEL_SORTS = Object.freeze({
 
 const LAB_REASON_STATES = new Set(["unsupported", "unpublished", "checking"])
 
+const ModelDownloadProgress = {
+  props: { label: { type: String, required: true }, percent: { type: Number, default: null }, gradientId: { type: String, required: true } },
+  template: `<div class="gx-pair-ring" role="progressbar" :aria-label="label" aria-valuemin="0" aria-valuemax="100"
+    :aria-valuenow="percent ?? undefined" :title="percent === null ? label : label + ': ' + percent + '%'">
+    <svg class="gx-pair-ring__svg" viewBox="-.8 -.8 17.6 17.6" aria-hidden="true">
+      <defs>
+        <linearGradient :id="gradientId" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" style="stop-color: var(--secondary, #38bdf8)" />
+          <stop offset="100%" style="stop-color: var(--primary, #9d72ff)" />
+        </linearGradient>
+      </defs>
+      <path class="gx-pair-ring__track" d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383z" />
+      <path class="gx-pair-ring__fill" pathLength="100" d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383z" :stroke="'url(#' + gradientId + ')'" />
+    </svg>
+    <span v-if="percent !== null" class="gx-pair-ring__text">{{ percent }}%</span>
+  </div>`,
+}
+
 export const ModelsPage = {
   name: "ModelsPage",
-  components: { GxDialog, GxState, GalaxySelect, GxNotice },
+  components: { GxDialog, GxState, GalaxySelect, GxNotice, ModelDownloadProgress },
   props: {
     mode: { type: String, required: true },
     unauthorized: { type: Function, required: true },
@@ -571,6 +589,17 @@ export const ModelsPage = {
       if (!info) return ""
       if (info.failed) return info.name ? `Couldn’t download ${info.name}` : "Download stopped"
       return info.title || (info.name ? `Downloading ${info.name}` : "Downloading")
+    },
+    retryDownloadRequest() {
+      if (this.busy) return null
+      const detail = this.status.downloadProgress
+      const model = this.models.find(m => m.value === detail?.model)
+      if (this.status.downloadVariant === "amd") {
+        const row = this.labRow(model)
+        return row && this.labActionAvailable("download", row) ? { laboratory: true, action: "download", model: row } : null
+      }
+      const action = detail?.count > 1 || !model ? "downloadAll" : "download"
+      return this.actionAvailable(action, model) ? { action, model } : null
     },
     cardProgressLabel() {
       const info = this.progressInfo
@@ -762,20 +791,21 @@ export const ModelsPage = {
     },
     isPairDownloading(model) {
       if (!model || !this.lab?.download?.downloading) return false
-      return this.busy === `lab-download:${model.value}` || this.status.modelToDownload === model.value
+      const row = this.labRow(model)
+      const variant = row?.small && row.modelLabChestnut !== false ? "amd" : "standard"
+      return this.lab.download.variant === variant && this.lab.download.model === model.value
     },
     pairDownloadPercent(model) {
       if (!this.isPairDownloading(model)) return null
       if (this.progressInfo?.percent != null) return this.progressInfo.percent
       const match = /(\d{1,3})%/.exec(this.lab?.download?.progress || "")
-      return match ? Math.min(100, Number(match[1])) : 0
+      return match ? Math.min(100, Number(match[1])) : null
     },
     setTab(value) { this.tab = saveTab(value) },
     retryDownload() {
-      const detail = this.status.downloadProgress
-      const model = this.models.find(m => m.value === detail?.model)
-      this.failureDismissed = true
-      return detail?.count > 1 || !model ? this.runAction("downloadAll") : this.runAction("download", model)
+      const request = this.retryDownloadRequest
+      if (!request) return null
+      return request.laboratory ? this.runLabAction(request.action, request.model) : this.runAction(request.action, request.model)
     },
     actionAvailable(action, model = null) { return !this.selectionUncertain && modelActionAllowed(this.status, action, model) },
     canAction(action, model = null) { return !this.busy && this.actionAvailable(action, model) },
@@ -860,7 +890,7 @@ export const ModelsPage = {
         <GxNotice v-if="progressInfo && progressInfo.failed" tone="danger" :title="progressTitle">
           {{ progressInfo.error || 'The download stopped.' }}<template v-if="progressInfo.percent !== null"> It stopped at {{ progressInfo.percent }}%.</template>
           <template #actions>
-            <button type="button" class="gx-btn" :disabled="!actionAvailable('downloadAll')" @click="retryDownload()"><i aria-hidden="true" class="bi bi-arrow-repeat"></i> Try again</button>
+            <button type="button" class="gx-btn" :disabled="!retryDownloadRequest" @click="retryDownload()"><i aria-hidden="true" class="bi bi-arrow-repeat"></i> Try again</button>
             <button type="button" class="gx-btn gx-btn--tonal" @click="failureDismissed = true">Dismiss</button>
           </template>
         </GxNotice>
@@ -873,6 +903,9 @@ export const ModelsPage = {
               <button type="button" :aria-pressed="driveMode === 'pair'" :disabled="!!busy || labLocked" @click="setDriveMode('pair')"><i aria-hidden="true" class="bi bi-bezier2"></i> Model pair</button>
             </div>
 
+            <div class="gx-panel-stage" :style="{'--panel-direction': driveMode === 'pair' ? 1 : -1}">
+              <Transition name="gx-panel" @before-enter="$event.inert = false" @before-leave="$event.inert = true">
+              <div :key="driveMode" class="gx-model-driving__body">
             <template v-if="driveMode === 'single'">
               <div class="gx-model-driving__summary" role="group" aria-label="Active models">
                 <div class="gx-model-control gx-model-summary-item">
@@ -941,6 +974,9 @@ export const ModelsPage = {
                 <p class="gx-model-reason">Pairing increases inference time. Two Big models cannot run together at the required speed. Choose a Small model for one role. Other combinations can also cause model lag warnings. When available, the comma GPU runs one Small role while Chestnut runs the other role.</p>
               </template>
             </div>
+              </div>
+              </Transition>
+            </div>
           </div>
         </section>
 
@@ -966,7 +1002,7 @@ export const ModelsPage = {
                 <label class="gx-switch"><input type="checkbox" role="switch" aria-label="Charge phone over USB" :checked="status.jetlink.chargePhone === true" :disabled="!actionAvailable('jetlink')" @change="toggleJetlinkCharge($event)"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label>
               </div>
               <p class="gx-model-reason">Set up parked with a USB 3 data cable and separate power. Keep the computer awake; keep the iPhone app open and unlocked.</p>
-              <div class="gx-actions"><a class="gx-btn gx-btn--tonal" href="https://github.com/StarPilotHQ/StarPilot/blob/SecretGoodStarPilot/openpilot/starpilot/models/JETLINK.md" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Open Jetlink setup guide</a></div>
+              <div class="gx-actions"><a class="gx-btn gx-btn--tonal" href="https://github.com/StarPilotHQ/StarPilot/blob/Dom/openpilot/starpilot/models/JETLINK.md" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Open Jetlink setup guide</a></div>
             </div>
           </details>
         </section>
@@ -1034,19 +1070,8 @@ export const ModelsPage = {
                   <div class="gx-model-item__actions gx-model-item__actions--pair">
                     <div class="gx-model-item__icons gx-model-item__icons--pair">
                       <span class="gx-model-item__icon-slot">
-                        <div v-if="downloadStage(m) === 'active' && !isPairDownloading(m) && progressInfo" class="gx-pair-ring" role="progressbar" :aria-label="'Downloading ' + m.label" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="progressInfo.percent ?? 25" :title="'Downloading… ' + (progressInfo.percent ?? 0) + '%'">
-                          <svg class="gx-pair-ring__svg" viewBox="-.8 -.8 17.6 17.6" aria-hidden="true">
-                            <defs>
-                              <linearGradient :id="'gx-ring-grad-main-' + m.value" x1="0%" y1="0%" x2="100%" y2="100%">
-                                <stop offset="0%" style="stop-color: var(--secondary, #38bdf8)" />
-                                <stop offset="100%" style="stop-color: var(--primary, #9d72ff)" />
-                              </linearGradient>
-                            </defs>
-                            <path class="gx-pair-ring__track" d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383z" />
-                            <path class="gx-pair-ring__fill" pathLength="100" d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383z" :stroke="'url(#gx-ring-grad-main-' + m.value + ')'" />
-                          </svg>
-                          <span class="gx-pair-ring__text">{{ progressInfo.percent ?? 0 }}%</span>
-                        </div>
+                        <ModelDownloadProgress v-if="downloadStage(m) === 'active' && !isPairDownloading(m) && progressInfo"
+                          :label="'Downloading ' + m.label" :percent="progressInfo.percent" :gradient-id="'gx-ring-main-' + m.value" />
                         <span v-else-if="m.installed" class="gx-pair-cloud-done" title="Model downloaded">
                           <i aria-hidden="true" class="bi bi-cloud-check-fill"></i>
                         </span>
@@ -1088,19 +1113,8 @@ export const ModelsPage = {
                     <div class="gx-model-item__actions gx-model-item__actions--pair">
                       <div class="gx-model-item__icons gx-model-item__icons--pair">
                         <span class="gx-model-item__icon-slot">
-                          <div v-if="isPairDownloading(m)" class="gx-pair-ring" role="progressbar" :aria-label="'Downloading ' + pairKind(row) + ': ' + m.label" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="pairDownloadPercent(m)" :title="'Downloading… ' + (pairDownloadPercent(m) ?? 0) + '%'">
-                            <svg class="gx-pair-ring__svg" viewBox="-.8 -.8 17.6 17.6" aria-hidden="true">
-                              <defs>
-                                <linearGradient :id="'gx-ring-grad-lab-' + m.value" x1="0%" y1="0%" x2="100%" y2="100%">
-                                  <stop offset="0%" style="stop-color: var(--secondary, #38bdf8)" />
-                                  <stop offset="100%" style="stop-color: var(--primary, #9d72ff)" />
-                                </linearGradient>
-                              </defs>
-                              <path class="gx-pair-ring__track" d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383z" />
-                              <path class="gx-pair-ring__fill" pathLength="100" d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383z" :stroke="'url(#gx-ring-grad-lab-' + m.value + ')'" />
-                            </svg>
-                            <span class="gx-pair-ring__text">{{ pairDownloadPercent(m) ?? 0 }}%</span>
-                          </div>
+                          <ModelDownloadProgress v-if="isPairDownloading(m)" :label="'Downloading ' + pairKind(row) + ': ' + m.label"
+                            :percent="pairDownloadPercent(m)" :gradient-id="'gx-ring-lab-' + m.value" />
                           <button v-else-if="row.modelLabEligible && row.modelLabArtifactAvailable && !row.modelLabArtifactInstalled" type="button" class="gx-icon-btn gx-pair-cloud-btn" :disabled="!labActionAvailable('download', row)" :aria-label="labDownloadLabel(row) + ': ' + m.label" :title="labDownloadLabel(row) + ': ' + m.label" @click="runLabAction('download', row)">
                             <i aria-hidden="true" class="bi bi-cloud-arrow-down"></i>
                           </button>

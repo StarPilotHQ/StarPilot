@@ -367,13 +367,7 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 /* Model tags */
 .gx-model-tag { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid; border-radius: var(--radius-full); font-size: .72rem; font-weight: 700; line-height: 1.6; white-space: nowrap; }
 .gx-model-tag i { font-size: .9em; }
-.gx-model-tag--egpu { color: #6ee7a0; background: rgba(110, 231, 160, .12); border-color: rgba(110, 231, 160, .4); }
-.gx-model-tag--small { color: #7cc4ff; background: rgba(124, 196, 255, .12); border-color: rgba(124, 196, 255, .4); }
 .gx-model-tag--pair { color: #fdba74; background: rgba(253, 186, 116, .12); border-color: rgba(253, 186, 116, .4); }
-.gx-model-tag--active { color: var(--on-primary); background: var(--primary); border-color: var(--primary); }
-.gx-model-tag--unknown { color: var(--text-muted); background: transparent; border-color: var(--outline); }
-[data-theme="light"] .gx-model-tag--egpu { color: #15803d; background: rgba(21, 128, 61, .08); border-color: rgba(21, 128, 61, .35); }
-[data-theme="light"] .gx-model-tag--small { color: #1d4ed8; background: rgba(29, 78, 216, .08); border-color: rgba(29, 78, 216, .35); }
 [data-theme="light"] .gx-model-tag--pair { color: #c2410c; background: rgba(194, 65, 12, .08); border-color: rgba(194, 65, 12, .35); }
 
 /* Model list rows */
@@ -438,7 +432,7 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 .gx-pair-ring__fill { fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 28 72; animation: gx-pair-cloud-run 1.4s linear infinite; }
 .gx-pair-ring__text { position: absolute; top: 53%; left: 50%; transform: translate(-50%, -50%); font-size: .4rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--on-surface); line-height: 1; letter-spacing: -.04em; }
 @keyframes gx-pair-cloud-run { to { stroke-dashoffset: -100; } }
-@media (prefers-reduced-motion: reduce) { .gx-pair-ring__fill { animation-duration: 4s; } }
+@media (prefers-reduced-motion: reduce) { .gx-pair-ring__fill { animation: none; } }
 
 /* Jetlink disclosure */
 .gx-model-jetlink summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: var(--sp-2); min-height: 44px; }
