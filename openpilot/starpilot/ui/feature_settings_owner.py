@@ -49,8 +49,11 @@ from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, LEGACY_KEY
 from openpilot.starpilot.ui.torque_feature import TorqueFeature
 from openpilot.starpilot.ui.controller_feature import ControllerFeature, SETUP_ACTION
 from openpilot.starpilot.ui.slc_offset_feature import SlcOffsetOwner
+from openpilot.starpilot.ui.slc_menu import SLC_PAGES, menu_rows
+from openpilot.starpilot.ui.slc_custom_feature import SOURCE_HELP as SLC_SOURCE_HELP
 from openpilot.starpilot.ui.slc_policy_feature import SLC_ADVANCE_CHOICES, policy_rows
 from openpilot.starpilot.longitudinal.profile_preferences import read_document_value, read_profile_health
+from openpilot.starpilot.longitudinal.profile_document import default_slc_limits, SLC_LIMIT_DEFAULTS, SLC_LIMIT_BOUNDS
 from openpilot.starpilot.ui.long_profile_feature import (LongProfileFeature, is_long_confirm_action, VALUE_HELP, CATEGORY_HELP,
                                                        preset_label, preset_value)
 from openpilot.starpilot.ui.traffic_feature import TrafficFeature, EDIT_KEYS as TRAFFIC_EDIT_KEYS
@@ -95,7 +98,7 @@ def cooling_available() -> bool:
 DRIVE_MODE_KEYS = ("DriveModeProfiles", "DriveModeAcceleration", "DriveModeDeceleration")
 
 BOOL_DEFAULTS = {
-  "GMPedalLongitudinal": False, "ForceStops": True, "AlwaysAllowUploads": False, "TurnAssist": True,
+  "GMPedalLongitudinal": False, "ForceStops": True, "SLCLastLimitFallback": False, "AlwaysAllowUploads": False, "TurnAssist": True,
   "DriveModeProfiles": False, "DriveModeAcceleration": True, "DriveModeDeceleration": True,
   "SubaruAvhStartup": False,
   "SubaruStopStartOff": False,
@@ -130,6 +133,7 @@ FLOAT_SPECS = {
      for suffix in ("JerkAcceleration", "JerkDeceleration", "JerkDanger", "JerkSpeedDecrease", "JerkSpeed")},
 }
 SLC_PRIORITY, SLC_SECONDARY, SLC_TERTIARY = SOURCE_PRIORITY_KEYS
+SLC_NO_SECONDARY = "Off"  # secondary source choice: use the primary source only (as the third source)
 LONG_PREFIX = "profile:"
 AOL_BUTTONS = ("LKASButtonControl", "MainCruiseButtonControl", "DistanceButtonControl",
                "LongDistanceButtonControl", "VeryLongDistanceButtonControl")
@@ -144,6 +148,11 @@ LANE_LIVE_KEYS = frozenset(("LaneCentering", "LaneCenteringPauseOnSignal", "Lane
 CURVE_KEYS = frozenset((CURVE_MASTER_KEY, CURVE_NO_LEAD_KEY))
 CURVE_PAGE_KEYS = CURVE_KEYS | {"ShowCSCStatus"}
 CRUISE_KEYS = frozenset(("CustomCruise", "CustomCruiseLong"))
+# On a Tesla Model 3/Y the cruise steps are the right scroll wheel's.
+TESLA_SCROLL_LABELS = {"CustomCruise": "Short scroll", "CustomCruiseLong": "Fast scroll"}
+TESLA_SCROLL_HELP = {"CustomCruise": "How much one scroll of the right scroll wheel changes the comma's set speed.",
+                     "CustomCruiseLong": "How much a fast scroll of the right scroll wheel changes the comma's set speed."}
+TESLA_SCROLL_NEEDS_MATCH = "Turn on Match the Tesla's set speed first"
 
 
 class FeatureSettingsOwner:
@@ -179,6 +188,10 @@ class FeatureSettingsOwner:
     self.long_profiles = LongProfileFeature(self)
     self.tesla_screen = TeslaScreenFeature(self)
     self.tesla_coop = TeslaCoopFeature(self)
+    from openpilot.starpilot.ui.tesla_set_speed_feature import TeslaSetSpeedFeature
+    self.tesla_set_speed = TeslaSetSpeedFeature(self)
+    from openpilot.starpilot.ui.tesla_controls_feature import TeslaControlsFeature
+    self.tesla_controls = TeslaControlsFeature(self)
     from openpilot.starpilot.ui.gm_cancel_remap_feature import GmCancelRemapFeature
     self.gm_cancel_remap = GmCancelRemapFeature(self)
 
@@ -195,6 +208,8 @@ class FeatureSettingsOwner:
                                           configuration_longitudinal=self.configuration_longitudinal)
     self.conditional = ConditionalFeature(self)
     self.wheel = WheelFeature(self)
+    from openpilot.starpilot.ui.slc_custom_feature import SlcCustomFeature
+    self.slc_custom = SlcCustomFeature(self)
 
   def _source_capability(self) -> tuple[bool, bool]:
     return bool(self.vision_development()), bool(self.maps_available())
@@ -513,6 +528,15 @@ class FeatureSettingsOwner:
                           authorized=authorized, temp_prefix=".global-preference-")
     return result.committed and result.verified
 
+  def _tesla_scroll_steps(self) -> bool | None:
+    """None on other cars; on a Tesla Model 3/Y with the add-on cable the cruise steps are the right scroll wheel's,
+    used while Match the Tesla's set speed is on (True) and grayed while it is off (False)."""
+    from openpilot.starpilot.ui.tesla_set_speed_feature import SYNC, addon_cable, saved
+    cp = self.vehicle_params()
+    if not addon_cable(cp):
+      return None
+    return saved(self.params, SYNC)
+
   def _cruise_rows(self, configurable: bool) -> list[FeatureRow]:
     software_capability = self._cruise_capability()
     toyota_capability = toyota_cruise_capability(self.vehicle_params())
@@ -531,7 +555,10 @@ class FeatureSettingsOwner:
                              reason="Short press changes set speed by 5; hold changes it by 1",
                              capability=toyota_capability, dependencies=()))
       return rows
+    scroll = self._tesla_scroll_steps()
     for key, label, default in (("CustomCruise", "Short press", 1.0), ("CustomCruiseLong", "Hold", 5.0)):
+      if scroll is not None:
+        label = TESLA_SCROLL_LABELS[key]
       value, raw, valid = self._value(key)
       try:
         number = float(value)
@@ -539,10 +566,13 @@ class FeatureSettingsOwner:
       except ValueError:
         valid = False
         number = default
+      grayed = scroll is not None and not scroll
       rows.append(FeatureRow(key, label, f"{number:g}" if valid else "Invalid saved value", raw,
                              step=1.0 if valid else 0.0, minimum=1.0, maximum=150.0 if unit_value == "1" else 99.0,
-                             unit=unit if unit_valid else "", available=allowed and valid and unit_valid,
+                             unit=unit if unit_valid else "", available=allowed and valid and unit_valid and not grayed,
                              reason="Invalid saved value or units" if not valid or not unit_valid else
+                                    TESLA_SCROLL_NEEDS_MATCH + ".\n" + TESLA_SCROLL_HELP[key] if grayed else
+                                    TESLA_SCROLL_HELP[key] if scroll is not None else
                                     "Used when StarPilot controls cruise speed" if allowed else reason,
                              capability=capability, dependencies=(("IsMetric", unit_raw),),
                              display_unit=unit if unit_valid else "", default_value=str(default)))
@@ -560,7 +590,7 @@ class FeatureSettingsOwner:
       raw, readable = read_saved(self.params, key, 128)
       if not readable or raw != request.expected:
         return False
-      if self._cruise_capability() is None:
+      if self._cruise_capability() is None or self._tesla_scroll_steps() is False:
         return False
       units, units_readable = read_saved(self.params, "IsMetric", 8)
       return (units_readable and units in (None, b"0", b"1") and
@@ -755,6 +785,12 @@ class FeatureSettingsOwner:
                            reason="Otherwise pauses below the threshold with or without a signal. Applies within one second."))
     return rows
 
+  def _slc_limit_off(self, category: str) -> str:
+    """Why a personality's SLC limit is grayed: its switch in SLC Limit changes is off ('' while it is on)."""
+    if category == "acceleration":
+      return "" if self._value("SLCLimitAcceleration")[0] == "1" else "Turn on Use SLC acceleration limits in Limit changes first"
+    return "" if self._value("SLCLimitBraking")[0] == "1" else "Turn on Use SLC braking limits in Limit changes first"
+
   def _apply_lateral_pause(self, request: FeatureSettingsRequest) -> bool:
     def authorized():
       row = next(row for row in self._lateral_pause_rows(self.authority("preferences")) if row.key == request.key)
@@ -945,6 +981,7 @@ class FeatureSettingsOwner:
                              configurable and parked and self.authority("vehicle") and self.authority("parked_preferences"),
                              "Retains a cruise-controlled stop until you press a pedal or cancel cruise. Applies after the next startup")
         rows.append(replace(row, available=row.available and self._readable("JeepBrakeHold"), capability=jeep_capability))
+      rows.extend(self.tesla_set_speed.rows())
       rows.extend(self.tesla_screen.rows(parked))
       rows.extend(self.tesla_coop.rows(parked))
       rows.extend(self.gm_cancel_remap.rows(parked))
@@ -1154,7 +1191,8 @@ class FeatureSettingsOwner:
       if self.show_cruise_intervals or toyota_cruise_capability(self.vehicle_params()) is not None:
         rows.extend(self._cruise_rows(configurable))
       rows.extend(self.wheel.rows())
-    elif page == FeaturePage.SLC:
+      rows.extend(self.tesla_controls.rows())
+    elif page == FeaturePage.SLC or page in SLC_PAGES:
       system_long = (system_long if self.vehicle_params() is None else self.longitudinal_available()) and self.authority("slc")
       allowed = configurable and system_long
       offsets_ready, offset_rows = self.slc_offsets.rows(allowed, repair_allowed=parked and allowed)
@@ -1170,10 +1208,13 @@ class FeatureSettingsOwner:
       elif not offsets_ready:
         control_reason = "Repair invalid saved speed-limit offsets or units before enabling control"
       else:
-        control_reason = "Follow accepted limits plus offsets, up to your SET speed"
+        control_reason = ("On: StarPilot keeps you to the speed limit plus your offset. The limit caps your set speed, " +
+                          "or becomes your set speed with SLC sets the set speed on (always on a Tesla Model 3 or Y). " +
+                          "Off: the set speed is left to you.")
       control_row = self._bool_row("SpeedLimitController", "Speed Limit Controller",
                                    allowed and (offsets_ready or control == "1"), reason=control_reason)
       rows.append(replace(control_row, reason=control_reason) if control_row.choices else control_row)
+      rows.extend(row for row in self.slc_custom.rows(allowed) if row.key != 'SLCFallbackDelay')
       cp = self.vehicle_params()
       if cp is not None and not cp.pcmCruise:
         rows.append(self._bool_row("SLCOnEngage", "Match Speed Limit on Engage", allowed and control == "1",
@@ -1188,12 +1229,14 @@ class FeatureSettingsOwner:
       vision_dev, maps_available = source_capability
       source_allowed = configurable and self.authority("preferences")
       for key, label, help_text in (
-          (SLC_PRIORITY, "Primary source", "Use this source first; try the secondary source when it is unavailable"),
-          (SLC_SECONDARY, "Secondary source", "Use this source when the primary source is unavailable"),
+          (SLC_PRIORITY, "Primary source", SLC_SOURCE_HELP[SLC_PRIORITY]),
+          (SLC_SECONDARY, "Secondary source", SLC_SOURCE_HELP[SLC_SECONDARY]),
           (SLC_TERTIARY, "Third source", "Use this source when neither earlier source has a usable reading")):
         choices = self._source_choices(source_capability, key=key)
         source, raw, valid = self._value(key)
         source = "Maps" if source == "Map Data" else source
+        if key == SLC_SECONDARY and source == "None":
+          source = SLC_NO_SECONDARY  # an older saved None (primary only) shows as Off
         readable = self._readable(key)
         reason = "Saved source unreadable or too large" if not readable else help_text
         if source == "Maps" and not maps_available:
@@ -1204,8 +1247,29 @@ class FeatureSettingsOwner:
           (source, *choices) if valid and source not in choices else choices,
           available=source_allowed and valid and readable and (len(choices) > 1 or source != "Dashboard"),
           reason=reason, capability=source_capability))
+      rows.extend(row for row in self.slc_custom.rows(allowed) if row.key == 'SLCFallbackDelay')  # after the sources
+      if cp is not None:
+        rows.append(self._bool_row('SLCLastLimitFallback', 'Use the last limit when no source has one', allowed,
+          reason='On: when no source has a speed limit at the start of a drive, StarPilot uses the last limit it accepted on an ' +
+                 'earlier drive. Off: it waits for a source.'))
       rows.extend(offset_rows)
-      title = "Speed Limit Controller"
+      if cp is not None:
+        # Where SLC sets the set speed (cruise.slc_sets_set_speed), the memory, pedal and re-engage rows apply and the
+        # ceiling's early-adoption, accelerator-override, match-on-engage and + override rows do not; elsewhere it is the
+        # other way round. Limit-change timing and the limit switches show on every car.
+        from openpilot.starpilot.ui.slc_custom_feature import MANUAL, SETS_SET_SPEED
+        set_speed_rule = self.slc_custom.sets_set_speed()
+        hidden = ({*ADVANCE_KEYS, PEDAL_OVERRIDE_KEY, 'SLCOnEngage', WHEEL_OVERRIDE_KEY} if set_speed_rule else
+                  {'SLCLastLimitFallback'})
+        from openpilot.selfdrive.car.cruise import TESLA_SET_SPEED_CARS
+        if cp.pcmCruise and cp.openpilotLongitudinalControl and cp.carFingerprint in TESLA_SET_SPEED_CARS:
+          # A Tesla Model 3/Y with its own cruise: SLC always sets the set speed, so there is no choice to offer.
+          hidden |= {SETS_SET_SPEED}
+        elif cp.pcmCruise or not cp.openpilotLongitudinalControl:
+          # The car's own cruise owns the set speed: there is no choice to offer.
+          hidden |= {SETS_SET_SPEED, *MANUAL}
+        rows = [row for row in rows if row.key not in hidden]
+      title, rows = menu_rows(page, rows)
     elif page == FeaturePage.LANE:
       from openpilot.starpilot.lateral.lane_runtime import runtime_supported
       strength_supported = runtime_supported(self.vehicle_params())
@@ -1375,6 +1439,21 @@ class FeatureSettingsOwner:
                                           "Braking magnitude; higher values allow stronger braking",
                                    capability=capability, dependencies=traffic_dependencies,
                                    default_value=str(round(max(low, min(high, default_curve[index])), 4))))
+        if category in SLC_LIMIT_DEFAULTS:
+          limits = document['slcLimits'] if document is not None else default_slc_limits()
+          # Last on the page; grayed (still resettable) while its switch in SLC Limit changes is off.
+          limit_off = self._slc_limit_off(category)
+          rows.append(FeatureRow(f"{LONG_PREFIX}{name}:{category}:slc_limit",
+            "SLC acceleration limit" if category == 'acceleration' else "SLC braking limit",
+            f"{limits[name][category]:g}" if valid else "Invalid document", raw,
+            step=.1, minimum=SLC_LIMIT_BOUNDS[0], maximum=SLC_LIMIT_BOUNDS[1], unit="m/s²",
+            available=allowed and not limit_off, capability=capability, dependencies=traffic_dependencies,
+            default_reset_available=bool(limit_off) and allowed and parked,
+            reason=limit_off or (("The hardest acceleration when Speed Limit Controller raises the speed. A gentler profile stays gentler. "
+                                  if category == 'acceleration' else
+                                  "The hardest braking when Speed Limit Controller lowers the speed. Braking for cars, curves and stops is never limited. ") +
+                                 "Stays active through pedal or set-speed adjustments until that speed change finishes."),
+            default_value=f"{SLC_LIMIT_DEFAULTS[category]:g}"))
     fingerprint = self.vehicle_fingerprint()
     rows = [replace(row, vehicle_fingerprint=None if row.key in GLOBAL_BOOL_PREFERENCES or
                     row.key in (PLANNER_SELECTION_KEY, "ShowSpeedLimits", "AlwaysAllowUploads") or
@@ -1423,6 +1502,9 @@ class FeatureSettingsOwner:
       result = commit_exact(self.params, key=key, max_bytes=8, raw=b"1", expected=request.expected,
                             authorized=authorized_on, temp_prefix=".aol-on-")
       return result.committed and result.verified
+    from openpilot.starpilot.ui.slc_custom_feature import KEYS as SLC_CUSTOM_KEYS
+    if key in SLC_CUSTOM_KEYS:
+      return self.slc_custom.apply(request, reset_default=reset_default)
     if key == "AlwaysOnLateral" and request.value == "Off":
       def authorized_off():
         return (self.authority("preferences") and self._readable(key) and
@@ -1430,6 +1512,8 @@ class FeatureSettingsOwner:
       result = commit_exact(self.params, key=key, max_bytes=8, raw=b"0", expected=request.expected,
                             authorized=authorized_off, temp_prefix=".aol-off-")
       return result.committed and result.verified
+    if key.startswith("tesla_input:"):
+      return self.tesla_controls.apply(request)
     if key.startswith(WHEEL_PREFIX):
       return self.wheel.apply(request)
     if key == OUTPUT_MAX_KEY:
@@ -1462,6 +1546,9 @@ class FeatureSettingsOwner:
       return self.preap_radar.apply(request)
     if key == "TeslaCoopSteering":
       return self.tesla_coop.apply(request)
+    from openpilot.starpilot.ui.tesla_set_speed_feature import KEYS as TESLA_SET_SPEED_KEYS
+    if key in TESLA_SET_SPEED_KEYS:
+      return self.tesla_set_speed.apply(request, reset_default=reset_default)
     if key in TESLA_SCREEN_KEYS:
       return self.tesla_screen.apply(request)
     if key == GM_TUNE_KEY:

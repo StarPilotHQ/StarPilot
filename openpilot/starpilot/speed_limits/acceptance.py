@@ -7,6 +7,10 @@ from dataclasses import dataclass, replace
 from enum import Enum
 
 CONFIRMATION_NS = 30_000_000_000
+# Where SLC sets the set speed (cruise.slc_sets_set_speed): automatic adoption waits this long, and a different
+# source's limit must stay this long before it counts. The ceiling uses 0 for both (Policy defaults).
+AUTOMATIC_ADOPTION_NS = 3_000_000_000
+SOURCE_SWITCH_NS = 2_000_000_000
 
 
 class ObservationKind(Enum):
@@ -77,6 +81,10 @@ class Policy:
   confirm_lower: bool = True
   confirm_higher: bool = True
   display_only: bool = False
+  # The ceiling adopts at once and switches source at once (0); where SLC sets the set speed these are 3 s / 2 s.
+  automatic_adoption_ns: int = 0
+  # How long a different source's limit must stay before it counts; 0 when the caller's adoption delay covers it.
+  source_switch_ns: int = 0
 
 
 class ActionKind(Enum):
@@ -145,6 +153,21 @@ class State:
   presentation: Presentation | None = None
   next_presentation_id: int = 1
   received_speed_mps: float | None = None
+  # Where SLC sets the set speed: the source of the last received limit and a pending switch to another source.
+  received_source: str | None = None
+  switch_candidate: Candidate | None = None
+  switch_started_ns: int | None = None
+
+
+@dataclass(frozen=True)
+class AdoptionProposal:
+  """Where SLC sets the set speed: an explicit adoption the override module and card's command consume."""
+  session_id: str
+  action_sequence_id: int
+  presentation_id: int
+  accepted: AcceptedLimit
+  reconciliation_speed_mps: float
+  clear_override: bool = True
 
 
 @dataclass(frozen=True)
@@ -157,6 +180,7 @@ class Decision:
   action_receipt: ActionReceipt | None = None
   errors: tuple[str, ...] = ()
   adoption_receipt: ActionReceipt | None = None
+  adoption: AdoptionProposal | None = None
   authority: Authority | None = None
   policy: Policy | None = None
 
@@ -244,6 +268,14 @@ def _state_errors(state: State) -> list[str]:
     errors.append("invalid state clock")
   if state.received_speed_mps is not None and not _speed_valid(state.received_speed_mps):
     errors.append("invalid received speed")
+  if state.received_source is not None and not _token(state.received_source):
+    errors.append("invalid received source")
+  if state.switch_candidate is not None:
+    if (not _candidate_valid(state.switch_candidate, state.session_id) or state.switch_started_ns is None or not _integer(state.switch_started_ns) or
+        state.last_timestamp_ns is None or state.switch_started_ns > state.last_timestamp_ns):
+      errors.append("invalid source switch")
+  elif state.switch_started_ns is not None:
+    errors.append("source switch lacks candidate")
   if not _integer(state.last_action_sequence, -1) or not _integer(state.next_decision_id, 1) or not _integer(state.next_presentation_id, 1):
     errors.append("invalid state sequence")
   if type(state.timer_running) is not bool:
@@ -338,7 +370,9 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
   if not observation_is_valid(observation, session_id=state.session_id):
     errors.append("invalid observation")
   if not isinstance(policy, Policy) or any(type(v) is not bool for v in (
-      policy.confirm_lower, policy.confirm_higher, policy.display_only)):
+      policy.confirm_lower, policy.confirm_higher, policy.display_only)) or (
+      type(policy.automatic_adoption_ns) is not int or not 0 <= policy.automatic_adoption_ns <= CONFIRMATION_NS or
+      type(policy.source_switch_ns) is not int or not 0 <= policy.source_switch_ns <= CONFIRMATION_NS):
     errors.append("invalid policy")
   if not _integer(now_ns) or (state.last_timestamp_ns is not None and now_ns < state.last_timestamp_ns):
     errors.append("invalid or reversed monotonic clock")
@@ -379,14 +413,15 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
   elif candidate is not None and (old.presentation is None or old.presentation.candidate != candidate):
     state = replace(state, presentation=Presentation(state.next_presentation_id, candidate), next_presentation_id=state.next_presentation_id + 1)
 
-  def finish(basis: str, *, target: float | None = None, history: AcceptedLimit | None = None) -> Decision:
+  def finish(basis: str, *, target: float | None = None, history: AcceptedLimit | None = None,
+             adoption: AdoptionProposal | None = None) -> Decision:
     nonlocal state
     if observation.kind is not ObservationKind.VALID and state.pending is None:
       state = replace(state, presentation=None)
     final_receipt = replace(receipt, status=basis) if receipt is not None and receipt.status == "seen" else receipt
     final_adopt_receipt = replace(adopt_receipt, status=basis) if adopt_receipt is not None and adopt_receipt.status == "seen" else adopt_receipt
     return Decision(state, candidate, target, basis, history, final_receipt, adoption_receipt=final_adopt_receipt,
-                    authority=authority, policy=policy)
+                    adoption=adoption, authority=authority, policy=policy)
 
   def previous_target() -> float | None:
     return state.accepted.candidate.speed_mps if state.accepted is not None and authority.can_control else None
@@ -426,6 +461,16 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
   explicit_adopt = (adopt is not None and adopt_receipt is not None and adopt_receipt.status == 'seen' and
                     old.presentation is not None and old.presentation.presentation_id == adopt.presentation_id and
                     old.presentation.candidate == candidate == adopt.candidate)
+  if (policy.source_switch_ns and new_limit and state.received_source is not None and candidate.source != state.received_source and
+      authority.can_control and not explicit_adopt and confirmation_started_ns is None):
+    switching = state.switch_candidate
+    if switching is None or (switching.source, switching.speed_mps) != (candidate.source, candidate.speed_mps):
+      state = replace(state, switch_candidate=candidate, switch_started_ns=now_ns)
+    assert state.switch_started_ns is not None
+    if now_ns - state.switch_started_ns < policy.source_switch_ns:
+      return unavailable('source_switch_pending')
+  if policy.source_switch_ns:
+    state = replace(state, received_source=candidate.source, switch_candidate=None, switch_started_ns=None)
   if new_limit:
     state = replace(state, received_speed_mps=candidate.speed_mps, pending=None, timer_running=False)
   if adopt_receipt is not None and adopt_receipt.status == "seen":
@@ -439,7 +484,8 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
       adopt_receipt = replace(adopt_receipt, consumed=True, status="adopt")
       if not authority.can_control:
         return finish("driver_adopt", history=history)
-      return finish("driver_adopt", target=candidate.speed_mps, history=history)
+      proposal = AdoptionProposal(state.session_id, adopt.sequence_id, adopt.presentation_id, state.accepted, candidate.speed_mps)
+      return finish("driver_adopt", target=candidate.speed_mps, history=history, adoption=proposal)
 
   if state.rejected is not None and state.rejected.speed_mps == candidate.speed_mps:
     state = replace(state, pending=None, timer_running=False)
@@ -466,7 +512,7 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
   state = replace(state, pending=pending, timer_running=True)
 
   if pending.automatic:
-    if authority.can_control or authority.fully_disengaged:
+    if pending.active_elapsed_ns >= policy.automatic_adoption_ns and (authority.can_control or authority.fully_disengaged):
       state, history = _accept(state, candidate, now_ns)
       return finish("accepted" if authority.can_control else "disengaged_accept",
                     target=candidate.speed_mps if authority.can_control else None, history=history)

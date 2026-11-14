@@ -70,7 +70,9 @@ def main():
                                           borrowed_messages=True, evidence_wait_ms=0)
     controllers = None if ui_state.replay_clock is not None else ControllerRuntime(ui_state.params, actions=layout.star._favorite_actions,
                                     favorites=layout.star.favorites_owner.snapshot,
-                                    invoke_favorite=layout.star.favorites_owner.invoke, authority=controller_authority, input_capture=game_input)
+                                    invoke_favorite=layout.star.favorites_owner.invoke, authority=controller_authority, input_capture=game_input,
+                                    vehicle=lambda: ui_state.CP, messages=lambda: ui_state.sm, speed_actions=layout.star._comma_speed_actions,
+                                    keyed_actions=layout.star._favorite_render_actions)
     preview = None if ui_state.replay_clock is not None else LayoutPreviewRuntime(ui_state.params, (Profile.LARGE if BIG_UI else Profile.COMPACT).value,
                                    offroad_hint=ui_state.is_offroad, authority=preview_authority)
   else:

@@ -87,7 +87,8 @@ export const GalaxySettingRow = {
       return { ...bounds, numericMax, max: Number((numericMax + bounds.step).toFixed(8)), auto: true }
     },
     locked() { return this.busy || this.updating || this.dimmed },
-    dimmed() { return this.disabled || !this.row.available || (!this.row.action && !this.row.page) },
+    // A status row has nothing to change, so it is never shown grayed.
+    dimmed() { return !this.row.status && (this.disabled || !this.row.available || (!this.row.action && !this.row.page)) },
     currentValue() { return this.preview !== undefined ? this.preview : this.presentedRow.value },
     sliderValue() { return this.currentValue === "Auto" && this.bounds?.auto ? this.bounds.max : this.currentValue },
     displayValue() {
@@ -231,6 +232,7 @@ export const GalaxySettingRow = {
         <span v-if="presentedRow.reason && !row.heading && !compact" class="gx-row__desc">{{ ' ' + presentedRow.reason.replace('https://firestar.link/discord', '') }}</span>
         <template v-if="compact && presentedRow.reason && !row.heading"><span class="gx-row__desc">{{ presentedRow.reason.split('. ')[0] + (presentedRow.reason.includes('. ') ? '.' : '') }}</span><details class="gx-row__help"><summary>What this changes</summary><p>{{ presentedRow.reason }}</p></details></template>
         <a v-if="presentedRow.reason?.includes('https://firestar.link/discord')" class="gx-btn gx-btn--tonal" href="https://firestar.link/discord" target="_blank" rel="noopener">StarPilot Discord</a>
+        <span v-if="row.links?.length" class="gx-row__links"><a v-for="link in row.links" :key="link.url" class="gx-btn gx-btn--tonal" :href="link.url" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> {{ link.label }}</a></span>
         <span v-if="control === 'group' || control === 'action'" class="gx-row__desc">{{ presentedRow.value }}</span>
       </div>
       <button v-if="control !== 'slider' && showDefault && !row.heading" type="button"

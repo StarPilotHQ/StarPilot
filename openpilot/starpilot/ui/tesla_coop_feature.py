@@ -6,7 +6,7 @@ from openpilot.starpilot.ui.feature_settings_state import FeatureRow
 
 KEYS = frozenset(('TeslaCoopSteering',))
 ROWS = (('TeslaCoopSteering', 'Tesla Co-op Steering',
-         'Model 3 only. Light steering input adjusts the assisted steering angle within its limits. Applies after the next startup.'),)
+         'Light steering input adjusts the assisted steering angle within its limits. Applies after the next startup.'),)
 
 
 class TeslaCoopFeature:

@@ -14,6 +14,7 @@ import time
 from typing import Protocol, cast
 
 from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner, AGGRESSIVE_COOLING_KEY
+from openpilot.starpilot.ui.slc_menu import SLC_PAGES
 from openpilot.starpilot.galaxy.setting_descriptions import description
 from openpilot.starpilot.galaxy.localization_settings import LocalizationSettingsOwner
 from openpilot.starpilot.ui.controller_feature import SETUP_ACTION, SETUP_QUESTION
@@ -39,7 +40,7 @@ from openpilot.starpilot.ui.sentry_owner import RESET as SENTRY_RESET, SentryOwn
 from openpilot.starpilot.ui.vasm_owner import ANNOTATION as VASM_ANNOTATION, RESET as VASM_RESET, VASMOwner, validated_annotation
 
 
-PAGES = frozenset(("hub", "localization", "developer", "vehicle", "slc", "lane", "lane_change", "profiles", "personalities",
+PAGES = frozenset((*SLC_PAGES, "hub", "localization", "developer", "vehicle", "slc", "lane", "lane_change", "profiles", "personalities",
                    "traffic", "aggressive", "standard", "relaxed",
                    "curve", "torque", "tuning", "torque/bluepilot", "aol", "wheel", "appearance", "display", "data", "power", "sounds", "pip", "sentry", "vasm",
                    "conditional", "conditional/cem",
@@ -416,6 +417,8 @@ def _projection(row: FeatureRow) -> dict:
           "displayScale": "lane-strength" if row.key == "LaneCenteringStrength" else None,
           **({"coordinate": row.key.removeprefix("torque:surface:")} if row.key.startswith("torque:surface:") and row.key != "torque:surface:reset" else {}),
           "heading": is_heading(row.key), "collapsed": bool(row.collapsed),
+          "status": row.status,
+          **({"links": [{"label": label, "url": url} for label, url in row.links if url.startswith("https://")]} if row.links else {}),
           **({"previewSound": row.key} if row.key in SOUND_SPECS else {})}
 
 
@@ -434,6 +437,8 @@ def _question(row: FeatureRow, request: FeatureSettingsRequest) -> str:
     if row.capability and row.capability[0] == "toyota":
       return f"Save {row.label.lower()} as {request.value}? Toyota cruise preferences refresh while this compatible drive is active."
     value = f"{request.value} {row.unit}" if row.unit else request.value
+    if row.label in ("Short scroll", "Fast scroll"):
+      return f"Set {row.label.lower()} to {value}? Scroll steps refresh during the drive."
     return f"Set {row.label.lower()} to {value}? Cruise-button increments refresh during the drive."
   if key in SOUND_SPECS:
     value = request.value + ("%" if request.value != "Auto" and not request.value.endswith("%") else "")
@@ -525,7 +530,7 @@ class SettingsGateway:
     with self.lock:
       ctx = self.context.sample()
       sections = []
-      for page in ("torque", "lane", "lane_change", "aol", "conditional", "profiles", "slc", "curve"):
+      for page in ("torque", "lane", "lane_change", "aol", "conditional", "profiles", "slc", *SLC_PAGES, "curve"):
         state = self._state(page, ctx)
         sections.append({"title": state.title,
                          "rows": [{"label": row.label, "value": row.value} for row in state.rows[:64]]})

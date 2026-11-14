@@ -41,6 +41,13 @@ class MapFrame:
   tile_loaded: bool
   way_id: int
   way_selection: str
+  next_speed_mps: float = 0.0
+  next_distance_m: float = 0.0
+  road_name: str = ""
+  next_end_distance_m: float = 0.0
+  following_speed_mps: float = 0.0
+  following_way_id: int = 0
+  next_way_id: int = 0
   preview_speed_mps: float = 0.0
   preview_distance_m: float = 0.0
   preview_boundary_id: str = ''
@@ -69,8 +76,13 @@ def copy_frame(road, *, event_valid: bool, event_boot_ns: int) -> MapFrame:
       str(road.gpsSource), int(road.gpsMonoTime), int(road.computedMonoTime),
       int(road.sourceGeneration), int(road.producerSession), float(road.speedLimit),
       bool(road.tileLoaded), int(road.wayId), str(road.waySelectionType),
-      float(getattr(road, 'previewSpeedLimit', 0.0)), float(getattr(road, 'previewDistance', 0.0)),
-      str(getattr(road, 'previewBoundaryId', '')), int(getattr(road, 'previewWayId', 0)))
+      float(road.nextSpeedLimit), float(road.nextSpeedLimitDistance), str(road.roadName),
+      float(road.nextSpeedLimitEndDistance), float(road.followingSpeedLimit),
+      int(road.followingSpeedLimitWayId), int(road.nextSpeedLimitWayId),
+      preview_speed_mps=float(getattr(road, 'previewSpeedLimit', 0.0)),
+      preview_distance_m=float(getattr(road, 'previewDistance', 0.0)),
+      preview_boundary_id=str(getattr(road, 'previewBoundaryId', '')),
+      preview_way_id=int(getattr(road, 'previewWayId', 0)))
   except Exception as error:  # pycapnp lazy reads may raise KjException, not ValueError
     raise ValueError('invalid mapdOut reader') from error
 
@@ -151,7 +163,9 @@ def _classify(frame: MapFrame, now_boot_ns: int) -> MapEvidence:
         frame.way_selection not in WAY_SELECTIONS or frame.speed_mps != 0):
       return MapEvidence('unknown', UNKNOWN)
     return MapEvidence('matched_no_limit_unqualified', UNKNOWN)
-  if frame.event_valid or frame.speed_mps != 0 or frame.way_id != 0 or frame.tile_loaded:
+  # A loaded tile with no road match remains loss, never numeric evidence.
+  if (frame.event_valid or frame.speed_mps != 0 or frame.way_id != 0 or
+      frame.tile_loaded and frame.status != 'noMatch'):
     return MapEvidence('unknown', UNKNOWN)
   if frame.status == 'noGps' and frame.source == 'none' and frame.gps_mono_ns != 0:
     return MapEvidence('unknown', UNKNOWN)

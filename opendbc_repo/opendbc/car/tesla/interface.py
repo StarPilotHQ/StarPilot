@@ -6,12 +6,18 @@ from opendbc.car.tesla.preap.stock import get_stock_params
 from opendbc.car.tesla.hw1 import get_hw1_params
 from opendbc.car.tesla.values import TeslaSafetyFlags, TeslaFlags, CANBUS, CAR, DBC
 from opendbc.car.tesla.radar_interface import RadarInterface, RADAR_START_ADDR
+from opendbc.car.tesla.speed_sync import PROTOCOL_QUALIFIED, EXPERIMENTAL_TEST_BUILD, SYNC_FLAG
 
 
 class CarInterface(CarInterfaceBase):
   CarState = CarState
   CarController = CarController
   RadarInterface = RadarInterface
+
+  def update(self, can_packets):
+    if self.CC is not None and self.CC.speed_sync is not None:
+      self.CC.speed_sync.observe(can_packets)
+    return super().update(can_packets)
 
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
@@ -48,6 +54,12 @@ class CarInterface(CarInterfaceBase):
     if alpha_long:
       ret.openpilotLongitudinalControl = True
       ret.safetyConfigs[0].safetyParam |= TeslaSafetyFlags.LONG_CONTROL.value
+      # Speed sync: explicitly installed experimental build; qualification stays false.
+      # Admit only Model 3/Y with both Vehicle CAN messages and software longitudinal.
+      if ((PROTOCOL_QUALIFIED or EXPERIMENTAL_TEST_BUILD) and not is_release and
+          candidate in (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y) and ret.flags & TeslaFlags.HAS_VEHICLE_BUS and
+          fingerprint[CANBUS.vehicle].get(0x3C2) == 8):
+        ret.safetyConfigs[0].safetyParam |= SYNC_FLAG
 
     # Tesla expanded DAS_steeringControl->DAS_steeringControlType to 3 bits: first in the FSD 14 builds for HW4 around 10-26-2025,
     # then in the other HW4 builds around 03-02-2026, and for HW3 and HW2.5 with 2026.8.6 around 04-03-2026.

@@ -100,6 +100,8 @@ class SpeedLimitObservation:
   presentation_adjusted_limit_mps: float | None = None
   override_basis: str = 'none'
   retained_override: bool = False
+  command_action_sequence_id: int = 0  # card's answer to an SLC set-speed command (where SLC sets the set speed)
+  command_status: str = ''
   action_feedback: str = ''
   automatic_adoption_pending: bool = False
   pending_since_ns: int = 0
@@ -234,6 +236,8 @@ class OnroadState:
   slc_prompt_open: bool = False
   quick_select_open: bool = False
   slc_wheel_confirmation_available: bool = False
+  # Tesla Match the Tesla's set speed: a short note under the set speed while the Tesla's own set speed differs.
+  tesla_sync_caption: str | None = None
 
   torque_is_demand: bool = False
 
@@ -566,7 +570,9 @@ def speed_limit_from_message(message: SlcStateMessage | None) -> SpeedLimitObser
                                  presentation_adjusted_limit_mps=(getattr(message, 'presentationAdjustedLimit', None)
                                    if getattr(message, 'hasPresentationAdjustedLimit', False) else None),
                                  override_basis=str(getattr(message, 'overrideBasis', 'none')),
-                                 retained_override=bool(getattr(message, 'retainedOverride', False)))
+                                 retained_override=bool(getattr(message, 'retainedOverride', False)),
+                                 command_action_sequence_id=int(getattr(message, 'commandActionSequenceId', 0)),
+                                 command_status=str(getattr(message, 'commandStatus', '')))
   except (ValueError, TypeError, AttributeError, OverflowError):
     return SpeedLimitObservation(kind=ObservationKind.UNKNOWN, source=message.source,
                                  status="Invalid SLC numeric observation")

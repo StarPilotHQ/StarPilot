@@ -114,6 +114,8 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
                 cached_params: CarParamsT | None, *, known_gm_bus0: bool = False, known_ford_bus0: bool = False,
                 known_tesla_bus0: bool = False
                 ) -> tuple[str | None, dict, str, list[CarParams.CarFw], CarParams.FingerprintSource, bool]:
+  if known_tesla_bus0 and (known_gm_bus0 or known_ford_bus0 or not _tesla_fw_uses_normal_bus0()):
+    raise ValueError('Tesla discovery topology no longer uses normal bus 0')
   if known_ford_bus0 and (known_gm_bus0 or not ford_normal_bus0_queries()):
     raise ValueError('Ford discovery topology no longer uses normal bus 0')
   if known_gm_bus0 and not _gm_fw_uses_normal_bus0():
@@ -168,12 +170,15 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
         ecu_rx_addrs = {(fw.responseAddress, fw.subAddress or None, fw.bus) for fw in car_fw if fw.responseAddress > 0}
       elif known_tesla_bus0:
         # A selected Tesla needs only its declared bus0 queries, not an all-brand OBD sweep.
+        # Keep the vehicle CAN wiring intact: OBD multiplexing can cause a CAN2 interrupt
+        # fault on a harness with the vehicle bus connected. Live VIN, FW and CAN checks stay.
         set_obd_multiplexing(False)
         warmup_remaining = 0.1 - (time.monotonic() - start_time)
         if warmup_remaining > 0:
           time.sleep(warmup_remaining)
         vin_rx_addr, vin_rx_bus, vin = get_vin(can_recv, can_send, (0,))
-        car_fw = get_fw_versions(can_recv, can_send, set_obd_multiplexing, query_brand='tesla')
+        car_fw = get_fw_versions(can_recv, can_send, set_obd_multiplexing,
+                                 query_brand='tesla', normal_bus_only=True)
         ecu_rx_addrs = {(fw.responseAddress, fw.subAddress or None, fw.bus) for fw in car_fw if fw.responseAddress > 0}
       elif (normal_brand := normal_bus_query_brand(
           observe_normal_bus, normal_bus_topology,
@@ -258,7 +263,11 @@ def get_car(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multip
   explicit_candidate = forced_candidate if forced_candidate is not None else os.environ.get('FINGERPRINT', '')
   known_gm_bus0 = (explicit_candidate in interface_names['gm'] and _gm_fw_uses_normal_bus0())
   known_ford_bus0 = ford_normal_bus0_selection(explicit_candidate)
-  known_tesla_bus0 = explicit_candidate in interface_names['tesla'] and _tesla_fw_uses_normal_bus0()
+  # Every selected Tesla uses the normal-wiring discovery. If its queries ever stop being
+  # normal bus 0 only, fail instead of falling back to the all-brand OBD sweep.
+  known_tesla_bus0 = explicit_candidate in interface_names['tesla']
+  if known_tesla_bus0 and not _tesla_fw_uses_normal_bus0():
+    raise ValueError('Selected Tesla discovery topology no longer uses normal bus 0')
   if known_gm_bus0 and cached_params is not None and (
       cached_params.brand != 'gm' or cached_params.carFingerprint != explicit_candidate):
     cached_params = None
