@@ -36,6 +36,7 @@ from openpilot.common.hardware import COMMA_HARDWARE
 from openpilot.starpilot.system.starport import (car_profiles, device_health, head_unit_fixes, identity as identity_store, new_setup, quirk_state,
                                                  reachability, setup_ladder, system_slice)
 from openpilot.starpilot.system.starport import reconnect_notice
+from openpilot.starpilot.system.starport.adapter_syslog import AdapterSyslog
 from openpilot.starpilot.system.starport.auto_connect import AutoConnectPolicy
 from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, BootstrapError, BootstrapTimeout, WirelessBootstrap
 from openpilot.starpilot.system.starport.bugsink_report import PairingAttempt
@@ -79,8 +80,8 @@ RADIO_CHANGE_WINDOW = 15.0   # a join or roam this recent can still stall the ca
 STALL_CAPTURE_S = 20.0       # device logs kept from before a shared-radio stall is reported
 REPORTED_SETTINGS = ("connection", "usb_mode", "view", "encoder", "fps", "bitrate_kbps", "rate_control", "gpu_nv12",
                      "async_readback", "wifi_interface", "dedicated_wifi_interface", "verify_head_unit", "version_status",
-                     "rfcomm_channel", "phone_class", "auto_connect", "allow_hevc", "head_unit_experiments",
-                     "head_unit_experiment_rules")
+                     "rfcomm_channel", "phone_class", "auto_connect", "allow_hevc", "keyframe_test", "tall_hevc",
+                     "head_unit_experiments", "head_unit_experiment_rules")
 
 
 def _tcp_failure_kind(error: OSError) -> str:
@@ -479,6 +480,7 @@ class Supervisor:
     self._strategy: setup_ladder.Strategy | None = None   # the one this attempt runs
     self._quirks = quirk_state.QuirkState(identity_store.CONFIG_PATH.with_name("quirk_state.json"))  # how each car reacts to car-specific fixes
     self._fix_context: dict | None = None       # this session's chosen fix: selection, quirk key and head-unit labels
+    self._adapter_syslog = AdapterSyslog(lambda name, **fields: self.log(name, **fields))
     self._video_seen = False                    # video was acknowledged in this session: later failures say nothing about the handshake
     self._run_started = 0.0
     self.auto = AutoConnectPolicy()
@@ -528,6 +530,8 @@ class Supervisor:
     status["auto_connect"] = bool(self.config["auto_connect"])
     status["dedicated_wifi_interface"] = bool(self.config["dedicated_wifi_interface"])
     status["allow_hevc"] = bool(self.config["allow_hevc"])
+    status["keyframe_test"] = bool(self.config["keyframe_test"])
+    status["tall_hevc"] = bool(self.config["tall_hevc"])
     status["head_unit_experiments"] = bool(self.config["head_unit_experiments"])
     status["head_unit_experiment_rules"] = list(self.config["head_unit_experiment_rules"])
     status["experimental_fixes"] = head_unit_fixes.experimental_entries()
@@ -569,6 +573,20 @@ class Supervisor:
       self.config["allow_hevc"] = bool(enabled)
       identity_store.save_config(self.config)
     self.log("allow_hevc_selected", enabled=bool(enabled))
+
+  def set_keyframe_test(self, enabled: bool) -> None:
+    """H.265 sessions send every frame as a keyframe and log acks and the first frames; used from the next session."""
+    with self._lock:
+      self.config["keyframe_test"] = bool(enabled)
+      identity_store.save_config(self.config)
+    self.log("keyframe_test_selected", enabled=bool(enabled))
+
+  def set_tall_hevc(self, enabled: bool) -> None:
+    """H.265 sessions use the car's 1080x1920 mode when it offers one; used from the next session."""
+    with self._lock:
+      self.config["tall_hevc"] = bool(enabled)
+      identity_store.save_config(self.config)
+    self.log("tall_hevc_selected", enabled=bool(enabled))
 
   def set_head_unit_experiments(self, enabled: bool) -> None:
     """The master switch for car and dongle fixes; off gives the standard connection to every car from the next session."""
@@ -2001,6 +2019,20 @@ class Supervisor:
       self.log("adapter_address_unavailable", kind=type(error).__name__, error=str(error)[:120])
       return ""
 
+  def _save_adapter_syslog(self, result, lease, done: threading.Event | None = None) -> None:
+    """With the AAWireless profile: copy the adapter's syslog every so often while connected (done given), or once now."""
+    try:
+      endpoint = getattr(result, "endpoint", None)
+      if endpoint is None or self._stop.is_set() or self.car_type() != "adapter" or car_profiles.resolve(self.config)[0] != "aawireless":
+        return
+      host, local_ip = str(endpoint.ip), getattr(lease, "local_ip", "") or ""
+      if done is not None:
+        self._adapter_syslog.watch(host, local_ip, done)
+      else:
+        self._adapter_syslog.fetch(host, local_ip, force=True)
+    except Exception as error:  # diagnostics only; never block cleanup
+      self.log("adapter_syslog", ok=False, error=str(error)[:160], kind=type(error).__name__)
+
   def _project(self, result, lease, ident, connect=None, fragment_acks: bool = False) -> None:
     config = self.config
     sock = connect() if connect is not None else self._connect_tcp(result, lease)
@@ -2011,6 +2043,8 @@ class Supervisor:
     session.max_window = tuning["max_window"]
     session.phone_frames = tuning["phone_frames"]
     session.allow_hevc = bool(config["allow_hevc"])
+    session.keyframe_test = bool(config["keyframe_test"])
+    session.tall_hevc = bool(config["tall_hevc"])
     if tuning["phone_services"]:
       session.phone_services = True
       session.phone_address = self._adapter_address()
@@ -2080,12 +2114,15 @@ class Supervisor:
     except Exception as error:  # turn-by-turn is optional; projection must never depend on it
       self.log("nav_status_unavailable", error=str(error))
     car_ended = False
+    syslog_done = threading.Event()
+    self._save_adapter_syslog(result, lease, syslog_done)
     try:
       self._stream(session, encoder, source, watch, interval)
     except PeerRequestedStop:
       car_ended = True
       raise
     finally:
+      syslog_done.set()
       self._note_streamed(session)
       self._record_fix_outcome(session, car_ended)
       if session.audio is not None:
@@ -2097,6 +2134,7 @@ class Supervisor:
         radio.stop()
       source.close()
       encoder.close()
+      self._save_adapter_syslog(result, lease)
       if self._stop.is_set():
         try:
           session.shutdown()
@@ -2241,7 +2279,8 @@ class Supervisor:
         if frame is not None:
           age = now - frame.captured_ns / 1e9
           encode = encoder.encode_nv12 if frame.pixel_format == FORMAT_NV12 else encoder.encode_rgba
-          encoded = self._encode(encoder, encode, frame.data, session.needs_keyframe, recoveries) if age <= FRAME_MAX_AGE else None
+          keyframe = session.needs_keyframe or session.keyframe_test_active()
+          encoded = self._encode(encoder, encode, frame.data, keyframe, recoveries) if age <= FRAME_MAX_AGE else None
           if encoded is not None:
             data, keyframe = encoded
             encode_peak = max(encode_peak, encoder.last_encode_ms)
@@ -2350,18 +2389,21 @@ class Supervisor:
 
       gap = max(12, int(request.height * 0.04))
       target_logo_h = int(min(request.height * 0.42, request.width * 0.35))
+      visible_top, visible_h = 0, request.height
+      if request.content_top not in (None, request.margin_h // 2, request.margin_h - request.margin_h // 2):
+        visible_top, visible_h = request.content_top, request.height - request.margin_h  # uneven margins: center in what the car shows
 
       if logo_path.exists() and target_logo_h > 20:
         logo = Image.open(logo_path).convert("RGBA")
         logo_w = int(logo.width * (target_logo_h / logo.height))
         logo_resized = logo.resize((logo_w, target_logo_h), Image.Resampling.LANCZOS)
         total_h = target_logo_h + gap + text_h
-        start_y = max(8, (request.height - total_h) // 2)
+        start_y = visible_top + max(8, (visible_h - total_h) // 2)
         logo_x = (request.width - logo_w) // 2
         canvas.paste(logo_resized, (logo_x, int(start_y)), logo_resized)
         text_y = start_y + target_logo_h + gap
       else:
-        text_y = (request.height - text_h) // 2
+        text_y = visible_top + (visible_h - text_h) // 2
 
       text_x = (request.width - text_w) // 2
       layer = Image.new("RGBA", ((text_w + 1) * supersample, (text_h + 1) * supersample), (0, 0, 0, 0))

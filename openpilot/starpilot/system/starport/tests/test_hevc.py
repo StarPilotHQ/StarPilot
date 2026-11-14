@@ -161,3 +161,81 @@ def test_keyframe_summary_reads_tier_and_level_through_emulation_prevention():
   assert hevc_keyframe_summary(frame) == {"nal_types": [32, 33, 34, 19], "tier": "main", "profile": 1, "level": 4.1}
   assert hevc_keyframe_summary(SC + sps_high)["tier"] == "high"
   assert hevc_keyframe_summary(SC + sps_high)["level"] == 5.0
+
+
+@pytest.fixture(scope="module")
+def identity(tmp_path_factory):
+  from openpilot.starpilot.system.starport.tests.fake_head_unit import make_identity
+  return make_identity(tmp_path_factory.mktemp("identity"))
+
+
+def logging_session(identity, codec, test_mode):
+  import socket
+  from openpilot.starpilot.system.starport.session import AV_MEDIA_ACK, field
+  events = []
+
+  class TestModeSession(ProjectionSession):
+    def send(self, channel: int, kind: int, body: bytes = b"", encrypted: bool = True, control: bool = False,
+             *, deadline: float | None = None) -> int:
+      return 1
+
+  peer, _ = socket.socketpair()
+  session = TestModeSession(peer, str(identity["phone_cert"]), str(identity["phone_key"]),
+                            lambda name, **values: events.append((name, values)))
+  session.mode = VideoMode(1, 2, 720, 1280, 60, 0, 541, codec=codec)
+  session.focused, session.window, session.keyframe_test = True, 16, test_mode
+  h264 = b"".join(SC + bytes([kind, 1]) for kind in (0x09, 0x67, 0x68, 0x65))
+  keyframe = au(35, 32, 33, 34, 19) if codec == CODEC_H265 else h264
+  session.send_frame(keyframe, 1000, keyframe=True)
+  session.handle(1, AV_MEDIA_ACK, field(1, session.session_id) + field(2, 1))
+  return session, [event for event in events if event[0] in ("video_frame_sent", "video_ack")]
+
+
+def test_keyframe_test_logs_frames_and_acks_only_for_h265(identity):
+  session, logged = logging_session(identity, CODEC_H265, True)
+  assert session.keyframe_test_active()
+  assert [name for name, _ in logged] == ["video_frame_sent", "video_ack"]
+  frame = logged[0][1]
+  assert frame["keyframe"] and frame["config_bytes"] > 0 and frame["timestamp_us"] == 1000
+  assert frame["nal_types"][-1] == 19
+  assert logged[1][1] == {"session": session.session_id, "count": 1, "pending": len(session.pending)}
+
+
+@pytest.mark.parametrize("codec,test_mode", [(CODEC_H265, False), (CODEC_H264_BP, True), (CODEC_H264_BP, False)])
+def test_without_keyframe_test_nothing_extra_is_logged(identity, codec, test_mode):
+  session, logged = logging_session(identity, codec, test_mode)
+  assert not session.keyframe_test_active() and logged == []
+
+
+def test_keyframe_test_logging_is_bounded(identity):
+  from openpilot.starpilot.system.starport import session as session_module
+  session, _ = logging_session(identity, CODEC_H265, True)
+  session.test_frames_logged = session_module.TEST_FRAMES_LOGGED
+  session.test_acks_logged = session_module.TEST_ACKS_LOGGED
+  events = []
+  session._log = lambda name, **values: events.append(name)
+  session.send_frame(au(35, 32, 33, 34, 19), 2000, keyframe=True)
+  from openpilot.starpilot.system.starport.session import AV_MEDIA_ACK, field
+  session.handle(1, AV_MEDIA_ACK, field(1, session.session_id) + field(2, 1))
+  assert "video_frame_sent" not in events and "video_ack" not in events
+
+
+def test_keyframe_test_is_off_unless_saved_as_true(tmp_path):
+  import json
+  from openpilot.starpilot.system.starport.identity import load_config
+  path = tmp_path / "config.json"
+  assert load_config(path)["keyframe_test"] is False
+  for saved, expected in (("true", False), (1, False), (True, True)):
+    path.write_text(json.dumps({"keyframe_test": saved}))
+    assert load_config(path)["keyframe_test"] is expected
+
+
+def test_tall_hevc_picks_the_1080x1920_mode_only_when_switched_on():
+  assert (choose_video_mode(H265_ONLY, True).width, choose_video_mode(H265_ONLY, True).height) == (1920, 1080)
+  mode = choose_video_mode(H265_ONLY, True, True)
+  assert (mode.codec, mode.config_index, mode.width, mode.height, mode.margin_height) == (CODEC_H265, 1, 1080, 1920, 811)
+
+
+@pytest.mark.parametrize("offer", H264_OFFERS + [channels(config(7, 3, 0, 811), config(2, 3, 0, 240))])
+def test_tall_hevc_never_changes_an_h264_car(offer):
+  assert choose_video_mode(offer, True, True) == choose_video_mode(offer)
