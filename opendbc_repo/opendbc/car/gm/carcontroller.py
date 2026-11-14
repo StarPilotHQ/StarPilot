@@ -254,8 +254,12 @@ def bolt_acc_pedal_dashboard_sensor_ready(CS, now_nanos):
           0 <= now_nanos - CS.stock_acc_status_ts_nanos <= STOCK_ACC_STATUS_TIMEOUT_NS)
 
 
-def bolt_acc_pedal_dashboard_drive_ready(CS, now_nanos):
-  return (CS.out.gearShifter in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.low) and
+def bolt_acc_pedal_dashboard_drive_ready(CS, now_nanos, *, allow_paddle=False):
+  paddle_ns, paddle_gear = getattr(CS, "bolt_acc_dashboard_paddle", (0, False))
+  paddle_display = (allow_paddle and paddle_gear and CS.out.regenBraking and
+                    CS.out.gearShifter == structs.CarState.GearShifter.manumatic and
+                    0 < paddle_ns <= now_nanos <= paddle_ns + PEDAL_SENSOR_TIMEOUT_NS)
+  return ((CS.out.gearShifter in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.low) or paddle_display) and
           CS.bolt_pedal_gear_ts_nanos > 0 and 0 <= now_nanos - CS.bolt_pedal_gear_ts_nanos <= 100_000_000 and
           CS.bolt_pedal_main_ts_nanos > 0 and 0 <= now_nanos - CS.bolt_pedal_main_ts_nanos <= 300_000_000)
 
@@ -930,7 +934,8 @@ class CarController(CarControllerBase):
           self.CP.carFingerprint == CAR.CHEVROLET_BOLT_ACC_2022_2023_PEDAL and
           is_bolt_pedal_profile(self.CP) and len(self.CP.safetyConfigs) == 1 and
           self.CP.safetyConfigs[0].safetyParam == 0x1CD and CS.out.canValid and not CS.out.canTimeout and
-          bolt_acc_pedal_dashboard_sensor_ready(CS, now_nanos) and CS.out.cruiseState.available and bolt_acc_pedal_dashboard_drive_ready(CS, now_nanos)
+          bolt_acc_pedal_dashboard_sensor_ready(CS, now_nanos) and CS.out.cruiseState.available and
+          bolt_acc_pedal_dashboard_drive_ready(CS, now_nanos, allow_paddle=True)
         )
         if dashboard_ready:
           fcw = 3 if hud_alert == VisualAlert.fcw else int(getattr(CS, "stock_fcw_alert", 0)) & 3

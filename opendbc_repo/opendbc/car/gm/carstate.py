@@ -76,6 +76,7 @@ class CarState(CarStateBase):
     self.pedal_sensor_healthy = False
     self.pedal_sensor_ts_nanos = 0
     self.bolt_pedal_gear_ts_nanos = 0
+    self.bolt_acc_dashboard_paddle = (0, False)
     self.bolt_pedal_main_ts_nanos = 0
     self.pedal_sensor_counter = None
     self.pedal_packer = CANPacker(DBC[CP.carFingerprint][Bus.pt]) if CP.flags & GMFlags.PEDAL_LONG.value else None
@@ -163,6 +164,12 @@ class CarState(CarStateBase):
       self.bolt_pedal_gear_ts_nanos = (self.conventional_cancel_credit.gear_ns if present_no_acc_pedal else
                                      pt_cp.ts_nanos["ECMPRDNL2"]["PRNDL2"])
       self.bolt_pedal_main_ts_nanos = pt_cp.ts_nanos["ECMEngineStatus"]["CruiseMainOn"]
+      gear = pt_cp.vl["ECMPRDNL2"]
+      self.bolt_acc_dashboard_paddle = (
+        pt_cp.ts_nanos["EBCMRegenPaddle"]["RegenPaddle"],
+        gear["PRNDL2"] == 5 and gear["ManualMode"] == 1 and
+        pt_cp.vl["EBCMRegenPaddle"]["RegenPaddle"] == 2,
+      )
 
     if self.camera_pedal_profile is not None:
       analog = (("ECMAcceleratorPos", "BrakePedalPos") if self.camera_pedal_profile.brake_source == BrakeSource.BE else
