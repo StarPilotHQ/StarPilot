@@ -105,17 +105,10 @@
       ]
     },
     {
-      "name": "Model Manager",
+      "name": "Models",
       "path": "/manage_models",
       "icon": "bi-cpu",
-      "description": "Models, downloads, and Jetlink connections",
-      "availability": "local-only"
-    },
-    {
-      "name": "Model Laboratory",
-      "path": "/model_laboratory",
-      "icon": "bi-bezier2",
-      "description": "Pair lateral and longitudinal eGPU variants",
+      "description": "Models, downloads, Jetlink, and Model Laboratory",
       "availability": "local-only"
     },
     {

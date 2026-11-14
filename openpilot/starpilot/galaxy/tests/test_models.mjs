@@ -80,7 +80,7 @@ const listeners = new Map()
 globalThis.document = { hidden: false,
   addEventListener: (name, fn) => listeners.set(name, fn),
   removeEventListener: (name, fn) => { if (listeners.get(name) === fn) listeners.delete(name) } }
-const page = { mode: "local", finishDialog() {}, manager: { start() {}, stop() {} }, feed: { starts: 0, stops: 0, start() { this.starts++ }, stop() { this.stops++ } } }
+const page = { mode: "local", finishDialog() {}, manager: { start() {}, stop() {} }, laboratory: { starts: 0, stops: 0, start() { this.starts++ }, stop() { this.stops++ } }, feed: { starts: 0, stops: 0, start() { this.starts++ }, stop() { this.stops++ } } }
 ModelsPage.mounted.call(page)
 assert.equal(page.feed.starts, 1)
 document.hidden = true
@@ -91,6 +91,7 @@ listeners.get("visibilitychange")()
 assert.equal(page.feed.starts, 2)
 ModelsPage.beforeUnmount.call(page)
 assert.equal(page.feed.stops, 2)
+assert.deepEqual([page.laboratory.starts, page.laboratory.stops], [2, 2])
 assert.equal(listeners.size, 0)
 globalThis.document = priorDocument
 
@@ -244,7 +245,8 @@ console.log('Randomizer and exclusion interactions passed')
 
 assert.match(ModelsPage.template, /Selections apply next onroad cycle/)
 assert.doesNotMatch(ModelsPage.template, /Onroad: switching/)
-assert.equal((ModelsPage.template.match(/class="gx-model-control"/g) || []).length, 2)
+// Active Small, Active Big summary items, and the Laboratory pair's lateral and longitudinal pickers
+assert.equal((ModelsPage.template.match(/class="gx-model-control[\s"]/g) || []).length, 4)
 // the library tab is only a view: every model is one tap away, and a sleeping GPU never hides anything
 assert.equal(ModelsPage.data().tab, 'both')
 assert.equal(ModelsPage.computed.libraryTab.call({ tab: 'gpu' }), 'gpu')
@@ -411,6 +413,46 @@ const pairPage = { selectionUncertain: false, status: {}, runtime: { status: 're
 assert.equal(ModelsPage.computed.runningModelLabel.call(pairPage), 'Small model/Big model')
 assert.equal(ModelsPage.computed.runningModelLabel.call({ ...pairPage, runtime: { status: 'stale', data: pairData } }), 'Status unavailable')
 assert.equal(ModelsPage.computed.runningModelLabel.call({ ...pairPage, runtime: { status: 'ready', data: { ...pairData, laboratory: { ...pairData.laboratory, active: false } } } }), 'Laboratory output unavailable')
-assert.match(ModelsPage.template, /Turn off Laboratory/)
-assert.match(ModelsPage.template, /href="#\/model_laboratory"/)
 assert.match(ModelsPage.template, /fallback choices/)
+
+// Merged page: search, row list, Single model / Model pair mode switcher, and pair saving.
+{
+  const { matchesSearch, laboratoryActionAllowed, hardwareTag } = await import("../web/js/models.js")
+  const row = { value: 'tr16223', label: 'TR16 👀📡', series: 'TR Series', version: 'v8', released: '2025-07-21' }
+  assert.equal(matchesSearch(row, ''), true)
+  assert.equal(matchesSearch(row, 'tr16'), true)
+  assert.equal(matchesSearch(row, 'TR16223'), true)
+  assert.equal(matchesSearch(row, 'tr series v8'), true)
+  assert.equal(matchesSearch(row, 'v9'), false)
+
+  assert.match(ModelsPage.template, /<ul v-else class="gx-model-list" aria-label="Models">/)
+  assert.match(ModelsPage.template, /placeholder="Search models…"/)
+  assert.deepEqual([true, false, undefined].map(requiresGpu => hardwareTag({ requiresGpu }).tone), ["egpu", "small", "unknown"])
+
+  const page = { ...ModelsPage.data(), activeSmallModel: 'a', activeBigModel: 'b', currentModel: 'a',
+    lab: { configuration: { enabled: false, lateralModel: 'a', longitudinalModel: 'c' } } }
+  assert.deepEqual(ModelsPage.methods.activeRoles.call(page, { value: 'a' }), ['Active Small'])
+  assert.deepEqual(ModelsPage.methods.activeRoles.call(page, { value: 'b' }), ['Active Big'])
+  assert.deepEqual(ModelsPage.methods.activeRoles.call(page, { value: 'c' }), [])
+  assert.deepEqual(ModelsPage.methods.pairRoles.call(page, { value: 'a' }), ['Pair · lateral'])
+  assert.deepEqual(ModelsPage.methods.pairRoles.call(page, { value: 'c' }), ['Pair · longitudinal'])
+
+  const listed = (extra) => ModelsPage.computed.sorted.call({ ...ModelsPage.data(), libraryTab: 'both', isPairable: m => m.pairable === true,
+    models: [{ value: 'x1', label: 'Alpha', requiresGpu: false, pairable: true }, { value: 'x2', label: 'Beta', requiresGpu: false, pairable: false }], ...extra }).map(m => m.value)
+  assert.deepEqual(listed({ pairableFilter: true }), ['x1'])
+  assert.deepEqual(listed({ search: 'bet' }), ['x2'])
+
+  const lab = { schemaVersion: 1, isOnroad: false, chestnutReady: false, runtimeSupported: false,
+    configuration: { enabled: false, lateralModel: '', longitudinalModel: '' }, download: { downloading: false },
+    capabilities: { configure: true }, models: ['a', 'b'].map(value => ({ value, label: value, small: true, modelLabEligible: true, modelLabArtifactAvailable: true, modelLabArtifactInstalled: true })) }
+  assert.equal(laboratoryActionAllowed(lab, 'save', null, { lateralModel: 'a', longitudinalModel: 'b' }), true)
+  assert.equal(laboratoryActionAllowed(lab, 'save', null, { lateralModel: 'a', longitudinalModel: 'a' }), false)
+  assert.equal(laboratoryActionAllowed(lab, 'save', null, { lateralModel: 'a', longitudinalModel: 'missing' }), false)
+  assert.equal(laboratoryActionAllowed({ ...lab, isOnroad: true }, 'save', null, { lateralModel: 'a', longitudinalModel: 'b' }), false)
+  assert.equal(laboratoryActionAllowed({ ...lab, configuration: { enabled: true, lateralModel: 'a', longitudinalModel: 'b' } }, 'save', null, { lateralModel: 'b', longitudinalModel: 'a' }), false)
+  assert.equal(ModelsPage.computed.labChoiceProblem.call({ labSelectionError: 'Pair inference is not available in this build yet.' }), false)
+  assert.equal(ModelsPage.computed.labChoiceProblem.call({ labSelectionError: 'Choose two different models' }), true)
+  console.log('Merged page search, row list, and pair saving passed')
+}
+
+

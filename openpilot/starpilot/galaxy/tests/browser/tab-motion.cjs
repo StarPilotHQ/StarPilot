@@ -48,22 +48,27 @@ const assert = require('node:assert/strict')
   assert.equal(await page.locator('.gx-route:not([inert])').count(), 1)
   assert.equal(await nav.getByRole('button', { name: 'Home', exact: true }).getAttribute('aria-current'), 'page')
 
+  // The old Model Laboratory link opens the merged Models page at its Laboratory pair section.
   await page.goto(base + '#/model_laboratory')
-  const heading = page.getByText('Available models', { exact: true })
-  await heading.waitFor()
+  const laboratory = page.locator('#gx-model-laboratory')
+  await laboratory.waitFor()
+  await page.waitForFunction(() => {
+    const box = document.querySelector('#gx-model-laboratory').getBoundingClientRect()
+    return box.top >= 0 && box.top < innerHeight
+  })
+  assert.equal(await page.locator('.gx-route:not([inert]) h2').first().textContent(), 'Models')
   for (const width of [320, 360, 390, 600, 1280]) {
     await page.setViewportSize({ width, height: 900 })
     const layout = await page.evaluate(() => {
-      const title = [...document.querySelectorAll('.gx-section__title')].find(element => element.textContent === 'Available models')
-      const summary = title.closest('.gx-card').querySelector('.gx-summary')
-      const cells = [...summary.children].map(element => element.getBoundingClientRect())
-      return { headerHeight: title.parentElement.getBoundingClientRect().height,
-        summaryHeight: summary.getBoundingClientRect().height,
-        equalRows: cells.every(cell => Math.abs(cell.top - cells[0].top) < 1),
+      const header = document.querySelector('.gx-page-header')
+      const modeBar = document.querySelector('.gx-model-mode')
+      const list = document.querySelector('.gx-model-list')
+      return { headerHeight: header.getBoundingClientRect().height,
+        modeBarHeight: modeBar.getBoundingClientRect().height,
+        hasRows: list && list.children.length > 0,
         overflow: document.documentElement.scrollWidth > innerWidth }
     })
-    assert.ok(layout.headerHeight < 80 && layout.summaryHeight < 100, 'model summary stays compact')
-    assert.equal(layout.equalRows, true, 'all three counts share one row')
+    assert.ok(layout.headerHeight < 120 && layout.modeBarHeight < 80 && layout.hasRows, 'model headers and row list stay compact')
     assert.equal(layout.overflow, false)
   }
   await page.setViewportSize({ width: 390, height: 900 })
