@@ -124,6 +124,14 @@ def test_light_pedal_shifts_well_below_the_top_of_the_rev_range(name):
   assert model.gear >= 3
 
 
+@pytest.mark.parametrize('name', [name for name, profile in PROFILES.items() if profile.gears])
+def test_light_pedal_at_cruise_lifts_the_revs_before_the_car_gains_speed(name):
+  model = EngineModel(PROFILES[name])
+  cruise = run(model, 3.0, 0.0, 20.0, 0.0, True)[0]
+  assert run(model, 0.25, 0.15, 20.0, 0.0, True)[0] > cruise * 1.03
+  assert run(model, 3.0, 0.0, 20.0, 0.0, True)[0] == pytest.approx(cruise, rel=0.01)
+
+
 @pytest.mark.parametrize('name', sorted(PROFILES))
 def test_free_rev_climbs_at_the_engines_pace_not_instantly(name):
   profile = PROFILES[name]

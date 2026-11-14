@@ -29,9 +29,9 @@ A2DP_SINK = '0000110b-0000-1000-8000-00805f9b34fb'
 EXIT_EXPIRED = 10
 STOP_SECONDS = 5.0
 OUTPUT_RETRY_SECONDS = 20.0
-SINK_CHECK_SECONDS = 10.0
+SINK_CHECK_SECONDS = 4.0
 # The car can open the link without encrypting it, and the comma then refuses its audio channel until the link is redone.
-LINK_RESET_FAILURES = 3
+LINK_RESET_FAILURES = 5
 LINK_RESET_SECONDS = 60.0
 PAIRING_PROFILE_SECONDS = 180.0  # the pairing window plus time for the phone to save the comma's services
 MAX_FAST_FAILURES = 5

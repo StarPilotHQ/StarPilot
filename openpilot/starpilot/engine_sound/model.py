@@ -15,6 +15,9 @@ SHIFT_CUT_SECONDS = 0.12
 LIMITER_CUT_SECONDS = 0.07
 LIMITER_DROP_RPM = 700.0
 LOAD_SECONDS = 0.02
+# In gear the pitch would otherwise wait for the car to gain speed; revs flare above road speed with the pedal, like converter slip.
+FLARE_SHARE = 0.08
+FLARE_CURVE = 0.6
 
 
 def _lerp(pair: tuple[float, float], x: float) -> float:
@@ -51,7 +54,8 @@ class EngineModel:
       demand = pedal if pedal > PEDAL_ACTIVE else min(max(accel / ACCEL_FULL_LOAD, 0.0), 1.0)
       if p.gears:
         self._shift(speed, demand)
-        target = max(speed * p.gears[self.gear], p.idle_rpm + demand * p.launch_slip_rpm)
+        flare = FLARE_SHARE * demand ** FLARE_CURVE * (p.redline_rpm - p.idle_rpm)
+        target = max(speed * p.gears[self.gear] + flare, p.idle_rpm + demand * p.launch_slip_rpm)
       else:
         span = min(0.7 * speed / p.top_speed + 0.4 * demand, 1.0)
         target = p.idle_rpm + span * (p.redline_rpm - p.idle_rpm)
