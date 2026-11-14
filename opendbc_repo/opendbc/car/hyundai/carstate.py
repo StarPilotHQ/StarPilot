@@ -484,8 +484,8 @@ class CarState(CarStateBase):
                                                                       cp.vl["BLINKERS"][right_blinker_sig])
     if self.CP.deprecated.enableBsm:
       rear = cp.vl["ADAS_CMD_50_50ms"]
-      ret.leftBlindspot = bool(rear["BCW_LtIndSta"])
-      ret.rightBlindspot = bool(rear["BCW_RtIndSta"])
+      ret.leftBlindspot = rear["BCW_LtIndSta"] in (1, 2)
+      ret.rightBlindspot = rear["BCW_RtIndSta"] in (1, 2)
       if self.CP.carFingerprint == CAR.KIA_EV9:
         corner_left, corner_right = decode_ioniq_6_corner_bsm(int(cp.vl["BLINDSPOTS_FRONT_CORNER_2"]["SIDE_DETECT_STATE"]))
         if self.ev9_long:
