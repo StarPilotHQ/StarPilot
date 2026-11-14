@@ -25,6 +25,9 @@ BUFFER = (BLOCK_BYTES * 10, BLOCK_BYTES * 3, 0, BLOCK_BYTES)
 FADE_SECONDS = 0.08
 SETTINGS_SECONDS = 1.0
 RECONNECT_SECONDS = 1.0
+# The car output is usually reloaded within ~0.1 s of a drop, so retry quickly before settling to the slow pace.
+FAST_RECONNECT_SECONDS = 0.1
+FAST_RECONNECT_TRIES = 30
 EXEC_MARKER = 'STARPILOT_ENGINE_SOUND_LIBRARIES'
 PARKED_SPEED = 0.3
 PEDAL_TAKEOVER = 0.02
@@ -149,6 +152,7 @@ def main() -> None:
   writer = None
   settings_at = 0.0
   blocks = 0
+  tries = 0
   while True:
     if writer is None:
       try:
@@ -157,10 +161,13 @@ def main() -> None:
         # No sink name: the server has exactly one sink, and its name changes while the speaker is away.
         writer = PulseWriter(f'unix:{socket_path}', client='StarPilot engine', stream='Engine sound', sink=None,
                              channels=1, buffer=BUFFER)
-        cloudlog.info('enginesoundd connected')
+        cloudlog.info(f'enginesoundd connected after {tries} retries')
+        tries = 0
       except (OSError, RuntimeError) as error:
-        cloudlog.info(f'enginesoundd waiting for audio output: {error}')
-        time.sleep(RECONNECT_SECONDS)
+        if tries == 0 or tries == FAST_RECONNECT_TRIES:
+          cloudlog.info(f'enginesoundd waiting for audio output: {error}')
+        tries += 1
+        time.sleep(FAST_RECONNECT_SECONDS if tries <= FAST_RECONNECT_TRIES else RECONNECT_SECONDS)
         continue
 
     sm.update(0)
