@@ -143,7 +143,7 @@
           "name": "Setup",
           "path": "/navigation/setup",
           "tab": "setup",
-          "description": "Configure navigation and Mapbox",
+          "description": "Keys, map and route sources, and GPS",
           "icon": "bi-gear"
         }
       ]

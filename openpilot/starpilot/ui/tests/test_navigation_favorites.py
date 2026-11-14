@@ -75,9 +75,9 @@ def test_card_changes_to_end_navigation_only_for_its_destination(key):
     card.render(key, state)
     assert [call.args[0] for call in fonts.draw.call_args_list] == ['End route', label.title()]
     fonts.draw.reset_mock()
-    card.document['destination'] = {'id': 'another-place'}
+    card.document['destination'] = {'id': 'another-place', 'name': 'Costco'}
     card.render(key, state)
-    assert [call.args[0] for call in fonts.draw.call_args_list] == ['Navigate', label.title()]
+    assert [call.args[0] for call in fonts.draw.call_args_list] == ['End route', 'Costco']
     for change in ['alert', 'removed']:
       fonts.draw.reset_mock()
       state.alert.size = 'full' if change == 'alert' else 'none'
@@ -140,3 +140,22 @@ def test_other_favorite_is_hidden_until_route_ends(active, display):
     card.document['destination'] = None
     card.render(other, state)
     background.assert_called_once()
+
+
+def test_map_end_button_draws_only_when_no_favorite_slot_can_end_the_route():
+  card = NavigationFavorites(Mock())
+  place = {'id': 'home', 'label': 'home'}
+  placements = {'nav_home': {'x': 0, 'y': 0, 'enabled': False}}
+  card.document = {'favorites': [place], 'destination': None, 'enabled': True, 'token': 'key'}
+  with patch('raylib_nb.draw_circle_v') as circle, patch('raylib_nb.draw_ring'), patch('raylib_nb.draw_line_ex') as line:
+    card.render_map_end(100, 50, 240, 180, placements)
+    circle.assert_not_called()
+    card.document['destination'] = {'id': 'elsewhere', 'name': 'Costco'}
+    card.render_map_end(100, 50, 240, 180, placements)
+    center, radius = circle.call_args.args[:2]
+    assert radius == 30 and 100 < center.x < 160 and 50 < center.y < 110
+    assert line.call_count == 2
+    circle.reset_mock()
+    placements['nav_home']['enabled'] = True
+    card.render_map_end(100, 50, 240, 180, placements)
+    circle.assert_not_called()

@@ -51,13 +51,15 @@ export function areaLabel(area) {
   const progress = area.progress
   if (!progress) return "Waiting for the downloader"
   const percent = progress.total ? Math.floor(progress.done / progress.total * 100) : 0
-  return ({ queued: "Queued", downloading: `Downloading · ${percent}%`, waiting_wifi: `Waiting for Wi-Fi · ${percent}%`,
-    complete: "Saved for offline", incomplete: `${progress.failed} tiles missing · retries later`, no_space: "Storage full" })[progress.state]
+  return ({
+    queued: "Queued", downloading: `Downloading · ${percent}%`, waiting_wifi: `Waiting for Wi-Fi · ${percent}%`,
+    complete: "Saved for offline", incomplete: `${progress.failed} tiles missing · retries later`, no_space: "Storage full"
+  })[progress.state]
 }
 
 export class OfflineRoadsClient {
-  constructor({ publish, unauthorized = () => {}, fetcher = (...args) => fetch(...args),
-                later = (fn, ms) => setTimeout(fn, ms), cancel = (id) => clearTimeout(id) }) {
+  constructor({ publish, unauthorized = () => { }, fetcher = (...args) => fetch(...args),
+    later = (fn, ms) => setTimeout(fn, ms), cancel = (id) => clearTimeout(id) }) {
     Object.assign(this, { publish, unauthorized, fetcher, later, cancel })
     this.data = null
     this.busy = false
@@ -76,9 +78,11 @@ export class OfflineRoadsClient {
     const generation = ++this.generation, controller = this.controller = new AbortController()
     const deadline = this.later(() => controller.abort(), 10000)
     try {
-      const response = await this.fetcher("./api/navigation/offline", { credentials: "same-origin", cache: "no-store",
+      const response = await this.fetcher("./api/navigation/offline", {
+        credentials: "same-origin", cache: "no-store",
         signal: controller.signal,
-        ...(body === null ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) })
+        ...(body === null ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      })
       const payload = await response.json().catch(() => null)
       if (!this.active || generation !== this.generation) return null
       if (controller.signal.aborted) throw new Error("Offline maps did not respond. Try again shortly.")
@@ -120,8 +124,10 @@ export class OfflineRoadsClient {
 export const OfflineRoadMapsPanel = {
   name: "OfflineRoadMapsPanel",
   components: { GxNotice, BluetoothNotice, GalaxySettingRow },
-  props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
-    hasKey: { type: Boolean, default: false }, metric: { type: Boolean, default: true } },
+  props: {
+    mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
+    hasKey: { type: Boolean, default: false }, metric: { type: Boolean, default: true }
+  },
   data: () => ({ bluetooth: bluetoothConnection(), data: null, busy: false, error: "", point: null, name: "", radius: null, confirmDelete: null, notice: "" }),
   created() { this.client = new OfflineRoadsClient({ publish: (update) => Object.assign(this.$data, update), unauthorized: this.unauthorized }) },
   mounted() {
@@ -179,7 +185,7 @@ export const OfflineRoadMapsPanel = {
     formatBytes, areaLabel, radiusLabel, switchRow,
     ensureMap() {
       if (this.bluetooth || this.map || !this.hasKey || !this.$refs.canvas) return
-      this.map = markRaw(new RasterMap(this.$refs.canvas, () => {}))
+      this.map = markRaw(new RasterMap(this.$refs.canvas, () => { }))
       this.map.onTap = (point) => this.pick({ ...point, name: "" })
       this.map.update({}, false)
       if (this.data?.position) { this.map.center = this.data.position; this.map.zoom = START_ZOOM; this.map.initialized = true }
@@ -204,8 +210,10 @@ export const OfflineRoadMapsPanel = {
     },
     drawOverlays() {
       if (!this.map) return
-      const saved = (this.data?.areas || []).map((area) => ({ ...area, stroke: area.progress?.state === "complete" ? "#34c778" : "#9d72ff",
-        fill: area.progress?.state === "complete" ? "#34c77822" : "#9d72ff1f" }))
+      const saved = (this.data?.areas || []).map((area) => ({
+        ...area, stroke: area.progress?.state === "complete" ? "#34c778" : "#9d72ff",
+        fill: area.progress?.state === "complete" ? "#34c77822" : "#9d72ff1f"
+      }))
       const draft = this.point ? [{ ...this.point, radiusKm: this.radiusKm, stroke: "#f5b642", fill: "#f5b64226", dash: [8, 6], width: 3 }] : []
       const overlays = [...saved, ...draft], signature = JSON.stringify(overlays)
       if (signature === this.overlaySignature) return   // polls usually change nothing on the map
@@ -226,12 +234,20 @@ export const OfflineRoadMapsPanel = {
   },
   template: `
     <section class="gx-card gx-offline-roads" aria-label="Offline road maps" :inert="busy" :aria-busy="busy || undefined">
-      <div class="gx-section__header"><i class="bi bi-signpost-split"></i><span class="gx-section__title">Map Overlay Roads</span></div>
-      <p class="gx-note">Road lines for the Android Auto map overlay. Saved areas stay on your comma, so the overlay keeps drawing roads with no signal. Downloads happen on Wi-Fi.</p>
+      <div class="gx-offline-roads__head">
+        <span class="gx-starport-step__num" aria-hidden="true"><i class="bi bi-cloud-download"></i></span>
+        <div>
+          <div class="gx-navigation__step-title">
+            <h3 class="gx-section__title">Offline Map Management</h3>
+            <span class="gx-starport-pill gx-starport-pill--danger">Mapbox only</span>
+          </div>
+          <p class="gx-note">Saves Mapbox road lines on your comma so the map overlay keeps drawing roads with no cell signal. Google Maps tiles require internet and can't be saved offline, so these road lines always back them up. Downloads happen on Wi-Fi.</p>
+        </div>
+      </div>
       <p v-if="mode !== 'local'" class="gx-note">Connect to your comma to manage offline road maps.</p>
       <template v-else>
         <GxNotice tone="danger" v-if="error">{{ error }}</GxNotice>
-        <GxNotice tone="warn" v-if="!hasKey">Add your Mapbox key in Setup. Road maps download with the same key.</GxNotice>
+        <GxNotice tone="warn" v-if="!hasKey">Add your Mapbox key in Setup. Offline road maps download with that key.</GxNotice>
         <GxNotice tone="warn" v-else-if="service.failure === 'key'">Mapbox rejected the saved key for map tiles. Check that it is a public (pk.) key without URL restrictions.</GxNotice>
         <GxNotice tone="warn" v-if="service.failure === 'budget'">This comma's Mapbox road tile allowance is used up, so downloads pause until the 1st.</GxNotice>
         <GxNotice tone="warn" v-if="service.noSpace">The comma's storage is nearly full, so new map areas are paused. Delete an area or free space.</GxNotice>
@@ -247,9 +263,10 @@ export const OfflineRoadMapsPanel = {
           :index="0" :busy="busy" :disabled="!data" :save-value="(index, value) => setSaveDriven(value === 'On')" />
         <div class="gx-offline-roads__picker">
           <BluetoothNotice v-if="bluetooth" feature="Offline area map preview">Saved map settings remain available.</BluetoothNotice>
-          <div v-else-if="hasKey" class="gx-offline-roads__map"><canvas ref="canvas" tabindex="0" aria-label="Map. Tap or press Enter to center a new offline area; drag or use arrow keys to pan."></canvas>
-            <div class="gx-navigation-map__controls"><button class="gx-btn" type="button" @click="zoom(1)" aria-label="Zoom in">+</button>
-              <button class="gx-btn" type="button" @click="zoom(-1)" aria-label="Zoom out">−</button></div>
+          <div v-else-if="hasKey" class="gx-offline-roads__map"><canvas ref="canvas" tabindex="0" aria-label="Mapbox map. Tap or press Enter to center a new offline area; drag or use arrow keys to pan."></canvas>
+            <span class="gx-offline-roads__provider">Mapbox preview</span>
+            <div class="gx-navigation-map__controls"><button class="gx-navigation-map__control" type="button" @click="zoom(1)" aria-label="Zoom in"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+              <button class="gx-navigation-map__control" type="button" @click="zoom(-1)" aria-label="Zoom out"><i class="bi bi-dash-lg" aria-hidden="true"></i></button></div>
             <span class="gx-offline-roads__hint">{{ point ? 'Adjust the radius, name it, then save.' : 'Tap the map to center a new area.' }}</span></div>
           <div class="gx-offline-roads__form">
             <button type="button" class="gx-btn gx-btn--tonal" :disabled="!data?.position" @click="useLocation"><i class="bi bi-crosshair"></i> Around my car</button>

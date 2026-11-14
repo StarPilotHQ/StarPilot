@@ -77,7 +77,7 @@ def native_dependencies():
   from openpilot.starpilot.ui.onroad import OnroadView
   from openpilot.starpilot.ui.onroad_customization import CAMERA_WIDGETS, placement, widget_size
   from openpilot.starpilot.ui.onroad_dm import DriverMonitorLayer
-  from openpilot.starpilot.ui.onroad_map import MapFeed, MapOverlay
+  from openpilot.starpilot.ui.onroad_map import MapFeed, live_overlay
   from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadAlert
   from openpilot.starpilot.ui.pip_preferences import read_pip
   from openpilot.starpilot.ui.pip_render import PiPRenderer
@@ -148,7 +148,7 @@ def native_dependencies():
                          pip_warning=PiPWarningSource, read_vasm=read_vasm_preferences, clock_pair_ns=clock_pair_ns,
                          car_schema=car_schema,
                          pip_rect=Rect, pip_widgets=CAMERA_WIDGETS, placement=placement, widget_size=widget_size,
-                         alert=OnroadAlert, alert_size=AlertSize, map_overlay=MapOverlay, map_feed=MapFeed,
+                         alert=OnroadAlert, alert_size=AlertSize, map_overlay=live_overlay, map_feed=MapFeed,
                          favorites=ProjectionFavorites, standby_logo=standby_logo, now_playing_feed=ProjectionNowPlayingFeed,
                          jetlink_feed=JetlinkStatusFeed)
 
@@ -240,6 +240,7 @@ class ProjectionOnroad:
         self.favorites = native.favorites(lambda: native.ui_state.started)
         self.favorites.bookmark = lambda: self.bookmark()
         self.favorites.card_bounds = getattr(getattr(self.onroad, 'navigation', None), 'bounds', None)
+        self.favorites.map_rect = lambda: self._map_placement() if self.map is not None else None
         self._resources.callback(self.favorites.close)
     except BaseException:
       self._resources.close()
@@ -381,6 +382,9 @@ class ProjectionOnroad:
     if placed is not None and self.map is not None:
       self.map.draw(self.native.rl.Rectangle(placed['x'], placed['y'], placed['width'], placed['height']),
                     placed['opacity'] / 100.0)
+      if state is not None and self.favorites is not None:
+        self.onroad.navigation_favorites.render_map_end(placed['x'], placed['y'], placed['width'], placed['height'],
+                                                        state.customization['layouts']['large'])
 
   def _pip_layer(self, rect, state, *, submit=None):
     """Shared camera crops, with Android Auto's own blind-spot trigger and placements."""

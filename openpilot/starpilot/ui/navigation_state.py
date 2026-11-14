@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 import math
 
+ARRIVED_DISPLAY_M = 10.0   # this close to the final "arrive" maneuver, the card reads "Arrived"
+
 
 @dataclass(frozen=True)
 class NavigationDisplay:
@@ -31,17 +33,19 @@ def navigation_display(message, *, now_ns: int, drive_id: int) -> NavigationDisp
     distances = (instruction.distanceMeters, instruction.remainingDistanceMeters, instruction.remainingDurationSeconds)
     if not all(math.isfinite(value) and value >= 0 for value in distances):
       return None
-    text = 'You have arrived' if message.status == 'arrived' else ' '.join(instruction.text.split())[:240]
+    arrived = message.status == 'arrived' or (
+      instruction.maneuverType == 'arrive' and instruction.distanceMeters <= ARRIVED_DISPLAY_M)
+    text = 'You have arrived' if arrived else ' '.join(instruction.text.split())[:240]
     if not text:
       return None
     lanes = tuple((lane.active, tuple(lane.directions), lane.activeDirection) for lane in list(instruction.lanes)[:8])
     then = message.nextManeuver
-    then_type = '' if message.status == 'arrived' else then.maneuverType
+    then_type = '' if arrived else then.maneuverType
     then_distance = then.distanceMeters if then_type and math.isfinite(then.distanceMeters) else None
     return NavigationDisplay((message.sessionId, drive_id), text, instruction.maneuverType,
-                             instruction.maneuverModifier, *distances, message.status == 'arrived',
+                             instruction.maneuverModifier, *distances, arrived,
                              then_type, then.maneuverModifier if then_type else '', then_distance,
-                             () if message.status == 'arrived' else lanes)
+                             () if arrived else lanes)
   except (AttributeError, TypeError, ValueError, OverflowError):
     return None
 

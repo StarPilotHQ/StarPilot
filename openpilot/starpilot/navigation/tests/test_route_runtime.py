@@ -83,7 +83,9 @@ def test_route_interpolation_preserves_distance_and_advice(route):
   assert abs(progress.instruction['distanceMeters'] - 556.) < .01
   assert progress.instruction['text'] == 'Turn right on First Street'
   assert not progress.off_route and not progress.arrived
-  assert route.progress((.005, 0.), 5., 270.).off_route
+  assert route.progress((.005, 0.), 10., 270.).off_route
+  assert not route.progress((.005, 0.), 5., 270.).off_route, "turning around on a ramp or in a lot is not off the route"
+  assert not route.progress((.005, .0005), 2., 90.).off_route and route.progress((.005, .0008), 2., 90.).off_route
   assert route.progress((.01, 0.), 0.).arrived
   assert project((0, 0), (0, 0), (0, .001))[0] == 0
   assert distance((0, 0), (0, .001)) == pytest.approx(111.195, abs=.01)
@@ -127,11 +129,38 @@ def test_generation_discard_and_current_drive_control(tmp_path, route):
   assert result['status'] == 'routing' and not result['controlValid']
 
 
+@pytest.mark.parametrize('change', ['cancelReselect', 'sameDestination', 'avoidanceRoundTrip', 'providerRoundTrip', 'disableEnable'])
+def test_route_intent_changes_between_polls_discard_delayed_response(tmp_path, route, change):
+  owner, executor = configured(tmp_path), Executor()
+  runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None), executor=executor)
+  position = (10_000_000_000, (.001, 0.), 5., 90.)
+  runtime.update(10_000_000_000, position, 1)
+  selected = owner.read()['destination']
+  if change == 'cancelReselect':
+    owner.clear(owner.read()['revision'], True)
+    owner.select(selected, owner.read()['revision'], True)
+  elif change == 'sameDestination':
+    owner.select(selected, owner.read()['revision'], True)
+  else:
+    key, first, second = {'avoidanceRoundTrip': ('avoidTolls', True, False),
+                          'providerRoundTrip': ('routeProvider', 'google', 'mapbox'),
+                          'disableEnable': ('enabled', False, True)}[change]
+    owner.configure({key: first}, owner.read()['revision'], True)
+    owner.configure({key: second}, owner.read()['revision'], True)
+  executor.jobs[0].set_result(route)
+  result = runtime.update(11_000_000_000, (11_000_000_000, *position[1:]), 1)
+  assert result['status'] == 'routing' and not result['controlValid']
+  assert runtime.route is None and len(executor.jobs) == 2
+  executor.jobs[1].set_result(route)
+  assert runtime.update(12_000_000_000, (12_000_000_000, *position[1:]), 1)['controlValid']
+
+
 def test_arrival_ends_navigation_after_a_short_stop(tmp_path, route):
   owner, executor = configured(tmp_path), Executor()
   runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None), executor=executor)
   def at(t, speed=0.):
     return runtime.update(t * 1_000_000_000, (t * 1_000_000_000 - 1_000_000, (.01, 0.), speed, 90.), 1_000_000_000)
+  runtime.update(9_000_000_000, (8_999_000_000, (0., 0.), 5., 90.), 1_000_000_000)  # the drive starts away from it
   at(10, 5.)
   executor.jobs[0].set_result(route)
   assert at(11, 5.)['status'] == 'guiding'
@@ -146,11 +175,109 @@ def test_arrival_ends_navigation_after_a_short_stop(tmp_path, route):
   assert at(37)['status'] == 'noDestination'
 
 
+def guided(tmp_path, route):
+  owner, executor = configured(tmp_path), Executor()
+  runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None), executor=executor)
+  def at(t, coordinates=(.005, 0.), speed=5., drive=1_000_000_000):
+    fix = None if coordinates is None else (t * 1_000_000_000 - 1_000_000, coordinates, speed, 90.)
+    return runtime.update(t * 1_000_000_000, fix, drive)
+  at(10)
+  executor.jobs[0].set_result(route)
+  assert at(11)['status'] == 'guiding'
+  return owner, runtime, at
+
+
+def test_stopping_near_the_destination_arrives_short_of_the_route_end(tmp_path, route):
+  owner, _runtime, at = guided(tmp_path, route)
+  # ~110 m short of the pin: a stop at a light, not an arrival
+  assert at(12, (.009, 0.), 0.)['status'] == 'guiding'
+  assert at(30, (.009, 0.), 0.)['status'] == 'guiding' and owner.read()['destination'] is not None
+  # ~55 m short, where a parking lot entrance would be: beyond the route-end check's 40 m
+  assert at(31, (.0095, 0.), 0.)['status'] == 'guiding'
+  assert at(36, (.0095, 0.), 0.)['status'] == 'arrived'
+  assert at(46, (.0095, 0.), 0.)['status'] == 'arrived'
+  assert owner.read()['destination'] is None
+
+
+def test_drive_ending_in_a_garage_near_the_destination_ends_navigation(tmp_path, route):
+  owner, _runtime, at = guided(tmp_path, route)
+  at(12, (.008, 0.), 3.)  # last fix ~220 m out, entering the garage
+  at(13, None)  # GPS lost inside
+  at(20, None, drive=0)
+  at(24, None, drive=0)
+  assert owner.read()['destination'] is not None, 'a deviceState hiccup is not the car turning off'
+  at(25, None, drive=0)
+  assert owner.read()['destination'] is None
+  assert at(26, None, drive=0)['status'] == 'noDestination'
+
+
+def test_brief_stop_far_from_the_destination_keeps_navigation(tmp_path, route):
+  owner, _runtime, at = guided(tmp_path, route)
+  at(12, (.0, 0.), 0.)  # ~1.1 km out: a gas station on the way
+  at(13, None, drive=0)
+  at(30, None, drive=0)
+  assert owner.read()['destination'] is not None
+  assert at(31, (.0, 0.), drive=31_000_000_000)['status'] == 'routing'
+  assert owner.read()['destination'] is not None
+
+
+def test_device_state_hiccup_near_the_destination_keeps_navigation(tmp_path, route):
+  owner, _runtime, at = guided(tmp_path, route)
+  at(12, (.008, 0.), 10.)
+  at(13, (.008, 0.), 10., drive=0)
+  at(16, (.008, 0.), 10., drive=0)
+  assert at(17, (.0085, 0.), 10.)['status'] == 'routing'
+  assert owner.read()['destination'] is not None
+
+
+def test_drive_starting_near_the_destination_ends_navigation(tmp_path):
+  # A reboot in the garage: the saved position is where the car was parked
+  owner = configured(tmp_path)
+  owner.position_store.record({'longitude': .008, 'latitude': 0.})
+  owner.position_store.flush(force=True)
+  executor = Executor()
+  runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None), executor=executor)
+  assert runtime.update(10_000_000_000, None, 9_000_000_000)['status'] == 'noDestination'
+  assert owner.read()['destination'] is None and not executor.jobs
+
+
+def test_first_fix_near_the_destination_ends_navigation(tmp_path):
+  owner = configured(tmp_path)
+  executor = Executor()
+  runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None), executor=executor)
+  assert runtime.update(10_000_000_000, None, 9_000_000_000)['status'] == 'waitingForLocation'
+  runtime.update(11_000_000_000, (10_999_000_000, (.008, 0.), 2., 90.), 9_000_000_000)
+  assert owner.read()['destination'] is None
+  # Only the drive's first fix counts: a destination picked later is routed even nearby
+  owner.select({'name': 'Next door', 'longitude': .009, 'latitude': 0.}, owner.read()['revision'], True)
+  assert runtime.update(12_000_000_000, (11_999_000_000, (.008, 0.), 2., 90.), 9_000_000_000)['status'] == 'routing'
+
+
+def test_parked_arrival_retries_after_clear_io_failure(tmp_path, monkeypatch, route):
+  owner, _runtime, at = guided(tmp_path, route)
+  clear = owner.clear
+  calls = 0
+  def fail_once(*args):
+    nonlocal calls
+    calls += 1
+    if calls == 1:
+      raise OSError('temporary write failure')
+    return clear(*args)
+  monkeypatch.setattr(owner, 'clear', fail_once)
+  at(12, (.008, 0.), 3.)
+  at(13, None, drive=0)
+  at(18, None, drive=0)
+  assert owner.read()['destination'] is not None
+  at(19, None, drive=0)
+  assert calls == 2 and owner.read()['destination'] is None
+
+
 def test_arrival_does_not_override_a_newer_destination(tmp_path, route):
   owner, executor = configured(tmp_path), Executor()
   runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None), executor=executor)
   def at(t):
     return runtime.update(t * 1_000_000_000, (t * 1_000_000_000 - 1_000_000, (.01, 0.), 0., 90.), 1_000_000_000)
+  runtime.update(9_000_000_000, (8_999_000_000, (0., 0.), 5., 90.), 1_000_000_000)
   at(10)
   executor.jobs[0].set_result(route)
   at(11)
@@ -361,7 +488,7 @@ def test_saved_origin_failure_backoff_and_destination_change(tmp_path, monkeypat
 def test_unknown_speed_does_not_arrive_or_authorize_control(tmp_path, route):
   owner = configured(tmp_path)
   runtime = RouteRuntime(owner, executor=Executor())
-  runtime.update(10_000_000_000, (10_000_000_000, (.01, 0.), None, None), 1)
+  runtime.update(10_000_000_000, (10_000_000_000, (0., 0.), None, None), 1)
   runtime.route = route
   for second in (11, 20, 40):
     now = second * 1_000_000_000
@@ -401,3 +528,67 @@ def test_lane_guidance_comes_from_the_banner_and_reaches_the_instruction():
                                  {'components': [{'type': 'lane', 'active': True, 'directions': ['left']}] * 9}])
 def test_missing_unusable_or_malformed_lane_data_is_ignored(sub):
   assert lane_route(sub).progress((.005, 0.), 5., 90.).instruction['lanes'] == []
+
+
+def test_route_line_keeps_corners_and_thins_straight_road():
+  from openpilot.starpilot.navigation.route_engine import PREVIEW_POINTS, simplify
+  east = [[i * 1e-5, 0.] for i in range(5000)]
+  north = [[east[-1][0], i * 1e-5] for i in range(1, 5000)]
+  route = NavigationRoute({'distance': 1100., 'duration': 100., 'geometry': {'coordinates': east + north}, 'legs': [{'steps': [
+    {'distance': 1100., 'duration': 100., 'maneuver': {'type': 'depart'}},
+    {'distance': 0., 'duration': 0., 'maneuver': {'type': 'arrive'}}]}]})
+  preview = route.preview()
+  assert {'longitude': east[-1][0], 'latitude': 0.} in preview and len(preview) == 3
+  assert route.preview() is preview
+  wiggle = [[i * 1e-5, (i % 2) * 1e-4] for i in range(4000)]
+  assert len(simplify(wiggle)) == PREVIEW_POINTS
+
+
+def test_route_line_preserves_a_collinear_turnaround():
+  from openpilot.starpilot.navigation.route_engine import simplify
+  assert simplify([(0., 0.), (.01, 0.), (.005, 0.)]) == [0, 1, 2]
+
+
+def garage_runtime(tmp_path, monkeypatch):
+  monkeypatch.setattr(NavigationOwner, '_is_metric', lambda self: True)
+  owner = NavigationOwner(tmp_path, runtime_source=lambda: None)
+  settings = owner.configure({'enabled': True, 'token': 'pk.test'}, '0', True)
+  owner.select({'name': 'Far', 'longitude': .05, 'latitude': 0.}, settings['revision'], True)
+  executor = Executor()
+  runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None), executor=executor)
+  long_route = NavigationRoute({'distance': 5560., 'duration': 400., 'geometry': {'coordinates': [[0., 0.], [.05, 0.]]}, 'legs': [{'steps': [
+    {'distance': 5560., 'duration': 400., 'maneuver': {'type': 'depart'}}, {'distance': 0., 'duration': 0., 'maneuver': {'type': 'arrive'}}]}]})
+  runtime.update(1, (1, (0., 0.), 0., None), 1)
+  executor.jobs[0].set_result(long_route)
+  return runtime, executor
+
+
+def drive(runtime, start_ns, seconds, coordinates, speed, bearing):
+  result = None
+  for tick in range(seconds + 1):
+    now = start_ns + tick * 1_000_000_000
+    result = runtime.update(now, (now, coordinates, speed, bearing), 1)
+  return result
+
+
+def test_leaving_a_garage_before_reaching_the_route_does_not_reroute(tmp_path, monkeypatch):
+  runtime, executor = garage_runtime(tmp_path, monkeypatch)
+  assert drive(runtime, 2, 30, (.0005, .0015), 3., 200.)['status'] == 'guiding', "spiral ramp 170 m from the street"
+  assert len(executor.jobs) == 1
+  assert drive(runtime, 40_000_000_000, 5, (-.004, .002), 12., 270.)['status'] == 'routing', "really went the other way"
+  assert len(executor.jobs) == 2
+
+
+def test_slow_off_route_waits_longer_once_joined(tmp_path, monkeypatch):
+  runtime, executor = garage_runtime(tmp_path, monkeypatch)
+  drive(runtime, 2, 2, (.01, 0.), 15., 90.)
+  assert drive(runtime, 10_000_000_000, 6, (.02, .001), 3., 0.)['status'] == 'guiding'
+  assert drive(runtime, 17_000_000_000, 2, (.02, .001), 3., 0.)['status'] == 'routing'
+  assert len(executor.jobs) == 2
+
+
+def test_no_reroute_in_the_destination_garage(tmp_path, monkeypatch):
+  runtime, executor = garage_runtime(tmp_path, monkeypatch)
+  drive(runtime, 2, 2, (.03, 0.), 15., 90.)
+  assert drive(runtime, 10_000_000_000, 20, (.049, .0015), 3., 180.)['status'] in ('guiding', 'arrived')
+  assert len(executor.jobs) == 1
