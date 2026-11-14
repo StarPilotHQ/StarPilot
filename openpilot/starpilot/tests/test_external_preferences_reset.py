@@ -29,7 +29,8 @@ owner_ast = ast.parse((ROOT / 'navigation' / 'owner.py').read_text())
 selected: list[ast.stmt] = [node for node in owner_ast.body if isinstance(node, (ast.FunctionDef, ast.ClassDef))
                  and node.name in ('ValidationError', 'destination', 'favorite_place', 'valid_google_key')]
 selected.extend(node for node in owner_ast.body if isinstance(node, ast.Assign)
-                and any(isinstance(target, ast.Name) and target.id in ('ROUTE_AVOIDANCES', 'MAP_PROVIDERS', 'GOOGLE_KEY_CHARS', 'SAFE_ID') for target in node.targets))
+                and any(isinstance(target, ast.Name) and target.id in ('ROUTE_AVOIDANCES', 'MAP_PROVIDERS', 'GOOGLE_KEY_CHARS', 'SAFE_ID')
+                        for target in node.targets))
 owner_class = next(node for node in owner_ast.body if isinstance(node, ast.ClassDef) and node.name == 'NavigationOwner')
 selected.append(next(node for node in owner_class.body if isinstance(node, ast.FunctionDef) and node.name == 'read'))
 namespace: dict = {'json': json, 'math': math, 're': re, 'hashlib': hashlib, 'os': os, 'copy': copy, 'MAX_DOCUMENT': 256 * 1024,
