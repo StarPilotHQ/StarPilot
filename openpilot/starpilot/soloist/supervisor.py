@@ -338,7 +338,7 @@ class Supervisor:
     self.sink_check_at = now + SINK_CHECK_SECONDS
     try:
       if not backend.has_sink(self.layout):
-        backend.switch_output(self.layout, True)
+        backend.switch_output(self.layout, True, low_latency=self.hold_output)
         with self.log_lock:
           self.log.append('audio: the car output had not loaded; loaded it')
       self.car_failures = 0
@@ -388,7 +388,7 @@ class Supervisor:
     if not backend.can_switch():
       return False
     try:
-      backend.switch_output(self.layout, speaker)
+      backend.switch_output(self.layout, speaker, low_latency=self.hold_output)
     except (OSError, subprocess.SubprocessError) as error:
       with self.log_lock:
         self.log.append(f'audio: could not switch output: {error}')

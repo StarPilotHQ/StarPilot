@@ -11,8 +11,9 @@ validates checksums, ELF architecture and executable permissions.
 `95-starpilot-bluealsa5.conf` under `/run`. Private ALSA configs select the bundled
 plugins; v5 plugins must not run against the stock v4 daemon. Both paths preserve
 software volume; playback opens at 100%, unmuted. Capture uses `hwcompat "silence"`
-across transport interruptions. The launcher enables SBC and LDAC and retains the
-existing `Nice=-5` policy. Spotify Bluetooth output also advertises the A2DP receiver.
+across transport interruptions. The launcher enables SBC and LDAC, keeps an output
+transport alive for 5 s after its last client closes, and retains the existing
+`Nice=-5` policy. Spotify Bluetooth output also advertises the A2DP receiver.
 
 System binaries, plugins, bonds and v4 state remain intact. V5 state lives under
 `/data/starpilot/bluealsa5/lib/bluealsa`. Activation failure removes the temporary

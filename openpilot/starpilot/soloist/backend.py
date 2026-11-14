@@ -104,7 +104,8 @@ def server_launch(layout: Layout, prefs: Preferences, *, silent: bool = False, l
     'PULSE_RUNTIME_PATH': str(paths['pulse']), 'PULSE_STATE_PATH': str(paths['pulse']),
     'LD_LIBRARY_PATH': library_path(root), 'PATH': '/usr/bin:/bin', 'PULSE_CONFIG': str(paths['daemon']),
   }
-  paths['daemon'].write_text('nice-level = -5\n')
+  # Opening at 44.1 kHz and then switching to the engine's 48 kHz renegotiates the car's stream twice per sink load.
+  paths['daemon'].write_text('nice-level = -5\ndefault-sample-rate = 48000\n')
   if prefs.output == 'bluetooth':
     # Written even when starting silent, so the speaker can be added to the running server later.
     paths['alsa'].write_text(alsa_config(prefs.output_address, alsa_base))
@@ -144,11 +145,11 @@ def has_sink(layout: Layout, *, root: Path = SERVER_ROOT, run: Callable[..., sub
   return bool(_pactl(layout, root, run, 'list', 'short', 'sinks').strip())
 
 
-def switch_output(layout: Layout, speaker: bool, *, root: Path = SERVER_ROOT,
+def switch_output(layout: Layout, speaker: bool, *, low_latency: bool = False, root: Path = SERVER_ROOT,
                   run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> None:
   """Move Soloist between the speaker and the silent sink inside the running server, without restarting it."""
   new, old = (SINK_NAME, SILENT_SINK) if speaker else (SILENT_SINK, SINK_NAME)
-  module, args = _sink('bluetooth' if speaker else 'silent', runtime_paths(layout))
+  module, args = _sink('bluetooth' if speaker else 'silent', runtime_paths(layout), low_latency)
 
   def pactl(*args: str) -> str:
     return _pactl(layout, root, run, *args)

@@ -107,7 +107,7 @@ def test_server_without_a_sink_gets_the_car_output_loaded_once_the_car_is_there(
   sinks, switched = [False], []
   monkeypatch.setattr(supervisor.backend, 'can_switch', lambda: True)
   monkeypatch.setattr(supervisor.backend, 'has_sink', lambda layout: sinks[0])
-  monkeypatch.setattr(supervisor.backend, 'switch_output', lambda layout, speaker: (switched.append(speaker), sinks.__setitem__(0, True)))
+  monkeypatch.setattr(supervisor.backend, 'switch_output', lambda layout, speaker, **kw: (switched.append(speaker), sinks.__setitem__(0, True)))
   sup.tick()
   assert 'module-alsa-sink' in ' '.join(processes[-1].argv) and switched == []
   now[0] += supervisor.SINK_CHECK_SECONDS - 1
@@ -128,13 +128,13 @@ def test_no_healing_while_the_car_is_away_or_when_the_check_fails(held, monkeypa
   calls = []
   monkeypatch.setattr(supervisor.backend, 'can_switch', lambda: True)
   monkeypatch.setattr(supervisor.backend, 'has_sink', lambda layout: calls.append('check') or False)
-  monkeypatch.setattr(supervisor.backend, 'switch_output', lambda layout, speaker: calls.append('switch'))
+  monkeypatch.setattr(supervisor.backend, 'switch_output', lambda layout, speaker, **kw: calls.append('switch'))
   for _ in range(3):
     sup.tick()
     now[0] += supervisor.SINK_CHECK_SECONDS + 1
   assert calls == []
 
-  def failing(layout, speaker):
+  def failing(layout, speaker, **kw):
     raise subprocess.CalledProcessError(1, 'pactl')
   sup.output.connected = True
   monkeypatch.setattr(supervisor.backend, 'switch_output', failing)
@@ -151,7 +151,7 @@ def test_car_that_keeps_refusing_audio_is_reconnected_from_the_comma_at_most_onc
   monkeypatch.setattr(supervisor.backend, 'can_switch', lambda: True)
   monkeypatch.setattr(supervisor.backend, 'has_sink', lambda layout: False)
 
-  def refused(layout, speaker):
+  def refused(layout, speaker, **kw):
     raise subprocess.CalledProcessError(1, 'pactl')
   monkeypatch.setattr(supervisor.backend, 'switch_output', refused)
   sup.tick()
@@ -184,7 +184,7 @@ def test_a_loaded_car_output_clears_the_refusal_count(held, monkeypatch):
   monkeypatch.setattr(supervisor.backend, 'can_switch', lambda: True)
   monkeypatch.setattr(supervisor.backend, 'has_sink', lambda layout: next(sinks))
 
-  def refused(layout, speaker):
+  def refused(layout, speaker, **kw):
     raise subprocess.CalledProcessError(1, 'pactl')
   monkeypatch.setattr(supervisor.backend, 'switch_output', refused)
   for _ in range(12):
@@ -208,6 +208,30 @@ def test_reconnect_drops_the_link_then_connects_audio_from_this_side():
   output.client = FakeBlueZ(calls)
   output.reconnect(CAR, sleep=lambda _: calls.append('wait'))
   assert calls == ['Disconnect', 'wait', 'ConnectProfile']
+
+
+def test_a_reloaded_car_output_keeps_the_short_buffer_while_engine_sound_is_on(held, monkeypatch):
+  sup, now, _, _, _ = held
+  preferences.save(preferences.Preferences(output='bluetooth', output_address=CAR), sup.layout)
+  sup.output.connected = True
+  reloads = []
+  monkeypatch.setattr(supervisor.backend, 'can_switch', lambda: True)
+  monkeypatch.setattr(supervisor.backend, 'has_sink', lambda layout: bool(reloads))
+  monkeypatch.setattr(supervisor.backend, 'switch_output', lambda layout, speaker, **kw: reloads.append(kw))
+  sup.tick()
+  now[0] += supervisor.SINK_CHECK_SECONDS + 1
+  sup.tick()
+  assert reloads == [{'low_latency': True}]
+
+
+def test_bluealsa_keeps_the_car_stream_through_a_brief_output_reopen(tmp_path):
+  from openpilot.starpilot.soloist.bluealsa import launcher
+  bundle = tmp_path / 'bundle'
+  (bundle / 'bin').mkdir(parents=True)
+  (bundle / 'VERSION').write_text('5.0.0\n')
+  (bundle / 'bin' / 'bluealsad').write_bytes(b'')
+  argv = launcher.select(bundle, tmp_path / 'legacy', tmp_path / 'override', lambda: None)
+  assert '--keep-alive=5' in argv
 
 
 def test_engine_sound_opens_the_car_with_the_short_buffer_and_music_alone_does_not(held, monkeypatch):
