@@ -1270,6 +1270,17 @@ class VisionModelCore:
         self._remember_detector_proposal(
           proposal_confidence, class_id, (x1, y1, x2, y2), speed_limit_mph, preferred=True,
         )
+      if (type(proposals) is list and class_id == 0 and is_small_box and
+          published_score == DETECTOR_CLASSIFIER_RESCUE_MAX_SCORE and
+          expansions is DETECTOR_CLASSIFIER_EXPANSIONS and support_count == 3 and len(speed_scores) == 1):
+        for _, future_class, (a, b, c, d) in proposals[proposal_index + 1:]:
+          overlap = max(0, min(x2, c) - max(x1, a)) * max(0, min(y2, d) - max(y1, b))
+          union = box_width * box_height + (c - a) * (d - b) - overlap
+          if future_class != 0 or overlap <= .8 * union:
+            break
+        else:
+          # Keep the existing weak result after three agreeing crops of one object.
+          return None if best_retry_conflict else best_detection
       if best_detection is not None and best_detection.confidence >= MODEL_DETECTION_SHORT_CIRCUIT_CONFIDENCE:
         return None if best_retry_conflict else best_detection
 
