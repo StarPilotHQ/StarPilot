@@ -98,7 +98,7 @@ class TestOffroadCache(unittest.TestCase):
     for session in ('', 'e' * 31, 'z' * 32):
       with self.subTest(session=session), self.assertRaises(ValueError):
         self.cache.claim_trial('d' * 64, session)
-    with patch('openpilot.starpilot.flm.offroad_cache.MAX_FILES', 0), self.assertRaises(ValueError):
+    with patch('openpilot.starpilot.flm.offroad_cache.MAX_TOTAL', 0), self.assertRaises(ValueError):
       self.cache.claim_trial('e' * 64, 'f' * 32)
     self.cache.directory.chmod(0o777)
     with self.assertRaises(ValueError):

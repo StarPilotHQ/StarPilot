@@ -53,3 +53,8 @@ class FlmTrainingResults:
       return {'version': 1, 'valid': True, 'enabled': choice.enabled, 'parked': parked, 'vehicle': vehicle}
     except (OSError, RuntimeError, AttributeError, TypeError, ValueError, OverflowError, KjException):
       return unknown
+
+  def download(self):
+    from openpilot.starpilot.galaxy.flm_diagnostics import download
+
+    return download(self.snapshot(), self.params)

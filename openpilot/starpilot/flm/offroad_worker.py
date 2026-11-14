@@ -614,6 +614,11 @@ class OffroadWorker:
     self.skipped_routes = []
     if not self.permitted():
       raise ValueError('Offroad analysis not permitted')
+    saved, readable = read_saved(self.params, KEY, MAX_BYTES)
+    if not readable:
+      raise ValueError('Unreadable automatic tuning history')
+    protected = [row['analysis_sha256'] for row in decode(saved).get(NAMESPACE, {}).values()]
+    self.cache.retire(protected, authorized=lambda: self.permitted() and read_saved(self.params, KEY, MAX_BYTES) == (saved, True))
     self.pending_logger = logger_marker(self.params)
     latest = latest_route(self.params, self.root, permitted=self.permitted, inventory_only=True, on_skip=self._skip_route)
     if logger_marker(self.params) != self.pending_logger:

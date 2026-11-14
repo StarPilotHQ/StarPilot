@@ -1349,6 +1349,15 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         else:
           if self.require_session():
             self.json(200, result)
+      elif path == '/api/flm/logs/download':
+        if not self.require_session():
+          return
+        if urlsplit(self.path).query:
+          self.json(400, {'error': 'Unexpected FLM log query'})
+          return
+        filename, body = training_results_source.download()
+        if self.require_session():
+          self.attachment(filename, body, 'application/json; charset=utf-8')
       elif path == '/api/flm/training-results':
         if not self.require_session():
           return

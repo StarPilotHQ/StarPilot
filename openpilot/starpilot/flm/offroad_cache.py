@@ -104,7 +104,7 @@ class AssessmentCache:
     self._write(digest + '.json', raw)
     return digest
 
-  def _capacity(self, size):
+  def _capacity(self, size, files=1):
     total = count = 0
     for p in self.directory.iterdir():
       if p.name in ('latest.json', 'inputs.json'):
@@ -115,9 +115,74 @@ class AssessmentCache:
       if not stat.S_ISREG(s.st_mode) or s.st_uid != os.geteuid():
         raise ValueError('Foreign assessment file')
       total += s.st_size
-      count += 1
-    if count >= MAX_FILES or total + size > MAX_TOTAL:
+      # Consumed-start markers must survive retirement; they are not assessments.
+      count += not (p.name.startswith('trial-') and len(p.name) == 75 and not p.name[6:-5].strip('0123456789abcdef'))
+    if count + files > MAX_FILES or total + size > MAX_TOTAL:
       raise ValueError('Assessment cache full')
+
+  def retire(self, protected, *, authorized):
+    """Parked-only retirement of unreferenced derived documents, never trial claims."""
+    self._owned()
+    try:
+      self._capacity(4 * MAX_DOCUMENT, files=4)
+      return 0
+    except ValueError as error:
+      if str(error) != 'Assessment cache full':
+        raise
+    for digest in protected:
+      self.get(digest)
+    documents = {}
+    for path in self.directory.iterdir():
+      if len(path.name) == 69 and path.suffix == '.json' and not path.stem.strip('0123456789abcdef'):
+        documents[path.stem] = path.lstat()
+
+    def references(value):
+      if type(value) is str:
+        return {value} if value in documents else set()
+      if type(value) is dict:
+        return set().union(*(references(v) for v in value.values()), set())
+      if type(value) is list:
+        return set().union(*(references(v) for v in value), set())
+      return set()
+
+    keep = references(list(protected)) | references(self.checkpoints())
+    # Keep recent reports available even if newer resource failures filled the checkpoints.
+    ordered = sorted(documents, key=lambda name: (documents[name].st_mtime_ns, name), reverse=True)
+    keep.update(ordered[:MAX_CHECKPOINTS])
+    pending = list(keep)
+    while pending:
+      linked = references(self.get(pending.pop())) - keep
+      keep.update(linked)
+      pending.extend(linked)
+    removed = 0
+    for digest in reversed(ordered):
+      try:
+        self._capacity(4 * MAX_DOCUMENT, files=4)
+        break
+      except ValueError as error:
+        if str(error) != 'Assessment cache full':
+          raise
+      if digest in keep:
+        continue
+      self.get(digest)  # Only retire intact immutable documents.
+      if not authorized():
+        raise ValueError('Assessment retirement no longer permitted')
+      self._owned()
+      path = self.directory / (digest + '.json')
+      current, before = path.lstat(), documents[digest]
+      fields = ('st_dev', 'st_ino', 'st_mode', 'st_uid', 'st_size', 'st_mtime_ns')
+      if any(getattr(current, field) != getattr(before, field) for field in fields):
+        raise ValueError('Assessment changed before retirement')
+      path.unlink()
+      removed += 1
+    if removed:
+      fd = os.open(self.directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+      try:
+        os.fsync(fd)
+      finally:
+        os.close(fd)
+    self._capacity(4 * MAX_DOCUMENT, files=4)
+    return removed
 
   def claim_trial(self, digest, session):
     """Durably consume one provisional start; any previous claim refuses."""
@@ -133,7 +198,9 @@ class AssessmentCache:
     self._owned()
     name = 'trial-' + digest + '.json'
     raw = json.dumps({'analysis_sha256': digest, 'vehicle_session': session}, sort_keys=True, separators=(',', ':')).encode()
-    self._capacity(len(raw))
+    if os.path.lexists(self.directory / name):
+      return False
+    self._capacity(len(raw), files=0)
     try:
       fd = os.open(self.directory / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     except FileExistsError:
