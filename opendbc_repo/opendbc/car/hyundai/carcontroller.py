@@ -162,6 +162,9 @@ class CarController(CarControllerBase):
     ioniq6_status = (self.ioniq6_longitudinal is not None and
                      int(CP.safetyConfigs[-1].safetyParam) in (0x8015, 0x8095, 0x8815, 0x8895))
     self.ioniq6_bsm_enabled = ioniq6_status
+    self.ioniq6_stock_aol_status = (CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and
+                                  not CP.openpilotLongitudinalControl and CP.pcmCruise and
+                                  int(CP.safetyConfigs[-1].safetyParam) in (0x0811, 0x0891))
     self.canfd_torque_aol_status = (qualified_canfd_stock_aol(CP) or qualified_canfd_long_aol(CP))
     self.canfd_dash_icons = CanFDDashIcons() if ioniq6_status or self.canfd_torque_aol_status else None
     self.classic_dash_icons = CanFDDashIcons() if classic_aol_dash_enabled(CP) else None
@@ -527,7 +530,7 @@ class CarController(CarControllerBase):
     else:
       steering_status_active = CC.enabled
       if ((self.CP.carFingerprint == CAR.KIA_CARNIVAL_2025 and self.CP.safetyConfigs[-1].safetyParam == 0x28B4) or
-          self.canfd_torque_aol_status or (self.ioniq6_longitudinal is not None and
+          self.ioniq6_stock_aol_status or self.canfd_torque_aol_status or (self.ioniq6_longitudinal is not None and
                                  self.CP.safetyConfigs[-1].safetyParam in (0x8815, 0x8895))):
         # AOL may steer while ordinary cruise engagement remains off.
         steering_status_active |= CC.latActive
