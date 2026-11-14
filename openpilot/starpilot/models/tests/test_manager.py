@@ -202,8 +202,10 @@ class ModelManagerTest(unittest.TestCase):
       row.update({key: self.row[key] for key in ('artifact_format', 'artifact_sha256', 'artifact_size', 'artifact_chunk_count')})
     seen = self.record_progress()
     self.manager.action('download_all', {})
-    self.manager.worker.join(10)
-    self.assertFalse(self.manager.worker.is_alive())
+    worker = self.manager.worker
+    assert worker is not None
+    worker.join(10)
+    self.assertFalse(worker.is_alive())
     starts = [(detail['index'], detail['count']) for detail in seen if 'index' in detail]
     count = starts[0][1]
     self.assertGreater(count, 1)
@@ -242,7 +244,9 @@ class ModelManagerTest(unittest.TestCase):
 
     self.manager.opener = offline
     self.manager.action('refresh_manifest', {})
-    self.manager.worker.join(3)
+    worker = self.manager.worker
+    assert worker is not None
+    worker.join(3)
     self.assertIsNone(self.manager.snapshot()['downloadProgress'])
 
   def test_insufficient_storage_preserves_installed_model_and_selection(self):

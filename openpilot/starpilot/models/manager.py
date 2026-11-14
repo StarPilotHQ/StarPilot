@@ -434,7 +434,8 @@ class ModelManager:
         self.downloading = model
         job["model"] = model
       if detail is not None:
-        job["detail"] = {**(job.get("detail") if isinstance(job.get("detail"), dict) else {}), **detail}
+        previous = job.get("detail")
+        job["detail"] = {**(previous if isinstance(previous, dict) else {}), **detail}
       atomic_json(self.root / ".download-job.json", job)
 
   def _check_cancelled(self) -> None:
@@ -453,7 +454,8 @@ class ModelManager:
         try:
           job = self._read_job()
           if job.get("jobId") == self.job_id:
-            detail = job.get("detail") if isinstance(job.get("detail"), dict) else {}
+            previous = job.get("detail")
+            detail = previous if isinstance(previous, dict) else {}
             if failed and self.progress != "Download cancelled" and job.get("operation") != "refresh_manifest":
               detail = {**detail, "phase": "failed", "failed": True, "error": self.progress[:300], "rate": 0, "finishedAt": time.monotonic()}
             else:

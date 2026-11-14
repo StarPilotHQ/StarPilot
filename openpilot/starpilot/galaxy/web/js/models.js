@@ -175,7 +175,7 @@ export function formatEta(seconds, short = false) {
 
 const PHASES = { catalog: "Checking the model catalog", verifying: "Verifying download", installing: "Installing model" }
 
-// One shape for the progress panel; old backends only send a text line, so a percent in it still draws a bar.
+// Progress panel shape; a percent in a text-only progress line still draws a bar.
 export function describeProgress(data, models = []) {
   const detail = data?.downloadProgress
   const label = value => models.find(m => m.value === value)?.label || ""
@@ -204,10 +204,10 @@ export function describeProgress(data, models = []) {
 
 const actionPaths = { "select-small": "active", "select-big": "active", favorite: "preferences", unfavorite: "preferences",
   "enable-randomizer": "preferences", "disable-randomizer": "preferences", exclude: "preferences", include: "preferences",
-  download: "download", downloadAll: "download_all", cancel: "cancel", delete: "delete", refresh: "refresh_manifest", jetlink: "jetlink", "disable-laboratory": "laboratory" }
+  download: "download", downloadAll: "download_all", cancel: "cancel", delete: "delete", refresh: "refresh_manifest", jetlink: "jetlink" }
 const actionCapabilities = { "select-small": "select", "select-big": "select", favorite: "favorites", unfavorite: "favorites",
   "enable-randomizer": "randomizer", "disable-randomizer": "randomizer", exclude: "exclusions", include: "exclusions",
-  download: "download", downloadAll: "downloadAll", cancel: "cancel", delete: "delete", refresh: "refresh", jetlink: "jetlink", "disable-laboratory": "configureLaboratory" }
+  download: "download", downloadAll: "downloadAll", cancel: "cancel", delete: "delete", refresh: "refresh", jetlink: "jetlink" }
 
 export function fitsModelProfile(model, profile) {
   return Array.isArray(model?.profiles) ? model.profiles.includes(profile) : profile === "big" ? model?.requiresGpu === true : model?.requiresGpu === false
@@ -216,7 +216,6 @@ export function fitsModelProfile(model, profile) {
 export function modelActionAllowed(data, action, model = null) {
   if (!data || data.capabilities?.[actionCapabilities[action]] !== true) return false
   if (data.isOnroad !== false && !["favorite", "unfavorite", "cancel", "select-small", "select-big"].includes(action)) return false
-  if (action === "disable-laboratory") return data.laboratory?.enabled === true && !data.downloading
   if (action === "jetlink") return data.jetlink !== undefined
   if (["select-small", "select-big"].includes(action)) {
     if (action === "select-big" && data.jetlinkBig && data.isOnroad !== false) return false
@@ -348,7 +347,6 @@ export class ModelManagerFeed {
     const data = this.data
     const key = model?.value || ""
     let payload = action === "jetlink" ? extra : {}
-    if (action === "disable-laboratory") payload = { ...data.laboratory, enabled: false }
     if (action.startsWith("select-")) payload = { profile: action === "select-big" ? "big" : "small", model: key }
     else if (["favorite", "unfavorite"].includes(action)) {
       const userFavorites = data.models.filter(m => m.userFavorite && m.value !== key).map(m => m.value)
@@ -361,7 +359,7 @@ export class ModelManagerFeed {
     } else if (["enable-randomizer", "disable-randomizer"].includes(action)) payload = { randomizer: action === "enable-randomizer" }
     else if (["download", "delete"].includes(action)) payload = { model: key }
     if (["download", "downloadAll"].includes(action)) payload.allowGpuWithoutGpu = extra.allowGpuWithoutGpu === true
-    if (typeof data.view === "string" && action !== "disable-laboratory") payload.view = data.view
+    if (typeof data.view === "string") payload.view = data.view
     this.saving = true
     this.data = null
     const result = await this.requestJson(actionPaths[action], payload)
@@ -374,8 +372,7 @@ export class ModelManagerFeed {
   }
 }
 
-// Model Laboratory: pairs one model's lateral output with another's longitudinal output, using eGPU (Chestnut) variants.
-// It reads the same catalog and download job as the manager, through ./api/models/laboratory.
+// Model Laboratory: one model steers, another paces, via ./api/models/laboratory.
 export const laboratoryModels = data => data?.models || []
 export const laboratoryReady = data => laboratoryModels(data).filter(m => m.modelLabEligible === true && m.modelLabArtifactAvailable === true && m.modelLabArtifactInstalled === true)
 
@@ -531,8 +528,11 @@ export const ModelsPage = {
       if (!model.loadedId) return model.health === "loading" ? "Loading…" : "Identity unverified"
       return model.catalog.find(item => item.id === model.loadedId)?.name || model.loadedId
     },
+    pendingNextStart() {
+      const data = this.runtime.status === "ready" ? this.runtime.data : null
+      return data?.pendingNextStart === true || data?.laboratory?.pendingNextStart === true
+    },
     laboratoryEnabled() { return !this.selectionUncertain && this.status.laboratory?.enabled === true },
-    laboratoryRunning() { return this.runtime.status === "ready" && !!this.runtime.data?.laboratory?.lateralModel },
     installedSmallModels() { return this.models.filter(m => (m.value === this.activeSmallModel || m.selectable) && fitsModelProfile(m, "small")) },
     installedBigModels() { return this.models.filter(m => (m.value === this.activeBigModel || m.selectable) && fitsModelProfile(m, "big")) },
     // the manager words it: under Jetlink, the Jetlink app's choice
@@ -588,7 +588,6 @@ export const ModelsPage = {
     },
     jetlinkOpen() { return !!this.status.jetlink && this.status.jetlink.mode !== "off" },
     driveMode() { return this.pairView ?? (this.lab?.configuration.enabled ? "pair" : "single") },
-    showLabVariants() { return this.driveMode === "pair" || this.pairableFilter },
     labRows() { return new Map(laboratoryModels(this.lab).map(m => [m.value, m])) },
     labReady() { return laboratoryReady(this.lab) },
     labCandidates() { return this.labReady.filter(m => m.value !== this.labConfig.lateralModel) },
@@ -660,6 +659,7 @@ export const ModelsPage = {
     isPairable(model) { return this.labRow(model)?.modelLabArtifactAvailable === true },
     labStatusLabel: laboratoryStatusLabel,
     labReason(model) { const row = this.labRow(model); return row && LAB_REASON_STATES.has(row.modelLabStatus) ? row.modelLabReason : "" },
+    pairKind(row) { return row.small ? "eGPU variant" : "Big model" },
     labDownloadLabel(m) { return m.small ? (m.modelLabChestnut === false ? "Download Small model" : "Download pair variants") : "Download Big model" },
     labModelLabel(id) { return this.lab?.models.find(m => m.value === id)?.label || id || "Not selected" },
     labActionAvailable(action, model = null) { return laboratoryActionAllowed(this.lab, action, model, this.labConfig) },
@@ -837,8 +837,8 @@ export const ModelsPage = {
         const result = await (["enable-randomizer", "disable-randomizer", "include", "exclude"].includes(action) ? reportSave(perform) : perform())
         if (!this.disposed && result) {
           this.trackingProgress = ["download", "downloadAll", "refresh"].includes(action)
-          this.message = (action === "disable-laboratory" ? "Laboratory is off for the next start. Choose your Small and Big models below." : "") || (this.trackingProgress && this.status.progress) || result.message ||
-            (action === "disable-laboratory" ? "Laboratory is off for the next start. Choose your Small and Big models below." : action.startsWith("select-") ? "Selection saved for the next onroad cycle." : "Saved.")
+          this.message = (this.trackingProgress && this.status.progress) || result.message ||
+            (action.startsWith("select-") ? "Selection saved for the next onroad cycle." : "Saved.")
           if (["download", "downloadAll", "cancel", "delete", "refresh"].includes(action)) this.laboratory?.load()
         }
       } finally { if (!this.disposed) { this.pendingChoice = null; this.busy = "" } }
@@ -893,7 +893,7 @@ export const ModelsPage = {
                   <span class="gx-row__info gx-row__label"><i aria-hidden="true" class="bi bi-shuffle"></i> Model Randomizer <small class="gx-model-driving__random-hint">tries a different model each drive</small></span>
                   <label class="gx-switch"><input type="checkbox" role="switch" aria-label="Model Randomizer" :checked="status.randomizer === true" :disabled="!actionAvailable(status.randomizer ? 'disable-randomizer' : 'enable-randomizer')" @change="toggleRandomizer($event)"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label>
                 </div>
-                <span class="gx-chip gx-model-driving__running">Running now: {{ runningModelLabel }}</span>
+                <span class="gx-chip gx-model-driving__running">Running now: {{ runningModelLabel }}<template v-if="pendingNextStart"> · saved changes pending next start</template></span>
               </div>
               <p v-if="status.randomizer" class="gx-model-reason">A different verified model is chosen each start. {{ status.gpuAvailable && activeBigModel ? 'Big GPU' : 'Small on-device' }} models are used. {{ (status.blacklistedModels || []).length }} excluded. Favorites only mark your preferred models.</p>
               <p v-if="gpuNote" class="gx-model-reason">{{ gpuNote }}</p>
@@ -906,7 +906,7 @@ export const ModelsPage = {
                   <span class="gx-chip">{{ lab ? (lab.chestnutReady ? 'Chestnut ready' : 'Chestnut required') : 'Waiting for device status' }}</span>
                   <span v-if="lab" class="gx-chip" :class="{'gx-chip--selected': labRuntimeState === 'Pair active'}">{{ labRuntimeState }}</span>
                 </div>
-                <span class="gx-chip gx-model-driving__running">Running now: {{ runningModelLabel }}</span>
+                <span class="gx-chip gx-model-driving__running">Running now: {{ runningModelLabel }}<template v-if="pendingNextStart"> · saved changes pending next start</template></span>
               </div>
               <GxNotice v-if="labError" tone="danger" title="Model Laboratory">{{ labError }}</GxNotice>
               <GxNotice v-if="lab?.configurationError" tone="danger">{{ lab.configurationError }}</GxNotice>
@@ -1067,55 +1067,57 @@ export const ModelsPage = {
                     </div>
                   </div>
                 </div>
-                <div v-if="labRow(m)?.small || labRow(m)?.modelLabEligible" class="gx-model-item__row gx-model-item__row--pair gx-model-item__subrow">
-                  <div class="gx-model-item__ver">
-                    <span class="gx-model-item__sub-indent" aria-hidden="true"><i class="bi bi-arrow-return-right"></i></span>
-                  </div>
-                  <div class="gx-model-item__main">
-                    <div class="gx-model-item__title">
-                      <span class="gx-model-lab__label"><i aria-hidden="true" class="bi bi-bezier2"></i> {{ labRow(m).small ? 'eGPU variant' : 'Big model' }}</span>
+                <template v-for="row in [labRow(m)]" :key="m.value + '-pair'">
+                  <div v-if="row?.small || row?.modelLabEligible" class="gx-model-item__row gx-model-item__row--pair gx-model-item__subrow">
+                    <div class="gx-model-item__ver">
+                      <span class="gx-model-item__sub-indent" aria-hidden="true"><i class="bi bi-arrow-return-right"></i></span>
                     </div>
-                    <div class="gx-model-item__meta">
-                      <span class="gx-model-item__hw gx-model-item__hw--gpu"><i aria-hidden="true" class="bi bi-gpu-card"></i> External</span>
-                      <span class="gx-model-specs">
-                        <span class="gx-model-spec">For model pair</span>
-                        <span v-if="!labRow(m).modelLabEligible || !labRow(m).modelLabArtifactAvailable" class="gx-model-spec">{{ labStatusLabel(labRow(m)) }}</span>
-                      </span>
-                    </div>
-                  </div>
-                  <div class="gx-model-item__date"></div>
-                  <div class="gx-model-item__actions gx-model-item__actions--pair">
-                    <div class="gx-model-item__icons gx-model-item__icons--pair">
-                      <span class="gx-model-item__icon-slot">
-                        <div v-if="isPairDownloading(m)" class="gx-pair-ring" role="progressbar" :aria-label="'Downloading ' + (labRow(m).small ? 'eGPU variant' : 'Big model') + ': ' + m.label" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="pairDownloadPercent(m)" :title="'Downloading… ' + (pairDownloadPercent(m) ?? 0) + '%'">
-                          <svg class="gx-pair-ring__svg" viewBox="-.8 -.8 17.6 17.6" aria-hidden="true">
-                            <defs>
-                              <linearGradient :id="'gx-ring-grad-lab-' + m.value" x1="0%" y1="0%" x2="100%" y2="100%">
-                                <stop offset="0%" style="stop-color: var(--secondary, #38bdf8)" />
-                                <stop offset="100%" style="stop-color: var(--primary, #9d72ff)" />
-                              </linearGradient>
-                            </defs>
-                            <path class="gx-pair-ring__track" d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383z" />
-                            <path class="gx-pair-ring__fill" pathLength="100" d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383z" :stroke="'url(#gx-ring-grad-lab-' + m.value + ')'" />
-                          </svg>
-                          <span class="gx-pair-ring__text">{{ pairDownloadPercent(m) ?? 0 }}%</span>
-                        </div>
-                        <button v-else-if="labRow(m).modelLabEligible && labRow(m).modelLabArtifactAvailable && !labRow(m).modelLabArtifactInstalled" type="button" class="gx-icon-btn gx-pair-cloud-btn" :disabled="!labActionAvailable('download', labRow(m))" :aria-label="labDownloadLabel(labRow(m)) + ': ' + m.label" :title="labDownloadLabel(labRow(m)) + ': ' + m.label" @click="runLabAction('download', labRow(m))">
-                          <i aria-hidden="true" class="bi bi-cloud-arrow-down"></i>
-                        </button>
-                        <span v-else-if="labRow(m).modelLabArtifactInstalled" class="gx-pair-cloud-done" :title="labRow(m).small ? 'eGPU variant downloaded' : 'Big model downloaded'">
-                          <i aria-hidden="true" class="bi bi-cloud-check-fill"></i>
+                    <div class="gx-model-item__main">
+                      <div class="gx-model-item__title">
+                        <span class="gx-model-lab__label"><i aria-hidden="true" class="bi bi-bezier2"></i> {{ pairKind(row) }}</span>
+                      </div>
+                      <div class="gx-model-item__meta">
+                        <span class="gx-model-item__hw gx-model-item__hw--gpu"><i aria-hidden="true" class="bi bi-gpu-card"></i> External</span>
+                        <span class="gx-model-specs">
+                          <span class="gx-model-spec">For model pair</span>
+                          <span v-if="!row.modelLabEligible || !row.modelLabArtifactAvailable" class="gx-model-spec">{{ labStatusLabel(row) }}</span>
                         </span>
-                      </span>
-                      <span class="gx-model-item__icon-slot">
-                        <button v-if="labRow(m).small && labRow(m).modelLabChestnut !== false && labRow(m).modelLabArtifactInstalled" type="button" class="gx-icon-btn gx-text-danger" :disabled="!labActionAvailable('delete', labRow(m))" :aria-label="'Delete eGPU variant: ' + m.label" title="Delete eGPU variant" @click="runLabAction('delete', labRow(m))">
-                          <i aria-hidden="true" class="bi bi-trash"></i>
-                        </button>
-                      </span>
-                      <span class="gx-model-item__icon-slot"></span>
+                      </div>
+                    </div>
+                    <div class="gx-model-item__date"></div>
+                    <div class="gx-model-item__actions gx-model-item__actions--pair">
+                      <div class="gx-model-item__icons gx-model-item__icons--pair">
+                        <span class="gx-model-item__icon-slot">
+                          <div v-if="isPairDownloading(m)" class="gx-pair-ring" role="progressbar" :aria-label="'Downloading ' + pairKind(row) + ': ' + m.label" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="pairDownloadPercent(m)" :title="'Downloading… ' + (pairDownloadPercent(m) ?? 0) + '%'">
+                            <svg class="gx-pair-ring__svg" viewBox="-.8 -.8 17.6 17.6" aria-hidden="true">
+                              <defs>
+                                <linearGradient :id="'gx-ring-grad-lab-' + m.value" x1="0%" y1="0%" x2="100%" y2="100%">
+                                  <stop offset="0%" style="stop-color: var(--secondary, #38bdf8)" />
+                                  <stop offset="100%" style="stop-color: var(--primary, #9d72ff)" />
+                                </linearGradient>
+                              </defs>
+                              <path class="gx-pair-ring__track" d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383z" />
+                              <path class="gx-pair-ring__fill" pathLength="100" d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383z" :stroke="'url(#gx-ring-grad-lab-' + m.value + ')'" />
+                            </svg>
+                            <span class="gx-pair-ring__text">{{ pairDownloadPercent(m) ?? 0 }}%</span>
+                          </div>
+                          <button v-else-if="row.modelLabEligible && row.modelLabArtifactAvailable && !row.modelLabArtifactInstalled" type="button" class="gx-icon-btn gx-pair-cloud-btn" :disabled="!labActionAvailable('download', row)" :aria-label="labDownloadLabel(row) + ': ' + m.label" :title="labDownloadLabel(row) + ': ' + m.label" @click="runLabAction('download', row)">
+                            <i aria-hidden="true" class="bi bi-cloud-arrow-down"></i>
+                          </button>
+                          <span v-else-if="row.modelLabArtifactInstalled" class="gx-pair-cloud-done" :title="pairKind(row) + ' downloaded'">
+                            <i aria-hidden="true" class="bi bi-cloud-check-fill"></i>
+                          </span>
+                        </span>
+                        <span class="gx-model-item__icon-slot">
+                          <button v-if="row.small && row.modelLabChestnut !== false && row.modelLabArtifactInstalled" type="button" class="gx-icon-btn gx-text-danger" :disabled="!labActionAvailable('delete', row)" :aria-label="'Delete eGPU variant: ' + m.label" title="Delete eGPU variant" @click="runLabAction('delete', row)">
+                            <i aria-hidden="true" class="bi bi-trash"></i>
+                          </button>
+                        </span>
+                        <span class="gx-model-item__icon-slot"></span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                </template>
               </template>
               <div v-else class="gx-model-item__row">
                 <div class="gx-model-item__ver">

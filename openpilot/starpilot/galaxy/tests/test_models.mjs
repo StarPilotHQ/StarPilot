@@ -388,25 +388,7 @@ for (const label of ["Polaris R3 A ⚠️🧪", "Polaris R3 B ⚠️🧪", "Pola
 }
 assert.deepEqual(ModelsPage.methods.polarisTitleParts({value: "spz_polaris_r3a"}), ["spz_polaris_r3a", ""])
 
-
 // Laboratory overrides normal selections until the next model start.
-const labConfig = { enabled: true, lateralModel: 'small', longitudinalModel: 'big' }
-const labView = { ...managerPayload, laboratory: labConfig, capabilities: { ...managerPayload.capabilities, configureLaboratory: true } }
-assert.equal(modelActionAllowed(labView, 'disable-laboratory'), true)
-assert.equal(modelActionAllowed({ ...labView, isOnroad: true }, 'disable-laboratory'), false)
-assert.equal(modelActionAllowed({ ...labView, downloading: true }, 'disable-laboratory'), false)
-assert.equal(modelActionAllowed({ ...labView, laboratory: { ...labConfig, enabled: false } }, 'disable-laboratory'), false)
-const labManager = managerFixture()
-labManager.manager.start()
-await labManager.reply(0, labView)
-const disabledLab = labManager.manager.action('disable-laboratory')
-assert.equal(labManager.requests[1].url, './api/models/laboratory')
-assert.deepEqual(JSON.parse(labManager.requests[1].options.body), { ...labConfig, enabled: false })
-await labManager.reply(1, { message: 'Model Laboratory configuration saved' })
-await labManager.reply(2, { ...labView, laboratory: { ...labConfig, enabled: false } })
-await disabledLab
-assert.equal(labManager.manager.data.laboratory.enabled, false)
-labManager.manager.stop()
 const pairData = { catalog: [{ id: 'small', name: 'Small model' }, { id: 'big', name: 'Big model' }],
   laboratory: { active: true, lateralModel: 'small', longitudinalModel: 'big' } }
 const pairPage = { selectionUncertain: false, status: {}, runtime: { status: 'ready', data: pairData } }
@@ -414,6 +396,12 @@ assert.equal(ModelsPage.computed.runningModelLabel.call(pairPage), 'Small model/
 assert.equal(ModelsPage.computed.runningModelLabel.call({ ...pairPage, runtime: { status: 'stale', data: pairData } }), 'Status unavailable')
 assert.equal(ModelsPage.computed.runningModelLabel.call({ ...pairPage, runtime: { status: 'ready', data: { ...pairData, laboratory: { ...pairData.laboratory, active: false } } } }), 'Laboratory output unavailable')
 assert.match(ModelsPage.template, /fallback choices/)
+const pendingStart = data => ModelsPage.computed.pendingNextStart.call({ runtime: { status: 'ready', data } })
+assert.equal(pendingStart({ ...pairData, pendingNextStart: false }), false)
+assert.equal(pendingStart({ ...pairData, pendingNextStart: true }), true)
+assert.equal(pendingStart({ ...pairData, laboratory: { ...pairData.laboratory, pendingNextStart: true } }), true)
+assert.equal(ModelsPage.computed.pendingNextStart.call({ runtime: { status: 'stale', data: { pendingNextStart: true } } }), false)
+assert.equal(ModelsPage.template.match(/v-if="pendingNextStart"> · saved changes pending next start/g).length, 2)
 
 // Merged page: search, row list, Single model / Model pair mode switcher, and pair saving.
 {

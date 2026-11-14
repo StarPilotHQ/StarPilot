@@ -316,11 +316,11 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 .gx-model-reason { margin: var(--sp-3) 0; color: var(--text-muted); font-size: var(--fs-sm); }
 .gx-model-card__reason { margin: 0; }
 
-/* Models page: mobile-first Material Design 3 layout */
+/* Models page */
 .gx-model-manager { --panel-padding: var(--sp-4); gap: var(--sp-3); }
 .gx-model-manager .gx-btn, .gx-model-card__progress { min-height: var(--touch-target); padding: 6px var(--sp-4); }
 
-/* Mode selector: Material 3 segmented pill */
+/* Single / pair mode switch */
 .gx-tabs.gx-model-mode { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: var(--radius-full);
   border: 1px solid var(--glass-border); background: var(--surface-container-high); }
 .gx-model-mode > button { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2); min-height: 40px; border: 0; border-radius: var(--radius-full);
@@ -328,7 +328,7 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 .gx-model-mode > button[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); box-shadow: 0 4px 12px var(--primary-glow); }
 .gx-model-mode > button:disabled { opacity: .5; cursor: not-allowed; }
 
-/* Driving & Laboratory controls: stacked on mobile, side-by-side on wider viewports */
+/* Driving and Laboratory controls */
 .gx-model-driving__body, .gx-model-laboratory { display: grid; gap: var(--sp-3); }
 .gx-model-driving__summary { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-2); }
 .gx-model-summary-item { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding: 8px 12px; border-radius: var(--radius-md); border: 1px solid var(--outline); background: var(--surface-container-high); min-width: 0; }
@@ -344,7 +344,7 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 .gx-model-driving .gx-model-reason { margin: 0; }
 .gx-model-driving__random-hint { color: var(--text-muted); font-weight: normal; margin-left: var(--sp-1); }
 
-/* Library toolbar: mobile-first search, hardware tabs, sort, and filter chips */
+/* Library toolbar */
 .gx-model-toolbar { display: grid; gap: var(--sp-3); }
 .gx-model-searchbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); min-width: 0; }
 .gx-model-search-wrap { position: relative; flex: 1 1 200px; min-width: 0; display: flex; align-items: center; }
@@ -364,7 +364,7 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 .gx-model-filters { flex: 1 1 auto; align-items: center; }
 .gx-model-filters .gx-chip { display: inline-flex; align-items: center; gap: var(--sp-1); min-height: 40px; padding-inline: var(--sp-3); }
 
-/* Tags: green eGPU, blue Small, orange Pairable, purple Active Small / Big */
+/* Model tags */
 .gx-model-tag { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid; border-radius: var(--radius-full); font-size: .72rem; font-weight: 700; line-height: 1.6; white-space: nowrap; }
 .gx-model-tag i { font-size: .9em; }
 .gx-model-tag--egpu { color: #6ee7a0; background: rgba(110, 231, 160, .12); border-color: rgba(110, 231, 160, .4); }
@@ -376,7 +376,7 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 [data-theme="light"] .gx-model-tag--small { color: #1d4ed8; background: rgba(29, 78, 216, .08); border-color: rgba(29, 78, 216, .35); }
 [data-theme="light"] .gx-model-tag--pair { color: #c2410c; background: rgba(194, 65, 12, .08); border-color: rgba(194, 65, 12, .35); }
 
-/* Row-based model list: mobile-first 2-row column grid, single horizontal multi-column row on tablet/desktop */
+/* Model list rows */
 .gx-model-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--outline); }
 .gx-model-item { display: grid; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--outline); transition: background-color var(--motion-fast); }
 .gx-model-item:first-child { border-top: 0; }
@@ -415,7 +415,7 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 .gx-model-card__progress-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--secondary), var(--primary)); opacity: .6; transition: width .3s ease; }
 .gx-model-card__progress-label { position: relative; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Model Pair mode rows: 3-row card layout with full model names, compact 3rd-row pills, borderless cloud & gradient dash running around the cloud outline */
+/* Model pair rows */
 .gx-model-item__row--pair { align-items: center; gap: 4px 10px; }
 .gx-model-item__row--pair .gx-model-item__main { display: contents; }
 .gx-model-item__row--pair .gx-model-item__title { grid-column: 2; grid-row: 1; min-height: 24px; line-height: 1.3; }
