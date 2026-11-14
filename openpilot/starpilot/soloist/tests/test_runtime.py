@@ -194,7 +194,8 @@ def make_supervisor(layout, spawned, logged_in=True):
     return process
   now = [100.0]
   make_client = type('Client', (FakeClient,), {'logged_in': logged_in})
-  sup = supervisor.Supervisor(layout, spawn=spawn, clock=lambda: now[0], make_client=make_client, network=lambda: True)  # ty: ignore[invalid-argument-type]
+  sup = supervisor.Supervisor(layout, spawn=spawn, clock=lambda: now[0], make_client=make_client, network=lambda: True,  # ty: ignore[invalid-argument-type]
+                              watch_sinks=lambda _layout, _wake: None)
   sup.run_async = lambda fn: fn()
   return sup, now
 

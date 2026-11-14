@@ -134,11 +134,19 @@ def player_launch(layout: Layout, prefs: Preferences, api_key: str, *, root: Pat
   return Launch(argv, env)
 
 
-def _pactl(layout: Layout, root: Path, run: Callable[..., subprocess.CompletedProcess], *args: str) -> str:
+def _pactl_env(layout: Layout, root: Path) -> dict[str, str]:
   paths = runtime_paths(layout)
-  env = {'HOME': str(paths['home']), 'XDG_RUNTIME_DIR': str(paths['run']), 'PATH': '/usr/bin:/bin',
-         'PULSE_SERVER': f'unix:{paths["socket"]}', 'LD_LIBRARY_PATH': library_path(root)}
-  return run([str(root / 'bin' / 'pactl'), *args], env=env, capture_output=True, text=True, timeout=5, check=True).stdout
+  return {'HOME': str(paths['home']), 'XDG_RUNTIME_DIR': str(paths['run']), 'PATH': '/usr/bin:/bin',
+          'PULSE_SERVER': f'unix:{paths["socket"]}', 'LD_LIBRARY_PATH': library_path(root)}
+
+
+def _pactl(layout: Layout, root: Path, run: Callable[..., subprocess.CompletedProcess], *args: str) -> str:
+  return run([str(root / 'bin' / 'pactl'), *args], env=_pactl_env(layout, root), capture_output=True, text=True, timeout=5,
+             check=True).stdout
+
+
+def subscribe_launch(layout: Layout, *, root: Path = SERVER_ROOT) -> Launch:
+  return Launch([str(root / 'bin' / 'pactl'), 'subscribe'], _pactl_env(layout, root))
 
 
 def has_sink(layout: Layout, *, root: Path = SERVER_ROOT, run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> bool:

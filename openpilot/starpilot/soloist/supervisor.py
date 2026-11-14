@@ -158,14 +158,51 @@ class BluetoothOutput:
         pass
 
 
+class SinkWatch:
+  """Follows the audio server's sink events, so a car output that drops is reloaded at once instead of at the next check."""
+
+  def __init__(self, process: subprocess.Popen, wake: threading.Event):
+    self.process = process
+    self.removed = threading.Event()
+    threading.Thread(target=self._read, args=(wake,), name='spotify_sink_watch', daemon=True).start()
+
+  @classmethod
+  def start(cls, layout: Layout, wake: threading.Event) -> SinkWatch | None:
+    if not backend.can_switch():
+      return None
+    launch = backend.subscribe_launch(layout)
+    try:
+      process = subprocess.Popen(launch.argv, env=launch.env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+    except OSError:
+      return None
+    return cls(process, wake)
+
+  def _read(self, wake: threading.Event) -> None:
+    for line in self.process.stdout:
+      if "'remove' on sink" in line:
+        self.removed.set()
+        wake.set()
+
+  def alive(self) -> bool:
+    return self.process.poll() is None
+
+  def stop(self) -> None:
+    _kill_group(self.process)
+
+
 class Supervisor:
   def __init__(self, layout: Layout | None = None, *, output: BluetoothOutput | None = None,
                spawn: Callable[..., subprocess.Popen] = subprocess.Popen, clock: Callable[[], float] = time.monotonic,
                make_client: Callable[[Path], PlayerClient] | None = None,
-               network: Callable[[], bool] = network_ready, engine: Callable[[], bool] = engine_sound_requested):
+               network: Callable[[], bool] = network_ready, engine: Callable[[], bool] = engine_sound_requested,
+               watch_sinks: Callable[[Layout, threading.Event], SinkWatch | None] = SinkWatch.start):
     self.layout = layout or Layout.default()
     self.output = output or BluetoothOutput()
     self.spawn, self.clock, self.network, self.engine = spawn, clock, network, engine
+    self.watch_sinks = watch_sinks
+    self.sink_watch: SinkWatch | None = None
+    self.wake = threading.Event()
     # Engine sound plays through the same server, so it outlives the music player while that is on.
     self.hold_output = False
     self.hold_check_at = 0.0
@@ -279,6 +316,9 @@ class Supervisor:
         self._release_profile()
 
   def _stop_server(self) -> None:
+    if self.sink_watch is not None:
+      self.sink_watch.stop()
+      self.sink_watch = None
     _kill_group(self.server)
     self.server = self.server_key = None
 
@@ -298,6 +338,8 @@ class Supervisor:
       raise RuntimeError(failure)
     self.server_key = key
     self.sink_check_at = self.clock() + SINK_CHECK_SECONDS
+    if prefs.output == 'bluetooth':
+      self.sink_watch = self.watch_sinks(self.layout, self.wake)
 
   def _hold_output(self, prefs: preferences.Preferences) -> None:
     """Keep the output open with no music player, following the speaker as it connects and disconnects."""
@@ -332,8 +374,13 @@ class Supervisor:
     and the server keeps running with nowhere to play. Load it again once the car is there."""
     if prefs.output != 'bluetooth' or not self.output_available or self.server is None or self.server.poll() is not None:
       return
+    if self.sink_watch is None or not self.sink_watch.alive():
+      self.sink_watch = self.watch_sinks(self.layout, self.wake)
     now = self.clock()
-    if now < self.sink_check_at or not backend.can_switch():
+    removed = self.sink_watch is not None and self.sink_watch.removed.is_set()
+    if removed:
+      self.sink_watch.removed.clear()
+    if (now < self.sink_check_at and not removed) or not backend.can_switch():
       return
     self.sink_check_at = now + SINK_CHECK_SECONDS
     try:
@@ -735,6 +782,7 @@ def main() -> None:
 
   def shutdown(*_):
     stop.set()
+    supervisor.wake.set()
   signal.signal(signal.SIGTERM, shutdown)
   signal.signal(signal.SIGINT, shutdown)
   threading.Thread(target=serve, args=(supervisor, CONTROL_SOCKET, stop), name='spotify_control', daemon=True).start()
@@ -747,7 +795,8 @@ def main() -> None:
         except (OSError, RuntimeError, subprocess.SubprocessError) as error:
           supervisor._set('failed', str(error))
       supervisor.publish()
-      stop.wait(1.0)
+      supervisor.wake.wait(1.0)
+      supervisor.wake.clear()
   finally:
     reporter.close()
     try:

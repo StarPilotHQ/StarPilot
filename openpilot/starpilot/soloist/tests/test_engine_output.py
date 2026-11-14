@@ -224,6 +224,54 @@ def test_a_reloaded_car_output_keeps_the_short_buffer_while_engine_sound_is_on(h
   assert reloads == [{'low_latency': True}]
 
 
+class FakeWatch:
+  def __init__(self):
+    import threading
+    self.removed, self.live, self.stopped = threading.Event(), True, False
+  def alive(self): return self.live
+  def stop(self): self.stopped = True
+
+
+def test_a_dropped_car_output_is_reloaded_at_once_not_at_the_next_check(held, monkeypatch):
+  sup, now, _, _, _ = held
+  preferences.save(preferences.Preferences(output='bluetooth', output_address=CAR), sup.layout)
+  sup.output.connected = True
+  watches, sinks, reloads = [], [True], []
+  sup.watch_sinks = lambda layout, wake: watches.append(FakeWatch()) or watches[-1]
+  monkeypatch.setattr(supervisor.backend, 'can_switch', lambda: True)
+  monkeypatch.setattr(supervisor.backend, 'has_sink', lambda layout: sinks[0])
+  monkeypatch.setattr(supervisor.backend, 'switch_output', lambda layout, speaker, **kw: (reloads.append(now[0]), sinks.__setitem__(0, True)))
+  sup.tick()
+  assert len(watches) == 1 and sup.sink_watch is watches[0]
+  now[0] += 1
+  sup.tick()
+  assert reloads == []
+  sinks[0] = False
+  watches[0].removed.set()
+  sup.tick()
+  assert reloads == [now[0]] and not watches[0].removed.is_set()
+  watches[0].live = False
+  now[0] += 1
+  sup.tick()
+  assert len(watches) == 2
+  sup.engine = lambda: False
+  sup.tick()
+  assert watches[1].stopped and sup.sink_watch is None
+
+
+def test_sink_watch_flags_only_sink_removals_and_wakes_the_loop():
+  import io
+  import threading
+  wake = threading.Event()
+  process = type('P', (), {'stdout': io.StringIO("Event 'change' on sink #1\nEvent 'new' on sink-input #4\n"), 'poll': lambda self: None})()
+  watch = supervisor.SinkWatch(process, wake)
+  watch.removed.wait(0.5)
+  assert not watch.removed.is_set() and not wake.is_set()
+  process = type('P', (), {'stdout': io.StringIO("Event 'remove' on sink #1\n"), 'poll': lambda self: None})()
+  watch = supervisor.SinkWatch(process, wake)
+  assert watch.removed.wait(1.0) and wake.is_set()
+
+
 def test_bluealsa_keeps_the_car_stream_through_a_brief_output_reopen(tmp_path):
   from openpilot.starpilot.soloist.bluealsa import launcher
   bundle = tmp_path / 'bundle'
