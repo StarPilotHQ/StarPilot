@@ -10,6 +10,7 @@ from unittest.mock import Mock, call, patch
 
 from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.values import CAR
+from openpilot.starpilot.audio.departure_alert import DepartureNotifications
 from openpilot.cereal import messaging
 from openpilot.common.params import Params
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
@@ -151,6 +152,8 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
           settings = {'CONDITIONAL_MODE_REPLAY_RUNTIME': '0',
                       'SLC_REPLAY_RUNTIME': '0', 'CURVE_REPLAY_RUNTIME': '0', 'LONG_PLANNER_REPLAY_RUNTIME': '0'}
           with patch.dict(os.environ, settings, clear=True), patch.object(plannerd, 'Params', return_value=params), \
+               patch('openpilot.starpilot.audio.departure_alert.DepartureNotifications',
+                     side_effect=lambda: DepartureNotifications(params)), \
                patch.object(plannerd, 'config_realtime_process'), \
                patch.object(plannerd, 'ConditionalPlannerHost', wraps=ConditionalPlannerHost) as conditional_ctor, \
                patch.object(messaging, 'PubMaster') as publisher, \
@@ -242,6 +245,8 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
       sm = Mock()
       sm.update.side_effect = EndLoop
       with patch.dict(os.environ, {}, clear=True), patch.object(plannerd, 'Params', return_value=params), \
+           patch('openpilot.starpilot.audio.departure_alert.DepartureNotifications',
+                     side_effect=lambda: DepartureNotifications(params)), \
            patch.object(plannerd, 'config_realtime_process'), \
            patch.object(messaging, 'PubMaster') as publisher, \
            patch.object(messaging, 'SubMaster', return_value=sm) as subscriber, patch.object(messaging, 'sub_sock'):

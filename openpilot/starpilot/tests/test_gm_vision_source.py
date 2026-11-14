@@ -3,6 +3,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
+from openpilot.starpilot.audio.departure_alert import DepartureNotifications
 from openpilot.cereal import messaging
 from openpilot.common.params import Params
 from openpilot.common.prefix import OpenpilotPrefix
@@ -192,6 +193,8 @@ class TestGmVisionSource(unittest.TestCase):
         sm = Mock()
         sm.update.side_effect = EndLoop
         with (patch.object(plannerd, 'Params', return_value=params),
+              patch('openpilot.starpilot.audio.departure_alert.DepartureNotifications',
+                    side_effect=lambda: DepartureNotifications(params)),
               patch.object(plannerd, 'config_realtime_process'),
               patch.object(slc_host, 'SlcRuntime', wraps=slc_host.SlcRuntime) as runtime,
               patch.object(plannerd.messaging, 'sub_sock'),

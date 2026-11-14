@@ -8,6 +8,7 @@ from opendbc.car.gm.feature_capabilities import display_supported, longitudinal_
 from opendbc.car.gm.interface import CarInterface
 from opendbc.car.gm.values import CAR
 from opendbc.car.gm.tests.test_camera_acc_pedal import CAMERA_IDS, fingerprint as camera_pedal_fingerprint
+from openpilot.starpilot.audio.departure_alert import DepartureNotifications
 from openpilot.common.params import Params
 from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.starpilot.speed_limits import planner_host as slc_host
@@ -217,6 +218,8 @@ class TestGmFeatureRuntime(unittest.TestCase):
         sm = Mock()
         sm.update.side_effect = EndLoop
         with (patch.object(plannerd, 'Params', return_value=params),
+              patch('openpilot.starpilot.audio.departure_alert.DepartureNotifications',
+                    side_effect=lambda: DepartureNotifications(params)),
               patch.object(plannerd, 'config_realtime_process'),
               patch.object(plannerd, 'ConditionalPlannerHost', wraps=plannerd.ConditionalPlannerHost) as conditional,
               patch.object(plannerd, 'CurvePreferenceHost', wraps=plannerd.CurvePreferenceHost) as curve,

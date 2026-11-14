@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from openpilot.starpilot.audio.departure_alert import DepartureNotifications
 from openpilot.cereal import log
 from openpilot.common.params import Params
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
@@ -506,6 +507,8 @@ class ProfileRuntimeTests(unittest.TestCase):
       publisher = Publisher()
       environment = {}  # Normal admission follows the actual saved request.
       with (mock.patch.object(plannerd, 'Params', return_value=self.params),
+            mock.patch('openpilot.starpilot.audio.departure_alert.DepartureNotifications',
+                  side_effect=lambda: DepartureNotifications(self.params)),
             mock.patch.object(plannerd, 'config_realtime_process'),
             mock.patch.object(plannerd, 'LeadApproachPreferences', return_value=None),
             mock.patch.object(plannerd.messaging, 'SubMaster', return_value=sm),

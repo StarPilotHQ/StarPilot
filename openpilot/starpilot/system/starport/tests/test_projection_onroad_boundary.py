@@ -110,7 +110,7 @@ class TestProjectionOnroad(unittest.TestCase):
     from openpilot.starpilot.ui.onroad_customization import default_document
     native, _ = self.dependencies()
     owner = Mock()
-    owner.read.return_value = {'revision': 'r1', 'enabled': True, 'token': 't', 'destination': None,
+    owner.read_routing.return_value = {'revision': 'r1', 'enabled': True, 'token': 't', 'destination': None,
                                'favorites': [{'id': 'h', 'label': 'home'}, {'id': 'w', 'label': 'work'}]}
     native.favorites = lambda authorized: ProjectionFavorites(authorized, owner)
     track = track or {'status': 'playing', 'title': 'Song', 'artist': 'Artist', 'shuffle': False, 'repeat': 'off', 'source': 'spotify'}
