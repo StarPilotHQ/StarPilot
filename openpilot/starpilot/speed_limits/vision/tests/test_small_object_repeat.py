@@ -34,6 +34,17 @@ class TestSmallObjectRepeat(unittest.TestCase):
     self.assertIsNotNone(core.infer(self.frame))
     self.assertGreater(core.classifier_net.calls, 3)
 
+  def test_unsaturated_weak_read_keeps_a_stronger_overlapping_proposal(self):
+    confidences = [.61, .62, .99, .999, .999, .999]
+    reads = [(probabilities(50, c), probabilities(50, c)) for c in confidences]
+    proposals = [(.8, 0, (800, 300, 827, 339)), (.7, 0, (799, 299, 827, 340))]
+    core = core_fixture(reads, [True] * 10, proposals)
+    detection = core.infer(self.frame)
+    self.assertEqual(detection.speed_limit_mph, 50)
+    self.assertEqual(detection.confidence, .95)
+    self.assertTrue(detection.strong_consensus)
+    self.assertEqual(core.classifier_net.calls, 6)
+
   def test_weak_read_does_not_replace_a_confirmed_limit(self):
     core = self.core()
     core.published_speed_limit_mph = 60

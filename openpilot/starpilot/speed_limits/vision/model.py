@@ -1270,7 +1270,7 @@ class VisionModelCore:
         self._remember_detector_proposal(
           proposal_confidence, class_id, (x1, y1, x2, y2), speed_limit_mph, preferred=True,
         )
-      if (type(proposals) is list and class_id == 0 and is_small_box and
+      if (type(proposals) is list and class_id == 0 and is_small_box and best_score == .95 and
           published_score == DETECTOR_CLASSIFIER_RESCUE_MAX_SCORE and
           expansions is DETECTOR_CLASSIFIER_EXPANSIONS and support_count == 3 and len(speed_scores) == 1):
         for _, future_class, (a, b, c, d) in proposals[proposal_index + 1:]:
