@@ -38,6 +38,8 @@ class OffsetBand:
 @dataclass(frozen=True)
 class OffsetSchedule:
   bands: tuple[OffsetBand, ...]
+  # Percentage offsets: a share of the limit itself (0.1 = +10%) applied at every speed, in place of the bands.
+  percent: float | None = None
 
 
 @dataclass(frozen=True)
@@ -129,12 +131,16 @@ def _schedule_valid(schedule: object) -> bool:
     if i and (previous_upper is None or band.lower_mps < previous_upper):
       return False
     previous_upper = band.upper_mps
+  if schedule.percent is not None and (not _signed_number(schedule.percent) or not -.5 <= schedule.percent <= .5):
+    return False
   return True
 
 
 def offset_for_limit(speed_mps: float, schedule: OffsetSchedule) -> float | None:
   if not _number(speed_mps, positive=True) or not _schedule_valid(schedule):
     return None
+  if schedule.percent is not None:
+    return speed_mps * schedule.percent
   for band in schedule.bands:
     if band.lower_mps <= speed_mps and (band.upper_mps is None or speed_mps < band.upper_mps):
       return band.offset_mps
@@ -236,3 +242,23 @@ def to_planner_coordinate(context: DomainContext, *, override_mps: float = 0.) -
   if not _number(cap, positive=True):
     return PlannerCoordinate(None, "nonpositive", cluster_target, context.ego_delta_mps)
   return PlannerCoordinate(cap, 'none', cluster_target, context.ego_delta_mps)
+
+def override_planner_coordinate(context: DomainContext, contribution_raw_mps: float | None, basis: str) -> PlannerCoordinate:
+  """SLC sets the set speed: apply a raw override in cluster space, then remove the ego delta exactly once."""
+  if (not context_is_valid(context) or basis not in ("none", "adoption_clear", "pedal", "persistent") or
+      (basis in ("none", "adoption_clear")) != (contribution_raw_mps is None)):
+    return PlannerCoordinate(None, "invalid")
+  if contribution_raw_mps is not None and not _number(contribution_raw_mps, positive=True):
+    return PlannerCoordinate(None, "invalid")
+  cluster_target = context.effective_cluster_mps
+  if basis == "pedal":
+    if contribution_raw_mps != context.ego_raw_mps:
+      return PlannerCoordinate(None, "invalid")
+    cluster_target = max(cluster_target, context.ego_raw_mps + context.ego_delta_mps)
+  elif basis == "persistent":
+    assert contribution_raw_mps is not None
+    cluster_target = max(cluster_target, contribution_raw_mps + context.selected_delta_mps)
+  cap = cluster_target - context.ego_delta_mps
+  if not _number(cap, positive=True):
+    return PlannerCoordinate(None, "nonpositive", cluster_target, context.ego_delta_mps)
+  return PlannerCoordinate(cap, basis, cluster_target, context.ego_delta_mps)

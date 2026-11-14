@@ -297,6 +297,13 @@ struct MapdOut @0xa4f1eb3323f5f582 {
   previewBoundaryId @36 :Text;
   previewWayId @37 :Int64;
 
+  # Second confirmed boundary on the unique connected continuation (SLC limit changes).
+  # Zero means unavailable. Distances are from the current position in meters.
+  nextSpeedLimitEndDistance @38 :Float32;
+  followingSpeedLimit @39 :Float32;
+  followingSpeedLimitWayId @40 :Int64;
+  nextSpeedLimitWayId @41 :Int64;
+
   enum SampleStatus {
     unknown @0;
     noGps @1;

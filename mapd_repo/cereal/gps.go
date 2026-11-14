@@ -15,14 +15,14 @@ import (
 )
 
 const (
-	externalFixMaxAge     = 500_000_000   // 10 Hz source: 500 ms
-	internalFixMaxAge     = 2_000_000_000 // 1 Hz source: 2 s
-	carFixMaxAge          = 2_500_000_000 // Optional CAN observation: 2.5 s
+	externalFixMaxAge     = 500_000_000    // 10 Hz source: 500 ms
+	internalFixMaxAge     = 2_000_000_000  // 1 Hz source: 2 s
+	carFixMaxAge          = 2_500_000_000  // Optional CAN observation: 2.5 s
 	phoneFixMaxAge        = 10_000_000_000 // Companion app in the background sends sparsely: 10 s
-	gpsModeRefresh        = 1_000_000_000 // Galaxy navigation setting reread interval
-	maxHorizontalAccuracy = 50.0          // input sanity ceiling, not road-match qualification
-	maxClockPairSkew      = 1_000_000     // an interrupted pair cannot date a source event
-	maxClockOffsetDrift   = 1_000_000     // a larger BOOTTIME/MONOTONIC step fences queued fixes
+	gpsModeRefresh        = 1_000_000_000  // Galaxy navigation setting reread interval
+	maxHorizontalAccuracy = 50.0           // input sanity ceiling, not road-match qualification
+	maxClockPairSkew      = 1_000_000      // an interrupted pair cannot date a source event
+	maxClockOffsetDrift   = 1_000_000      // a larger BOOTTIME/MONOTONIC step fences queued fixes
 )
 
 type clockSample struct {
@@ -247,9 +247,16 @@ func (s *GpsSub) clockReady(clock clockSample) bool {
 // FixMonoTime is the original GPS Event observation converted to BOOTTIME,
 // never the current loop or reuse time.
 func (s *GpsSub) ReadSample() (sample GpsSample, success bool) {
-	clock := pairedClockSample()
+	readClock := pairedClockSample
 	if s.clock != nil {
-		clock = s.clock()
+		readClock = s.clock
+	}
+	clock := readClock()
+	// A scheduler interruption between three clock reads is not evidence of
+	// GPS loss. Retry the measurement at most twice before failing closed.
+	for attempt := 0; attempt < 2 && clock.monoAfter >= clock.monoBefore &&
+		clock.monoAfter-clock.monoBefore > maxClockPairSkew; attempt++ {
+		clock = readClock()
 	}
 	ready := s.clockReady(clock)
 	internalNew, externalNew, carNew, phoneNew := false, false, false, false

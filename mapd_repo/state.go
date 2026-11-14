@@ -24,6 +24,9 @@ type MapLoader func(m.Position) (maps.Offline, error)
 type State struct {
 	Publisher                 *cereal.Publisher[custom.MapdOut]
 	ShadowOnly                bool
+	ShadowNextLimit           float32
+	ShadowBoundary            BoundaryPreview
+	ShadowNextDistance        float32
 	SnapshotID                string
 	Data                      maps.Offline
 	Car                       CarState
@@ -77,6 +80,8 @@ func (s *State) RoadMatched() bool {
 }
 
 func (s *State) clearSpeedLimitEvidence() {
+	s.ShadowNextLimit, s.ShadowNextDistance = 0, 0
+	s.ShadowBoundary = BoundaryPreview{}
 	s.SpeedLimit = SpeedLimitState{}
 	s.SpeedLimit.Init()
 	if !s.ShadowOnly {
@@ -224,6 +229,8 @@ func (s *State) ProcessGps(sample cereal.GpsSample, success bool, load MapLoader
 		return
 	}
 	s.CurrentWay = way
+	s.ShadowNextLimit, s.ShadowNextDistance = 0, 0
+	s.ShadowBoundary = BoundaryPreview{}
 	if !s.ShadowOnly {
 		s.NextWays, err = NextWays(location, way, &s.Data, way.OnWay.IsForward)
 		if err != nil {
@@ -258,6 +265,10 @@ func (s *State) ProcessGps(sample cereal.GpsSample, success bool, load MapLoader
 		s.RoadStatus = custom.MapdOut_SampleStatus_matchedLimit
 	}
 	s.LimitPreview = s.previewLimit()
+	if s.ShadowOnly {
+		s.ShadowBoundary = s.boundaryPreviewDetails()
+		s.ShadowNextLimit, s.ShadowNextDistance = s.ShadowBoundary.Limit, s.ShadowBoundary.Distance
+	}
 }
 
 func (s *State) SuggestedSpeed() float32 {
@@ -349,6 +360,8 @@ func (s *State) buildMessageAt(now uint64) (*capnp.Message, error) {
 	output.SetComputedMonoTime(s.ComputedMonoTime)
 	output.SetSourceGeneration(s.SourceGeneration)
 	output.SetProducerSession(s.ProducerSession)
+	// Tile presence and confident road matching are distinct diagnostics.
+	output.SetTileLoaded(s.Data.Loaded)
 	if !s.RoadMatched() {
 		return msg, nil
 	}
@@ -373,6 +386,14 @@ func (s *State) buildMessageAt(now uint64) (*capnp.Message, error) {
 
 	output.SetConditionalSpeedLimit(s.CurrentWay.ConditionalMaxSpeedRaw())
 
+	if s.ShadowOnly {
+		output.SetNextSpeedLimit(s.ShadowNextLimit)
+		output.SetNextSpeedLimitDistance(s.ShadowNextDistance)
+		output.SetNextSpeedLimitEndDistance(s.ShadowBoundary.EndDistance)
+		output.SetFollowingSpeedLimit(s.ShadowBoundary.FollowingLimit)
+		output.SetFollowingSpeedLimitWayId(s.ShadowBoundary.FollowingWay)
+		output.SetNextSpeedLimitWayId(s.ShadowBoundary.NextWay)
+	}
 	if !s.ShadowOnly {
 		output.SetSpeedLimitSuggestedSpeed(s.SpeedLimit.Suggestion.Value)
 		output.SetNextSpeedLimit(s.SpeedLimit.NextLimit.Value)
@@ -400,8 +421,6 @@ func (s *State) buildMessageAt(now uint64) (*capnp.Message, error) {
 
 	lanes := s.CurrentWay.Way.Lanes()
 	output.SetLanes(uint8(lanes))
-
-	output.SetTileLoaded(s.Data.Loaded)
 
 	output.SetRoadContext(custom.RoadContext(s.CurrentWay.Way.Context()))
 	output.SetHighwayClass(custom.HighwayClass(s.CurrentWay.Way.HighwayClass()))

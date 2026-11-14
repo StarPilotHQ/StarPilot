@@ -16,6 +16,7 @@ ALERTS = {
   'WarningImmediateVolume': 'warningImmediate', 'WarningSoftVolume': 'warningSoft',
   'RefuseVolume': 'refuse', 'PromptDistractedVolume': 'promptDistracted',
   'EngageVolume': 'engage', 'DisengageVolume': 'disengage', 'PromptVolume': 'prompt',
+  'SLCWarningVolume': 'preAlert',
 }
 
 
