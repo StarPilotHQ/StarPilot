@@ -74,6 +74,66 @@ class TestCurvePositionFeedback(unittest.TestCase):
     assert result is not None
     return result
 
+  def test_near_observed_single_line_reference_retains_position_feedback(self):
+    for missing_right, sign in ((True, 1.), (False, -1.)):
+      for slope in (-.001, .001):
+        with self.subTest(missing_right=missing_right, slope=slope):
+          m = single(missing_right=missing_right, line=-1.4, edge=10.)
+          index = 1 if missing_right else 2
+          m.laneLines[index].y = [m.laneLines[index].y[0] + slope * x for x in XS]
+          m.laneLineStds[index] = .02
+          m.position.y = [slope * x for x in XS]
+          controller = LaneCenteringController()
+          source = observation(m, base_curvature=0., measured_curvature=0., lateral_delay_s=.1,
+                               settings=LaneCenteringSettings(True, e2e_authority=.5))
+          result = self.run_fresh(controller, source, 500, following=False)
+          self.assertEqual(result.reason, 'qualified')
+          self.assertGreater(sign * controller._position_trim, .05)
+          self.assertGreater(sign * result.correction, 0.)
+          self.assertLessEqual(abs(result.correction), MAX_CORRECTION)
+
+  def test_precise_lane_acquires_small_sustained_spacing_bias(self):
+    for sign in (-1., 1.):
+      with self.subTest(direction=sign):
+        source = self.source(sign * .14, sign * .003)
+        source.model.laneLineStds = [.1, .02, .02, .1]
+        controller = LaneCenteringController()
+        self.run_fresh(controller, source, 500)
+        self.assertLess(sign * controller._position_trim, -.005)
+        source = self.source(sign * .04, sign * .003)
+        source.model.laneLineStds = [.1, .02, .02, .1]
+        controller.reset()
+        self.run_fresh(controller, source, 500)
+        self.assertEqual(controller._position_trim, 0.)
+
+  def test_position_feedback_does_not_extrapolate_a_distant_reference(self):
+    m = single(line=-1.4, edge=10.)
+    m.laneLines[1].x = [x + 1. for x in XS]
+    m.laneLineStds[1] = .02
+    controller = LaneCenteringController()
+    result = self.run_fresh(controller, observation(m, base_curvature=0., measured_curvature=0., lateral_delay_s=.1), 500)
+    self.assertEqual(result.reason, 'qualified')
+    self.assertEqual(controller._position_trim, 0.)
+    self.assertEqual(controller._position_age, 0.)
+
+  def test_retained_spacing_bias_yields_to_opposing_curve_ahead(self):
+    for sign in (-1., 1.):
+      with self.subTest(direction=sign):
+        source = self.source(sign * .3, sign * .003)
+        source.model.laneLineStds = [.1, .02, .02, .1]
+        controller = LaneCenteringController()
+        self.run_fresh(controller, source, 500, following=False)
+        self.assertLess(sign * controller._position_trim, -.005)
+        x = np.asarray(XS)
+        center = .5 * source.base_curvature * x ** 2 + sign * .03 * x - sign * .14
+        for index, shift in ((1, -1.8), (2, 1.8)):
+          source.model.laneLines[index].y = (center + shift).tolist()
+        self.assertGreater(sign * cast(float, raw_correction(source.model, source.speed_mps, 0., .5)), 0.)
+        self.run_fresh(controller, source, 1, following=False)
+        self.assertEqual(controller._position_trim, 0.)
+        self.run_fresh(controller, source, 500, following=False)
+        self.assertEqual(controller._position_trim, 0.)
+
   def test_nominal_curve_response_can_build_a_bounded_position_bias(self):
     for sign in (-1., 1.):
       with self.subTest(direction=sign):

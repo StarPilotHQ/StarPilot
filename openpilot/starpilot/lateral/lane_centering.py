@@ -434,15 +434,19 @@ class LaneCenteringController:
       spacing = (self._tracker.width * .5 if self._tracker.side is None and self._tracker.width is not None
                  else self._tracker.spacing)
       if spacing is not None and self._tracker.path is not None:
-        near = _at(self._tracker.path, 0.)
+        near_x = min(.5, max(0., self._tracker.path[0][0]))
+        near = _at(self._tracker.path, near_x)
         if near is not None:
           bound = min(MAX_OFFSET, max(0., spacing - MIN_CENTER_TO_LINE))
           position_error = near + clip_scalar(offset, -bound, bound)
-          self._position_age = self._position_age + dt if abs(position_error) > POSITION_ACQUIRE_ERROR or self._position_trim != 0. else 0.
+          indices = (1, 2) if self._tracker.side is None else (self._tracker.side + 1,)
+          line_std = max(float(observation.model.laneLineStds[i]) for i in indices)
+          acquire_error = max(CENTER_ERROR_DEADBAND, min(POSITION_ACQUIRE_ERROR, 2. * line_std))
+          self._position_age = self._position_age + dt if abs(position_error) > acquire_error or self._position_trim != 0. else 0.
           error = math.copysign(max(0., abs(position_error) - CENTER_ERROR_DEADBAND), position_error)
           unattenuated = raw_correction(observation.model, speed, offset, 0., _paths=paths, _single_target=tracked.y)
           weight = 1. if unattenuated == 0. else abs(raw / unattenuated) if unattenuated is not None else 0.
-          if weight == 0.:
+          if weight == 0. or raw * error < 0. or raw * self._position_trim < 0.:
             self._position_trim = 0.
             self._position_age = 0.
           delayed = next(((command, nominal) for stamp, command, nominal in reversed(self._command_history)
