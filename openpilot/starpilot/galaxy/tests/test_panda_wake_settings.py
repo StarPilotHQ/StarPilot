@@ -2,6 +2,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -235,7 +236,7 @@ def test_supported_hardware_uses_existing_alternate_firmware(setup, monkeypatch,
       return getattr(Panda, 'HW_TYPE_' + hardware)
 
     def get_mcu_type(self):
-      return Panda.get_mcu_type(self)
+      return Panda.get_mcu_type(cast(Panda, self))
 
     @staticmethod
     def get_signature_from_firmware(path):
