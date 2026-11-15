@@ -47,8 +47,9 @@ def test_sign_layout_and_tap_area_stay_fixed_with_or_without_offset(profile, off
     historical_outline.assert_not_called()
     widget.shapes.outline.assert_called_once()
     sign_scale = (160 if offset else 150) / SIGN_HEIGHT
-    assert widget.shapes.outline.call_args.args[:2] == (bounds[0]+12+SIGN_WIDTH/2*scale,
-                                                     bounds[1]+12+(SIGN_HEIGHT*sign_scale/2-9)*scale)
+    # Large centers either sign height on its tap area beside SET; compact keeps its top-anchored sign.
+    center = (bounds[1]+bounds[3])/2 if profile == Profile.LARGE else bounds[1]+12+(SIGN_HEIGHT*sign_scale/2-9)*scale
+    assert widget.shapes.outline.call_args.args[:2] == pytest.approx((bounds[0]+12+SIGN_WIDTH/2*scale, center))
     assert widget.shapes.outline.call_args.kwargs == {'scale': scale * sign_scale, 'width_scale': .9}
   assert ('+5' in [call.args[0] for call in foreground_calls(widget.fonts.draw)]) == offset
 

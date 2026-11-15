@@ -121,9 +121,10 @@ def test_large_set_and_limit_share_typography_at_the_saved_position():
         assert not any('mph' in call[0] or 'km/h' in call[0] for call in calls)
         if show_set and value is None:
           start, end, stroke, color = lines.call_args.args
+          from openpilot.starpilot.ui.speed_limit_widget import SET_NUMBER_ROW
           assert (start.x, start.y, end.x, end.y, stroke) == pytest.approx(
-            (280 - 20 * LARGE_SIGN_SCALE, 95 + 61 * LARGE_SIGN_SCALE,
-             280 + 20 * LARGE_SIGN_SCALE, 95 + 61 * LARGE_SIGN_SCALE, 5 * LARGE_SIGN_SCALE))
+            (280 - 20 * LARGE_SIGN_SCALE, 95 + SET_NUMBER_ROW * LARGE_SIGN_SCALE,
+             280 + 20 * LARGE_SIGN_SCALE, 95 + SET_NUMBER_ROW * LARGE_SIGN_SCALE, 5 * LARGE_SIGN_SCALE))
           assert (color.r, color.g, color.b, color.a) == (255, 255, 255, 255)
           assert all(call[0] not in ('–', '?') for call in calls)
         else:
@@ -179,14 +180,7 @@ def test_set_and_slc_keep_their_profile_specific_typography(pending):
             for a, b in (('SET', 'OSM'), ('140', str(value))):
               assert rows[a][1] == rows[b][1]
               assert rows[a][2] == pytest.approx(rows[b][2])
-              # Only the confirmation notice shares SET's rows; the posted sign keeps its own.
-              if not pending:
-                continue
-              if rows[a][1] == FontRole.SET_SPEED:
-                assert rows[a][4] == pytest.approx(rows[b][4])
-              else:
-                assert rows[a][4] + sum(fonts.vertical_ink(*rows[a][:3])) / 2 == pytest.approx(
-                  rows[b][4] + sum(fonts.vertical_ink(*rows[b][:3])) / 2)
+              # SET centers on the sign beside it, so neither the sign nor the notice shares its rows.
             assert not any('mph' in text or 'km/h' in text for text in rows)
         finally:
           widget.close()
@@ -697,6 +691,9 @@ def test_sign_profiles_share_layout_and_keep_aligned_numbers():
           drawn.append((widget, calls))
         small_widget, small_calls = drawn[0]
         large_widget, large_calls = drawn[1]
+        # Large centers the sign on its tap area, so compare text against each sign's own center.
+        small_center, large_center = (next(getattr(w.shapes, name).call_args.args[1] for name in ('outline', 'thick_outline', 'circle')
+                                           if getattr(w.shapes, name).call_args) for w in (small_widget, large_widget))
         assert [call[0] for call in small_calls] == [call[0] for call in large_calls]
         if not vienna:
           assert small_calls[1][1] == large_calls[1][1] == FontRole.SET_SPEED
@@ -704,10 +701,7 @@ def test_sign_profiles_share_layout_and_keep_aligned_numbers():
         for a, b in zip(small_calls[start:], large_calls[start:], strict=True):
           assert abs(a[2]/small_widget.text_scale-b[2]/large_widget.text_scale) < 1e-9
           assert abs((a[3]-320)-(b[3]-318)/LARGE_SIGN_SCALE) <= 1
-          small_bounds = speed_limit_bounds(Profile.COMPACT, current)
-          large_bounds = speed_limit_bounds(Profile.LARGE, current)
-          assert small_bounds is not None and large_bounds is not None
-          assert abs((a[4]-small_bounds[1]-12)-(b[4]-large_bounds[1]-12)/LARGE_SIGN_SCALE) <= 1
+          assert abs((a[4]-small_center)-(b[4]-large_center)/LARGE_SIGN_SCALE) <= 1
           assert (a[-1].r, a[-1].g, a[-1].b, a[-1].a) == (b[-1].r, b[-1].g, b[-1].b, b[-1].a)
         if pending:
           for widget in (small_widget, large_widget):

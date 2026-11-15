@@ -22,8 +22,10 @@ OVERRIDE = rl.Color(214, 188, 240, 255)
 REJECT = rl.Color(242, 139, 139, 255)
 SOURCE_LABELS = {'dashboard': 'DASH', 'map': 'OSM', 'vision': 'VISION', 'mapbox': 'NAV'}
 NUMBER_SIZE, HEADING_SIZE = 70, 26
-# Ink-centered rows, shared by SET, the portrait sign and the confirmation notice.
-HEADING_ROW, NUMBER_ROW, SOURCE_ROW = 16.75, 61, 114.5
+# Ink-centered rows, shared by the portrait sign and the confirmation notice.
+HEADING_ROW, NUMBER_ROW = 16.75, 61
+# SET's label and number sit lower so they center on the sign beside them; its status still fits the card.
+SET_HEADING_ROW, SET_NUMBER_ROW, SET_STATUS_ROW = HEADING_ROW + 24, NUMBER_ROW + 24, 127
 
 
 def draw_text(fonts, text, role, size, x, y, color=INK):
@@ -59,13 +61,13 @@ def draw_set_speed(fonts, shown, center, top, color):
   scale = LARGE_SIGN_SCALE if fonts.profile == Profile.LARGE else 1.
   text_scale = scale * Profile.COMPACT.font_scale / fonts.profile.font_scale
   draw_speed_row(fonts, 'SET', FontRole.SEMI_BOLD, HEADING_SIZE * text_scale, center,
-                 top + HEADING_ROW * scale, color, 'SET')
+                 top + SET_HEADING_ROW * scale, color, 'SET')
   if shown.max_text == '–':
-    draw_line(fonts.profile, rl.Vector2(center - 20 * scale, top + NUMBER_ROW * scale),
-              rl.Vector2(center + 20 * scale, top + NUMBER_ROW * scale), 5 * scale, color)
+    draw_line(fonts.profile, rl.Vector2(center - 20 * scale, top + SET_NUMBER_ROW * scale),
+              rl.Vector2(center + 20 * scale, top + SET_NUMBER_ROW * scale), 5 * scale, color)
   else:
     draw_speed_row(fonts, shown.max_text, FontRole.SET_SPEED, NUMBER_SIZE * text_scale, center,
-                   top + NUMBER_ROW * scale, color, '0123456789')
+                   top + SET_NUMBER_ROW * scale, color, '0123456789')
 
 
 def draw_set_status(fonts, label, center, top, color):
@@ -73,7 +75,7 @@ def draw_set_status(fonts, label, center, top, color):
   size = 22 * scale * Profile.COMPACT.font_scale / fonts.profile.font_scale
   left, right = fonts.horizontal_ink(label, FontRole.MEDIUM, size)
   size *= min(1, 108 * scale / max(1, right - left))
-  draw_speed_row(fonts, label, FontRole.MEDIUM, size, center, top + SOURCE_ROW * scale, color, label)
+  draw_speed_row(fonts, label, FontRole.MEDIUM, size, center, top + SET_STATUS_ROW * scale, color, label)
 
 
 def speed_status(shown):
@@ -281,6 +283,9 @@ class SpeedLimitWidget:
     else:
       # Keep 4:5 proportions and the original text sizes inside the existing tap area.
       sign_scale = (160 if offset_text else 150) / SIGN_HEIGHT
+      if self.profile == Profile.LARGE:
+        # Center either height on its tap area, level with SET; the text rows below move with the outline.
+        top += (bounds[1] + bounds[3]) / 2 - (top + (SIGN_HEIGHT * sign_scale / 2 - 9) * scale)
       draw = self.shapes.thick_outline if shown.limit_in_use else self.shapes.outline
       draw(x + center_x * scale, top + (SIGN_HEIGHT * sign_scale / 2 - 9) * scale, IN_USE if shown.limit_in_use else white,
            scale=scale * sign_scale, width_scale=SIGN_HEIGHT * 4 / 5 / SIGN_WIDTH)
