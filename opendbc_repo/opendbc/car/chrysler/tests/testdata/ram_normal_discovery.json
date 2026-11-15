@@ -1,0 +1,68 @@
+{
+  "route": "a5ee50326447ea52/00000001--4ec0f95d9e",
+  "before_obd_mux": true,
+  "frames": [
+    {
+      "bus": 0,
+      "address": 35,
+      "data": "136c10000000c48c"
+    },
+    {
+      "bus": 0,
+      "address": 49,
+      "data": "841307d084000055"
+    },
+    {
+      "bus": 0,
+      "address": 131,
+      "data": "050400000000b057"
+    },
+    {
+      "bus": 2,
+      "address": 153,
+      "data": "07480ffd0000c016"
+    }
+  ],
+  "firmware": [
+    {
+      "ecu": "combinationMeter",
+      "address": 1858,
+      "version": "36383531303238324147"
+    },
+    {
+      "ecu": "fwdRadar",
+      "address": 1875,
+      "version": "30343637323933324143"
+    },
+    {
+      "ecu": "eps",
+      "address": 1882,
+      "version": "36383538353130364142"
+    },
+    {
+      "ecu": "srs",
+      "address": 1860,
+      "version": "36383631353033344141"
+    },
+    {
+      "ecu": "abs",
+      "address": 1863,
+      "version": "36383534383930304143"
+    },
+    {
+      "ecu": "transmission",
+      "address": 2017,
+      "version": "30353134393533374143"
+    },
+    {
+      "ecu": "hybrid",
+      "address": 2018,
+      "version": "30353134393432304142"
+    },
+    {
+      "ecu": "engine",
+      "address": 2016,
+      "version": "3035313439363030414520"
+    }
+  ]
+}
