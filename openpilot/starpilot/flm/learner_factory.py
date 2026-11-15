@@ -86,6 +86,7 @@ def _frame(evidence):
       route_applied_coordinates=(),
       route_effect_revision='',
       route_configuration_scope='',
+      route_configured_coordinates=(),
     )
     return replace(
       _frame(original),

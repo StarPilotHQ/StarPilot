@@ -102,6 +102,7 @@ class ControlEvidence:
   route_applied_coordinates: tuple[tuple[str, float], ...] = ()
   route_effect_revision: str = ''
   route_configuration_scope: str = ''
+  route_configured_coordinates: tuple[tuple[str, float], ...] = ()
 
 
 @dataclass(frozen=True)

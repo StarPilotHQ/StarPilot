@@ -17,9 +17,12 @@ from openpilot.starpilot.flm.offroad_surface import (
 
 BASES = ('torque-selected-stage-snapshot-v1', 'pid-selected-stage-snapshot-v2')
 SCHEMAS = {base + '@' + revision: base for revision in (LEGACY_REVISION, REVISION) for base in BASES}
+CONFIGURED_SCHEMAS = {base + '@' + REVISION + '+configured-v1': base for base in BASES}
+SCHEMAS.update(CONFIGURED_SCHEMAS)
 PREFIX = 'route.coordinate.'
+CONFIGURED_PREFIX = 'route.configured.'
 SCOPE_PREFIX = 'route.scope.'
-MAX_ROUTE_STAGE_VALUES = 40 + len(ROUTE_NAMES) + 8
+MAX_ROUTE_STAGE_VALUES = 40 + 2 * len(ROUTE_NAMES) + 8
 
 
 def _valid(values, scope, revision=REVISION):
@@ -38,32 +41,55 @@ def encode(evidence):
   if evidence.route_effect_revision:
     revision = evidence.route_effect_revision
     schema = evidence.stage_schema_revision
-    if revision not in (REVISION, LEGACY_REVISION) or schema not in SCHEMAS or schema != SCHEMAS[schema] + '@' + revision:
+    suffix = '+configured-v1' if schema in CONFIGURED_SCHEMAS else ''
+    if revision not in (REVISION, LEGACY_REVISION) or schema not in SCHEMAS or schema != SCHEMAS[schema] + '@' + revision + suffix:
       raise ValueError('Explicit matching route revision required')
     if evidence.live_applied_coordinates or evidence.effect_trace is not None:
       raise ValueError('Route and live trial metadata remain distinct')
     _valid(evidence.route_applied_coordinates, evidence.route_configuration_scope, revision)
+    configured = getattr(evidence, 'route_configured_coordinates', ())
+    if suffix:
+      _valid(configured, evidence.route_configuration_scope, revision)
+      configuration_values(evidence.route_applied_coordinates, configured, evidence.replay_inputs)
+    elif configured:
+      raise ValueError('Configured coordinates require their explicit recording version')
     if len(evidence.stage_values) > 40 or any(n.startswith('route.') for n, _ in evidence.stage_values):
       raise ValueError('Duplicate or overbound original stage metadata')
     words = tuple((SCOPE_PREFIX + str(i), float(int(evidence.route_configuration_scope[i * 8 : (i + 1) * 8], 16))) for i in range(8))
-    return evidence.stage_values + tuple((PREFIX + n, v) for n, v in evidence.route_applied_coordinates) + words
-  if evidence.route_applied_coordinates or evidence.route_configuration_scope or evidence.stage_schema_revision in SCHEMAS:
+    settings = tuple((CONFIGURED_PREFIX + n, v) for n, v in configured)
+    return evidence.stage_values + tuple((PREFIX + n, v) for n, v in evidence.route_applied_coordinates) + settings + words
+  if (
+    evidence.route_applied_coordinates or evidence.route_configuration_scope
+    or evidence.route_configured_coordinates or evidence.stage_schema_revision in SCHEMAS
+  ):
     raise ValueError('Route metadata cannot omit revision')
   return evidence.stage_values
 
 
 def decode(schema, pairs):
+  base, coordinates, revision, scope, _ = decode_configuration(schema, pairs)
+  return base, coordinates, revision, scope
+
+
+def decode_configuration(schema, pairs):
   if schema not in SCHEMAS:
     if any(n.startswith('route.') for n, _ in pairs):
       raise ValueError('Unknown route stage schema')
-    return pairs, (), '', ''
-  revision = schema.rsplit('@', 1)[1]
+    return pairs, (), '', '', ()
+  configured_version = schema in CONFIGURED_SCHEMAS
+  revision = REVISION if configured_version else schema.rsplit('@', 1)[1]
   names = NAMES if revision == LEGACY_REVISION else ROUTE_NAMES
-  tail = len(names) + 8
+  tail = len(names) * (2 if configured_version else 1) + 8
   if not tail <= len(pairs) <= 40 + tail:
     raise ValueError('Recorded route cardinality for this exact version')
   base = pairs[:-tail]
-  coordinates = tuple((n.removeprefix(PREFIX), v) for n, v in pairs[-tail:-8])
+  recorded = pairs[-tail:-8]
+  if any(not name.startswith(PREFIX) for name, _ in recorded[:len(names)]) or any(
+    not name.startswith(CONFIGURED_PREFIX) for name, _ in recorded[len(names):]
+  ):
+    raise ValueError('Explicit actual and configured coordinate fields required')
+  coordinates = tuple((n.removeprefix(PREFIX), v) for n, v in recorded[:len(names)])
+  configured = tuple((n.removeprefix(CONFIGURED_PREFIX), v) for n, v in recorded[len(names):])
   words = pairs[-8:]
   if any(n.startswith('route.') for n, _ in base):
     raise ValueError('Duplicate route field')
@@ -71,7 +97,22 @@ def decode(schema, pairs):
     raise ValueError('Actual scope words required')
   scope = ''.join(f'{int(v):08x}' for _, v in words)
   _valid(coordinates, scope, revision)
-  return base, coordinates, revision, scope
+  if configured_version:
+    _valid(configured, scope, revision)
+  return base, coordinates, revision, scope, configured
+
+
+def configuration_values(actual, configured, inputs):
+  """Use an explicitly recorded setup, retaining its actual per-tick masking."""
+  if not configured:
+    return actual  # Legacy recordings never gain an inferred configuration.
+  if actual != configured:
+    flags = dict(inputs)
+    if any(value for _, value in actual) or flags.get('active') != 1.0 or not any(
+      flags.get(name) == 1.0 for name in ('safety_limited', 'curvature_limited')
+    ):
+      raise ValueError('Configured route differs without an original inhibited input')
+  return configured
 
 
 def with_actual_route(evidence, controller):
@@ -84,6 +125,7 @@ def with_actual_route(evidence, controller):
 
   owner = getattr(controller, 'route_flm_effects', None)
   values = tuple((name, 0.0) for name in ROUTE_NAMES)
+  configured = values
   if owner is not None:
     if type(owner) is not RouteEffects or owner.scope != scope:
       raise ValueError('Unknown actual route owner')
@@ -95,6 +137,7 @@ def with_actual_route(evidence, controller):
       and not (evidence.manual or evidence.override or evidence.fault)
     )
     if current:
+      configured = owner.values
       source = owner.source
       complete = (
         source.stage_calls == 1
@@ -118,8 +161,9 @@ def with_actual_route(evidence, controller):
   _valid(values, getattr(controller, 'route_flm_scope_key', ''))
   return replace(
     evidence,
-    stage_schema_revision=evidence.stage_schema_revision + '@' + REVISION,
+    stage_schema_revision=evidence.stage_schema_revision + '@' + REVISION + '+configured-v1',
     route_applied_coordinates=values,
+    route_configured_coordinates=configured,
     route_effect_revision=REVISION,
     route_configuration_scope=getattr(controller, 'route_flm_scope_key', ''),
   )

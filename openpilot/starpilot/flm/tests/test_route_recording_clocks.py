@@ -68,7 +68,13 @@ def test_original_input_and_actual_hooks_determine_map_not_later_feedback(input_
       assert control_message(event, controller, cc, control_ns=now,
                              state_ns=int(fixture.controls.sm.logMonoTime['carState']), limited=published_limited)
     recorded = read_control_metadata(event.as_reader())
+    from openpilot.starpilot.flm.learning_wire import read_control
+    from openpilot.starpilot.flm.learner_factory import _frame
+
+    frame = _frame(read_control(event.as_reader()))
+    assert frame.route_applied_coordinates == recorded.route_applied_coordinates
     assert dict(recorded.route_applied_coordinates) == (ZERO if input_limited else changed)
+    assert dict(recorded.route_configured_coordinates) == changed
     assert recorded.limited is published_limited
     assert recorded.native_allowed and recorded.valid
     assert dict(runtime.replay_inputs)['safety_limited'] == float(input_limited)

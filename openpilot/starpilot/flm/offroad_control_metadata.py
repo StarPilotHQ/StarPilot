@@ -7,7 +7,7 @@ replay vectors or assert that they are valid.
 
 from dataclasses import dataclass
 import math
-from openpilot.starpilot.flm.route_recording import SCHEMAS, decode
+from openpilot.starpilot.flm.route_recording import SCHEMAS, CONFIGURED_SCHEMAS, decode_configuration, configuration_values
 
 
 @dataclass(frozen=True)
@@ -38,11 +38,13 @@ class RecordedControlMetadata:
   full_replay_validated: bool = False
   stage_schema_revision: str = ''
   replay_inputs: tuple = ()
+  route_configured_coordinates: tuple = ()
 
 
 def _inhibited_inputs(row, schema):
   # Only two original flags are needed here; full replay stays a separate check.
-  if not row.limited or schema.split('@', 1)[0] != 'torque-selected-stage-snapshot-v1':
+  configured = schema in CONFIGURED_SCHEMAS
+  if not configured and (not row.limited or schema.split('@', 1)[0] != 'torque-selected-stage-snapshot-v1'):
     return ()
   from openpilot.starpilot.flm.native_refinement_wire import EXTENDED_INPUTS
 
@@ -51,7 +53,7 @@ def _inhibited_inputs(row, schema):
   inputs = {}
   for value in row.replayInputs:
     name = str(value.name)
-    if name not in ('active', 'safety_limited'):
+    if name not in (('active', 'safety_limited', 'curvature_limited') if configured else ('active', 'safety_limited')):
       continue
     kind = value.which()
     if name in inputs or kind not in ('number', 'boolean'):
@@ -60,7 +62,8 @@ def _inhibited_inputs(row, schema):
     if number not in (0.0, 1.0):
       return ()
     inputs[name] = number
-  return tuple(inputs.items()) if set(inputs) == {'active', 'safety_limited'} else ()
+  required = {'active', 'safety_limited', 'curvature_limited'} if configured else {'active', 'safety_limited'}
+  return tuple(inputs.items()) if required <= set(inputs) else ()
 
 
 def read_control_metadata(event):
@@ -83,11 +86,13 @@ def read_control_metadata(event):
     raise ValueError('Finite original controller context required')
   schema = str(row.stageSchemaRevision)
   if schema in SCHEMAS:
-    _, coordinates, route_revision, scope = decode(schema, tuple((str(v.name), float(v.value)) for v in row.stageValues))
+    _, coordinates, route_revision, scope, configured = decode_configuration(schema, tuple((str(v.name), float(v.value)) for v in row.stageValues))
   else:
     if '@route-' in schema or len(row.stageValues) > 40 or any(str(v.name).startswith('route.') for v in row.stageValues):
       raise ValueError('Unknown/overbound route metadata')
-    coordinates, route_revision, scope = (), '', ''
+    coordinates, route_revision, scope, configured = (), '', '', ()
+  inputs = _inhibited_inputs(row, schema)
+  configuration_values(coordinates, configured, inputs)
   return RecordedControlMetadata(
     int(row.controlMonoTime),
     int(row.sourceStateMonoTime),
@@ -113,5 +118,6 @@ def read_control_metadata(event):
     route_revision,
     scope,
     stage_schema_revision=schema,
-    replay_inputs=_inhibited_inputs(row, schema),
+    replay_inputs=inputs,
+    route_configured_coordinates=configured,
   )

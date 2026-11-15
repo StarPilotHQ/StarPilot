@@ -258,6 +258,8 @@ def collect_route_inputs(root, route, *, permitted, walker=None, isolate_segment
   quality_stops = []
 
   def metadata_for(control, domain):
+    from openpilot.starpilot.flm.route_recording import configuration_values
+
     return {
       'cp_sha256': state['cp_sha'],
       'controller_mode': control.controller_mode,
@@ -268,7 +270,9 @@ def collect_route_inputs(root, route, *, permitted, walker=None, isolate_segment
       'vehicle_model_anchor': control.vehicle_model_anchor,
       'route_scope': getattr(control, 'route_configuration_scope', ''),
       'route_revision': getattr(control, 'route_effect_revision', ''),
-      'route_values': getattr(control, 'route_applied_coordinates', ()),
+      'route_values': configuration_values(
+        getattr(control, 'route_applied_coordinates', ()), getattr(control, 'route_configured_coordinates', ()), getattr(control, 'replay_inputs', ()),
+      ),
     }
 
   def consume(segment, events):

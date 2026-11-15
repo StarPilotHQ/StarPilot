@@ -14,7 +14,7 @@ def control_from_dict(value, *, trace_archive=None):
   for key in ('features', 'applied_coordinates', 'applied_parameter_names', 'baseline_values', 'vehicle_model_anchor', 'live_applied_coordinates'):
     if key in value:
       value[key] = tuple(value[key])
-  for key in ('stage_values', 'replay_inputs', 'replay_snapshot', 'route_applied_coordinates'):
+  for key in ('stage_values', 'replay_inputs', 'replay_snapshot', 'route_applied_coordinates', 'route_configured_coordinates'):
     if key in value:
       value[key] = tuple(tuple(row) for row in value[key])
   if value.get('effect_trace') is not None:
