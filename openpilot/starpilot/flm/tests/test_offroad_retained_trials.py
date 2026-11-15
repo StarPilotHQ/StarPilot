@@ -60,14 +60,14 @@ class TestEarlySteeringSuggestions(unittest.TestCase):
 
 
 class TestRetainedTrialSources(unittest.TestCase):
-  def drive(self, fixture, params, cache, directory, digit, *, groups=(), stops=(), qualified=True, source_digit=None, pooled=False):
+  def drive(self, fixture, params, cache, directory, digit, *, groups=(), stops=(), qualified=True, source_digit=None, pooled=False, route_id=None):
     runner, inventory = fixture.worker(params, cache, directory, digit)
     original_assessor = runner.assessor
 
     def assess(*args, **kwargs):
       result = original_assessor(*args, **kwargs)
       segments = () if source_digit == '' else ((digit, (source_digit or digit) * 64, 1),)
-      return replace(result, receipt=replace(result.receipt, segments=segments),
+      return replace(result, receipt=replace(result.receipt, segments=segments, route_id=route_id or result.receipt.route_id),
                      stable_groups=groups, quality_stop_markers=stops,
                      evidence_sources={'first': result, 'second': result} if pooled else {})
 
@@ -239,17 +239,19 @@ class TestRetainedTrialSources(unittest.TestCase):
 
   def test_missing_unverified_easier_or_copied_drives_cannot_finish_neutral_review(self):
     fixture = fixtures.TestBoundedInconclusiveTrialLifecycle()
-    for case in ('missing', 'native_refused', 'different_input', 'copied', 'no_segments', 'pooled'):
+    for case in ('missing', 'native_refused', 'different_input', 'copied', 'same_route', 'no_segments', 'pooled'):
       with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
         params, cache, _, _ = fixture.saved_trial(directory)
         self.drive(fixture, params, cache, directory, '2', groups=self.neutral_groups())
+        row = decode(read_saved(params, KEY, MAX_BYTES)[0])['routeSurfaces'][scope().key()]
+        proof = cache.get(cache.get(row['analysis_sha256'])['neutral_native_reviews'][0])
         group = self.neutral_groups()
         if case == 'different_input':
           for role in ('training', 'heldout'):
             group[0]['cohorts'][0][role]['reference_rms'] = 1.2
         result = self.drive(fixture, params, cache, directory, '3', groups=() if case == 'missing' else group,
                             qualified=case != 'native_refused', source_digit='2' if case == 'copied' else '' if case == 'no_segments' else None,
-                            pooled=case == 'pooled')
+                            pooled=case == 'pooled', route_id=proof['source_receipt']['route_id'] if case == 'same_route' else None)
         self.assertEqual(result['status'], 'ready_for_next_drive')
         row = decode(read_saved(params, KEY, MAX_BYTES)[0])['routeSurfaces'][scope().key()]
         self.assertEqual(cache.get(row['analysis_sha256'])['neutral_native_drives'], 1)

@@ -1108,10 +1108,15 @@ class OffroadWorker:
           or any(type(d) is not str for d in neutral_reviews) or len(set(neutral_reviews)) != len(neutral_reviews)):
         raise ValueError('Source-bound neutral review receipts required')
       neutral_reviews = list(neutral_reviews)
+      neutral_routes = set()
       for digest in neutral_reviews:
         proof = self.cache.get(digest)
         if proof.get('kind') != 'neutral_native_drive_review' or proof.get('trial_analysis_sha256') != trial_sha256:
           raise ValueError('Neutral review belongs to another trial')
+        reviewed_route = proof.get('source_receipt', {}).get('route_id')
+        if type(reviewed_route) is not str or not reviewed_route or reviewed_route in neutral_routes:
+          raise ValueError('Distinct original neutral drives required')
+        neutral_routes.add(reviewed_route)
       segments, history_complete = trial_source_history(self.cache, row['analysis_sha256'])
       outcome = (retained_comparison if retained_comparison is not None else
                  assess_next_drive(trial, actual_drive, scope, trial_started=started, recorded_backlog=route != latest,
@@ -1136,7 +1141,7 @@ class OffroadWorker:
         segments.update(original_segment_hashes(receipt.get('segments', ())))
       history_complete &= len(segments) <= MAX_TRIAL_SEGMENTS
       if (started and counts_as_new_drive and history_complete and len(actual_drive.evidence_sources) <= 1
-          and original_segment_hashes(actual_drive.receipt.segments)
+          and actual_drive.receipt.route_id not in neutral_routes and original_segment_hashes(actual_drive.receipt.segments)
           and neutral_native_review(outcome, observed_checks)):
         neutral_reviews.append(self.cache.put({
           'kind': 'neutral_native_drive_review', 'trial_analysis_sha256': trial_sha256,
