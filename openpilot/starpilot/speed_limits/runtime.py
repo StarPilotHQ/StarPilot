@@ -580,7 +580,7 @@ class Runtime:
     if result.ceiling is not None:
       state.hasCeiling = True
       state.effectiveCap = result.ceiling.speed_mps
-      state.isLimitingMaxSet = result.ceiling.speed_mps < frame.host.driver_v_cruise_kph / 3.6
+      state.isLimitingMaxSet = context is not None and sd.limit_caps_set(context, self.is_metric)
     pending = result.state.acceptance.pending
     # Only an already-captured response can finish an expired presentation.
     if pending is not None and not pending.automatic and pending.active_elapsed_ns >= acc.CONFIRMATION_NS:

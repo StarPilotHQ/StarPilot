@@ -332,7 +332,7 @@ struct SlcState @0xa1680744031fdb2d {
   pendingSource @36 :Text;
   effectiveClusterTarget @37 :Float32; # m/s in the selected-cruise cluster coordinate
   hasEffectiveClusterTarget @38 :Bool;
-  isLimitingMaxSet @39 :Bool; # qualified raw ceiling below selected raw cruise
+  isLimitingMaxSet @39 :Bool; # adjusted limit at or below SET, in displayed units
   driverOverrideActive @40 :Bool;
   # Presentation only. Qualified source observations from this publisher cycle;
   # consumers use the outer session and frame freshness, never these rows for control.

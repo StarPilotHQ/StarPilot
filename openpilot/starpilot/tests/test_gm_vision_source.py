@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from openpilot.starpilot.audio.departure_alert import DepartureNotifications
 from openpilot.cereal import messaging
+from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.starpilot.speed_limits import planner_host as slc_host
@@ -112,7 +113,7 @@ class TestGmVisionSource(unittest.TestCase):
       state = output.message.slcState
       self.assertTrue(state.hasCeiling)
       self.assertAlmostEqual(output.result.ceiling.speed_mps, cap, places=4)
-      self.assertEqual(state.isLimitingMaxSet, cap < driver_set / 3.6)
+      self.assertEqual(state.isLimitingMaxSet, mph <= round(driver_set * CV.KPH_TO_MPH))
       self.assertEqual(sm['carState'].vCruise, driver_set)
       self.assertEqual(sm['carState'].vCruiseCluster, driver_set)
 

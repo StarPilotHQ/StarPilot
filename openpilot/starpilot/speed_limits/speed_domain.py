@@ -175,6 +175,12 @@ def set_above_limit(selected_mps: float, adjusted_limit_mps: float, is_metric: b
   return round(selected_kph * CV.KPH_TO_MPH) > round(limit_mps * CV.MS_TO_MPH)
 
 
+def limit_caps_set(context: DomainContext, is_metric: bool) -> bool:
+  """Whether the adjusted limit caps SET as the cluster shows both; an equal reading counts as the limit."""
+  factor = CV.MS_TO_KPH if is_metric else CV.MS_TO_MPH
+  return round(context.effective_cluster_mps * factor) <= round((context.selected_raw_mps + context.selected_delta_mps) * factor)
+
+
 def resolve(decision: acc.Decision, schedule: OffsetSchedule, selected: SpeedPair, ego: SpeedPair) -> DomainResolution:
   """Bind an explicit offset and contemporaneous speed pairs to an acceptance output."""
   if (not isinstance(decision, acc.Decision) or not isinstance(decision.state, acc.State) or decision.errors or
