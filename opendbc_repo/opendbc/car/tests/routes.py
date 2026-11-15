@@ -178,6 +178,8 @@ routes = [
   CarTestRoute("61a1b9e7a4eae0f6/00000000--79d85d1315", FORD.FORD_EXPEDITION_MK4),
   #TestRoute("f1b4c567731f4a1b/2018-04-30--10-15-35", FORD.FUSION),
 
+  # PR232 author-provided CN SDGM retrofit recording.
+  CarTestRoute("7f81d773c4790e25/00000043--345c402c84", GM.BUICK_ENVISION_SDGM, segment=0),
   CarTestRoute("7cc2a8365b4dd8a9/2018-12-02--12-10-44", GM.GMC_ACADIA),
   CarTestRoute("aa20e335f61ba898/2019-02-05--16-59-04", GM.BUICK_REGAL),
   CarTestRoute("75a6bcb9b8b40373/2023-03-11--22-47-33", GM.BUICK_LACROSSE),
