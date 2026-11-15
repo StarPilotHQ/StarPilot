@@ -333,7 +333,7 @@ class LongitudinalPlanner:
 
     # TODO counter is only needed because radar is glitchy, remove once radar is gone
     self.fcw = self.mpc.crash_cnt > 2 and not sm['carState'].standstill
-    if self.CP.carFingerprint == 'SUBARU_CROSSTREK_2025':
+    if self.CP.carFingerprint in ('SUBARU_CROSSTREK_2025', 'SUBARU_IMPREZA_2025'):
       self.fcw = self.fcw and should_trigger_planner_fcw(sm['radarState'].leadOne, float(v_ego))
     if self.fcw:
       cloudlog.info("FCW triggered")

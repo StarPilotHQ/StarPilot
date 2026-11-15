@@ -8,9 +8,10 @@ from openpilot.selfdrive.car.car_events import CarEvents
 EventName = log.OnroadEvent.EventName
 
 
+@pytest.mark.parametrize('candidate', (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025))
 @pytest.mark.parametrize('torque', [-151, -150, -94, -81, 81, 94, 150, 151])
-def test_report_driver_torque_even_when_wheel_matches_requested_angle(torque):
-  cp = interfaces[CAR.SUBARU_CROSSTREK_2025].get_non_essential_params(CAR.SUBARU_CROSSTREK_2025)
+def test_report_driver_torque_even_when_wheel_matches_requested_angle(torque, candidate):
+  cp = interfaces[candidate].get_non_essential_params(candidate)
   owner = CarEvents(cp)
   cs = structs.CarState.new_message()
   cs.canValid = True
@@ -28,9 +29,10 @@ def test_report_driver_torque_even_when_wheel_matches_requested_angle(torque):
   assert cs.steeringTorque == torque
 
 
+@pytest.mark.parametrize('candidate', (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025))
 @pytest.mark.parametrize('torque', [-80, 0, 80])
-def test_no_override_below_original_sensor_threshold(torque):
-  cp = interfaces[CAR.SUBARU_CROSSTREK_2025].get_non_essential_params(CAR.SUBARU_CROSSTREK_2025)
+def test_no_override_below_original_sensor_threshold(torque, candidate):
+  cp = interfaces[candidate].get_non_essential_params(candidate)
   cs = structs.CarState.new_message()
   cs.steeringTorque = torque
   cs.steeringPressed = False
@@ -38,8 +40,9 @@ def test_no_override_below_original_sensor_threshold(torque):
   assert EventName.steerOverride not in events.names
 
 
-def test_permanent_steering_fault_is_not_masked_by_driver_torque():
-  cp = interfaces[CAR.SUBARU_CROSSTREK_2025].get_non_essential_params(CAR.SUBARU_CROSSTREK_2025)
+@pytest.mark.parametrize('candidate', (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025))
+def test_permanent_steering_fault_is_not_masked_by_driver_torque(candidate):
+  cp = interfaces[candidate].get_non_essential_params(candidate)
   cs = structs.CarState.new_message()
   cs.steeringTorque = 94
   cs.steeringPressed = True
