@@ -87,13 +87,13 @@ def test_unknown_or_native_ui_context_is_denied(setup, mutation):
   assert not owner.apply(request)
 
 
-def test_hkg_requires_canfd_and_system_long(setup):
+def test_hkg_requires_canfd_but_not_system_long(setup):
   params, state, owner, _ = setup
   state.cp = vehicle('hyundai')
   params.put('VehicleSelection', json.loads(encode(state.cp.carFingerprint)), block=True)
   assert owner.panda_wake.rows(True)
   state.cp.openpilotLongitudinalControl = False
-  assert not owner.panda_wake.rows(True)
+  assert owner.panda_wake.rows(True)
   state.cp.openpilotLongitudinalControl = True
   state.cp.flags &= ~int(HyundaiFlags.CANFD)
   assert not owner.panda_wake.rows(True)
@@ -188,8 +188,8 @@ def test_gateway_confirm_binds_vehicle_and_session(setup, monkeypatch):
   assert read_saved(params, 'RemoteStartBootsComma', 8)[0] == b'1'
 
 
-@pytest.mark.parametrize('device', ['mici', 'unknown', 'pc'])
-def test_unknown_hardware_and_cuatro_admission_denied(setup, device):
+@pytest.mark.parametrize('device', ['unknown', 'pc'])
+def test_unknown_hardware_admission_denied(setup, device):
   params, state, owner, _ = setup
   request = replace(row_request(owner.panda_wake.rows(True)[0], 'On'), confirmation=True,
                     vehicle_fingerprint=state.cp.carFingerprint)
@@ -199,15 +199,18 @@ def test_unknown_hardware_and_cuatro_admission_denied(setup, device):
   assert read_saved(params, 'RemoteStartBootsComma', 8)[0] is None
 
 
-def test_auto_selection_cannot_apply_an_old_wake_choice(setup):
+def test_auto_selection_uses_recognized_vehicle_wake_choice(setup):
   params, state, owner, _ = setup
   params.put_bool('RemoteStartBootsComma', True, block=True)
   params.put('VehicleSelection', json.loads(encode(None)), block=True)
-  assert not owner.panda_wake.rows(True)
+  assert owner.panda_wake.rows(True)
   assert read_saved(params, 'RemoteStartBootsComma', 8)[0] == b'1'
 
 
-def test_cuatro_uses_stock_firmware_and_preserves_saved_intent(setup, monkeypatch):
+@pytest.mark.parametrize('hardware', ['DOS', 'TRES', 'RED_PANDA', 'CUATRO'])
+@pytest.mark.parametrize('choice', [FirmwareChoice(gm=True), FirmwareChoice(hkg=True), FirmwareChoice(tesla=True)])
+@pytest.mark.parametrize('protocol_ok', [False, True])
+def test_supported_hardware_uses_existing_alternate_firmware(setup, monkeypatch, hardware, choice, protocol_ok):
   params, _, _, firmware = setup
   from openpilot.selfdrive.pandad import pandad
   from panda import Panda
@@ -215,9 +218,12 @@ def test_cuatro_uses_stock_firmware_and_preserves_saved_intent(setup, monkeypatc
   observed = []
 
   class FakePanda:
+    F4_DEVICES = Panda.F4_DEVICES
+    H7_DEVICES = Panda.H7_DEVICES
     HW_TYPE_DOS = Panda.HW_TYPE_DOS
     HW_TYPE_TRES = Panda.HW_TYPE_TRES
     HW_TYPE_RED_PANDA = Panda.HW_TYPE_RED_PANDA
+    HW_TYPE_CUATRO = Panda.HW_TYPE_CUATRO
     HEALTH_PACKET_VERSION = 1
     CAN_PACKET_VERSION = 2
     bootstub = False
@@ -226,10 +232,10 @@ def test_cuatro_uses_stock_firmware_and_preserves_saved_intent(setup, monkeypatc
       assert serial == 'fixture'
 
     def get_type(self):
-      return Panda.HW_TYPE_CUATRO
+      return getattr(Panda, 'HW_TYPE_' + hardware)
 
     def get_mcu_type(self):
-      return SimpleNamespace(config=SimpleNamespace(app_fn='panda_h7.bin.signed'))
+      return Panda.get_mcu_type(self)
 
     @staticmethod
     def get_signature_from_firmware(path):
@@ -246,25 +252,113 @@ def test_cuatro_uses_stock_firmware_and_preserves_saved_intent(setup, monkeypatc
       return b'image'
 
     def get_packets_versions(self):
-      return (1, 2)
+      return (1, 2) if protocol_ok else (0, 0)
 
     def close(self):
       pass
 
   monkeypatch.setattr(pandad, 'Panda', FakePanda)
   monkeypatch.setattr(pandad, 'FW_PATH', firmware)
-  assert pandad.flash_panda('fixture', FirmwareChoice(gm=True)) == 'panda_h7.bin.signed'
-  assert observed == ['panda_h7.bin.signed']
+  app = 'panda.bin.signed' if getattr(Panda, 'HW_TYPE_' + hardware) in Panda.F4_DEVICES else 'panda_h7.bin.signed'
+  expected = choice.filename(app)
+  if protocol_ok:
+    assert pandad.flash_panda('fixture', choice) == expected
+  else:
+    with pytest.raises(pandad.PandaProtocolMismatch):
+      pandad.flash_panda('fixture', choice)
+  assert observed == [expected]
   assert read_saved(params, 'RemoteStartBootsComma', 8)[0] == b'1'
 
 
-def test_gm_requires_system_long_and_preserves_saved_intent(setup):
+def test_gm_wake_is_independent_of_system_long_and_preserves_saved_intent(setup):
   params, state, owner, _ = setup
   params.put_bool('RemoteStartBootsComma', True, block=True)
   assert state.cp.openpilotLongitudinalControl
   assert owner.panda_wake.rows(True)
   state.cp.openpilotLongitudinalControl = False
-  assert supported_keys(state.cp) == ()
-  assert not owner.panda_wake.rows(True)
-  assert resolve(state.cp, snapshot(params)) == FirmwareChoice()
+  assert supported_keys(state.cp) == ('RemoteStartBootsComma', 'IgnoreIgnitionLine')
+  assert owner.panda_wake.rows(True)
+  assert resolve(state.cp, snapshot(params)) == FirmwareChoice(gm=True)
   assert read_saved(params, 'RemoteStartBootsComma', 8) == (b'1', True)
+
+
+@pytest.mark.parametrize('brand', ['gm', 'hyundai', 'tesla'])
+@pytest.mark.parametrize('device', ['tici', 'tizi', 'mici'])
+@pytest.mark.parametrize('system_long', [False, True])
+def test_auto_recognized_vehicle_can_save_and_select_wake_at_startup(setup, brand, device, system_long):
+  from openpilot.starpilot.panda_wake import startup_choice
+  from openpilot.starpilot.schema_cache import put_cache
+  params, state, owner, _ = setup
+  state.cp = vehicle(brand)
+  state.cp.openpilotLongitudinalControl = system_long
+  owner.panda_wake.device_type = lambda: device
+  params.put('VehicleSelection', json.loads(encode(None)), block=True)
+  put_cache(params, 'CarParamsPersistent', state.cp.as_reader(), block=True)
+  row = owner.panda_wake.rows(True)[0]
+  request = replace(row_request(row, 'On'), confirmation=True, vehicle_fingerprint=state.cp.carFingerprint)
+  assert owner.apply(request)
+  assert startup_choice(params) == FirmwareChoice(gm=brand == 'gm', hkg=brand == 'hyundai', tesla=brand == 'tesla')
+
+
+@pytest.mark.parametrize('mutation', ['mismatch', 'selection_corrupt', 'cache_corrupt', 'cache_missing',
+                                      'unknown', 'brand_mismatch', 'not_car', 'source_corrupt'])
+def test_startup_rejects_invalid_or_mismatched_sources(setup, mutation):
+  from openpilot.starpilot.panda_wake import startup_choice
+  from openpilot.starpilot.schema_cache import put_cache
+  params, state, _, _ = setup
+  params.put_bool('RemoteStartBootsComma', True, block=True)
+  if mutation == 'unknown':
+    state.cp.carFingerprint = 'CHEVROLET UNKNOWN'
+  elif mutation == 'brand_mismatch':
+    state.cp.brand = 'tesla'
+  elif mutation == 'not_car':
+    state.cp.notCar = True
+  put_cache(params, 'CarParamsPersistent', state.cp.as_reader(), block=True)
+  if mutation == 'mismatch':
+    params.put('VehicleSelection', json.loads(encode(str(TESLA.TESLA_MODEL_3))), block=True)
+  elif mutation == 'selection_corrupt':
+    Path(params.get_param_path('VehicleSelection')).write_bytes(b'invalid')
+  elif mutation == 'cache_corrupt':
+    Path(params.get_param_path('CarParamsPersistent')).write_bytes(b'invalid')
+  elif mutation == 'cache_missing':
+    params.remove('CarParamsPersistent')
+  elif mutation == 'source_corrupt':
+    Path(params.get_param_path('IgnoreIgnitionLine')).write_bytes(b'broken')
+  assert startup_choice(params) == FirmwareChoice()
+
+
+@pytest.mark.parametrize('change', ['selection', 'cache', 'setting'])
+def test_startup_rejects_sources_changed_during_cache_validation(setup, monkeypatch, change):
+  from openpilot.starpilot import schema_cache
+  from openpilot.starpilot.panda_wake import startup_choice
+  params, state, _, _ = setup
+  params.put_bool('RemoteStartBootsComma', True, block=True)
+  schema_cache.put_cache(params, 'CarParamsPersistent', state.cp.as_reader(), block=True)
+  original = schema_cache.inspect_cache
+  def inspect(key, raw):
+    result = original(key, raw)
+    if change == 'selection':
+      params.put('VehicleSelection', json.loads(encode(None)), block=True)
+    elif change == 'cache':
+      params.remove('CarParamsPersistent')
+    else:
+      params.put_bool('IgnoreIgnitionLine', True, block=True)
+    return result
+  monkeypatch.setattr(schema_cache, 'inspect_cache', inspect)
+  assert startup_choice(params) == FirmwareChoice()
+
+
+def test_ioniq6_c4_with_implicit_auto_and_factory_long_can_enable_remote_climate(setup):
+  from openpilot.starpilot.panda_wake import startup_choice
+  from openpilot.starpilot.schema_cache import put_cache
+  params, state, owner, _ = setup
+  state.cp = HKGInterface.get_non_essential_params(HKG.HYUNDAI_IONIQ_6)
+  state.cp.openpilotLongitudinalControl = False
+  owner.panda_wake.device_type = lambda: 'mici'
+  params.remove('VehicleSelection')
+  put_cache(params, 'CarParamsPersistent', state.cp.as_reader(), block=True)
+  row = owner.panda_wake.rows(True)[0]
+  assert row.key == 'HKGRemoteStartBootsComma'
+  request = replace(row_request(row, 'On'), confirmation=True, vehicle_fingerprint=state.cp.carFingerprint)
+  assert owner.apply(request)
+  assert startup_choice(params) == FirmwareChoice(hkg=True)

@@ -15,10 +15,9 @@ def supported_keys(cp):
   try:
     if cp is None or cp.notCar:
       return ()
-    if cp.brand == 'gm' and cp.carFingerprint in tuple(GM) and cp.openpilotLongitudinalControl:
+    if cp.brand == 'gm' and cp.carFingerprint in tuple(GM):
       return ('RemoteStartBootsComma', 'IgnoreIgnitionLine')
-    if (cp.brand == 'hyundai' and cp.carFingerprint in tuple(HKG) and cp.flags & HyundaiFlags.CANFD and
-        cp.openpilotLongitudinalControl):
+    if (cp.brand == 'hyundai' and cp.carFingerprint in tuple(HKG) and cp.flags & HyundaiFlags.CANFD):
       return ('HKGRemoteStartBootsComma',)
     if cp.brand == 'tesla' and cp.carFingerprint in (TESLA.TESLA_MODEL_3, TESLA.TESLA_MODEL_Y, TESLA.TESLA_MODEL_X):
       return ('TeslaWakeOnCAN',)
@@ -72,8 +71,10 @@ def startup_choice(params):
   from opendbc.car.structs import car
   selection = read_selection(params)
   sources = snapshot(params)
+  if any(not readable or raw not in (None, b'0', b'1') for _, raw, readable in sources):
+    return FirmwareChoice()
   raw, readable = read_saved(params, 'CarParamsPersistent', 1_048_576)
-  if not selection.readable or not selection.valid or selection.platform is None or not readable or raw is None:
+  if not selection.readable or not selection.valid or not readable or raw is None:
     return FirmwareChoice()
   try:
     inspected = inspect_cache('CarParamsPersistent', raw)

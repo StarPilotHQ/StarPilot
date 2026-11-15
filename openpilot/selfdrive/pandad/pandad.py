@@ -24,7 +24,7 @@ def get_expected_signature(mcu_type: McuType, choice: FirmwareChoice = DEFAULT_F
 
 def flash_panda(panda_serial: str, choice: FirmwareChoice = DEFAULT_FIRMWARE_CHOICE):
   panda = Panda(panda_serial)
-  if choice.alternate and panda.get_type() not in (Panda.HW_TYPE_DOS, Panda.HW_TYPE_TRES, Panda.HW_TYPE_RED_PANDA):
+  if choice.alternate and panda.get_type() not in (Panda.HW_TYPE_DOS, Panda.HW_TYPE_TRES, Panda.HW_TYPE_RED_PANDA, Panda.HW_TYPE_CUATRO):
     choice = FirmwareChoice()
   fw_path = firmware_path(FW_PATH, panda.get_mcu_type().config.app_fn, choice)
   fw_signature = get_expected_signature(panda.get_mcu_type(), choice)

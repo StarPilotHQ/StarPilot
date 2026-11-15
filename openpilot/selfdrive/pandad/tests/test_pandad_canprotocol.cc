@@ -106,7 +106,7 @@ void PandaTest::test_can_recv(uint32_t rx_chunk_size) {
 
 class FirmwareHandle : public PandaCommsHandle {
 public:
-  explicit FirmwareHandle(unsigned char value) : value(value) {}
+  explicit FirmwareHandle(unsigned char value) : value(value) { hw_serial = std::string(24, 'a'); }
   int control_read(uint8_t request, uint16_t, uint16_t, unsigned char *data, uint16_t length, unsigned int) override {
     if ((request != 0xd3 && request != 0xd4) || length != 64) return -1;
     memset(data, value, length);
@@ -133,8 +133,22 @@ void test_firmware_selection() {
   struct Restore {
     fs::path cwd = fs::current_path();
     fs::path directory;
-    ~Restore() { fs::current_path(cwd); fs::remove_all(directory); }
-  } restore{fs::current_path(), directory};
+    std::vector<std::pair<std::string, std::optional<std::string>>> environment;
+    ~Restore() {
+      for (const auto &[key, value] : environment) {
+        if (value) setenv(key.c_str(), value->c_str(), 1);
+        else unsetenv(key.c_str());
+      }
+      fs::current_path(cwd);
+      fs::remove_all(directory);
+    }
+  } restore{fs::current_path(), directory, {}};
+  const std::string key = "STARPILOT_PANDA_FIRMWARE_" + std::string(24, 'a');
+  for (const auto &name : {std::string("STARPILOT_PANDA_FIRMWARE_MAP"), std::string("STARPILOT_PANDA_FIRMWARE_NAME"), key}) {
+    const char *old = getenv(name.c_str());
+    restore.environment.emplace_back(name, old ? std::make_optional(std::string(old)) : std::nullopt);
+    unsetenv(name.c_str());
+  }
   fs::create_directories(fs::path(directory) / "panda/board/obj");
   fs::create_directories(fs::path(directory) / "work/a/b");
   for (const auto &[filename, value] : std::vector<std::pair<std::string, unsigned char>>{
@@ -153,6 +167,30 @@ void test_firmware_selection() {
   }
   CHECK(!FirmwarePanda(Type::UNKNOWN, 0x11).up_to_date());
   CHECK(!FirmwarePanda(Type::UNKNOWN, 0x22).up_to_date());
+  setenv("STARPILOT_PANDA_FIRMWARE_MAP", "1", 1);
+  for (auto type : {Type::DOS, Type::RED_PANDA, Type::TRES, Type::CUATRO}) {
+    const std::string prefix = type == Type::DOS ? "panda" : "panda_h7";
+    for (const char *suffix : {"_remote", "_hkg_remote", "_tesla_wake", "_can_ignition_only",
+                               "_remote_can_ignition_only", "_hkg_remote_can_ignition_only", "_tesla_wake_can_ignition_only"}) {
+      const std::string name = prefix + suffix + ".bin.signed";
+      const auto path = fs::path(directory) / "panda/board/obj" / name;
+      { std::ofstream file(path, std::ios::binary); file << std::string(256, 0x33); }
+      setenv(key.c_str(), name.c_str(), 1);
+      CHECK(FirmwarePanda(type, 0x33).up_to_date());
+      CHECK(!FirmwarePanda(type, 0x22).up_to_date());
+      CHECK(!FirmwarePanda(Type::UNKNOWN, 0x33).up_to_date());
+      setenv("STARPILOT_PANDA_FIRMWARE_NAME", name.c_str(), 1);
+      CHECK(!FirmwarePanda(type, 0x33).up_to_date());
+      unsetenv("STARPILOT_PANDA_FIRMWARE_NAME");
+      fs::remove(path);
+      CHECK(!FirmwarePanda(type, 0x33).up_to_date());
+    }
+    setenv(key.c_str(), "../panda_h7.bin.signed", 1);
+    CHECK(!FirmwarePanda(type, 0x22).up_to_date());
+    unsetenv(key.c_str());
+    CHECK(!FirmwarePanda(type, 0x22).up_to_date());
+  }
+  unsetenv("STARPILOT_PANDA_FIRMWARE_MAP");
   fs::remove(fs::path(directory) / "panda/board/obj/panda.bin.signed");
   CHECK(!FirmwarePanda(Type::DOS, 0x11).up_to_date());
 }

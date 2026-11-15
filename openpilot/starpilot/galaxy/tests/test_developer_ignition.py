@@ -97,11 +97,11 @@ def test_actual_gateway_developer_confirm_and_vehicle_page_move(setup, monkeypat
   assert all(row['label'] != 'Use CAN Ignition Only' for row in gateway.page('vehicle', 'session', b'generation')['rows'])
 
 
-def test_startup_uses_exact_manual_registered_cache_and_auto_remains_stock(setup):
+def test_startup_uses_exact_registered_cache_for_manual_and_auto(setup):
   params, state, _, _ = setup
   params.put_bool('IgnoreIgnitionLine', True, block=True)
   put_cache(params, 'CarParamsPersistent', state.cp.as_reader(), block=True)
   assert startup_choice(params) == FirmwareChoice(can_only=True)
   params.put('VehicleSelection', json.loads(encode(None)), block=True)
-  assert startup_choice(params) == FirmwareChoice()
+  assert startup_choice(params) == FirmwareChoice(can_only=True)
   assert params.get_bool('IgnoreIgnitionLine')

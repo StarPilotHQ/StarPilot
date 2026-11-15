@@ -166,7 +166,7 @@ bool Panda::up_to_date() {
     bool allowed = std::string(selected) == filename;
     // Match the wrapper's existing alternate-image hardware eligibility exactly.
     if (hw_type == cereal::PandaState::PandaType::DOS || hw_type == cereal::PandaState::PandaType::TRES ||
-        hw_type == cereal::PandaState::PandaType::RED_PANDA) {
+        hw_type == cereal::PandaState::PandaType::RED_PANDA || hw_type == cereal::PandaState::PandaType::CUATRO) {
       const std::string prefix = std::string(filename).substr(0, std::string(filename).find(".bin.signed"));
       for (const char *suffix : {"_remote", "_hkg_remote", "_tesla_wake", "_can_ignition_only",
                                  "_remote_can_ignition_only", "_hkg_remote_can_ignition_only", "_tesla_wake_can_ignition_only"}) {
