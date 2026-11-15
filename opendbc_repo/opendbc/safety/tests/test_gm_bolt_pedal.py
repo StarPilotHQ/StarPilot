@@ -368,6 +368,41 @@ class TestGmBoltPedalSafety(unittest.TestCase):
       self.assertFalse(self.safety.safety_tx_hook(self.packet(dashboard(False))))
       self.assertEqual(self.safety.safety_fwd_hook(2, 0x370), 0)
 
+  def test_acc_pedal_paddle_display_is_fresh_and_never_grants_actuation(self):
+    from opendbc.car.gm.gmcan import create_acc_dashboard_command
+
+    hud = structs.CarControl.HUDControl(leadDistanceBars=3)
+    for condition in ('fresh', 'released', 'paddle_stale', 'gear_stale', 'main_off'):
+      with self.subTest(condition=condition):
+        self.init_mode(GMSafetyFlags.BOLT_ACC_PEDAL | GMSafetyFlags.BOLT_GEN2)
+        self.safety.set_timer(1)
+        self.safety.safety_rx_hook(self.sensor(1))
+        self.safety.safety_rx_hook(self.stock("AcceleratorPedal2", {"CruiseState": 0}))
+        self.safety.safety_rx_hook(self.stock("ECMEngineStatus", {"CruiseMainOn": 1}))
+        self.safety.safety_rx_hook(self.stock("ECMPRDNL2", {"PRNDL2": 5, "ManualMode": 1}))
+        self.safety.safety_rx_hook(self.stock("EBCMRegenPaddle", {"RegenPaddle": 2}))
+        for name in ("PSCMStatus", "EBCMWheelSpdRear", "ASCMSteeringButton"):
+          self.assertTrue(self.safety.safety_rx_hook(self.stock(name, {})))
+        self.safety.safety_tick()
+        self.assertTrue(self.safety.safety_config_valid())
+        if condition in ('paddle_stale', 'gear_stale'):
+          self.safety.set_timer(100002)
+          self.safety.safety_rx_hook(self.sensor(2))
+          if condition == 'paddle_stale':
+            self.safety.safety_rx_hook(self.stock("ECMPRDNL2", {"PRNDL2": 5, "ManualMode": 1}))
+          else:
+            self.safety.safety_rx_hook(self.stock("EBCMRegenPaddle", {"RegenPaddle": 2}))
+        elif condition == 'released':
+          self.safety.safety_rx_hook(self.stock("EBCMRegenPaddle", {"RegenPaddle": 0}))
+        elif condition == 'main_off':
+          self.safety.safety_rx_hook(self.stock("ECMEngineStatus", {"CruiseMainOn": 0}))
+        self.assertFalse(self.safety.get_controls_allowed())
+        dashboard = create_acc_dashboard_command(self.packer, 0, False, 72., hud, False, cruise_state=2)
+        self.assertEqual(self.safety.safety_tx_hook(self.packet(dashboard)), condition == 'fresh')
+        self.assertFalse(self.safety.get_controls_allowed())
+        self.assertEqual(self.safety.safety_fwd_hook(2, 0x370), -1 if condition == 'fresh' else 0)
+        self.assertFalse(self.safety.safety_tx_hook(self.packet(create_pedal_command(self.packer, .2, 1))))
+
   def test_acc_pedal_friction_requires_exclusive_fresh_owner(self):
     chassis = CANPacker("gm_global_a_chassis")
 
