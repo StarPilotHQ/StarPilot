@@ -1,4 +1,4 @@
-from opendbc.car.hyundai.canfd_lfa_status import CANFDClusterStatus, CANFDLfaStatus, preserves_stock_lfa
+from opendbc.car.hyundai.canfd_lfa_status import CANFDClusterStatus, CANFDLfaStatus, CANFDLkasDamping, preserves_stock_lfa, preserves_stock_lkas_damping
 from opendbc.car.hyundai.left_paddle import has_left_paddle
 from opendbc.car.hyundai.ioniq5pe_long_profile import qualified as pe_long_qualified
 from opendbc.car.hyundai.ioniq5pe_ready import PEReadySource
@@ -66,6 +66,8 @@ class CarState(CarStateBase):
     preserve_status = preserves_stock_lfa(CP)
     self.stock_lfa_status = CANFDLfaStatus(CanBus(CP).CAM) if preserve_status else None
     self.stock_cluster_status = CANFDClusterStatus(CanBus(CP).CAM) if preserve_status else None
+    self.stock_lkas_damping = (CANFDLkasDamping(CanBus(CP).CAM, bool(CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT))
+                               if preserves_stock_lkas_damping(CP) else None)
     from opendbc.car.hyundai.daw import DawSource
     self.daw = DawSource(CP)
     self.forte_lkas_sources = NonSccLkasSources() if qualified_non_scc(CP) and CP.flags & HyundaiFlags.HAS_LDA_BUTTON else None

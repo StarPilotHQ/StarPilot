@@ -537,9 +537,12 @@ class CarController(CarControllerBase):
       stock_source = getattr(CS, "stock_lfa_status", None)
       stock_lfa = stock_source.current(clock_boot_ns()) if stock_source is not None else None
       stock_faults = stock_source.last_fault() if stock_source is not None and stock_lfa is None else None
+      damping_source = getattr(CS, "stock_lkas_damping", None)
       can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
                                                             steering_status_active, apply_steer_req, apply_torque,
-                                                            stock_lfa=stock_lfa, stock_lfa_faults=stock_faults))
+                                                            stock_lfa=stock_lfa, stock_lfa_faults=stock_faults,
+                                                            stock_lkas_damping=(damping_source.current_damping(clock_boot_ns())
+                                                              if damping_source is not None else None)))
       if _projection is not None:
         _projection.emit('hyundai.CANFD_TORQUE', apply_torque, apply_steer_req, can_sends[-1])
 

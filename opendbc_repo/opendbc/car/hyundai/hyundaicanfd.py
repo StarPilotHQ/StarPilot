@@ -44,7 +44,7 @@ LFA_CONTROL_MASK = bytes.fromhex("ffffff3fc0ff3f000000000000ff0000")
 LFA_FAULT_MASK = bytes.fromhex("00000000c001c0f00000000000000000")
 
 
-def create_steering_messages(packer, CP, CAN, enabled, lat_active, apply_torque, *, stock_lfa=None, stock_lfa_faults=None):
+def create_steering_messages(packer, CP, CAN, enabled, lat_active, apply_torque, *, stock_lfa=None, stock_lfa_faults=None, stock_lkas_damping=None):
   values = {
     "LKA_OptUsmSta": 2,
     "LKA_SysIndReq": 2 if enabled else 1,
@@ -67,7 +67,9 @@ def create_steering_messages(packer, CP, CAN, enabled, lat_active, apply_torque,
     if (not CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING and CP.carFingerprint not in (
         CAR.KIA_CARNIVAL_4TH_GEN, CAR.KIA_CARNIVAL_2025,
         CAR.KIA_CARNIVAL_HEV_4TH_GEN, CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN)):
-      lkas_values = {**values, "Damping_Gain": 0}
+      damping = (stock_lkas_damping if not CP.openpilotLongitudinalControl and
+                 type(stock_lkas_damping) is int and 0 <= stock_lkas_damping <= 255 else 0)
+      lkas_values = {**values, "Damping_Gain": damping}
     ret.append(packer.make_can_msg(lkas_msg, CAN.ACAN, lkas_values))
   else:
     message = packer.make_can_msg("LFA", CAN.ECAN, values)
