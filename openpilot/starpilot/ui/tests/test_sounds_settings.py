@@ -122,7 +122,7 @@ class SoundsSettingsTests(unittest.TestCase):
     self.params.put("EngineSoundProfile", "race_car", block=True)
     row = self.row("EngineSoundProfile")
     self.assertEqual((row.value, row.repair_value), ("LFA", ""))
-    self.assertEqual([r.value for r in self.owner.engine_type_snapshot().rows], ["", "Active"])
+    self.assertEqual([r.value for r in self.owner.engine_type_snapshot().rows], ["", "", "", "Active"])
     self.assertTrue(self.owner.apply(FeatureSettingsRequest("EngineSoundProfile", row.source, "BMW M52")))
     self.assertEqual(self.params.get("EngineSoundProfile"), "bmw_m52")
 
@@ -158,14 +158,15 @@ class SoundsSettingsTests(unittest.TestCase):
     picker = owner.engine_type_snapshot()
     self.assertEqual((picker.page, picker.title, picker.parent_title), (ENGINE_TYPE_PAGE, "Engine Type", "Engine Sounds"))
     self.assertEqual([(row.label, row.value, row.actions) for row in picker.rows],
-                     [("BMW M52", "", (("Use", True),)), ("LFA", "Active", (("Active", True),))])
+                     [("BMW M52", "", (("Use", True),)), ("F1 Car", "", (("Use", True),)),
+                      ("Ferrari F136", "", (("Use", True),)), ("LFA", "Active", (("Active", True),))])
     stale = picker.rows[0]
     request = owner.engine_choice_request(stale)
     assert request is not None
     self.assertTrue(owner.apply(request))
     self.assertEqual((self.params.get("EngineSoundProfile"), revs), ("bmw_m52", [1]))
     picker = owner.engine_type_snapshot()
-    self.assertEqual([row.value for row in picker.rows], ["Active", ""])
+    self.assertEqual([row.value for row in picker.rows], ["Active", "", "", ""])
     replay = owner.engine_choice_request(picker.rows[0])
     assert replay is not None
     self.assertTrue(owner.apply(replay))

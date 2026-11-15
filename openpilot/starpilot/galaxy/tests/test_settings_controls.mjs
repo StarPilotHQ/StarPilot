@@ -272,7 +272,7 @@ assert.equal(previewVolume.vm.soundError, "Keep the comma offroad")
 assert.equal(previewVolume.vm.previewLabel, "Test alert")
 
 {
-  const engine = control({ label: "Engine Type", value: "LFA", choices: ["BMW M52", "LFA"],
+  const engine = control({ label: "Engine Type", value: "LFA", choices: ["BMW M52", "F1 Car","Ferrari F136", "LFA"],
     available: true, action: true, previewSound: "EngineSoundProfile" })
   assert.equal(settingControl(engine.vm.row), "select")
   assert.equal(engine.vm.previewLabel, "Rev engine")

@@ -71,6 +71,8 @@ def _recorded(name: str, label: str, *, cylinders: int, idle: float, redline: fl
 
 PROFILES: dict[str, Profile] = {profile.name: profile for profile in (
   _recorded('bmw_m52', 'BMW M52', cylinders=6, idle=700.0, redline=7000.0),
+  _recorded('f1_car', 'F1 Car', cylinders=12, idle=2000.0, redline=17000.0),
+  _recorded('ferrari_f136', 'Ferrari F136', cylinders=8, idle=1000.0, redline=9000.0),
   _recorded('lfa', 'LFA', cylinders=10, idle=1000.0, redline=9000.0),
 )}
 

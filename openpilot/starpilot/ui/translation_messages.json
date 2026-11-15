@@ -32213,6 +32213,18 @@
       ]
     },
     {
+      "source": "F1 Car",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Ferrari F136",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
       "source": "LFA",
       "refs": [
         "openpilot/starpilot/engine_sound/profiles.py"

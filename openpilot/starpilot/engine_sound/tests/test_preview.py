@@ -134,7 +134,9 @@ def test_galaxy_rev_button_runs_the_engine_preview_and_reports_where_it_played(m
   monkeypatch.setattr(preview, 'environment', lambda: {'ENV': '1'})
   for code, output in ((0, 'car'), (3, 'comma'), (4, 'engine')):
     runs = []
-    runner = lambda argv, **kwargs: runs.append((argv, kwargs)) or SimpleNamespace(returncode=code)  # noqa: B023
+    def runner(argv, runs=runs, code=code, **kwargs):
+      runs.append((argv, kwargs))
+      return SimpleNamespace(returncode=code)
     result = audio_preview.AlertPreview(lambda: False, runner).play({'key': 'EngineSoundProfile'})
     assert result == {'played': True, 'output': output}
     assert runs[0][0][-2:] == ['-m', 'openpilot.starpilot.engine_sound.preview'] and runs[0][1]['env'] == {'ENV': '1'}

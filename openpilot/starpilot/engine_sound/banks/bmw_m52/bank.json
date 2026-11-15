@@ -4,110 +4,110 @@
   "layers": {
     "on": [
       {
-        "rpm": 700,
-        "file": "on_700.wav"
+        "rpm": 1050,
+        "file": "on_1050.wav"
       },
       {
-        "rpm": 1200,
-        "file": "on_1200.wav"
+        "rpm": 1800,
+        "file": "on_1800.wav"
       },
       {
-        "rpm": 1700,
-        "file": "on_1700.wav"
+        "rpm": 2550,
+        "file": "on_2550.wav"
       },
       {
-        "rpm": 2200,
-        "file": "on_2200.wav"
+        "rpm": 3300,
+        "file": "on_3300.wav"
       },
       {
-        "rpm": 2700,
-        "file": "on_2700.wav"
+        "rpm": 4050,
+        "file": "on_4050.wav"
       },
       {
-        "rpm": 3200,
-        "file": "on_3200.wav"
+        "rpm": 4800,
+        "file": "on_4800.wav"
       },
       {
-        "rpm": 3700,
-        "file": "on_3700.wav"
+        "rpm": 5550,
+        "file": "on_5550.wav"
       },
       {
-        "rpm": 4200,
-        "file": "on_4200.wav"
+        "rpm": 6300,
+        "file": "on_6300.wav"
       },
       {
-        "rpm": 4700,
-        "file": "on_4700.wav"
+        "rpm": 7050,
+        "file": "on_7050.wav"
       },
       {
-        "rpm": 5200,
-        "file": "on_5200.wav"
+        "rpm": 7800,
+        "file": "on_7800.wav"
       },
       {
-        "rpm": 5700,
-        "file": "on_5700.wav"
+        "rpm": 8550,
+        "file": "on_8550.wav"
       },
       {
-        "rpm": 6200,
-        "file": "on_6200.wav"
+        "rpm": 9300,
+        "file": "on_9300.wav"
       },
       {
-        "rpm": 6700,
-        "file": "on_6700.wav"
+        "rpm": 10050,
+        "file": "on_10050.wav"
       }
     ],
     "off": [
       {
-        "rpm": 700,
-        "file": "off_700.wav"
+        "rpm": 1050,
+        "file": "off_1050.wav"
       },
       {
-        "rpm": 1200,
-        "file": "off_1200.wav"
+        "rpm": 1800,
+        "file": "off_1800.wav"
       },
       {
-        "rpm": 1700,
-        "file": "off_1700.wav"
+        "rpm": 2550,
+        "file": "off_2550.wav"
       },
       {
-        "rpm": 2200,
-        "file": "off_2200.wav"
+        "rpm": 3300,
+        "file": "off_3300.wav"
       },
       {
-        "rpm": 2700,
-        "file": "off_2700.wav"
+        "rpm": 4050,
+        "file": "off_4050.wav"
       },
       {
-        "rpm": 3200,
-        "file": "off_3200.wav"
+        "rpm": 4800,
+        "file": "off_4800.wav"
       },
       {
-        "rpm": 3700,
-        "file": "off_3700.wav"
+        "rpm": 5550,
+        "file": "off_5550.wav"
       },
       {
-        "rpm": 4200,
-        "file": "off_4200.wav"
+        "rpm": 6300,
+        "file": "off_6300.wav"
       },
       {
-        "rpm": 4700,
-        "file": "off_4700.wav"
+        "rpm": 7050,
+        "file": "off_7050.wav"
       },
       {
-        "rpm": 5200,
-        "file": "off_5200.wav"
+        "rpm": 7800,
+        "file": "off_7800.wav"
       },
       {
-        "rpm": 5700,
-        "file": "off_5700.wav"
+        "rpm": 8550,
+        "file": "off_8550.wav"
       },
       {
-        "rpm": 6200,
-        "file": "off_6200.wav"
+        "rpm": 9300,
+        "file": "off_9300.wav"
       },
       {
-        "rpm": 6700,
-        "file": "off_6700.wav"
+        "rpm": 10050,
+        "file": "off_10050.wav"
       }
     ]
   }

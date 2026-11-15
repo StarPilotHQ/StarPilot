@@ -1,9 +1,12 @@
-The loops in these banks were rendered with tools/make_bank.py.
+The loops in these banks were rendered with tools/make_bank.py, then lowered with tools/lower_bank.py
+at its default settings.
 
 From the engine scripts of engine-sim (https://github.com/ange-yaghi/engine-sim,
 commit 85f7c3b959a908ed5232ede4f1a4ac7eafe6b630), recorded with tools/esrec:
 
   bmw_m52      assets/engines/bmw/M52B28.mr
+  f1_car       assets/engines/atg-video-2/12_ferrari_412_t2.mr
+  ferrari_f136 assets/engines/atg-video-2/08_ferrari_f136_v8.mr
   lfa          assets/engines/atg-video-2/10_lfa_v10.mr
 
 engine-sim is distributed under the following license:

@@ -18,10 +18,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO))
 
-from openpilot.starpilot.engine_sound.model import EngineModel  # noqa: E402
-from openpilot.starpilot.engine_sound.profiles import PROFILES  # noqa: E402
-from openpilot.starpilot.engine_sound.daemon import voice  # noqa: E402
-from openpilot.starpilot.engine_sound.synth import SAMPLE_RATE, to_pcm  # noqa: E402
+from openpilot.starpilot.engine_sound.model import EngineModel
+from openpilot.starpilot.engine_sound.profiles import PROFILES
+from openpilot.starpilot.engine_sound.daemon import voice
+from openpilot.starpilot.engine_sound.synth import SAMPLE_RATE, to_pcm
 
 DT = 0.01
 FRAMES = int(SAMPLE_RATE * DT)

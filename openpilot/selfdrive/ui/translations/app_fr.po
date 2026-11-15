@@ -23519,6 +23519,14 @@ msgid "BMW M52"
 msgstr "BMW M52"
 
 #: openpilot/starpilot/engine_sound/profiles.py
+msgid "F1 Car"
+msgstr "F1 Car"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Ferrari F136"
+msgstr "Ferrari F136"
+
+#: openpilot/starpilot/engine_sound/profiles.py
 msgid "LFA"
 msgstr "LFA"
 
