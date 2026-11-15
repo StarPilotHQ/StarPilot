@@ -496,10 +496,11 @@ def recent_findings(cache, results, display):
     scope = RouteScope(**assessment['current_scope']).validate()
     if receipt['cp_sha256'] != scope.cp_sha256:
       raise ValueError('Recent finding vehicle identity changed')
-    stamp = receipt.get('completed_wall_ns', receipt.get('last_intact_wall_ns'))
+    partial = document['kind'] == 'partial_assessment'
+    stamp = receipt.get('last_intact_wall_ns') if partial else receipt.get('completed_wall_ns')
     if type(stamp) is not int or stamp <= 0:
       raise ValueError('Original recent-drive chronology required')
-    return scope, document['kind'] == 'partial_assessment', stamp
+    return scope, partial, stamp
 
   try:
     current_scope, _, _ = source(latest)

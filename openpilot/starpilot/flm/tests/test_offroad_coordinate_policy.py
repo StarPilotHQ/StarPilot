@@ -1575,6 +1575,7 @@ class TestLatestUsefulDriveReport(unittest.TestCase):
 
   def test_partial_findings_stay_partial_and_never_supply_trial_or_saved_state(self):
     document = self.cache.get(self.driving['assessment_sha256'])
+    document['assessment']['route'].update(last_intact_wall_ns=document['assessment']['route']['completed_wall_ns'], completed_wall_ns=0)
     self.driving.update(assessment_sha256=self.cache.put(dict(document, kind='partial_assessment')), partial_drive=True,
                         configuration_changed=True, configuration_state='ready_for_next_drive', saved_adjustments=5)
     self.latest['analysis_counts']['qualified_whole_windows'] = 4
