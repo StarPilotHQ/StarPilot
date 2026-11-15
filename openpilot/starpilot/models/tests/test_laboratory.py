@@ -240,12 +240,43 @@ class LaboratoryTest(unittest.TestCase):
       ready_runtime.action('delete', {'model': 'cinquev3'})
     self.assertEqual(path.read_bytes(), content)
 
+  def test_onroad_pair_changes_are_queued_without_replacing_frozen_sources(self):
+    from openpilot.starpilot.models.laboratory import freeze_request
+    from openpilot.starpilot.models.runtime_bridge import runtime
+
+    for mid in ("gwm8223", "sc23"):
+      self.download(mid)
+    self.gpu = True
+    ready = ModelLaboratory(self.manager, runtime_supported=True)
+    self.parked = False
+    ready.action("configure", self.config)
+    first = freeze_request(self.root)
+    with patch.object(runtime, "_selection", {"role": "driving"}), patch.object(runtime, "_protection", None), \
+         patch.object(runtime, "_laboratory_request_json", None):
+      runtime.bind_laboratory_request(first)
+      swapped = {**self.config, "lateralModel": "sc23", "longitudinalModel": "gwm8223"}
+      ready.action("configure", swapped)
+      next_drive = freeze_request(self.root)
+      self.assertEqual(configuration(self.root), swapped)
+      self.assertEqual(runtime.frozen_laboratory_request(), first)
+      with self.assertRaisesRegex(ValueError, "cannot replace"):
+        runtime.bind_laboratory_request(next_drive)
+      with patch.object(runtime, "_laboratory_request_json", None):
+        runtime.bind_laboratory_request(next_drive)
+        self.assertEqual(runtime.frozen_laboratory_request()["lateralModel"], "sc23")
+      ready.action("configure", {**swapped, "enabled": False})
+      self.assertIsNone(freeze_request(self.root))
+      self.assertEqual(runtime.frozen_laboratory_request(), first)
+
   def test_parked_state_and_independent_progress_are_preserved(self):
     self.parked = False
-    for action, payload in (('download', {'model': 'gwm8223'}), ('delete', {'model': 'gwm8223'}),
-                            ('configure', {**self.config, 'enabled': False})):
+    for action, payload in (('download', {'model': 'gwm8223'}), ('delete', {'model': 'gwm8223'})):
       with self.assertRaises(ModelError):
         self.lab.action(action, payload)
+    saved = {**self.config, "enabled": False}
+    self.lab.action("configure", saved)
+    self.assertEqual(configuration(self.root), saved)
+    self.assertTrue(self.lab.snapshot()["capabilities"]["configure"])
     self.parked = True
     self.download()
     observer = ModelManager(root=self.root, parked=lambda: True, gpu_present=lambda: False)

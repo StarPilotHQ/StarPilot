@@ -388,7 +388,10 @@ class ModelManagerTest(unittest.TestCase):
     current = resolve_runtime(False, root=self.root)
     self.manager.parked = lambda: False
     self.assertTrue(self.manager.snapshot()['capabilities']['select'])
-    self.manager.action('active', {'profile': 'small', 'model': 'gwm8223'})
+    response = self.manager.action('active', {'profile': 'small', 'model': 'gwm8223'})
+    self.assertEqual(response['schemaVersion'], 1)
+    self.assertTrue(response['isOnroad'])
+    self.assertEqual(response['activeSmallModel'], 'gwm8223')
     self.assertEqual(preferences(self.root)['small'], 'gwm8223')
     self.assertEqual(current.small_id, DEFAULT_SMALL)
     self.assertEqual(resolve_runtime(False, root=self.root).small_id, 'gwm8223')
@@ -709,24 +712,28 @@ class ModelManagerTest(unittest.TestCase):
     self.assertEqual(selected.small_id, DEFAULT_SMALL)
     self.assertEqual(preferences(self.root)['big'], '')
 
-  def test_selection_preferences_require_parked_and_strict_values(self):
+  def test_selection_preferences_are_queued_onroad_with_strict_values(self):
     for payload in ({'randomizer': 1}, {'blacklistedModels': ['unknown']}, {'blacklistedModels': 'gwm8223'}):
       with self.subTest(payload=payload), self.assertRaises(ModelError):
         self.manager.action('preferences', payload)
     self.parked = False
     for payload in ({'randomizer': True}, {'blacklistedModels': ['gwm8223']}):
-      with self.subTest(payload=payload), self.assertRaises(ModelError):
+      with self.subTest(payload=payload):
         self.manager.action('preferences', payload)
+        for key, value in payload.items():
+          self.assertEqual(preferences(self.root)[key], value)
     self.manager.action('preferences', {'userFavorites': ['gwm8223']})
     self.parked = True
     self.manager.action('preferences', {'randomizer': True})
     with self.assertRaises(ModelError):
       self.manager.action('active', {'profile': 'small', 'model': BUNDLED_CURRENT})
     self.assertTrue(self.manager.snapshot()['randomizer'])
-    self.manager.parked = iter([True, False]).__next__
-    with self.assertRaises(ModelError):
-      self.manager.action('preferences', {'randomizer': False})
-    self.assertTrue(preferences(self.root)['randomizer'])
+    self.parked = False
+    response = self.manager.action('preferences', {'randomizer': False})
+    self.assertEqual(response['schemaVersion'], 1)
+    self.assertTrue(response['isOnroad'])
+    self.assertFalse(response['randomizer'])
+    self.assertFalse(preferences(self.root)['randomizer'])
 
   def test_remote_new_model_download_selection_restart_and_status(self):
     from openpilot.starpilot.models.catalog import BY_ID, model_entries, resolve_selection

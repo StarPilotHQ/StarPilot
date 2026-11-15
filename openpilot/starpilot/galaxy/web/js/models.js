@@ -76,7 +76,7 @@ export class ModelStatusFeed {
       const displayGeneration = ++this.displayGeneration
       this.expiry = this.later(() => {
         if (this.active && displayGeneration === this.displayGeneration) {
-          this.publish({ status: "stale", data: null, error: "Model status refresh delayed" })
+          this.publish({ status: "stale", data: null, error: "" })
         }
       }, 1500)
     } catch (error) {
@@ -215,7 +215,7 @@ export function fitsModelProfile(model, profile) {
 
 export function modelActionAllowed(data, action, model = null) {
   if (!data || data.capabilities?.[actionCapabilities[action]] !== true) return false
-  if (data.isOnroad !== false && !["favorite", "unfavorite", "cancel", "select-small", "select-big"].includes(action)) return false
+  if (data.isOnroad !== false && !["favorite", "unfavorite", "cancel", "select-small", "select-big", "enable-randomizer", "disable-randomizer", "exclude", "include"].includes(action)) return false
   if (action === "jetlink") return data.jetlink !== undefined
   if (["select-small", "select-big"].includes(action)) {
     if (action === "select-big" && data.jetlinkBig && data.isOnroad !== false) return false
@@ -263,6 +263,10 @@ export class ModelManagerFeed {
     this.active = true
     return this.load()
   }
+  staleData() {
+    if (!this.data) return null
+    return { ...this.data, stale: true, ...(this.data.jetlink ? { jetlink: { ...this.data.jetlink, active: false, state: "unavailable", runtimeState: "unavailable" } } : {}) }
+  }
   async requestJson(path, payload) {
     const generation = ++this.generation
     if (payload) this.lastError = ""
@@ -276,10 +280,10 @@ export class ModelManagerFeed {
       request.abort()
       this.generation++
       this.request = null
-      this.data = null
+      this.data = payload ? null : this.staleData()
       this.saving = false
       this.lastError = payload ? "The result is unknown. Checking automatically…" : "Model Manager is unavailable. Reconnecting automatically…"
-      this.publish({ loading: false, data: null, error: this.lastError })
+      this.publish({ loading: false, data: this.data, error: payload || !this.data ? this.lastError : "" })
       this.poll = this.later(() => this.load(), 2000)
     }, 10000)
     try {
@@ -297,9 +301,9 @@ export class ModelManagerFeed {
       return data
     } catch (error) {
       if (this.active && generation === this.generation) {
-        this.data = null
+        this.data = payload ? null : this.staleData()
         this.lastError = connectionError(error)
-        this.publish({ loading: false, data: null, error: this.lastError })
+        this.publish({ loading: false, data: this.data, error: payload || !this.data ? this.lastError : "" })
       }
       return null
     } finally {
@@ -307,10 +311,10 @@ export class ModelManagerFeed {
       if (this.request === request) this.request = null
     }
   }
-  async load() {
+  async load(snapshot = null) {
     if (!this.active || this.saving) return null
     if (!this.data && !this.lastError) this.publish({ loading: true, data: null, error: "" })
-    const data = await this.requestJson("manager")
+    const data = snapshot || await this.requestJson("manager")
     if (!this.active) return null
     if (data) {
       if (data.schemaVersion !== 1 || !Array.isArray(data.models) ||
@@ -365,9 +369,10 @@ export class ModelManagerFeed {
     if (!this.active) return null
     this.saving = false
     const error = this.lastError
-    await this.load()
+    const snapshot = result && Object.hasOwn(result, "schemaVersion") ? result : null
+    await this.load(snapshot)
     if (error && this.active) this.publish({ loading: false, data: this.data, error })
-    return result
+    return snapshot && !this.data ? null : result
   }
 }
 
@@ -382,8 +387,7 @@ export const laboratoryStatusLabel = model => ({
 })[model.modelLabStatus] || (model.modelLabArtifactInstalled ? "Downloaded" : "Not downloaded")
 
 export function laboratorySelectionError(data, configuration) {
-  if (!data) return "Waiting for parked device status"
-  if (data.isOnroad !== false) return "Turn off the vehicle before changing the model pair"
+  if (!data) return "Waiting for model status"
   if (!data.runtimeSupported) return data.runtimeUnavailableReason || "Model Laboratory runtime is unavailable"
   if (!data.chestnutReady) return "Connect a firmware-ready Chestnut to enable a pair"
   const ready = laboratoryReady(data)
@@ -400,7 +404,7 @@ export function laboratorySelectionError(data, configuration) {
 export function laboratoryActionAllowed(data, action, model, configuration = data?.configuration) {
   if (!data || data.capabilities?.[["enable", "disable", "save"].includes(action) ? "configure" : action] !== true) return false
   if (action === "cancel") return data.download?.downloading === true && typeof data.download.jobId === "string"
-  if (data.isOnroad !== false || data.download?.downloading) return false
+  if (data.download?.downloading || data.isOnroad !== false && !["enable", "disable", "save"].includes(action)) return false
   if (action === "enable") return !laboratorySelectionError(data, configuration)
   if (action === "disable") return data.configuration.enabled === true
   if (action === "download") return laboratoryModels(data).some(m => m.value === model?.value && m.modelLabEligible === true && m.modelLabArtifactAvailable === true && !m.modelLabArtifactInstalled)
@@ -436,22 +440,26 @@ function validLaboratoryPayload(data) {
 }
 
 export class LaboratoryFeed extends ModelManagerFeed {
+  staleData() {
+    const data = super.staleData()
+    return data ? { ...data, runtime: { ...data.runtime, active: false, requested: false, error: "" } } : null
+  }
   stop() {
     if (this.expiry != null) this.cancel(this.expiry)
     this.expiry = null
     super.stop()
   }
-  async load() {
+  async load(snapshot = null) {
     if (!this.active || this.saving) return null
-    const data = await this.requestJson("laboratory")
+    const data = snapshot || await this.requestJson("laboratory")
     if (!this.active) return null
     if (data) {
       this.data = validLaboratoryPayload(data) ? data : null
       this.publish({ loading: false, data: this.data, error: this.data ? "" : "Invalid Model Laboratory response" })
       if (this.expiry != null) this.cancel(this.expiry)
       this.expiry = this.later(() => {
-        this.data = null
-        this.publish({ loading: false, data: null, error: "Laboratory status refresh delayed" })
+        this.data = this.staleData()
+        this.publish({ loading: false, data: this.data, error: "" })
       }, 6000)
     }
     if (this.poll === null) this.poll = this.later(() => this.load(), 2000)
@@ -469,9 +477,10 @@ export class LaboratoryFeed extends ModelManagerFeed {
     if (!this.active) return null
     this.saving = false
     const error = this.lastError
-    await this.load()
+    const snapshot = result && Object.hasOwn(result, "schemaVersion") ? result : null
+    await this.load(snapshot)
     if (error && this.active) this.publish({ loading: false, data: this.data, error })
-    return result
+    return snapshot && !this.data ? null : result
   }
 }
 
@@ -620,9 +629,9 @@ export const ModelsPage = {
     labReady() { return laboratoryReady(this.lab) },
     labCandidates() { return this.labReady.filter(m => m.value !== this.labConfig.lateralModel) },
     labSelectionError() { return laboratorySelectionError(this.lab, this.labConfig) },
-    labRuntimeState() { return !this.lab ? "Status unavailable" : !this.lab.runtimeSupported ? "Unavailable" : this.lab.runtime.active ? "Pair active" : this.lab.runtime.requested ? "Pair requested" : "Inactive" },
+    labRuntimeState() { return !this.lab || this.lab.stale ? "Status unavailable" : !this.lab.runtimeSupported ? "Unavailable" : this.lab.runtime.active ? "Pair active" : this.lab.runtime.requested ? "Pair requested" : "Inactive" },
     labChoiceProblem() { return LAB_CHOICE_PROBLEMS.has(this.labSelectionError) },
-    labLocked() { return !this.lab || this.lab.isOnroad || this.lab.download?.downloading },
+    labLocked() { return !this.lab || this.lab.download?.downloading },
   },
   watch: {
     "status.downloading"(value) { if (value) this.failureDismissed = false },
@@ -765,7 +774,7 @@ export const ModelsPage = {
             this.labDirty = false
             if (this.lab) this.labConfig = laboratoryDraft(this.lab, this.labConfig, false)
           }
-          this.manager?.load()
+          if (!["enable", "disable", "save"].includes(action)) this.manager?.load()
         }
         return result
       } finally { if (!this.disposed) this.busy = "" }
@@ -903,7 +912,6 @@ export const ModelsPage = {
             </div>
 
             <div class="gx-panel-stage" :style="{'--panel-direction': driveMode === 'pair' ? 1 : -1}">
-              <Transition name="gx-panel" @before-enter="$event.inert = false" @before-leave="$event.inert = true">
               <div :key="driveMode" class="gx-model-driving__body">
             <template v-if="driveMode === 'single'">
               <div class="gx-model-driving__summary" role="group" aria-label="Active models">
@@ -974,7 +982,6 @@ export const ModelsPage = {
               </template>
             </div>
               </div>
-              </Transition>
             </div>
           </div>
         </section>

@@ -162,10 +162,10 @@ class LocalModelManagerHttpTest(unittest.TestCase):
         parked[0] = False
         self.assertEqual(request('/api/models/jetlink', {'mode': 'off'})[0], 409)
         self.assertEqual(link.mode, 'usb')
-        self.assertEqual(request('/api/models/laboratory', pair)[0], 409)
+        self.assertEqual(request('/api/models/laboratory', pair)[0], 200)
         self.assertEqual(request('/api/models/laboratory/delete', {'model': 'gwm8223'})[0], 409)
-        self.assertEqual(request('/api/models/preferences', {'randomizer': False})[0], 409)
-        self.assertTrue(preferences(manager.root)['randomizer'])
+        self.assertEqual(request('/api/models/preferences', {'randomizer': False})[0], 200)
+        self.assertFalse(preferences(manager.root)['randomizer'])
         self.assertEqual(request('/api/models/preferences', {'userFavorites': ['pop223']})[0], 200)
         self.assertEqual(request('/api/models/jetlink', {'mode': 'off'}, forwarded=True)[0], 503)
         self.assertEqual(link.mode, 'usb')

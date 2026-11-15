@@ -648,9 +648,9 @@ class ModelManager:
               "downloading": job["downloading"], "refreshing": job["refreshing"], "progress": job.get("progress", ""),
               "downloadProgress": self._download_progress(job),
               "isOnroad": not parked, "gpuAvailable": gpu, "jetlink": jetlink,
-              "capabilities": {"configureLaboratory": parked and not job["downloading"], "select": True, "download": parked,
+              "capabilities": {"configureLaboratory": not job["downloading"], "select": True, "download": parked,
                                "downloadAll": parked, "cancel": True,
-                               "jetlink": parked, "refresh": parked, "favorites": True, "delete": parked, "randomizer": parked, "exclusions": parked}}
+                               "jetlink": parked, "refresh": parked, "favorites": True, "delete": parked, "randomizer": True, "exclusions": True}}
 
   def _require_parked(self) -> None:
     if not self.parked():
@@ -687,20 +687,15 @@ class ModelManager:
           if (not isinstance(values, list) or len(values) > len(model_entries(self.root)) or
               any(not isinstance(x, str) or x not in model_entries(self.root) for x in values)):
             raise ModelError("Unknown model preference")
-        changes_selection = bool(set(payload) & {"randomizer", "blacklistedModels"})
         if "randomizer" in payload and type(payload["randomizer"]) is not bool:
           raise ModelError("Invalid randomizer preference")
-        if changes_selection:
-          self._require_parked()
         if "sortMode" in payload and payload["sortMode"] not in ("name", "date", "date_oldest", "community", "series", "favorites", "released"):
           raise ModelError("Invalid sort mode")
         with state_lock(self.root):
-          if changes_selection:
-            self._require_parked()
           saved = preferences(self.root)
           saved.update(payload)
           atomic_json(self.root / "preferences.json", saved)
-        return {"message": "Model preferences saved"}
+        return {**self.snapshot(), "message": "Model preferences saved"}
       if action != "active":
         self._require_parked()
       if action in ("download", "download_all", "refresh_manifest"):
@@ -790,7 +785,7 @@ class ModelManager:
             return {"message": "Model selected for Jetlink"}
           saved[profile] = mid
           atomic_json(self.root / "preferences.json", saved)
-        return {"message": "Model selected for the next drive"}
+        return {**self.snapshot(), "message": "Model selected for the next drive"}
       if action == "delete":
         if set(payload) != {"model"}:
           raise ModelError("Invalid delete request")

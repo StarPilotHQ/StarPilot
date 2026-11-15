@@ -163,7 +163,7 @@ class ModelLaboratory:
                           "published": sum(row["modelLabArtifactAvailable"] is True for row in models),
                           "declaredSize": sum(int(row["artifactSize"]) for row in models)},
               "models": models, "manifest": {"version": GENERATION},
-              "capabilities": {"configure": parked, "download": parked,
+              "capabilities": {"configure": True, "download": parked,
                                "delete": parked, "cancel": True, "refresh": parked}}
 
   def action(self, action: str, payload: dict) -> dict:
@@ -171,7 +171,8 @@ class ModelLaboratory:
     if not isinstance(payload, dict):
       raise ModelError("Invalid laboratory request")
     with owner.lock:
-      owner._require_parked()
+      if action != "configure":
+        owner._require_parked()
       if action == "download":
         if set(payload) != {"model"} or not isinstance(payload["model"], str):
           raise ModelError("Unknown laboratory model")
@@ -182,7 +183,8 @@ class ModelLaboratory:
       if action not in ("configure", "delete"):
         raise ModelError("Unknown laboratory action")
       with state_lock(owner.root):
-        owner._require_parked()
+        if action != "configure":
+          owner._require_parked()
         if owner._job_busy():
           raise ModelError("Wait for the model download to finish")
         if action == "configure":
@@ -196,7 +198,6 @@ class ModelLaboratory:
             for role in ("lateralModel", "longitudinalModel"):
               if verified_artifact(payload[role], entries, owner.root, laboratory_variant(payload[role], entries)) is None:
                 raise ModelError("Download and verify both model artifacts first")
-            owner._require_parked()
           atomic_json(owner.root / "laboratory.json", payload)
           message = "Model Laboratory configuration saved"
         else:
