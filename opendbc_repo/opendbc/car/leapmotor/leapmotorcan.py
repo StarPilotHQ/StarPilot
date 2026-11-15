@@ -67,10 +67,11 @@ LCC_RAMP_IDLE = 0x7801
 LCC_RAMP_STEP = 254
 LCC_RAMP_STEPS_MIN = 25
 LCC_RAMP_STEPS_MAX = 46
-# TEST: how deep the low-speed boost (CarControllerParams.RAMP_BOOST_LAG) may take the ramp, past the deepest stock value.
+# How deep the low-speed boost (CarControllerParams.RAMP_BOOST_LAG) may take the ramp, past the deepest stock value.
 # On route 270 all 7 steerSaturated episodes (25-41 km/h) had the ramp at 46 steps with the wheel 2-6 deg behind the
 # command. At 52 steps (route 273, 35 min engaged) the EPS used more torque, the wheel's mean lag in roundabouts fell
 # from 6-15 to about 4 deg, and nothing faulted. 56 is the deepest value whose top 4 bits stay 4, as at 42-46 steps.
+# Since route 0000000a the boost reached 56 only while the wheel trailed a fast-turning command, with the EPS at 30-90.
 LCC_RAMP_STEPS_BOOST_MAX = 56
 # Ramp-in speed below LCC_RAMP_STEPS_MIN: stock moves one step per frame (0.5 s to 25 steps), and 50-68% of the frames
 # where the wheel fell > 5 deg behind were in that ramp-in. Two steps per frame reaches 25 steps in 0.25 s; deeper than
