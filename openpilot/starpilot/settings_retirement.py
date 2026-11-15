@@ -27,10 +27,11 @@ def retire_settings(params):
   Returns concrete reconciliation issues for manager logging.
   """
   issues = []
-  smoothing_migrated, readable = read_saved(params, "HighwaySmoothingDefaultApplied", 8)
+  smoothing_migrated, readable = read_saved(params, "HighwaySmoothingZeroDefaultApplied", 8)
   if readable and smoothing_migrated is None:
-    params.put("HighwaySmoothingLevel", 3.7, block=True)
+    params.put("HighwaySmoothingLevel", 10.0, block=True)
     params.put_bool("HighwaySmoothingDefaultApplied", True, block=True)
+    params.put_bool("HighwaySmoothingZeroDefaultApplied", True, block=True)
   elif not readable or smoothing_migrated != b"1":
     issues.append("Invalid highway smoothing enrollment state retained; saved strength unchanged")
   evidence = {}
