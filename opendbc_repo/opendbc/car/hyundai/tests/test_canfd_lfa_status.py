@@ -518,3 +518,55 @@ def test_actual_interface_preserves_camera_lane_safety_user_mode(car, alpha, mod
     assert int.from_bytes(own[0][1][:2], 'little') == hkg_can_fd_checksum(0x12A, None, bytearray(own[0][1]))
     if not active:
       assert decoder.vl['LFA']['StrTqReqVal'] == 0
+
+
+@pytest.mark.parametrize('car', (CAR.KIA_NIRO_EV_2ND_GEN, CAR.GENESIS_GV60_EV_1ST_GEN))
+@pytest.mark.parametrize('alpha', (False, True))
+def test_actual_active_owner_status_keeps_its_display_without_changing_camera_faults(car, alpha, clock):
+  cp = params(car, alpha=alpha)
+  ci = CarInterface(cp)
+  ci.update([])
+  packer = CANPacker(DBC[car][Bus.pt])
+  decoder = CANParser(DBC[car][Bus.pt], [('LFA', 0)], ci.CC.CAN.ECAN)
+  command = structs.CarControl.new_message(enabled=True, latActive=True)
+  command.actuators.torque = .2
+  for tick in range(4):
+    clock[0] = 5_000_000_000 + tick * 10_000_000
+    stock = template(packer, ci.CC.CAN.CAM, tick, warning=15, fault=0)
+    assert ci.update([(clock[0], physical_frames(ci, packer, tick, stock))]).canValid
+    _, packets = ci.apply(command.as_reader(), clock[0])
+    own = [p for p in packets if p[0] == 0x12A and p[2] == ci.CC.CAN.ECAN]
+    assert len(own) == 1
+    decoder.update([(clock[0], own)])
+    assert decoder.vl['LFA']['LKA_SysIndReq'] == 2
+    assert decoder.vl['LFA']['LKA_SysWrn'] == 0
+    assert decoder.vl['LFA']['ToiFltSta'] == 0
+    assert own[0][1][9] == stock[1][9] and own[0][1][14] == stock[1][14]
+    assert ci.CS.stock_lfa_status.body == stock[1]
+    assert (stock[1][4] >> 6) | ((stock[1][5] & 1) << 2) == 4
+    assert stock[1][7] >> 4 == 15
+
+
+@pytest.mark.parametrize('fresh', (False, True))
+@pytest.mark.parametrize('active', (False, True))
+@pytest.mark.parametrize('indication', (4, 5, 6, 7))
+@pytest.mark.parametrize('warning', (0, 4, 15))
+@pytest.mark.parametrize('fault', (0, 1, 2, 3))
+def test_active_owner_status_preserves_faults_and_inactive_or_stale_indications(fresh, active, indication, warning, fault):
+  from opendbc.car.hyundai.hyundaicanfd import create_steering_messages
+  cp = params(CAR.GENESIS_GV60_EV_1ST_GEN)
+  packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+  _, body, _ = packer.make_can_msg('LFA', 2, {'LKA_SysIndReq': indication, 'LKA_SysWrn': warning,
+                                          'ToiFltSta': fault, 'ActToiSta': 0, 'StrTqReqVal': -100})
+  kwargs = {'stock_lfa' if fresh else 'stock_lfa_faults': body}
+  own = create_steering_messages(packer, cp, CanBus(cp), active, active, 2 if active else 0, **kwargs)
+  decoder = CANParser(DBC[cp.carFingerprint][Bus.pt], [('LFA', 0)], CanBus(cp).ECAN)
+  decoder.update([(1_000_000_000, own)])
+  status = decoder.vl['LFA']
+  owns_status = fresh and active and indication == 4 and warning == 15 and fault == 0
+  assert status['LKA_SysIndReq'] == (2 if owns_status else indication)
+  assert status['LKA_SysWrn'] == (0 if owns_status else warning)
+  assert status['ToiFltSta'] == fault
+  assert status['ActToiSta'] == int(active)
+  assert status['StrTqReqVal'] == (2 if active else 0)
+  assert int.from_bytes(own[0][1][:2], 'little') == hkg_can_fd_checksum(0x12A, None, bytearray(own[0][1]))

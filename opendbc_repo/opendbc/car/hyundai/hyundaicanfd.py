@@ -78,7 +78,12 @@ def create_steering_messages(packer, CP, CAN, enabled, lat_active, apply_torque,
       # Stale samples retain only faults; a fresh healthy camera sample clears them.
       mask = LFA_CONTROL_MASK if stock_lfa is not None else bytes(value ^ 0xFF for value in LFA_FAULT_MASK)
       stock_indication = (source[4] >> 6) | ((source[5] & 1) << 2)
-      if stock_indication >= 4:
+      active_owner_status = (stock_lfa is not None and lat_active and stock_indication == 4 and
+                             source[7] >> 4 == 15 and not source[6] & 0xC0)
+      if active_owner_status:
+        mask = bytearray(mask)
+        mask[7] |= 0xF0
+      elif stock_indication >= 4:
         mask = bytearray(mask)
         mask[4], mask[5] = mask[4] & 0x3F, mask[5] & 0xFE
       elif stock_lfa is None:
