@@ -278,6 +278,37 @@ class TestAthenadMethods(OpenpilotTestCase):
     assert resp['items'][0].get('id') is not None
     assert athenad.upload_queue.qsize() == 1
 
+  @parameterized.expand([None, {}, {"Content-Type": "application/octet-stream"}], names=("headers",))
+  def test_upload_files_optional_headers(self, headers):
+    files = []
+    for name in ("rlog.zst", "fcamera.hevc"):
+      self._create_file(name)
+      item = {"fn": f"2026-10-04--00-00-00--0/{name}", "url": f"https://upload.example/{name}?signature=signed"}
+      if headers is not None:
+        item["headers"] = headers
+      files.append(item)
+    response = dispatcher["uploadFilesToUrls"](files)
+    assert response["enqueued"] == 2 and "failed" not in response
+    assert athenad.upload_queue.qsize() == 2
+    for requested, queued in zip(files, response["items"], strict=True):
+      assert queued["url"] == requested["url"]
+      assert queued["headers"] == (headers if headers is not None else {})
+      assert queued["allow_cellular"] is False
+      assert queued["priority"] == athenad.DEFAULT_UPLOAD_PRIORITY
+
+  @parameterized.expand([
+    {"headers": None}, {"headers": []}, {"headers": {"bad header": "value"}},
+    {"headers": {"X-Test": "value\r\nInjected: bad"}}, {"headers": {"X-Test": 1}},
+    {"fn": "../rlog.zst"}, {"fn": "/rlog.zst"}, {"url": "file:///tmp/rlog.zst"},
+    {"allow_cellular": 1}, {"priority": -1}, {"priority": True}, {"extra": True},
+  ], names=("invalid",))
+  def test_upload_files_invalid_batch_is_not_partially_queued(self, invalid):
+    self._create_file("rlog.zst")
+    valid = {"fn": "2026-10-04--00-00-00--0/rlog.zst", "url": "https://upload.example/rlog.zst?signature=signed"}
+    with self.assertRaisesRegex(TypeError, "invalid param: files_data"):
+      dispatcher["uploadFilesToUrls"]([valid, valid | invalid])
+    assert athenad.upload_queue.empty()
+
   def test_upload_file_to_url_duplicate(self, host):
     self._create_file('qlog.zst')
 
