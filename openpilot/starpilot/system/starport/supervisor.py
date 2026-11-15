@@ -1878,13 +1878,13 @@ class Supervisor:
       raise errors[0]
 
   def recover_wifi(self, now: float | None = None) -> None:
-    """Turn wlan0 autoconnect back on if a session paused it and crashed. Retried while idle until it works."""
+    """Turn wlan0 autoconnect back on and rejoin a network a session stopped. Retried while idle until done."""
     now = time.monotonic() if now is None else now
     if now < self._wifi_recover_at or self._session_alive():
       return
-    from openpilot.starpilot.system.starport.network import recover_autoconnect
+    from openpilot.starpilot.system.starport import network
     try:
-      done = recover_autoconnect(self.log)
+      done = network.recover_autoconnect(self.log) and network.rejoin_interrupted(self.log)
     except Exception as error:
       self.log("wifi_autoconnect_recover_failed", error=str(error))
       done = False

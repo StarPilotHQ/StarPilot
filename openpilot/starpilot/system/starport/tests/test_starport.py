@@ -1266,11 +1266,100 @@ def test_autoconnect_stays_on_when_recovery_marker_cannot_be_written(tmp_path, m
   assert not lease.autoconnect_paused and changes == []
 
 
+class RejoinNM:
+  def __init__(self, state=30, autoconnect=True, available=("/settings/home",)):
+    self.state, self.autoconnect, self.available = state, autoconnect, list(available)
+    self.activated = []
+    self.refuse = False
+
+  def install(self, monkeypatch, network):
+    monkeypatch.setattr(network.NetworkLease, "_wifi_devices", lambda lease: [("/dev/wlan0", "wlan0")])
+    props = {"Autoconnect": lambda: self.autoconnect, "State": lambda: self.state, "AvailableConnections": lambda: self.available}
+    monkeypatch.setattr(network.NetworkLease, "_get", lambda lease, path, interface, name: props[name]())
+    def call(lease, path, interface, member, signature=None, body=(), timeout=10.0):
+      self.activated.append((member, body))
+      if self.refuse:
+        raise network.NetworkError("No connection with that path")
+    monkeypatch.setattr(network.NetworkLease, "_call", call)
+
+
+def rejoin_marker(tmp_path, network, connections=("/settings/home",), boot=None):
+  marker = tmp_path / "rejoin.json"
+  marker.write_text(json.dumps({"interface": "wlan0", "boot": boot or network._boot_id(), "connections": list(connections)}))
+  return marker
+
+
+def test_rejoin_reactivates_the_network_a_hold_interrupted(tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  nm, log = RejoinNM(), []
+  nm.install(monkeypatch, network)
+  marker = rejoin_marker(tmp_path, network)
+  assert network.rejoin_interrupted(lambda event, **fields: log.append(event), marker)
+  assert nm.activated == [("ActivateConnection", ("/settings/home", "/dev/wlan0", "/"))] and not marker.exists()
+  assert log == ["wifi_rejoined"]
+
+
+@pytest.mark.parametrize("nm", [RejoinNM(state=100), RejoinNM(state=50), RejoinNM(autoconnect=False), RejoinNM(available=())],
+                         ids=["connected", "joining", "held", "out_of_range"])
+def test_rejoin_waits_until_wlan0_is_idle_and_the_network_is_in_range(tmp_path, monkeypatch, nm):
+  from openpilot.starpilot.system.starport import network
+  nm.install(monkeypatch, network)
+  marker = rejoin_marker(tmp_path, network)
+  assert not network.rejoin_interrupted(lambda *a, **k: None, marker)
+  assert nm.activated == [] and marker.exists()
+
+
+def test_rejoin_prefers_the_latest_interrupted_network(tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  nm = RejoinNM(available=("/settings/hotspot", "/settings/home"))
+  nm.install(monkeypatch, network)
+  marker = rejoin_marker(tmp_path, network, connections=("/settings/hotspot", "/settings/home"))
+  assert not network.rejoin_interrupted(lambda *a, **k: None, marker)
+  assert nm.activated == [("ActivateConnection", ("/settings/home", "/dev/wlan0", "/"))]
+  assert json.loads(marker.read_text())["connections"] == ["/settings/hotspot"]
+
+
+def test_rejoin_gives_up_on_a_network_after_two_refused_joins(tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  nm = RejoinNM()
+  nm.refuse = True
+  nm.install(monkeypatch, network)
+  marker = rejoin_marker(tmp_path, network)
+  assert not network.rejoin_interrupted(lambda *a, **k: None, marker)
+  assert marker.exists()
+  assert network.rejoin_interrupted(lambda *a, **k: None, marker)
+  assert len(nm.activated) == 2 and not marker.exists()
+
+
+def test_rejoin_keeps_waiting_while_networkmanager_is_unavailable(tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  nm = RejoinNM()
+  nm.install(monkeypatch, network)
+
+  def unavailable(lease):
+    raise network.NetworkError("NetworkManager is not running")
+  monkeypatch.setattr(network.NetworkLease, "_wifi_devices", unavailable)
+  marker = rejoin_marker(tmp_path, network)
+  for _ in range(3):
+    assert not network.rejoin_interrupted(lambda *a, **k: None, marker)
+  assert marker.exists() and "failures" not in json.loads(marker.read_text())
+
+
+def test_rejoin_is_dropped_after_a_reboot(tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  nm = RejoinNM()
+  nm.install(monkeypatch, network)
+  marker = rejoin_marker(tmp_path, network, boot="an earlier boot")
+  assert network.rejoin_interrupted(lambda *a, **k: None, marker)
+  assert nm.activated == [] and not marker.exists()
+
+
 def test_supervisor_retries_wifi_recovery_while_idle(monkeypatch):
   from openpilot.starpilot.system.starport import network, supervisor
   results = [False, True]
   calls = []
   monkeypatch.setattr(network, "recover_autoconnect", lambda log: calls.append(1) or results.pop(0))
+  monkeypatch.setattr(network, "rejoin_interrupted", lambda log: True)
   sup = supervisor.Supervisor.__new__(supervisor.Supervisor)
   sup.log, sup._wifi_recover_at = (lambda *a, **k: None), 0.0  # ty: ignore[invalid-assignment]  # test double
   sup._session_alive = lambda: False  # ty: ignore[invalid-assignment]  # test double

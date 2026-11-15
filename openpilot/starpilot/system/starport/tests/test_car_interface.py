@@ -1,4 +1,5 @@
 from typing import Any
+import json
 import os
 import subprocess
 import sys
@@ -397,9 +398,14 @@ def test_hold_autoconnect_on_lost_home_wifi(tmp_path, state, held, disconnected)
   lease._call, lease._get, lease._set = nm.call, nm.get, nm.set_property
   lease.router = type("R", (), {"close": lambda self: None})()
   lease.marker = tmp_path / "paused.json"
+  lease.rejoin_marker = tmp_path / "rejoin.json"
   assert lease.hold_autoconnect() is held
   assert ("Disconnect" in nm.calls) is disconnected
   assert nm.set == ([("/dev/wlan0", "Autoconnect", False)] if held else [])
+  # NetworkManager blocks a network stopped mid-join, so only that one is noted for a rejoin
+  assert lease.rejoin_marker.exists() is disconnected
+  if disconnected:
+    assert json.loads(lease.rejoin_marker.read_text())["connections"] == ["/settings/home"]
   lease.release(restore=True)
   assert nm.autoconnect and not lease.marker.exists()
 
