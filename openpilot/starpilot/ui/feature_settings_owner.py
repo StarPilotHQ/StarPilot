@@ -955,7 +955,7 @@ class FeatureSettingsOwner:
       rows.extend(self.gm_truck.rows(parked))
       rows.extend(self.gm_ev_preset.rows(parked))
       rows.extend(self.volt_radar.rows())
-      rows.extend(row for row in self.panda_wake.rows(parked) if row.key != "IgnoreIgnitionLine")
+      rows.extend(self.panda_wake.rows(parked))
       pedal_capability = self._pedal_setup_capability()
       if pedal_capability is not None:
         from opendbc.car.gm.values import GMFlags

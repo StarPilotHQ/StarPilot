@@ -1,7 +1,5 @@
 """Galaxy-only, next-drive developer preferences."""
 
-from dataclasses import replace
-
 from openpilot.starpilot.longitudinal.voacc import KEY, DESCRIPTION
 from openpilot.starpilot.ui.calibration_reset import calibration_reset
 from openpilot.starpilot.saved_document import commit_exact
@@ -31,10 +29,9 @@ DRIVER_MONITORING_RESET_DESCRIPTION = "Clear saved wheel-side detection. Automat
 
 
 class DeveloperSettingsOwner:
-  def __init__(self, params, authorized, *, panda_wake=None, starport=None):
+  def __init__(self, params, authorized, *, starport=None):
     self.params = params
     self.authorized = authorized
-    self.panda_wake = panda_wake
     self.starport = starport  # returns the StarPort daemon client
 
   def _starport_status(self):
@@ -99,13 +96,10 @@ class DeveloperSettingsOwner:
                                  calibration_raw if calibration_readable else None, available=calibration_available,
                                  reason=CALIBRATION_RESET_DESCRIPTION if calibration_available else
                                         "Park the vehicle and wait for any pending reset to finish.")
-    firmware_rows = (() if self.panda_wake is None else
-                     tuple(replace(item, vehicle_fingerprint=item.capability[0])
-                           for item in self.panda_wake.rows(parked) if item.key == "IgnoreIgnitionLine"))
     starport_rows = self._starport_rows(parked)
-    summary = "Changes apply next drive. Panda firmware changes require a device restart." if firmware_rows else "Changes apply next drive."
+    summary = "Changes apply next drive."
     return FeatureSettingsState("developer", "Developer driving options", summary,
-                                (row, reset_row, calibration_row, *firmware_rows, *starport_rows), parked)
+                                (row, reset_row, calibration_row, *starport_rows), parked)
 
   def apply(self, request):
     if request.key == CALIBRATION_RESET:
@@ -128,8 +122,6 @@ class DeveloperSettingsOwner:
       except (OSError, RuntimeError, TypeError, ValueError):
         return False
       return True
-    if request.key == "IgnoreIgnitionLine":
-      return self.panda_wake is not None and self.panda_wake.apply(request)
     if request.key == STARPORT_WIFI_KEY:
       return self._apply_starport(request, "dedicated_wifi_interface", "set_dedicated_wifi")
     if request.key == STARPORT_HEVC_KEY:

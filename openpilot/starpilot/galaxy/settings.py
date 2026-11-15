@@ -633,7 +633,6 @@ class SettingsGateway:
       fresh = self.context.sample() if live else ctx
       return bool(fresh.parked and not fresh.editing_saved_vehicle and fresh.cp_raw == ctx.cp_raw)
     return DeveloperSettingsOwner(self.params, authorized,
-                                  panda_wake=self._owner(ctx, live=live, session_valid=session_valid).panda_wake,
                                   starport=self.starport)
 
   def _localization_owner(self, ctx: AuthorityContext, *, live: bool = False,
