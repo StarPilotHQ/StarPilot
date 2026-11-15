@@ -191,9 +191,8 @@ class EvidenceBank:
       groups = {}
       for context, windows in getattr(collected, kind).items():
         for window in windows:
-          condition = cohort(window)
-          if condition is not None:
-            groups.setdefault((context, condition), []).append(window)
+          condition = cohort(window) or 'mixed:observed'
+          groups.setdefault((context, condition), []).append(window)
       for (context, condition), windows in sorted(groups.items()):
         ordered = sorted(windows, key=lambda w: (w.points[0].segment, w.points[0].mono_ns))
         buckets.append((kind, context, condition, _spread(ordered, 4)))
@@ -384,5 +383,5 @@ def permitted_window(row, metadata, receipt):
     and window.points[0].route == receipt.route_id
     and 0 <= window.points[0].segment < len(receipt.segments)
     and window.points[0].context_key == hashlib.sha256(repr(comparison).encode()).hexdigest()
-    and cohort(window) == row['condition']
+    and (cohort(window) or 'mixed:observed') == row['condition']
   )

@@ -429,7 +429,8 @@ def recorded_recommendations(assessment, previous, report):
       add(proposal, windows, 'training_candidate_not_independently_confirmed', feedback=feedback)
   for proof in report.get('observed_profile_reports', ()):
     for proposal in proof.get('coordinate_candidates', ()):
-      add(proposal, len(proof['original_windows']), 'recorded_candidate_not_independently_confirmed', proof.get('source_baseline'))
+      add(proposal, len(proposal.get('original_windows', proof['original_windows'])),
+          'recorded_candidate_not_independently_confirmed', proof.get('source_baseline'))
   for name in report.get('refused_parameters', ()):
     if name in found and found[name]['target'] is not None:
       found[name]['reason'] = 'controller_checks_did_not_support_change'
@@ -881,9 +882,15 @@ class OffroadWorker:
         for c in group['cohorts']
       )
     ) if type(assessment) is CompletedAssessment else ()
+    raw_observed = [
+      (group['original_tracking_context_sha256'], source)
+      for group in assessment.diagnostic_groups for source in group.get('observed_sources', ())
+      if source['metadata']['domain'] == 'lateral_acceleration'
+      and recorded_source_contract(assessment.cp, source['metadata'], scope, self.params) is not None
+    ]
     if (
       type(assessment) is CompletedAssessment and (
-        assessment.stable_groups or short_groups or any(g.get('observed_original_windows') for g in assessment.groups)
+        assessment.stable_groups or short_groups or raw_observed or any(g.get('observed_original_windows') for g in assessment.groups)
       )
       and self.checker is qualify and scope.controller_domain == 'torque'
     ):
@@ -891,6 +898,22 @@ class OffroadWorker:
 
       selector = StableRouteSelector(assessment, self.root, current, scope, permitted=self.permitted)
       report['observed_profile_reports'] = []
+      for context, source in raw_observed:
+        # A diagnostic identity uses a different context key from the native
+        # windows, even when their source times overlap. Keep its reread and
+        # caches separate; diagnostics cannot invalidate native input roles.
+        observed_selector = StableRouteSelector(assessment, self.root, current, scope, permitted=self.permitted)
+        observed_selector.spans, observed_selector.contexts = {}, {}
+        observed_selector.include_observations(context, source['windows'])
+        proof = observed_selector.observe(tuple(w['identity'] for w in source['windows']))
+        proof['coordinate_candidates'] = [
+          candidate for candidate in proof['coordinate_candidates']
+          if all(source['coordinate_baselines'].get(name) == current[name] for name, target in candidate['values'].items() if target != current[name])
+        ]
+        report['observed_profile_reports'].append(dict(
+          proof, source_coordinate_baselines=source['coordinate_baselines'],
+          original_metadata_missing_rows=source['missing_metadata_rows'], diagnostic_tracking_only=True,
+        ))
       for group in assessment.groups:
         metadata = group['original_metadata']
         baseline = _recorded_values(metadata)
@@ -901,12 +924,10 @@ class OffroadWorker:
         if baseline != current:
           source_selector = StableRouteSelector(assessment, self.root, baseline, scope, permitted=self.permitted)
           source_selector.rows = selector.rows
-        for condition in sorted({w['cohort'] for w in observed}):
-          ids = tuple(w['identity'] for w in observed if w['cohort'] == condition)
-          if 3 <= len(ids) <= 12:
-            _, proof = source_selector.profile(ids, condition)
-            selector.rows = source_selector.rows
-            report['observed_profile_reports'].append(dict(proof, source_baseline=baseline, automatic_application_allowed=False))
+        if observed:
+          proof = source_selector.observe(tuple(w['identity'] for w in observed))
+          selector.rows = source_selector.rows
+          report['observed_profile_reports'].append(dict(proof, source_baseline=baseline))
       report['stable_profile_reports'] = []
       for group in assessment.stable_groups:
         metadata = group['original_metadata']
