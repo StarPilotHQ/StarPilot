@@ -172,3 +172,45 @@ def test_selected_bosch_a_direct_update_uses_its_actual_protocol(candidate):
   result = radar._update([radar.trigger_msg])
   assert result.errors.canError
   assert not result.points
+
+
+@pytest.mark.parametrize("identity", (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
+@pytest.mark.parametrize("alpha", (False, True))
+def test_consumed_signal_projection_matches_full_decoder_and_reduces_decode_work(identity, alpha, monkeypatch):
+  from opendbc.can import CANParser
+  from opendbc.can.dbc import Signal
+  from opendbc.car import Bus
+  from opendbc.car.honda.bosch_a_radar import BOSCH_A_ALL_IDS, BOSCH_A_FREQ_HZ
+  from opendbc.car.honda.values import DBC
+  cp = CarInterface.get_params(identity, gen_empty_fingerprint(), [], alpha, False, False)
+  projected, full = RadarInterface(cp), RadarInterface(cp)
+  assert projected.bosch_a is not None and full.bosch_a is not None
+  bus = CanBus(cp).camera
+  full.rcp = full.bosch_a.rcp = CANParser(DBC[cp.carFingerprint][Bus.radar],
+                                        [(address, BOSCH_A_FREQ_HZ) for address in BOSCH_A_ALL_IDS], bus)
+  batches = [sweep(bus, index, 1_000_000_000 + index * 70_000_000) for index in range(4)]
+  batches.append([(1_300_000_000, [])])
+  batches.append([(1_600_000_000, [])])
+  batches += [sweep(bus, index, 1_700_000_000 + index * 70_000_000) for index in range(4, 7)]
+  batches.append(sweep(bus + 1, 7, 2_300_000_000))
+  batches.append(sweep(bus, 8, 2_400_000_000, with_aux=False))
+  original = Signal.get_raw_value
+  counts = []
+  outputs = []
+  for receiver in (projected, full):
+    calls = []
+    def decode(signal, data, _calls=calls):
+      _calls.append(1)
+      return original(signal, data)
+    monkeypatch.setattr(Signal, "get_raw_value", decode)
+    result = []
+    for batch in batches:
+      value = receiver.update(batch)
+      result.append((value.to_bytes() if value is not None else None, receiver.rcp.can_valid,
+                     receiver.rcp.last_nonempty_nanos, receiver.rcp._last_update_nanos,
+                     {address: (state.counter, state.counter_fail, tuple(state.timestamps))
+                      for address, state in receiver.rcp.message_states.items()}))
+    counts.append(len(calls))
+    outputs.append(result)
+  assert outputs[0] == outputs[1]
+  assert counts[0] < counts[1]

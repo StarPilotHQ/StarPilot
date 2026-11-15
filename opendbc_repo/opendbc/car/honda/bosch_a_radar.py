@@ -1,5 +1,6 @@
 import math
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
@@ -119,7 +120,16 @@ def _bosch_a_measurement_degraded(range_sigma_raw: int, existence_raw: int, dire
 
 def _create_bosch_a_can_parser(CP):
   messages = [(addr, BOSCH_A_FREQ_HZ) for addr in BOSCH_A_ALL_IDS]
-  return CANParser(DBC[CP.carFingerprint][Bus.radar], messages, CanBus(CP).camera)
+  main_signals = (
+    ("FRAME_IDX", "STATUS", "RANGE_RAW", "AZIMUTH_RAW", "RANGE_SIGMA_RAW"),
+    ("FRAME_IDX", "OBJECT_EXISTENCE_PROBABILITY_RAW"),
+    ("FRAME_IDX", "LIFECYCLE_RAW"),
+    ("FRAME_IDX", "TRACK_ID"),
+  )
+  signals: dict[str | int, Sequence[str]] = {addr: main_signals[index] for ids in BOSCH_A_MAIN_IDS for index, addr in enumerate(ids)}
+  signals.update(dict.fromkeys(BOSCH_A_AUX_IDS, ("FRAME_IDX", "REL_VELOCITY_RAW", "REL_VELOCITY_UNCERTAINTY_RAW",
+                                               "RANGE_RATIO_RAW", "FW_LID_00C9_RAW", "FW_LID_00CA_RAW")))
+  return CANParser(DBC[CP.carFingerprint][Bus.radar], messages, CanBus(CP).camera, signals=signals)
 
 
 VERIFIED_BOSCH_A_CARS = frozenset((CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
