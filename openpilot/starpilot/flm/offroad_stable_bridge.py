@@ -362,6 +362,7 @@ class StableRouteSelector:
   def observe(self, windows):
     """Pool original symptoms across maneuvers without granting native fit credit."""
     from openpilot.starpilot.flm.offroad_coordinate_policy import coordinate_candidates
+    from openpilot.starpilot.flm.offroad_observed import curve_candidates
 
     if not 1 <= len(windows) <= 4096 or len(set(windows)) != len(windows) or any(key not in self.spans for key in windows):
       raise ValueError('Bounded unique original observations required')
@@ -372,15 +373,19 @@ class StableRouteSelector:
     available = [key for key in ordered if self.rows.get(key) is not None]
     available_ids = set(available)
     observations = []
-    for start in range(0, len(available), 12):
+    profiles = []
+    # Four seconds of shared original context preserve the existing 3.6 s
+    # curve detector at batch edges. Votes still count each source window once.
+    for start in range(0, len(available), 10):
       if not self.permitted():
         raise ValueError('Parked observation analysis cancelled')
-      _, proof = self.profile(tuple(available[start:start + 12]), 'observed_maneuvers', observations_only=True)
+      mapped, proof = self.profile(tuple(available[start:start + 12]), 'observed_maneuvers', observations_only=True)
       observations.extend(proof['coordinate_observations'])
+      profiles.append((mapped, proof['coordinate_observations']))
     return {
       'original_windows': ordered,
       'unavailable_original_windows': [key for key in ordered if key not in available_ids],
-      'coordinate_candidates': coordinate_candidates(observations, self.previous),
+      'coordinate_candidates': coordinate_candidates(observations, self.previous) + curve_candidates(profiles, self.previous),
       'automatic_application_allowed': False,
     }
 

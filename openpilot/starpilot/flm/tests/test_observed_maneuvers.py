@@ -9,11 +9,11 @@ from openpilot.starpilot.flm.offroad_processor import CompletedAssessment, _asse
 from openpilot.starpilot.flm.offroad_stable_bridge import StableRouteSelector
 from openpilot.starpilot.flm.offroad_stable_policy import FLMSample
 from openpilot.starpilot.flm.tests.test_offroad_backend import scope, values
-from openpilot.starpilot.flm.tests.test_offroad_coordinate_policy import TestCrossDriveEvidence as CrossDriveFixture
+from openpilot.starpilot.flm.tests import test_offroad_coordinate_policy as fixtures
 
 
 def mixed_drive(number):
-  collected, inventory = CrossDriveFixture.inputs(number)
+  collected, inventory = fixtures.TestCrossDriveEvidence.inputs(number)
   for key, windows in collected.windows.items():
     changed = []
     for original in windows:
@@ -110,7 +110,7 @@ def test_partial_metadata_preserves_only_observed_consistent_coordinate_baseline
   from openpilot.starpilot.flm.offroad_control_metadata import read_control_metadata
   from openpilot.starpilot.flm.tests.test_configured_route_recording import control, wire
 
-  inputs, _ = CrossDriveFixture.inputs(1)
+  inputs, _ = fixtures.TestCrossDriveEvidence.inputs(1)
   context, windows = next(iter(inputs.windows.items()))
   metadata = inputs.context_metadata[context]
   template = read_control_metadata(wire(control(legacy=True)))
@@ -141,3 +141,39 @@ def test_partial_metadata_preserves_only_observed_consistent_coordinate_baseline
   assert not observed_sources(windows[:1], timeline[30:], original), 'Missing source bookends remain unavailable'
   with pytest.raises(ValueError, match='counted twice'):
     merge_sources([source, source])
+
+
+def test_notchy_curve_advice_reaches_only_speed_points_with_three_original_windows():
+  import math
+
+  reader, ids = selector(3)
+  for key in ids:
+    original = reader.rows[key]
+    assert original is not None
+    # Six source seconds retain the classifier's original edge exclusions
+    # and long notchy-curve window; no sample-count threshold is shortened.
+    reader.spans[key]['end_ns'] = 7 * 10**9
+    reader.rows[key] = [replace(original[0], t=1 + tick / 100, desired_la=.8, desired_jerk=0.,
+                        actual_la=.8 + .16 * math.sin(4 * math.pi * (1 + tick / 100)),
+                        error=.16 * math.sin(4 * math.pi * (1 + tick / 100))) for tick in range(601)]
+  proof = reader.observe(ids)
+  curve = [candidate for candidate in proof['coordinate_candidates'] if 'friction_threshold_' in candidate['parameter']]
+  assert {candidate['parameter'] for candidate in curve} == {'stable:friction_threshold_fast', 'stable:friction_threshold_highway'}
+  assert all(len(candidate['original_windows']) == 3 and 0 < candidate['delta'] <= .01 for candidate in curve)
+  assert not proof['automatic_application_allowed']
+  assert not [candidate for candidate in reader.observe(ids[:2])['coordinate_candidates'] if 'friction_threshold_' in candidate['parameter']]
+
+
+def test_many_events_in_one_window_and_conflicting_curve_steps_do_not_inflate_support():
+  from openpilot.starpilot.flm.offroad_observed import curve_candidates
+
+  previous = values()
+  proposed = {'values': dict(previous, friction_threshold_highway=.005)}
+  observation = {'bucket': 'notchy_mid_curve', 'direction': 'left', 'speed_mps': 30., 'severity': 1.}
+  assert not curve_candidates([(proposed, [('one-window', observation)] * 30)], previous)
+  positive = [(str(i), observation) for i in range(3)]
+  rows = curve_candidates([(proposed, positive)], previous)
+  assert len(rows) == 1 and len(rows[0]['original_windows']) == 3
+  reduction = {'values': dict(previous, friction_threshold_highway=-.005)}
+  negative = [(str(i + 3), dict(observation, bucket='low_speed_unwillingness')) for i in range(3)]
+  assert not curve_candidates([(proposed, positive), (reduction, negative)], previous)
