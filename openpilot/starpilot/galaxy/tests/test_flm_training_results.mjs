@@ -123,6 +123,14 @@ configured.current.details['Saved route configuration state'] = 'ready_for_next_
 assert.equal(tunerStatus(configured, true, true).title, 'Tune saved for the next drive')
 assert.equal(configured.current.application.applied, false, 'Saving is not current application')
 assert.notEqual(tunerStatus(configured, false, true).title, 'Tune saved for the next drive', 'Old reports cannot assert current saved state')
+const retained = structuredClone(configured)
+retained.current.details['Saved route configuration state'] = 'retained_after_drive'
+retained.current.details['Analysis decision'] = 'independent_actual_tracking_stable'
+assert.equal(offroadView(retained).configurationState, 'retained_after_drive')
+assert.equal(tunerStatus(retained, true, true).title, 'Completed drive analyzed')
+assert.match(tunerStatus(retained, true, true).description, /adjustments are kept/)
+assert.doesNotMatch(tunerStatus(retained, true, true).description, /improv|proven|uncertain/i)
+assert.equal(retained.current.application.applied, false, 'Retained disk values do not establish current application')
 const fitting = structuredClone(completed)
 fitting.current.status = 'fitting'; fitting.current.reason = 'analyzing_last_completed_drive'
 assert.equal(tunerStatus(fitting, true, true).title, 'Analyzing your drive')

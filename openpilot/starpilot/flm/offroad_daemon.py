@@ -43,7 +43,7 @@ class StatusReport:
     previous = {key: self.previous[key] for key in fields if key in self.previous}
     if previous:
       previous['retained_decision'] = self.previous.get('retained_decision', self.previous.get('reason', 'waiting_for_completed_drive'))
-      if self.previous.get('configuration_state') in ('ready_for_next_drive', 'accepted', 'accepted_after_drive', 'rolled_back'):
+      if self.previous.get('configuration_state') in ('ready_for_next_drive', 'accepted', 'accepted_after_drive', 'retained_after_drive', 'rolled_back'):
         for key in ('configuration_state', 'configured_values', 'saved_adjustments', 'qualification_summary'):
           if key in self.previous:
             previous[key] = self.previous[key]

@@ -60,17 +60,19 @@ class TestEarlySteeringSuggestions(unittest.TestCase):
 
 
 class TestRetainedTrialSources(unittest.TestCase):
-  def drive(self, fixture, params, cache, directory, digit, *, groups=(), stops=()):
+  def drive(self, fixture, params, cache, directory, digit, *, groups=(), stops=(), qualified=True, source_digit=None, pooled=False):
     runner, inventory = fixture.worker(params, cache, directory, digit)
     original_assessor = runner.assessor
 
     def assess(*args, **kwargs):
       result = original_assessor(*args, **kwargs)
-      return replace(result, receipt=replace(result.receipt, segments=((digit, digit * 64, 1),)),
-                     stable_groups=groups, quality_stop_markers=stops)
+      segments = () if source_digit == '' else ((digit, (source_digit or digit) * 64, 1),)
+      return replace(result, receipt=replace(result.receipt, segments=segments),
+                     stable_groups=groups, quality_stop_markers=stops,
+                     evidence_sources={'first': result, 'second': result} if pooled else {})
 
     runner.assessor = assess
-    runner.checker = lambda *args, **kwargs: {'qualified': True}  # Declared unit qualification, no native/road claim.
+    runner.checker = lambda *args, **kwargs: {'qualified': qualified}  # Declared unit qualification, no native/road claim.
     row = decode(read_saved(params, KEY, MAX_BYTES)[0])['routeSurfaces'][scope().key()]
     self.assertTrue(cache.claim_trial(row['analysis_sha256'], digit * 32))
     with patch.object(worker, 'latest_route', return_value=inventory):
@@ -191,6 +193,171 @@ class TestRetainedTrialSources(unittest.TestCase):
       self.assertTrue(store.rollback(scope=scope(), expected=read_saved(params, KEY, MAX_BYTES)[0], authorized=lambda: True))
       restored = decode(read_saved(params, KEY, MAX_BYTES)[0])['routeSurfaces'][scope().key()]
       self.assertEqual(restored['values'], accepted['values'], 'A later trial restores its immediate prior tune, not the first baseline')
+
+  @staticmethod
+  def neutral_groups():
+    original, observed = fixtures.TestComparableNextDriveOutcomes.documents()
+    group, = observed.stable_groups
+    for role in ('training', 'heldout'):
+      current = group['cohorts'][0][role]
+      group['cohorts'][0][role] = dict(original['before'][role], windows=current['windows'], source_sha256=current['source_sha256'])
+    return observed.stable_groups
+
+  def test_two_verified_neutral_drives_finish_review_without_changing_values_or_claiming_improvement(self):
+    from openpilot.starpilot.flm.offroad_quality import from_configuration
+    from openpilot.starpilot.flm.offroad_runtime import configure
+
+    fixture = fixtures.TestBoundedInconclusiveTrialLifecycle()
+    with tempfile.TemporaryDirectory() as directory:
+      params, cache, original, root = fixture.saved_trial(directory)
+      for digit, expected in (('2', 'ready_for_next_drive'), ('3', 'retained_after_drive')):
+        result = self.drive(fixture, params, cache, directory, digit, groups=self.neutral_groups())
+        self.assertEqual(result['status'], expected)
+      raw = read_saved(params, KEY, MAX_BYTES)[0]
+      row = decode(raw)['routeSurfaces'][scope().key()]
+      self.assertEqual(row['values'], original['values'])
+      self.assertEqual(row['previous'], original['previous'])
+      self.assertEqual(cache.get(root), original)
+      review = cache.get(row['analysis_sha256'])
+      self.assertEqual(review['neutral_native_drives'], 2)
+      proofs = [cache.get(digest) for digest in review['neutral_native_reviews']]
+      self.assertEqual({p['source_receipt']['source_sha256'] for p in proofs}, {'2' * 64, '3' * 64})
+      self.assertTrue(all(p['trial_analysis_sha256'] == root for p in proofs))
+      self.assertTrue(all(not r['improved'] and not r['worse'] for c in review['comparisons'] for r in c['independent']))
+      self.assertFalse(result['road_improvement_confirmed'])
+      self.assertFalse(result['configuration_changed'], 'Completing a neutral review is not another adjustment')
+      with patch('openpilot.starpilot.flm.offroad_runtime.configuration_data', return_value=(scope(), (), ())):
+        owner, _ = configure(None, None, SimpleNamespace(), params, manual_status='not_configured')
+      self.assertIsNotNone(owner)
+      self.assertFalse(owner.frame_allowed, 'A retained store still cannot supply actual frame permission')
+      with patch.object(worker, '_current_scope', return_value=scope()):
+        guard = from_configuration(None, params, cache.directory, vehicle_session='f' * 32)
+      self.assertIsNone(guard.stopped)
+      self.assertEqual(guard.baseline, tuple(original['gross_baseline']), 'The original gross-regression guard remains')
+      self.assertTrue(RouteStorage(params).rollback(scope=scope(), expected=raw, authorized=lambda: True))
+      self.assertEqual(decode(read_saved(params, KEY, MAX_BYTES)[0])['routeSurfaces'][scope().key()]['values'], original['previous'])
+
+  def test_missing_unverified_easier_or_copied_drives_cannot_finish_neutral_review(self):
+    fixture = fixtures.TestBoundedInconclusiveTrialLifecycle()
+    for case in ('missing', 'native_refused', 'different_input', 'copied', 'no_segments', 'pooled'):
+      with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+        params, cache, _, _ = fixture.saved_trial(directory)
+        self.drive(fixture, params, cache, directory, '2', groups=self.neutral_groups())
+        group = self.neutral_groups()
+        if case == 'different_input':
+          for role in ('training', 'heldout'):
+            group[0]['cohorts'][0][role]['reference_rms'] = 1.2
+        result = self.drive(fixture, params, cache, directory, '3', groups=() if case == 'missing' else group,
+                            qualified=case != 'native_refused', source_digit='2' if case == 'copied' else '' if case == 'no_segments' else None,
+                            pooled=case == 'pooled')
+        self.assertEqual(result['status'], 'ready_for_next_drive')
+        row = decode(read_saved(params, KEY, MAX_BYTES)[0])['routeSurfaces'][scope().key()]
+        self.assertEqual(cache.get(row['analysis_sha256'])['neutral_native_drives'], 1)
+
+  def test_genuine_regression_and_safety_rollback_win_over_a_prior_neutral_drive(self):
+    from openpilot.starpilot.flm.offroad_surface import stop_marker
+
+    fixture = fixtures.TestBoundedInconclusiveTrialLifecycle()
+    for cause in ('measurement', 'safety'):
+      with self.subTest(cause=cause), tempfile.TemporaryDirectory() as directory:
+        params, cache, original, _ = fixture.saved_trial(directory)
+        self.drive(fixture, params, cache, directory, '2', groups=self.neutral_groups())
+        groups = self.neutral_groups()
+        groups[0]['cohorts'][0]['heldout']['error_reversal_hz'] = 2.
+        stops = ({'reason': stop_marker(scope().key(), original['values'], 'gross_tracking_or_oscillation_worse')},) if cause == 'safety' else ()
+        result = self.drive(fixture, params, cache, directory, '3', groups=groups, stops=stops)
+        self.assertEqual(result['status'], 'rolled_back')
+        self.assertEqual(result['configured_values'], original['previous'])
+
+  def test_later_measured_regression_or_safety_still_rolls_back_a_finished_neutral_review(self):
+    from openpilot.starpilot.flm.offroad_surface import stop_marker
+
+    fixture = fixtures.TestBoundedInconclusiveTrialLifecycle()
+    for cause in ('measurement', 'safety'):
+      with self.subTest(cause=cause), tempfile.TemporaryDirectory() as directory:
+        params, cache, original, _ = fixture.saved_trial(directory)
+        for digit in '23':
+          self.drive(fixture, params, cache, directory, digit, groups=self.neutral_groups())
+        groups = self.neutral_groups()
+        groups[0]['cohorts'][0]['heldout']['error_reversal_hz'] = 2.
+        stops = ({'reason': stop_marker(scope().key(), original['values'], 'gross_tracking_or_oscillation_worse')},) if cause == 'safety' else ()
+        result = self.drive(fixture, params, cache, directory, '4', groups=groups, stops=stops)
+        self.assertEqual(result['status'], 'rolled_back')
+        self.assertEqual(result['configured_values'], original['previous'])
+
+  def test_a_finished_neutral_review_allows_a_new_checked_knob_and_its_own_rollback(self):
+    from openpilot.starpilot.flm.offroad_processor import CompletedAssessment, window_demand
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt, SelectedSourceReceipt
+    from openpilot.starpilot.flm.offroad_prior_inputs import PriorOriginals
+    from openpilot.starpilot.flm.offroad_evidence import RouteWindow, window_identity, tracking_metrics
+    from openpilot.starpilot.flm.offroad_store import startup_row
+    from openpilot.starpilot.flm.tests.test_pid_coordinate_proposals import center_acceleration_windows
+
+    fixture = fixtures.TestBoundedInconclusiveTrialLifecycle()
+    with tempfile.TemporaryDirectory() as directory:
+      params, cache, original, _ = fixture.saved_trial(directory)
+      for digit in '23':
+        self.drive(fixture, params, cache, directory, digit, groups=self.neutral_groups())
+
+      def originals(route):
+        result = []
+        for segment, window in enumerate(center_acceleration_windows(6)):
+          offset = segment * 4_000_000_000
+          points = tuple(replace(p, route=route, segment=segment, mono_ns=p.mono_ns + offset,
+                                 control_header_ns=p.control_header_ns + offset, output_header_ns=p.output_header_ns + offset)
+                         for p in window.points)
+          result.append(RouteWindow(window_identity(points), points))
+        return tuple(result)
+
+      current, prior_windows = originals('declared-new-knob'), originals('declared-independent-knob')
+      cohort, = analyze(current, {n: original['values'][n] for n in NAMES})['cohorts']
+      target = dict(original['values'], **cohort['proposal']['values'])
+      metadata = dict(original['original_metadata'], route_values=tuple(original['values'].items()))
+      spans = [{'identity': w.identity, 'route': w.points[0].route, 'segment': w.points[0].segment,
+                'start_ns': w.points[0].mono_ns, 'end_ns': w.points[-1].mono_ns,
+                'metrics': tracking_metrics(w.points), 'demand': window_demand(w)} for w in current]
+      group = {'original_metadata': metadata, 'original_context_sha256': 'f' * 64,
+               'cohorts': [cohort], 'selected_original_windows': spans}
+      receipt = RouteReceipt('declared-new-knob', '4' * 64, (('current', '6' * 64, 1),), scope().cp_sha256, 1, 2, 105, ())
+      inventory = {'routeId': receipt.route_id}
+      cp = SimpleNamespace(carFingerprint='declared-unit-car')
+      assessment = CompletedAssessment(receipt, (group,), {}, cp, (), inventory)
+      prior = PriorOriginals(cp, SelectedSourceReceipt('declared-independent-knob', '5' * 64,
+        (('prior', '7' * 64, 1),), scope().cp_sha256, 1, 2, 104, (), (0,)), {},
+        tuple({'identity': w.identity, 'original_metadata': metadata} for w in prior_windows), prior_windows)
+      calls = []
+
+      def assessed(params, root, previous, *, permitted):
+        self.assertEqual(previous(assessment.cp), original['values'])
+        return assessment
+
+      def native_protocol(actual, source, ids, values, root, *, permitted):
+        # Declared native protocol only. Real statistical estimation,
+        # independent-drive selection, validation and storage run unchanged.
+        calls.append((actual.receipt.route_id, tuple(ids)))
+        return [{'window': wid, 'qualified': True, 'numerical': {'qualified': True, 'changed_frames': 1},
+                 'registered_encoder': {'qualified': True, 'candidate_changed_emissions': 1}} for wid in ids]
+
+      runner = worker.OffroadWorker(params, directory, cache, permitted=lambda: True, assessor=assessed,
+        prior_provider=lambda *args, **kwargs: prior, scope_for=lambda cp, params: scope())
+      with patch.object(worker, 'latest_route', return_value=inventory), \
+           patch('openpilot.starpilot.flm.offroad_checks._original_results', native_protocol), \
+           patch('openpilot.starpilot.flm.runtime_adapter_registry.car_params_digest', return_value=scope().cp_sha256):
+        result = runner.run_once()
+      self.assertEqual([r for r, _ in calls], ['declared-new-knob', 'declared-independent-knob'])
+      self.assertTrue(all(len(ids) == 6 for _, ids in calls), 'All original training and independent validation rows remain required')
+      self.assertEqual(result['configuration_state'], 'ready_for_next_drive')
+      self.assertEqual(result['configured_values'], target)
+      fresh, _ = startup_row(params, scope())
+      self.assertEqual(fresh['values'], target)
+      self.assertEqual(fresh['previous'], original['values'])
+      self.assertEqual(set(fresh['route_sha256s']), {'4' * 64, '5' * 64})
+      proof = cache.get(fresh['analysis_sha256'])['native_training_feasibility']
+      self.assertEqual(proof['validation_evaluations'], 1)
+      self.assertTrue(proof['independent_tracking']['qualified'])
+      raw = read_saved(params, KEY, MAX_BYTES)[0]
+      self.assertTrue(RouteStorage(params).rollback(scope=scope(), expected=raw, authorized=lambda: True))
+      self.assertEqual(decode(read_saved(params, KEY, MAX_BYTES)[0])['routeSurfaces'][scope().key()]['values'], original['values'])
 
 
 class TestLegacyInconclusiveRejection(unittest.TestCase):

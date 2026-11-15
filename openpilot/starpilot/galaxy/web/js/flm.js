@@ -139,7 +139,7 @@ export const FlmPage = {
       return result
     },
     savedSummary() {
-      if (this.offroad?.saved && !['ready_for_next_drive', 'accepted', 'accepted_after_drive', 'rolled_back'].includes(this.offroad.configurationState)) return 'Saved state not confirmed'
+      if (this.offroad?.saved && !['ready_for_next_drive', 'accepted', 'accepted_after_drive', 'retained_after_drive', 'rolled_back'].includes(this.offroad.configurationState)) return 'Saved state not confirmed'
       return this.acceptedCount === null ? 'Saved count not reported' : this.amount(this.acceptedCount) + ' saved'
     },
     savedAdjustments() { return Object.entries(this.offroad?.savedValues || {}).filter(([, value]) => value !== 0).map(([name, value]) => ({ name, value })) },

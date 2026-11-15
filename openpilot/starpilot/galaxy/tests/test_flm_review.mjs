@@ -57,7 +57,7 @@ const updating = reviewModel(route, true, true)
 assert.equal(updating.description, review.description, 'Background progress must not alternate the drive explanation')
 assert.doesNotMatch(updating.description, /Refresh|Reconnect/)
 assert.equal(updating.next, review.next)
-for (const state of ['ready_for_next_drive', 'accepted', 'accepted_after_drive', 'rolled_back']) {
+for (const state of ['ready_for_next_drive', 'accepted', 'accepted_after_drive', 'retained_after_drive', 'rolled_back']) {
   const savedRoute = { ...route, configurationState: state, savedValues: { highway_center_taper_max: .005 } }
   const completed = reviewModel(savedRoute)
   const inProgress = reviewModel(savedRoute, true, true)

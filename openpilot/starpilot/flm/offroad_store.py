@@ -125,7 +125,7 @@ def validate_row(row):
     or row['completed_wall_ns'] <= 0
     or type(row['sequence']) is not int
     or not 1 <= row['sequence'] <= 1_000_000
-    or row['state'] not in ('ready_for_next_drive', 'accepted_after_drive', 'rolled_back')
+    or row['state'] not in ('ready_for_next_drive', 'accepted_after_drive', 'retained_after_drive', 'rolled_back')
   ):
     raise ValueError('Route provenance/sequence required')
   return scope
@@ -213,7 +213,7 @@ class RouteStorage:
 
     doc = decode(expected)
     row = doc.get(NAMESPACE, {}).get(scope.key())
-    if row is None or validate_row(row) != scope or row['state'] != 'ready_for_next_drive':
+    if row is None or validate_row(row) != scope or row['state'] not in ('ready_for_next_drive', 'retained_after_drive'):
       return False
     # Exact prior accepted map; no fit or synthetic new route is performed.
     previous = dict(row['previous'])
@@ -230,15 +230,16 @@ class RouteStorage:
     """A distinct drive resolves a trial or records one bounded retry."""
     from openpilot.starpilot.flm.learned_lifecycle import decode, encode
 
-    if outcome not in ('accepted_after_drive', 'rolled_back', 'pending') or not _hash(route_sha256) or not _hash(analysis_sha256):
+    if (outcome not in ('accepted_after_drive', 'retained_after_drive', 'rolled_back', 'pending')
+        or not _hash(route_sha256) or not _hash(analysis_sha256)):
       raise ValueError('Explicit assessed next-drive outcome required')
     doc = decode(expected)
     row = doc.get(NAMESPACE, {}).get(scope.key())
     if (
       row is None
       or validate_row(row) != scope
-      or row['state'] not in ('ready_for_next_drive', 'accepted_after_drive')
-      or row['state'] == 'accepted_after_drive'
+      or row['state'] not in ('ready_for_next_drive', 'accepted_after_drive', 'retained_after_drive')
+      or row['state'] in ('accepted_after_drive', 'retained_after_drive')
       and outcome != 'rolled_back'
       or route_sha256 in row['route_sha256s']
       or type(completed_wall_ns) is not int

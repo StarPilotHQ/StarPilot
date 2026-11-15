@@ -61,20 +61,20 @@ export function reviewModel(route, historical = false, updating = false) {
     description = 'The trial was rolled back. Any other ideas below are separate from the restored tune.'
     tone = 'neutral'
     next = 'The restored values are listed in Your tune. Other findings are separate ideas.'
-  } else if (['accepted', 'accepted_after_drive'].includes(route.configurationState)) {
+  } else if (['accepted', 'accepted_after_drive', 'retained_after_drive'].includes(route.configurationState)) {
     title = 'Your learned tune is saved'
     description = 'Your learned values are saved. In-use status is reported separately during driving.'
     tone = 'saved'
     next = 'The learned values are saved. The controller reports their use separately during driving.'
   }
-  if (route.saved && !['ready_for_next_drive', 'accepted', 'accepted_after_drive', 'rolled_back'].includes(route.configurationState)) {
+  if (route.saved && !['ready_for_next_drive', 'accepted', 'accepted_after_drive', 'retained_after_drive', 'rolled_back'].includes(route.configurationState)) {
     title = 'A configuration change was reported'
     description = 'The report does not identify its saved state. Check the latest report before treating it as ready for the next drive.'
     tone = 'neutral'
     next = 'Wait for a complete saved-state report before treating the change as ready.'
   }
   if (historical && !updating) {
-    if (saved.length || ['ready_for_next_drive', 'accepted', 'accepted_after_drive'].includes(route.configurationState)) {
+    if (saved.length || ['ready_for_next_drive', 'accepted', 'accepted_after_drive', 'retained_after_drive'].includes(route.configurationState)) {
       tone = 'neutral'
       title = 'Previously saved tune'
       description = 'These saved values come from an earlier report. Current use is shown separately during driving.'

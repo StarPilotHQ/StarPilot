@@ -204,6 +204,7 @@ const REASONS = {
   recorded_provisional_suggestion: "Your drive produced this steering suggestion. Review the setting while parked.",
   conflicting_recorded_candidates: "Different windows suggested different settings. No single setting is recommended.",
   trial_started_waiting_for_comparable_drive: "Your saved steering adjustments are kept for the next drive.",
+  independent_actual_tracking_stable: "Your saved steering adjustments are kept. Auto Learn continues reviewing your drives.",
   trial_measurement_inconclusive: "Your saved steering adjustments are kept for the next drive.",
   trial_inconclusive_drive_limit: "Three trial drives did not establish an improvement. The prior tune was restored.",
   next_drive_observed_tracking_worse: "Comparable driving showed a steering regression, so the prior tune was restored.",
@@ -324,7 +325,7 @@ export function offroadView(report) {
     Array.isArray(refused) && refused.length <= 36 && refused.every(r => Array.isArray(r) && r.length === 2 && text(r[0]) && stamp(r[1])) ?
     { passed: checked[0], required: checked[1], refusals: refused.map(([reason, count]) => ({ reason, count })) } : null
   const configurationState = details['Saved route configuration state'] ?? null
-  const stored = ['ready_for_next_drive', 'accepted', 'accepted_after_drive', 'rolled_back'].includes(configurationState)
+  const stored = ['ready_for_next_drive', 'accepted', 'accepted_after_drive', 'retained_after_drive', 'rolled_back'].includes(configurationState)
   const savedSurface = stored ? fullCoordinates(details['Full surface coordinates']) : null
   const savedFriction = stored ? frictionCoordinates(details['Saved friction-curve adjustments']) : null
   return { route: details['Completed drive analyzed'], samples: details['Recorded steering observations'],

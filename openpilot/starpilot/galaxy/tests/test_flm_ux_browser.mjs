@@ -22,7 +22,7 @@ const hints = [['highway_center_taper_max', .005], ['friction_threshold_low', .0
   ['friction_threshold_mid', .004], ['friction_threshold_fast', .005], ['friction_threshold_highway', .006]]
 function report() {
   if (scenario === 'empty') return { version: 1, history: [], current: null }
-  const saved = ['saved', 'saved-retained', 'inconclusive', 'applied'].includes(scenario)
+  const saved = ['saved', 'saved-retained', 'inconclusive', 'neutral-reviewed', 'applied'].includes(scenario)
   const application = scenario === 'applied'
   const rows = SURFACE_NAMES.map(name => [name, saved && name === 'highway_center_taper_max' ? .005 : 0])
   const start = 1_000_000_000, points = Array.from({ length: 24 }, (_, i) =>
@@ -46,6 +46,11 @@ function report() {
     value.current.reason = 'trial_measurement_inconclusive'
     value.current.details['Analysis decision'] = value.current.reason
     value.current.details['Automatic configuration changed'] = false
+  }
+  if (scenario === 'neutral-reviewed') {
+    value.current.status = 'retained_after_drive';value.current.reason = 'independent_actual_tracking_stable'
+    Object.assign(value.current.details, { 'Analysis decision': value.current.reason,
+      'Saved route configuration state': 'retained_after_drive', 'Automatic configuration changed': false })
   }
   if (application) value.current.details['Actual full surface coordinates'] = rows
   if (scenario === 'stale') { value.current.fresh = false; value.current.ageSeconds = 20 }
@@ -271,8 +276,14 @@ try {
     }
   }
   await viewport(416);await execute('document.documentElement.dataset.theme="dark"')
-  for (const name of ['none', 'empty', 'saved', 'inconclusive', 'rollback', 'recent-rollback', 'conflict', 'contradictory', 'stale', 'retained', 'earlier-drive', 'wrong-car', 'incomplete', 'unknown-change']) {
+  for (const name of ['none', 'empty', 'saved', 'inconclusive', 'neutral-reviewed', 'rollback', 'recent-rollback', 'conflict', 'contradictory', 'stale', 'retained', 'earlier-drive', 'wrong-car', 'incomplete', 'unknown-change']) {
     await change(name);await layout(`state/${name}`);await capture(name)
+    if (name === 'neutral-reviewed') {
+      assert(await execute('return window.flm.review.title === "Your learned tune is saved" && window.flm.offroad.savedCount === 1'))
+      assert(await execute('return !window.flm.report.current.application.applied && !window.flm.offroad.saved'))
+      assert(await execute('return !/improv|uncertain|not proven/i.test(window.flm.review.description)'))
+      checks.push('neutral-review/saved-values-without-new-adjustment-or-benefit-claim')
+    }
     if (name === 'inconclusive') {
       assert.equal(await execute('return window.flm.offroad.savedValues.highway_center_taper_max'), .005)
       assert.equal(await execute('return window.flm.currentApplied'), false)
