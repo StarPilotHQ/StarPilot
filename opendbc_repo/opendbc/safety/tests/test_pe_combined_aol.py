@@ -66,10 +66,12 @@ class TestPECombinedDebug(ev9_combined.TestEV9CombinedDebug):
     self.safety.aol_set_host_request(3)
     self.assertTrue(self.safety.get_controls_allowed())
     self.assertEqual(self.safety.aol_get_permission_mask(), 3)
-    for value in (2., -3.5):
-      self.assertTrue(self.safety.safety_tx_hook(self.scc(value)))
-    for value in (2.01, 2.2, -3.51):
-      self.assertFalse(self.safety.safety_tx_hook(self.scc(value)))
+    for value in (3.5, -3.5):
+      for raw, selected in ((value, value), (value, 0.), (0., value)):
+        self.assertTrue(self.safety.safety_tx_hook(self.scc(raw, selected)), (raw, selected))
+    for value in (3.51, -3.51):
+      for raw, selected in ((value, value), (value, 0.), (0., value)):
+        self.assertFalse(self.safety.safety_tx_hook(self.scc(raw, selected)), (raw, selected))
     self.tick(button=4)
     self.assertFalse(self.safety.get_controls_allowed())
     self.assertEqual(self.safety.aol_get_permission_mask(), 1)

@@ -561,8 +561,7 @@ class TestHyundaiIoniq6Long(unittest.TestCase):
         inputs = [
           packer.make_can_msg("ACCELERATOR", can_bus.ECAN, {"GEAR": 5}),
           packer.make_can_msg("TCS", can_bus.ECAN, {"ACCEnable": 0, "ACC_REQ": 1}),
-          packer.make_can_msg("WHEEL_SPEEDS", can_bus.ECAN, {key: 45 for key in
-                                                             ("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal")}),
+          packer.make_can_msg("WHEEL_SPEEDS", can_bus.ECAN, dict.fromkeys(("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal"), 45)),
           packer.make_can_msg("MDPS", can_bus.ECAN, {}),
           packer.make_can_msg("STEERING_SENSORS", can_bus.ECAN, {}),
           packer.make_can_msg("DOORS_SEATBELTS", can_bus.ECAN, {"DRIVER_SEATBELT": 1}),
@@ -749,7 +748,13 @@ class TestHyundaiIoniq6Long(unittest.TestCase):
             "aReqRaw": raw_value, "aReqValue": selected_value, "ACCMode": 1,
           }))
         self.assertTrue(self.safety.safety_tx_hook(accel(0, 0)))
-        for raw_value, selected_value in ((2.5, 0), (0, 2.5), (-4.0, 0), (0, -4.0)):
+        for raw_value, selected_value in ((3.5, 0), (0, 3.5), (3.5, 3.5),
+                                           (-3.5, 0), (0, -3.5), (-3.5, -3.5)):
+          self.assertTrue(self.safety.safety_tx_hook(accel(raw_value, selected_value)),
+                          (raw_value, selected_value))
+        for raw_value, selected_value in ((3.51, 0), (0, 3.51), (3.51, 3.51),
+                                           (-3.51, 0), (0, -3.51), (-3.51, -3.51),
+                                           (-4.0, 0), (0, -4.0)):
           self.assertFalse(self.safety.safety_tx_hook(accel(raw_value, selected_value)),
                            (raw_value, selected_value))
 
@@ -879,8 +884,7 @@ class TestHyundaiIoniq6Long(unittest.TestCase):
           inputs = [
             packer.make_can_msg("ACCELERATOR", bus.ECAN, {"GEAR": 5}),
             packer.make_can_msg("TCS", bus.ECAN, {"ACCEnable": 0, "ACC_REQ": 1}),
-            packer.make_can_msg("WHEEL_SPEEDS", bus.ECAN, {key: 45 for key in
-                                                             ("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal")}),
+            packer.make_can_msg("WHEEL_SPEEDS", bus.ECAN, dict.fromkeys(("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal"), 45)),
             packer.make_can_msg("MDPS", bus.ECAN, {}),
             packer.make_can_msg("STEERING_SENSORS", bus.ECAN, {}),
             packer.make_can_msg("DOORS_SEATBELTS", bus.ECAN, {"DRIVER_SEATBELT": 1}),
@@ -910,8 +914,7 @@ class TestHyundaiIoniq6Long(unittest.TestCase):
         with self.subTest(topology=topology, event=event):
           self.mode(raw)
           for name, values in (("ACCELERATOR", {"GEAR": 5}), ("TCS", {"DriverBraking": 0}),
-                               ("WHEEL_SPEEDS", {key: 45 for key in
-                                                 ("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal")}),
+                               ("WHEEL_SPEEDS", dict.fromkeys(("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal"), 45)),
                                ("MDPS", {}), ("CRUISE_BUTTONS", {"COUNTER": 1})):
             self.assertTrue(self.safety.safety_rx_hook(self.packet(packer.make_can_msg(name, bus.ECAN, values))))
           self.safety.set_controls_allowed(True)
@@ -949,8 +952,7 @@ class TestHyundaiIoniq6Long(unittest.TestCase):
           self.mode(raw)
           self.safety.set_aol_test_heartbeat(True)
           for name, values in (("ACCELERATOR", {"GEAR": 5}), ("TCS", {"ACCEnable": 0}),
-                               ("WHEEL_SPEEDS", {key: 45 for key in
-                                                 ("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal")}),
+                               ("WHEEL_SPEEDS", dict.fromkeys(("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal"), 45)),
                                ("MDPS", {}), ("CRUISE_BUTTONS", {"COUNTER": 1})):
             self.assertTrue(self.safety.safety_rx_hook(self.packet(packer.make_can_msg(name, bus.ECAN, values))))
           self.safety.aol_set_host_request(3)
@@ -1090,8 +1092,7 @@ class TestHyundaiIoniq6Long(unittest.TestCase):
         self.mode(raw)
         self.safety.set_aol_test_heartbeat(True)
         for name, values in (("ACCELERATOR", {"GEAR": 5}), ("TCS", {"ACCEnable": 0}),
-                             ("WHEEL_SPEEDS", {key: 45 for key in
-                                               ("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal")}),
+                             ("WHEEL_SPEEDS", dict.fromkeys(("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal"), 45)),
                              ("MDPS", {}), ("CRUISE_BUTTONS", {"COUNTER": 1})):
           self.assertTrue(self.safety.safety_rx_hook(self.packet(packer.make_can_msg(name, 1, values))))
         self.assertTrue(self.safety.safety_rx_hook(self.packet(packer.make_can_msg(
@@ -1278,8 +1279,7 @@ class TestHyundaiIoniq6Long(unittest.TestCase):
           self.mode(raw)
           self.safety.set_aol_test_heartbeat(True)
           for name, values in (("ACCELERATOR", {"GEAR": 5}), ("TCS", {"ACCEnable": 0}),
-                               ("WHEEL_SPEEDS", {key: 45 for key in
-                                                 ("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal")}),
+                               ("WHEEL_SPEEDS", dict.fromkeys(("WHL_SpdFLVal", "WHL_SpdFRVal", "WHL_SpdRLVal", "WHL_SpdRRVal"), 45)),
                                ("MDPS", {}), ("CRUISE_BUTTONS", {"COUNTER": 1})):
             self.assertTrue(self.safety.safety_rx_hook(self.packet(packer.make_can_msg(name, 1, values))))
           if lateral:
