@@ -1,9 +1,11 @@
 """Reason-qualified intent retention; this module never grants an axis."""
 from openpilot.cereal import log
-from openpilot.starpilot.aol.transport_pause_session import TransportPause as TransportPause, cp_identity as cp_identity
+from openpilot.starpilot.aol.transport_pause_session import (
+  AvailabilityPause as AvailabilityPause, TransportPause as TransportPause, cp_identity as cp_identity,
+)
 from openpilot.starpilot.aol.panda_faults import blocking_fault_mask, blocking_fault_list
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS, current_native, native_inventory_matches_cp
-from openpilot.starpilot.aol.wire import SafetyState, decode_intent
+from openpilot.starpilot.aol.wire import SafetyState, decode_intent as decode_intent
 
 
 def _configured_transport_native(sm, cp, session, now_ns, native=None, *, require_longitudinal=True, allow_restricted_lateral=False):
@@ -137,77 +139,6 @@ def stock_lateral_off(cp, cs, native, *, allow_independent_cancel=False, allow_i
         cp.brand == 'hyundai' and (stock_canfd_qualified(cp, marked_only=True) or classic_stock))) and
     (not physical_cancel(cs, cp) or independent_angle and allow_independent_cancel) and
     native is not None and native.requestedLateral and native.lateralAllowed and not native.requestedLongitudinal)
-
-
-class AvailabilityPause:
-  """Retain an accepted armed producer; this proof never enables output."""
-  def __init__(self, cp, session):
-    self.cp, self.session = cp_identity(cp), session
-    self.producer = ''
-    self.epoch = None
-    self.inventory = None
-    self.native_ns = 0
-    self.baseline_ns = 0
-    self.active = False
-
-  def observe(self, *, cp, session, sm, cs, native, now_ns, companion, intent,
-              events, model_ready, source_current, prior_lateral_active, hard_fault, healthy_native, source_expired=False):
-    try:
-      healthy = healthy_native
-      eligible = bool(cp_identity(cp) == self.cp and
-        session == self.session and not hard_fault and model_ready and (source_current or source_expired) and companion is not None and
-        companion.last_drain_ok and intent is not None and intent.allowedLatch and intent.lateralArmed and
-        healthy is not None and healthy.requestedLateral and healthy.lateralAllowed and healthy.pandaInventory)
-      if not eligible:
-        self.active = False
-        self.baseline_ns = 0
-        return False
-      if source_expired:
-        latest = companion.latest
-        raw = latest[2] if latest is not None and latest[1] else None
-        verified = companion.verified_sm_projection
-        sm_intent = decode_intent(sm['aolIntentWire'])
-        projection = bool(verified is not None and int(sm.logMonoTime['aolIntentWire']) == verified[0] and
-          verified[2] == companion.integrity_epoch and verified[3] == companion.session and
-          sm_intent == verified[1] and 0 < verified[0] <= now_ns <= verified[0] + SAFETY_MAX_AGE_NS and
-          sm_intent.settingsQualified and sm_intent.allowedLatch and sm_intent.lateralArmed and
-          sm_intent.producerSessionId == intent.producerSessionId)
-        if (raw is None or not raw.settingsQualified or not raw.allowedLatch or not raw.lateralArmed or
-          raw.producerSessionId != intent.producerSessionId or
-          not 0 < intent.carStateLogMonoTime <= now_ns or
-          now_ns - intent.carStateLogMonoTime > SAFETY_MAX_AGE_NS or
-          not 0 < raw.carStateLogMonoTime <= now_ns or raw.observedMonoTime > now_ns or
-          now_ns - raw.carStateLogMonoTime > SAFETY_MAX_AGE_NS or
-          (int(sm.logMonoTime['aolIntentWire']) != raw.carStateLogMonoTime and not projection) or
-          not sm.seen['aolIntentWire'] or not sm.valid['aolIntentWire']):
-          self.active = False
-          return False
-      inventory = (healthy.pandaSerial, tuple(p.hardwareSerial for p in healthy.pandaInventory))
-      faults = [event for event in events if event.immediateDisable or event.softDisable]
-      if not faults:
-        recovery_handoff = bool(self.active and source_current and not source_expired and self.baseline_ns > 0 and
-          self.producer == intent.producerSessionId and self.epoch == companion.integrity_epoch and
-          self.inventory == inventory and healthy.observedMonoTime >= self.native_ns)
-        self.active = False
-        if prior_lateral_active or recovery_handoff:
-          self.producer, self.epoch = intent.producerSessionId, companion.integrity_epoch
-          self.inventory, self.native_ns, self.baseline_ns = inventory, healthy.observedMonoTime, now_ns
-        return False
-      matched = bool(availability_only(events) and self.producer == intent.producerSessionId and
-        self.epoch == companion.integrity_epoch and self.inventory == inventory and
-        healthy.observedMonoTime >= self.native_ns and self.baseline_ns > 0 and
-        (self.active or 0 <= now_ns - self.baseline_ns <=
-         (SAFETY_MAX_AGE_NS if source_expired else AXIS_MAX_AGE_NS)))
-      self.active = matched
-      if matched:
-        self.native_ns = healthy.observedMonoTime
-      else:
-        self.baseline_ns = 0
-      return matched
-    except (AttributeError, KeyError, IndexError, TypeError, ValueError):
-      self.active = False
-      self.baseline_ns = 0
-      return False
 
 
 class TransportPauseFeedback:

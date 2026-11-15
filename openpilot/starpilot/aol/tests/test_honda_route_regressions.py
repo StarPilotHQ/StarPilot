@@ -46,7 +46,7 @@ def test_actual_caller_zero_brake_pause_matches_current_and_queued_samples(speed
   if history_only:
     current.standstill = True  # The latest sample must not erase an earlier valid veto.
   sd.car_state_samples = ((state, True), (current, True))
-  intent = NS(allowedLatch=True, pauseLateral=False, pauseLongitudinal=True, optionalSetRelease=False)
+  intent = NS(allowedLatch=True, lateralArmed=True, pauseLateral=False, pauseLongitudinal=True, optionalSetRelease=False)
   native = NS(requestedLateral=True, lateralAllowed=grant, requestedLongitudinal=False, longitudinalAllowed=False)
   result = sd._decide_aol_axes(current, intent, native, now_ns=NOW)
   assert result.desired_lateral == (threshold == 0.0)
