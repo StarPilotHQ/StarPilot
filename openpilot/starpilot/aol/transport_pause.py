@@ -531,6 +531,7 @@ class TransportPauseFeedback:
     stock_hkg = recovering_user and cp.brand == 'hyundai' and (stock_angle or stock_canfd_qualified(cp, marked_only=True) or
       stock_classic_qualified(cp, marked_only=True))
     stock_user = stock_lateral_user_event(cp) if recovering_user else None
+    classic_eps_recovery = bool(eps_recovery and cp.brand == 'hyundai' and stock_classic_qualified(cp, marked_only=True))
     stock_temporary_user = bool(recovering_user and (stock_hkg or cp.brand == 'chrysler' and chrysler_qualified(cp, marked_only=True) or
       cp.brand == 'ford' and ford_qualified(cp, marked_only=True) or cp.brand == 'nissan' and nissan_qualified(cp, marked_only=True)
       or cp.brand == 'subaru' and subaru_qualified(cp, marked_only=True)
@@ -538,11 +539,12 @@ class TransportPauseFeedback:
       or cp.brand == 'rivian' and rivian_qualified(cp, marked_only=True)
       or cp.brand == 'volkswagen' and volkswagen_qualified(cp, marked_only=True)) and users and
       not axis.desiredLongitudinal and not axis.longitudinalActive and
-      cs.cruiseState.available and not cs.cruiseState.enabled and
+      (cs.cruiseState.available or classic_eps_recovery) and not cs.cruiseState.enabled and
       cs.gearShifter in (gears.drive, gears.low, gears.sport, gears.brake) and
       not cs.doorOpen and (not cs.seatbeltUnlatched or belt_eps_recovery) and not cs.brakePressed and not cs.regenBraking and
-      (not cs.gasPressed or stock_angle or eps_recovery and stock_canfd_qualified(cp, marked_only=True)) and
-      all(event.name == stock_user and not event.softDisable and
+      (not cs.gasPressed or stock_angle or classic_eps_recovery or eps_recovery and stock_canfd_qualified(cp, marked_only=True)) and
+      all((event.name == stock_user or classic_eps_recovery and not cs.cruiseState.available and
+           event.name == log.OnroadEvent.EventName.wrongCarMode) and not event.softDisable and
           not event.immediateDisable for event in users))
     from openpilot.starpilot.car.ford.aol import temporary_eps_pedal_recovery
     stock_temporary_user |= bool(cp.brand == 'ford' and eps_recovery and temporary_eps_pedal_recovery(cp, cs) and users and
