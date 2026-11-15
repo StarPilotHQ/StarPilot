@@ -477,6 +477,87 @@ def newer_original_refusal(cache, receipt, scope, values):
   return None
 
 
+def recent_findings(cache, results, display):
+  """Keep compatible provisional findings; never merge save decisions or evidence counts."""
+  from openpilot.starpilot.flm.offroad_surface import route_bounds, route_values
+
+  latest = results[0]
+  if latest.get('status') not in ('collecting', 'ready_for_next_drive', 'accepted_after_drive', 'rolled_back'):
+    return display
+
+  def source(value):
+    document = cache.get(value['assessment_sha256'])
+    assessment = document['assessment']
+    receipt = assessment['route']
+    if (document['kind'] not in ('completed_assessment', 'partial_assessment')
+        or document['kind'] == 'partial_assessment' and value.get('partial_drive') is not True
+        or receipt['route_id'] != value['completed_route'] or receipt['source_sha256'] != value['source_sha256']):
+      raise ValueError('Source-bound recent findings required')
+    scope = RouteScope(**assessment['current_scope']).validate()
+    if receipt['cp_sha256'] != scope.cp_sha256:
+      raise ValueError('Recent finding vehicle identity changed')
+    stamp = receipt.get('completed_wall_ns', receipt.get('last_intact_wall_ns'))
+    if type(stamp) is not int or stamp <= 0:
+      raise ValueError('Original recent-drive chronology required')
+    return scope, document['kind'] == 'partial_assessment', stamp
+
+  try:
+    current_scope, _, _ = source(latest)
+    current = route_values(latest['configured_values']) if 'configured_values' in latest else (
+      ZERO if latest.get('saved_adjustments') == 0 else None
+    )
+  except (KeyError, OSError, TypeError, ValueError):
+    return display
+  if current is None:
+    return display
+  compatible = []
+  for index, value in enumerate(results[:MAX_CHECKPOINTS + 1]):
+    try:
+      scope, partial, stamp = source(value)
+    except (KeyError, OSError, TypeError, ValueError):
+      continue
+    if scope == current_scope:
+      compatible.append((stamp, index, partial, value))
+  found, origins, blocked, seen = {}, {}, set(), set()
+  for _, _, partial, value in sorted(compatible, key=lambda row: (-row[0], row[1])):
+    if value['source_sha256'] in seen:
+      continue
+    if len(seen) >= MAX_CHECKPOINTS:
+      break
+    seen.add(value['source_sha256'])
+    recommendations = value.get('recommendations', ())
+    if type(recommendations) not in (list, tuple):
+      continue
+    for row in recommendations:
+      if type(row) is not dict:
+        continue
+      name = row.get('parameter')
+      if (name not in NAMES or type(row.get('baseline')) not in (int, float) or row['baseline'] != current[name]
+          or type(row.get('reason')) is not str or len(row['reason']) > 240):
+        continue
+      target = row.get('target')
+      if target is None or row.get('reason') in (
+        'conflicting_recorded_candidates', 'heldout_profile_does_not_support_training_step', 'controller_checks_did_not_support_change'
+      ):
+        blocked.add(name)
+        continue
+      low, high = route_bounds(name)
+      if (type(target) not in (int, float) or not math.isfinite(target) or not low <= target <= high
+          or not 1e-12 < abs(target - current[name]) <= MAX_ROUTE_STEP + 1e-12
+          or type(row.get('whole_windows')) is not int or not 0 < row['whole_windows'] < 2**63):
+        continue
+      if name in found and (found[name]['target'] - current[name]) * (target - current[name]) < 0:
+        blocked.add(name)
+      elif name not in found:
+        found[name] = dict(row, reason='partial_drive_provisional_only') if partial else dict(row)
+        origins[name] = value['completed_route']
+  rows = [found[name] for name in NAMES if name in found and name not in blocked]
+  if rows == display.get('recommendations', []) and all(origins[row['parameter']] == display.get('completed_route') for row in rows):
+    return display
+  return dict(display, recommendations=rows, recommendation_count=len(rows),
+              recommendation_sources=[[row['parameter'], origins[row['parameter']]] for row in rows])
+
+
 def reported_checkpoint(cache, results):
   """Display useful current-profile evidence without changing any saved decision."""
   skipped = [row for row in results if row.get('route_skipped') is True]
@@ -508,7 +589,7 @@ def reported_checkpoint(cache, results):
 
   if (latest.get('status') != 'collecting' or latest.get('reason') != 'more_independent_eligible_tracking_required'
       or has_windows(latest)):
-    return latest
+    return recent_findings(cache, results, latest)
   try:
     current_scope = scope(latest)
   except (KeyError, OSError, TypeError, ValueError):
@@ -523,7 +604,7 @@ def reported_checkpoint(cache, results):
   # Recording order and input coverage choose the report, never fit quality or approval.
   retained = next((value for value in compatible if has_windows(value)), None)
   if retained is None:
-    return latest
+    return recent_findings(cache, results, latest)
   value = dict(latest)
   for key in ('completed_route', 'vehicle', 'analysis_counts', 'recorded_tracking', 'source_sha256', 'assessment_sha256',
               'recommendations', 'suggestions', 'suggestion_count', 'qualification_summary'):
@@ -538,7 +619,7 @@ def reported_checkpoint(cache, results):
   value['source_is_latest'] = False
   value['retained_decision'] = retained['reason']
   value['latest_recording'] = {key: latest[key] for key in ('completed_route', 'reason', 'analysis_counts')}
-  return value  # Display only: current save, application and rollback fields stay with the latest assessment.
+  return recent_findings(cache, results, value)  # Save, application and rollback fields stay with the latest assessment.
 
 
 class OffroadWorker:
@@ -1181,5 +1262,5 @@ class OffroadWorker:
       result['evidence_revision'] = self.evidence_bank.revision()
     self.cache.checkpoint({'input_fingerprint': self._snapshot(route), 'result': result})
     self.pending_failure_data = None
-    return result
+    return recent_findings(self.cache, [result, *[row['result'] for row in self.cache.checkpoints()]], result)
 

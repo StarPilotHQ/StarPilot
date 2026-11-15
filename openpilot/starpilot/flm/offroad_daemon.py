@@ -39,7 +39,7 @@ class StatusReport:
     # They are historical display data, never current application or permission.
     fields = ('completed_route', 'vehicle', 'analysis_counts', 'recorded_tracking', 'source_sha256', 'assessment_sha256',
               'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest', 'latest_recording', 'skipped_routes',
-              'partial_drive', 'partial_segments', 'omitted_segments')
+              'partial_drive', 'partial_segments', 'omitted_segments', 'recommendation_sources')
     previous = {key: self.previous[key] for key in fields if key in self.previous}
     if previous:
       previous['retained_decision'] = self.previous.get('retained_decision', self.previous.get('reason', 'waiting_for_completed_drive'))
@@ -165,6 +165,8 @@ class StatusReport:
         ][:16]
         details['Recorded suggestion count'] = len(recommendations)
         details['More recorded suggestions omitted'] = False
+        if 'recommendation_sources' in value:
+          details['Recorded suggestion sources'] = value['recommendation_sources']
     proposal = value.get('suggestion')
     if proposal is not None:
       details['Full surface coordinates'] = [[n, proposal['values'][n]] for n in NAMES]

@@ -54,7 +54,8 @@ export function validTrainingResults(value) {
           item.every(number => typeof number === 'number' && Number.isFinite(number) && Math.abs(number) <= .25) :
         key === 'GLOBAL source observation refusals' ? validSourceRefusals(item) :
         key === 'Recorded steering response' ? item === null || recordedSteeringView(item) !== null :
-        key === 'Recorded coordinate recommendations' ? validCoordinateRecommendations(item) : detailValue(item)))
+        key === 'Recorded coordinate recommendations' ? validCoordinateRecommendations(item) :
+        key === 'Recorded suggestion sources' ? validSuggestionSources(item) : detailValue(item)))
 }
 const labels = { collecting: "Gathering driving examples", unavailable: "Waiting for usable driving data",
   qualifiedFit: "Fit passed validation", qualified: "Fit passed validation", rejected: "Fit did not pass validation",
@@ -287,6 +288,12 @@ export function isConsistentSuggestion(row) {
     'controller_checks_did_not_support_change'].includes(row.reason)
 }
 
+function validSuggestionSources(rows) {
+  return Array.isArray(rows) && rows.length <= 35 && new Set(rows.map(row => row?.[0])).size === rows.length &&
+    rows.every(row => Array.isArray(row) && row.length === 2 && [...SURFACE_NAMES, ...FRICTION_NAMES].includes(row[0]) &&
+      text(row[1], 180) && row[1].length > 0)
+}
+
 export function offroadView(report) {
   const details = report?.current?.details
   if (!record(details) || !text(details['Completed drive analyzed'], 180) || !details['Completed drive analyzed'] ||
@@ -299,6 +306,9 @@ export function offroadView(report) {
   const observed = recordedSteeringView(details['Recorded steering response'])
   const recommendations = details['Recorded coordinate recommendations']
   if (recommendations !== undefined && !validCoordinateRecommendations(recommendations)) return null
+  const sources = details['Recorded suggestion sources'] ?? []
+  if (!validSuggestionSources(sources) || sources.some(([name]) => !recommendations?.some(row => row[0] === name))) return null
+  const sourceFor = Object.fromEntries(sources)
   const savedCount = details['Saved route adjustment count']
   const partial = details['Drive analysis is partial'] === true
   const partialSegments = details['Partial drive segments']
@@ -327,7 +337,9 @@ export function offroadView(report) {
     earlierDrive, latestRecording: earlierDrive ? latestRecording : null,
     suggestions: (recommendations === undefined ? rows.map(([parameter, delta, windows, qualification]) => ({ parameter, delta, windows, qualification })) :
       recommendations.map(([parameter, baseline, target, windows, reason]) => ({ parameter, baseline, target,
-        delta: target === null ? null : target - baseline, windows, reason, qualification: 'controller_native_checks_not_passed' }))
+        delta: target === null ? null : target - baseline, windows, reason, sourceRoute: sourceFor[parameter] ?? details['Completed drive analyzed'],
+        earlierDrive: sourceFor[parameter] !== undefined && sourceFor[parameter] !== details['Completed drive analyzed'],
+        qualification: 'controller_native_checks_not_passed' }))
         .filter(row => row.target === null || row.target !== { ...savedSurface, ...savedFriction }[row.parameter])).filter(isConsistentSuggestion),
     moreSuggestions: details['More recorded suggestions omitted'] === true }
 }

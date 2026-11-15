@@ -57,6 +57,17 @@ function report() {
     value.current.details['Recorded coordinate recommendations'][0][0] = 'unwind_taper_right'
   }
   if (scenario === 'rollback') value.current.details['Saved route configuration state'] = 'rolled_back'
+  if (scenario === 'recent-rollback') {
+    value.current.status = 'rolled_back';value.current.reason = 'trial_inconclusive_drive_limit'
+    Object.assign(value.current.details, { 'Analysis decision': value.current.reason, 'Saved route configuration state': 'rolled_back',
+      'Recorded steering response': null, 'Full surface coordinates': rows,
+      'Saved friction-curve adjustments': FRICTION_NAMES.map(name => [name, 0]) })
+    const recent = [['ff_gain_right', -.005], ['turn_in_boost_right', .005], ['unwind_taper_right', .005],
+      ['unwind_taper_left', .005], ['center_taper_max', .006], ['center_deadband_fast_deg', .006], ...hints.slice(1)]
+    value.current.details['Recorded coordinate recommendations'] = recent.map(([name, target], i) =>
+      [name, 0, target, i < 3 ? 10 : 24, i < 3 ? 'partial_drive_provisional_only' : 'recorded_candidate_requires_automatic_checks'])
+    value.current.details['Recorded suggestion sources'] = recent.map(([name], i) => [name, i < 3 ? 'earlier-partial-drive' : 'earlier-completed-drive'])
+  }
   if (scenario === 'incomplete') delete value.current.details['Recorded steering observations']
   if (scenario === 'unknown-change') value.current.details['Automatic configuration changed'] = true
   assert(validTrainingResults(value), 'Browser fixtures must pass the real report validator')
@@ -255,7 +266,7 @@ try {
     }
   }
   await viewport(416);await execute('document.documentElement.dataset.theme="dark"')
-  for (const name of ['none', 'empty', 'saved', 'rollback', 'conflict', 'contradictory', 'stale', 'retained', 'earlier-drive', 'wrong-car', 'incomplete', 'unknown-change']) {
+  for (const name of ['none', 'empty', 'saved', 'rollback', 'recent-rollback', 'conflict', 'contradictory', 'stale', 'retained', 'earlier-drive', 'wrong-car', 'incomplete', 'unknown-change']) {
     await change(name);await layout(`state/${name}`);await capture(name)
     if (name === 'retained') assert(await execute('return !/Refresh|Reconnect/.test(window.flm.review.description)&&window.flm.review.description.includes("saved tune")'))
     if (name === 'earlier-drive') {
@@ -278,6 +289,20 @@ try {
     }
     if (name === 'stale') assert(await execute('return !/Refresh|Reconnect/.test(window.flm.review.description)&&window.flm.savedSummary==="0 saved"'))
     if (name === 'saved') assert.equal(await execute('return window.flm.currentApplied'), false)
+    if (name === 'recent-rollback') {
+      assert.equal(await execute('return window.flm.review.title'), 'Your previous tune was restored')
+      assert.equal(await execute('return window.flm.review.count'), 10)
+      assert.equal(await execute('return window.flm.currentApplied'), false)
+      const writes = requests.length
+      await click('[data-action=view-findings]')
+      assert(await execute('return window.flm.review.manual.length===6 && window.flm.review.curve.length===4'))
+      assert(await execute('return document.querySelector(".gx-tuner__findings").textContent.includes("SUGGESTIONS FROM RECENT DRIVING")'))
+      assert(await execute('return document.querySelector(".gx-tuner__idea-grid").textContent.includes("earlier drive with the same setup")'))
+      assert(await execute('return document.querySelector(".gx-tuner__idea-grid").textContent.includes("incomplete recording")'))
+      assert.equal(requests.length, writes, 'Reviewing retained suggestions must not write a tune')
+      await capture('rollback-ten-recent-findings')
+      checks.push('rollback/ten-source-bound-recent-findings/no-write')
+    }
     if (name === 'conflict') { assert.equal(await execute('return window.flm.review.count'), 4);assert(await execute('return !window.flm.review.findings.some(row=>row.target===null)')) }
     if (name === 'contradictory') {
       assert.equal(await execute('return window.flm.review.count'), 1)

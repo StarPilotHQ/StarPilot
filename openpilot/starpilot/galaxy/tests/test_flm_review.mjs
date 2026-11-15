@@ -11,6 +11,9 @@ const idea = (parameter, target = .005) => ({ parameter, baseline: 0, target, de
 const route = { suggestions: [idea('highway_center_taper_max'), ...FRICTION_NAMES.slice(1).map(name => idea(name))],
   savedValues: null, saved: false, configurationState: null }
 const review = reviewModel(route)
+assert.match(ideaExplanation({ ...idea('turn_in_boost_right'), earlierDrive: true }), /earlier drive with the same setup/)
+assert.match(ideaExplanation({ ...idea('turn_in_boost_right'), earlierDrive: true, reason: 'partial_drive_provisional_only' }),
+  /earlier drive.*incomplete recording.*will not save it automatically/)
 assert.equal(review.count, 5)
 assert.equal(review.manual.length, 1)
 assert.equal(review.curve.length, 4)

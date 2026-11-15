@@ -17,13 +17,14 @@ export function ideaStatus(row) {
 
 export function ideaExplanation(row) {
   if (!isConsistentSuggestion(row)) return 'Different parts of the drive did not support the same change. Your tune was left unchanged.'
+  const source = row.earlierDrive ? 'From an earlier drive with the same setup. ' : ''
   const next = SURFACE_NAMES.includes(row.parameter) ? ' You can review the suggested value and adjust this setting manually while parked.' :
     ' Auto Learn will review it as more driving is recorded.'
   if (row.reason === 'partial_drive_provisional_only')
-    return 'This suggestion comes from intact sections of an incomplete recording. Auto Learn will not save it automatically.' + next
+    return source + 'This suggestion comes from intact sections of an incomplete recording. Auto Learn will not save it automatically.' + next
   if (row.reason === 'independent_support_for_frozen_training_profile')
-    return 'Separate parts of your drive support this suggestion. Auto Learn still needs to confirm the controller checks before saving it.' + next
-  return 'Your drive suggests this change, but Auto Learn needs more evidence before saving it automatically.' + next
+    return source + 'Separate parts of your drive support this suggestion. Auto Learn still needs to confirm the controller checks before saving it.' + next
+  return source + 'Your drive suggests this change, but Auto Learn needs more evidence before saving it automatically.' + next
 }
 
 export function reviewModel(route, historical = false, updating = false) {
@@ -114,7 +115,8 @@ export function curvePointLabel(name) {
 }
 
 export function ideaDetails(row) {
-  const baseline = Number.isFinite(row.baseline) ? [{ label: 'Starting value', value: dialPercent(row.baseline) }] : []
+  const baseline = [ ...(row.sourceRoute ? [{ label: 'Source drive', value: row.sourceRoute }] : []),
+    ...(Number.isFinite(row.baseline) ? [{ label: 'Starting value', value: dialPercent(row.baseline) }] : []) ]
   if (row.target === null) return [...baseline, { label: 'Suggested value', value: 'No single suggested value' }]
   if (row.target === undefined) return [...baseline, { label: 'Suggested change', value: (row.delta > 0 ? '+' : '') + dialPercent(row.delta) }]
   return [...baseline, { label: 'Suggested value', value: dialPercent(row.target) }]
