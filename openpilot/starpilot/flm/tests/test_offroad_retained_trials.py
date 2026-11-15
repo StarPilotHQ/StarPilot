@@ -193,5 +193,51 @@ class TestRetainedTrialSources(unittest.TestCase):
       self.assertEqual(restored['values'], accepted['values'], 'A later trial restores its immediate prior tune, not the first baseline')
 
 
+class TestLegacyInconclusiveRejection(unittest.TestCase):
+  def legacy(self, cache, *, reason='trial_inconclusive_drive_limit', comparisons=None, markers=()):
+    original = cache.put({'kind': 'next_drive_trial', 'parameter': 'ff_gain_left', 'delta': .005})
+    outcome = cache.put({'kind': 'next_drive_outcome', 'trial_analysis_sha256': original,
+      'outcome': 'rolled_back', 'reason': reason, 'observed_only': True,
+      'comparisons': [] if comparisons is None else comparisons, 'assessment': {'quality_stop_markers': list(markers)}})
+    return {'state': 'rolled_back', 'analysis_sha256': outcome}
+
+  def test_timeout_does_not_blacklist_a_fresh_qualified_change_or_restore_any_params(self):
+    with tempfile.TemporaryDirectory() as directory:
+      cache = AssessmentCache(directory)
+      row = self.legacy(cache)
+      before = cache.get(row['analysis_sha256'])
+      proposal = {'parameter': 'ff_gain_left', 'delta': .005}
+      self.assertFalse(worker.rejected_trial_change(cache, row, proposal))
+      self.assertEqual(cache.get(row['analysis_sha256']), before)
+      self.assertFalse(worker.rejected_trial_change(cache, None, proposal))
+      self.assertFalse(worker.rejected_trial_change(cache, dict(row, state='ready_for_next_drive'), proposal))
+
+  def test_actual_regression_safety_and_explicit_user_rollback_still_reject_same_change(self):
+    with tempfile.TemporaryDirectory() as directory:
+      cache = AssessmentCache(directory)
+      proposal = {'parameter': 'ff_gain_left', 'delta': .005}
+      for reason in ('next_drive_observed_tracking_worse', 'actual_next_drive_controller_or_native_delivery_unproven', 'explicit_user_rollback'):
+        row = self.legacy(cache, reason=reason)
+        self.assertTrue(worker.rejected_trial_change(cache, row, proposal))
+      row = self.legacy(cache, markers=[{'reason': 'declared-safety-withdrawal'}])
+      self.assertTrue(worker.rejected_trial_change(cache, row, proposal))
+      self.assertFalse(worker.rejected_trial_change(cache, row, dict(proposal, delta=.006)))
+      # Explicit RouteStorage.rollback keeps the trial document, rather than
+      # fabricating a next-drive measurement or timeout outcome.
+      original = cache.get(row['analysis_sha256'])['trial_analysis_sha256']
+      self.assertTrue(worker.rejected_trial_change(cache, dict(row, analysis_sha256=original), proposal))
+
+  def test_malformed_or_worsening_comparison_does_not_become_a_timeout_exception(self):
+    with tempfile.TemporaryDirectory() as directory:
+      cache = AssessmentCache(directory)
+      proposal = {'parameter': 'ff_gain_left', 'delta': .005}
+      for comparisons in ([None], [{'independent': []}], [{'independent': [{}, {'worse': False}]}],
+                          [{'independent': [{'worse': True}, {'worse': False}]}]):
+        row = self.legacy(cache, comparisons=comparisons)
+        self.assertTrue(worker.rejected_trial_change(cache, row, proposal))
+      row = self.legacy(cache, comparisons=[{'independent': [{'worse': False}, {'worse': False}]}])
+      self.assertFalse(worker.rejected_trial_change(cache, row, proposal))
+
+
 if __name__ == '__main__':
   unittest.main()

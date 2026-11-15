@@ -175,6 +175,32 @@ def trial_document(cache, digest):
   return trial_origin(cache, digest)[1]
 
 
+def rejected_trial_change(cache, row, proposal):
+  """A historical inconclusive timeout is not measured rejection of a tune."""
+  if row is None or row['state'] != 'rolled_back':
+    return False
+  outcome = cache.get(row['analysis_sha256'])
+  comparisons = outcome.get('comparisons')
+  timeout = (
+    outcome.get('kind') == 'next_drive_outcome'
+    and outcome.get('outcome') == 'rolled_back'
+    and outcome.get('reason') == 'trial_inconclusive_drive_limit'
+    and outcome.get('observed_only') is True
+    and type(comparisons) is list
+    and type(outcome.get('assessment')) is dict
+    and not outcome['assessment'].get('quality_stop_markers')
+    and all(
+      type(comparison) is dict and type(comparison.get('independent')) is list and len(comparison['independent']) == 2
+      and all(type(result) is dict and result.get('worse') is False for result in comparison['independent'])
+      for comparison in comparisons
+    )
+  )
+  if timeout:
+    return False  # Fresh independent/native qualification still runs below; no old value is restored here.
+  trial = trial_document(cache, row['analysis_sha256'])
+  return trial['parameter'] == proposal['parameter'] and trial['delta'] == proposal['delta']
+
+
 def trial_source_history(cache, digest):
   from openpilot.starpilot.flm.offroad_route import original_segment_hashes
 
@@ -1093,10 +1119,7 @@ class OffroadWorker:
       for group, cohort, proposal in choices:
         selected_profile_windows = cohort['whole_windows']
         offered = {'values': proposal['values'], 'parameter': proposal['parameter'], 'delta': proposal['delta']}
-        blocked = False
-        if row is not None and row['state'] == 'rolled_back':
-          trial = trial_document(self.cache, row['analysis_sha256'])
-          blocked = trial['parameter'] == proposal['parameter'] and trial['delta'] == proposal['delta']
+        blocked = rejected_trial_change(self.cache, row, proposal)
         if blocked:
           reason = 'same_rejected_change_requires_different_evidence_or_reset'
           continue
@@ -1144,9 +1167,7 @@ class OffroadWorker:
             if fitted is not None:
               proposal = fitted
               offered = {'values': proposal['values'], 'parameter': proposal['parameter'], 'delta': proposal['delta']}
-              if row is not None and row['state'] == 'rolled_back':
-                trial = trial_document(self.cache, row['analysis_sha256'])
-                feasible = not (trial['parameter'] == proposal['parameter'] and trial['delta'] == proposal['delta'])
+              feasible = not rejected_trial_change(self.cache, row, proposal)
           if not feasible:
             reason = 'no_new_native_feasible_training_step'
             if independent_checks is not None:
