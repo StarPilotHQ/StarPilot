@@ -1829,6 +1829,7 @@ class SelfdriveD:
     from openpilot.starpilot.aol.dm import lateral_event_context
     from openpilot.starpilot.car.toyota.legacy_lateral import below_engage_lateral_allowed as toyota_below_engage_lateral_allowed
     from openpilot.starpilot.car.hyundai.aol import raw_longitudinal_withdrawal
+    from openpilot.starpilot.car.volkswagen.aol import lateral_immediate_disable
     retained_dm_lateral, lateral_events = lateral_event_context(self, CS, intent, native, now_ns, ordinary_lag)
     reverse_pause = known_reverse_pause(CS, getattr(self, 'car_state_samples', ()))
     pause_brake_mps = self.aol_settings.pause_brake_mps if self.aol_settings is not None else 0.0
@@ -1877,7 +1878,7 @@ class SelfdriveD:
                                source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns,
                                axis_session_id=getattr(self, 'aol_session_id', '')) or
                              volkswagen_below_engage_lateral_allowed(self.CP, CS, intent)),
-      immediate_disable=self.events.contains(ET.IMMEDIATE_DISABLE),
+      immediate_disable=lateral_immediate_disable(self.CP, CS, intent, self.events.to_msg()),
       dm_lockout=bool(not self.sm.all_checks(['driverMonitoringState']) or
                       not retained_dm_lateral and (self.sm['driverMonitoringState'].lockout or
                         self.sm['driverMonitoringState'].alwaysOnLockout or
@@ -1889,6 +1890,30 @@ class SelfdriveD:
         sample.steerFaultTemporary or pause_brake_mps > 0 and sample.brakePressed and not sample.standstill and
         sample.vEgo < pause_brake_mps
         for sample, _ in getattr(self, 'car_state_samples', ())))
+
+  def cold_volkswagen_main_readiness(self, CS, intent, now_ns):
+    from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
+    from openpilot.starpilot.aol.transport_pause import _healthy_transport_native
+    if (not volkswagen_long_qualified(self.CP, marked_only=True) or
+        self.CP.transmissionType != car.CarParams.TransmissionType.manual or
+        not self.initialized or self.enabled or self.active or getattr(self, 'aol_ever_active', False) or
+        self.aol_authority_lost or not getattr(self, 'conditional_car_state_valid', False) or
+        intent is None or not intent.settingsQualified or intent.allowedLatch or intent.lateralArmed or
+        intent.pauseLateral or intent.pauseLongitudinal or intent.carStateLogMonoTime != self.aol_car_state_log_ns or
+        not 0 < intent.carStateLogMonoTime <= intent.observedMonoTime <= now_ns <= intent.validUntilMonoTime or
+        now_ns - intent.carStateLogMonoTime > INTENT_MAX_AGE_NS or
+        not self.sm.all_checks(['modelV2', 'extrinsicsCalibration']) or
+        self.sm['extrinsicsCalibration'].calStatus != log.ExtrinsicsCalibration.Status.calibrated or
+        not CS.cruiseState.available or CS.steerFaultPermanent or CS.steerFaultTemporary or CS.accFaulted or
+        CS.vehicleSensorsInvalid or CS.steeringDisengage or CS.doorOpen or CS.buttonEvents or
+        CS.gearShifter not in (car.CarState.GearShifter.drive, car.CarState.GearShifter.sport,
+                              car.CarState.GearShifter.eco, car.CarState.GearShifter.manumatic) or
+        any(event != EventName.belowEngageSpeed for event in self.events.names)):
+      return False
+    native = _healthy_transport_native(self.sm, self.CP, CS, self.aol_session_id, now_ns)
+    return bool(native is not None and native.pandaInventory and
+      not native.requestedLateral and not native.lateralAllowed and
+      not native.requestedLongitudinal and not native.longitudinalAllowed)
 
   def cold_gm_park_readiness(self, CS, intent, now_ns):
     from openpilot.starpilot.car.gm.aol import cold_park_readiness
@@ -2118,6 +2143,8 @@ class SelfdriveD:
       self.aol_last_intent = intent
       from openpilot.starpilot.aol.dm import dm_clear, observe_owner
       observe_owner(self, intent, previous_intent)
+      from openpilot.starpilot.car.volkswagen.aol import lateral_immediate_disable
+      aol_immediate_disable = lateral_immediate_disable(self.CP, CS, intent, self.events.to_msg())
       previous = self.aol_axis_decision
       requested = self._decide_aol_axes(CS, intent, native, now_ns=now_ns)
       source_current = bool(intent is not None and getattr(self, 'conditional_car_state_valid', False) and
@@ -2150,7 +2177,7 @@ class SelfdriveD:
         companion=getattr(self, 'aol_intent_companion', None), previous_intent=previous_intent, intent=intent,
         expired_healthy_source=getattr(self, 'aol_expired_healthy_source', False),
         previously_active=previous.lateral_active, hard_fault=bool(
-          self.aol_selected_pair_future or self.aol_authority_lost or lost_active_aol or lost_permission or self.events.contains(ET.IMMEDIATE_DISABLE) or
+          self.aol_selected_pair_future or self.aol_authority_lost or lost_active_aol or lost_permission or aol_immediate_disable or
           any(event.softDisable and event.name not in LONGITUDINAL_ONLY_EVENTS for event in self.events.to_msg())),
         model_ready=bool(self.sm.all_checks(['modelV2', 'extrinsicsCalibration']) and
           self.sm['extrinsicsCalibration'].calStatus == log.ExtrinsicsCalibration.Status.calibrated),
@@ -2228,10 +2255,11 @@ class SelfdriveD:
           gear_pause=reverse_pause))
         for event in self.events.to_msg())
       cold_main_wait = self.cold_gm_main_readiness(CS, intent, now_ns)
-      cold_park_wait = self.cold_gm_park_readiness(CS, intent, now_ns)
+      cold_park_wait = (self.cold_gm_park_readiness(CS, intent, now_ns) or
+                        self.cold_volkswagen_main_readiness(CS, intent, now_ns))
       self.aol_fault_reason = ('none' if cold_park_wait else
                                'availabilityPause' if ordinary_availability or cold_main_wait else
-                               'critical' if self.aol_authority_lost or self.events.contains(ET.IMMEDIATE_DISABLE) else
+                               'critical' if self.aol_authority_lost or aol_immediate_disable else
                                'availabilityPause' if availability or aol_hard_soft_fault else 'transportPause' if pause else 'none')
       if self.aol_authority_lost or pause:
         self.events.add(EventName.controlsMismatch)

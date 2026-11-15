@@ -655,7 +655,13 @@ class Car:
         ford_awaiting_initial_request(self.CP, CS, self.sm,
           current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_axis_session()),
           self.aol_transport_feedback, self.aol_card_intent, now_ns=now_ns, producer=self.slc_producer_session))
-      transport_reset = not (hkg_cancel_retained or rivian_brake_retained or angle_arm_pending or ford_initial_wait) and self.aol_transport_feedback.observe(
+      from openpilot.starpilot.car.volkswagen.aol import awaiting_initial_request as volkswagen_initial_request
+      volkswagen_initial_wait = volkswagen_initial_request(self.CP, CS, self.sm,
+        current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_axis_session()),
+        self.aol_transport_feedback, self.aol_card_intent, now_ns=now_ns,
+        producer=getattr(self, 'slc_producer_session', ''))
+      transport_reset = not (hkg_cancel_retained or rivian_brake_retained or angle_arm_pending or
+        ford_initial_wait or volkswagen_initial_wait) and self.aol_transport_feedback.observe(
         self.sm, self.CP, CS, now_ns,
         latched=self.aol_card_intent.allowed_latch, cancel_source_ns=cancel_source_ns,
         brake_source_ns=brake_source_ns,
@@ -665,7 +671,10 @@ class Car:
           getattr(self.aol_card_intent, 'physical_arm_ns', 0)),
         startup_calibration_pending=getattr(self.aol_card_intent, 'startup_calibration_pending', False),
         intent_paused=(getattr(self.aol_card_intent, 'pause_lateral', False) or
-          ford_brake_pause_active(self.CP, CS, self.aol_settings)))
+          ford_brake_pause_active(self.CP, CS, self.aol_settings) or
+          self.CP.brand == 'volkswagen' and CS.canValid and not CS.canTimeout and
+          not CS.steerFaultPermanent and (CS.gearShifter == car.CarState.GearShifter.reverse or
+          getattr(self.aol_card_intent, 'reverse_pause', False))))
       fault_active = True if transport_reset else None
       event_ns = int(self.sm.logMonoTime['onroadEvents'])
       if (getattr(self.aol_card_intent, 'requires_fault_observation', self.aol_card_intent.explicit_latch) and
@@ -683,7 +692,7 @@ class Car:
           not feedback.retention_started_ns and not feedback.retention_qualified and not feedback.retention_pending and
           not any(e.immediateDisable or e.softDisable or e.userDisable for e in self.sm['onroadEvents']))
         fault_active = transport_reset or self.aol_disarming_fault(CS, event_ns, now_ns,
-          transport_observed_healthy=reuse_transport or angle_arm_pending or ford_initial_wait)
+          transport_observed_healthy=reuse_transport or angle_arm_pending or ford_initial_wait or volkswagen_initial_wait)
       angle_aol, ford_aol, honda_aol, mazda_aol, preap_aol, volkswagen_aol = self.aol_permission_owners()
       nissan_aol = qualified_nissan_aol(self.CP, marked_only=True)
       rivian_aol = qualified_rivian_aol(self.CP, marked_only=True)
@@ -738,7 +747,10 @@ class Car:
         self._angle_aol_acknowledged_arm_ns = self.aol_card_intent.physical_arm_ns
       subaru_braked_main_pending = bool(self.CP.brand == 'subaru' and not transport_reset and native is not None and
         getattr(self.aol_transport_feedback, 'subaru_main_retained_native_ns', 0) == int(native.observedMonoTime))
+      volkswagen_reverse_pending = bool(volkswagen_aol and not transport_reset and native is not None and
+        getattr(self.aol_transport_feedback, 'volkswagen_reverse_retained_native_ns', 0) == int(native.observedMonoTime))
       rejected = native_reset or (not angle_arm_pending and not subaru_braked_main_pending and
+        not volkswagen_initial_wait and not volkswagen_reverse_pending and
         native_latch_rejected(self.CP, native, state=CS if angle_panda_ready else None))
       rejection_ns = now_ns if native_reset else int(native.observedMonoTime) if rejected else 0
       observe_physical = getattr(self.aol_card_intent, 'observe_physical_samples', None)
@@ -968,7 +980,10 @@ class Car:
           getattr(self.aol_card_intent, 'physical_arm_ns', 0)),
         startup_calibration_pending=getattr(self.aol_card_intent, 'startup_calibration_pending', False),
         intent_paused=(getattr(self.aol_card_intent, 'pause_lateral', False) or
-          ford_brake_pause_active(self.CP, CS, self.aol_settings))):
+          ford_brake_pause_active(self.CP, CS, self.aol_settings) or
+          self.CP.brand == 'volkswagen' and CS.canValid and not CS.canTimeout and
+          not CS.steerFaultPermanent and (CS.gearShifter == car.CarState.GearShifter.reverse or
+          getattr(self.aol_card_intent, 'reverse_pause', False)))):
       return True
     events = self.sm['onroadEvents']
     if self.aol_transport_feedback.retention_qualified or self.aol_transport_feedback.retention_pending:

@@ -87,12 +87,15 @@ class VolkswagenStockCardIntent(AolCardIntent):
     self.main_available = False
     self.main_neutral = False
     self.main_pulse = False
+    self.startup_arm_ns = 0
+    self.reverse_pause = False
     super().__init__(settings, explicit_latch=True, lkas_button_supported=False,
                      preserve_unassigned_cancel=self.cruise_lateral)
 
   def update(self, CS, **kwargs):
     from openpilot.starpilot.aol.runtime import SAFETY_MAX_AGE_NS
     now_ns = kwargs.get('now_ns', 0)
+    self.reverse_pause = bool(CS.canValid and not CS.canTimeout and CS.gearShifter == structs.CarState.GearShifter.reverse)
     if temporary_eps_restriction(self.cp, CS):
       self.physical_eps_pause = True
       self.eps_recovery_ns = 0
@@ -147,6 +150,8 @@ class VolkswagenStockCardIntent(AolCardIntent):
         not state.steerFaultPermanent and not state.accFaulted and not self._fault_inhibit and
         (not self.cruise_lateral or not lateral_output_inhibited(self.cp, state))):
       self.allowed_latch = True
+      if self.main_startup_pending and not self.startup_arm_ns:
+        self.startup_arm_ns = now_ns
       self.main_startup_pending = False
       self.main_neutral = False
     if not available:
@@ -244,3 +249,119 @@ def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previou
   except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
     return False
 
+
+
+def longitudinal_speed_event(cp, state):
+  """A manual cruise speed minimum does not revoke eligible independent steering."""
+  return bool(long_qualified(cp, marked_only=True) and cp.transmissionType == structs.CarParams.TransmissionType.manual and
+              state is not None and state.canValid and not state.canTimeout and state.cruiseState.available and
+              not state.steerFaultPermanent and not state.steerFaultTemporary and not state.accFaulted and
+              state.gearShifter in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.sport,
+                                   structs.CarState.GearShifter.eco, structs.CarState.GearShifter.manumatic) and
+              not lateral_output_inhibited(cp, state) and 0 < cp.minEnableSpeed and
+              abs(state.vEgo) <= cp.minEnableSpeed + 0.5)
+
+
+def lateral_immediate_disable(cp, state, intent, events):
+  from openpilot.cereal import log
+  retained = bool(intent is not None and intent.allowedLatch and intent.lateralArmed and not intent.pauseLateral and
+                  longitudinal_speed_event(cp, state))
+  return any(event.immediateDisable and not (retained and event.name == log.OnroadEvent.EventName.speedTooLow)
+             for event in events)
+
+
+def intent_disarming_fault(cp, events, state, **context):
+  from openpilot.cereal import log
+  from openpilot.starpilot.car.gm.aol import intent_disarming_fault as classify
+  if longitudinal_speed_event(cp, state):
+    events = [event for event in events if event.name != log.OnroadEvent.EventName.speedTooLow]
+  return classify(cp, events, state, **context)
+
+
+def awaiting_initial_request(cp, cs, sm, native, feedback, intent, *, now_ns, producer):
+  """A cold MAIN request may await its first native response, never output."""
+  from openpilot.starpilot.aol.runtime import SAFETY_MAX_AGE_NS, AXIS_MAX_AGE_NS, current_axis
+  from openpilot.starpilot.aol.transport_pause import _configured_transport_native, cp_identity
+  try:
+    if not (stock_qualified(cp, marked_only=True) or long_qualified(cp, marked_only=True)):
+      return False
+    axis = current_axis(sm, now_ns=now_ns)
+    arm = intent.startup_arm_ns
+    event_ns = int(sm.logMonoTime['onroadEvents'])
+    return bool(intent.settings.enabled and intent.settings.main_action != AOL_TOGGLE and intent.settings.lkas_action != AOL_TOGGLE and
+      intent.allowed_latch and not intent.pause_lateral and not feedback.ever_lateral_active and
+      not feedback.failed and not feedback.paused and not feedback.pending_event and not feedback.retention_started_ns and
+      feedback.cp == cp_identity(cp) and
+      0 < arm <= now_ns <= arm + SAFETY_MAX_AGE_NS and
+      cs.canValid and not cs.canTimeout and cs.cruiseState.available and not lateral_output_inhibited(cp, cs) and
+      not cs.accFaulted and not cs.vehicleSensorsInvalid and not cs.doorOpen and not cs.seatbeltUnlatched and
+      not cs.steeringDisengage and not cs.brakePressed and not cs.regenBraking and not cs.buttonEvents and
+      cs.gearShifter in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.sport,
+                        structs.CarState.GearShifter.eco, structs.CarState.GearShifter.manumatic) and
+      axis is not None and axis.sessionId == feedback.session and axis.faultSessionId == axis.sessionId and
+      axis.sequence > 0 and axis.sequence >= feedback.sequence and feedback.signature is not None and
+      feedback.signature[14:16] == (producer, int(axis.intentIntegrityEpoch)) and
+      axis.observedMonoTime == int(sm.logMonoTime['aolAxisState']) and
+      0 < axis.validUntilMonoTime - axis.observedMonoTime <= AXIS_MAX_AGE_NS and
+      axis.faultReason == 'none' and not axis.desiredLongitudinal and
+      not axis.lateralActive and not axis.longitudinalActive and
+      axis.intentProducerSessionId == producer and producer and
+      0 < axis.sourceCarStateMonoTime <= axis.observedMonoTime <= now_ns and
+      now_ns - axis.sourceCarStateMonoTime <= AXIS_MAX_AGE_NS and
+      native is not None and not native.lateralAllowed and not native.requestedLongitudinal and
+      not native.longitudinalAllowed and native.observedMonoTime <= now_ns and
+      _configured_transport_native(sm, cp, axis.sessionId, now_ns, native,
+        require_longitudinal=False, allow_restricted_lateral=True) is not None and
+      sm.seen['onroadEvents'] and sm.valid['onroadEvents'] and sm.alive['onroadEvents'] and
+      0 < event_ns <= now_ns and now_ns - event_ns <= 1_500_000_000 and
+      not any(event.immediateDisable or event.softDisable or event.userDisable for event in sm['onroadEvents']))
+  except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+    return False
+
+
+def retain_reverse_withdrawal(feedback, sm, cp, cs, axis, now_ns, *, latched, producer):
+  """Keep the original LAT intent while the Reverse OFF acknowledgment arrives."""
+  from openpilot.cereal import log
+  from openpilot.starpilot.aol.runtime import SAFETY_MAX_AGE_NS
+  from openpilot.starpilot.aol.transport_pause import _configured_transport_native
+  try:
+    if (not qualified(cp, marked_only=True) or not latched or feedback.failed or feedback.paused or feedback.pending_event or
+        feedback.retention_started_ns or not feedback.lateral_only_baseline or not feedback.lateral_inventory or
+        not producer or producer != feedback.availability_producer or axis.intentProducerSessionId != producer or
+        axis.intentIntegrityEpoch != feedback.availability_epoch or axis.sessionId != feedback.session or
+        axis.faultReason != 'none' or axis.mode != 'off' or axis.desiredLateral or axis.lateralActive or
+        axis.desiredLongitudinal or axis.longitudinalActive or
+        not 0 < feedback.lateral_source_ns <= feedback.lateral_baseline_ns <= now_ns or
+        now_ns - feedback.lateral_source_ns > SAFETY_MAX_AGE_NS or
+        cs.gearShifter not in (structs.CarState.GearShifter.reverse, structs.CarState.GearShifter.drive,
+                              structs.CarState.GearShifter.sport, structs.CarState.GearShifter.eco, structs.CarState.GearShifter.manumatic) or
+        not cs.canValid or cs.canTimeout or
+        not cs.cruiseState.available or cs.steerFaultTemporary or cs.steerFaultPermanent or cs.accFaulted or
+        cs.vehicleSensorsInvalid or cs.steeringDisengage or cs.gasPressed or cs.doorOpen or cs.buttonEvents):
+      return False
+    event_ns = int(sm.logMonoTime['onroadEvents'])
+    if (not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
+        not 0 < event_ns <= now_ns or now_ns - event_ns > 1_500_000_000 or
+        any(event.immediateDisable or
+            event.softDisable and event.name != log.OnroadEvent.EventName.wrongGear or
+            event.userDisable and event.name not in (log.OnroadEvent.EventName.reverseGear, log.OnroadEvent.EventName.pcmDisable)
+            for event in sm['onroadEvents'])):
+      return False
+    native = _configured_transport_native(sm, cp, feedback.session, now_ns,
+      require_longitudinal=False, allow_restricted_lateral=True)
+    recovering = cs.gearShifter != structs.CarState.GearShifter.reverse
+    reverse_ns = getattr(feedback, 'volkswagen_reverse_source_ns', 0)
+    retained = bool(native is not None and native.pandaInventory and native.requestedLateral and
+      (not recovering or 0 < native.observedMonoTime <= reverse_ns <= now_ns) and
+      (not native.lateralAllowed or not recovering) and not native.requestedLongitudinal and not native.longitudinalAllowed and
+      native.observedMonoTime >= feedback.lateral_native_ns and
+      (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory)) == feedback.lateral_inventory and
+      all(not slot.controlsAllowed for slot in native.pandaInventory) and
+      all(not panda.controlsAllowed for panda in sm['pandaStates']))
+    if retained:
+      feedback.volkswagen_reverse_retained_native_ns = int(native.observedMonoTime)
+      if not recovering:
+        feedback.volkswagen_reverse_source_ns = now_ns
+    return retained
+  except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+    return False

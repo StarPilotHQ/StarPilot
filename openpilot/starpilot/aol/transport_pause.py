@@ -62,8 +62,9 @@ def _healthy_transport_native(sm, cp, cs, session, now_ns, native=None, *, requi
 
 def _newer_combined_intent_native(sm, cp, cs, axis, now_ns):
   # FULL before ACK: intent only; output needs native proof/original deadlines.
+  from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
   if (not axis.nativeAcknowledged or not axis.desiredLateral or not axis.lateralActive or
-      not axis.desiredLongitudinal or not cs.cruiseState.enabled or
+      not axis.desiredLongitudinal or not (cs.cruiseState.enabled or volkswagen_long_qualified(cp, marked_only=True)) or
       cs.brakePressed or cs.gasPressed or cs.accFaulted):
     return None
   native = _healthy_transport_native(sm, cp, cs, str(axis.sessionId), now_ns, require_longitudinal=False)
@@ -241,6 +242,7 @@ class TransportPauseFeedback:
     self.subaru_braked_main = None
     self.subaru_lateral_grant_ns = 0
     self.subaru_main_retained_native_ns = 0
+    self.volkswagen_reverse_retained_native_ns = 0
     self.subaru_eps_brake_event_ns = 0
     self.hkg_eps_join_until_ns = 0
     self.lateral_source_ns = 0
@@ -356,7 +358,7 @@ class TransportPauseFeedback:
     native = independent_lateral_health(sm, cp, cs, self.session, now_ns)
     # Brake health may precede axis status.
     # Keep LAT intent only; physical pedal owns LONG.
-    brake_health = bool((ford_withdrawal or classic_brake) and cs.brakePressed and not cs.gasPressed and
+    brake_health = bool(((ford_withdrawal or classic_brake) and cs.brakePressed or volkswagen_withdrawal) and not cs.gasPressed and
       native is not None and native.sourcePandaStatesMonoTime > 0 and
       native.sourcePandaStatesMonoTime < int(sm.logMonoTime['pandaStates']) and
       all(not slot.controlsAllowed for slot, config in zip(sm['pandaStates'], cp.safetyConfigs, strict=True)
@@ -1314,6 +1316,7 @@ class TransportPauseFeedback:
     self.ordinary_warning_qualified = False
     self.temporary_host_qualified = False
     self.subaru_main_retained_native_ns = 0
+    self.volkswagen_reverse_retained_native_ns = 0
     self.qualified = False
     self.awaiting = False
     self.retention_qualified = False
@@ -1517,6 +1520,12 @@ class TransportPauseFeedback:
           latched=latched, producer=intent_producer_session, signature=signature):
         self.sequence, self.signature = int(axis.sequence), signature
         return False
+      if cp.brand == 'volkswagen' and current and continuity:
+        from openpilot.starpilot.car.volkswagen.aol import retain_reverse_withdrawal
+        if retain_reverse_withdrawal(self, sm, cp, cs, axis, now_ns,
+            latched=latched, producer=intent_producer_session):
+          self.sequence, self.signature = int(axis.sequence), signature
+          return False
       if cp.brand == 'honda' and current and continuity:
         from opendbc.car.honda.stock_aol import qualified as honda_stock_qualified
         from openpilot.starpilot.aol.reverse_intent import retain_reverse_intent
