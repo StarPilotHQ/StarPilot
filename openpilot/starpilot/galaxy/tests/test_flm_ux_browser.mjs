@@ -247,6 +247,11 @@ try {
       assert.equal(await execute('return document.querySelectorAll(".gx-tuner__groups>button").length'), 7)
       assert.equal(await execute('return document.querySelectorAll(".gx-tuner__idea-grid .gx-tuner__idea").length'), 1)
       assert.equal(await execute('return document.querySelectorAll(".gx-tuner__curve-summary [data-coordinate]").length'), 4)
+      assert(await execute(`const saved=document.querySelector('[aria-labelledby="tuner-saved-title"]'),suggestions=document.querySelector('[aria-labelledby="tuner-suggestions-title"]'),heading=document.querySelector('#tuner-suggestions-title');
+        return saved.nextElementSibling===suggestions&&saved.textContent.includes('No saved adjustments reported.')&&saved.querySelector('h3').textContent==='Auto-learned settings'&&
+          heading.textContent==='Suggestions · needs more evidence'&&saved.getBoundingClientRect().bottom<suggestions.getBoundingClientRect().top&&
+          [...suggestions.querySelectorAll('.gx-tuner__idea')].every(e=>Boolean(heading.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING))`), 'One suggestions heading separates every steering and speed finding from the auto-learned settings')
+      checks.push(`${width}/${theme}/saved-and-suggestion-section-boundary`)
       await layout(`${width}/${theme}/ideas`)
       if (width === 1280) assert(await execute('const a=document.querySelector(".gx-tuner__idea-grid").getBoundingClientRect(),b=document.querySelector(".gx-tuner__curve-summary").getBoundingClientRect();return Math.abs(a.top-b.top)<1&&a.right<b.left'), 'Desktop groups related findings side by side without overlapping')
       if (width === 320 || width === 416 || width === 1280) {
@@ -316,6 +321,21 @@ try {
     }
     if (name === 'stale') assert(await execute('return !/Refresh|Reconnect/.test(window.flm.review.description)&&window.flm.savedSummary==="0 saved"'))
     if (name === 'saved') assert.equal(await execute('return window.flm.currentApplied'), false)
+    if (['saved', 'none', 'contradictory', 'unknown-change'].includes(name)) {
+      await click('#tuner-tab-tune')
+      assert(await execute('return document.querySelector("#tuner-saved-title").textContent==="Auto-learned settings"'))
+      if (name === 'saved') {
+        assert(await execute('const e=document.querySelector(".gx-tuner__saved-list");return e.textContent.includes("Saved for the next drive")&&e.textContent.includes("Highway center taper")&&!e.querySelector(".gx-tuner__idea")'))
+        assert.equal(await execute('return document.querySelectorAll(".gx-tuner__findings [data-coordinate]").length'), 4, 'The already-saved target stays in learned settings; the four remaining suggestions stay visible')
+        assert(await execute('return !document.querySelector(".gx-tuner__findings [data-coordinate=highway_center_taper_max]")'), 'An already-saved target must not be presented as an unsaved suggestion')
+      }
+      if (name === 'none') assert.equal(await execute('return document.querySelector("#tuner-suggestions-title").textContent'), 'No new suggestions')
+      if (name === 'contradictory') assert(await execute('return !document.querySelector(".gx-tuner__curve-summary")&&document.querySelector("#tuner-suggestions-title").textContent.includes("needs more evidence")'), 'The evidence heading remains above manual-only suggestions without a speed card')
+      if (name === 'unknown-change') assert(await execute('return document.querySelector(".gx-tuner__saved-list").textContent.includes("Saved state not confirmed.")'), 'Unknown saving cannot appear as a confirmed empty tune')
+      await layout(`sections/${name}`);await capture(`sections-${name}`)
+      checks.push(`sections/${name}`)
+      await click('#tuner-tab-overview')
+    }
     if (name === 'recent-rollback') {
       assert.equal(await execute('return window.flm.review.title'), 'Your previous tune was restored')
       assert.equal(await execute('return window.flm.review.count'), 10)
