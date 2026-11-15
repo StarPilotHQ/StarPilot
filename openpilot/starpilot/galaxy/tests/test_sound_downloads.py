@@ -88,7 +88,7 @@ class SoundDownloadsHttpTest(unittest.TestCase):
         self.assertTrue(snapshot['packs'][0]['installed'])
         self.assertEqual((root / 'packs/test/sounds/engage.wav').read_bytes(), wav.getvalue())
         with patch('openpilot.starpilot.galaxy.settings.SoundsOwner',
-                   side_effect=lambda p, parked: SoundsOwner(p, parked, root / 'packs')):
+                   side_effect=lambda p, parked, **kwargs: SoundsOwner(p, parked, root / 'packs', **kwargs)):
           status, page = request('/api/settings/pages/sounds')
           self.assertEqual(status, 200)
           row = next(item for item in page['rows'] if item['label'] == 'Sound Pack')

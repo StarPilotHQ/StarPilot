@@ -23486,3 +23486,46 @@ msgstr "信号での停止動作を改善し、検出した一時停止標識で
 msgid "Enhanced Stops"
 msgstr "停止機能の強化"
 
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal."
+msgstr "アクセルペダルに合わせて、車のスピーカーで疑似エンジン音を再生します。"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Type"
+msgstr "エンジンの種類"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Chooses which engine is simulated."
+msgstr "再現するエンジンを選びます。"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sound Volume"
+msgstr "エンジンサウンドの音量"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Sets how loud the engine is before the car's own volume control."
+msgstr "車側の音量調整の前に、エンジン音の大きさを設定します。"
+
+#: openpilot/starpilot/galaxy/setting_descriptions.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal, including revving in Park or Neutral. Uses the audio output chosen under Spotify and Phone Audio, and goes quiet while an alert sounds."
+msgstr "アクセルペダルに合わせて、車のスピーカーで疑似エンジン音を再生します。パーキングやニュートラルでの空ぶかしにも対応します。「Spotifyとスマホ音声」で選んだ音声出力を使い、警告音が鳴っている間は消音します。"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "BMW M52"
+msgstr "BMW M52"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "LFA"
+msgstr "LFA"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sounds"
+msgstr "エンジンサウンド"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Plays on the car speakers through the Spotify and Phone Audio output."
+msgstr "「Spotifyとスマホ音声」の出力から車のスピーカーで再生します。"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Choose an engine; it revs once so you can hear it."
+msgstr "エンジンを選ぶと、一度空ぶかしして音を確認できます。"

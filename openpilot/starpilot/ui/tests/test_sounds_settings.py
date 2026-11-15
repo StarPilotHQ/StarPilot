@@ -19,7 +19,7 @@ from openpilot.starpilot.ui.feature_settings_state import (
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.runtime_app import SOUND_PRESETS
 from openpilot.starpilot.ui.settings_state import Destination, SettingsInput, SettingsState, tile_rects
-from openpilot.starpilot.ui.sounds_owner import SoundsOwner
+from openpilot.starpilot.ui.sounds_owner import ENGINE_KEYS, ENGINE_MENU_KEY, ENGINE_PAGE, ENGINE_TYPE_PAGE, SoundsOwner
 from openpilot.starpilot.ui.shell import ShellInput, ShellMode, ShellSnapshot
 
 
@@ -43,13 +43,15 @@ class SoundsSettingsTests(unittest.TestCase):
     session.sounds_owner = self.owner
     session.sounds_scroll = 0
     session.sounds_edit_key = None
+    session.sounds_page = "sounds"
+    session.sounds_return_scroll = 0
     session._snapshot_cache = None
     session.input = ShellInput(Profile.LARGE, lambda _: None)
     return session
 
   def test_absence_auto_no_writes_and_native_registry(self):
     state = self.owner.snapshot()
-    self.assertEqual(len(state.rows), 12)
+    self.assertEqual(len(state.rows), 15)
     for key, _, _ in VOLUMES:
       self.assertEqual(self.row(key).value, "Auto")
       self.assertEqual((self.row(key).step, self.row(key).maximum, self.row(key).unit), (5.0, 100.0, "%"))
@@ -94,6 +96,117 @@ class SoundsSettingsTests(unittest.TestCase):
     assert auto is not None
     self.assertTrue(self.owner.apply(auto))
     self.assertEqual(read_volume(self.params, row.key).value, AUTO)
+
+  def test_engine_sound_rows_default_save_and_reject_unknown_or_unparked_changes(self):
+    self.assertEqual([self.row(key).value for key in ("EngineSound", "EngineSoundProfile", "EngineSoundVolume")],
+                     ["Off", "LFA", "60"])
+    self.assertNotIn("EngineSoundPreview", [row.key for row in self.owner.snapshot().rows])
+    for key, value, saved in (("EngineSound", "On", True), ("EngineSoundProfile", "BMW M52", "bmw_m52"),
+                              ("EngineSoundVolume", "80", 80)):
+      row = self.row(key)
+      self.assertTrue(self.owner.apply(FeatureSettingsRequest(key, row.source, value)))
+      self.assertEqual(self.params.get(key), saved)
+      self.assertEqual(self.row(key).value, value)
+    stepped = row_change(self.row("EngineSoundVolume"), 1)
+    assert stepped is not None
+    self.assertTrue(self.owner.apply(stepped))
+    self.assertEqual(self.params.get("EngineSoundVolume"), 90)
+    for key, value in (("EngineSoundProfile", "Tractor"), ("EngineSoundVolume", "5"), ("EngineSoundVolume", "Auto"),
+                       ("EngineSoundVolume", "55.5"), ("EngineSound", "Maybe")):
+      self.assertFalse(self.owner.apply(FeatureSettingsRequest(key, self.row(key).source, value)))
+    self.parked = False
+    self.assertFalse(self.owner.apply(FeatureSettingsRequest("EngineSound", self.row("EngineSound").source, "Off")))
+    self.assertTrue(self.params.get_bool("EngineSound"))
+
+  def test_engine_choices_rev_the_engine_and_turning_it_on_does_not(self):
+    revs = []
+    owner = SoundsOwner(self.params, lambda: self.parked, engine_preview=lambda: revs.append(1))
+    row = lambda key: next(row for row in owner.snapshot().rows if row.key == key)
+    self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSoundProfile", row("EngineSoundProfile").source, "BMW M52")))
+    self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSoundVolume", row("EngineSoundVolume").source, "40")))
+    self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSound", row("EngineSound").source, "On")))
+    self.assertEqual(len(revs), 2)
+    self.assertEqual(row("EngineSound").label, "Engine Sounds")
+
+  def test_native_engine_menu_folds_the_engine_rows_into_one_page(self):
+    flat = [row.key for row in self.owner.snapshot().rows]
+    self.assertTrue(set(ENGINE_KEYS) <= set(flat))
+    menu = self.owner.snapshot(engine_menu=True)
+    keys = [row.key for row in menu.rows]
+    self.assertEqual(keys, [key for key in flat if key not in ENGINE_KEYS] + [ENGINE_MENU_KEY])
+    entry = menu.rows[-1]
+    self.assertEqual((entry.label, entry.value, entry.page, entry.available), ("Engine Sounds", "Off", ENGINE_PAGE, True))
+    page = self.owner.engine_snapshot()
+    self.assertEqual((page.page, page.title, page.parent_title), (ENGINE_PAGE, "Engine Sounds", "Sounds & Alerts"))
+    self.assertEqual([row.key for row in page.rows], list(ENGINE_KEYS))
+    self.assertEqual((page.rows[1].value, page.rows[1].page), ("LFA", ENGINE_TYPE_PAGE))
+    self.assertTrue(self.owner.apply(FeatureSettingsRequest("EngineSound", page.rows[0].source, "On")))
+    self.assertEqual(self.owner.snapshot(engine_menu=True).rows[-1].value, "On · LFA")
+
+  def test_engine_type_picker_lists_each_engine_and_choosing_one_saves_and_previews(self):
+    revs = []
+    owner = SoundsOwner(self.params, lambda: self.parked, engine_preview=lambda: revs.append(1))
+    picker = owner.engine_type_snapshot()
+    self.assertEqual((picker.page, picker.title, picker.parent_title), (ENGINE_TYPE_PAGE, "Engine Type", "Engine Sounds"))
+    self.assertEqual([(row.label, row.value, row.actions) for row in picker.rows],
+                     [("BMW M52", "", (("Use", True),)), ("LFA", "Active", (("Active", True),))])
+    stale = picker.rows[0]
+    request = owner.engine_choice_request(stale)
+    assert request is not None
+    self.assertTrue(owner.apply(request))
+    self.assertEqual((self.params.get("EngineSoundProfile"), revs), ("bmw_m52", [1]))
+    picker = owner.engine_type_snapshot()
+    self.assertEqual([row.value for row in picker.rows], ["Active", ""])
+    replay = owner.engine_choice_request(picker.rows[0])
+    assert replay is not None
+    self.assertTrue(owner.apply(replay))
+    self.assertEqual(revs, [1, 1])
+    self.assertFalse(owner.apply(request))
+    self.assertEqual(self.params.get("EngineSoundProfile"), "bmw_m52")
+    self.parked = False
+    parked_off = owner.engine_type_snapshot()
+    self.assertTrue(all(not row.available and row.actions[0][1] is False for row in parked_off.rows))
+    self.assertIsNone(owner.engine_choice_request(parked_off.rows[1]))
+    self.assertIsNone(owner.engine_choice_request(replace(picker.rows[0], key="engine_type:tractor")))
+
+  def test_large_engine_menu_opens_picker_saves_and_returns_to_the_same_overview_page(self):
+    session = self.large_session()
+    revs = []
+    session.sounds_owner = SoundsOwner(self.params, lambda: self.parked, engine_preview=lambda: revs.append(1))
+    session.sounds_scroll = 5
+    overview = session.sounds_snapshot()
+    self.assertEqual(overview.page, "sounds:overview")
+    entry = next(row for row in overview.rows if row.key == ENGINE_MENU_KEY)
+    self.assertFalse(any(row.key in ENGINE_KEYS for row in overview.rows))
+    session._sounds_ui(FeatureUiAction("open", entry))
+    page = session.sounds_snapshot()
+    self.assertEqual((session.sounds_page, page.page, session.sounds_scroll), (ENGINE_PAGE, ENGINE_PAGE, 0))
+    toggle, engine_type, volume = page.rows
+    self.assertTrue(volume.presets and volume.page == volume.key)
+    session._sounds_ui(FeatureUiAction("change", toggle, 1))
+    self.assertTrue(self.params.get_bool("EngineSound"))
+    session._sounds_ui(FeatureUiAction("open", engine_type))
+    picker = session.sounds_snapshot()
+    self.assertEqual(picker.page, ENGINE_TYPE_PAGE)
+    session._sounds_ui(FeatureUiAction("action", picker.rows[0], 0))
+    self.assertEqual((self.params.get("EngineSoundProfile"), revs), ("bmw_m52", [1]))
+    session._sounds_ui(FeatureUiAction("back"))
+    self.assertEqual(session.sounds_page, ENGINE_PAGE)
+    session._sounds_ui(FeatureUiAction("open", session.sounds_snapshot().rows[2]))
+    editor = session.sounds_snapshot()
+    self.assertTrue(editor.editor and editor.title == "Engine Sound Volume" and editor.parent_title == "Engine Sounds")
+    session._sounds_ui(FeatureUiAction("back"))
+    self.assertIsNone(session.sounds_edit_key)
+    session._sounds_ui(FeatureUiAction("back"))
+    self.assertEqual((session.sounds_page, session.sounds_scroll), ("sounds", 5))
+    self.assertEqual(session.sounds_snapshot().page, "sounds:overview")
+
+  def test_engine_volume_editor_offers_no_auto_preset(self):
+    from openpilot.starpilot.ui.feature_settings_state import sound_editor_state
+    editor = sound_editor_state(self.owner.snapshot(), "EngineSoundVolume")
+    self.assertNotIn("Auto", [value for value, _ in editor.rows[0].presets])
+    alert = sound_editor_state(self.owner.snapshot(), "EngageVolume")
+    self.assertIn("Auto", [value for value, _ in alert.rows[0].presets])
 
   def test_parked_and_final_read_guards(self):
     request = row_change(self.row("RefuseVolume"), 1)
@@ -264,7 +377,7 @@ class SoundsSettingsTests(unittest.TestCase):
     session.sounds_scroll = 5
     state = replace(session.sounds_snapshot(), scroll=5)
     self.assertEqual(state.page, "sounds:overview")
-    self.assertEqual(len(state.rows), 12)
+    self.assertEqual(len(state.rows), 13)
     self.assertTrue(all(value_buttons(state, row) == () for row in state.rows))
     self.assertEqual(next(row for row in state.rows if row.key == "EngageVolume").value, "40")
     received = []

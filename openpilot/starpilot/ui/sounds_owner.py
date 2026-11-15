@@ -10,12 +10,20 @@ from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.audio.blindspot_alert import KEYS as BLINDSPOT_KEYS
 from openpilot.starpilot.audio.departure_alert import KEYS as DEPARTURE_KEYS, TOGGLES as DEPARTURE_TOGGLES
+from openpilot.starpilot.engine_sound import settings as engine_sound
+from openpilot.starpilot.engine_sound.profiles import DEFAULT_PROFILE, PROFILES
 
 from openpilot.starpilot.audio.alert_volume import AUTO, MAX_RAW_BYTES, SPECS, VOLUMES, read_volume
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, FeatureSettingsState
 
 AUTO_PREFIX = "sounds:auto:"
 PACK_LABELS = {"starpilot": "StarPilot Sounds", "stock": "Stock Sounds"}
+ENGINE_LABELS = {name: profile.label for name, profile in PROFILES.items()}
+ENGINE_KEYS = (engine_sound.ENABLED_KEY, engine_sound.PROFILE_KEY, engine_sound.VOLUME_KEY)
+ENGINE_MENU_KEY = "engine_sounds"
+ENGINE_PAGE = "sounds:engine"
+ENGINE_TYPE_PAGE = "sounds:engine:type"
+ENGINE_CHOICE_PREFIX = "engine_type:"
 
 
 def choices(key: str) -> tuple[str, ...]:
@@ -23,13 +31,29 @@ def choices(key: str) -> tuple[str, ...]:
   return ("Auto",) + tuple(f"{value}%" for value in range(minimum, 101, 5))
 
 
+ENGINE_VOLUME_MIN = 10
+
+
+def engine_volume(value: str) -> int | None:
+  try:
+    number = float(value.removesuffix("%"))
+  except ValueError:
+    return None
+  if not math.isfinite(number) or not number.is_integer() or not ENGINE_VOLUME_MIN <= number <= 100:
+    return None
+  return int(number)
+
+
 class SoundsOwner:
-  def __init__(self, params, parked: Callable[[], bool], pack_root: Path = PACK_ROOT):
+  def __init__(self, params, parked: Callable[[], bool], pack_root: Path = PACK_ROOT,
+               engine_preview: Callable[[], object] | None = None):
     self.params = params
     self.parked = parked
     self.pack_root = pack_root
+    self.engine_preview = engine_preview
 
-  def snapshot(self) -> FeatureSettingsState:
+  def snapshot(self, engine_menu: bool = False) -> FeatureSettingsState:
+    """engine_menu folds the engine settings into one row that opens engine_snapshot()."""
     parked = self.parked()
     raw, selected, readable = read_selection(self.params)
     packs = installed_packs(self.pack_root)
@@ -71,6 +95,14 @@ class SoundsOwner:
       rows.append(FeatureRow(key, label, ("On" if raw == b"1" else "Off") if valid else "Invalid saved value",
                              raw, ("Off", "On") if valid else (), available=parked and valid,
                              reason=reason, default_value="Off"))
+    engine_rows = self._engine_rows(parked)
+    if engine_menu:
+      enabled, engine_type = engine_rows[0].value, engine_rows[1].value
+      rows.append(FeatureRow(ENGINE_MENU_KEY, "Engine Sounds", f"{enabled} · {engine_type}" if enabled == "On" else enabled,
+                             page=ENGINE_PAGE, available=True,
+                             reason="Plays a simulated engine on the car speakers that follows the accelerator pedal."))
+    else:
+      rows.extend(engine_rows)
     defaults = dict.fromkeys(SPECS, 'Auto')
     defaults['SoundPack'] = PACK_LABELS.get(DEFAULT_PACK, DEFAULT_PACK)
     rows = tuple(replace(row, default_value=defaults[row.key]) if row.key in defaults else row for row in rows)
@@ -78,7 +110,80 @@ class SoundsOwner:
                                 subtitle="Installed sound packs and alert levels; Auto follows ambient sound.",
                                 rows=tuple(rows), parked=parked)
 
+  def engine_snapshot(self) -> FeatureSettingsState:
+    parked = self.parked()
+    enabled, engine_type, volume = self._engine_rows(parked)
+    return FeatureSettingsState(page=ENGINE_PAGE, title="Engine Sounds", parent_title="Sounds & Alerts",
+                                subtitle="Plays on the car speakers through the Spotify and Phone Audio output.",
+                                rows=(enabled, replace(engine_type, page=ENGINE_TYPE_PAGE, available=True), volume),
+                                parked=parked)
+
+  def engine_type_snapshot(self) -> FeatureSettingsState:
+    parked = self.parked()
+    raw, readable = read_saved(self.params, engine_sound.PROFILE_KEY, 64)
+    current = DEFAULT_PROFILE if raw is None else raw.decode(errors="replace")
+    rows = tuple(FeatureRow(ENGINE_CHOICE_PREFIX + name, label, "Active" if name == current else "", source=raw,
+                            available=parked and readable, actions=(("Active" if name == current else "Use", parked and readable),))
+                 for name, label in ENGINE_LABELS.items())
+    return FeatureSettingsState(page=ENGINE_TYPE_PAGE, title="Engine Type", parent_title="Engine Sounds",
+                                subtitle="Choose an engine; it revs once so you can hear it.", rows=rows, parked=parked)
+
+  @staticmethod
+  def engine_choice_request(row: FeatureRow) -> FeatureSettingsRequest | None:
+    name = row.key.removeprefix(ENGINE_CHOICE_PREFIX)
+    if not row.key.startswith(ENGINE_CHOICE_PREFIX) or name not in ENGINE_LABELS or not row.available:
+      return None
+    return FeatureSettingsRequest(engine_sound.PROFILE_KEY, row.source, ENGINE_LABELS[name])
+
+  def _engine_rows(self, parked: bool) -> list[FeatureRow]:
+    raw, readable = read_saved(self.params, engine_sound.ENABLED_KEY, 8)
+    valid = readable and raw in (None, b"0", b"1")
+    rows = [FeatureRow(engine_sound.ENABLED_KEY, "Engine Sounds", ("On" if raw == b"1" else "Off") if valid else "Invalid saved value",
+                       raw, ("Off", "On") if valid else (), available=parked and valid,
+                       reason="Plays a simulated engine on the car speakers that follows the accelerator pedal.", default_value="Off")]
+    raw, readable = read_saved(self.params, engine_sound.PROFILE_KEY, 64)
+    name = DEFAULT_PROFILE if raw is None else raw.decode(errors="replace")
+    valid = readable and name in ENGINE_LABELS
+    rows.append(FeatureRow(engine_sound.PROFILE_KEY, "Engine Type", ENGINE_LABELS[name] if valid else "Invalid saved value",
+                           raw, tuple(ENGINE_LABELS.values()), available=parked and readable,
+                           reason="Chooses which engine is simulated.", default_value=ENGINE_LABELS[DEFAULT_PROFILE],
+                           repair_value=ENGINE_LABELS[DEFAULT_PROFILE] if not valid and readable else ""))
+    raw, readable = read_saved(self.params, engine_sound.VOLUME_KEY, 8)
+    level = engine_volume(str(engine_sound.DEFAULT_VOLUME) if raw is None else raw.decode(errors="replace"))
+    valid = readable and level is not None
+    rows.append(FeatureRow(engine_sound.VOLUME_KEY, "Engine Sound Volume", str(level) if valid else "Invalid saved level", raw,
+                           step=float(engine_sound.VOLUME_STEP) if valid else 0.0, minimum=float(ENGINE_VOLUME_MIN), maximum=100.0,
+                           unit="%" if valid else "", available=parked and readable,
+                           reason="Sets how loud the engine is before the car's own volume control.",
+                           default_value=str(engine_sound.DEFAULT_VOLUME),
+                           repair_value=str(engine_sound.DEFAULT_VOLUME) if not valid and readable else ""))
+    return rows
+
+  def _apply_engine(self, request: FeatureSettingsRequest) -> bool:
+    if request.key == engine_sound.ENABLED_KEY:
+      if request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
+        return False
+      raw = b"1" if request.value == "On" else b"0"
+    elif request.key == engine_sound.PROFILE_KEY:
+      name = next((name for name, label in ENGINE_LABELS.items() if label == request.value), None)
+      if name is None:
+        return False
+      raw = name.encode()
+    else:
+      level = engine_volume(request.value)
+      if level is None:
+        return False
+      raw = str(level).encode()
+    result = commit_exact(self.params, key=request.key, max_bytes=64, raw=raw, expected=request.expected,
+                          authorized=self.parked, temp_prefix=".engine-sound-")
+    saved = result.committed and result.verified
+    if saved and request.key != engine_sound.ENABLED_KEY and self.engine_preview is not None:
+      self.engine_preview()
+    return saved
+
   def apply(self, request: FeatureSettingsRequest) -> bool:
+    if request.key in ENGINE_KEYS:
+      return self._apply_engine(request)
     if request.key in (*BLINDSPOT_KEYS, *DEPARTURE_KEYS):
       if request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
         return False

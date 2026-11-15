@@ -108,6 +108,10 @@ def spotify_enabled(started: bool, params: Params, CP: car.CarParams) -> bool:
   return COMMA_HARDWARE and platform.system() == "Linux" and enabled()
 
 
+def engine_sound_enabled(started: bool, params: Params, CP: car.CarParams) -> bool:
+  return COMMA_HARDWARE and platform.system() == "Linux" and params.get_bool("EngineSound")
+
+
 def jetlink_enabled(started: bool, params: Params, CP: car.CarParams) -> bool:
   if not COMMA_HARDWARE or platform.system() != 'Linux':
     return False
@@ -203,7 +207,10 @@ procs = [
   PythonProcess(
     "starportd", "openpilot.starpilot.system.starport.daemon", starport_enabled, enabled=COMMA_HARDWARE, restart_on_exit=True
   ),  # boot can race bluetoothd (NoSuchUnit)
-  PythonProcess("spotifyd", "openpilot.starpilot.soloist.supervisor", spotify_enabled, enabled=COMMA_HARDWARE, restart_on_exit=True),
+  PythonProcess("spotifyd", "openpilot.starpilot.soloist.supervisor", or_(spotify_enabled, engine_sound_enabled),
+                enabled=COMMA_HARDWARE, restart_on_exit=True),
+  PythonProcess("enginesoundd", "openpilot.starpilot.engine_sound.daemon", and_(only_onroad, engine_sound_enabled),
+                enabled=COMMA_HARDWARE, restart_on_exit=True),
   # Boot can race the audio device; selfdrived blocks engagement while soundd is down.
   PythonProcess("soundd", "openpilot.selfdrive.ui.soundd", driverview, restart_on_exit=True),
   PythonProcess("locationd", "openpilot.selfdrive.locationd.locationd", only_onroad),

@@ -80,16 +80,20 @@ def starport_pipe(layout: Layout | None = None) -> Path:
   return runtime_paths(layout or Layout.default())['starport']
 
 
-def _sink(output: str, paths: dict[str, Path]) -> tuple[str, str]:
+# 30 ms of 48 kHz stereo in place of PulseAudio's default 100 ms, for sound that has to follow the driver's foot.
+LOW_LATENCY = 'fragments=3 fragment_size=1920'
+
+
+def _sink(output: str, paths: dict[str, Path], low_latency: bool = False) -> tuple[str, str]:
   if output == 'bluetooth':
-    return 'module-alsa-sink', f'device={PCM_NAME} sink_name={SINK_NAME} channels=2 tsched=0'
+    return 'module-alsa-sink', f'device={PCM_NAME} sink_name={SINK_NAME} channels=2 tsched=0' + (f' {LOW_LATENCY}' if low_latency else '')
   if output == 'starport':
     return 'module-pipe-sink', (f'file={paths["starport"]} sink_name={SINK_NAME} format=s16le rate={PIPE_RATE} ' +
                                 f'channels={PIPE_CHANNELS} use_system_clock_for_timing=yes')
   return 'module-null-sink', f'sink_name={SILENT_SINK if output == "silent" else SINK_NAME}'
 
 
-def server_launch(layout: Layout, prefs: Preferences, *, silent: bool = False, alsa_base: Path = SYSTEM_ALSA_CONFIG,
+def server_launch(layout: Layout, prefs: Preferences, *, silent: bool = False, low_latency: bool = False, alsa_base: Path = SYSTEM_ALSA_CONFIG,
                   root: Path = SERVER_ROOT) -> Launch:
   paths = runtime_paths(layout)
   for key in ('run', 'home', 'pulse'):
@@ -100,7 +104,8 @@ def server_launch(layout: Layout, prefs: Preferences, *, silent: bool = False, a
     'PULSE_RUNTIME_PATH': str(paths['pulse']), 'PULSE_STATE_PATH': str(paths['pulse']),
     'LD_LIBRARY_PATH': library_path(root), 'PATH': '/usr/bin:/bin', 'PULSE_CONFIG': str(paths['daemon']),
   }
-  paths['daemon'].write_text('nice-level = -5\n')
+  # Opening at 44.1 kHz and then switching to the engine's 48 kHz renegotiates the car's stream twice per sink load.
+  paths['daemon'].write_text('nice-level = -5\ndefault-sample-rate = 48000\n')
   if prefs.output == 'bluetooth':
     # Written even when starting silent, so the speaker can be added to the running server later.
     paths['alsa'].write_text(alsa_config(prefs.output_address, alsa_base))
@@ -108,7 +113,7 @@ def server_launch(layout: Layout, prefs: Preferences, *, silent: bool = False, a
     env['ALSA_CONFIG_PATH'] = str(paths['alsa'])
   elif prefs.output == 'starport':
     paths['starport'].unlink(missing_ok=True)
-  sink = ' '.join(_sink('silent' if silent else prefs.output, paths))
+  sink = ' '.join(_sink('silent' if silent else prefs.output, paths, low_latency))
   argv = [str(root / 'bin' / 'pulseaudio'), '--daemonize=no', '--system=no', '--use-pid-file=no', '-n',
           '--exit-idle-time=-1', '--realtime=no', '--high-priority=yes', '--disallow-exit', '--log-target=stderr',
           '--log-level=notice', '--resample-method=speex-float-3', f'--dl-search-path={root / "modules"}',
@@ -129,18 +134,30 @@ def player_launch(layout: Layout, prefs: Preferences, api_key: str, *, root: Pat
   return Launch(argv, env)
 
 
-def _pactl(layout: Layout, root: Path, run: Callable[..., subprocess.CompletedProcess], *args: str) -> str:
+def _pactl_env(layout: Layout, root: Path) -> dict[str, str]:
   paths = runtime_paths(layout)
-  env = {'HOME': str(paths['home']), 'XDG_RUNTIME_DIR': str(paths['run']), 'PATH': '/usr/bin:/bin',
-         'PULSE_SERVER': f'unix:{paths["socket"]}', 'LD_LIBRARY_PATH': library_path(root)}
-  return run([str(root / 'bin' / 'pactl'), *args], env=env, capture_output=True, text=True, timeout=5, check=True).stdout
+  return {'HOME': str(paths['home']), 'XDG_RUNTIME_DIR': str(paths['run']), 'PATH': '/usr/bin:/bin',
+          'PULSE_SERVER': f'unix:{paths["socket"]}', 'LD_LIBRARY_PATH': library_path(root)}
 
 
-def switch_output(layout: Layout, speaker: bool, *, root: Path = SERVER_ROOT,
+def _pactl(layout: Layout, root: Path, run: Callable[..., subprocess.CompletedProcess], *args: str) -> str:
+  return run([str(root / 'bin' / 'pactl'), *args], env=_pactl_env(layout, root), capture_output=True, text=True, timeout=5,
+             check=True).stdout
+
+
+def subscribe_launch(layout: Layout, *, root: Path = SERVER_ROOT) -> Launch:
+  return Launch([str(root / 'bin' / 'pactl'), 'subscribe'], _pactl_env(layout, root))
+
+
+def has_sink(layout: Layout, *, root: Path = SERVER_ROOT, run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> bool:
+  return bool(_pactl(layout, root, run, 'list', 'short', 'sinks').strip())
+
+
+def switch_output(layout: Layout, speaker: bool, *, low_latency: bool = False, root: Path = SERVER_ROOT,
                   run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> None:
   """Move Soloist between the speaker and the silent sink inside the running server, without restarting it."""
   new, old = (SINK_NAME, SILENT_SINK) if speaker else (SILENT_SINK, SINK_NAME)
-  module, args = _sink('bluetooth' if speaker else 'silent', runtime_paths(layout))
+  module, args = _sink('bluetooth' if speaker else 'silent', runtime_paths(layout), low_latency)
 
   def pactl(*args: str) -> str:
     return _pactl(layout, root, run, *args)

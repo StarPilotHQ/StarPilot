@@ -344,7 +344,7 @@ class SettingsGatewayTest(unittest.TestCase):
       root = Path(directory)
       (root / "custom_pack" / "sounds").mkdir(parents=True)
       with mock.patch("openpilot.starpilot.galaxy.settings.SoundsOwner",
-                      side_effect=lambda params, parked: SoundsOwner(params, parked, root)):
+                      side_effect=lambda params, parked, **kwargs: SoundsOwner(params, parked, root, **kwargs)):
         def preview(value):
           page = self.page("sounds")
           index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Sound Pack")
