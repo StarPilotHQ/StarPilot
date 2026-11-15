@@ -43,8 +43,8 @@ class CarControllerParams:
   # The stock ramp depth follows lateral acceleration, which stays small in sharp turns at low speed: there the wheel
   # fell > 5 deg behind with the EPS near its torque ceiling (25d, 260). While the wheel is RAMP_BOOST_LAG behind the
   # command below RAMP_BOOST_MAX_SPEED, the ramp goes one step deeper per frame (deepest stock value 46 steps, about
-  # +/-70 torque; TEST: up to LCC_RAMP_STEPS_BOOST_MAX), and back one step per frame once within RAMP_BOOST_CAUGHT_UP. Replayed on 3 drives: active
-  # 23-31% of the time below 30 km/h, 3-7% at 30-80 km/h. Not at speed, where such a lag was the driver's own nudge.
+  # +/-70 torque; up to LCC_RAMP_STEPS_BOOST_MAX), and back one step per frame once within RAMP_BOOST_CAUGHT_UP.
+  # Replayed on 3 drives: active 23-31% of the time below 30 km/h, 3-7% at 30-80 km/h. Not at speed, where such a lag was the driver's own nudge.
   RAMP_BOOST_LAG = 3.  # deg
   RAMP_BOOST_CAUGHT_UP = 1.5  # deg
   RAMP_BOOST_MAX_SPEED = 60.  # km/h
