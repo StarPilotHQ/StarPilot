@@ -1,6 +1,13 @@
 """Session-scoped transport pause; no independent axis grant."""
 
 
+def cp_identity(cp):
+  return (str(cp.brand), str(cp.carFingerprint), int(cp.flags), int(cp.alternativeExperience),
+    bool(cp.passive), bool(cp.dashcamOnly), bool(cp.notCar),
+    bool(cp.openpilotLongitudinalControl), bool(cp.pcmCruise),
+    tuple((int(c.safetyModel.raw), int(c.safetyParam)) for c in cp.safetyConfigs))
+
+
 class TransportPause:
   def __init__(self, cp, session):
     from openpilot.starpilot.aol import transport_pause as transport

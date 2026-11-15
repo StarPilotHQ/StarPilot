@@ -1,16 +1,9 @@
 """Reason-qualified intent retention; this module never grants an axis."""
 from openpilot.cereal import log
-from openpilot.starpilot.aol.transport_pause_session import TransportPause as TransportPause
+from openpilot.starpilot.aol.transport_pause_session import TransportPause as TransportPause, cp_identity as cp_identity
 from openpilot.starpilot.aol.panda_faults import blocking_fault_mask, blocking_fault_list
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS, current_native, native_inventory_matches_cp
 from openpilot.starpilot.aol.wire import SafetyState, decode_intent
-
-
-def cp_identity(cp):
-  return (str(cp.brand), str(cp.carFingerprint), int(cp.flags), int(cp.alternativeExperience),
-    bool(cp.passive), bool(cp.dashcamOnly), bool(cp.notCar),
-    bool(cp.openpilotLongitudinalControl), bool(cp.pcmCruise),
-    tuple((int(c.safetyModel.raw), int(c.safetyParam)) for c in cp.safetyConfigs))
 
 
 def _configured_transport_native(sm, cp, session, now_ns, native=None, *, require_longitudinal=True, allow_restricted_lateral=False):

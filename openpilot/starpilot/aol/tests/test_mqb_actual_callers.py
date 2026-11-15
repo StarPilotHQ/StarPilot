@@ -255,6 +255,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
           return awaiting_initial_request(card.CP, cs, card.sm, proof, tracker, request_owner,
             now_ns=stamp, producer=card.slc_producer_session)
         if waiting():
+          assert feedback is not None and owner is not None
           anchor = owner.startup_arm_ns
           for field, value in (('canValid', False), ('canTimeout', True), ('steerFaultPermanent', True),
                                ('steerFaultTemporary', True), ('accFaulted', True), ('vehicleSensorsInvalid', True),
@@ -271,9 +272,9 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
             setattr(bad_feedback, field, value)
             assert not waiting(tracker=bad_feedback), field
           bad_feedback = copy(feedback)
-          signature = list(feedback.signature)
-          signature[15] += 1
-          bad_feedback.signature = tuple(signature)
+          signature = feedback.signature
+          assert signature is not None
+          bad_feedback.signature = (*signature[:15], signature[15] + 1)
           assert not waiting(tracker=bad_feedback)
           for field, value in (('allowed_latch', False), ('pause_lateral', True), ('startup_arm_ns', now - 200_000_001)):
             bad_owner = copy(owner)
