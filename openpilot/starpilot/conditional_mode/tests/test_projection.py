@@ -540,7 +540,9 @@ class TestSceneProjector(unittest.TestCase):
     model.position.x = [200. * math.sin(angle) for angle in angles]
     model.position.y = [200. * (1. - math.cos(angle)) for angle in angles]
     self.assertLess(model.position.x[-1], 190.)
-    self.assertAlmostEqual(_horizon(model), 250., delta=.5)
+    horizon = _horizon(model)
+    assert horizon is not None
+    self.assertAlmostEqual(horizon, 250., delta=.5)
     model.position.y = [0.] * 33
     self.assertEqual(_horizon(model), model.position.x[-1])
 

@@ -40,7 +40,8 @@ def curve_slowing(state: OnroadState) -> bool:
   preview = state.visual_preview
   if preview is not None and preview.cem_reason == 'CURVE':
     return state.alert.size != AlertSize.FULL
-  return bool(state.alert.size == AlertSize.NONE and not state.longitudinal_overridden and state.longitudinal_active and state.speed_mps is not None and state.cruise_kph is not None and
+  return bool(state.alert.size == AlertSize.NONE and not state.longitudinal_overridden and state.longitudinal_active and
+              state.speed_mps is not None and state.cruise_kph is not None and
               state.speed_mps < state.cruise_kph / 3.6 - CURVE_SLOWING_DELTA_MPS)
 
 
