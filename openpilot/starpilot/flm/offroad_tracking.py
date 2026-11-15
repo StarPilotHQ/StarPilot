@@ -259,6 +259,12 @@ def compare_observed(before, after):
   }
 
 
+def route_side(domain, side):
+  # Registered PID desired angles have the opposite sign to the curvature
+  # setpoint used by the actual universal route-effect hooks.
+  return {'left': 'right', 'right': 'left'}.get(side, side) if domain == 'steering_angle' else side
+
+
 def suggest(estimate, previous, *, side, phase):
   """A bounded NEXT-DRIVE CANDIDATE, never a confirmed tune or Params write."""
   from openpilot.starpilot.flm.canonical_surface_adapter import NAMES, coordinate_bounds
@@ -271,6 +277,7 @@ def suggest(estimate, previous, *, side, phase):
     or phase not in ('steady', 'turn_in', 'unwind', 'center')
   ):
     raise ValueError('Exact canonical prior and original input cohort required')
+  side = route_side(estimate.domain, side)
   if phase != 'center' and estimate.residual_rms > 0.25 * estimate.reference_rms:
     return None
   name, step = None, 0.0

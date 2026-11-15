@@ -123,3 +123,44 @@ def coordinate_candidates(observations, previous):
       ),
     })
   return candidates
+
+
+def angle_coordinate_candidates(estimate, windows, previous, *, side, phase):
+  """Extend an identified PID angle symptom to its actual supported hooks.
+
+  Use the existing angle gain/lag/chatter decision, not acceleration thresholds
+  or an invented PID friction model. Each vote represents one source window
+  in that estimate; automatic use still needs independent and native checks.
+  """
+  from openpilot.starpilot.flm.offroad_tracking import TrackingEstimate, suggest, route_side
+  from openpilot.starpilot.flm.pid_stages import SUPPORTED
+
+  if type(estimate) is not TrackingEstimate or estimate.domain != 'steering_angle':
+    return []
+  if tuple(w.identity for w in windows) != estimate.windows or any(w.domain != 'steering_angle' for w in windows):
+    raise ValueError('The original PID estimate windows are required')
+  # Only identify the existing symptom here. A capped primary knob must not
+  # hide other useful hooks; all recipe targets below use the actual prior.
+  primary = suggest(estimate, dict.fromkeys(previous, 0.0), side=side, phase=phase)
+  if primary is None:
+    return []
+  bucket = {'center': 'center_chatter', 'turn_in': 'late_turn_in', 'unwind': 'unwind_too_slow'}.get(phase)
+  if phase == 'steady':
+    bucket = 'understeer' if primary['delta'] > 0 else 'oversteer'
+  observations = []
+  for window in windows:
+    speed = sum(p.speed_mps for p in window.points) / len(window.points)
+    row = {'bucket': bucket, 'direction': route_side(estimate.domain, side), 'severity': 1.0, 'speed_mps': speed}
+    observations.append((window.identity, row))
+    if phase == 'turn_in' and estimate.gain_interval[1] < .98 and speed < 6:
+      # Existing identified lag plus deficient crawl-speed angle response.
+      # No new score threshold; each source window still counts only once.
+      observations.append((window.identity, dict(row, bucket='low_speed_unwillingness')))
+  result = []
+  # PID has no five-point friction curve. Expand the explicit 30-coordinate
+  # prior with only those inapplicable zero fields for the shared recipe code.
+  for candidate in coordinate_candidates(observations, route_values(previous, legacy_allowed=True)):
+    if candidate['parameter'].removeprefix('stable:') in SUPPORTED:
+      result.append(dict(candidate, policy='observed_angle_tracking_v1', coordinate_policy='angle_tracking_supported26_v1',
+                         evidence_domain='steering_angle'))
+  return result

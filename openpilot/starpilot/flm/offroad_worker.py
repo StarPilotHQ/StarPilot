@@ -445,6 +445,8 @@ def recorded_recommendations(assessment, previous, report):
       if baseline is not None:
         add(cohort.get('proposal'), cohort.get('whole_windows', 0), 'recorded_candidate_requires_automatic_checks', baseline)
         add(cohort.get('provisional_proposal'), cohort.get('whole_windows', 0), 'recorded_provisional_suggestion', baseline)
+        for candidate in cohort.get('provisional_coordinate_candidates', ()):
+          add(candidate, len(candidate['original_windows']), 'recorded_provisional_suggestion', baseline)
   for proof in (*report.get('stable_profile_reports', ()), *report.get('short_turn_profile_reports', ())):
     roles = proof.get('roles', {})
     windows = sum(len(roles.get(role, {}).get('original_windows', ())) for role in ('training', 'heldout'))
@@ -898,6 +900,14 @@ class OffroadWorker:
         if proposal is not None:
           proposal = dict(proposal, values=dict(current, **proposal['values']))
           choices.append((group, cohort, proposal))
+        if scope.controller_domain == 'torque_pid' and metadata['domain'] == 'steering_angle':
+          for candidate in cohort.get('coordinate_candidates', ()):
+            if candidate.get('coordinate_policy') != 'angle_tracking_supported26_v1':
+              continue
+            name = candidate['parameter'].removeprefix('stable:')
+            candidate_values = dict(current, **{name: current[name] + candidate['delta']})
+            if proposal is None or candidate_values != proposal['values']:
+              choices.append((group, cohort, dict(candidate, values=candidate_values)))
     # Freeze all proposal sources before any controller/native fit. One
     # marginal tracking proposal must not hide the Recommended profile.
     short_groups = tuple(
