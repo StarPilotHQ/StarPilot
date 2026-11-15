@@ -115,6 +115,15 @@ class LaboratoryPair:
       raise
 
 
+def _coherent_camera_output(buffer):
+  try:
+    from jetlink.openpilot.warp import make_coherent
+  except ImportError as error:
+    raise RuntimeError("Coherent camera allocator is unavailable") from error
+  buffer.ensure_allocated()
+  make_coherent(buffer)
+
+
 def load_laboratory_pair(cam_w: int, cam_h: int, config: dict, *, root: Path = ROOT) -> LaboratoryPair:
   from openpilot.starpilot.models.runtime_bridge.runtime import frozen_laboratory_request
   validate_configuration(config, root)
@@ -125,7 +134,10 @@ def load_laboratory_pair(cam_w: int, cam_h: int, config: dict, *, root: Path = R
   contracts = []
   for key in ('lateralModel', 'longitudinalModel'):
     role = request['roles'][key]
+    source = role['source_contract']
+    coherent = (_coherent_camera_output if source.get('artifact_format') == LEGACY_ABI and
+                source.get('_source_contract') is None else None)
     loaded.append(load_verified_model(cam_w, cam_h, Path(role['path']), role['version'], role['chestnut'],
-                                      role['model_id'], role['sha256'], root=root))
+                                      role['model_id'], role['sha256'], root=root, coherent_warp=coherent))
     contracts.append(role['source_contract'])
   return LaboratoryPair(loaded[0][0], loaded[1][0], loaded[0][1], loaded[1][1], tuple(contracts))

@@ -208,7 +208,11 @@ class CatalogModelState:
   def move_warp_output(self, coherent_warp: Callable[[Any], None]) -> None:
     """On a comma, move this warp's output to memory the CPU reads cached with `coherent_warp` (Jetlink's
     make_coherent), for the link to send from. Before warmup(), whose first call links the warp to its address."""
-    buffer = self.warp_enqueue.captured.ret.uop.base.buffer
+    output = getattr(getattr(self.warp_enqueue, "captured", None), "ret", None)
+    if not isinstance(output, Tensor):
+      self.warp_copied = "warp has no captured Tensor output"
+      return
+    buffer = output.uop.base.buffer
     if not buffer.device.startswith("QCOM"):
       self.warp_copied = f"a {buffer.device} buffer"
       return
