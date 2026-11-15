@@ -16,7 +16,8 @@ from openpilot.starpilot.ui.onroad_widget_style import draw_control_card
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
 from openpilot.starpilot.ui.wheel_feedback import WheelFeedbackFade
 from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_speed
-from openpilot.starpilot.ui.speed_limit_widget import SpeedLimitWidget, draw_set_speed, draw_set_status, draw_text, set_speed_status
+from openpilot.starpilot.ui.speed_limit_widget import (OVERRIDE, SpeedLimitWidget, draw_set_speed, draw_set_status, draw_text,
+                                                       set_speed_status)
 
 
 ENGAGED = rl.Color(128, 216, 166, 255)
@@ -81,7 +82,7 @@ class UnifiedSpeedWidget:
     if shown.mode != 'limit_only':
       draw_set_speed(self.fonts, shown, rect.x + 92, rect.y, text)
       if label := set_speed_status(state, Profile.LARGE, shown):
-        draw_set_status(self.fonts, label, rect.x + 92, rect.y, text)
+        draw_set_status(self.fonts, label, rect.x + 92, rect.y, OVERRIDE)
     self.sign.render(state, defer_confirmation=True)
     if sources:
       row = rl.Rectangle(rect.x, rect.y + max(height, SOURCE_TOP) + (GAP if separate else 0), WIDTH, SOURCE_ROW_HEIGHT)
