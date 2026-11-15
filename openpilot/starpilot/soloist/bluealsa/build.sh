@@ -14,7 +14,7 @@ if [[ $# != 1 || ! -d $1/.git ]]; then
 fi
 source_dir=$(cd "$1" && pwd)
 [[ $(git -C "$source_dir" rev-parse HEAD) == "$source_commit" ]] || { echo 'Wrong BlueALSA source revision' >&2; exit 1; }
-# Export only committed upstream files. Local changes are never silently bundled.
+# Export only committed upstream files plus the reviewed patches in patches/. Local changes are never silently bundled.
 mkdir -p build
 archive=$(mktemp)
 trap 'rm -f "$archive"' EXIT
@@ -25,6 +25,7 @@ docker run --rm --platform linux/arm64 --pull never --network none \
   mkdir /tmp/source
   cd /tmp/source
   tar xf /package/build/upstream.tar
+  for patch in /package/patches/*.patch; do git apply "$patch"; done
   autoreconf --install >/tmp/autoreconf.log 2>&1 || { cat /tmp/autoreconf.log; exit 1; }
   ./configure --localstatedir=/data/starpilot/bluealsa5 --disable-debug --disable-manpages --enable-ldac --enable-ofono --enable-test --with-libsamplerate > /tmp/configure.log 2>&1 || { cat /tmp/configure.log; exit 1; }
   make -j4 >/tmp/make.log 2>&1 || { cat /tmp/make.log; exit 1; }
