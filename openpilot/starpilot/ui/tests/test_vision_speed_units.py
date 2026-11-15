@@ -70,10 +70,9 @@ def test_vision_sign_and_slc_cap_use_configured_units_without_rewriting_set(prof
     return [call.args[0] for call in foreground_calls(font.draw)]
 
   texts = render(output.message.slcState, 90.)
-  set_is_low = expected_mps > 90. * CV.KPH_TO_MS
-  assert str(number) in texts
-  assert ('VISION' in texts) == (confirmation or not set_is_low)
-  assert ('SET IS LOW' in texts) == (set_is_low and not confirmation)
+  # The sign is always the VISION limit, whether or not SET is below it.
+  assert str(number) in texts and 'VISION' in texts
+  assert not any(text in ('SET IS LOW', 'RAISE SET', 'LIMIT') for text in texts)
   if confirmation:
     assert output.message.slcState.hasPending
     state = output.message.slcState
@@ -87,5 +86,4 @@ def test_vision_sign_and_slc_cap_use_configured_units_without_rewriting_set(prof
   assert str(number) in texts
   assert str(round(90. if metric else 90. * CV.KPH_TO_MPH)) in texts
   assert ('SET' if profile == Profile.LARGE else 'MAX') in texts
-  assert ('SET IS LOW' in texts) == set_is_low
-  assert ('RAISE SET' in texts) == set_is_low
+  assert 'VISION' in texts and not any(text in ('SET IS LOW', 'RAISE SET', 'LIMIT') for text in texts)

@@ -147,7 +147,7 @@ def test_unknown_gap_preserves_large_slc_number_offset_and_source(metric, target
   adapter = RuntimeSnapshotAdapter(ui)
   before_state = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad
   before = resolve_unified_speed(before_state)
-  assert before.limit_text != '–'
+  assert before.posted_text != '–'
   assert before.offset_text is not None
   assert not before.posted_retained
   ui.sm.messages['slcState'] = unknown_slc()
@@ -155,8 +155,8 @@ def test_unknown_gap_preserves_large_slc_number_offset_and_source(metric, target
     ui.sm.logMonoTime['slcState'] = NOW + age
     held_state = adapter.build(ShellMode.ONROAD, now_ns=NOW + age).onroad
     held = resolve_unified_speed(held_state)
-    assert (held.mode, held.posted_text, held.limit_text, held.offset_text, held.source) == (
-      before.mode, before.posted_text, before.limit_text, before.offset_text, before.source)
+    assert (held.mode, held.posted_text, held.offset_text, held.source) == (
+      before.mode, before.posted_text, before.offset_text, before.source)
     assert (held.active_side, held.status, held.pending) == ('none', 'Unavailable', False)
     assert held.posted_retained
     obs = held_state.speed_limit
@@ -167,7 +167,7 @@ def test_unknown_gap_preserves_large_slc_number_offset_and_source(metric, target
   # Repeated unavailable messages do not extend the hold.
   ui.sm.logMonoTime['slcState'] = NOW + 150_000_001
   expired = resolve_unified_speed(adapter.build(ShellMode.ONROAD, now_ns=NOW + 150_000_001).onroad)
-  assert (expired.limit_text, expired.posted_text) == ('–', '–')
+  assert expired.posted_text == '–'
   ui.sm.messages['slcState'] = slc
   ui.sm.logMonoTime['slcState'] = NOW + 160_000_000
   recovered = resolve_unified_speed(adapter.build(ShellMode.ONROAD, now_ns=NOW + 160_000_000).onroad)

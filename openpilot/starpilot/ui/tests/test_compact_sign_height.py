@@ -125,7 +125,7 @@ def test_only_the_displayed_ranges_configured_offset_expands_the_sign(profile, m
     offset_mps=target - posted_mps, presentation_adjusted_limit_mps=target, accepted_speed_limit_mps=15.))
   shown = resolve_unified_speed(current)
   assert shown.offset_configured == (configured_offset != 0)
-  assert shown.limit_text == str(round(target * factor))
+  assert int(shown.posted_text) + int(shown.offset_text or 0) == round(target * factor)
   if configured_offset == 0 and posted_mps in (1 / 3.6, 160 / 3.6):
     assert shown.offset_text is not None  # The effective adjustment is clamping, not a configured offset.
   widget = SpeedLimitWidget(fonts(profile), profile)

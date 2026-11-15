@@ -502,7 +502,8 @@ def test_retention_respects_lower_max_and_reset(tmp_path, offset):
   shown = resolve_unified_speed(view)
   assert view.speed_limit.kind != ObservationKind.VALID and shown.posted_retained
   assert shown.status == 'Using set speed'
-  assert shown.set_limited and not shown.show_last
+  # SLC still follows its accepted limit through the gap; SET below it is ordinary cruising.
+  assert not shown.limit_in_use and not shown.show_last
   assert replace(shown, posted_retained=False) == resolve_unified_speed(before)
   _, recovered, target = drive.step(400)
   assert recovered.speed_limit.sign_recovering

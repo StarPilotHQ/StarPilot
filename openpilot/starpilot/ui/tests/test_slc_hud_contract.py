@@ -26,7 +26,7 @@ from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_sp
 @pytest.mark.parametrize('metric', [False, True])
 @pytest.mark.parametrize('offset', [0, 5])
 @pytest.mark.parametrize('cluster_delta', [0, 2])
-def test_set_limited_tracks_controller_target_without_changing_set(metric, offset, cluster_delta):
+def test_followed_limit_tracks_the_controller_while_set_stays_the_drivers(metric, offset, cluster_delta):
   fixture = replay.RuntimeReplayTests()
   fixture.setUp()
   sm, cp = fixture.sm, fixture.cp
@@ -42,8 +42,9 @@ def test_set_limited_tracks_controller_target_without_changing_set(metric, offse
     current = OnroadState(True, False, 40 / factor, float(sm['carState'].vCruiseCluster),
                           speed_limit_from_message(message), metric=metric, longitudinal_active=True)
     shown = resolve_unified_speed(current)
-    assert shown.set_limited == (selected == 45)
-    assert shown.limit_text == str(55 + offset)
+    # SET at the limit plus offset counts as following it, whatever the speedometer gap.
+    assert shown.limit_in_use == (selected != 45)
+    assert (shown.source, shown.posted_text, shown.offset_text) == ('dashboard', '55', f'+{offset}' if offset else None)
     assert shown.max_text == str(selected)
     assert sm['carState'].vCruise == pytest.approx((selected - cluster_delta) / factor * 3.6)
 
@@ -68,8 +69,8 @@ def test_controller_messages_keep_set_stable_through_pedal_release_stop_and_resu
   sm['carState'].gasPressed = True
   pressed, shown = display(1)
   assert shown.override_text is None and not shown.limit_in_use
-  assert speed_status(pressed, Profile.COMPACT, shown) == 'PEDAL'
-  assert set_speed_status(pressed, Profile.COMPACT, shown) is None
+  # Pressing the gas is not a status; only a held override is.
+  assert speed_status(shown) is None and set_speed_status(pressed, Profile.COMPACT, shown) is None
   sm['carState'].gasPressed = False
   _, released = display(2)
   assert released.override_text == ('95' if mode is settings.PedalOverride.SPEED_REACHED else '100')
@@ -104,7 +105,7 @@ def test_hidden_set_keeps_control_context_inside_moved_confirmation(profile, mod
   assert not foreground_calls(font.draw)
   SpeedLimitWidget(font, profile).render_confirmation(current)
   rows = [call.args for call in foreground_calls(font.draw)]
-  expected = {'limit': 'Now: LIMIT 128', 'override': 'Now: OVERRIDE 128', 'pedal': 'Now: PEDAL'}[mode]
+  expected = {'limit': 'NEW LIMIT', 'override': 'Now: OVERRIDE 128', 'pedal': 'NEW LIMIT'}[mode]
   assert [row[0] for row in rows] == [expected, 'ACCEPT', '120', 'REJECT', 'NEW LIMIT']
   status, accept = rows[:2]
   assert status[4] + font.vertical_ink(*status[:3])[1] < accept[4]

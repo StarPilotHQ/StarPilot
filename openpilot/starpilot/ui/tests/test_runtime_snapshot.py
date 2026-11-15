@@ -274,7 +274,6 @@ class TestRuntimeSnapshot(unittest.TestCase):
     self.assertIsNone(observation.decision_id)
     presentation = resolve_unified_speed(state)
     self.assertEqual(presentation.posted_text, '30')
-    self.assertEqual(presentation.limit_text, '35')
     self.assertEqual(presentation.offset_text, '+5')
     self.assertEqual(presentation.active_side, 'none')
     ui.params.values['SpeedLimitController'] = '1'
