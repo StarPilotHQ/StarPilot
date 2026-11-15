@@ -139,10 +139,10 @@ def fit_independent_route(assessment, group, cohort, prior, proposal, previous, 
       observed = estimate(prior.tracking_windows, cohort=cohort['cohort'], permitted=permitted)
       _, side, phase = cohort['cohort'].split(':')
       replication = None if observed is None else suggest(observed, {name: previous[name] for name in NAMES}, side=side, phase=phase)
-      if observed is not None and proposal.get('coordinate_policy') == 'angle_tracking_supported26_v1':
-        from openpilot.starpilot.flm.offroad_coordinate_policy import angle_coordinate_candidates
+      if observed is not None and proposal.get('coordinate_policy') in ('angle_tracking_supported26_v1', 'acceleration_center_deadbands_v1'):
+        from openpilot.starpilot.flm.offroad_coordinate_policy import tracking_coordinate_candidates
 
-        replication = next((p for p in angle_coordinate_candidates(
+        replication = next((p for p in tracking_coordinate_candidates(
           observed, prior.tracking_windows, {name: previous[name] for name in NAMES}, side=side, phase=phase,
         ) if p['parameter'] == proposal['parameter']), None)
       supported = (

@@ -900,9 +900,13 @@ class OffroadWorker:
         if proposal is not None:
           proposal = dict(proposal, values=dict(current, **proposal['values']))
           choices.append((group, cohort, proposal))
-        if scope.controller_domain == 'torque_pid' and metadata['domain'] == 'steering_angle':
+        coordinate_policy = {
+          ('torque_pid', 'steering_angle'): 'angle_tracking_supported26_v1',
+          ('torque', 'lateral_acceleration'): 'acceleration_center_deadbands_v1',
+        }.get((scope.controller_domain, metadata.get('domain')))
+        if coordinate_policy is not None:
           for candidate in cohort.get('coordinate_candidates', ()):
-            if candidate.get('coordinate_policy') != 'angle_tracking_supported26_v1':
+            if candidate.get('coordinate_policy') != coordinate_policy:
               continue
             name = candidate['parameter'].removeprefix('stable:')
             candidate_values = dict(current, **{name: current[name] + candidate['delta']})

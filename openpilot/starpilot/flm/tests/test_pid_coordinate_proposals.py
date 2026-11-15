@@ -1,4 +1,4 @@
-"""Declared angle evidence, never measured road benefit or fabricated friction."""
+"""Declared tracking evidence, never measured road benefit or fabricated friction."""
 from dataclasses import replace
 import math
 from types import SimpleNamespace
@@ -7,7 +7,7 @@ import pytest
 
 from openpilot.starpilot.flm.canonical_surface_adapter import NAMES
 from openpilot.starpilot.flm.offroad_analysis import analyze
-from openpilot.starpilot.flm.offroad_coordinate_policy import angle_coordinate_candidates
+from openpilot.starpilot.flm.offroad_coordinate_policy import angle_coordinate_candidates, tracking_coordinate_candidates
 from openpilot.starpilot.flm.offroad_evidence import RouteWindow, window_identity
 from openpilot.starpilot.flm.offroad_tracking import TrackingEstimate
 from openpilot.starpilot.flm.offroad_worker import recorded_recommendations
@@ -144,8 +144,14 @@ def test_acceleration_domains_and_original_window_identity_remain_separate():
   assert 'provisional_coordinate_candidates' not in cohort
 
 
+@pytest.mark.parametrize('domain, controller_domain, coordinate_policy', [
+  ('steering_angle', 'torque_pid', 'angle_tracking_supported26_v1'),
+  ('lateral_acceleration', 'torque', 'acceleration_center_deadbands_v1'),
+])
 @pytest.mark.parametrize('qualified', [True, False])
-def test_additional_pid_coordinate_reaches_original_checks_and_only_then_atomic_save(tmp_path, qualified):
+def test_additional_tracking_coordinate_reaches_original_checks_and_only_then_atomic_save(
+  tmp_path, qualified, domain, controller_domain, coordinate_policy,
+):
   from unittest.mock import patch
   from openpilot.common.params import Params
   from openpilot.starpilot.flm import offroad_worker as worker
@@ -157,15 +163,15 @@ def test_additional_pid_coordinate_reaches_original_checks_and_only_then_atomic_
 
   # Declared native protocol responses isolate dispatch/storage; actual PID
   # constructors, neutral state and effect stages are checked in the PID suite.
-  current_scope = replace(scope(), controller_mode='native', controller_domain='torque_pid')
+  current_scope = replace(scope(), controller_mode='native', controller_domain=controller_domain)
   before = trial()
   candidate = {'parameter': 'stable:center_deadband_low_deg', 'delta': .005,
-               'coordinate_policy': 'angle_tracking_supported26_v1', 'policy': 'observed_angle_tracking_v1',
+               'coordinate_policy': coordinate_policy, 'policy': 'observed_center_tracking_v1',
                'original_windows': before['before']['training']['windows']}
   cohort = dict(before['before'], cohort='0:both:center', whole_windows=6, proposal=None,
                 coordinate_candidates=[candidate], provisional_coordinate_candidates=[candidate])
   metadata = {'route_values': tuple(values().items()), 'route_revision': REVISION, 'controller_mode': 'native',
-              'route_scope': current_scope.key(), 'domain': 'steering_angle'}
+              'route_scope': current_scope.key(), 'domain': domain}
   group = {'original_metadata': metadata, 'original_context_sha256': 'f' * 64, 'cohorts': [cohort],
            'selected_original_windows': before['gross_baseline']}
   receipt = RouteReceipt('declared-pid-drive', 'd' * 64, (), 'a' * 64, 1, 2, 3, ())
@@ -200,30 +206,35 @@ def test_additional_pid_coordinate_reaches_original_checks_and_only_then_atomic_
   assert not result['actual_application_proven']
 
 
+@pytest.mark.parametrize('domain', ['steering_angle', 'lateral_acceleration'])
 @pytest.mark.parametrize('independent_lag, supported', [(.2, True), (0., False)])
-def test_independent_original_pid_route_must_support_the_same_additional_coordinate(independent_lag, supported):
+def test_independent_original_route_must_support_the_same_additional_coordinate(independent_lag, supported, domain):
   from unittest.mock import patch
   from openpilot.starpilot.flm.offroad_checks import fit_independent_route
   from openpilot.starpilot.flm.offroad_prior_inputs import PriorOriginals
   from openpilot.starpilot.flm.offroad_route import RouteReceipt, SelectedSourceReceipt
   from openpilot.starpilot.flm.tests.test_offroad_backend import trial
 
+  source = (angle_windows(6, speed=3., lag=independent_lag) if domain == 'steering_angle' else
+            center_acceleration_windows(6, speed=28., oscillation=.03 if independent_lag else 0.))
   windows = []
-  for segment, window in enumerate(angle_windows(6, speed=3., lag=independent_lag)):
+  for segment, window in enumerate(source):
     offset = segment * 4_000_000_000
     points = tuple(replace(p, route='declared-prior-drive', segment=segment, mono_ns=p.mono_ns + offset,
                            control_header_ns=p.control_header_ns + offset, output_header_ns=p.output_header_ns + offset) for p in window.points)
     windows.append(RouteWindow(window_identity(points), points))
   previous = values()
-  proposed = dict(previous, crawl_turn_in_ff_boost_right=.005)
-  proposal = {'parameter': 'stable:crawl_turn_in_ff_boost_right', 'delta': .005, 'values': proposed,
-              'coordinate_policy': 'angle_tracking_supported26_v1', 'policy': 'observed_angle_tracking_v1'}
+  name = 'crawl_turn_in_ff_boost_right' if domain == 'steering_angle' else 'center_deadband_highway_deg'
+  proposed = dict(previous, **{name: .005})
+  proposal = {'parameter': 'stable:' + name, 'delta': .005, 'values': proposed,
+              'coordinate_policy': 'angle_tracking_supported26_v1' if domain == 'steering_angle' else 'acceleration_center_deadbands_v1',
+              'policy': 'observed_angle_tracking_v1' if domain == 'steering_angle' else 'observed_center_tracking_v1'}
   cp = SimpleNamespace()
   assessment = SimpleNamespace(receipt=RouteReceipt('declared-current-drive', 'd' * 64, (('current', 'c' * 64, 1),), 'a' * 64, 1, 2, 100, ()))
-  metadata = {'domain': 'steering_angle', 'vehicle_model_anchor': (), 'route_values': tuple(previous.items())}
+  metadata = {'domain': domain, 'vehicle_model_anchor': (), 'route_values': tuple(previous.items())}
   before = trial()
   group = {'original_metadata': metadata, 'selected_original_windows': before['gross_baseline']}
-  cohort = dict(before['before'], cohort='0:left:turn_in')
+  cohort = dict(before['before'], cohort='0:left:turn_in' if domain == 'steering_angle' else '2:both:center')
   prior = PriorOriginals(cp, SelectedSourceReceipt('declared-prior-drive', 'e' * 64, (('prior', 'f' * 64, 1),),
     'a' * 64, 1, 2, 50, (), (0,)), {}, tuple({'identity': w.identity, 'original_metadata': metadata} for w in windows), tuple(windows))
   calls = []
@@ -281,3 +292,43 @@ def test_pid_angle_sign_maps_to_the_actual_registered_controller_hook(curvature,
     changed |= actual != original
     assert abs(actual) <= selected.steer_max
   assert changed, 'An angle-side label must select the hook that actually executes'
+
+
+def center_acceleration_windows(count, *, speed=28., oscillation=.03):
+  windows = []
+  for window in angle_windows(count, speed=speed, phase='center'):
+    points = tuple(replace(p, domain='lateral_acceleration', desired=p.desired / 10,
+                           actual=p.desired / 10 + oscillation * math.sin(6 * math.pi * i / 100))
+                   for i, p in enumerate(window.points))
+    windows.append(RouteWindow(window_identity(points), points))
+  return tuple(windows)
+
+
+@pytest.mark.parametrize('count', [3, 6])
+def test_identified_small_center_oscillation_offers_speed_matched_deadband_before_save(count):
+  windows = center_acceleration_windows(count)
+  report = analyze(windows, dict.fromkeys(NAMES, 0.))
+  cohort, = report['cohorts']
+  candidates = cohort['provisional_coordinate_candidates']
+  assert {p['parameter'] for p in candidates} == {'stable:center_deadband_highway_deg'}
+  assert all(p['coordinate_policy'] == 'acceleration_center_deadbands_v1' for p in candidates)
+  assert all(len(p['original_windows']) == 3 for p in candidates)
+  assert not report['automatically_saved']
+  if count == 6:
+    assert cohort['coordinate_candidates'] == candidates
+    assert not set(cohort['training']['windows']) & set(cohort['heldout']['windows'])
+  else:
+    assert not cohort['automatic_application_allowed']
+
+
+def test_perfect_tracking_and_wrong_originals_do_not_generate_deadband_advice():
+  quiet = analyze(center_acceleration_windows(6, oscillation=0.), dict.fromkeys(NAMES, 0.))
+  assert all(not c.get('coordinate_candidates') and not c.get('provisional_coordinate_candidates') for c in quiet['cohorts'])
+  windows = center_acceleration_windows(3)
+  from openpilot.starpilot.flm.offroad_tracking import estimate
+
+  fitted = estimate(windows, cohort='2:both:center')
+  assert fitted is not None
+  with pytest.raises(ValueError, match='original acceleration estimate windows'):
+    tracking_coordinate_candidates(fitted, windows[::-1], dict.fromkeys(NAMES, 0.), side='both', phase='center')
+  assert not tracking_coordinate_candidates(fitted, windows, dict.fromkeys(NAMES, 0.), side='both', phase='steady')

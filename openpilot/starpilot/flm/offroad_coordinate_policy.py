@@ -164,3 +164,31 @@ def angle_coordinate_candidates(estimate, windows, previous, *, side, phase):
       result.append(dict(candidate, policy='observed_angle_tracking_v1', coordinate_policy='angle_tracking_supported26_v1',
                          evidence_domain='steering_angle'))
   return result
+
+
+def tracking_coordinate_candidates(estimate, windows, previous, *, side, phase):
+  """Offer the applicable hooks for an already identified tracking symptom.
+
+  Small repeated center oscillations can be identified below the separate
+  absolute-angle chatter classifier's threshold. Use the existing estimate's
+  residual/reversal checks, and each original window's speed, for deadbands.
+  This supplies alternatives, never a physical normalizer or save permission.
+  """
+  from openpilot.starpilot.flm.offroad_tracking import TrackingEstimate, suggest
+
+  if type(estimate) is not TrackingEstimate:
+    return []
+  if estimate.domain == 'steering_angle':
+    return angle_coordinate_candidates(estimate, windows, previous, side=side, phase=phase)
+  if estimate.domain != 'lateral_acceleration' or phase != 'center':
+    return []
+  if tuple(w.identity for w in windows) != estimate.windows or any(w.domain != estimate.domain for w in windows):
+    raise ValueError('The original acceleration estimate windows are required')
+  if suggest(estimate, dict.fromkeys(previous, 0.), side=side, phase=phase) is None:
+    return []
+  observations = [(w.identity, {'bucket': 'center_chatter', 'direction': 'center', 'severity': 1.,
+                               'speed_mps': sum(p.speed_mps for p in w.points) / len(w.points)}) for w in windows]
+  return [dict(candidate, policy='observed_center_tracking_v1', coordinate_policy='acceleration_center_deadbands_v1',
+               evidence_domain=estimate.domain)
+          for candidate in coordinate_candidates(observations, route_values(previous, legacy_allowed=True))
+          if candidate['parameter'].removeprefix('stable:') in DEADBANDS]

@@ -7,7 +7,7 @@ import json
 from openpilot.starpilot.flm.canonical_surface_adapter import NAMES
 from openpilot.starpilot.flm.offroad_evidence import RouteWindow
 from openpilot.starpilot.flm.offroad_tracking import estimate, suggest
-from openpilot.starpilot.flm.offroad_coordinate_policy import angle_coordinate_candidates
+from openpilot.starpilot.flm.offroad_coordinate_policy import tracking_coordinate_candidates
 
 MAX_WINDOWS = 4096
 MAX_COHORT_WINDOWS = 24
@@ -78,7 +78,7 @@ def analyze(windows, previous, *, permitted=lambda: True, route_order=None, comp
         if observed is not None:
           _, side, phase = key.split(':')
           provisional = suggest(observed, previous, side=side, phase=phase)
-          coordinates = angle_coordinate_candidates(observed, tuple(rows), previous, side=side, phase=phase)
+          coordinates = tracking_coordinate_candidates(observed, tuple(rows), previous, side=side, phase=phase)
           if provisional is not None or coordinates:
             result.update(provisional_proposal=provisional, provisional_estimate=asdict(observed),
                           automatic_application_allowed=False, reason='recorded_provisional_suggestion')
@@ -97,9 +97,9 @@ def analyze(windows, previous, *, permitted=lambda: True, route_order=None, comp
     agrees = (
       proposal is not None and replication is not None and proposal['parameter'] == replication['parameter'] and proposal['delta'] == replication['delta']
     )
-    training_coordinates = angle_coordinate_candidates(first, tuple(train), previous, side=side, phase=phase)
+    training_coordinates = tracking_coordinate_candidates(first, tuple(train), previous, side=side, phase=phase)
     independent_coordinates = {
-      p['parameter']: p for p in angle_coordinate_candidates(second, tuple(heldout), previous, side=side, phase=phase)
+      p['parameter']: p for p in tracking_coordinate_candidates(second, tuple(heldout), previous, side=side, phase=phase)
     }
     supported_coordinates = [p for p in training_coordinates if p['parameter'] in independent_coordinates
                              and p['delta'] * independent_coordinates[p['parameter']]['delta'] > 0
