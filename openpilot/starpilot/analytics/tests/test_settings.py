@@ -139,6 +139,6 @@ class TestActualSettingsOwners(unittest.TestCase):
         self.assertIn(key, result)
         self.assertIsInstance(result[key], str)
     self.assertTrue(any(key.startswith("setting_conditional_cem_") for key in result))
-    self.assertTrue(any(key.startswith("setting_conditional_ccm_") for key in result))
+    self.assertFalse(any(key.startswith("setting_conditional_ccm_") for key in result))
     self.assertFalse(any("pip_mask" in key or "pip_format" in key or "annotation" in key for key in result))
     self.assertEqual(self.files(), before)
