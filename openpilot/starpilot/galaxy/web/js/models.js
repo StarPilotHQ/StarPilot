@@ -361,7 +361,6 @@ export class ModelManagerFeed {
     if (["download", "downloadAll"].includes(action)) payload.allowGpuWithoutGpu = extra.allowGpuWithoutGpu === true
     if (typeof data.view === "string") payload.view = data.view
     this.saving = true
-    this.data = null
     const result = await this.requestJson(actionPaths[action], payload)
     if (!this.active) return null
     this.saving = false
