@@ -126,7 +126,7 @@ def qualified_long(cp, *, marked_only=False):
   elif cp.carFingerprint == CAR.KIA_CARNIVAL_2025:
     if word != 0x20B0:
       return False
-  elif word not in (0x11, 0x91):
+  elif word not in (0x11, 0x91) and not (cp.carFingerprint == CAR.HYUNDAI_IONIQ_5 and word == 0x09):
     return False
   raw = int(cp.safetyConfigs[config_index(cp)].safetyParam)
   if cp.carFingerprint == CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN:
