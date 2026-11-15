@@ -72,6 +72,20 @@ class SpeedLimitShapes:
   def outline(self, x, y, color, *, scale=None, width_scale=1):
     self._outlined('outline', x, y, color, scale=scale, width_scale=width_scale)
 
+  def thick_outline(self, x, y, color, *, scale=None, width_scale=1):
+    """The rectangular outline at about twice its stroke, for the limit being followed."""
+    radius = self.scale if scale is None else scale
+    for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
+      self._draw('outline', x + dx * radius, y + dy * radius, rl.Color(6, 14, 10, 230), scale=scale, width_scale=width_scale)
+    for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1), (0, 0)):
+      self._draw('outline', x + dx * radius, y + dy * radius, color, scale=scale, width_scale=width_scale)
+
+  def in_use_ring(self, x, y, color):
+    """A band just outside the red Vienna ring, whose outer edge is at radius 59."""
+    center = rl.Vector2(x, y)
+    rl.draw_ring(center, 58.5 * self.scale, 64 * self.scale, 0, 360, 96, rl.Color(6, 14, 10, 230))
+    rl.draw_ring(center, 59.5 * self.scale, 63 * self.scale, 0, 360, 96, color)
+
   def button(self, x, y, color, *, profile, scale, pressed=False):
     self._draw(f'button_{profile}' + ('_pressed' if pressed else ''), x, y, color, scale=scale)
 
