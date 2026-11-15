@@ -190,7 +190,7 @@ class ForceStopRuntime:
         sm, now_ns=now_ns, now_boot_ns=now_boot_ns, drive_id=drive_id)
       vision_fresh = bool(vision_sign and 0 <= now_ns - vision_sign <= CONTROL_STOP_MAX_AGE_NS)
       vision_distance = None
-      if vision_fresh and vision_sign != self.vision_ranged_ns and self.vision_stop.distance_m is not None:
+      if vision_fresh and self.vision_stop.distance_m is not None:
         self.vision_ranged_ns = vision_sign
         vision_distance = self.vision_stop.distance_m - float(car.vEgo) * (stamp - vision_sign) / 1e9
       dashboard_sign = dashboard_stop_sign(sm, now_ns=now_ns, drive_id=drive_id)
@@ -202,6 +202,8 @@ class ForceStopRuntime:
                         bool(car.leftBlinker or car.rightBlinker), float(car.steeringAngleDeg), resume_requested=resume_requested,
                         perception_available=perception_available, sign=dashboard_sign or vision_fresh,
                         dashboard_sign=dashboard_sign, vision_distance_m=vision_distance,
+                        acceleration_mps2=float(car.aEgo), actuator_delay_s=float(cp.longitudinalActuatorDelay),
+                        vision_source_ns=int(vision_sign) if vision_fresh else 0,
                         moving_preview=bool(perception_available and not model.action.shouldStop and
                                             len(model.velocity.x) == len(model.position.x) and
                                             math.isfinite(model.velocity.x[-1])))

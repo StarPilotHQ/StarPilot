@@ -4,7 +4,8 @@ from dataclasses import dataclass
 import math
 
 from openpilot.common.realtime import DT_MDL
-from openpilot.starpilot.longitudinal.force_stop_braking import STOP_RESERVE_M
+from openpilot.starpilot.speed_limits.vision.stop_observation import CONTROL_STOP_MAX_AGE_NS
+from openpilot.starpilot.longitudinal.force_stop_braking import STOP_RESERVE_M, distance_target
 
 STANDSTILL_HOLD_NS = 2_000_000_000
 STANDSTILL_CLEAR_NS = 750_000_000
@@ -75,6 +76,9 @@ class StopFrame:
   dashboard_sign: bool = False
   vision_distance_m: float | None = None
   moving_preview: bool = False
+  acceleration_mps2: float | None = None
+  actuator_delay_s: float | None = None
+  vision_source_ns: int = 0
 
 
 @dataclass(frozen=True)
@@ -113,6 +117,7 @@ class ForceStop:
     self.standstill_clear_ns = 0
     self.standstill_reason = None
     self.sign_confirmed = False
+    self.ranged_stop = False
     self.previously_enabled = False
     self.distance = 0.0
     self.distance_cap = 0.0
@@ -127,6 +132,7 @@ class ForceStop:
     self.dash_distance = None
     self.vision_distance = None
     self.vision_samples = 0
+    self.vision_sample_ns = 0
     self.sign_evidence_ns = 0
 
   def _sign_estimate(self, frame: StopFrame, now: int, travel: float) -> float | None:
@@ -137,7 +143,11 @@ class ForceStop:
     if self.vision_distance is not None:
       self.vision_distance = max(0.0, self.vision_distance - travel)
     vision = frame.vision_distance_m
-    if vision is not None and math.isfinite(vision) and vision >= 0:
+    new_vision = (type(frame.vision_source_ns) is int and
+                  (frame.vision_source_ns == 0 or frame.vision_source_ns > self.vision_sample_ns))
+    if vision is not None and math.isfinite(vision) and vision >= 0 and new_vision:
+      if frame.vision_source_ns > 0:
+        self.vision_sample_ns = frame.vision_source_ns
       self.vision_samples += 1
       self.vision_distance = vision if self.vision_distance is None else (
         self.vision_distance + (vision - self.vision_distance) / self.vision_samples)
@@ -203,11 +213,21 @@ class ForceStop:
     curved = available and abs(curvature) >= .003 and not stop_then_turn
     model_active = available and horizon < (108.0 if self.activation_gate and frame.light else 100.0)
     self.activation_gate = model_active and frame.light
-    permitted = (available and now >= self.override_until_ns and not frame.driving_in_curve and not turn and
-                 not frame.tracking_lead and not lead)
+    spatial_permitted = available and now >= self.override_until_ns and not frame.driving_in_curve and not turn
+    permitted = spatial_permitted and not frame.tracking_lead and not lead
     model_path = frame.light and model_active and permitted and not curved
     plausible = sign_estimate is None or speed * speed <= 2 * SIGN_LONG_PATH_MAX_DECEL * max(sign_estimate, 1.0)
-    sign_path = (frame.sign and permitted and speed < SIGN_MAX_SPEED_MPS and
+    current_range = frame.vision_distance_m
+    ranged_sign = (not frame.standstill and offset_ft == 0 and tune.distance_bias_m == 0 and not frame.dashboard_sign and
+                   type(frame.vision_source_ns) is int and 0 < frame.vision_source_ns <= now and
+                   now - frame.vision_source_ns <= CONTROL_STOP_MAX_AGE_NS and
+                   frame.vision_source_ns == self.vision_sample_ns and current_range is not None and
+                   frame.acceleration_mps2 is not None and frame.acceleration_mps2 < 0 and frame.actuator_delay_s is not None and
+                   0 <= frame.actuator_delay_s <= 2 - DT_MDL and
+                   distance_target(speed, frame.acceleration_mps2, current_range, frame.actuator_delay_s + DT_MDL) >=
+                   max(-SIGN_LONG_PATH_MAX_DECEL, frame.acceleration_mps2))
+    # Retain sufficient existing braking for a confirmed sign, never for a light alone.
+    sign_path = (frame.sign and spatial_permitted and (permitted or ranged_sign) and speed < SIGN_MAX_SPEED_MPS and
                  (horizon < SIGN_MODEL_AGREE_M or self.forcing and plausible))
     line_blocked = (self.queue_line is not None and frame.lead_present and
                     frame.lead_distance_m < self.queue_line + QUEUE_CLEAR_M)
@@ -287,6 +307,8 @@ class ForceStop:
     ceiling = None
     native_stop = False
     if force and not overridden:
+      if sign_path and not permitted:
+        self.ranged_stop = True
       if self.entry_speed is None and not frame.standstill:
         self.entry_speed = speed
         self.preview_tracking = tune.distance_control and frame.moving_preview
@@ -319,7 +341,10 @@ class ForceStop:
           self.distance = min(sign_estimate, cap)
         if self.queue_line is not None and self.sign_confirmed:
           self.distance = self.queue_line
-        if tune.distance_control and self.stop_requested:
+        if (self.ranged_stop and current_range is not None and math.isfinite(current_range) and current_range >= 0 and
+            frame.vision_source_ns == self.vision_sample_ns and frame.sign):
+          self.distance = min(self.distance, max(0., current_range))
+        if self.ranged_stop or tune.distance_control and self.stop_requested:
           self.distance = min(self.distance, terminal_distance)
         effective = self.distance + offset + tune.distance_bias_m
         decel = SIGN_APPROACH_DECEL if frame.sign else MODEL_APPROACH_DECEL
@@ -332,6 +357,7 @@ class ForceStop:
       self.entry_speed = None
       self.preview_tracking = False
       self.sign_confirmed = False
+      self.ranged_stop = False
       self._clear_standstill()
       self.distance = self.distance_cap = horizon if available else 0.0
       if frame.light and permitted and not curved and not overridden:
