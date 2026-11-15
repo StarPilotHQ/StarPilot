@@ -1,7 +1,8 @@
 # Bundled BlueALSA 5.0.0
 
 Linux/ARM64 binaries and matching PCM/CTL plugins come from upstream commit
-`1935d6dcb8975f2d7a51aaafe61538d157224623`, without decoder patches. Keep `bin/`,
+`1935d6dcb8975f2d7a51aaafe61538d157224623`, without decoder patches. `build.sh`
+applies `patches/*.patch`; each patch file states what it fixes. Keep `bin/`,
 `lib/`, version, source revision, checksums and license files together. Activation
 validates checksums, ELF architecture and executable permissions.
 
@@ -37,7 +38,10 @@ openpilot/starpilot/soloist/bluealsa/build.sh /tmp/bluealsa-5
 ```
 
 Setup downloads dependencies; the build exports the pinned upstream commit and
-runs offline. `BUILD_IMAGE` and `BUILD_PACKAGES.txt` record inputs; apt package
+runs offline. `lib/libasound_module_pcm_bluealsa.so` was rebuilt alone with patch 0001 under
+x86 ARM64 emulation, where the upstream suite cannot run reliably; the other
+artifacts and the recorded test results are from the unpatched build.
+`BUILD_IMAGE` and `BUILD_PACKAGES.txt` record inputs; apt package
 availability is not pinned. `UPSTREAM_TEST_RESULTS.txt` records 19 passing programs.
 Local integration tests cover integrity, configuration, activation failure and
 old-checkout recovery with simulated service calls. They do not establish audible

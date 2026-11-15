@@ -1,0 +1,23 @@
+pcm: do not test an unread event value in poll_revents
+
+Under PulseAudio 16.1 (module-alsa-sink, tsched=0) bluealsa_poll_revents() is
+entered with POLLIN set while the eventfd is already drained, about 11 times a
+minute on a comma 3X. eventfd_read() then fails with EAGAIN and the
+uninitialised value was tested for the 0xDEAD0000 marker, so stack garbage made
+the plugin report the PCM as disconnected (-ENODEV) every few minutes while
+audio was flowing. Measured on device: 8 false disconnects in 20 minutes
+before, 0 in 12 minutes with 142 failed reads after.
+
+diff --git a/src/asound/bluealsa-pcm.c b/src/asound/bluealsa-pcm.c
+index 3aee1cb..daa944d 100644
+--- a/src/asound/bluealsa-pcm.c
++++ b/src/asound/bluealsa-pcm.c
+@@ -1377,7 +1377,7 @@ static int bluealsa_poll_revents(snd_pcm_ioplug_t *io, struct pollfd *pfd,
+ 
+ 	if (pfd[0].revents & POLLIN) {
+ 
+-		eventfd_t event;
++		eventfd_t event = 0;
+ 		eventfd_read(pcm->event_fd, &event);
+ 
+ 		if (event & 0xDEAD0000)
