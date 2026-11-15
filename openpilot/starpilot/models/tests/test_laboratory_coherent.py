@@ -81,6 +81,7 @@ class TestCoherentFactory(unittest.TestCase):
 
   def test_all_supported_versions_apply_after_verification_before_warmup(self):
     original = laboratory.freeze_request(self.root)
+    assert original is not None
     for version in sorted(SUPPORTED_VERSIONS):
       with self.subTest(version=version):
         request = deepcopy(original)
@@ -102,6 +103,7 @@ class TestCoherentFactory(unittest.TestCase):
 
   def test_original_dom_sources_retain_original_loading(self):
     request = laboratory.freeze_request(self.root)
+    assert request is not None
     for role in request['roles'].values():
       role['source_contract']['_source_contract'] = 'dom_v25_protocol5'
       role['source_contract']['source_format'] = 'tinygrad_single_v1'
