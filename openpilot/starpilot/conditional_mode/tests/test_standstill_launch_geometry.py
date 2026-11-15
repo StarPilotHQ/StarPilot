@@ -1,10 +1,11 @@
 from types import SimpleNamespace as NS
+from dataclasses import replace
 import math
 import pytest
 from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.starpilot.model_geometry import standstill_clear_horizon
-from openpilot.starpilot.conditional_mode.projection import _horizon, _stationary_launch_clear
-from openpilot.starpilot.conditional_mode.stop import StopLightDetector
+from openpilot.starpilot.conditional_mode.projection import RawLead, _horizon, _stationary_launch_clear
+from openpilot.starpilot.conditional_mode.stop import StopFrame, StopLightDetector
 
 
 def launch():
@@ -19,10 +20,10 @@ def test_coherent_stationary_launch_prefix_uses_existing_velocity_noise_budget()
   assert _horizon(model) is None  # Spatial acquisition stays strict.
   assert standstill_clear_horizon(model) == 70.0
   car = NS(standstill=True, vEgo=0.0, vEgoRaw=0.0)
-  assert _stationary_launch_clear(model, car, NS(present=False), standstill_clear_horizon(model))
-  assert not _stationary_launch_clear(model, car, NS(present=True), standstill_clear_horizon(model))
+  assert _stationary_launch_clear(model, car, RawLead(False, False, None, None, None, None), standstill_clear_horizon(model))
+  assert not _stationary_launch_clear(model, car, RawLead(True, False, None, None, None, None), standstill_clear_horizon(model))
   car.standstill = False
-  assert not _stationary_launch_clear(model, car, NS(present=False), standstill_clear_horizon(model))
+  assert not _stationary_launch_clear(model, car, RawLead(False, False, None, None, None, None), standstill_clear_horizon(model))
 
 
 @pytest.mark.parametrize(
@@ -80,7 +81,18 @@ def test_renewed_stop_resets_clear_dwell():
   detector = StopLightDetector()
   detector.committed = detector.standstill_committed = True
   detector.commit_distance_m = 0.0
-  frame = NS(
+  frame = StopFrame(
+    observed_mono_s=100.0,
+    model_horizon_m=70.0,
+    model_stop_time_s=7.7,
+    traffic_mode=False,
+    stop_sign_confirmed=False,
+    lead=None,
+    left_blinker=False,
+    right_blinker=False,
+    steering_angle_deg=0.0,
+    driving_in_curve=False,
+    car_fingerprint="HYUNDAI_IONIQ_6",
     pedal_override=False,
     standstill=True,
     longitudinal_launch_active=False,
@@ -92,17 +104,16 @@ def test_renewed_stop_resets_clear_dwell():
     now_mono_s=100.0,
   )
   for t in [100.0, 100.2, 100.4]:
-    frame.now_mono_s = t
+    frame = replace(frame, now_mono_s=t)
     detector._commit(frame, 70.0, False, False, 0.05)
     assert detector.committed
-  frame.now_mono_s = 100.45
-  frame.model_should_stop = True
+  frame = replace(frame, now_mono_s=100.45, model_should_stop=True)
   detector._commit(frame, 70.0, False, False, 0.05)
-  frame.model_should_stop = False
+  frame = replace(frame, model_should_stop=False)
   for t in [100.5, 100.7, 100.9]:
-    frame.now_mono_s = t
+    frame = replace(frame, now_mono_s=t)
     detector._commit(frame, 70.0, False, False, 0.05)
     assert detector.committed
-  frame.now_mono_s = 101.0
+  frame = replace(frame, now_mono_s=101.0)
   detector._commit(frame, 70.0, False, False, 0.05)
   assert not detector.committed
