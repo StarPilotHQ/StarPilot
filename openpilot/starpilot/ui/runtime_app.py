@@ -242,7 +242,7 @@ class StarShellSession:
     self.feature_edit_key: str | None = None
     self.sounds_scroll = 0
     self.sounds_edit_key: str | None = None
-    self.sounds_page = "sounds"
+    self.sounds_menu = "sounds"
     self.sounds_return_scroll = 0
     self.appearance_scroll = 0
     self.appearance_edit_key: str | None = None
@@ -800,7 +800,7 @@ class StarShellSession:
   def sounds_snapshot(self):
     if self.profile != Profile.LARGE:
       return self.sounds_owner.snapshot()
-    page = getattr(self, "sounds_page", "sounds")
+    page = getattr(self, "sounds_menu", "sounds")
     if page == ENGINE_TYPE_PAGE:
       return self.sounds_owner.engine_type_snapshot()
     if page == ENGINE_PAGE:
@@ -1215,14 +1215,14 @@ class StarShellSession:
     if self._mode != ShellMode.SETTINGS or self.selected != Destination.SOUNDS:
       return
     state = self.sounds_snapshot()
-    page = getattr(self, "sounds_page", "sounds")
+    page = getattr(self, "sounds_menu", "sounds")
     if action.kind == "back":
       if self.sounds_edit_key is not None:
         self.sounds_edit_key = None
       elif page == ENGINE_TYPE_PAGE:
-        self.sounds_page, self.sounds_scroll = ENGINE_PAGE, 0
+        self.sounds_menu, self.sounds_scroll = ENGINE_PAGE, 0
       elif page == ENGINE_PAGE:
-        self.sounds_page, self.sounds_scroll = "sounds", self.sounds_return_scroll
+        self.sounds_menu, self.sounds_scroll = "sounds", self.sounds_return_scroll
       else:
         self.selected = Destination.STAR
         self.sounds_scroll = 0
@@ -1230,11 +1230,11 @@ class StarShellSession:
     elif action.kind == "open" and action.row in state.rows and action.row.available:
       if state.page == "sounds:overview" and action.row.key == ENGINE_MENU_KEY:
         self.sounds_return_scroll = self.sounds_scroll
-        self.sounds_page, self.sounds_scroll = ENGINE_PAGE, 0
+        self.sounds_menu, self.sounds_scroll = ENGINE_PAGE, 0
       elif state.page == "sounds:overview" or (state.page == ENGINE_PAGE and action.row.presets):
         self.sounds_edit_key = action.row.key
       elif state.page == ENGINE_PAGE and action.row.page == ENGINE_TYPE_PAGE:
-        self.sounds_page, self.sounds_scroll = ENGINE_TYPE_PAGE, 0
+        self.sounds_menu, self.sounds_scroll = ENGINE_TYPE_PAGE, 0
       self.input.cancel()
     elif action.kind == "scroll" and self.sounds_edit_key is None:
       self.sounds_scroll = feature_scroll(self.sounds_scroll, action.direction, len(state.rows))
@@ -1614,7 +1614,7 @@ class StarShellSession:
           elif destination == Destination.SOUNDS:
             self.sounds_scroll = 0
             self.sounds_edit_key = None
-            self.sounds_page = "sounds"
+            self.sounds_menu = "sounds"
           elif destination == Destination.APPEARANCE:
             self.appearance_scroll = 0
             self.appearance_page = "appearance"

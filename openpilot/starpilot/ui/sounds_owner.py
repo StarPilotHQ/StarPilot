@@ -118,10 +118,15 @@ class SoundsOwner:
                                 rows=(enabled, replace(engine_type, page=ENGINE_TYPE_PAGE, available=True), volume),
                                 parked=parked)
 
+  @staticmethod
+  def _profile_name(raw: bytes | None) -> str:
+    name = "" if raw is None else raw.decode(errors="replace")
+    return name if name in ENGINE_LABELS else DEFAULT_PROFILE
+
   def engine_type_snapshot(self) -> FeatureSettingsState:
     parked = self.parked()
     raw, readable = read_saved(self.params, engine_sound.PROFILE_KEY, 64)
-    current = DEFAULT_PROFILE if raw is None else raw.decode(errors="replace")
+    current = self._profile_name(raw)
     rows = tuple(FeatureRow(ENGINE_CHOICE_PREFIX + name, label, "Active" if name == current else "", source=raw,
                             available=parked and readable, actions=(("Active" if name == current else "Use", parked and readable),))
                  for name, label in ENGINE_LABELS.items())
@@ -142,12 +147,9 @@ class SoundsOwner:
                        raw, ("Off", "On") if valid else (), available=parked and valid,
                        reason="Plays a simulated engine on the car speakers that follows the accelerator pedal.", default_value="Off")]
     raw, readable = read_saved(self.params, engine_sound.PROFILE_KEY, 64)
-    name = DEFAULT_PROFILE if raw is None else raw.decode(errors="replace")
-    valid = readable and name in ENGINE_LABELS
-    rows.append(FeatureRow(engine_sound.PROFILE_KEY, "Engine Type", ENGINE_LABELS[name] if valid else "Invalid saved value",
+    rows.append(FeatureRow(engine_sound.PROFILE_KEY, "Engine Type", ENGINE_LABELS[self._profile_name(raw)] if readable else "Invalid saved value",
                            raw, tuple(ENGINE_LABELS.values()), available=parked and readable,
-                           reason="Chooses which engine is simulated.", default_value=ENGINE_LABELS[DEFAULT_PROFILE],
-                           repair_value=ENGINE_LABELS[DEFAULT_PROFILE] if not valid and readable else ""))
+                           reason="Chooses which engine is simulated.", default_value=ENGINE_LABELS[DEFAULT_PROFILE]))
     raw, readable = read_saved(self.params, engine_sound.VOLUME_KEY, 8)
     level = engine_volume(str(engine_sound.DEFAULT_VOLUME) if raw is None else raw.decode(errors="replace"))
     valid = readable and level is not None

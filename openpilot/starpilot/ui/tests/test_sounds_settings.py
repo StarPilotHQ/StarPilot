@@ -43,7 +43,7 @@ class SoundsSettingsTests(unittest.TestCase):
     session.sounds_owner = self.owner
     session.sounds_scroll = 0
     session.sounds_edit_key = None
-    session.sounds_page = "sounds"
+    session.sounds_menu = "sounds"
     session.sounds_return_scroll = 0
     session._snapshot_cache = None
     session.input = ShellInput(Profile.LARGE, lambda _: None)
@@ -118,10 +118,19 @@ class SoundsSettingsTests(unittest.TestCase):
     self.assertFalse(self.owner.apply(FeatureSettingsRequest("EngineSound", self.row("EngineSound").source, "Off")))
     self.assertTrue(self.params.get_bool("EngineSound"))
 
+  def test_removed_engine_profile_shows_default_without_repair(self):
+    self.params.put("EngineSoundProfile", "race_car", block=True)
+    row = self.row("EngineSoundProfile")
+    self.assertEqual((row.value, row.repair_value), ("LFA", ""))
+    self.assertEqual([r.value for r in self.owner.engine_type_snapshot().rows], ["", "Active"])
+    self.assertTrue(self.owner.apply(FeatureSettingsRequest("EngineSoundProfile", row.source, "BMW M52")))
+    self.assertEqual(self.params.get("EngineSoundProfile"), "bmw_m52")
+
   def test_engine_choices_rev_the_engine_and_turning_it_on_does_not(self):
     revs = []
     owner = SoundsOwner(self.params, lambda: self.parked, engine_preview=lambda: revs.append(1))
-    row = lambda key: next(row for row in owner.snapshot().rows if row.key == key)
+    def row(key):
+      return next(row for row in owner.snapshot().rows if row.key == key)
     self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSoundProfile", row("EngineSoundProfile").source, "BMW M52")))
     self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSoundVolume", row("EngineSoundVolume").source, "40")))
     self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSound", row("EngineSound").source, "On")))
@@ -180,7 +189,7 @@ class SoundsSettingsTests(unittest.TestCase):
     self.assertFalse(any(row.key in ENGINE_KEYS for row in overview.rows))
     session._sounds_ui(FeatureUiAction("open", entry))
     page = session.sounds_snapshot()
-    self.assertEqual((session.sounds_page, page.page, session.sounds_scroll), (ENGINE_PAGE, ENGINE_PAGE, 0))
+    self.assertEqual((session.sounds_menu, page.page, session.sounds_scroll), (ENGINE_PAGE, ENGINE_PAGE, 0))
     toggle, engine_type, volume = page.rows
     self.assertTrue(volume.presets and volume.page == volume.key)
     session._sounds_ui(FeatureUiAction("change", toggle, 1))
@@ -191,15 +200,35 @@ class SoundsSettingsTests(unittest.TestCase):
     session._sounds_ui(FeatureUiAction("action", picker.rows[0], 0))
     self.assertEqual((self.params.get("EngineSoundProfile"), revs), ("bmw_m52", [1]))
     session._sounds_ui(FeatureUiAction("back"))
-    self.assertEqual(session.sounds_page, ENGINE_PAGE)
+    self.assertEqual(session.sounds_menu, ENGINE_PAGE)
     session._sounds_ui(FeatureUiAction("open", session.sounds_snapshot().rows[2]))
     editor = session.sounds_snapshot()
     self.assertTrue(editor.editor and editor.title == "Engine Sound Volume" and editor.parent_title == "Engine Sounds")
     session._sounds_ui(FeatureUiAction("back"))
     self.assertIsNone(session.sounds_edit_key)
     session._sounds_ui(FeatureUiAction("back"))
-    self.assertEqual((session.sounds_page, session.sounds_scroll), ("sounds", 5))
+    self.assertEqual((session.sounds_menu, session.sounds_scroll), ("sounds", 5))
     self.assertEqual(session.sounds_snapshot().page, "sounds:overview")
+
+  def test_every_sounds_page_passes_the_shell_touch_guard(self):
+    from openpilot.starpilot.ui.runtime_app import _FEATURE_SETTINGS_PANES
+    prefix = _FEATURE_SETTINGS_PANES[Destination.SOUNDS][1]
+    session = self.large_session()
+    def check():
+      state = session.sounds_snapshot()
+      self.assertEqual(getattr(session, prefix + "_page", state.page), state.page)
+    check()
+    session._sounds_ui(FeatureUiAction("open", next(row for row in session.sounds_snapshot().rows if row.key == ENGINE_MENU_KEY)))
+    check()
+    session._sounds_ui(FeatureUiAction("open", session.sounds_snapshot().rows[1]))
+    check()
+    session._sounds_ui(FeatureUiAction("back"))
+    session._sounds_ui(FeatureUiAction("open", session.sounds_snapshot().rows[2]))
+    check()
+    session._sounds_ui(FeatureUiAction("back"))
+    session._sounds_ui(FeatureUiAction("back"))
+    session._sounds_ui(FeatureUiAction("open", session.sounds_snapshot().rows[0]))
+    check()
 
   def test_engine_volume_editor_offers_no_auto_preset(self):
     from openpilot.starpilot.ui.feature_settings_state import sound_editor_state
