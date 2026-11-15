@@ -10,7 +10,7 @@ from opendbc.car.subaru.values import CAR, DBC, SubaruSafetyFlags
 from opendbc.safety.tests.libsafety import libsafety_py
 
 
-CARS = (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_LEGACY_2025)
+CARS = (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_LEGACY_2025, CAR.SUBARU_IMPREZA_2025)
 
 
 class TestSubaruGen2AnglePair(unittest.TestCase):
@@ -277,6 +277,10 @@ class TestSubaruGen2AnglePair(unittest.TestCase):
       CARS[1]: [(e.abs, 0x7b0, b'\xa1 $\x11\x00'), (e.eps, 0x746, b'[\xc0\xd1\x10\x00'),
                 (e.fwdCamera, 0x787, b'\x1a!\x08\x00C\x0e!\x08\x018'),
                 (e.engine, 0x7a2, b'\x08,\xa0p\x07'), (e.transmission, 0x7a3, b'\xeb\x17U!r')],
+      CAR.SUBARU_IMPREZA_2025: [(e.abs, 0x7b0, bytes.fromhex('a220240705')),
+                                (e.eps, 0x746, bytes.fromhex('c220240101')),
+                                (e.fwdCamera, 0x787, bytes.fromhex('1d210800460000000000')),
+                                (e.engine, 0x7a2, bytes.fromhex('0422657007'))],
     }
 
     def records(entries):
@@ -290,6 +294,9 @@ class TestSubaruGen2AnglePair(unittest.TestCase):
       for entries in (versions[car][:1], versions[car][1:2]):
         _, matches = match_fw_to_car(records(entries), '00000000000000000', log=False)
         self.assertNotIn(car, matches)
-    mixed = versions[CARS[0]][:1] + versions[CARS[1]]
-    _, matches = match_fw_to_car(records(mixed), '00000000000000000', log=False)
-    self.assertFalse(set(CARS) & matches)
+    for left in CARS:
+      for right in CARS:
+        if left != right:
+          mixed = versions[left][:1] + versions[right]
+          _, matches = match_fw_to_car(records(mixed), '00000000000000000', log=False)
+          self.assertFalse(set(CARS) & matches)

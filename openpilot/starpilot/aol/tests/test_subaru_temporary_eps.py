@@ -13,9 +13,9 @@ from openpilot.starpilot.aol.vehicle import policy_for
 from openpilot.starpilot.tests.test_ford_reverse_intent import NOW, PRODUCER, change, native_change, sample
 
 
-def baseline():
+def baseline(candidate=CAR.SUBARU_IMPREZA_2020):
   with OpenpilotPrefix():
-    cp = CarInterface.get_params(CAR.SUBARU_IMPREZA_2020, gen_empty_fingerprint(), [], False, False, False)
+    cp = CarInterface.get_params(candidate, gen_empty_fingerprint(), [], False, False, False)
   policy = policy_for(cp)
   cp.alternativeExperience |= policy.alternative_experience_addition
   cp.safetyConfigs[0].safetyParam |= policy.safety_param_addition
@@ -247,8 +247,8 @@ def braked_main_sample(cp, now, sequence):
   return sm, native
 
 
-def cold_main_baseline():
-  cp, state, _ = baseline()
+def cold_main_baseline(candidate=CAR.SUBARU_IMPREZA_2020):
+  cp, state, _ = baseline(candidate)
   feedback = TransportPauseFeedback(cp)
   sm, _ = sample(cp, NOW, NOW, 1, active=False, requested=False, allowed=False)
   assert not feedback.observe(sm, cp, state, NOW, latched=False, intent_producer_session=PRODUCER)
@@ -256,9 +256,10 @@ def cold_main_baseline():
   return cp, state, feedback
 
 
+@pytest.mark.parametrize('candidate', (CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_IMPREZA_2025))
 @pytest.mark.parametrize('epoch', (0, 1))
-def test_braked_main_retains_only_intent_until_fresh_native_grant(epoch):
-  cp, state, feedback = cold_main_baseline()
+def test_braked_main_retains_only_intent_until_fresh_native_grant(epoch, candidate):
+  cp, state, feedback = cold_main_baseline(candidate)
   before = leases(feedback)
   arm_ns = NOW + 10_000_000
   for tick in range(1, 101):
@@ -282,9 +283,10 @@ def test_braked_main_retains_only_intent_until_fresh_native_grant(epoch):
 @pytest.mark.parametrize('veto', ('permanent', 'temporary', 'invalid_can', 'timeout', 'acc', 'door', 'seatbelt',
   'sensors', 'steering', 'gas', 'regen', 'main_off', 'reverse', 'cancel', 'event_fault', 'initializing',
   'wrong_producer', 'axis_fault', 'expired_axis', 'bad_native', 'missing_native', 'native_heartbeat', 'native_fault'))
+@pytest.mark.parametrize('candidate', (CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_IMPREZA_2025))
 @pytest.mark.parametrize('prior_active', (False, True))
-def test_pending_braked_main_preserves_independent_vetoes(veto, prior_active):
-  cp, state, feedback = baseline() if prior_active else cold_main_baseline()
+def test_pending_braked_main_preserves_independent_vetoes(veto, prior_active, candidate):
+  cp, state, feedback = baseline(candidate) if prior_active else cold_main_baseline(candidate)
   state.brakePressed = True
   now = NOW + 10_000_000
   sm, native = braked_main_sample(cp, now, 2)

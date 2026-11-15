@@ -3,7 +3,7 @@ from opendbc.car.fw_query_definitions import LiveFwVersions, OfflineFwVersions
 from opendbc.car.structs import CarParams
 
 
-SCOPED_CANDIDATES = frozenset(("SUBARU_CROSSTREK_2025", "SUBARU_LEGACY_2025", "SUBARU_FORESTER_2022", "SUBARU_OUTBACK_2023"))
+SCOPED_CANDIDATES = frozenset(("SUBARU_CROSSTREK_2025", "SUBARU_IMPREZA_2025", "SUBARU_LEGACY_2025", "SUBARU_FORESTER_2022", "SUBARU_OUTBACK_2023"))
 REQUIRED_ECUS = frozenset((CarParams.Ecu.abs, CarParams.Ecu.fwdCamera, CarParams.Ecu.engine))
 
 

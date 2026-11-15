@@ -6,7 +6,7 @@ from opendbc.car.fw_versions import match_fw_to_car
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
 from opendbc.car.subaru.values import CAR
 
-CARS = (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_LEGACY_2025)
+CARS = (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_LEGACY_2025)
 REQUIRED = (structs.CarParams.Ecu.abs, structs.CarParams.Ecu.fwdCamera, structs.CarParams.Ecu.engine)
 VIN = '00000000000000000'
 

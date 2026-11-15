@@ -13,7 +13,7 @@ from openpilot.starpilot.lateral.controller_selection import ControllerMode
 
 class TestSubaruAngleFactoryTune(unittest.TestCase):
   def test_actual_factory_selects_ascent_shaping_and_preserves_siblings(self):
-    for car in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_LEGACY_2025, CAR.SUBARU_OUTBACK_2023):
+    for car in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_LEGACY_2025, CAR.SUBARU_OUTBACK_2023):
       cp = CarInterface.get_params(car, gen_empty_fingerprint(), [], False, False, False)
       controller = create_lateral_controller(cp, None, .01, mode=ControllerMode.STANDARD)
       state = structs.CarState(vEgo=5., steeringAngleDeg=0.)

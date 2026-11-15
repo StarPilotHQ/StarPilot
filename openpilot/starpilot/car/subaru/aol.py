@@ -101,7 +101,7 @@ def ordinary_axis_request_allowed(cp, state):
 
 
 def create_intent(cp, settings):
-  main_arm = (cp.carFingerprint == CAR.SUBARU_CROSSTREK_2025 or
+  main_arm = (cp.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025) or
               (cp.carFingerprint in (CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_OUTBACK_2023) and qualified(cp)))
   return SubaruStockCardIntent(settings, main_arm=main_arm)
 
@@ -127,7 +127,7 @@ def retain_braked_main_intent(feedback, sm, cp, state, axis, now_ns, *, arm_ns, 
   from openpilot.starpilot.aol.transport_pause import _configured_transport_native
   pending = feedback.subaru_braked_main
   epoch = int(axis.intentIntegrityEpoch)
-  if (cp.carFingerprint != CAR.SUBARU_IMPREZA_2020 or not qualified(cp, marked_only=True) or
+  if (cp.carFingerprint not in (CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_IMPREZA_2025) or not qualified(cp, marked_only=True) or
       feedback.failed or feedback.paused or feedback.pending_event or arm_ns <= feedback.subaru_lateral_grant_ns or
       not producer or axis.intentProducerSessionId != producer or
       not 0 < arm_ns <= axis.sourceCarStateMonoTime <= now_ns or

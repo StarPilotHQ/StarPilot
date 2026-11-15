@@ -248,6 +248,12 @@ class CAR(Platforms):
     CarSpecs(mass=1529, wheelbase=2.67, steerRatio=13),
     flags=SubaruFlags.LKAS_ANGLE,
   )
+  SUBARU_IMPREZA_2025 = SubaruGen2PlatformConfig(
+    [SubaruCarDocs("Subaru Impreza 2025", "RS", car_parts=CarParts.common([CarHarness.subaru_d]))],
+    # 2025 Impreza RS curb weight 3,275 lb; Subaru spec steering ratio 13.0:1, wheelbase 105.1 in.
+    CarSpecs(mass=1486, wheelbase=2.67, steerRatio=13.0),
+    flags=SubaruFlags.LKAS_ANGLE,
+  )
 
 
 SUBARU_VERSION_REQUEST = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER]) + \

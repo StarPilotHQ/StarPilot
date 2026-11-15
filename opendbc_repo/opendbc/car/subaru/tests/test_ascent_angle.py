@@ -197,7 +197,7 @@ class TestSubaruAscentController(unittest.TestCase):
     self.assertEqual(observed, [0, 1, 3])
 
   def test_repeated_stock_cancel_gate_is_ascent_2023_only(self):
-    for car in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_CROSSTREK_2025,
+    for car in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025,
                 CAR.SUBARU_LEGACY_2025, CAR.SUBARU_OUTBACK_2023, CAR.SUBARU_ASCENT):
       with self.subTest(car=car):
         cp, controller, command, state = setup_controller(car)
