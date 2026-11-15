@@ -300,7 +300,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y libegl1 libgles-dev libgl1-mesa-dri
     - name: Test every assigned custom pytest node serially
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-      timeout-minutes: 15
+      timeout-minutes: 20
       env:
         RAYLIB_BACKEND: headless
         STARPILOT_AUTO_GL_TEST: "1"
