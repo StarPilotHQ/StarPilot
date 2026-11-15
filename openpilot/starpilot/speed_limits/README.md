@@ -53,13 +53,14 @@ Outside manual confirmation, large UI uses the same US or Vienna sign at 1.25×
 scale beside SET speed.
 Signs and confirmation choices have transparent interiors. Cached sign outlines and
 tight dark glyph edges keep the camera visible without sampling its brightness.
-SET keeps its label and value in both profiles. When the displayed road limit
-matches the fresh accepted cap actually limiting SET, it gets an IN USE label;
-the rectangular sign also turns green.
-An applied offset target uses a large LIMIT value with the source reading below.
-A held override uses the same rectangular readout labeled OVERRIDE, including in
-Vienna mode; the road limit remains readable below it. While the accelerator is
-pressed, PEDAL identifies the temporary driver input without claiming a held speed.
+SET keeps its label and value in both profiles. The sign is always a speed limit:
+its source, posted speed and any offset. While SLC is on it shows the accepted
+limit SLC uses, so a rejected reading or a source gap leaves that limit on the sign;
+otherwise it shows the latest reading. When that limit plus offset is what caps
+SET, the sign gets a thick green outline (a green band outside a Vienna ring).
+An equal SET counts as capped, compared in displayed units.
+The only status below SET is OVERRIDE, in the override color, while a held
+driver override wins over the limit. Pressing the accelerator adds no status.
 Both sign styles identify the displayed source: DASH for Dashboard, OSM for offline
 Maps, and VISION for the vision model. Explicit Mapbox readings in historical
 replay use NAV; unidentified live sources show SPEED. A retained road reading
@@ -67,10 +68,10 @@ shows LAST alongside its source when known. For the same source and speed, the
 label clears after 150 ms of live updates. Vision keeps a confirmed sign current
 after it leaves view while the camera pipeline stays healthy. DASH follows the
 current OEM reading, and Maps keeps the current road limit separate from its
-upcoming preview. Retained and recovering readings never claim IN USE.
-During a new-limit confirmation the applied LIMIT or OVERRIDE stays below SET;
-if SET is hidden, that status appears in the confirmation header with a `Now:`
-label. The expanded Accept button contains the proposed limit including its offset
+upcoming preview.
+During a new-limit confirmation an active OVERRIDE stays below SET;
+if SET is hidden, it appears in the confirmation header with a `Now:` label.
+The expanded Accept button contains the proposed limit including its offset
 and unit; Reject says `new limit`. Source readings and offset arithmetic stay in
 the collapsed notice, outside the expanded decision. Accept and Reject retain their original touch
 areas and action validation. Green Accept and red Reject outlines contain each
