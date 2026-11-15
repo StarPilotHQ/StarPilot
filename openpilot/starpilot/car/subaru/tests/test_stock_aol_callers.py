@@ -519,9 +519,10 @@ def test_actual_vm_angle_driver_handoff_keeps_native_rate_limit(candidate, direc
     candidate, subaru_native_pair, tmp_path, vm_angle_handoff=direction)
 
 
-def test_actual_crawl_lateral_only_tracks_small_targets(subaru_native_pair, tmp_path):
+@pytest.mark.parametrize('candidate', [CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025])
+def test_actual_crawl_lateral_only_tracks_small_targets(candidate, subaru_native_pair, tmp_path):
   test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
-    CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025, subaru_native_pair, tmp_path, main_only=True, crawl=True)
+    candidate, subaru_native_pair, tmp_path, main_only=True, crawl=True)
 
 
 def test_actual_eps_brake_event_join_preserves_armed_intent(subaru_native_pair, tmp_path):

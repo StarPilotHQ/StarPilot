@@ -34,6 +34,7 @@ ANGLE_DEG_TO_CAN = {
   "tesla": -10,
   "toyota": 17.452007,
   "nissan": 100,
+  "subaru": 100,
   "psa": 10,
 }
 
