@@ -60,24 +60,50 @@ def road_curvature(model: object, speed_mps: float) -> tuple[float, float] | Non
   return acceleration / max(speed, 1.0) ** 2, max(timestamp, 1.0)
 
 
+def _launch_prefix_noise(model) -> tuple[float, ...] | None:
+  # Only a complete forward launch may use the existing near-zero velocity budget.
+  try:
+    from openpilot.selfdrive.modeld.constants import ModelConstants
+
+    if model.action.shouldStop is not False or _finite(model.action.desiredAcceleration, low=0.3, high=10.0) is None:
+      return None
+    times, velocity_times, velocities = tuple(model.position.t), tuple(model.velocity.t), tuple(model.velocity.x)
+    if not len(times) == len(velocity_times) == len(velocities) == len(ModelConstants.T_IDXS):
+      return None
+    if any(
+      _finite(t, low=0.0, high=10.0) is None or abs(t - expected) > 1e-5 or _finite(vt, low=0.0, high=10.0) is None or abs(vt - expected) > 1e-5
+      for t, vt, expected in zip(times, velocity_times, ModelConstants.T_IDXS, strict=True)
+    ):
+      return None
+    if any(_finite(v, low=-STANDSTILL_RELEASE_SPEED_MPS, high=100.0) is None for v in velocities):
+      return None
+    tail = tuple(v for v, t in zip(velocities, times, strict=True) if t >= 2.0)
+    if not tail or min(tail) < 0.3 or tail[-1] < 5.0 or any(b < a for a, b in zip(tail, tail[1:], strict=False)):
+      return None
+    return tuple(max(STANDSTILL_MODEL_PREFIX_NOISE_M, STANDSTILL_RELEASE_SPEED_MPS * t) if t < 2.0 else STANDSTILL_MODEL_PREFIX_NOISE_M for t in times)
+  except (AttributeError, TypeError, ValueError, OverflowError):
+    return None
+
+
 def standstill_clear_horizon(model) -> float | None:
   """Stop-release endpoint only; this never qualifies full spatial geometry."""
   try:
     distances = normalized_origin(tuple(model.position.x))
     if len(distances) != 33 or distances[0] != 0.0:
       return None
-    parsed = tuple(_finite(value, low=-STANDSTILL_MODEL_PREFIX_NOISE_M, high=500.0) for value in distances)
+    noise = _launch_prefix_noise(model) or (STANDSTILL_MODEL_PREFIX_NOISE_M,) * 33
+    parsed = tuple(_finite(value, low=-limit, high=500.0) for value, limit in zip(distances, noise, strict=True))
     if any(value is None for value in parsed):
       return None
     finite = tuple(value for value in parsed if value is not None)
     forward_tail = False
     backtrack = 0.0
-    for previous, current in zip(finite, finite[1:], strict=False):
+    for previous, current, limit in zip(finite[:-1], finite[1:], noise[1:], strict=True):
       if current < previous:
-        if forward_tail or max(abs(previous), abs(current)) > STANDSTILL_MODEL_PREFIX_NOISE_M:
+        if forward_tail or max(abs(previous), abs(current)) > limit:
           return None
         backtrack += previous - current
-        if backtrack > STANDSTILL_MODEL_PREFIX_NOISE_M:
+        if backtrack > limit:
           return None
       if current > STANDSTILL_MODEL_PREFIX_NOISE_M:
         forward_tail = True
