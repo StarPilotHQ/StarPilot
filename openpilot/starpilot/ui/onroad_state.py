@@ -100,6 +100,8 @@ class SpeedLimitObservation:
   presentation_adjusted_limit_mps: float | None = None
   override_basis: str = 'none'
   retained_override: bool = False
+  command_action_sequence_id: int = 0  # card's answer to an SLC set-speed command (where SLC sets the set speed)
+  command_status: str = ''
   action_feedback: str = ''
   automatic_adoption_pending: bool = False
   pending_since_ns: int = 0
@@ -566,7 +568,9 @@ def speed_limit_from_message(message: SlcStateMessage | None) -> SpeedLimitObser
                                  presentation_adjusted_limit_mps=(getattr(message, 'presentationAdjustedLimit', None)
                                    if getattr(message, 'hasPresentationAdjustedLimit', False) else None),
                                  override_basis=str(getattr(message, 'overrideBasis', 'none')),
-                                 retained_override=bool(getattr(message, 'retainedOverride', False)))
+                                 retained_override=bool(getattr(message, 'retainedOverride', False)),
+                                 command_action_sequence_id=int(getattr(message, 'commandActionSequenceId', 0)),
+                                 command_status=str(getattr(message, 'commandStatus', '')))
   except (ValueError, TypeError, AttributeError, OverflowError):
     return SpeedLimitObservation(kind=ObservationKind.UNKNOWN, source=message.source,
                                  status="Invalid SLC numeric observation")

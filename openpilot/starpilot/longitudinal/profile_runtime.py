@@ -56,6 +56,7 @@ class ProfileTuning:
   danger_jerk: float
   acceleration_max: float | None = None
   cruise_brake_magnitude: float | None = None
+  slc_braking_style: str = 'standard'  # the braking preset's style for SLC coast easing
   traffic_braking_custom: bool = False
   custom_acceleration: bool = False
 
@@ -80,8 +81,10 @@ class ProfileSmoother:
   """Bound live setting/personality changes and fade invalid input to stock."""
   def __init__(self):
     self.applied: AppliedProfile | None = None
+    self.slc_braking_style = 'standard'
 
   def sample(self, target: ProfileTuning | None, personality, dt: float, *, traffic_mode: bool | None = False) -> AppliedProfile | None:
+    self.slc_braking_style = 'standard'
     if type(dt) not in (int, float) or not math.isfinite(dt) or not 0.0 < dt <= 0.25:
       self.applied = None
       return None
@@ -96,6 +99,7 @@ class ProfileSmoother:
       values = (target.follow_seconds, target.acceleration_jerk, target.deceleration_jerk,
                 target.speed_jerk, target.speed_decrease_jerk, target.danger_jerk)
       valid = (target.personality_id == personality_id and
+               target.slc_braking_style in ('standard', 'eco', 'sport') and
                type(target.traffic_braking_custom) is bool and
                all(type(value) in (int, float) and math.isfinite(value) for value in values) and
                FOLLOW_MIN_SECONDS <= target.follow_seconds <= FOLLOW_MAX_SECONDS and
@@ -108,6 +112,8 @@ class ProfileSmoother:
                  (0.35 if traffic_mode else 0.5) <= target.cruise_brake_magnitude <= abs(ACCEL_MIN))))
       if not valid:
         target = None
+    if target is not None and not traffic_mode:
+      self.slc_braking_style = target.slc_braking_style
     if traffic_mode and target is None:
       self.applied = None
       return None
@@ -239,10 +245,13 @@ def resolve(settings: ProfileSettings | TrafficSettings | None, personality, v_e
                                              (LEGACY_FOLLOW_BP[1] - LEGACY_FOLLOW_BP[0]), 0.0), 1.0))
   acceleration_max = None
   cruise_brake_magnitude = None
+  slc_braking_style = 'standard'
   custom_acceleration = False
   document = settings.document
   if document is not None and document['enabled'] and settings.profile_enabled[personality_id]:
     categories = document['profiles'][personality_id]
+    if categories['braking'].get('legacyActivation', False) and categories['braking']['preset'] in ('eco', 'sport'):
+      slc_braking_style = categories['braking']['preset']
     ev_tuning = CP.transmissionType == car.CarParams.TransmissionType.direct
     truck_tuning = is_truck_fingerprint(str(CP.carFingerprint)) and not ev_tuning
     for category in ('following', 'acceleration', 'braking'):
@@ -262,7 +271,7 @@ def resolve(settings: ProfileSettings | TrafficSettings | None, personality, v_e
   acceleration_jerk, deceleration_jerk, speed_jerk, speed_decrease_jerk, danger_jerk = settings.jerk[personality_id]
   return ProfileTuning(personality_id, min(max(follow, FOLLOW_MIN_SECONDS), FOLLOW_MAX_SECONDS),
                        acceleration_jerk, deceleration_jerk, speed_jerk, speed_decrease_jerk, danger_jerk,
-                       acceleration_max, cruise_brake_magnitude, custom_acceleration=custom_acceleration)
+                       acceleration_max, cruise_brake_magnitude, slc_braking_style, custom_acceleration=custom_acceleration)
 
 
 @dataclass(frozen=True)
@@ -414,6 +423,18 @@ class ProfileHost:
                                            deceleration=self.selected_drive_mode[1])
     return resolve_selected_profiles(document, personality, v_ego, CP,
                                      traffic_mode=traffic_mode, legacy=legacy, global_powertrain=self.selected_powertrain)
+
+  def sample_slc_limits(self, now_ns: int, personality, CP, *, traffic_mode: bool | None = False):
+    # The active personality's SLC acceleration and braking limits, with the same freshness and validation as the
+    # selected curves and independent of the CustomPersonalities master. These limits only act inside SLC.
+    from openpilot.starpilot.longitudinal.profile_document import active_personality_id, default_slc_limits
+    self.sample_selected(now_ns, personality, 0., CP, traffic_mode=traffic_mode)
+    name = active_personality_id(traffic_mode, personality)
+    if (name is None or self.selected_success_ns < 0 or
+        not 0 <= now_ns - self.selected_success_ns <= self.MAX_AGE_NS):
+      return None
+    limits = default_slc_limits() if self.selected_document is None else self.selected_document['slcLimits']
+    return dict(limits[name])
 
   def sample_global_braking(self, now_ns: int) -> str | None:
     if now_ns < 0 or now_ns < self.global_last_attempt_ns:

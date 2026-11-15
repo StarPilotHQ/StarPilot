@@ -47,10 +47,14 @@ def _unit_factor(metric: bool) -> float:
   return od.KPH_TO_MPS if metric else od.MPH_TO_MPS
 
 
+# Each band's offset is limited to +/-20 in the comma's speed units (mph or km/h).
+OFFSET_LIMIT = 20
+
+
 def _minimum_offset(document: od.OffsetDocument, index: int, metric: bool) -> float:
-  minimum = -150 if metric else -99
+  # A band may not offset below its own lowest speed, so the adjusted limit stays positive.
   boundary = -document.bounds_mps[index + 1] / _unit_factor(metric)
-  return max(minimum, math.floor(boundary) + 1) if math.isfinite(boundary) else minimum
+  return max(-OFFSET_LIMIT, math.floor(boundary) + 1) if math.isfinite(boundary) else -OFFSET_LIMIT
 
 
 def _display(value: float) -> str:
@@ -111,6 +115,11 @@ class SlcOffsetOwner:
     except (ValueError, OSError, OverflowError):
       return OffsetSnapshot(raw_doc, raw_unit, raw_control, None, metric, False)
 
+  def percentage(self) -> bool:
+    """Offset type Percentage: one percentage of every limit instead of the speed ranges."""
+    raw = self._raw("SLCOffsetType")
+    return raw == b"1"
+
   def ready_to_enable(self) -> bool:
     snap = self.snapshot()
     return snap.valid and isinstance(snap.document, od.OffsetDocument)
@@ -122,13 +131,15 @@ class SlcOffsetOwner:
     repair_available = available if repair_allowed is None else repair_allowed and capable is not None
     deps = (("IsMetric", snap.raw_unit), ("SpeedLimitController", snap.raw_control))
     if isinstance(snap.document, od.OffsetDocument):
-      mode = "Fixed speed ranges"
+      mode = "Percentage of the limit" if self.percentage() else "Fixed speed ranges"
     elif snap.document is od.NEEDS_REVIEW:
       mode = "Saved offsets need review; SLC control is paused"
     else:
       mode = "Invalid saved offsets; SLC control is paused"
     rows = [FeatureRow("", "Offset policy", mode)]
-    if isinstance(snap.document, od.OffsetDocument) and snap.metric is not None:
+    usable = isinstance(snap.document, od.OffsetDocument) and snap.metric is not None
+    # Percentage offsets do not use the speed ranges; their one setting sits with the Offset type row.
+    if usable and not self.percentage():
       unit = "km/h" if snap.metric else "mph"
       factor = _unit_factor(snap.metric)
       scale = 1 / factor
@@ -143,13 +154,13 @@ class SlcOffsetOwner:
         value = _display(snap.document.offsets_mps[index] * scale)
         rows.append(FeatureRow(SLC_OFFSET_KEYS[index], label, value, snap.raw_document,
                                step=1, unit=unit,
-                               minimum=_minimum_offset(snap.document, index, snap.metric), maximum=150 if snap.metric else 99,
+                               minimum=_minimum_offset(snap.document, index, snap.metric), maximum=OFFSET_LIMIT,
                                available=available,
                                reason="Ranges show whole-number posted limits. Unsafe reductions use the unadjusted limit",
                                related_source=snap.raw_unit, capability=capable, dependencies=deps,
                                display_unit=unit, default_value="0"))
       rows.append(FeatureRow("", f"{display_bounds[-1]} {unit} and above", "Zero offset"))
-    else:
+    elif not usable:
       for index, key in enumerate(SLC_OFFSET_KEYS, start=1):
         label = f"Band {index} offset (invalid saved units)" if snap.metric is None else f"Band {index} offset"
         rows.append(FeatureRow(key, label, "Invalid saved offset or document", snap.raw_document,
@@ -193,12 +204,12 @@ class SlcOffsetOwner:
           else:
             result = od.default_document(snap.metric)
         else:
-          if not isinstance(snap.document, od.OffsetDocument) or snap.metric is None or \
+          if not isinstance(snap.document, od.OffsetDocument) or snap.metric is None or self.percentage() or \
              request.direction not in (-1, 0, 1) or request.display_unit != ("km/h" if snap.metric else "mph"):
             return False
           index = SLC_OFFSET_KEYS.index(request.key)
           current = snap.document.offsets_mps[index]
-          low, high = _minimum_offset(snap.document, index, snap.metric), 150.0 if snap.metric else 99.0
+          low, high = _minimum_offset(snap.document, index, snap.metric), float(OFFSET_LIMIT)
           factor = _unit_factor(snap.metric)
           candidate = (round(float(request.value)) * factor if request.direction == 0 else
                        max(low, min(high, round(current / factor) + request.direction)) * factor)

@@ -47,8 +47,9 @@ class AppearanceCompact:
       self._populate(page, page_name)
     rows = list(state.rows)
     if page_name == "appearance":
-      slc = self.session.feature_snapshot("slc")
-      visible = [row for row in slc.rows if row.key in SLC_VISUAL_LABELS]
+      # Confirm limits sits on the Limit changes sub-page; the rest on the Speed Limit Controller page.
+      slc_rows = (*self.session.feature_snapshot("slc").rows, *self.session.feature_snapshot("slc/changes").rows)
+      visible = [row for row in slc_rows if row.key in SLC_VISUAL_LABELS]
       rows[-1:-1] = visible
     for row in rows:
       if row.key == "CameraView" and row.available:

@@ -8,6 +8,47 @@ cruise mode retain their existing owners. Automatic SLC requires system longitud
 control. Lead, curve, stop and actuator safety constraints retain their existing owners.
 SLC works with either the StarPilot or upstream longitudinal planner.
 
+## Limit changes, offsets and sources (every car)
+
+These settings live on the Speed Limit Controller sub-pages (`ui/slc_menu.py`, `ui/slc_custom_feature.py`) and are
+parsed by `custom_settings.py`:
+
+- **Offsets**: fixed speed ranges (each band limited to ±20 mph or km/h) or one percentage of the limit
+  (`SLCOffsetType`, `SLCOffsetPercent`, −20 % to +20 %).
+- **Limit sources**: a saved secondary `None` reads as `Off`. The fallback delay (`SLCFallbackDelay`, default 5 s)
+  holds the last primary limit while a different secondary limit waits, before the secondary is used.
+- **Limit changes**: for a Maps limit ahead (`mapped_timing.py`, the mapd boundary preview), higher limits can start
+  At the limit, a Distance or Time before the sign, or early enough to reach a Speed target at the sign; lower limits At
+  the limit, Distance, Time or Reach by (default: be down to the new limit by the sign). A direction with an
+  **Adopt limits early** time uses that timer instead, so a limit is never brought forward twice. Each direction has a
+  warning lead time for a one-shot chime (`SLCWarningVolume`, Auto by default; 0 % mutes it). Short map gaps keep an
+  early change going, and a withdrawn lower preview rolls back (`preview_continuity.py`, `preview_rollback.py`).
+- **Use SLC acceleration / braking limits** (off by default): while SLC moves the speed for a new limit, acceleration
+  and braking are capped by the active personality's SLC limits (`slcLimits` in the profile document, defaults
+  0.7 / 0.8 m/s²; `transition_comfort.py`). On the ceiling the episode follows the ceiling from the frame it is
+  published; lead, curve and stop braking are never limited.
+
+## SLC sets the set speed
+
+`SLCSetsSetSpeed` (off by default) is offered on cars where StarPilot owns the set speed (no PCM cruise) with StarPilot
+longitudinal control (`slc_sets_set_speed` in `selfdrive/car/cruise.py`, read once at startup). With it on, SLC writes
+the software SET instead of supplying a ceiling beneath it:
+
+- The runtime issues `slcCruiseCommand` (adopt, re-engage zone, preview rollback) and card applies each qualified
+  command to SET (`physical_actions.command_applicable`), answering with a `commandApplied` / `commandRejected` receipt.
+  No planner ceiling is published, so + raises SET above the limit.
+- Driver SET changes persist through `overrides.py`; **Manual speed memory** (Remember this drive) files them under
+  the limit on screen.
+- Automatic adoption waits 3 s and a different source must settle for 2 s (`acceptance.AUTOMATIC_ADOPTION_NS`,
+  `SOURCE_SWITCH_NS`).
+- **Set new speed with pedal override**, **Restore SLC speed on re-engagement** and **Engaging faster keeps current
+  speed** apply only here; engaging starts SET at the limit plus offset. The ceiling's Adopt limits early, accelerator
+  override, Match on engage and + override rows are hidden.
+- An earlier drive's accepted limit seeds the session only with `SLCLastLimitFallback` on.
+- The sign shows IN USE while SET equals the accepted limit plus offset (display only).
+
+Otherwise SLC uses the ceiling model described below.
+
 ## New limits and adoption
 
 **Match Speed Limit on Engage** is Off by default. When enabled, a new software SET
@@ -263,7 +304,7 @@ and the numeric cap before applying the lower speed.
 `isLimitingMaxSet` identifies when it is below the driver's ceiling. Observations,
 accepted limits and the effective constraint remain separate. The existing custom
 wire layout and historical command fields remain reserved for compatibility; live
-SLC no longer publishes or consumes `slcCruiseCommand`. Official vehicle schemas
+SLC publishes `slcCruiseCommand` only where SLC sets the set speed. Official vehicle schemas
 are unchanged. Shared curve, conditional-mode and controller messages remain intact.
 
 ## Numeric comparison investigation

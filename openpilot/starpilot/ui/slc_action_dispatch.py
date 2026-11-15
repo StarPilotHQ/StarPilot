@@ -127,5 +127,9 @@ class SlcActionDispatcher:
       return ''
     if observation.action_sequence_id != self._feedback_sequence:
       return 'Waiting…' if age < 2_000_000_000 else 'Not confirmed'
+    if observation.command_action_sequence_id == self._feedback_sequence:
+      # SLC sets the set speed: the tap became a set-speed command; report what card did with it.
+      return {'issued': 'Applying…', 'applied': 'Applied', 'rejected': 'Setpoint not applied',
+              'expired': 'Setpoint not applied'}.get(observation.command_status, 'Not confirmed')
     return {'accept': 'Limit accepted', 'reject': 'Set speed kept', 'adopt': 'Limit adopted'}.get(
       observation.action_status, 'Not applied')
