@@ -97,7 +97,8 @@ class TestSafetyQualificationRunner(TestCase):
     selected = coverage.targets_for_coverage(qualification.ROOT)
     for name in ('opendbc_repo/opendbc/safety/tests/test_tesla_preap_pedal.py::test_actual_registered_priming_rate_absolute_bus_and_counter_bounds',
                  'openpilot/starpilot/car/nissan/tests/test_aol.py',
-                 'openpilot/starpilot/car/rivian/tests/test_aol_native.py'):
+                 'openpilot/starpilot/car/rivian/tests/test_aol_native.py',
+                 'openpilot/starpilot/aol/tests/test_pq_aol.py'):
       self.assertIn(name, selected)
     import ast
     plan = ast.parse((qualification.ROOT / 'tools/ci/run_vehicle_tests.py').read_text())

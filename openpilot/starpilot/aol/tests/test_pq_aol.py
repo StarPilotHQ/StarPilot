@@ -251,3 +251,41 @@ def test_brake_held_standstill_set_waits_for_release_and_new_brake_withdraws_lon
   assert n.feed(speed=0) == 2
   assert n.feed(speed=0, brake=True) == 0
   assert n.feed(speed=0) == 0
+
+
+def test_zero_host_request_releases_both_accepted_forwarding_leases():
+  n = Native()
+  assert n.prime() == 1
+  assert n.s.safety_tx_hook(n.steer())
+  assert n.s.safety_tx_hook(n.msg('LDW_Status'))
+  assert n.s.safety_fwd_hook(2, 0xD2) == -1
+  assert n.s.safety_fwd_hook(2, 0x5BE) == -1
+  n.s.aol_set_host_request(0)
+  assert n.s.aol_get_permission_mask() == 0
+  assert n.s.safety_fwd_hook(2, 0xD2) == 0
+  assert n.s.safety_fwd_hook(2, 0x5BE) == 0
+  assert not n.s.safety_tx_hook(n.steer())
+
+
+def test_permanent_eps_fault_needs_fresh_stock_cruise_edge():
+  n = Native()
+  assert n.prime() == 1
+  assert n.feed(eps=2) == 0
+  assert n.feed() == 0
+  assert n.feed(cruise=True) == 1
+  assert not n.s.safety_tx_hook(n.msg('ACC_System', {'ACS_Sollbeschl': 0.5}))
+
+
+def test_neutral_main_without_heartbeat_expires_without_latent_grant():
+  n = Native()
+  n.s.set_aol_test_heartbeat(False)
+  assert n.prime() == 0
+  assert n.feed(main=False) == 0
+  for _ in range(31):
+    assert n.feed() == 0
+  assert not n.s.safety_tx_hook(n.steer())
+  n.s.set_aol_test_heartbeat(True)
+  assert n.feed() == 0
+  assert not n.s.safety_tx_hook(n.steer())
+  assert n.feed(main=False) == 0
+  assert n.feed() == 1
