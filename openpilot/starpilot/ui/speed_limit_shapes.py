@@ -81,10 +81,14 @@ class SpeedLimitShapes:
       self._draw('outline', x + dx * radius, y + dy * radius, color, scale=scale, width_scale=width_scale)
 
   def in_use_ring(self, x, y, color):
-    """A band just outside the red Vienna ring, whose outer edge is at radius 59."""
+    """A band just outside the red Vienna ring, whose outer edge is at radius 59.
+
+    The ring's dark contour covers the band to radius 60, so about 5 units stay visible,
+    matching the weight of the thick rectangular outline.
+    """
     center = rl.Vector2(x, y)
-    rl.draw_ring(center, 58.5 * self.scale, 64 * self.scale, 0, 360, 96, rl.Color(6, 14, 10, 230))
-    rl.draw_ring(center, 59.5 * self.scale, 63 * self.scale, 0, 360, 96, color)
+    rl.draw_ring(center, 58.5 * self.scale, 66 * self.scale, 0, 360, 96, rl.Color(6, 14, 10, 230))
+    rl.draw_ring(center, 59.5 * self.scale, 65 * self.scale, 0, 360, 96, color)
 
   def button(self, x, y, color, *, profile, scale, pressed=False):
     self._draw(f'button_{profile}' + ('_pressed' if pressed else ''), x, y, color, scale=scale)
