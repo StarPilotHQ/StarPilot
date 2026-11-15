@@ -102,9 +102,12 @@ class Ev6CardIntent(AolCardIntent):
           self.physical.previous_cruise = cruise
           self._raw_neutral_seen = not (main or lkas) and cruise == Buttons.NONE
           continue
-        self.physical.observe(main, lkas, cruise, main_available=CS.cruiseState.available)
+        self.physical.observe(main, lkas, cruise, main_available=CS.cruiseState.available,
+                              lkas_toggle=not self.settings.lkas_wheel_action)
         main_press = bool(main and not previous_main)
-        lkas_press = bool(lkas and not previous_lkas)
+        # A remapped LKAS press belongs to WheelPublisher, not the AOL owner.
+        # Keep raw level history but neither grant nor revoke physical authority.
+        lkas_press = bool(lkas and not previous_lkas and not self.settings.lkas_wheel_action)
         self._engagement_manual_withdrawal |= main_press or lkas_press
         engagement_release = (self.physical.lkas_on_engage and cruise != previous_cruise
                               and previous_cruise in (Buttons.SET_DECEL, Buttons.RES_ACCEL))

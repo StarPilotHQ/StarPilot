@@ -31,6 +31,7 @@ class AolSettings:
   custom_actions: tuple[int, int, int] = (0, 0, 0)
   default_physical_buttons: bool = True
   main_wheel_action: bool = False
+  lkas_wheel_action: bool = False
 
 
 def _button_value(params, key: str) -> int | None:
@@ -68,6 +69,7 @@ def read_settings(params) -> AolSettings:
     lkas_action=_axis_action(lkas), main_action=_axis_action(main),
     default_physical_buttons=lkas == 0 and main == 0,
     main_wheel_action=main == ADOPT_SPEED_LIMIT,
+    lkas_wheel_action=lkas in (1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14),
     distance_actions=(_button_action(params, 'DistanceButtonControl'),
                       _button_action(params, 'LongDistanceButtonControl'),
                       _button_action(params, 'VeryLongDistanceButtonControl')),
