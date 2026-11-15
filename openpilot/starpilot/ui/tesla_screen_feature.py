@@ -5,10 +5,9 @@ from openpilot.starpilot.ui.feature_settings_state import FeatureRow
 
 
 KEYS = frozenset(('TeslaAOLScreenTap', 'TeslaAOLDisengageOnBrake'))
+# The three-finger tap's Always On Lateral on/off is assigned in Wheel Controls (tesla_controls_feature), so only the
+# brake setting is a row here; TeslaAOLScreenTap stays in KEYS for that assignment.
 ROWS = (
-  ('TeslaAOLScreenTap', 'Three-Finger AOL Tap',
-   'Touch the Tesla screen with three fingers to toggle Always On Lateral. Requires Always On Lateral and the detected Vehicle CAN add-on cable. ' +
-   'Does not engage or cancel cruise control. Applies after the next startup.'),
   ('TeslaAOLDisengageOnBrake', 'Disengage AOL on Brake',
    'Pressing the brake disarms Always On Lateral. ' +
    'Turn off to keep steering armed during braking. Applies after the next startup.'),
@@ -36,10 +35,7 @@ class TeslaScreenFeature:
     if capability is None:
       return ()
     rows = []
-    from opendbc.car.tesla.screen_button import screen_tap_supported
     for key, label, reason in ROWS:
-      if key == 'TeslaAOLScreenTap' and not screen_tap_supported(self.vehicle_params()):
-        continue
       raw, readable = read_saved(self.params, key, 8)
       valid = readable and raw in (None, b'0', b'1')
       rows.append(FeatureRow(key, label, ('On' if raw == b'1' else 'Off') if valid else 'Invalid saved choice',

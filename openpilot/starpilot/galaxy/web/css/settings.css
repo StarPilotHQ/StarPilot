@@ -22,6 +22,7 @@
 .gx-switch input:focus-visible + .gx-switch__track { outline: 2px solid var(--secondary); outline-offset: 4px; }
 input[type="range"].gx-slider:focus-visible { outline: 2px solid var(--secondary); outline-offset: 6px; }
 input[type="range"].gx-slider:disabled { cursor: default; opacity: .4; }
+.gx-row__links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .gx-row .gx-btn { flex-shrink: 0; }
 .gx-settings-tabs { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .gx-layout__favorite-display { display: grid; gap: 8px; }

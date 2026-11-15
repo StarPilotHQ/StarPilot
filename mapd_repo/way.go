@@ -102,8 +102,61 @@ func plausibleLoadedWays(offlineMaps *maps.Offline, location log.GpsLocationData
 	return ways
 }
 
+// Resolve a close aligned interior fix, not every overlapping search envelope.
+// Crossings, parallel roads and uncertain heading still remain ambiguous.
+func geometricallyUnique(candidates []maps.Way, location log.GpsLocationData) []maps.Way {
+	if location.Speed() < 5 || location.HorizontalAccuracy() > 10 {
+		return candidates
+	}
+	accuracy := max(location.HorizontalAccuracy(), float32(5))
+	for _, chosen := range candidates {
+		n, err := chosen.OnWay(location, chosen.DistanceMultiplier())
+		alignment, aerr := chosen.BearingAlignment(location)
+		if err != nil || aerr != nil || !n.OnWay || n.Distance.Distance > accuracy ||
+			n.Distance.LinePosition.T <= 0 || n.Distance.LinePosition.T >= 1 || alignment > .35 {
+			continue
+		}
+		unique := true
+		for _, other := range candidates {
+			if other.Id() == chosen.Id() {
+				continue
+			}
+			rival, rerr := other.OnWay(location, 2)
+			angle, berr := other.BearingAlignment(location)
+			if rerr != nil || berr != nil {
+				unique = false
+				break
+			}
+			// A transverse road outside the fix uncertainty cannot contain this fix.
+			if angle >= .7 && rival.Distance.Distance > accuracy {
+				continue
+			}
+			// Connected records may be consecutive segments of the same road.
+			// Require the rival projection beyond its endpoint by the fix uncertainty.
+			connected := false
+			for _, a := range []m.Position{chosen.Nodes.At(0), chosen.Nodes.At(chosen.Nodes.Len() - 1)} {
+				for _, b := range []m.Position{other.Nodes.At(0), other.Nodes.At(other.Nodes.Len() - 1)} {
+					if a == b {
+						connected = true
+					}
+				}
+			}
+			endpoint := rival.Distance.LinePosition.T == 0 || rival.Distance.LinePosition.T == 1
+			if connected && endpoint && rival.Distance.Distance > accuracy {
+				continue
+			}
+			unique = false
+			break
+		}
+		if unique {
+			return []maps.Way{chosen}
+		}
+	}
+	return candidates
+}
+
 func GetCurrentWay(currentWay CurrentWay, nextWays []maps.NextWayResult, offlineMaps *maps.Offline, location log.GpsLocationData) (CurrentWay, error) {
-	candidates := plausibleLoadedWays(offlineMaps, location)
+	candidates := geometricallyUnique(plausibleLoadedWays(offlineMaps, location), location)
 	if len(candidates) == 0 {
 		return CurrentWay{SelectionType: custom.WaySelectionType_fail}, errors.New("no plausible loaded-tile way")
 	}

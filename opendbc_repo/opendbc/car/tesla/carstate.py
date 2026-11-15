@@ -1,4 +1,6 @@
 import copy
+from opendbc.car.dashboard_speed_limit import Tracker as LimitTracker
+from opendbc.car.tesla.speed_limit import update_dashboard_limit
 from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
@@ -32,7 +34,12 @@ class CarState(CarStateBase):
       self.hands_on_level = 0
       self.das_control = {}
       return
-    self.cooperative_steering = CP.carFingerprint == CAR.TESLA_MODEL_3 and bool(CP.safetyConfigs[0].safetyParam & TeslaSafetyFlags.COOP_STEERING)
+    self.dashboard_limit = LimitTracker()
+    self.pedal_handover_observed_ns = 0
+    self.pedal_handover_override = False
+    self.pedal_handover_native_ok = False
+    self.cooperative_steering = (CP.carFingerprint in (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y) and
+                                 bool(CP.safetyConfigs[0].safetyParam & TeslaSafetyFlags.COOP_STEERING))
     self.can_define = CANDefine(DBC[CP.carFingerprint][Bus.party])
     self.shifter_values = self.can_define.dv["DI_systemStatus"]["DI_gear"]
 
@@ -80,6 +87,16 @@ class CarState(CarStateBase):
     # Vehicle speed
     ret.vEgoRaw = cp_party.vl["DI_speed"]["DI_vehicleSpeed"] * CV.KPH_TO_MS
     ret.vEgo, ret.aEgo = self.update_speed_kf(ret.vEgoRaw)
+
+    # Dash speed: the whole-unit speed the Tesla's own speedometer shows. It reads about 1.2 percent above
+    # DI_vehicleSpeed (one mph at motorway speed), so the comma screen shows the same number as the car.
+    # 255 is SNA; fall back to vEgo so the readout never drops to zero. The planner's dash-speed correction
+    # (starpilot/car/tesla/dash_speed.py) is what keeps the dash on the set speed; this is display only.
+    ui_speed = cp_party.vl["DI_speed"]["DI_uiSpeed"]
+    if 0 <= ui_speed < 255:
+      ret.vEgoCluster = ui_speed * (CV.KPH_TO_MS if cp_party.vl["DI_speed"]["DI_uiSpeedUnits"] == 1 else CV.MPH_TO_MS)
+    else:
+      ret.vEgoCluster = ret.vEgo
 
     # Gas pedal
     ret.gasPressed = cp_party.vl["DI_systemStatus"]["DI_accelPedalPos"] > 0
@@ -146,6 +163,17 @@ class CarState(CarStateBase):
     # AEB
     ret.stockAeb = cp_ap_party.vl["DAS_control"]["DAS_aebEvent"] == 1
 
+    # Retain actual observation stamps, never refresh cached data by polling.
+    self.pedal_handover_override = cruise_state == "OVERRIDE"
+    self.pedal_handover_native_ok = cruise_state in ("STANDBY", "ENABLED", "OVERRIDE") and speed_units in ("KPH", "MPH") and not self.autopark
+    self.pedal_handover_observed_ns = min(
+      cp_party.ts_nanos["DI_state"]["DI_cruiseState"],
+      cp_party.ts_nanos["DI_systemStatus"]["DI_accelPedalPos"],
+      cp_party.ts_nanos["DI_speed"]["DI_vehicleSpeed"],
+      cp_party.ts_nanos["ESP_status"]["ESP_driverBrakeApply"],
+      cp_ap_party.ts_nanos["DAS_control"]["DAS_aebEvent"],
+    )
+
     # LKAS
     ret.stockLkas = cp_ap_party.vl["DAS_steeringControl"]["DAS_steeringControlType"] == 2  # LANE_KEEP_ASSIST
 
@@ -158,6 +186,9 @@ class CarState(CarStateBase):
       ret.buttonEvents = self.update_screen_button(can_parsers[Bus.adas])
 
     # Buttons # ToDo: add Gap adjust button
+
+    if self.CP.carFingerprint in (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y):
+      update_dashboard_limit(self.dashboard_limit, cp_party, cp_ap_party, speed_units)
 
     # Messages needed by carcontroller
     self.das_control = copy.copy(cp_ap_party.vl["DAS_control"])

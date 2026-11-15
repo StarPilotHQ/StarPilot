@@ -113,6 +113,8 @@ class FeatureRow:
   actions: tuple[tuple[str, bool], ...] = ()
   presets: tuple[tuple[str, str], ...] = ()
   default_reset_available: bool = False
+  status: bool = False  # a read-only status: Galaxy shows it normally instead of grayed
+  links: tuple[tuple[str, str], ...] = ()  # (label, https URL) buttons shown in Galaxy
   collapsed: bool = False  # a heading whose rows are hidden until it is opened
 
 
@@ -314,7 +316,8 @@ def feature_parent_page(page: str) -> str | None:
 def feature_parent_title(page: str) -> str:
   parent = feature_parent_page(page)
   return {None: "StarPilot", FeaturePage.HUB: "Driving Controls", FeaturePage.PROFILES: "Long Planner",
-          FeaturePage.CONDITIONAL: "Conditional Driving Modes", FeaturePage.TORQUE: "Steering and Torque"}.get(parent, (parent or "").replace("_", " ").title())
+          FeaturePage.CONDITIONAL: "Conditional Driving Modes", FeaturePage.SLC: "Speed Limit Controller",
+          FeaturePage.TORQUE: "Steering and Torque"}.get(parent, (parent or "").replace("_", " ").title())
 
 
 def boolean_value(row: FeatureRow) -> bool | None:

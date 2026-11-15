@@ -15,6 +15,7 @@ from openpilot.common.hardware import HARDWARE, PC
 from openpilot.common.params import Params
 from openpilot.starpilot.aol.wire import INTENT_SERVICE
 from openpilot.starpilot.audio.alert_volume import AUTO, VOLUMES, effective_volume, read_volume
+from openpilot.starpilot.audio.slc_warning import SlcWarning
 from openpilot.starpilot.audio.axis_alerts import AxisAlerts
 from openpilot.starpilot.audio.sound_pack import PACK_ROOT, SoundPackLoader, migrate_removed_selection
 
@@ -93,6 +94,9 @@ class Soundd:
     self.current_alert = AudibleAlert.none
     self.current_sound = AudibleAlert.none
     self.current_volume = MIN_VOLUME
+    self.slc_warning = SlcWarning()
+    self.slc_warning_playing = False
+    self.slc_warning_volume = 0.
     self.current_sound_frame = 0
 
     self.ramp_start_volume = MIN_VOLUME
@@ -143,7 +147,7 @@ class Soundd:
           self.pending_stop = False
           break
 
-    key = ALERT_VOLUME_KEYS.get(producing_alert)
+    key = self.volume_key(producing_alert)
     ambient = self.current_volume
     if sound_data is not None and self.pack_loader.is_builtin(sound_data):
       ambient = max(ambient, STARPILOT_AUTO_MIN)
@@ -152,12 +156,17 @@ class Soundd:
       immediate_ramp=self.current_volume if producing_alert in (AudibleAlert.warningSoft, AudibleAlert.warningImmediate) else None)
     return ret * gain
 
+  def volume_key(self, alert):
+    return ("SLCWarningVolume" if self.slc_warning_playing and alert == AudibleAlert.preAlert
+            else ALERT_VOLUME_KEYS.get(alert))
+
   def refresh_saved_volumes(self, now: float) -> None:
     """Read slow Params state from the service loop, never the audio callback."""
     if now - self.volume_read_at < 0.25:
       return
     self.volume_read_at = now
     self.saved_volumes = {key: read_volume(self.volume_params, key).value for key, _, _ in VOLUMES}
+    self.slc_warning_volume = self.saved_volumes["SLCWarningVolume"] or 0.
 
   def callback(self, data_out: np.ndarray, frames: int, time, status) -> None:
     data_out[:frames, 0] = self.get_sound_data(frames)
@@ -214,6 +223,14 @@ class Soundd:
       new_alert = sm['selfdriveState'].alertSound.raw
       now_ns = time.monotonic_ns()
       new_alert = self.axis_alerts.update(sm, new_alert, now_ns)
+      if new_alert != AudibleAlert.none:
+        self.slc_warning_playing = False
+      warn = self.slc_warning.update(sm, now_ns,
+        busy=new_alert != AudibleAlert.none or self.current_alert != AudibleAlert.none,
+        enabled=self.slc_warning_volume > 0)
+      if warn:
+        self.slc_warning_playing = True
+        new_alert = AudibleAlert.preAlert
       self.update_alert(new_alert)
     elif check_selfdrive_timeout_alert(sm):
       self.update_alert(AudibleAlert.warningImmediate)
@@ -270,7 +287,7 @@ class Soundd:
     import sounddevice as sd
     micd.patch_sounddevice(sd)
 
-    sm = messaging.SubMaster(['selfdriveState', 'soundPressure', 'aolAxisState', INTENT_SERVICE])
+    sm = messaging.SubMaster(['selfdriveState', 'soundPressure', 'aolAxisState', INTENT_SERVICE, 'slcState'])
 
     with self.get_stream(sd) as stream:
       rk = Ratekeeper(20)

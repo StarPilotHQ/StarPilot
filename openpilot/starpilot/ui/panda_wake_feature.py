@@ -23,7 +23,10 @@ class PandaWakeFeature:
 
   def capability(self):
     cp = self.owner.vehicle_params()
-    keys = supported_keys(cp) if self.galaxy() and self.device_type() in ('tici', 'tizi') else ()
+    device = self.device_type()
+    keys = supported_keys(cp) if self.galaxy() and device in ('tici', 'tizi', 'mici') else ()
+    if device == 'mici':
+      keys = tuple(key for key in keys if key == 'TeslaWakeOnCAN')
     selection = read_selection(self.owner.params)
     if not keys or not selection.readable or not selection.valid or selection.platform is None:
       return None

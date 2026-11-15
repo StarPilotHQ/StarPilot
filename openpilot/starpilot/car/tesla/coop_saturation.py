@@ -21,7 +21,7 @@ def is_angle_steering_limited(CP, requested_angle: float, car_output, companion,
       safety_config.safetyParam & TeslaSafetyFlags.COOP_STEERING.value
       for safety_config in CP.safetyConfigs
     )
-    if CP.carFingerprint != CAR.TESLA_MODEL_3 or not cooperative_enabled or not output_healthy:
+    if CP.carFingerprint not in (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y) or not cooperative_enabled or not output_healthy:
       return legacy_limited
 
     info = companion.steeringLimitInfo

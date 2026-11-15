@@ -11,7 +11,7 @@ import json
 from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_customization import offset, rgba, widget_size
-from openpilot.starpilot.ui.onroad_state import OnroadState, manual_slc_confirmation, slc_action_occludes
+from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadState, manual_slc_confirmation, slc_action_occludes
 from openpilot.starpilot.ui.onroad_widget_style import draw_control_card
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
 from openpilot.starpilot.ui.wheel_feedback import WheelFeedbackFade
@@ -82,6 +82,9 @@ class UnifiedSpeedWidget:
       draw_set_speed(self.fonts, shown, rect.x + 92, rect.y, text)
       if label := set_speed_status(state, Profile.LARGE, shown):
         draw_set_status(self.fonts, label, rect.x + 92, rect.y, text)
+      elif state.tesla_sync_caption and state.alert.size == AlertSize.NONE:
+        # Tesla speed sync caption beside SET.
+        draw_text(self.fonts, state.tesla_sync_caption, FontRole.NORMAL, 19, rect.x + 24 + 48, rect.y + 19, text)
     self.sign.render(state, defer_confirmation=True)
     if sources:
       row = rl.Rectangle(rect.x, rect.y + max(height, SOURCE_TOP) + (GAP if separate else 0), WIDTH, SOURCE_ROW_HEIGHT)

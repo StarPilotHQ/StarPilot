@@ -10,6 +10,7 @@ from openpilot.starpilot.speed_limits.speed_domain import set_above_limit
 
 
 STATE_MAX_AGE_NS = int(2e9 / SERVICE_LIST['slcState'].frequency)
+COMMAND_MAX_AGE_NS = int(2e9 / SERVICE_LIST['slcState'].frequency)  # SLC set-speed commands
 
 
 def finite_speed(value: object) -> bool:
@@ -62,6 +63,17 @@ def _current_state(sm, now_ns: int):
   state = _state(sm, now_ns)
   return state if (state is not None and str(state.observationKind) == 'valid' and
                    str(state.source) in tuple(Source) and finite_speed(state.speedLimit) and adoption_speed(state) is not None) else None
+
+
+def state_current(sm, observation, producer_session: str, now_ns: int):
+  """The planner's current limit, bound to this car's own dashboard evidence (card applies SLC set-speed commands)."""
+  state = _current_state(sm, now_ns)
+  if state is None:
+    return None
+  if (not getattr(state, 'upcomingBoundaryId', '') and str(state.source) == 'dashboard' and
+      (observation is None or not source_matches(state, observation, producer_session, now_ns))):
+    return None
+  return state
 
 
 def active_ceiling(sm, now_ns: int, *, after_ns: int = 0) -> float | None:
@@ -138,3 +150,43 @@ def pending_confirmation(sm, now_ns: int, *, long_active: bool,
       not 0 < started <= int(state.frameMonoTime) <= started + CONFIRMATION_NS):
     return None
   return SlcPendingConfirmation(str(state.sessionId), int(state.decisionId), int(state.presentationId))
+
+
+# SLC sets the set speed (cruise.slc_sets_set_speed): card applies a qualified SLC command to the software set speed.
+def command_applicable(command, state, observation, producer_session: str, now_ns: int,
+                       selected_mps: float, *, long_active: bool, button_event: bool, ceiling_mps: float | None = None) -> bool:
+  if state is None or button_event or not long_active or not state.hasAccepted:
+    return False
+  if (str(command.kind) not in ('adoptAcceptedLimit', 'reengageZone', 'previewRollback') or not str(command.sessionId) or
+      str(command.sessionId) != str(state.sessionId) or int(command.commandId) <= 0 or
+      int(command.actionId) < 0 or int(command.presentationId) <= 0 or
+      int(command.commandId) != int(state.commandId) or
+      int(command.presentationId) != int(state.presentationId) or
+      int(command.sourceEpisode) != int(state.sourceEpisode) or
+      str(command.source) != str(state.source) or
+      str(command.sourceProducerSessionId) != str(state.sourceProducerSessionId) or
+      int(command.sourceObservedMonoTime) != int(state.sourceObservedMonoTime) or
+      int(command.sourceValidUntilMonoTime) != int(state.sourceValidUntilMonoTime) or
+      (str(state.source) == 'dashboard' and (observation is None or not source_matches(state, observation, producer_session, now_ns)))):
+    return False
+  issued, expires = int(command.issuedMonoTime), int(command.expiresMonoTime)
+  if not (0 < issued <= now_ns <= expires and expires - issued <= COMMAND_MAX_AGE_NS):
+    return False
+  expected, target = float(command.expectedSelectedMps), float(command.targetMps)
+  resumed = str(command.kind) == 'reengageZone'
+  if resumed and (not state.hasReengageTarget or state.hasPending):
+    return False
+  rollback = str(command.kind) == 'previewRollback'
+  if rollback and (not state.hasRollbackTarget or state.hasPending or str(state.source) != 'map'):
+    return False
+  bound_target = (float(state.rollbackTarget) if rollback else float(state.reengageTarget) if resumed
+                  else float(state.acceptedSpeedLimit) + float(state.offset))
+  if ceiling_mps is not None and finite_speed(ceiling_mps):
+    # The car's own set speed is the ceiling (Tesla Independent set speed off): SLC aims for the lower of the two.
+    bound_target = min(bound_target, ceiling_mps)
+  # Float32 transport can round a legal boundary just outside its double-precision value.
+  return (finite_speed(expected) and finite_speed(target) and finite_speed(selected_mps) and
+          abs(expected - selected_mps) <= 0.1 and
+          abs(float(state.acceptedSpeedLimit) - float(state.speedLimit)) <= 0.02 and
+          abs(target - bound_target) <= 0.1 and
+          V_CRUISE_MIN / 3.6 - 1e-5 <= target <= V_CRUISE_MAX / 3.6 + 1e-5)

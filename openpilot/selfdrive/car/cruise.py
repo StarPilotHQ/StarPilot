@@ -7,6 +7,19 @@ from opendbc.car.structs import car
 from openpilot.common.constants import CV
 from openpilot.starpilot.longitudinal.cruise_intervals import CruiseIntervals
 
+# Tesla Model 3/Y with its own cruise: SLC always sets the software set speed (the Tesla set-speed rule).
+TESLA_SET_SPEED_CARS = ('TESLA_MODEL_3', 'TESLA_MODEL_Y')
+
+
+def slc_sets_set_speed(CP, option: bool = False) -> bool:
+  """Whether Speed Limit Controller writes the software set speed (limit + offset becomes SET) instead of supplying a
+  ceiling beneath the driver's SET. Always on a Tesla Model 3/Y with its own cruise; a saved choice (SLCSetsSetSpeed,
+  off by default) on cars where StarPilot owns the set speed. Needs StarPilot longitudinal control."""
+  tesla = CP.carFingerprint in TESLA_SET_SPEED_CARS
+  if not (tesla or option) or not CP.openpilotLongitudinalControl:
+    return False
+  return tesla if CP.pcmCruise else bool(option)
+
 
 # WARNING: this value was determined based on the model's training distribution,
 #          model predictions above this speed can be unpredictable
@@ -72,7 +85,13 @@ class VCruiseHelper:
     self.slc_cruise_change: tuple[float, float, str, bool] | None = None
     self.slc_consumed_button: SlcConsumedButton | None = None
     self.slc_suppressed_buttons: set[ButtonType] = set()
+    # Which pending confirmation each consumed button answered (card matches SLC set-speed commands to it).
+    self.slc_suppression_owner: dict[ButtonType, SlcPendingConfirmation] = {}
+    self.slc_released_owner: dict[ButtonType, SlcPendingConfirmation] = {}
     self.slc_released_suppressed = False
+    self.slc_pcm = False
+    self.tesla_controls_pcm = False
+    self.match_pcm = False
     self.slc_wheel_press: SlcWheelContext | None = None
     self.slc_wheel_tap: SlcWheelContext | None = None
 
@@ -81,13 +100,26 @@ class VCruiseHelper:
     return self.v_cruise_kph != V_CRUISE_UNSET
 
   def update_v_cruise(self, CS, enabled, is_metric, slc_pending: SlcPendingConfirmation | None = None, *,
-                      slc_enabled: bool = False, wheel_context: SlcWheelContext | None = None):
+                      slc_enabled: bool = False, wheel_context: SlcWheelContext | None = None, tesla_controls: bool = False,
+                      pedal_sets_speed: bool = False, car_cap: bool = False, follow_car: bool = False, match_owner: bool = False):
+    # Tesla set-speed rule: on a Tesla Model 3/Y with its own cruise, live SLC owns the software set speed; other PCM cars
+    # keep the SLC ceiling beneath the driver's SET.
+    self.slc_pcm = bool(slc_enabled and self.CP.pcmCruise and self.CP.openpilotLongitudinalControl and
+                        self.CP.carFingerprint in TESLA_SET_SPEED_CARS)
+    # Tesla controls own the set speed with live SLC (saved speed mappings) or, with SLC off, only through Match the
+    # Tesla's set speed (match_owner); a saved mapping alone never does.
+    self.tesla_controls_pcm = bool(tesla_controls and (self.slc_pcm or (match_owner and self.CP.pcmCruise and
+                                                                        self.CP.openpilotLongitudinalControl)) and
+                                   self.CP.carFingerprint in TESLA_SET_SPEED_CARS)
+    # Owned through Match alone (SLC off): the only way a Tesla speed step applies without live SLC.
+    self.match_pcm = bool(self.tesla_controls_pcm and not self.slc_pcm)
     from opendbc.car.subaru.software_cruise import selected as subaru_software_selected
     subaru_software = subaru_software_selected(self.CP)
-    software_cruise = not self.CP.pcmCruise or subaru_software
+    software_cruise = not self.CP.pcmCruise or self.slc_pcm or self.tesla_controls_pcm or subaru_software
     self.slc_cruise_change = None
     self.slc_consumed_button = None
     self.slc_released_suppressed = False
+    self.slc_released_owner = {}
     self.slc_wheel_tap = None
     self.v_cruise_kph_last = self.v_cruise_kph
     now_ns = monotonic_ns()
@@ -116,10 +148,22 @@ class VCruiseHelper:
 
     if CS.cruiseState.available:
       if software_cruise:
-        if subaru_software and (not enabled or not self.v_cruise_initialized):
+        if (self.slc_pcm or self.tesla_controls_pcm or subaru_software) and (not enabled or not self.v_cruise_initialized):
+          # PCM still owns engagement; SLC owns the software set speed while system long is selected.
           stock_kph = CS.cruiseState.speed * CV.MS_TO_KPH
           self.v_cruise_kph = stock_kph if 0 < stock_kph < V_CRUISE_UNSET else V_CRUISE_UNSET
         self._update_v_cruise_non_pcm(CS, enabled, is_metric)
+        owned_pcm = self.slc_pcm or self.tesla_controls_pcm
+        car_kph = CS.cruiseState.speed * CV.MS_TO_KPH
+        car_valid = owned_pcm and 0 < car_kph < V_CRUISE_UNSET
+        if car_valid and follow_car and not car_cap:
+          self._follow_car_set_speed(car_kph, enabled, is_metric)
+        self._pedal_set_speed(CS, enabled, is_metric, pedal_sets_speed, cap_kph=car_kph if car_valid and car_cap else None)
+        if car_valid and car_cap and enabled and self.v_cruise_initialized:
+          # The car's own set speed is the ceiling: the comma speed may go below it, never above.
+          self.v_cruise_kph = min(self.v_cruise_kph, car_kph)
+        self.car_set_kph = car_kph if car_valid else None
+        self.car_cap_kph = car_kph if car_valid and car_cap else None
         self.v_cruise_cluster_kph = self.v_cruise_kph
         self.update_button_timers(CS, enabled)
       else:
@@ -182,6 +226,9 @@ class VCruiseHelper:
         continue
       if not b.pressed and button in self.slc_suppressed_buttons:
         self.slc_suppressed_buttons.remove(button)
+        prior_owner = self.slc_suppression_owner.pop(button, None)
+        if prior_owner is not None:
+          self.slc_released_owner[button] = prior_owner
         self.slc_released_suppressed = True
         self.button_timers[button] = 0
       elif (b.pressed and enabled and CS.cruiseState.available and slc_pending is not None and
@@ -189,6 +236,7 @@ class VCruiseHelper:
                  (CS.standstill or CS.cruiseState.standstill or not CS.cruiseState.enabled)) and
             button not in self.slc_suppressed_buttons):
         self.slc_suppressed_buttons.add(button)
+        self.slc_suppression_owner[button] = slc_pending
         self.slc_consumed_button = SlcConsumedButton(slc_pending, 'accel' if button == ButtonType.accelCruise else 'decel')
 
   def _update_v_cruise_non_pcm(self, CS, enabled, is_metric):
@@ -234,11 +282,64 @@ class VCruiseHelper:
     if changed and button_type == ButtonType.accelCruise and not long_press and self.button_timers[button_type] > 0:
       self.slc_wheel_tap = self.slc_wheel_press
 
+  # The car's reply to the comma's own change (the Tesla jumping to its limit after a stalk hold the comma also acted on)
+  # lands within this long; Follow ignores car changes until it has passed.
+  FOLLOW_QUIET_NS = 1_500_000_000
+
+  def _follow_car_set_speed(self, car_kph: float, enabled: bool, is_metric: bool) -> None:
+    """Follow the car's own set-speed changes that StarPilot did not make (Override Tesla set-speed changes turned off).
+    Changes include a stalk hold to the speed limit or an unassigned scroll. A change that moves the car's set speed
+    towards the comma's is StarPilot's own mirror and is ignored; any other change of at least one display unit becomes
+    the driver's new set speed."""
+    previous = getattr(self, 'car_set_kph', None)
+    if monotonic_ns() - getattr(self, 'slc_target_applied_ns', 0) < self.FOLLOW_QUIET_NS:
+      return
+    unit = 1. if is_metric else CV.MPH_TO_KPH
+    if (not enabled or not self.v_cruise_initialized or previous is None or self.slc_cruise_change is not None or
+        abs(car_kph - previous) < unit - 0.05 or not 0 < self.v_cruise_kph < V_CRUISE_UNSET):
+      return
+    if abs(car_kph - self.v_cruise_kph) < abs(previous - self.v_cruise_kph) - 0.05 and \
+       (car_kph - self.v_cruise_kph) * (previous - self.v_cruise_kph) > 0:
+      return  # moved towards the comma speed without crossing it: the mirror
+    target = float(np.clip(round(round(car_kph / unit) * unit, 1), V_CRUISE_MIN, V_CRUISE_MAX))
+    if abs(target - self.v_cruise_kph) < 0.05:
+      return
+    before = self.v_cruise_kph
+    self.v_cruise_kph = target
+    self.slc_cruise_change = (float(before / 3.6), float(target / 3.6), 'accel' if target > before else 'decel', False)
+
+  def _pedal_set_speed(self, CS, enabled, is_metric, active: bool, cap_kph: float | None = None) -> bool:
+    """Set new speed with pedal override: releasing the accelerator above the set speed, or the brake below it while
+    still engaged (where braking does not disengage), makes the speed at release the new set speed, rounded to whole
+    display units. Reported like a button change, so Speed Limit Controller treats it as the driver's own speed."""
+    gas, brake = bool(CS.gasPressed), bool(CS.brakePressed)
+    gas_released = getattr(self, 'pedal_gas_was', False) and not gas
+    brake_released = getattr(self, 'pedal_brake_was', False) and not brake
+    self.pedal_gas_was, self.pedal_brake_was = gas, brake
+    direction = 1 if gas_released else -1 if brake_released else 0
+    if (not active or not direction or not enabled or self.slc_cruise_change is not None or
+        not 0 < self.v_cruise_kph < V_CRUISE_UNSET or CS.cruiseState.standstill):
+      return False
+    speed = CS.vEgoCluster if CS.vEgoCluster > 0 else CS.vEgo
+    unit = 1. if is_metric else CV.MPH_TO_KPH
+    target = float(np.clip(round(round(speed * CV.MS_TO_KPH / unit) * unit, 1), V_CRUISE_MIN, V_CRUISE_MAX))
+    if cap_kph is not None:
+      # Stay within the cap in whole display units.
+      target = min(target, float(np.floor(cap_kph / unit + 0.01) * unit))  # CAN speeds arrive as float32
+    # Only a change of at least one display unit in the pedal's direction (accelerator up, brake down).
+    if direction * (target - self.v_cruise_kph) < unit - 0.05:
+      return False
+    previous_kph = self.v_cruise_kph
+    self.v_cruise_kph = target
+    self.slc_cruise_change = (float(previous_kph / 3.6), float(target / 3.6), 'accel' if direction > 0 else 'decel', False)
+    return True
+
   def adjust_v_cruise(self, button_type, CS, is_metric: bool, *, long_press: bool = False) -> bool:
     """Apply the normal software cruise step without synthesizing button events."""
     from opendbc.car.subaru.software_cruise import selected as subaru_software_selected
     subaru_software = subaru_software_selected(self.CP)
-    if ((self.CP.pcmCruise and not subaru_software) or button_type not in (ButtonType.accelCruise, ButtonType.decelCruise) or
+    if ((self.CP.pcmCruise and not self.slc_pcm and not self.tesla_controls_pcm and not subaru_software) or
+        button_type not in (ButtonType.accelCruise, ButtonType.decelCruise) or
         not 0 < self.v_cruise_kph < V_CRUISE_UNSET or
         (button_type == ButtonType.accelCruise and CS.cruiseState.standstill)):
       return False
@@ -279,10 +380,16 @@ class VCruiseHelper:
         self.button_change_states[b.type.raw] = {"standstill": CS.cruiseState.standstill, "enabled": enabled}
 
   def apply_slc_target(self, target_mps: float, is_metric: bool) -> None:
-    """Set the software cruise ceiling for engagement or a qualified driver request."""
+    """Set the software cruise speed: engagement, a qualified driver request or a qualified SLC set-speed command."""
     # Match ordinary button precision so stepping away and back restores this target.
+    before = self.v_cruise_kph
     self.v_cruise_kph = slc_target_kph(target_mps, is_metric)
+    cap = getattr(self, 'car_cap_kph', None)
+    if cap is not None:
+      self.v_cruise_kph = min(self.v_cruise_kph, cap)  # Tesla Independent set speed off: the car's speed is the ceiling
     self.v_cruise_cluster_kph = self.v_cruise_kph
+    if abs(self.v_cruise_kph - before) >= 0.05:
+      self.slc_target_applied_ns = monotonic_ns()
 
   def initialize_v_cruise(self, CS, experimental_mode: bool, *, resume: bool | None = None,
                           initial_speed: object = V_CRUISE_INITIAL, slc_target_mps: float | None = None, is_metric: bool = False) -> bool:
@@ -290,8 +397,9 @@ class VCruiseHelper:
     if (not self.CP.openpilotLongitudinalControl or slc_target_mps is None or type(slc_target_mps) not in (int, float) or
         not math.isfinite(slc_target_mps) or not V_CRUISE_MIN / 3.6 - 1e-5 <= slc_target_mps <= V_CRUISE_MAX / 3.6 + 1e-5):
       slc_target_mps = None
-    # Native cruise owns PCM SET, including when SLC supplies a planner cap.
-    if self.CP.pcmCruise:
+    # Native cruise owns PCM SET, including when SLC supplies a planner cap; on the Tesla set-speed rule (slc_pcm) SLC
+    # owns SET and engaging starts it at the current limit.
+    if self.CP.pcmCruise and (not self.slc_pcm or slc_target_mps is None):
       return False
     # A car-owned acknowledgment can outlive the physical button event.
     if resume is None:
@@ -299,9 +407,10 @@ class VCruiseHelper:
       resume = (0 < self.pending_resume_ns and 0 <= age <= 500_000_000) or any(
         b.type in (ButtonType.accelCruise, ButtonType.resumeCruise) for b in CS.buttonEvents)
     self.pending_resume_ns = 0
-    if resume and self.v_cruise_initialized:
-      self.v_cruise_kph = self.v_cruise_kph_last
-      self.v_cruise_cluster_kph = self.v_cruise_kph
+    if resume and self.v_cruise_initialized and not (self.slc_pcm and slc_target_mps is not None):
+      if not self.CP.pcmCruise:
+        self.v_cruise_kph = self.v_cruise_kph_last
+        self.v_cruise_cluster_kph = self.v_cruise_kph
       return False
     elif slc_target_mps is not None:
       self.apply_slc_target(slc_target_mps, is_metric)

@@ -541,7 +541,8 @@ int set_safety_hooks(uint16_t mode, uint16_t param) {
         current_safety_param = 0;
         continue;
       }
-      if ((mode == SAFETY_TESLA) && (((param & ~(TESLA_HW1_FLAG | 257U)) != 0U) || ((param & TESLA_HW1_FLAG) && (param & 256U))) && !tesla_screen_param_valid(param)) {
+      if ((mode == SAFETY_TESLA) && (((param & ~(TESLA_HW1_FLAG | 257U)) != 0U) || ((param & TESLA_HW1_FLAG) && (param & 256U))) &&
+          !tesla_screen_param_valid(param) && !tesla_sync_param_valid(param)) {
         current_hooks = &nooutput_hooks;
         current_safety_mode = SAFETY_NOOUTPUT;
         current_safety_param = 0;

@@ -23,6 +23,11 @@ def _increment(raw: bytes | None, fallback: float) -> float:
   return value if math.isfinite(value) and 1.0 <= value <= 150.0 else fallback
 
 
+def step_units(intervals: CruiseIntervals, fast: bool) -> int:
+  """Whole display units one Tesla scroll moves the comma speed: Short scroll, or Fast scroll for a fast scroll."""
+  return max(1, min(99, int(round(intervals.held if fast else intervals.short))))
+
+
 def read_cruise_intervals(params, cp) -> CruiseIntervals:
   if toyota_capability(cp) is not None:
     return CruiseIntervals(5, 1) if read_reverse_cruise(cp, params) else CruiseIntervals()

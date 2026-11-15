@@ -1,7 +1,7 @@
 """Reviewed saved-setting mapping for the opt-in system-longitudinal SLC runtime."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from enum import IntEnum
 from pathlib import Path
 
@@ -10,6 +10,8 @@ from openpilot.starpilot.speed_limits import acceptance as acc
 from openpilot.starpilot.speed_limits import offset_document as od
 from openpilot.starpilot.speed_limits import selection as sel
 from openpilot.starpilot.speed_limits import speed_domain as sd
+from openpilot.starpilot.speed_limits.custom_settings import (CustomSettings, adopt_early_first, SPECS as CUSTOM_SPECS,
+                                                             BOOLS as CUSTOM_BOOLS, MODES as CUSTOM_MODES)
 
 LABELS = {"Dashboard": sel.Source.DASHBOARD, "Map Data": sel.Source.MAP, "Maps": sel.Source.MAP, "Vision": sel.Source.VISION}
 SOURCE_PRIORITY_KEYS = ('SLCPriority1', 'SLCPriority2', 'SLCPriority3')
@@ -47,6 +49,11 @@ class Settings:
   advance_lower_seconds: int = 0
   pedal_override: PedalOverride = PedalOverride.OFF
   wheel_override: bool = False
+  # Limit-change timing, offset type, fallback delay, manual memory, re-engage and the acceleration/braking limits.
+  custom: CustomSettings = field(default_factory=CustomSettings)
+  metric: bool = False
+  # The car's own set speed is the ceiling (Tesla Independent set speed off): targets never go above it.
+  car_cap: bool = False
 
 
 def _bool(values: Mapping[str, object], key: str, default: bool = False) -> bool:
@@ -73,6 +80,8 @@ def parse(values: Mapping[str, object]) -> Settings:
       raise ValueError('saved SLC offsets need review')
     first, second, third = (values.get(key, default) for key, default in
                             zip(SOURCE_PRIORITY_KEYS, SOURCE_PRIORITY_DEFAULTS, strict=True))
+    # An older saved secondary "None" (primary source only) means "Off".
+    second = 'Off' if second == 'None' else second
     if any(type(source) is not str for source in (first, second, third)):
       raise ValueError("invalid saved SLC source priority")
     mode = {"Highest": sel.SelectionMode.HIGHEST, "Lowest": sel.SelectionMode.LOWEST}.get(first, sel.SelectionMode.ORDERED)
@@ -92,18 +101,24 @@ def parse(values: Mapping[str, object]) -> Settings:
                         confirm_higher=confirmation in (1, 3),
                         display_only=not control)
     offsets = document.schedule()
+    # A limit is brought forward once: a direction with an Adopt limits early time uses that timer, and its Limit
+    # changes start mode waits for the limit.
+    custom = adopt_early_first(CustomSettings.parse(values), higher, lower)
+    if custom.offset_type == 'percentage':
+      offsets = replace(offsets, percent=custom.offset_percent / 100)
     pedal_override = values.get(PEDAL_OVERRIDE_KEY, PedalOverride.SPEED_REACHED.value)
     if type(pedal_override) is not int or pedal_override not in (0, 1, 2):
       pedal_override = PedalOverride.OFF.value
     return Settings(control, display, sel.SelectionPolicy(mode, slots, False), policy, offsets,
                     requested=control, advance_higher_seconds=higher, advance_lower_seconds=lower,
-                    pedal_override=PedalOverride(pedal_override), wheel_override=values.get(WHEEL_OVERRIDE_KEY) is True)
+                    pedal_override=PedalOverride(pedal_override), wheel_override=values.get(WHEEL_OVERRIDE_KEY) is True,
+                    custom=custom, metric=values.get("IsMetric", False) is True)
   except (ValueError, OverflowError) as error:
     return _disabled(str(error))
 
 
 SAVED_KEYS = ("SpeedLimitController", "ShowSpeedLimits", "IsMetric", *SOURCE_PRIORITY_KEYS,
-              "SLCConfirmation")
+              "SLCConfirmation", *CUSTOM_MODES, *CUSTOM_SPECS, *CUSTOM_BOOLS)
 
 
 def read_params(params) -> Settings:
@@ -141,7 +156,11 @@ def read_params(params) -> Settings:
       else:
         with Path(params.get_param_path(key)).open('rb') as stream:
           raw = stream.read()
-      if key in SOURCE_PRIORITY_KEYS:
+      if key in CUSTOM_SPECS:
+        value = float(raw)
+      elif key in CUSTOM_MODES:
+        value = int(raw)
+      elif key in SOURCE_PRIORITY_KEYS:
         value = raw.decode('utf-8')
       elif key == 'SLCConfirmation':
         if raw not in CONFIRMATION_BYTES:

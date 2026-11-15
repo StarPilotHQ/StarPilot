@@ -360,6 +360,20 @@ struct SlcState @0xa1680744031fdb2d {
   wheelOverrideSince @60 :UInt64; # nonzero while a wheel tap may cross the current adjusted limit
   wheelAdoptMonoTime @61 :UInt64; # Card's original wheel event timestamp, only on the approval frame
   wheelAdoptTargetMps @62 :Float32; # exact adjusted SET approved for that event
+  # SLC limit changes: map-timed change warning, approach, re-engagement and preview rollback.
+  changeWarningId @63 :Text;
+  changeWarningIssuedMonoTime @64 :UInt64;
+  changeWarningDeadlineMonoTime @65 :UInt64;
+  warningPinned @66 :Bool;
+  warningPinId @67 :Text;
+  warningPinIssuedMonoTime @68 :UInt64;
+  mapApproachActive @69 :Bool;
+  mapBoundaryDistance @70 :Float32;
+  mapTriggerDistance @71 :Float32;
+  hasReengageTarget @72 :Bool;
+  reengageTarget @73 :Float32;
+  hasRollbackTarget @74 :Bool;
+  rollbackTarget @75 :Float32; # separately bound same-zone engagement command
   struct SourceReading {
     source @0 :Text;
     enabled @1 :Bool;
@@ -477,6 +491,21 @@ struct SlcAction @0x9ccdc8676701b412 {
     sourceCarStateMonoTime @10 :UInt64;
     carParamsFingerprint @11 :Text;
     targetSpeedMps @12 :Float32;
+    stepUnits @13 :Int8; # exact one-unit increment or ten-unit snap
+    sourceTeslaGesture @14 :TeslaGesture; # optional Tesla wheel-gesture provenance; never an action
+  }
+
+  struct TeslaGesture {
+    version @0 :UInt16;
+    workerSession @1 :Text;
+    sequence @2 :UInt64;
+    sourceCanBootTime @3 :UInt64;
+    sourceCanFrameIndex @4 :UInt16;
+    name @5 :Text;
+    fast @6 :Bool;
+    assignmentsHash @7 :Text;
+    vehicleHash @8 :Text;
+    driveStartMonoTime @9 :UInt64;
   }
 
   struct ConditionalManualAction {
@@ -509,6 +538,7 @@ struct SlcAction @0x9ccdc8676701b412 {
     forceCoastToggle @10;
     pulseGlideToggle @11;
     disengageRequest @12;
+    cruiseStep @13;
   }
 }
 
@@ -938,6 +968,8 @@ struct SlcCruiseCommand @0xbd443b539493bc68 {
     unknown @0;
     adoptAcceptedHigherLimit @1;
     adoptAcceptedLimit @2;
+    reengageZone @3;
+    previewRollback @4;
   }
 }
 
@@ -1205,6 +1237,13 @@ struct MapdOut @0xa4f1eb3323f5f582 {
   previewDistance @35 :Float32;
   previewBoundaryId @36 :Text;
   previewWayId @37 :Int64;
+
+  # Second confirmed boundary on the unique connected continuation (SLC limit changes).
+  # Zero means unavailable. Distances are from the current position in meters.
+  nextSpeedLimitEndDistance @38 :Float32;
+  followingSpeedLimit @39 :Float32;
+  followingSpeedLimitWayId @40 :Int64;
+  nextSpeedLimitWayId @41 :Int64;
 
   enum SampleStatus {
     unknown @0;

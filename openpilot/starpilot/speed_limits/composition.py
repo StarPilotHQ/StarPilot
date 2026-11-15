@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from openpilot.starpilot.longitudinal.cruise_ceiling import CruiseCeiling
 from openpilot.starpilot.speed_limits import acceptance as acc
 from openpilot.starpilot.speed_limits import action_arbitration as arb
+from openpilot.starpilot.speed_limits import overrides as ov
 from openpilot.starpilot.speed_limits import selection as sel
 from openpilot.starpilot.speed_limits import speed_domain as sd
 from openpilot.starpilot.speed_limits.runtime_settings import PedalOverride
@@ -47,6 +48,11 @@ class Frame:
   wheel_override_blocked: bool = False
   wheel_override_since_ns: int = 0
   filtered_ego_delta_mps: float | None = None
+  # SLC sets the set speed (cruise.slc_sets_set_speed): SLC writes SET, driver SET changes persist through the override module,
+  # and no planner ceiling is supplied. per_limit_memory: Remember manual speed (this drive).
+  set_speed_rule: bool = False
+  per_limit_memory: bool = False
+  set_speed_ready: bool = True  # card's last SLC command receipt has been seen in carState
 
 
 @dataclass(frozen=True)
@@ -59,6 +65,7 @@ class State:
   pedal_blocked_until_release: bool = False
   wheel_override_metric: bool | None = None
   wheel_override_since_ns: int = 0
+  override: ov.State | None = None  # only where SLC sets the set speed
 
 
 @dataclass(frozen=True)
@@ -71,6 +78,7 @@ class Result:
   ceiling: CruiseCeiling | None = None
   status: str = "none"
   errors: tuple[str, ...] = ()
+  override: ov.Decision | None = None  # only where SLC sets the set speed
 
 
 def _integer(value: object) -> bool:
@@ -94,7 +102,8 @@ def _state_valid(state: object) -> bool:
           _number(state.pedal_target_mps) and (state.last_now_ns is None or _integer(state.last_now_ns)) and
           type(state.reset_required) is bool and type(state.pedal_blocked_until_release) is bool and
           (state.wheel_override_metric is None or type(state.wheel_override_metric) is bool) and
-          _integer(state.wheel_override_since_ns))
+          _integer(state.wheel_override_since_ns) and
+          (state.override is None or isinstance(state.override, ov.State) and state.override.session_id == state.session_id))
 
 
 def _host_valid(host: object) -> bool:
@@ -114,7 +123,7 @@ def new_session(session_id: str, previous_limit: acc.AcceptedLimit | None = None
     candidate = replace(previous_limit.candidate,
       observation_identity=acc.ObservationIdentity(acc.IdentityKind.SESSION_VALUE, session_id=session_id))
     previous_limit = acc.AcceptedLimit(candidate, session_id, 0)
-  return State(session_id, acc.new_session(session_id, previous_limit))
+  return State(session_id, acc.new_session(session_id, previous_limit), override=ov.new_session(session_id))
 
 
 def step(state: State, frame: Frame) -> Result:
@@ -167,7 +176,7 @@ def step(state: State, frame: Frame) -> Result:
   ego = frame.ego_pair
   candidate = selected.observation.candidate
   matches_set = False
-  if (active_path and candidate is not None and frame.selected_kind is sd.DomainStatus.VALID and
+  if (active_path and frame.set_speed_ready and candidate is not None and frame.selected_kind is sd.DomainStatus.VALID and
       ego.status is sd.DomainStatus.VALID and ego.session_id == state.session_id and ego.timestamp_ns == frame.now_ns and
       _number(ego.raw_mps) and _number(ego.cluster_mps)):
     assert ego.raw_mps is not None and ego.cluster_mps is not None
@@ -191,7 +200,14 @@ def step(state: State, frame: Frame) -> Result:
     pair = sd.SpeedPair(frame.selected_kind)
   else:
     pair = sd.SpeedPair(sd.DomainStatus.ABSENT)
+  if (frame.set_speed_rule and acceptance.control_target_mps is not None and
+      acceptance.state.observation.kind is not acc.ObservationKind.VALID):
+    # Where SLC sets the set speed, a source gap carries no control target (SET simply stays where it is); the
+    # ceiling keeps capping to the previous accepted limit instead.
+    acceptance = replace(acceptance, control_target_mps=None)
   domain = sd.resolve(acceptance, frame.offset_schedule, pair, frame.ego_pair)
+  if frame.set_speed_rule:
+    return _set_speed_rule(state, base, frame, selected, acceptance, domain, pair, active_path)
   if domain.status is sd.DomainStatus.INVALID:
     return Result(replace(base, reset_required=True), selected, acceptance, domain,
                   status="invalid_domain", errors=(domain.reason,))
@@ -257,3 +273,45 @@ def step(state: State, frame: Frame) -> Result:
   return Result(base, selected, acceptance, domain, coordinate,
                 ceiling=CruiseCeiling(coordinate.cap_mps, frame.authority),
                 status=acceptance.basis)
+
+
+def _override_evidence(kind: sd.DomainStatus) -> ov.EvidenceKind:
+  return {sd.DomainStatus.VALID: ov.EvidenceKind.VALID,
+          sd.DomainStatus.ABSENT: ov.EvidenceKind.ABSENT,
+          sd.DomainStatus.STALE: ov.EvidenceKind.STALE}.get(kind, ov.EvidenceKind.UNKNOWN)
+
+
+def _set_speed_rule(state: State, base: State, frame: Frame, selected, acceptance, domain, pair, active_path: bool) -> Result:
+  """SLC sets the set speed: the accepted limit becomes SET through card; a driver SET change persists through the
+  override module; no planner ceiling (a ceiling would hold the car below a + press)."""
+  override_state = base.override if base.override is not None else ov.new_session(state.session_id)
+  selected_evidence = ov.SelectedEvidence(_override_evidence(pair.status), pair.raw_mps if pair.status is sd.DomainStatus.VALID else None)
+  pedal_evidence = ov.PedalEvidence(_override_evidence(frame.ego_pair.status),
+                                    frame.pedal_pressed if frame.ego_pair.status is sd.DomainStatus.VALID else None,
+                                    frame.ego_pair.raw_mps if frame.ego_pair.status is sd.DomainStatus.VALID else None)
+  change = frame.classified_cruise.change if frame.classified_cruise is not None else None
+  if (frame.per_limit_memory is True and acceptance.state.accepted is not None and
+      override_state.accepted_mps is not None and
+      abs(acceptance.state.accepted.candidate.speed_mps-override_state.accepted_mps) >= .1):
+    override_state = replace(override_state, persistent_selected_mps=None)
+  override = ov.step(override_state, acceptance, frame.authority, frame.acceptance_policy,
+                     selected_evidence, pedal_evidence, now_ns=frame.now_ns, change=change, domain=domain)
+  base = replace(base, override=override.state)
+  if override.errors or domain.status is sd.DomainStatus.INVALID:
+    return Result(replace(base, reset_required=True), selected, acceptance, domain, override=override,
+                  status="invalid_domain_or_override", errors=override.errors or (domain.reason,))
+  if not active_path or domain.status is not sd.DomainStatus.VALID:
+    return Result(base, selected, acceptance, domain, override=override,
+                  status=acceptance.basis if acceptance.basis == 'source_switch_pending' else 'inactive_or_unavailable')
+  context = domain.context
+  if (not isinstance(context, sd.DomainContext) or override.state.session_id != state.session_id or
+      override.state.last_timestamp_ns != frame.now_ns or override.state.accepted_mps != context.accepted_raw_mps or
+      override.state.effective_target_mps != context.effective_cluster_mps):
+    return Result(replace(base, reset_required=True), selected, acceptance, domain, override=override,
+                  status="invalid_join", errors=("override and speed domain mismatch",))
+  coordinate = sd.override_planner_coordinate(context, override.contribution_mps, override.basis)
+  if coordinate.cap_mps is None:
+    return Result(replace(base, reset_required=True), selected, acceptance, domain, coordinate, override=override,
+                  status="invalid_coordinate", errors=("planner coordinate unavailable",))
+  # Adoption changes card's set speed; SLC never supplies a second planner ceiling.
+  return Result(base, selected, acceptance, domain, coordinate, override=override, status=acceptance.basis)

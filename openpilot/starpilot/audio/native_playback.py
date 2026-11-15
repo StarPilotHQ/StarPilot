@@ -162,7 +162,7 @@ class NativePlayback:
     samples = self.sounds.get(sound)
     if samples is not None and self.builtin.get(sound, False):
       gain = max(gain, self.auto_min)
-    key = self.volume_keys.get(alert)
+    key = owner.volume_key(alert)
     if key is not None:
       gain = effective_volume(key, owner.saved_volumes.get(key), gain,
                               immediate_ramp=owner.current_volume if alert in self.critical_alerts else None)

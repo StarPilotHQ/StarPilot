@@ -50,6 +50,7 @@ from openpilot.starpilot.ui.unified_speed_presentation import (displayed_adjuste
 from openpilot.starpilot.ui.onroad_stopped_timer import StoppedTimer
 from openpilot.starpilot.speed_limits.vision.stop_observation import StopConfirmation
 from openpilot.starpilot.ui.onroad_lane_alerts import lateral_lane_alert
+from openpilot.starpilot.ui.tesla_speed_sync_warning import SpeedSyncCaption
 from openpilot.starpilot.ui.onroad_camera import ReverseDriverCamera
 from openpilot.starpilot.ui.navigation_state import navigation_display, official_navigation_display
 from openpilot.starpilot.ui.settings_state import Destination, DestinationAvailability, SettingsState
@@ -122,6 +123,19 @@ def current_message(sm: Any, service: str, now_ns: int, *, after_frame: int = 0,
         return None
       boot_now_ns = now_ns + pair[2]
     return _message_at_age(sm, service, boot_now_ns, after_frame, max_age_ns, recv_now_ns=now_ns)
+  return _message_at_age(sm, service, now_ns, after_frame, max_age_ns)
+
+
+# Car buttons (wheel, stalk) are handled part-way through a screen frame, after the frame's other work. The same age the
+# scroll wheel's comma-speed actions allow (conditional_mode.ui_action.SOURCE_MAX_AGE_NS).
+INPUT_MAX_AGE_NS = 250_000_000
+
+
+def input_message(sm: Any, service: str, now_ns: int, *, after_frame: int = 0) -> Any | None:
+  """current_message for a car button: the same checks, with the age stretched to INPUT_MAX_AGE_NS for fast services
+  (two periods of a 100 Hz message is 20 ms, less than the work done in the frame before the button is handled)."""
+  frequency = SERVICE_LIST[service].frequency
+  max_age_ns = max(int(2e9 / frequency) if frequency else 1_000_000_000, INPUT_MAX_AGE_NS)
   return _message_at_age(sm, service, now_ns, after_frame, max_age_ns)
 
 
@@ -338,6 +352,8 @@ class RuntimeSnapshotAdapter:
     self._traffic_profile_valid = False
     self._personality_notice = PersonalityNotice()
     self._drive_mode_notice = DriveModeNotice(ui_state.params)
+    self._speed_sync_caption = SpeedSyncCaption()
+    self._match_owner: tuple[int, bool] | None = None
     self._stopped_timer = StoppedTimer()
     self._replay_stopped_history = False
     self._developer_metrics = DeveloperMetrics()
@@ -417,6 +433,15 @@ class RuntimeSnapshotAdapter:
     self._slc_last_sign = None
     self._slc_sign_recovery_ns = None
     return observation
+
+  def _tesla_match_owner(self, cp: Any, now_ns: int) -> bool:
+    """Match the Tesla's set speed with SLC off (the comma owns the set speed); saved settings read once a second."""
+    if self._match_owner is not None and 0 <= now_ns - self._match_owner[0] < 1_000_000_000:
+      return self._match_owner[1]
+    from openpilot.starpilot.common.car_control_config import match_speed_owner
+    owner = bool(cp is not None and match_speed_owner(self.ui_state.params, cp))
+    self._match_owner = (now_ns, owner)
+    return owner
 
   def build(self, mode: ShellMode, selected: Destination = Destination.STAR, *, compact_y: float = 0,
             compact_scroll_x: float = 0, sidebar_expanded: bool = True, now_ns: int | None = None,
@@ -740,6 +765,11 @@ class RuntimeSnapshotAdapter:
                          speed_mps=raw_speed, cruise_kph=cruise, speed_limit=observation,
                          appearance=self._appearance_value, customization=self._customization_value,
                          alert=alert, metric=bool(ui.is_metric), slc_offset_schedule=self._slc_offset_schedule,
+                         tesla_sync_caption=self._speed_sync_caption.update(
+                           car_params=cp, car=display_car, selfdrive=display_selfdrive, comma_kph=cruise,
+                           now_ns=now_ns, drive_frame=after, metric=bool(ui.is_metric),
+                           comma_owns_speed=bool(slc is not None and slc.enabled) or self._tesla_match_owner(cp, now_ns),
+                           alert_present=alert.size != AlertSize.NONE),
                          experimental_available=bool(ui.has_longitudinal_control),
                          experimental_enabled=observed_experimental,
                          personality=list(Personality).index(persona),
