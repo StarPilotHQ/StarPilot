@@ -8,17 +8,19 @@ from opendbc.car.gm.ordinary import demands
 
 class TestOrdinarySdgm(unittest.TestCase):
   def test_exact_final_configuration(self):
-    self.assertEqual(len(ORDINARY_SDGM_CAR), 7)
+    self.assertEqual(len(ORDINARY_SDGM_CAR), 8)
     for candidate in ORDINARY_SDGM_CAR:
       for release in (False, True):
         for alpha in (False, True):
           for sascm in (False, True):
             for c9 in (False, True):
               cp = params(candidate, sascm=sascm, accelerator=not c9, alpha=alpha, release=release)
-              long = alpha and sascm and not release
+              long = alpha and sascm and not release and candidate != CAR.BUICK_ENVISION_SDGM
               expected = 0x1001 | (2 if long else 0) | (0x400 if c9 else 0)
               if not long and candidate in SDGM_CANCEL_PT_CAR:
                 expected |= 0x2000
+              if candidate == CAR.BUICK_ENVISION_SDGM:
+                expected = 0xE900
               self.assertEqual(cp.safetyConfigs[0].safetyParam, expected)
               self.assertTrue(is_ordinary_sdgm_profile(cp, longitudinal=long))
               self.assertEqual(sdgm_policy_for(cp) is not None, long)
@@ -47,7 +49,7 @@ class TestOrdinarySdgm(unittest.TestCase):
     from opendbc.car.gm.carstate import CarState
     from opendbc.car.gm.values import DBC
     for candidate in ORDINARY_SDGM_CAR:
-      for c9 in (False, True):
+      for c9 in ((False,) if candidate == CAR.BUICK_ENVISION_SDGM else (False, True)):
         cp = params(candidate, sascm=True, accelerator=not c9, alpha=True)
         state = CarState(cp)
         parsers = state.get_can_parsers(cp)
@@ -79,7 +81,7 @@ class TestOrdinarySdgm(unittest.TestCase):
       for release in (False, True):
         for alpha in (False, True):
           cp = params(candidate, sascm=True, alpha=alpha, release=release)
-          self.assertEqual(longitudinal_supported(cp), alpha and not release)
+          self.assertEqual(longitudinal_supported(cp), alpha and not release and candidate != CAR.BUICK_ENVISION_SDGM)
           self.assertTrue(lane_centering_supported(cp))
           self.assertTrue(qualified_gm(cp))
           self.assertEqual(policy_for(cp), 'ordinary_sdgm')

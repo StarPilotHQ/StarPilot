@@ -156,6 +156,8 @@ VOLT_ONE_PEDAL_WORDS = {start + index: word for start in (0xD100, 0xD110)
 
 def gm_control_word(cp: CarParams) -> int:
   word = int(cp.safetyConfigs[0].safetyParam)
+  if word == 0xE900 and cp.carFingerprint == CAR.BUICK_ENVISION_SDGM:
+    return 0x1001
   if word in VOLT_ONE_PEDAL_WORDS:
     index = word - (0xD110 if word >= 0xD110 else 0xD100)
     identity = (CAR.CHEVROLET_VOLT if index < 2 else CAR.CHEVROLET_VOLT_ASCM if index < 6 else
@@ -561,6 +563,11 @@ class CAR(Platforms):
   GMC_ACADIA_ASCM = GMPlatformConfig(
     [GMCommunityCarDocs("GMC Acadia (ASCM Harness) 2018")], GMC_ACADIA.specs,
   )
+  BUICK_ENVISION_SDGM = GMPlatformConfig(
+    [GMCommunityCarDocs("Buick Envision (CN SDGM Retrofit) 2016", "Custom cross-flashed ADAS stack and SDGM harness")],
+    GMCarSpecs(mass=1800, wheelbase=2.75, steerRatio=15.6, centerToFrontRatio=0.41),
+    dbc_dict={Bus.pt: 'gm_global_a_powertrain_envision', Bus.radar: 'gm_global_a_object', Bus.chassis: 'gm_global_a_chassis'},
+  )
   BUICK_LACROSSE = GMPlatformConfig(
     [GMCommunityCarDocs("Buick LaCrosse (OBD-II Harness) 2017-19", "Driver Confidence Package 2")],
     GMCarSpecs(mass=1712, wheelbase=2.91, steerRatio=15.8, centerToFrontRatio=0.4),
@@ -846,7 +853,7 @@ SDGM_STOCK_CAR = {
   CAR.CHEVROLET_BLAZER, CAR.CHEVROLET_MALIBU_SDGM,
 }
 SDGM_CANCEL_PT_CAR = {CAR.CADILLAC_XT4, CAR.CADILLAC_XT5, CAR.CADILLAC_XT6, CAR.BUICK_BABYENCLAVE}
-SDGM_CAR = {CAR.CADILLAC_XT4, CAR.CHEVROLET_VOLT_2019, CAR.CHEVROLET_TRAVERSE} | SDGM_STOCK_CAR
+SDGM_CAR = {CAR.BUICK_ENVISION_SDGM, CAR.CADILLAC_XT4, CAR.CHEVROLET_VOLT_2019, CAR.CHEVROLET_TRAVERSE} | SDGM_STOCK_CAR
 
 CC_GATEWAY_STOCK_CAR = {
   CAR.CADILLAC_CT6_CC, CAR.CADILLAC_XT4_CC, CAR.CADILLAC_XT5_CC,
@@ -1000,6 +1007,9 @@ ORDINARY_SDGM_CAR = SDGM_CAR - {CAR.CHEVROLET_VOLT_2019}
 def is_ordinary_sdgm_profile(cp, *, longitudinal):
   """Exact ordinary SDGM source and authority selection."""
   try:
+    envision = cp.carFingerprint == CAR.BUICK_ENVISION_SDGM
+    if envision and (longitudinal or cp.alphaLongitudinalAvailable or int(cp.safetyConfigs[0].safetyParam) != 0xE900):
+      return False
     required = int(GMSafetyFlags.HW_CAM | GMSafetyFlags.SDGM)
     if longitudinal:
       required |= int(GMSafetyFlags.HW_CAM_LONG)
@@ -1013,7 +1023,7 @@ def is_ordinary_sdgm_profile(cp, *, longitudinal):
             cp.openpilotLongitudinalControl == longitudinal and cp.pcmCruise != longitudinal and
             (not longitudinal or cp.alphaLongitudinalAvailable) and
             len(configs) == 1 and configs[0].safetyModel == CarParams.SafetyModel.gm and
-            int(configs[0].safetyParam) & ~optional == required)
+            (gm_control_word(cp) if envision else int(configs[0].safetyParam)) & ~optional == required)
   except (AttributeError, IndexError, TypeError, ValueError):
     return False
 

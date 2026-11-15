@@ -19,6 +19,11 @@ class TestSdgmAccStartup(unittest.TestCase):
           cp = params(identity, sascm=True, accelerator=not c9, alpha=True)
           cp.alternativeExperience = 32
           ci = CarInterface(cp)
+          if identity == CAR.BUICK_ENVISION_SDGM:
+            self.assertFalse(cp.alphaLongitudinalAvailable)
+            self.assertFalse(ci.CC.ordinary_sdgm_long)
+            self.assertFalse(ci.CC.startup_acc_keepalive)
+            continue
           self.assertTrue(ci.CC.ordinary_sdgm_long)
           packer = CANPacker(DBC[identity][Bus.pt])
           safety = native.libsafety

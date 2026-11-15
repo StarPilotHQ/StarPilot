@@ -7,7 +7,7 @@ from opendbc.car.gm.carstate import CarState
 from opendbc.car.gm.tests.test_ascm_intercept import params
 from opendbc.car.gm.tests.test_bolt_cc import native
 from opendbc.safety.tests.libsafety import libsafety_py
-from opendbc.car.gm.values import (DBC, GMFlags, ORDINARY_ASCM_CAR, ORDINARY_SDGM_CAR,
+from opendbc.car.gm.values import (CAR, DBC, GMFlags, ORDINARY_ASCM_CAR, ORDINARY_SDGM_CAR,
                                   is_ordinary_ascm_profile, is_ordinary_sdgm_profile)
 from openpilot.starpilot.aol.tests import test_gm_startup_continuity as startup
 
@@ -25,7 +25,7 @@ def test_bsm_preserves_exact_control_owners(candidate):
           cp = params(candidate, sascm=True, accelerator=accelerator, radar=radar, alpha=alpha, release=release)
           word = cp.safetyConfigs[0].safetyParam
           cp.flags |= int(GMFlags.HAS_BSM)
-          longitudinal = alpha and not release
+          longitudinal = alpha and not release and candidate != CAR.BUICK_ENVISION_SDGM
           assert profile(cp, longitudinal=longitudinal)
           assert qualified_gm(cp)
           assert cp.safetyConfigs[0].safetyParam == word
@@ -43,6 +43,13 @@ def test_bsm_startup_replaces_all_acc_messages_on_correct_buses(candidate):
   cp = params(candidate, sascm=True, alpha=True)
   cp.flags |= int(GMFlags.HAS_BSM)
   controller = CarController(DBC[candidate], cp)
+  if candidate == CAR.BUICK_ENVISION_SDGM:
+    assert not cp.alphaLongitudinalAvailable
+    assert not cp.openpilotLongitudinalControl
+    assert not controller.startup_acc_keepalive
+    assert not controller.ordinary_sdgm_long
+    assert qualified_gm(cp)
+    return
   assert controller.startup_acc_keepalive
   assert controller.ordinary_sdgm_long == (candidate in ORDINARY_SDGM_CAR)
   state = CarState(cp)

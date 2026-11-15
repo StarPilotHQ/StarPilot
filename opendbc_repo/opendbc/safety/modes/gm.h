@@ -911,7 +911,8 @@ static bool gm_fwd_hook(int bus_num, int addr) {
 }
 
 static safety_config gm_init(uint16_t safety_param) {
-  uint16_t bolt_param = safety_param;
+  const bool envision_sdgm = safety_param == 0xE900U;
+  uint16_t bolt_param = envision_sdgm ? 0x1001U : safety_param;
   gm_bolt_pedal_removed = false;
   gm_bolt_removed_acc_seen = false;
   gm_bolt_removed_gear_seen = false;
@@ -1861,6 +1862,15 @@ static safety_config gm_init(uint16_t safety_param) {
     } else {
       SET_RX_CHECKS(gm_aol_be_rx_checks, ret);
     }
+  }
+
+  if (envision_sdgm) {
+    static RxCheck envision_rx[] = {
+      GM_ASCM_INTERCEPT_RX_CHECKS
+      {.msg = {{0xBE, 0, 3, 10U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, {0}, {0}}},
+      GM_ASCM_INTERCEPT_C9_CHECK
+    };
+    SET_RX_CHECKS(envision_rx, ret);
   }
 
   if (gm_camera_gateway && !gm_camera_pedal_long) {
