@@ -1,5 +1,6 @@
 """Reason-qualified intent retention; this module never grants an axis."""
 from openpilot.cereal import log
+from openpilot.starpilot.aol.transport_pause_session import TransportPause as TransportPause
 from openpilot.starpilot.aol.panda_faults import blocking_fault_mask, blocking_fault_list
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS, current_native, native_inventory_matches_cp
 from openpilot.starpilot.aol.wire import SafetyState, decode_intent
@@ -213,56 +214,6 @@ class AvailabilityPause:
       self.active = False
       self.baseline_ns = 0
       return False
-
-
-class TransportPause:
-  def __init__(self, cp, session):
-    self.cp = cp_identity(cp)
-    self.session = session
-    self.active = False
-    self.producer = ''
-    self.epoch = None
-
-  def observe(self, *, cp, session, sm, cs, native, now_ns, companion, previous_intent,
-              intent, expired_healthy_source, previously_active, hard_fault, model_ready, user_disable):
-    self.observed_native = None
-    context_current = bool(cp_identity(cp) == self.cp and session == self.session and model_ready and companion is not None)
-    if context_current:
-      self.observed_native = _healthy_transport_native(sm, cp, cs, session, now_ns, native)
-      if self.observed_native is None and cp.brand == 'ford':
-        from openpilot.starpilot.car.ford.gas_override import healthy_gas_transport_native
-        self.observed_native = healthy_gas_transport_native(sm, cp, cs, session, now_ns)
-    eligible = bool(context_current and not hard_fault and self.observed_native is not None)
-    latest = companion.latest if companion is not None else None
-    raw = decode_intent(sm['aolIntentWire']) if sm.seen.get('aolIntentWire', False) else None
-    previous = previous_intent
-    producer = self.producer if self.active else str(previous.producerSessionId) if previous is not None else ''
-    eligible = bool(eligible and latest is not None and latest[1] and raw is not None and
-      sm.valid['aolIntentWire'] and sm.alive['aolIntentWire'] and
-      raw.settingsQualified and raw.producerSessionId == producer and
-      latest[2].producerSessionId == producer and
-      int(sm.logMonoTime['aolIntentWire']) == raw.carStateLogMonoTime and
-      0 < raw.carStateLogMonoTime <= now_ns and raw.observedMonoTime <= now_ns and
-      (self.epoch is None or self.epoch == companion.integrity_epoch))
-    if self.active:
-      if not eligible:
-        self.active = False
-        return False, True
-      if user_disable or intent is not None and not intent.allowedLatch:
-        self.active = False
-        self.epoch = companion.integrity_epoch
-        return False, False
-      return True, False
-    if (eligible and expired_healthy_source and previously_active and previous is not None and
-        previous.allowedLatch and previous.lateralArmed and raw.allowedLatch and raw.lateralArmed and
-        not user_disable):
-      self.active = True
-      self.producer = producer
-      self.epoch = companion.integrity_epoch
-      return True, False
-    if intent is not None and companion is not None:
-      self.epoch = companion.integrity_epoch
-    return False, False
 
 
 class TransportPauseFeedback:
