@@ -314,5 +314,37 @@ class TestLeapmotorCan(unittest.TestCase):
       self.assertLess(abs(ret.steeringTorqueEps), 100)
       self.assertFalse(CS.driver_override)
 
+  def test_dashboard_speed_limit(self):
+    # the camera's posted limit is offered as the dashboard source, and expires with the camera's frames
+    from opendbc.car.dashboard_speed_limit import Status
+    from opendbc.car.leapmotor.carstate import CarState
+    from opendbc.car.leapmotor.interface import CarInterface
+    CP = CarInterface.get_non_essential_params("LEAPMOTOR_B10")
+    CS = CarState(CP)
+    parsers = CS.get_can_parsers(CP)
+    packer = CANPacker("leapmotor_b10")
+
+    def frame(i, limit):
+      t = int((i + 1) * 2e7)
+      parsers[Bus.pt].update([(t, [])])
+      parsers[Bus.cam].update([(t, [packer.make_can_msg("ROAD_SIGNS", 2, {"SPEED_LIMIT": limit, "COUNTER": i % 16})])])
+      CS.update(parsers)
+      return CS.dashboard_limit.observation, t
+
+    for i in range(60):  # the parser learns the camera's frame rate, and so the expiry, after 1 s
+      observation, t = frame(i, 50)
+    self.assertEqual(observation.status, Status.VALID)
+    self.assertAlmostEqual(observation.speed_mps, 50 / 3.6)
+    self.assertEqual(observation.observed_ns, t)
+    self.assertGreater(observation.valid_until_ns, t)
+    episode = observation.episode
+    observation, _ = frame(60, 30)
+    self.assertAlmostEqual(observation.speed_mps, 30 / 3.6)
+    self.assertGreater(observation.episode, episode)
+    for i, limit in enumerate((0, 255), start=61):
+      observation, _ = frame(i, limit)
+      self.assertEqual(observation.status, Status.UNKNOWN)
+
+
 if __name__ == "__main__":
   unittest.main()
