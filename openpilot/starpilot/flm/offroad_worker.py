@@ -28,7 +28,7 @@ from openpilot.starpilot.flm.offroad_route import RouteInputCancelled
 
 POLICY = 'bounded_provisional_next_drive_v1'
 RECORDED_ASSESSOR = analyze_latest
-MAX_INCONCLUSIVE_DRIVES = 3
+MAX_TRIAL_SEGMENTS = 4096
 ZERO = dict.fromkeys(NAMES, 0.0)
 from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, LEGACY_KEYS
 
@@ -160,32 +160,49 @@ def _est(value):
   return TrackingEstimate(**value)
 
 
-def trial_document(cache, digest):
+def trial_origin(cache, digest):
   for _ in range(8):
     value = cache.get(digest)
     if value.get('kind') == 'next_drive_trial':
-      return value
+      return digest, value
     if value.get('kind') != 'next_drive_outcome':
       break
     digest = value['trial_analysis_sha256']
   raise ValueError('Bounded original next-drive trial lineage required')
 
 
-def trial_segment_history(cache, digest):
+def trial_document(cache, digest):
+  return trial_origin(cache, digest)[1]
+
+
+def trial_source_history(cache, digest):
   from openpilot.starpilot.flm.offroad_route import original_segment_hashes
 
   segments = set()
+  complete = True
   for _ in range(8):
     document = cache.get(digest)
+    if 'trial_source_segments' in document:
+      saved = document['trial_source_segments']
+      if (type(saved) is not list or len(saved) > MAX_TRIAL_SEGMENTS
+          or any(type(s) is not str or len(s) != 64 or s.strip('0123456789abcdef') for s in saved) or len(set(saved)) != len(saved)
+          or type(document.get('trial_source_history_complete')) is not bool):
+        raise ValueError('Exact retained trial source history required')
+      segments.update(saved)
+      complete &= document['trial_source_history_complete']
     assessment = document.get('assessment', {})
     for receipt in (assessment.get('route', {}), *assessment.get('evidence_sources', ())):
       segments.update(original_segment_hashes(receipt.get('segments', ())))
     if document.get('kind') == 'next_drive_trial':
-      return segments
+      return segments, complete
     if document.get('kind') != 'next_drive_outcome':
       break
     digest = document['trial_analysis_sha256']
   raise ValueError('Bounded original next-drive source history required')
+
+
+def trial_segment_history(cache, digest):
+  return trial_source_history(cache, digest)[0]
 
 
 def quality_withdrawn(assessment, scope, values):
@@ -401,6 +418,7 @@ def recorded_recommendations(assessment, previous, report):
       baseline = _recorded_values(group['original_metadata']) if 'original_metadata' in group else previous
       if baseline is not None:
         add(cohort.get('proposal'), cohort.get('whole_windows', 0), 'recorded_candidate_requires_automatic_checks', baseline)
+        add(cohort.get('provisional_proposal'), cohort.get('whole_windows', 0), 'recorded_provisional_suggestion', baseline)
   for proof in (*report.get('stable_profile_reports', ()), *report.get('short_turn_profile_reports', ())):
     roles = proof.get('roles', {})
     windows = sum(len(roles.get(role, {}).get('original_windows', ())) for role in ('training', 'heldout'))
@@ -974,7 +992,7 @@ class OffroadWorker:
     if row is not None and assessment.receipt.source_sha256 in row['route_sha256s']:
       reason = 'this_completed_drive_already_assessed'
     elif row is not None and (row['state'] == 'ready_for_next_drive' or quality_withdrawn(actual_drive, scope, row['values'])):
-      trial = trial_document(self.cache, row['analysis_sha256'])
+      trial_sha256, trial = trial_origin(self.cache, row['analysis_sha256'])
       observed_checks = []
       if not quality_withdrawn(actual_drive, scope, row['values']):
         stable = trial['before']['training'].get('kind') == 'uncommanded_residual_v1'
@@ -990,15 +1008,17 @@ class OffroadWorker:
               )
       started = os.path.lexists(self.cache.directory / ('trial-' + row['analysis_sha256'] + '.json'))
       attempts = self.cache.get(row['analysis_sha256']).get('inconclusive_drives', 0)
-      if type(attempts) is not int or not 0 <= attempts < MAX_INCONCLUSIVE_DRIVES:
-        raise ValueError('Bounded inconclusive trial history required')
+      if type(attempts) is not int or not 0 <= attempts <= 2**53 - 1:
+        raise ValueError('Valid inconclusive trial count required')
+      segments, history_complete = trial_source_history(self.cache, row['analysis_sha256'])
       outcome = assess_next_drive(trial, actual_drive, scope, trial_started=started, recorded_backlog=route != latest,
-                                  previous_segments=trial_segment_history(self.cache, row['analysis_sha256']))
+                                  previous_segments=segments)
+      history_limited = not history_complete and outcome['outcome'] != 'rolled_back' and outcome.get('counts_as_new_drive', True)
+      if history_limited:
+        outcome = dict(outcome, outcome='pending', reason='trial_source_history_capacity_reached', counts_as_new_drive=False)
       counts_as_new_drive = outcome.get('counts_as_new_drive', True)
       if outcome['outcome'] == 'pending' and started and counts_as_new_drive:
-        attempts += 1
-        if attempts >= MAX_INCONCLUSIVE_DRIVES:
-          outcome = dict(outcome, outcome='rolled_back', reason='trial_inconclusive_drive_limit')
+        attempts = min(attempts + 1, 2**53 - 1)
       if outcome['outcome'] == 'accepted_after_drive' and (not observed_checks or not all(r['qualified'] for r in observed_checks)):
         outcome = {
           'outcome': 'rolled_back',
@@ -1007,15 +1027,23 @@ class OffroadWorker:
           'causal_road_benefit_proven': False,
           'comparisons': outcome['comparisons'],
         }
-      if outcome['outcome'] == 'pending' and (not started or not counts_as_new_drive):
+      if outcome['outcome'] == 'pending' and (not started or not counts_as_new_drive and not history_limited):
         status, reason = 'ready_for_next_drive', outcome['reason']
         report['unused_recording_review'] = outcome
         report['recorded_tracking'] = trial.get('assessment', {}).get('recorded_tracking')
       else:
+        from openpilot.starpilot.flm.offroad_route import original_segment_hashes
+
+        for receipt in (report['route'], *report.get('evidence_sources', ())):
+          segments.update(original_segment_hashes(receipt.get('segments', ())))
+        # shortcut: beyond 4096 source segments retain the tune; require a new trial before crediting more evidence.
+        history_complete &= len(segments) <= MAX_TRIAL_SEGMENTS
         record = {
           'kind': 'next_drive_outcome',
           'policy': POLICY,
-          'trial_analysis_sha256': row['analysis_sha256'],
+          'trial_analysis_sha256': trial_sha256,
+          'trial_source_segments': sorted(segments)[:MAX_TRIAL_SEGMENTS],
+          'trial_source_history_complete': history_complete,
           'assessment': report,
           'all_actual_next_drive_checks': observed_checks,
           'inconclusive_drives': attempts,

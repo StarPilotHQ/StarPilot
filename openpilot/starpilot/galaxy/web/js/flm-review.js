@@ -55,7 +55,7 @@ export function reviewModel(route, historical = false, updating = false) {
     title = 'Auto Learn saved a tune'
     description = 'These are the last reported saved values. The controller checks that they match your setup before using them.'
     tone = 'saved'
-    next = 'A new drive is needed to measure the saved trial. Saved does not mean verified or currently in use.'
+    next = 'Your saved adjustments are ready for your next drive.'
   } else if (route.configurationState === 'rolled_back') {
     title = 'Your previous tune was restored'
     description = 'The trial was rolled back. Any other ideas below are separate from the restored tune.'

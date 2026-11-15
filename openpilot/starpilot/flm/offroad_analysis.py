@@ -71,7 +71,16 @@ def analyze(windows, previous, *, permitted=lambda: True, route_order=None, comp
 
     train, heldout = partition_windows(rows, route_order)
     if len(train) < 3 or len(heldout) < 3:
-      results.append({'cohort': key, 'whole_windows': len(rows), 'reason': 'more_independent_windows_required'})
+      result = {'cohort': key, 'whole_windows': len(rows), 'reason': 'more_independent_windows_required'}
+      if 3 <= len(rows) < 6:
+        observed = estimate(tuple(rows), cohort=key, permitted=permitted, comparison=comparison)
+        if observed is not None:
+          _, side, phase = key.split(':')
+          provisional = suggest(observed, previous, side=side, phase=phase)
+          if provisional is not None:
+            result.update(provisional_proposal=provisional, provisional_estimate=asdict(observed),
+                          automatic_application_allowed=False, reason='recorded_provisional_suggestion')
+      results.append(result)
       continue
     first = estimate(tuple(train), cohort=key, permitted=permitted, comparison=comparison)
     second = estimate(tuple(heldout), cohort=key, permitted=permitted, comparison=comparison)
@@ -99,7 +108,7 @@ def analyze(windows, previous, *, permitted=lambda: True, route_order=None, comp
     'version': 1,
     'analysis_sha256': receipt,
     'cohorts': results,
-    'state': 'suggestions' if any(row.get('proposal') for row in results) else 'more_evidence_required',
+    'state': 'suggestions' if any(row.get('proposal') or row.get('provisional_proposal') for row in results) else 'more_evidence_required',
     'automatically_saved': False,
     'road_improvement_confirmed': False,
     'scope': 'Observed tracking suggestions. No independent EPS response, native permission or application is manufactured.',

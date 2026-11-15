@@ -22,7 +22,7 @@ const hints = [['highway_center_taper_max', .005], ['friction_threshold_low', .0
   ['friction_threshold_mid', .004], ['friction_threshold_fast', .005], ['friction_threshold_highway', .006]]
 function report() {
   if (scenario === 'empty') return { version: 1, history: [], current: null }
-  const saved = scenario === 'saved' || scenario === 'saved-retained' || scenario === 'applied'
+  const saved = ['saved', 'saved-retained', 'inconclusive', 'applied'].includes(scenario)
   const application = scenario === 'applied'
   const rows = SURFACE_NAMES.map(name => [name, saved && name === 'highway_center_taper_max' ? .005 : 0])
   const start = 1_000_000_000, points = Array.from({ length: 24 }, (_, i) =>
@@ -42,6 +42,11 @@ function report() {
           sampling: 'input_ordered_original_endpoints_no_interpolation', points } } } }
   if (saved) Object.assign(value.current.details, { 'Saved route configuration state': 'ready_for_next_drive',
     'Full surface coordinates': rows, 'Saved friction-curve adjustments': FRICTION_NAMES.map(name => [name, 0]) })
+  if (scenario === 'inconclusive') {
+    value.current.reason = 'trial_measurement_inconclusive'
+    value.current.details['Analysis decision'] = value.current.reason
+    value.current.details['Automatic configuration changed'] = false
+  }
   if (application) value.current.details['Actual full surface coordinates'] = rows
   if (scenario === 'stale') { value.current.fresh = false; value.current.ageSeconds = 20 }
   if (scenario === 'retained' || scenario === 'saved-retained') {
@@ -266,8 +271,19 @@ try {
     }
   }
   await viewport(416);await execute('document.documentElement.dataset.theme="dark"')
-  for (const name of ['none', 'empty', 'saved', 'rollback', 'recent-rollback', 'conflict', 'contradictory', 'stale', 'retained', 'earlier-drive', 'wrong-car', 'incomplete', 'unknown-change']) {
+  for (const name of ['none', 'empty', 'saved', 'inconclusive', 'rollback', 'recent-rollback', 'conflict', 'contradictory', 'stale', 'retained', 'earlier-drive', 'wrong-car', 'incomplete', 'unknown-change']) {
     await change(name);await layout(`state/${name}`);await capture(name)
+    if (name === 'inconclusive') {
+      assert.equal(await execute('return window.flm.offroad.savedValues.highway_center_taper_max'), .005)
+      assert.equal(await execute('return window.flm.currentApplied'), false)
+      const copy = await execute('return document.querySelector(".gx-tuner__drive-copy").innerText')
+      assert(copy.includes('Auto Learn saved a tune') && copy.includes('1 saved'))
+      assert(!copy.includes('not proven') && !copy.includes('not sure') && !copy.includes('restored'))
+      assert(await execute('return document.body.innerText.includes("Your saved adjustments are ready for your next drive.")'))
+      await show('.gx-tuner__overview-grid > section:last-child')
+      await capture('inconclusive-next-drive')
+      checks.push('inconclusive-keeps-saved-values-without-fabricated-application')
+    }
     if (name === 'retained') assert(await execute('return !/Refresh|Reconnect/.test(window.flm.review.description)&&window.flm.review.description.includes("saved tune")'))
     if (name === 'earlier-drive') {
       assert(await execute('return window.flm.offroad.earlierDrive && !window.flm.offroad.retained && !window.flm.review.historical'))

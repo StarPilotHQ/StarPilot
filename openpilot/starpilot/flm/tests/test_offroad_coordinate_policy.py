@@ -1023,7 +1023,7 @@ class TestBoundedInconclusiveTrialLifecycle(unittest.TestCase):
     from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
     from openpilot.starpilot.flm.offroad_route import RouteReceipt
 
-    receipt = RouteReceipt('declared-inconclusive-' + digit, digit * 64, (), 'a' * 64, 1, 2, 100 + int(digit), ())
+    receipt = RouteReceipt('declared-inconclusive-' + digit, digit * 64, (), 'a' * 64, 1, 2, 100 + int(digit, 16), ())
     inventory = {'routeId': receipt.route_id}
     assessment = CompletedAssessment(receipt, (), {}, SimpleNamespace(carFingerprint='declared-unit-car'), (), inventory)
 
@@ -1038,7 +1038,7 @@ class TestBoundedInconclusiveTrialLifecycle(unittest.TestCase):
       checker=checker, scope_for=lambda cp, params: scope())
     return worker, inventory
 
-  def test_bounded_retries_keep_single_session_and_atomic_source_guards(self):
+  def test_repeated_inconclusive_drives_keep_tune_and_atomic_source_guards(self):
     from types import SimpleNamespace
     from openpilot.starpilot.flm import offroad_worker as module
     from openpilot.starpilot.flm.learned_lifecycle import decode
@@ -1048,7 +1048,7 @@ class TestBoundedInconclusiveTrialLifecycle(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       params, cache, original, first_digest = self.saved_trial(directory)
       digests = []
-      for attempt, digit in enumerate('234', 1):
+      for attempt, digit in enumerate('23456789abcd', 1):
         raw = read_saved(params, KEY, MAX_BYTES)[0]
         row = decode(raw)['routeSurfaces'][scope().key()]
         digest = row['analysis_sha256']
@@ -1074,22 +1074,18 @@ class TestBoundedInconclusiveTrialLifecycle(unittest.TestCase):
         self.assertEqual(record['inconclusive_drives'], attempt)
         self.assertFalse(record['causal_road_benefit_proven'])
         self.assertEqual(cache.get(first_digest), original, 'Original qualification stays immutable')
-        if attempt < 3:
-          self.assertEqual(saved['state'], 'ready_for_next_drive')
-          self.assertEqual(saved['values'], original['values'])
-          self.assertEqual(saved['previous'], values())
-          self.assertNotEqual(saved['analysis_sha256'], digest)
-          self.assertFalse((cache.directory / ('trial-' + saved['analysis_sha256'] + '.json')).exists())
-          with patch.object(module, '_current_scope', return_value=scope()):
-            guard = from_configuration(None, params, cache.directory, vehicle_session='f' * 32)
-          self.assertIsNotNone(guard)
-          assert guard is not None
-          self.assertIsNone(guard.stopped, 'The unchanged onroad guard must load the original baseline through retry lineage')
-        else:
-          self.assertEqual(saved['state'], 'rolled_back')
-          self.assertEqual(saved['values'], values())
-          self.assertEqual(result['reason'], 'trial_inconclusive_drive_limit')
-      self.assertEqual(len(set(digests)), 3)
+        self.assertEqual(saved['state'], 'ready_for_next_drive')
+        self.assertEqual(saved['values'], original['values'])
+        self.assertEqual(saved['previous'], values())
+        self.assertNotEqual(saved['analysis_sha256'], digest)
+        self.assertEqual(record['trial_analysis_sha256'], first_digest, 'Retained trials keep constant-depth provenance')
+        self.assertFalse((cache.directory / ('trial-' + saved['analysis_sha256'] + '.json')).exists())
+        with patch.object(module, '_current_scope', return_value=scope()):
+          guard = from_configuration(None, params, cache.directory, vehicle_session='f' * 32)
+        self.assertIsNotNone(guard)
+        assert guard is not None
+        self.assertIsNone(guard.stopped, 'Fresh controllers must load the original baseline after every pending drive')
+      self.assertEqual(len(set(digests)), 12)
 
   def test_pending_store_rejects_stale_bytes_unauthorized_and_repeated_drives(self):
     from openpilot.starpilot.flm.learned_lifecycle import decode
