@@ -19,7 +19,8 @@ from opendbc.car.toyota.values import CAR as TOYOTA
 from opendbc.car.volvo.values import CAR as VOLVO
 from opendbc.car.volkswagen.values import CAR as VOLKSWAGEN
 
-Platform = BODY | BYD | CHRYSLER | FORD | GM | HONDA | HYUNDAI | LEAPMOTOR | MAZDA | MOCK | MG | NISSAN | PSA | RIVIAN | SUBARU | TESLA | TOYOTA | VOLVO | VOLKSWAGEN
+Platform = (BODY | BYD | CHRYSLER | FORD | GM | HONDA | HYUNDAI | LEAPMOTOR | MAZDA | MOCK | MG | NISSAN | PSA | RIVIAN | SUBARU | TESLA |
+            TOYOTA | VOLVO | VOLKSWAGEN)
 BRANDS = get_args(Platform)
 
 PLATFORMS: dict[str, Platform] = {str(platform): platform for brand in BRANDS for platform in brand}
