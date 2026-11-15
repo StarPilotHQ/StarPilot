@@ -150,6 +150,8 @@ DEFAULT_CONFIG = {
   "wifi_interface": "wlan0",
   "dedicated_wifi_interface": True,   # join the car on its own aa0 station so wlan0 stays on home Wi-Fi
   "allow_hevc": False,         # offer H.265 when the car offers no usable H.264 mode (Galaxy Developer > StarPort)
+  "tall_hevc": False,          # H.265 only: use the car's 1080x1920 mode when offered (Galaxy Developer > StarPort)
+  "keyframe_test": False,      # H.265 sessions only: every frame a keyframe, plus ack and frame logging (Galaxy Developer > StarPort)
   "device_name": "StarPilot",
   "version_status": 0,         # WifiVersionResponse status (0 = success) for receivers that negotiate a version
   "phone_class": True,         # while pairing/connecting, present as a phone: HFP gateway + smartphone Class of Device
@@ -201,6 +203,8 @@ def load_config(path: Path | None = None) -> dict:
     config["usb_mode"] = "auto"
   config["bitrate_kbps"] = max(1000, min(12000, int(config["bitrate_kbps"])))
   config["allow_hevc"] = config["allow_hevc"] is True
+  config["keyframe_test"] = config["keyframe_test"] is True
+  config["tall_hevc"] = config["tall_hevc"] is True
   config["head_unit_experiments"] = config["head_unit_experiments"] is True
   config["head_unit_experiment_rules"] = sorted({str(rule)[:64] for rule in config["head_unit_experiment_rules"]
                                                  if isinstance(rule, str)})[:16]

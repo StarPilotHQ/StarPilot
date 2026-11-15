@@ -11,7 +11,8 @@ from unittest.mock import patch
 
 from openpilot.starpilot.galaxy.developer_settings import (CALIBRATION_RESET, DRIVER_MONITORING_RESET, STARPORT_EXPERIMENT_PREFIX,
                                                           STARPORT_EXPERIMENTS_KEY,
-                                                          STARPORT_HEADING_KEY, STARPORT_HEVC_KEY,
+                                                          STARPORT_HEADING_KEY, STARPORT_HEVC_KEY, STARPORT_KEYFRAME_TEST_KEY,
+                                                          STARPORT_TALL_HEVC_KEY,
                                                           STARPORT_NEW_SETUP_KEY, STARPORT_WIFI_KEY, DeveloperSettingsOwner)
 from openpilot.starpilot.galaxy.settings import AuthorityContext, ContextSource, SettingsChanged, SettingsGateway
 from openpilot.starpilot.longitudinal.voacc import KEY, selected
@@ -46,6 +47,7 @@ class FileParams:
 class FakeStarPort:
   def __init__(self, enabled=False, running=True):
     self.enabled, self.running, self.hevc = enabled, running, False
+    self.keyframe_test = self.tall_hevc = False
     self.experiments, self.rules = False, []
 
   def call(self, command, **payload):
@@ -57,14 +59,20 @@ class FakeStarPort:
     if command == "set_allow_hevc":
       self.hevc = payload["enabled"]
       return {"ok": True}
+    if command == "set_keyframe_test":
+      self.keyframe_test = payload["enabled"]
+      return {"ok": True}
+    if command == "set_tall_hevc":
+      self.tall_hevc = payload["enabled"]
+      return {"ok": True}
     if command == "set_head_unit_experiments":
       self.experiments = payload["enabled"]
       return {"ok": True}
     if command == "set_head_unit_experiment_rule":
       self.rules = sorted(set(self.rules) | {payload["rule"]} if payload["enabled"] else set(self.rules) - {payload["rule"]})
       return {"ok": True, "changed": True}
-    return {"ok": True, "status": {"dedicated_wifi_interface": self.enabled, "allow_hevc": self.hevc,
-                                   "head_unit_experiments": self.experiments, "head_unit_experiment_rules": self.rules}}
+    return {"ok": True, "status": {"dedicated_wifi_interface": self.enabled, "allow_hevc": self.hevc, "keyframe_test": self.keyframe_test,
+                                   "tall_hevc": self.tall_hevc, "head_unit_experiments": self.experiments, "head_unit_experiment_rules": self.rules}}
 
 
 class DeveloperSettingsTest(unittest.TestCase):
@@ -240,6 +248,35 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.parked = True
     service.running = False
     self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_HEVC_KEY, b"1", "Off")))
+
+  def test_keyframe_test_defaults_off_and_follows_the_daemon(self):
+    service = FakeStarPort()
+    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    rows = owner.snapshot().rows
+    keys = [row.key for row in rows]
+    self.assertEqual(keys.index(STARPORT_KEYFRAME_TEST_KEY), keys.index(STARPORT_HEVC_KEY) + 1)
+    row = rows[keys.index(STARPORT_KEYFRAME_TEST_KEY)]
+    self.assertEqual((row.value, row.default_value, row.available), ("Off", "Off", True))
+    self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_KEYFRAME_TEST_KEY, row.source, "On")))
+    self.assertTrue(service.keyframe_test)
+    self.assertFalse(service.hevc)
+    self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_KEYFRAME_TEST_KEY, row.source, "Off")))  # stale view
+    self.parked = False
+    self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_KEYFRAME_TEST_KEY, b"1", "Off")))
+    self.assertNotIn(STARPORT_KEYFRAME_TEST_KEY, [row.key for row in DeveloperSettingsOwner(self.params, lambda: True).snapshot().rows])
+
+  def test_tall_hevc_defaults_off_and_follows_the_daemon(self):
+    service = FakeStarPort()
+    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    rows = owner.snapshot().rows
+    keys = [row.key for row in rows]
+    self.assertEqual(keys.index(STARPORT_TALL_HEVC_KEY), keys.index(STARPORT_KEYFRAME_TEST_KEY) + 1)
+    row = rows[keys.index(STARPORT_TALL_HEVC_KEY)]
+    self.assertEqual((row.value, row.default_value, row.available), ("Off", "Off", True))
+    self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_TALL_HEVC_KEY, row.source, "On")))
+    self.assertTrue(service.tall_hevc)
+    self.assertFalse(service.keyframe_test or service.hevc)
+    self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_TALL_HEVC_KEY, row.source, "Off")))  # stale view
 
   def test_try_experimental_fixes_defaults_off_and_is_the_only_master_switch(self):
     service = FakeStarPort()
