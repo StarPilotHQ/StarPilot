@@ -11,9 +11,7 @@ import math
 import os
 
 from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES as NAMES
-from openpilot.starpilot.flm.offroad_analysis import cohort
-from openpilot.starpilot.flm.offroad_evidence import read_point, RouteWindow, window_identity, tracking_metrics
-from openpilot.starpilot.flm.offroad_processor import window_demand
+from openpilot.starpilot.flm.offroad_evidence import cohort, read_point, RouteWindow, window_identity, tracking_metrics, window_demand
 from openpilot.starpilot.flm.offroad_surface import REVISION
 
 from openpilot.starpilot.flm.offroad_surface import stop_marker
@@ -164,12 +162,16 @@ class TrialGuard:
 
 
 def from_configuration(cp, params, cache_directory, *, vehicle_session):
-  from openpilot.starpilot.flm.offroad_worker import _current_scope, trial_document
-  from openpilot.starpilot.flm.offroad_store import startup_row
-  from openpilot.starpilot.flm.offroad_cache import AssessmentCache
+  from openpilot.starpilot.flm.offroad_runtime import current_scope
+  from openpilot.starpilot.flm.offroad_store import startup_row, KEY, MAX_BYTES
+  from openpilot.starpilot.flm.offroad_cache import AssessmentCache, trial_document
+  from openpilot.starpilot.saved_source import read_saved
 
   try:
-    scope = _current_scope(cp, params)
+    raw, readable = read_saved(params, KEY, MAX_BYTES)
+    if not readable or raw is None:
+      return None
+    scope = current_scope(cp, params)
     row, _ = startup_row(params, scope)
   except (OSError, KeyError, TypeError, ValueError, AttributeError, OverflowError):
     return None

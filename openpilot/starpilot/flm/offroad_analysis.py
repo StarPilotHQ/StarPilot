@@ -5,7 +5,7 @@ import hashlib
 import json
 
 from openpilot.starpilot.flm.canonical_surface_adapter import NAMES
-from openpilot.starpilot.flm.offroad_evidence import RouteWindow
+from openpilot.starpilot.flm.offroad_evidence import RouteWindow, cohort
 from openpilot.starpilot.flm.offroad_tracking import estimate, suggest
 from openpilot.starpilot.flm.offroad_coordinate_policy import tracking_coordinate_candidates
 
@@ -13,31 +13,6 @@ MAX_WINDOWS = 4096
 MAX_COHORT_WINDOWS = 24
 
 
-def cohort(window):
-  """Classify only original reference and speed; never errors or response."""
-  if type(window) is not RouteWindow or not window.valid():
-    raise ValueError('Original complete tracking window required')
-  points = window.points
-  speed = tuple(p.speed_mps for p in points)
-  bands = {0 if v < 10 else 1 if v < 20 else 2 for v in speed}
-  if len(bands) != 1:
-    return None
-  floor = 0.03 if window.domain == 'lateral_acceleration' else 0.1
-  signs = {1 if p.desired > floor else -1 if p.desired < -floor else 0 for p in points}
-  center_limit = 0.3 if window.domain == 'lateral_acceleration' else 3.0
-  if len(signs) != 1 or 0 in signs:
-    if max(abs(p.desired) for p in points) <= center_limit:
-      return str(next(iter(bands))) + ':both:center'
-    return None
-  # A whole maneuver section is used; no error-based crop or sample matching.
-  start = sum(abs(p.desired) for p in points[:10]) / 10
-  end = sum(abs(p.desired) for p in points[-10:]) / 10
-  duration = (points[-1].mono_ns - points[0].mono_ns) / 1e9
-  slope = (end - start) / duration
-  threshold = max(floor, 0.15 * max(start, end))
-  phase = 'turn_in' if slope > threshold else 'unwind' if slope < -threshold else 'steady'
-  side = 'left' if next(iter(signs)) > 0 else 'right'
-  return str(next(iter(bands))) + ':' + side + ':' + phase
 
 
 def _spread(rows, count):

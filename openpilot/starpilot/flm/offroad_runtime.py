@@ -285,3 +285,28 @@ def configure(cp, ci, controller, params, *, manual_status):
     return RouteEffects(scope, values, numeric, previous=previous, fixed_numeric=fixed), 'configured_pending_actual_stage'
   except (AttributeError, KeyError, TypeError, ValueError, UnicodeError, OSError, OverflowError):
     return None, 'configuration_unavailable'
+
+
+def current_configuration(cp, params):
+  from opendbc.car.car_helpers import interfaces
+  from openpilot.starpilot.lateral.controller_selection import read_selection
+  from openpilot.starpilot.flm.controller_replay import SelectedControllerFactory
+  from openpilot.starpilot.flm.pid_controller_replay import PidControllerFactory
+  from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
+
+  startup = VehicleStartupPreferences.read(params, enabled=params.get_bool('OpenpilotEnabledToggle'))
+  mode = 'native' if cp.lateralTuning.which() == 'pid' else str(read_selection(params, cp).mode)
+  factory = PidControllerFactory(cp, mode) if cp.lateralTuning.which() == 'pid' else SelectedControllerFactory(cp, mode, turn_assist=startup.turn_assist)
+  controller, _ = factory.create()
+  ci = interfaces[str(cp.carFingerprint)](cp)
+  from openpilot.starpilot.flm.runtime_adapter_registry import selected_descriptor
+
+  scope, numeric = configuration_scope(cp, ci, controller, params, manual_status='not_configured')
+  descriptor = selected_descriptor(cp, ci, controller)
+  if descriptor is None:
+    raise ValueError('Current registered controller required')
+  return scope, descriptor, numeric
+
+
+def current_scope(cp, params):
+  return current_configuration(cp, params)[0]

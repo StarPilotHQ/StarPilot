@@ -120,3 +120,16 @@ class ConsumerCalibrationLifecycle:
         generation in self.rejected):
       return False
     return self.capture(generation)
+
+
+def configuration_calibration(sm, calibration_lifecycle, now):
+  # Calibration describes the vehicle frame, not a per-message command lease.
+  # Like torqued's PoseCalibrator, retain a valid calibrated transform between
+  # deliveries. Sample freshness and current native authority are checked
+  # independently when admitting physical observations and applying offers.
+  stamp = int(sm.logMonoTime['extrinsicsCalibration'])
+  receipt = int(round(sm.recv_time['extrinsicsCalibration'] * 1e9))
+  if not (sm.seen['extrinsicsCalibration'] and sm.valid['extrinsicsCalibration'] and
+          0 < stamp <= now and 0 < receipt <= now):
+    return calibration_lifecycle.observe(None, current=False)
+  return calibration_lifecycle.observe(sm['extrinsicsCalibration'], current=True)

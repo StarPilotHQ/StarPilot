@@ -8,7 +8,7 @@ from openpilot.starpilot.flm.offroad_analysis import analyze, MAX_WINDOWS, cohor
 from openpilot.starpilot.flm.offroad_baseline_windows import baseline_windows
 from openpilot.starpilot.flm.canonical_surface_adapter import NAMES as AMPLITUDE_NAMES
 from openpilot.starpilot.flm.offroad_residual import analyze_stable_windows
-from openpilot.starpilot.flm.offroad_evidence import read_point, whole_windows, eligible_points, tracking_metrics
+from openpilot.starpilot.flm.offroad_evidence import read_point, whole_windows, eligible_points, tracking_metrics, window_demand
 from openpilot.starpilot.flm.offroad_route import (
   latest_route, walk_completed_route, RouteInputCancelled, RouteReceipt, SelectedSourceReceipt, PartialRouteReceipt, route_permission,
 )
@@ -57,24 +57,6 @@ class CompletedAssessment:
     }
 
 
-def window_demand(window):
-  import math
-
-  points = window.points
-  rms = math.sqrt(sum(p.desired**2 for p in points) / len(points))
-  return {
-    'domain': window.domain,
-    'duration_ns': points[-1].mono_ns - points[0].mono_ns,
-    'speed_low': min(p.speed_mps for p in points),
-    'speed_high': max(p.speed_mps for p in points),
-    'goal_rms': rms,
-    'goal_shape': [
-      sum(p.desired for p in points[i * len(points) // 8 : (i + 1) * len(points) // 8]) / len(points[i * len(points) // 8 : (i + 1) * len(points) // 8]) / rms
-      if rms > 0
-      else 0.0
-      for i in range(8)
-    ],
-  }
 
 
 def _separate_qualification(report, continuous, *, proposal_windows=None, route_order=None, role_windows=None):

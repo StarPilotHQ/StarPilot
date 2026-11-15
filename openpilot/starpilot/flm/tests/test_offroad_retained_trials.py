@@ -230,7 +230,7 @@ class TestRetainedTrialSources(unittest.TestCase):
         owner, _ = configure(None, None, SimpleNamespace(), params, manual_status='not_configured')
       self.assertIsNotNone(owner)
       self.assertFalse(owner.frame_allowed, 'A retained store still cannot supply actual frame permission')
-      with patch.object(worker, '_current_scope', return_value=scope()):
+      with patch('openpilot.starpilot.flm.offroad_runtime.current_scope', return_value=scope()):
         guard = from_configuration(None, params, cache.directory, vehicle_session='f' * 32)
       self.assertIsNone(guard.stopped)
       self.assertEqual(guard.baseline, tuple(original['gross_baseline']), 'The original gross-regression guard remains')

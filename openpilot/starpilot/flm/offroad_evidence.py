@@ -284,3 +284,50 @@ def compare_same_windows(windows, predicted_actual, *, minimum_windows=3, model_
     'no_overshoot_regression': all(row['no_overshoot_regression'] for row in metrics),
     'no_peak_error_regression': all(row['no_peak_error_regression'] for row in metrics),
   }
+
+
+def cohort(window):
+  """Classify only original reference and speed; never errors or response."""
+  if type(window) is not RouteWindow or not window.valid():
+    raise ValueError('Original complete tracking window required')
+  points = window.points
+  speed = tuple(p.speed_mps for p in points)
+  bands = {0 if v < 10 else 1 if v < 20 else 2 for v in speed}
+  if len(bands) != 1:
+    return None
+  floor = 0.03 if window.domain == 'lateral_acceleration' else 0.1
+  signs = {1 if p.desired > floor else -1 if p.desired < -floor else 0 for p in points}
+  center_limit = 0.3 if window.domain == 'lateral_acceleration' else 3.0
+  if len(signs) != 1 or 0 in signs:
+    if max(abs(p.desired) for p in points) <= center_limit:
+      return str(next(iter(bands))) + ':both:center'
+    return None
+  # A whole maneuver section is used; no error-based crop or sample matching.
+  start = sum(abs(p.desired) for p in points[:10]) / 10
+  end = sum(abs(p.desired) for p in points[-10:]) / 10
+  duration = (points[-1].mono_ns - points[0].mono_ns) / 1e9
+  slope = (end - start) / duration
+  threshold = max(floor, 0.15 * max(start, end))
+  phase = 'turn_in' if slope > threshold else 'unwind' if slope < -threshold else 'steady'
+  side = 'left' if next(iter(signs)) > 0 else 'right'
+  return str(next(iter(bands))) + ':' + side + ':' + phase
+
+
+def window_demand(window):
+  import math
+
+  points = window.points
+  rms = math.sqrt(sum(p.desired**2 for p in points) / len(points))
+  return {
+    'domain': window.domain,
+    'duration_ns': points[-1].mono_ns - points[0].mono_ns,
+    'speed_low': min(p.speed_mps for p in points),
+    'speed_high': max(p.speed_mps for p in points),
+    'goal_rms': rms,
+    'goal_shape': [
+      sum(p.desired for p in points[i * len(points) // 8 : (i + 1) * len(points) // 8]) / len(points[i * len(points) // 8 : (i + 1) * len(points) // 8]) / rms
+      if rms > 0
+      else 0.0
+      for i in range(8)
+    ],
+  }

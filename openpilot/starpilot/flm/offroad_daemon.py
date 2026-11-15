@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import sys
 import tempfile
 import time
 import traceback
@@ -12,8 +13,6 @@ from typing import Any
 from openpilot.cereal import messaging
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
-from openpilot.starpilot.flm.offroad_route import RouteInputError
-from openpilot.starpilot.flm.offroad_worker import OffroadWorker
 from openpilot.starpilot.flm.training_report import report_path, READ_MAX_BYTES, _report_bounded
 
 
@@ -289,6 +288,8 @@ def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic):
 
 def run_parked_analysis(worker, report):
   """Advance promptly only after an unreadable input was durably skipped."""
+  from openpilot.starpilot.flm.offroad_route import RouteInputError
+
   try:
     report.set(worker.run_once())
   except (ValueError, OSError, RuntimeError) as error:
@@ -309,7 +310,7 @@ def run_parked_analysis(worker, report):
   return False
 
 
-def main():
+def _run():
   from openpilot.common.hardware.hw import Paths
   from openpilot.starpilot.flm.offroad_cache import directory_for_params
   from openpilot.starpilot.flm.offroad_source import record_drive
@@ -321,8 +322,9 @@ def main():
     nonlocal stopped
     stopped = True
 
-  previous = signal.signal(signal.SIGTERM, stop)
+  previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
   sm = None
+  restart = False
   report = StatusReport()
   try:
     sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState'])
@@ -336,28 +338,13 @@ def main():
       return okay
 
     cache = directory_for_params(params)
-    worker = OffroadWorker(
-      params,
-      Paths.log_root(),
-      cache,
-      permitted=permitted,
-      on_analysis=lambda: report.analyzing({'status': 'fitting', 'reason': 'analyzing_last_completed_drive'}),
-      on_assessment=lambda a: report.analyzing(
-        {
-          'status': 'fitting',
-          'reason': 'checking_recorded_steering_recommendations',
-          'completed_route': a.receipt.route_id,
-          'vehicle': str(a.cp.carFingerprint),
-          'analysis_counts': dict(a.counts),
-          'recorded_tracking': a.recorded_tracking,
-        }
-      ),
-      on_recommendations=lambda value: report.analyzing({**value, 'reason': 'checking_recorded_steering_recommendations'}),
-    )
-    report.restore(worker.cache)
+    worker = None
     next_analysis = 0.0
     while not stopped:
       if not params.get_bool('IsOffroad'):
+        if worker is not None:
+          restart = True
+          break
         report.set({'enabled': True, 'status': 'collecting', 'reason': 'recording_for_offroad_analysis'})
         record_drive(
           params,
@@ -377,6 +364,28 @@ def main():
           ),
         )
       elif parked() and time.monotonic() >= next_analysis:
+        if worker is None:
+          from openpilot.starpilot.flm.offroad_worker import OffroadWorker
+
+          worker = OffroadWorker(
+            params,
+            Paths.log_root(),
+            cache,
+            permitted=permitted,
+            on_analysis=lambda: report.analyzing({'status': 'fitting', 'reason': 'analyzing_last_completed_drive'}),
+            on_assessment=lambda a: report.analyzing(
+              {
+                'status': 'fitting',
+                'reason': 'checking_recorded_steering_recommendations',
+                'completed_route': a.receipt.route_id,
+                'vehicle': str(a.cp.carFingerprint),
+                'analysis_counts': dict(a.counts),
+                'recorded_tracking': a.recorded_tracking,
+              }
+            ),
+            on_recommendations=lambda value: report.analyzing({**value, 'reason': 'checking_recorded_steering_recommendations'}),
+          )
+          report.restore(worker.cache)
         next_analysis = time.monotonic() + 10.0
         if run_parked_analysis(worker, report):
           next_analysis = time.monotonic()
@@ -384,14 +393,35 @@ def main():
       if not stopped:
         time.sleep(0.05)
   finally:
-    signal.signal(signal.SIGTERM, previous)
-    if sm is not None:
-      for sock in sm.sock.values():
-        close = getattr(sock, 'close', None)
-        if close is not None:
-          close()
+    try:
+      if sm is not None:
+        for sock in sm.sock.values():
+          close = getattr(sock, 'close', None)
+          if close is not None:
+            close()
+    finally:
+      for sig, handler in previous.items():
+        signal.signal(sig, handler)
+  return restart and not stopped
+
+
+_CLEAN_IMAGE = '--flm-clean-image'
+
+
+def _clean_image():
+  # Release both the manager's inherited heap and every parked allocation.
+  # Reuse its launcher to retain crash/logging setup and the tracked PID.
+  code = "from openpilot.system.manager.process import launcher; launcher('openpilot.starpilot.flm.offroad_daemon', 'steerlearnerd')"
+  os.execv(sys.executable, [sys.executable, '-c', code, _CLEAN_IMAGE])
+
+
+def main():
+  if sys.argv[-1:] != [_CLEAN_IMAGE]:
+    _clean_image()
+    return
+  if _run():
+    _clean_image()
 
 
 if __name__ == '__main__':
   main()
-

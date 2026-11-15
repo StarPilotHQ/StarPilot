@@ -1080,7 +1080,7 @@ class TestBoundedInconclusiveTrialLifecycle(unittest.TestCase):
         self.assertNotEqual(saved['analysis_sha256'], digest)
         self.assertEqual(record['trial_analysis_sha256'], first_digest, 'Retained trials keep constant-depth provenance')
         self.assertFalse((cache.directory / ('trial-' + saved['analysis_sha256'] + '.json')).exists())
-        with patch.object(module, '_current_scope', return_value=scope()):
+        with patch('openpilot.starpilot.flm.offroad_runtime.current_scope', return_value=scope()):
           guard = from_configuration(None, params, cache.directory, vehicle_session='f' * 32)
         self.assertIsNotNone(guard)
         assert guard is not None

@@ -261,3 +261,18 @@ class AssessmentCache:
     self._write('inputs.json', json.dumps(rows[-MAX_CHECKPOINTS:], sort_keys=True, separators=(',', ':'), allow_nan=False).encode())
     self._write('latest.json', raw)
 
+
+def trial_origin(cache, digest):
+  for _ in range(8):
+    value = cache.get(digest)
+    if value.get('kind') == 'next_drive_trial':
+      return digest, value
+    if value.get('kind') != 'next_drive_outcome':
+      break
+    digest = value['trial_analysis_sha256']
+  raise ValueError('Bounded original next-drive trial lineage required')
+
+
+def trial_document(cache, digest):
+  return trial_origin(cache, digest)[1]
+

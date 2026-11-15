@@ -117,7 +117,8 @@ class TestOffroadCache(unittest.TestCase):
   def test_restart_withdraws_trial_and_accepted_rows_do_not_claim(self):
     row = {'state': 'ready_for_next_drive', 'values': values(0.01), 'analysis_sha256': self.cache.put(trial())}
     with (
-      patch('openpilot.starpilot.flm.offroad_worker._current_scope', return_value=scope()),
+      patch('openpilot.starpilot.flm.offroad_runtime.current_scope', return_value=scope()),
+      patch('openpilot.starpilot.saved_source.read_saved', return_value=(b'declared-present-row', True)),
       patch('openpilot.starpilot.flm.offroad_store.startup_row', return_value=(row, 'loaded')),
     ):
       first = from_configuration(None, None, self.cache.directory, vehicle_session='a' * 32)

@@ -14,11 +14,11 @@ from typing import Any
 
 from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES as NAMES
 from openpilot.starpilot.flm.learned_lifecycle import decode
-from openpilot.starpilot.flm.offroad_cache import AssessmentCache, MAX_CHECKPOINTS
+from openpilot.starpilot.flm.offroad_cache import AssessmentCache, MAX_CHECKPOINTS, trial_origin, trial_document
 from openpilot.starpilot.flm.offroad_checks import qualify
 from openpilot.starpilot.flm.offroad_processor import analyze_latest, CompletedAssessment
 from openpilot.starpilot.flm.offroad_route import latest_route, logger_marker, route_inventory, source_revisions, RouteInputError, LOCAL_ID
-from openpilot.starpilot.flm.offroad_runtime import configuration_scope
+from openpilot.starpilot.flm.offroad_runtime import current_configuration as _current_configuration
 from openpilot.starpilot.flm.offroad_store import RouteScope, RouteStorage, KEY, MAX_BYTES, MAX_ROUTE_STEP, NAMESPACE
 from openpilot.starpilot.flm.offroad_surface import REVISION
 from openpilot.starpilot.flm.offroad_tracking import TrackingEstimate, compare_observed
@@ -78,25 +78,6 @@ def _assessment_source_revision():
   return _digest((hashes, native_identity(), binding))
 
 
-def _current_configuration(cp, params):
-  from opendbc.car.car_helpers import interfaces
-  from openpilot.starpilot.lateral.controller_selection import read_selection
-  from openpilot.starpilot.flm.controller_replay import SelectedControllerFactory
-  from openpilot.starpilot.flm.pid_controller_replay import PidControllerFactory
-  from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
-
-  startup = VehicleStartupPreferences.read(params, enabled=params.get_bool('OpenpilotEnabledToggle'))
-  mode = 'native' if cp.lateralTuning.which() == 'pid' else str(read_selection(params, cp).mode)
-  factory = PidControllerFactory(cp, mode) if cp.lateralTuning.which() == 'pid' else SelectedControllerFactory(cp, mode, turn_assist=startup.turn_assist)
-  controller, _ = factory.create()
-  ci = interfaces[str(cp.carFingerprint)](cp)
-  from openpilot.starpilot.flm.runtime_adapter_registry import selected_descriptor
-
-  scope, numeric = configuration_scope(cp, ci, controller, params, manual_status='not_configured')
-  descriptor = selected_descriptor(cp, ci, controller)
-  if descriptor is None:
-    raise ValueError('Current registered controller required')
-  return scope, descriptor, numeric
 
 
 def _current_scope(cp, params):
@@ -160,19 +141,8 @@ def _est(value):
   return TrackingEstimate(**value)
 
 
-def trial_origin(cache, digest):
-  for _ in range(8):
-    value = cache.get(digest)
-    if value.get('kind') == 'next_drive_trial':
-      return digest, value
-    if value.get('kind') != 'next_drive_outcome':
-      break
-    digest = value['trial_analysis_sha256']
-  raise ValueError('Bounded original next-drive trial lineage required')
 
 
-def trial_document(cache, digest):
-  return trial_origin(cache, digest)[1]
 
 
 def rejected_trial_change(cache, row, proposal):

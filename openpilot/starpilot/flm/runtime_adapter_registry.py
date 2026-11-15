@@ -10,7 +10,6 @@ import time
 from functools import cache
 from pathlib import Path
 import importlib
-from opendbc.car.car_helpers import interfaces
 from openpilot.starpilot.lateral.learning_preferences import read_preference, KEY as PREFERENCE_KEY
 from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, LEGACY_KEYS, MAX_DOCUMENT_BYTES, parse_document, interpret_legacy
 from openpilot.starpilot.saved_source import read_saved
@@ -396,6 +395,7 @@ class ControllerDescriptor:
 
 def selected_descriptor(cp, ci, controller):
   """Use the registered constructor plus the object actually selected by Controls."""
+  from opendbc.car.car_helpers import interfaces
   from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
   from openpilot.selfdrive.controls.lib.latcontrol_angle import LatControlAngle
   from openpilot.selfdrive.controls.lib.latcontrol_curvature import LatControlCurvature
@@ -468,6 +468,7 @@ def selected_identity(descriptor, source_epoch, baseline=""):
 def ford_downstream(cp):
   # The BluePilot lateral library owns Ford steering when its bit is in the final admitted CP safety word;
   # no settings read or generic angle-output inference establishes this role.
+  from opendbc.car.car_helpers import interfaces
   from opendbc.car.ford.aol import BP_LATERAL, aol_safety_config
 
   config = aol_safety_config(cp) if cp.brand == 'ford' else None

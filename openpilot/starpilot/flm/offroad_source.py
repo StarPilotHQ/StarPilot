@@ -15,7 +15,7 @@ def record_drive(params, *, stopped, on_status=None):
   from openpilot.starpilot.flm.calibration_lifecycle import ProducerCalibrationLifecycle
   from openpilot.starpilot.flm.runtime_adapter_registry import read_source, car_params_digest
   from openpilot.starpilot.flm.learning_wire import result_message, write_source_receipt
-  from openpilot.starpilot.flm.steerlearnerd import _configuration_calibration
+  from openpilot.starpilot.flm.calibration_lifecycle import configuration_calibration as _configuration_calibration
 
   cp_raw = params.get('CarParams')
   if not cp_raw or stopped() or params.get_bool('IsOffroad'):
@@ -52,9 +52,12 @@ def record_drive(params, *, stopped, on_status=None):
       sm.update(50)
       now = time.monotonic_ns()
       quality_header = int(sm.logMonoTime['controlsState'])
+      control = None
+      control_decoded = False
       if guard is not None and guard.stopped is None and sm.updated['controlsState'] and quality_header - last_quality_header >= 25_000_000:
         last_quality_header = quality_header
         packet = sm.original.get('starpilotLateralState')
+        control_decoded = True
         try:
           control = None if packet is None else read_control(packet)
         except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
@@ -86,10 +89,13 @@ def record_drive(params, *, stopped, on_status=None):
       pm.send('autoSteeringLearning', message)
       if on_status is not None:
         packet = sm.original.get('starpilotLateralState')
-        try:
-          actual = None if packet is None else read_control(packet)
-        except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
-          actual = None
+        if control_decoded:
+          actual = control
+        else:
+          try:
+            actual = None if packet is None else read_control(packet)
+          except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
+            actual = None
         if (
           actual is None
           or not actual.valid
