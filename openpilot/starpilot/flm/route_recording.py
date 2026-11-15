@@ -92,7 +92,7 @@ def with_actual_route(evidence, controller):
       and owner.frame_allowed
       and evidence.active
       and evidence.valid
-      and not (evidence.manual or evidence.override or evidence.fault or evidence.limited)
+      and not (evidence.manual or evidence.override or evidence.fault)
     )
     if current:
       source = owner.source
@@ -105,9 +105,16 @@ def with_actual_route(evidence, controller):
           else source.pid_error_calls == 1 and source.friction_calls == 0
         )
       )
-      if not complete:
-        raise ValueError('Partial route execution cannot be recorded as applied')
-      values = owner.values
+      if complete:
+        values = owner.values
+      else:
+        calls = (source.stage_calls, source.output_calls, source.friction_calls, source.deadzone_calls, source.pid_error_calls)
+        inputs = dict(evidence.replay_inputs)
+        # Published output feedback is computed AFTER the update. Only its
+        # original input flags explain an inhibited, zero-hook controller tick.
+        inhibited = inputs.get('active') == 1.0 and any(inputs.get(name) == 1.0 for name in ('safety_limited', 'curvature_limited'))
+        if any(calls) or not inhibited:
+          raise ValueError('Partial route execution cannot be recorded as applied')
   _valid(values, getattr(controller, 'route_flm_scope_key', ''))
   return replace(
     evidence,

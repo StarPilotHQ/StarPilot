@@ -652,6 +652,6 @@ def _assess_inputs(route, collected, previous, *, permitted, sources=None, route
   counts['diagnostic_whole_windows'] = sum(map(len, raw_windows.values()))
   return CompletedAssessment(
     receipt, reports, counts, state['cp'], (), route, tuple(quality_stops), tuple(diagnostic), tuple(stable),
-    _recorded_tracking(proposal_windows), sources,
+    _recorded_tracking(proposal_windows) or _recorded_tracking(raw_windows), sources,
   )
 
