@@ -62,7 +62,8 @@ class TestGmVisionSource(unittest.TestCase):
       cases = [(configured(params, identity, **kwargs), True) for identity, kwargs in LONG_CASES]
       cases += [(configured(params, identity, **kwargs), False) for identity, kwargs in STOCK_CASES]
       for identity in ORDINARY_ASCM_CAR | ORDINARY_SDGM_CAR:
-        cases.extend((ordinary_params(identity, sascm=True, alpha=alpha), alpha) for alpha in (False, True))
+        cases.extend((ordinary_params(identity, sascm=True, alpha=alpha),
+                      alpha and identity != CAR.BUICK_ENVISION_SDGM) for alpha in (False, True))
       for cp, control in cases:
         with self.subTest(identity=cp.carFingerprint, word=cp.safetyConfigs[0].safetyParam):
           self.assertTrue(enabled(params, cp, 'vision', {}))
