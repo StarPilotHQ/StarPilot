@@ -9,8 +9,15 @@
       "sha256": "c37c1f0f177a08a79b4eae723392bedb39b2b99d49a4226b0ca5141a00d523f8"
     },
     {
+      "id": "classic_openpilot",
+      "name": "Classic openpilot (pre-C4)",
+      "path": "theme/Themes/classic_openpilot/sounds.zip",
+      "size": 387212,
+      "sha256": "8c71784f03d5db737c14e7fe83c181d6caf14765c563f82c9b7b82261f491de7"
+    },
+    {
       "id": "old_engage_sounds",
-      "name": "Old Engage Sounds",
+      "name": "openpilot 2025",
       "path": "theme/Themes/old_engage_sounds/sounds.zip",
       "size": 376387,
       "sha256": "2fff703ee69452789ec7884e6447c146a0f45c6fa39c70455fd9db88e15ebb54"

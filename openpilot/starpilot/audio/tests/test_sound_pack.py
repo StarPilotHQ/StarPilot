@@ -118,6 +118,26 @@ class SoundPackTests(unittest.TestCase):
     self.assertEqual(self.sound_pack_row(owner).repair_value, "starpilot")
     self.assertTrue(owner.apply(FeatureSettingsRequest("SoundPack", b"missing", "stock")))
 
+  def test_era_labels_preserve_saved_ids_and_select_exact_assets(self):
+    from openpilot.starpilot.audio.sound_pack import migrate_removed_selection
+    for slug, sample in (("old_engage_sounds", 1000), ("classic_openpilot", 2000)):
+      write_wav(self.root / slug / "sounds" / "engage.wav", (sample,))
+    owner = SoundsOwner(self.params, lambda: True, self.root)
+    self.params.put("SoundPack", "old_engage_sounds", block=True)
+    self.assertFalse(migrate_removed_selection(self.params, self.root))
+    row = self.sound_pack_row(owner)
+    self.assertEqual(row.value, "openpilot 2025")
+    self.assertIn("Classic openpilot (pre-C4)", row.choices)
+    for now, (label, slug, sample) in enumerate((("Classic openpilot (pre-C4)", "classic_openpilot", 2000),
+                                               ("openpilot 2025", "old_engage_sounds", 1000))):
+      row = self.sound_pack_row(owner)
+      self.assertTrue(owner.apply(FeatureSettingsRequest("SoundPack", row.source, label)))
+      self.assertEqual(self.params.get("SoundPack"), slug)
+      loaded = self.loader.refresh(("engage.wav",), now)
+      assert loaded is not None
+      np.testing.assert_array_equal(loaded["engage.wav"], read_wav(self.root / slug / "sounds" / "engage.wav"))
+      self.assertAlmostEqual(float(loaded["engage.wav"][0]), sample / 32768)
+
   def test_callback_does_not_read_files_or_params_and_keeps_chimes(self):
     sound = Soundd(self.params, pack_root=self.root)
     sound.update_alert(AudibleAlert.engage)

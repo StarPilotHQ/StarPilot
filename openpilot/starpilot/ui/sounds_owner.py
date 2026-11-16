@@ -15,7 +15,8 @@ from openpilot.starpilot.audio.alert_volume import AUTO, MAX_RAW_BYTES, SPECS, V
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, FeatureSettingsState
 
 AUTO_PREFIX = "sounds:auto:"
-PACK_LABELS = {"starpilot": "StarPilot Sounds", "stock": "Stock Sounds"}
+PACK_LABELS = {"starpilot": "StarPilot Sounds", "stock": "Stock Sounds",
+               "classic_openpilot": "Classic openpilot (pre-C4)", "old_engage_sounds": "openpilot 2025"}
 
 
 def choices(key: str) -> tuple[str, ...]:
