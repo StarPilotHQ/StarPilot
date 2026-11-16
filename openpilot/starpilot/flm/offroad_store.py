@@ -274,8 +274,11 @@ def startup_row(params, scope):
   if not readable:
     return None, 'unreadable'
   try:
-    row = decode(raw).get(NAMESPACE, {}).get(scope.key())
+    rows = decode(raw).get(NAMESPACE, {})
+    row = rows.get(scope.key())
     if row is None:
+      if any(value['scope']['cp_sha256'] == scope.cp_sha256 and any(value['values'].values()) for value in rows.values()):
+        return None, 'saved_tune_requires_controller_compatibility_review'
       return None, 'not_configured'
     if validate_row(row) != scope:
       return None, 'context_changed'

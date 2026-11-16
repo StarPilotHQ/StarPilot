@@ -17,7 +17,7 @@ const targetIndex = SURFACE_NAMES.indexOf('highway_center_taper_max')
 const running = child => child.exitCode === null && child.signalCode === null
 assert.equal(running({ exitCode: null, signalCode: 'SIGTERM' }), false, 'A signal-reaped child must not be awaited for a second exit')
 let scenario = 'ideas', parked = true, saveError = false, reportError = false, pending = null
-let backupReject = false
+let backupReject = false, backupRecovery = false, manualRecovered = false
 const tuneBackup = { format: 'starpilot-flm-tune', version: 1, vehicle: 'DECLARED_UI_CAR', metric: false,
   controllerMode: 'starpilot', cpSha256: 'a'.repeat(64), createdAt: '2026-11-16T03:00:00Z', checksum: 'declared-ui-checksum',
   manual: [{ page: 'tuning', key: 'torque:surface:highway_center_taper_max', value: '0.5' }], learned: {} }
@@ -102,6 +102,9 @@ function settings() {
         'Shapes small steering corrections at this stage. Higher and lower values change the controller response. Parked only. Manual overrides pause Auto Learn.',
       value: manual[coordinate].toFixed(4), minimum: -25, maximum: 25, step: .25, unit: '%', defaultValue: 0,
       resetAvailable: parked, available: parked, action: true })),
+    ...(manualRecovered ? ['crawl','low','mid','fast','highway'].map((speed, index) => ({ coordinate: 'friction_threshold_' + speed,
+      label: 'Recovered speed correction', value: [0,0,.36,.48,.48][index].toFixed(4), unit: '%', available: false, action: false,
+      reason: 'Saved by explicit manual recovery. Auto Learn is paused.' })) : []),
     { label: 'Reset all manual overrides', reason: 'Remove the thirty manual overrides.', value: 'Reset', confirm: true, available: parked, action: true }] }
 }
 const stylesheetLinks = [...(await readFile(join(root, 'index.html'), 'utf8')).matchAll(/<link[^>]*rel="stylesheet"[^>]*>/g)].map(row => row[0].replaceAll('href="./', 'href="/')).join('\n')
@@ -130,13 +133,18 @@ const server = createServer(async (req, res) => {
       let raw = ''; for await (const chunk of req) raw += chunk
       const body = JSON.parse(raw); requests.push({ path: pathname, body })
       if (!parked || saveError) return json({ error: 'Declared save refusal' }, 503)
-      if (pathname === '/api/settings/flm-backup/preview') return backupReject ? json({ error: 'No Auto Learn setup matches the current controller.' }, 409) :
-        json({ intent: 'declared-backup-intent', question: 'Restore these manual slider values? Manual overrides pause Auto Learn.', count: 1,
-          changes: [['Highway center taper', '0', '0.5']] })
+      if (pathname === '/api/settings/flm-backup/preview') {
+        backupRecovery = body.mode === 'recovery'
+        return backupReject ? json({ error: 'No Auto Learn setup matches the current controller.' }, 409) :
+          json({ intent: 'declared-backup-intent', question: backupRecovery ? 'Recover these values as your manual tune? Auto Learn pauses until you reset the manual tune.' :
+            'Restore these manual slider values? Manual overrides pause Auto Learn.', count: 1,
+            changes: [['Highway center taper', '0', '0.5']] })
+      }
       if (pathname === '/api/settings/flm-backup/confirm') {
         assert.equal(body.intent, 'declared-backup-intent');assert.equal(body.confirmed, true)
         manual.highway_center_taper_max = .5
-        return json({ complete: true, restored: 1, unchanged: 0, skipped: [] })
+        if (backupRecovery) manualRecovered = true
+        return json({ complete: true, restored: 1, manual: backupRecovery, unchanged: 0, skipped: [] })
       }
       if (pathname.endsWith('/preview') || pathname.endsWith('/reset-default')) {
         pending = { intent: 'declared-intent-' + requests.length, row: body.row, value: pathname.endsWith('/reset-default') ? 0 : body.value }
@@ -523,6 +531,25 @@ try {
   await until(() => execute('return document.querySelector("dialog[open]").textContent.includes("No Auto Learn setup matches")'))
   assert(!await execute('return !!document.querySelector("#flm-restore-title")'), 'Incompatible backup never reaches confirmation')
   await capture('backup-incompatible');await click('dialog[aria-labelledby=flm-import-title] .gx-actions button:first-child')
+  backupReject = false
+  await viewport(416)
+  await execute(`const input=document.querySelector('[data-role=flm-backup] input[type=file]'),files=new DataTransfer();
+    files.items.add(new File([arguments[0]],'tune-v2.json',{type:'application/json'}));input.files=files.files;input.dispatchEvent(new Event('change',{bubbles:true}))`,
+    JSON.stringify({ ...tuneBackup, version: 2, recovery: { compatibility: null, setup: null, manualProfile: null, trials: {} } }))
+  await until(() => execute('return !!document.querySelector("#flm-import-title")'))
+  await click('dialog[aria-labelledby=flm-import-title] input[value=recovery]')
+  await click('dialog[aria-labelledby=flm-import-title] .gx-actions button:last-child')
+  await until(() => execute('return !!document.querySelector("#flm-restore-title")'))
+  assert.equal(requests.at(-1).body.mode, 'recovery')
+  assert(await execute('return document.querySelector("dialog[open]").textContent.includes("your manual tune")'))
+  await layout('backup/manual-recovery');await capture('backup-manual-recovery')
+  await click('dialog[aria-labelledby=flm-restore-title] .gx-actions button:last-child')
+  await until(() => execute('return !document.querySelector("dialog[open]")'))
+  await until(() => execute('return document.querySelector("[data-role=flm-backup]").textContent.includes("Auto Learn is paused")'))
+  await until(() => execute('return !!document.querySelector("#tuner-recovered-title")'))
+  await show('#tuner-recovered-title');await layout('backup/recovered-manual-values');await capture('backup-recovered-manual-values')
+  assert(await execute('return document.querySelector("#tuner-recovered-title").parentElement.textContent.includes("Auto Learn paused")'))
+  checks.push('backup/explicit-manual-recovery-without-auto-qualification')
   await change('applied', { parked: false });await click('#tuner-tab-tune')
   await click('[data-role=flm-backup] summary')
   assert(await execute('return document.querySelector("[data-role=flm-backup] .gx-actions button:last-of-type").disabled'))

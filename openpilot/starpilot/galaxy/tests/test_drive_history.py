@@ -135,6 +135,19 @@ class DriveHistoryTest(unittest.TestCase):
       with self.assertRaises(ValueError):
         drive_history.DriveHistory(self.root, max_segments_per_route=512, max_segments=invalid)
 
+  def test_explicit_route_budget_preserves_default_and_rejects_invalid_limits(self):
+    for counter in range(101):
+      self.segment(f'{counter:08x}--aaaaaaaaaa--0', 'rlog.zst')
+    ordinary = self.reader.snapshot()
+    self.assertTrue(ordinary['scanIncomplete'])
+    self.assertEqual(len(ordinary['routes']), 100)
+    expanded = drive_history.DriveHistory(self.root, max_routes=2048).snapshot()
+    self.assertFalse(expanded['scanIncomplete'])
+    self.assertEqual(len(expanded['routes']), 101)
+    for invalid in (True, 0, -1, 2049):
+      with self.assertRaises(ValueError):
+        drive_history.DriveHistory(self.root, max_routes=invalid)
+
   def test_missing_root_is_empty_but_root_symlink_is_unavailable(self):
     self.assertEqual(drive_history.DriveHistory(self.root / 'missing').snapshot()['routes'], [])
     link = Path(self.temp.name) / 'linked'

@@ -74,6 +74,21 @@ def zstd_recording(root, counter, *, fault=None, **kwargs):
 
 
 class TestRouteFaultIsolation(unittest.TestCase):
+  def test_many_short_drives_do_not_invalidate_the_flm_inventory(self):
+    # Inventory-only fixture; these bytes are never admitted as learning evidence.
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      for counter in range(673):
+        for segment in range(3 if counter < 39 else 2):
+          path = root / f'{counter:08x}--aaaaaaaaaa--{segment}'
+          path.mkdir()
+          (path / 'rlog.zst').write_bytes(b'inventory only')
+      self.assertTrue(DriveHistory(root, max_segments=2048).snapshot()['scanIncomplete'])
+      actual = route_inventory(root)
+      self.assertFalse(actual['scanIncomplete'])
+      self.assertEqual(len(actual['routes']), 673)
+      self.assertEqual(sum(row['segmentCount'] for row in actual['routes']), 1385)
+
   def test_total_inventory_matches_bounded_root_scan_without_raising_per_drive_limit(self):
     # Metadata-only fixtures: file presence never establishes valid log data.
     with tempfile.TemporaryDirectory() as directory:

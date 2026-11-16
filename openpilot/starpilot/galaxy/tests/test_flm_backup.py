@@ -36,7 +36,7 @@ class FlmBackupTest(unittest.TestCase):
     self.gateway = self.fixture.gateway
     self.identity = self.fixture.session, self.fixture.generation
     self.owner = FlmBackup(self.gateway)
-    self.scope = RouteScope(car_params_digest(cp), 'declared-backup-controller', 'a' * 64, 'b' * 64, '0',
+    self.scope = RouteScope(car_params_digest(cp), 'selected-steering-compatibility-v1:' + 'a' * 64, 'a' * 64, 'b' * 64, '0',
                             self.owner._mode(cp), 'torque')
     zero = dict.fromkeys(ROUTE_NAMES, 0.0)
     self.row: dict[str, Any] = {'scope': self.scope.document(), 'values': dict(zero, friction_threshold_mid=.0036,
@@ -47,6 +47,12 @@ class FlmBackupTest(unittest.TestCase):
     self.params.put(KEY, self.raw, block=True)
     self.scope_patch = patch('openpilot.starpilot.galaxy.flm_backup.current_scope', return_value=self.scope)
     self.scope_patch.start()
+    self.compatibility = {key: value for key, value in self.scope.document().items() if key not in ('persistent_source_epoch', 'reset_generation')}
+    from openpilot.starpilot.flm.manual_coordinates import baseline_settings
+    self.compatibility['settings_sha256'] = baseline_settings(cp, self.params)
+    self.compat_patch = patch('openpilot.starpilot.galaxy.flm_backup.current_compatibility', return_value=self.compatibility)
+    self.compat_patch.start()
+    self.addCleanup(self.compat_patch.stop)
     self.addCleanup(self.scope_patch.stop)
 
   def preview(self, backup=None, mode='learned', authorized=lambda: True):
@@ -214,6 +220,109 @@ class FlmBackupTest(unittest.TestCase):
       with self.subTest(key=key), self.assertRaises((SettingsChanged, BackupRefused)):
         self.preview(self.seal(changed), 'manual')
     self.assertEqual(self.stored(), self.raw)
+
+  def test_earlier_manual_definition_stays_readable_and_resettable_without_application(self):
+    from openpilot.starpilot.flm.manual_coordinates import ManualCoordinates, load
+    from openpilot.starpilot.flm.canonical_surface_adapter import NAMES
+    from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, PlatformProfile, FieldChoice, serialize_document
+    cp = self.fixture.context.value.cp
+    context = (car_params_digest(cp), self.scope.controller_mode, '0' * 64)
+    values = dict.fromkeys(NAMES, 0.)
+    values['ff_gain_left'] = .01
+    prior = ManualCoordinates(context, tuple(values.items())).validate()
+    tune = cp.lateralTuning.torque
+    profile = PlatformProfile((float(tune.latAccelFactor), float(tune.latAccelOffset), float(tune.friction)),
+                              FieldChoice(), FieldChoice(), manual_coordinates=prior)
+    self.params.put(DOCUMENT_KEY, json.loads(serialize_document({str(cp.carFingerprint): profile})), block=True)
+    self.assertEqual(load(cp, self.scope.controller_mode, self.params), (None, 'context_changed'))
+    page = self.gateway.page('tuning', *self.identity)
+    self.assertTrue(any(row['confirm'] and row['available'] for row in page['rows']))
+    self.assertEqual(self.stored(), self.raw)
+
+  def test_empty_device_recovers_all_values_as_manual_without_auto_qualification(self):
+    from openpilot.starpilot.flm.manual_coordinates import load
+    from openpilot.starpilot.flm.torque_stages import StageFrame
+    backup = self.owner.export()
+    self.assertEqual(backup['version'], 2)
+    self.assertFalse(backup['recovery']['trials'][self.scope.key()])
+    empty = encode(decode(None))
+    self.params.put(KEY, empty, block=True)
+    preview = self.preview(backup, 'recovery')
+    self.assertIn('manual tune', preview['question'])
+    self.assertEqual(preview['count'], 3)
+    self.assertEqual(self.stored(), empty)
+    result = self.confirm(preview)
+    self.assertTrue(result['manual'])
+    self.assertEqual(self.stored(), empty, 'Manual recovery must never manufacture learned qualification')
+    cp = self.fixture.context.value.cp
+    effect, status = load(cp, self.scope.controller_mode, self.params)
+    self.assertEqual(status, 'configured')
+    self.assertIsNotNone(effect)
+    self.assertEqual(dict(effect.profile.values), self.row['values'])
+    frame = StageFrame(25., .3, 0., .3, .3, True, False, False)
+    effect.begin_frame()
+    ff, threshold = effect.selected_stage(frame, original_anchor=effect.original_effect_anchor)
+    self.assertEqual(ff, .3)
+    self.assertAlmostEqual(threshold, .3 * 1.0048)
+    original_context = {key: value for key, value in self.compatibility.items() if key != 'settings_sha256'}
+    with patch('openpilot.starpilot.flm.runtime_adapter_registry.compatibility_for', return_value=original_context):
+      self.assertTrue(effect.compatible(cp, None, None, self.params))
+    with patch('openpilot.starpilot.flm.runtime_adapter_registry.compatibility_for', return_value=dict(self.compatibility, controller_revision='changed')):
+      self.assertFalse(effect.compatible(cp, None, None, self.params))
+
+  def test_recovered_manual_profile_exports_and_restores_again_without_history(self):
+    from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, parse_document
+    backup = self.owner.export()
+    self.params.put(KEY, encode(decode(None)), block=True)
+    self.assertTrue(self.confirm(self.preview(backup, 'recovery'))['manual'])
+    original = Path(self.params.get_param_path(DOCUMENT_KEY)).read_bytes()
+    second = self.owner.export()
+    self.assertIsInstance(second['recovery']['manualProfile'], str)
+    self.assertIsNone(second['recovery']['setup'])
+    Path(self.params.get_param_path(DOCUMENT_KEY)).unlink()
+    self.assertTrue(self.confirm(self.preview(second, 'recovery'))['manual'])
+    self.assertEqual(Path(self.params.get_param_path(DOCUMENT_KEY)).read_bytes(), original)
+    with patch('openpilot.starpilot.flm.offroad_runtime.current_compatibility', return_value=self.compatibility):
+      page = self.gateway.page('tuning', *self.identity)
+      curves = [row for row in page['rows'] if row.get('coordinate', '').startswith('friction_threshold_')]
+      self.assertEqual(len(curves), 5)
+      self.assertFalse(any(row['available'] for row in curves))
+      index = next(i for i, row in enumerate(page['rows']) if row.get('coordinate') == 'ff_gain_left')
+      intent = self.gateway.preview(page['view'], index, 0, *self.identity, value=.5)
+      self.assertTrue(self.gateway.confirm(intent['intent'], *self.identity))
+    profile = parse_document(Path(self.params.get_param_path(DOCUMENT_KEY)).read_bytes())[str(self.fixture.context.value.cp.carFingerprint)]
+    self.assertEqual(dict(profile.manual_coordinates.values)['friction_threshold_mid'], .0036)
+    self.assertEqual(dict(profile.manual_coordinates.values)['ff_gain_left'], .005)
+    self.assertEqual(decode(self.stored()).get(NAMESPACE, {}), {})
+
+  def test_manual_recovery_retains_trial_and_rollback_provenance_and_refuses_regression(self):
+    cache = AssessmentCache(directory_for_params(self.params))
+    self.assertTrue(cache.claim_trial(self.row['analysis_sha256'], 'a' * 32))
+    backup = self.owner.export()
+    self.assertTrue(backup['recovery']['trials'][self.scope.key()])
+    rolled = deepcopy(self.row)
+    rolled.update(state='rolled_back', values=dict(rolled['previous']))
+    self.params.put(KEY, encode({'version': 3, 'profiles': {}, 'fullSurfaces': {}, NAMESPACE: {self.scope.key(): rolled}}), block=True)
+    with self.assertRaisesRegex(BackupRefused, 'rollback'):
+      self.preview(backup, 'recovery')
+    self.assertTrue((cache.directory / ('trial-' + self.row['analysis_sha256'] + '.json')).exists())
+    self.assertEqual(decode(self.stored())[NAMESPACE][self.scope.key()]['state'], 'rolled_back')
+
+  def test_manual_recovery_interruption_and_incompatible_source_do_not_change_saved_data(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY
+    backup = self.owner.export()
+    self.params.put(KEY, encode(decode(None)), block=True)
+    before = self.stored()
+    with patch('openpilot.starpilot.galaxy.flm_backup.current_compatibility', return_value=dict(self.compatibility, controller_revision='different')):
+      with self.assertRaisesRegex(BackupRefused, 'matches the current steering'):
+        self.preview(backup, 'recovery')
+    preview = self.preview(backup, 'recovery')
+    with patch('openpilot.starpilot.galaxy.flm_backup.commit_exact', return_value=SimpleNamespace(committed=False, verified=False)):
+      with self.assertRaisesRegex(SettingsChanged, 'not confirmed'):
+        self.confirm(preview)
+    self.assertEqual(self.stored(), before)
+    self.assertFalse(Path(self.params.get_param_path(DOCUMENT_KEY)).exists())
 
   def test_authenticated_http_download_preview_restore_origin_and_size_guards(self):
     access = GalaxyAccessOwner(Path(self.params.get_param_path(KEY)).parent.parent / 'backup-access')

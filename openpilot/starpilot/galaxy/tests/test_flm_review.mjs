@@ -89,7 +89,7 @@ assert(emptyText.includes('Saved tune not reported'))
 assert(!emptyText.includes('Earlier report'), 'No-report state must not pretend an earlier report exists')
 const tuneFile = { format: 'starpilot-flm-tune', version: 1, vehicle: 'DECLARED_UI_CAR', manual: [], learned: {} }
 assert.deepEqual(parseTune(JSON.stringify(tuneFile)), tuneFile)
-for (const invalid of ['{', 'x'.repeat(65537), JSON.stringify({ ...tuneFile, version: 2 }), JSON.stringify({ ...tuneFile, learned: [] })])
+for (const invalid of ['{', 'x'.repeat(65537), JSON.stringify({ ...tuneFile, version: 3 }), JSON.stringify({ ...tuneFile, learned: [] })])
   assert.throws(() => parseTune(invalid))
 const transfer = { ...FlmBackup.data(), parked: true, bluetooth: false, unauthorized() {}, $emit() {} }
 for (const [name, fn] of Object.entries(FlmBackup.methods)) transfer[name] = fn.bind(transfer)

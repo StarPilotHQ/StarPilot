@@ -86,7 +86,8 @@ assert 'opendbc.car.car_helpers' not in sys.modules
     with tempfile.TemporaryDirectory() as root:
       params = Params(root)
       params.put_bool('IsOffroad', starts_parked, block=True)
-      params.put(KEY, b'declared-existing-saved-tune')
+      params.put(KEY, b'declared-existing-saved-tune', block=True)
+      self.assertEqual(params.get(KEY), b'declared-existing-saved-tune')
       def close_socket(i):
         events.append(('closed', i))
         if cancel_on_cleanup and i == 0:

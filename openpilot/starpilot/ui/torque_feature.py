@@ -37,7 +37,17 @@ class TorqueFeature:
     selection = selection_from_bytes(cp, self._raw(SELECTION_KEY))
     if selection.source == "invalid":
       raise ValueError("Saved controller selection unavailable")
-    return context(cp, selection.mode)
+    raw = self._raw(DOCUMENT_KEY)
+    profile = None if raw is None else parse_document(raw).get(str(cp.carFingerprint))
+    saved = None if profile is None else profile.manual_coordinates
+    return context(cp, selection.mode, recovered=bool(saved is not None and saved.compatibility))
+
+  def _manual_compatible(self, saved):
+    if saved is None or not saved.compatibility:
+      return True
+    from openpilot.starpilot.flm.offroad_runtime import current_compatibility
+    from openpilot.starpilot.flm.runtime_adapter_registry import digest
+    return saved.compatibility == digest(current_compatibility(self.owner.vehicle_params(), self.params))
 
   def _manual_token(self):
     return json.dumps(self._manual_context(), separators=(",", ":")).encode()
@@ -55,7 +65,7 @@ class TorqueFeature:
       current = self._manual_context()
       saved = None if profile is None else profile.manual_coordinates
       matches = profile is None or (profile.basis == basis and profile.flm is None
-        and (saved is None or saved.context == current))
+        and (saved is None or saved.context == current) and self._manual_compatible(saved))
       values = dict(saved.values) if saved is not None else dict.fromkeys(NAMES, 0.)
       common = {"source": raw, "capability": capability, "related_source": token,
         "dependencies": self._dependents(SELECTION_KEY, *TORQUE_NUMBERS, "ForceAutoTuneOff")}
@@ -68,9 +78,15 @@ class TorqueFeature:
         rows.append(FeatureRow("torque:surface:" + name, name.replace("_", " ").capitalize(),
           f"{100 * values[name]:.4f}", step=.25, minimum=100 * low, maximum=100 * high, unit="%",
           available=allowed and matches, reason=reason, default_value="0", **common))
+      if saved is not None and saved.compatibility:
+        from openpilot.starpilot.flm.offroad_surface import CURVE_NAMES
+        for name in CURVE_NAMES:
+          rows.append(FeatureRow('torque:surface:' + name, name.replace('_', ' ').capitalize(),
+            f'{100 * values[name]:.4f}', unit='%', available=False,
+            reason='Saved by explicit manual recovery. Auto Learn is paused. Reset manual tune to remove these values.', **common))
       if saved is not None:
         rows.append(FeatureRow("torque:surface:reset", "Reset manual tune", "Reset", choices=("Reset",),
-          available=allowed, reason="Remove only the thirty manual overrides. Accepted Auto Learn history is preserved.", **common))
+          available=allowed, reason="Remove manual overrides, including any restored speed adjustments. Auto Learn history is preserved.", **common))
       return tuple(rows)
     except (AttributeError, KeyError, TypeError, ValueError, OverflowError, UnicodeError):
       return (FeatureRow("", "Manual tune", "Unavailable", reason="Saved tuning or controller context is invalid; repair it in Toggles"),)
@@ -89,11 +105,11 @@ class TorqueFeature:
     current = self._manual_context()
     saved = prior.manual_coordinates
     if (name not in NAMES or prior.basis != basis or prior.flm is not None
-        or saved is not None and saved.context != current):
+        or saved is not None and (saved.context != current or not self._manual_compatible(saved))):
       raise ValueError("Manual tune context changed")
     values = dict(saved.values) if saved is not None else dict.fromkeys(NAMES, 0.)
     values[name] = float(request.value) / 100
-    manual = ManualCoordinates(current, tuple((n, values[n]) for n in NAMES)).validate()
+    manual = ManualCoordinates(current, tuple((n, values[n]) for n in values), '' if saved is None else saved.compatibility).validate()
     return {**profiles, fingerprint: replace(prior, manual_coordinates=manual if any(values.values()) else None)}
 
   def _factor_editable(self, fingerprint: str) -> bool:

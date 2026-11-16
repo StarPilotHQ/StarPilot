@@ -86,6 +86,7 @@ export const FlmPage = {
   },
   computed: {
     manualRows() { return (this.manualState.data?.rows || []).map((row, index) => ({ row, index })).filter(({ row }) => this.selectedGroup.names.includes(row.coordinate)) },
+    recoveredManualCurve() { return (this.manualState.data?.rows || []).filter(row => FRICTION_NAMES.includes(row.coordinate)) },
     manualActions() { return (this.manualState.data?.rows || []).map((row, index) => ({ row, index })).filter(({ row }) => row.confirm) },
     manualBusy() { return settingsBusy(this.manualState) },
     manualErrorText() { return this.manualWrite?.status === 'unconfirmed' ? 'Could not confirm this change was saved. Reconnecting to check the saved values.' : this.manualState.error },
@@ -269,7 +270,7 @@ export const FlmPage = {
       if (!this.manualState.pending) this.manualResetRequested = false
     },
     cancelManualReset() { this.manualResetRequested = false; this.manualFeed.cancel() },
-    async confirmManualReset() { this.beginManualWrite((this.manualState.data?.rows || []).filter(row => row.coordinate).map(row => [row.coordinate, 0, row.unit])); await this.manualFeed.confirm(); this.manualResetRequested = false },
+    async confirmManualReset() { this.beginManualWrite((this.manualState.data?.rows || []).filter(row => row.coordinate && !FRICTION_NAMES.includes(row.coordinate)).map(row => [row.coordinate, 0, row.unit])); await this.manualFeed.confirm(); this.manualResetRequested = false },
     async saveManual(index, value) {
       const row = this.manualState.data?.rows?.[index]
       if (this.view !== "tune" || !this.manualFeed?.active || this.manualBusy || this.manualState.error ||
@@ -355,6 +356,13 @@ export const FlmPage = {
         </section>
         </div>
         <FlmBackup :unauthorized="unauthorized" :parked="preference?.parked === true" :bluetooth="bluetooth" @restored="backupRestored" />
+        <section v-if="recoveredManualCurve.length" class="gx-card gx-tuner__saved-list" aria-labelledby="tuner-recovered-title">
+          <h3 id="tuner-recovered-title">Recovered manual tune</h3><p>Saved manual settings · Auto Learn paused</p>
+          <p>These speed adjustments came from your reviewed backup. Applied state is reported separately.</p>
+          <div v-for="row in recoveredManualCurve" :key="row.coordinate"><span>{{ parameterLabel(row.coordinate) }}</span><strong>{{ dialPercent(Number(row.value) / 100) }}</strong></div>
+          <p>Reset manual tune to remove the recovered settings.</p>
+        </section>
+
         <div class="gx-tuner__tune-layout"><div class="gx-tuner__section-heading"><div><h3>Explore your settings</h3><p>Choose an area below. Amber labels show findings from your drive.</p></div></div><nav class="gx-tuner__groups" aria-label="Steering parameter groups"><button v-for="item in navigationGroups" :key="item.id" type="button" :aria-pressed="group === item.id" :class="{ 'has-ideas': groupHasIdeas(item), 'gx-tuner__curve-tile': item.id === 'friction' }" @click="reviewGroup(item.id)"><i :class="['bi', item.icon]" aria-hidden="true"></i><span>{{ item.label }}<small>{{ item.id === 'friction' ? 'Auto Learn only · ' : '' }}{{ groupChanges(item) }}</small></span><i class="bi" :class="groupHasIdeas(item) ? 'bi-lightbulb' : 'bi-chevron-right'" aria-hidden="true"></i></button></nav>
           <section class="gx-card gx-tuner__section gx-tuner__parameters" :id="group === 'friction' ? 'tuner-friction' : undefined" :aria-labelledby="'tuner-group-' + group + '-title'" tabindex="-1"><div class="gx-tuner__section-heading"><div><p class="gx-tuner__eyebrow">{{ group === 'friction' ? 'MANAGED BY AUTO LEARN' : 'YOUR MANUAL CONTROLS' }}</p><h3 :id="'tuner-group-' + group + '-title'">{{ selectedGroup.label }}</h3><p>{{ selectedGroup.description }}</p></div></div>
             <section v-if="group !== 'friction'" class="gx-tuner__manual" aria-label="Manual tuning"><div class="gx-tuner__manual-note"><i class="bi bi-info-circle" aria-hidden="true"></i><p>Moving a slider saves a manual override for your next drive and pauses Auto Learn. Zero removes the override. Reviewing a finding does neither.</p></div>

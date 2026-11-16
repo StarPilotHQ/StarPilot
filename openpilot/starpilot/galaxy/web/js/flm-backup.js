@@ -7,7 +7,7 @@ export function parseTune(text) {
   if (new TextEncoder().encode(text).length > MAX_TUNE_BYTES) throw new Error('Tune backup is too large.')
   let value
   try { value = JSON.parse(text) } catch { throw new Error('Choose a valid JSON tune backup.') }
-  if (value?.format !== 'starpilot-flm-tune' || value.version !== 1 || !Array.isArray(value.manual) || value.manual.length > 30 ||
+  if (value?.format !== 'starpilot-flm-tune' || ![1, 2].includes(value.version) || !Array.isArray(value.manual) || value.manual.length > 30 ||
       !value.learned || typeof value.learned !== 'object' || Array.isArray(value.learned) || Object.keys(value.learned).length > 8 ||
       typeof value.vehicle !== 'string' || value.vehicle.length > 128) throw new Error('Choose a supported FLM tune backup.')
   return value
@@ -28,7 +28,7 @@ export const FlmBackup = {
       if (this.busy || this.bluetooth) return
       this.busy = true;this.error = this.notice = ''
       try {
-        const text = JSON.stringify(await this.request('./api/flm/backup'), null, 2)
+        const text = JSON.stringify(await this.request('./api/flm/backup'))
         parseTune(text)
         const file = new File([text], 'starpilot-flm-tune.json', { type: 'application/json' })
         if (share && navigator.canShare?.({ files: [file] })) {
@@ -68,7 +68,7 @@ export const FlmBackup = {
       try {
         const result = await this.request('./api/settings/flm-backup/confirm', { intent, confirmed: true })
         if (result.complete !== true) throw new Error(result.error || 'Restore stopped. Refresh your tune before retrying.')
-        this.pending = this.draft = null;this.notice = result.restored ? `${result.restored} ${result.restored === 1 ? 'setting' : 'settings'} restored. Current application is shown separately.` : 'Your saved settings already match this backup.'
+        this.pending = this.draft = null;this.notice = result.manual ? 'Manual tune recovered. Auto Learn is paused; your learning history is preserved.' : result.restored ? `${result.restored} ${result.restored === 1 ? 'setting' : 'settings'} restored. Current application is shown separately.` : 'Your saved settings already match this backup.'
         this.$emit('restored')
       } catch (error) { this.pending = null;this.error = error.message || 'Could not confirm the restore. Refresh your tune before retrying.';this.$emit('restored') }
       finally { this.busy = false }
@@ -84,10 +84,11 @@ export const FlmBackup = {
     <p v-if="!parked">Park and switch off the vehicle to restore settings.</p><p v-if="busy" role="status">Working…</p>
     <GxNotice v-if="notice" tone="success">{{ notice }}</GxNotice><GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
     <GxDialog v-if="draft && !pending" labelledby="flm-import-title" @close="!busy && (draft=null)"><h3 id="flm-import-title">Review imported tune</h3>
-      <p>{{ draft.vehicle.replaceAll('_', ' ') }} · {{ draft.manual.length }} manual settings · {{ Object.keys(draft.learned).length }} Auto Learn setups</p>
+      <p>{{ draft.vehicle.replaceAll('_', ' ') }} · {{ draft.manual.length }} manual {{ draft.manual.length === 1 ? 'setting' : 'settings' }} · {{ Object.keys(draft.learned).length }} Auto Learn setups</p>
       <div class="gx-flm-backup-choices" role="radiogroup" aria-label="Restore section"><label><input name="flm-import-mode" type="radio" value="learned" v-model="mode" :disabled="!Object.keys(draft.learned).length || busy"> Auto Learn setup</label>
-      <label><input name="flm-import-mode" type="radio" value="manual" v-model="mode" :disabled="!draft.manual.length || busy"> Manual sliders</label></div>
-      <p>Auto Learn restore requires the matching controller, vehicle and this device’s retained qualification history. Manual overrides pause Auto Learn.</p>
+      <label><input name="flm-import-mode" type="radio" value="manual" v-model="mode" :disabled="!draft.manual.length || busy"> Manual sliders</label>
+      <label><input name="flm-import-mode" type="radio" value="recovery" v-model="mode" :disabled="draft.version !== 2 || busy"> Recover as manual tune</label></div>
+      <p>Auto Learn setup restores a setup this comma already knows. On a wiped or replacement comma, choose Recover as manual tune. Manual recovery pauses Auto Learn.</p>
       <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice><div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="draft=null">Cancel</button>
       <button type="button" class="gx-btn" :disabled="busy || !parked" @click="review">Review restore</button></div></GxDialog>
     <GxDialog v-if="pending" labelledby="flm-restore-title" @close="!busy && (pending=null)"><h3 id="flm-restore-title">Restore this tune?</h3>

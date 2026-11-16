@@ -152,7 +152,8 @@ class Controls:
     )
     if isinstance(self.LaC, LatControlTorque):
       # Only the actual startup owner reads configuration; replay clones stay pure.
-      if manual_effects is not None and manual_effects.profile.context[1] != str(self.LaC.controller_mode):
+      if manual_effects is not None and (manual_effects.profile.context[1] != str(self.LaC.controller_mode) or
+                                         not manual_effects.compatible(self.CP, self.CI, self.LaC, self.params)):
         manual_effects, manual_status = None, 'context_changed'
       self.LaC.manual_flm_effects, self.LaC.manual_flm_status = manual_effects, manual_status
       self.lateral_gain_owner = create_gain_owner(self.params, self.CP, self.LaC)

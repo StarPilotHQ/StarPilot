@@ -97,14 +97,17 @@ def _segment_files(root_fd: int, name: str) -> tuple[dict[str, bool] | None, boo
 
 class DriveHistory:
   def __init__(self, root: Path | None = None, *, max_segments_per_route: int = MAX_SEGMENTS_PER_ROUTE,
-               max_segments: int = MAX_SEGMENTS):
+               max_segments: int = MAX_SEGMENTS, max_routes: int = MAX_ROUTES):
     if type(max_segments_per_route) is not int or not 1 <= max_segments_per_route <= MAX_STATS_SEGMENTS_PER_ROUTE:
       raise ValueError('Invalid route segment limit')
     if type(max_segments) is not int or not max_segments_per_route <= max_segments <= MAX_ROOT_ENTRIES:
       raise ValueError('Invalid total segment limit')
+    if type(max_routes) is not int or not 1 <= max_routes <= MAX_ROOT_ENTRIES:
+      raise ValueError('Invalid route limit')
     self.root = root if root is not None else Path(Paths.log_root())
     self.max_segments_per_route = max_segments_per_route
     self.max_segments = max_segments
+    self.max_routes = max_routes
 
   def delete_videos(self, name: object) -> dict:
     return delete_segment_videos(self.root, name)
@@ -160,7 +163,7 @@ class DriveHistory:
           if isolate_route_errors and route_id in route_errors:
             continue
           number = int(number_text)
-          if route_id not in routes and len(routes) >= MAX_ROUTES:
+          if route_id not in routes and len(routes) >= self.max_routes:
             result['scanIncomplete'] = True
             continue
           existing = routes.get(route_id)

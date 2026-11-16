@@ -7,7 +7,7 @@ from pathlib import Path
 import stat
 import tempfile
 
-MAX_DOCUMENT = 1024 * 1024
+MAX_DOCUMENT = 4 * 1024 * 1024
 MAX_FILES = 128
 MAX_TOTAL = 64 * 1024 * 1024
 MAX_CHECKPOINTS = 8

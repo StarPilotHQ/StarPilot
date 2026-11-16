@@ -420,14 +420,7 @@ def collect_latest_steering_inputs(params, root, *, permitted, selected_route=No
   def allowed():
     return permitted() and time.monotonic() - started <= MAX_ANALYSIS_SECONDS
 
-  def walk(actual_root, original_route, *, permitted, consume):
-    if len(original_route.get('segments', ())) <= 30:
-      return walk_completed_route(actual_root, original_route, permitted=permitted, consume=consume)
-    from openpilot.starpilot.flm.offroad_prior_inputs import _selected_sources
-
-    return _selected_sources(actual_root, original_route, permitted=permitted, consume=consume, cp_sha256=None)
-
-  collected = collect_route_inputs(root, route, permitted=allowed, walker=walk)
+  collected = collect_route_inputs(root, route, permitted=allowed)
   current_cp = collected.receipt.cp_sha256
   skipped = 0
 
@@ -452,7 +445,7 @@ def collect_latest_steering_inputs(params, root, *, permitted, selected_route=No
       from openpilot.starpilot.flm.offroad_route import RouteInputError
 
       try:
-        earlier = collect_route_inputs(root, candidate, permitted=allowed, walker=walk)
+        earlier = collect_route_inputs(root, candidate, permitted=allowed)
       except RouteInputError as error:
         import logging
 

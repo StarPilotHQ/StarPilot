@@ -214,7 +214,7 @@ class TestOffroadCache(unittest.TestCase):
 
     def collect(root, route, *, permitted, walker=None):
       self.assertTrue(permitted())
-      self.assertTrue(callable(walker))
+      self.assertIsNone(walker, 'Use the default complete route reader')
       calls.append(route['routeId'])
       return parked if route is latest else driving
 

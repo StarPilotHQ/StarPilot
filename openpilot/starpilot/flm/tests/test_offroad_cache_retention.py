@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from openpilot.starpilot.flm.offroad_cache import AssessmentCache, MAX_FILES
+from openpilot.starpilot.flm.offroad_cache import AssessmentCache, MAX_DOCUMENT, MAX_FILES, MAX_TOTAL
 
 
 class TestCacheRetention(unittest.TestCase):
@@ -17,6 +17,17 @@ class TestCacheRetention(unittest.TestCase):
 
   def fill(self):
     return [self.cache.put({'kind': 'completed_assessment', 'unit': index}) for index in range(MAX_FILES)]
+
+  def test_full_drive_document_survives_restart_and_oversized_write_preserves_it(self):
+    document = {'kind': 'declared-large-assessment', 'data': 'x' * (2 * 1024 * 1024)}
+    digest = self.cache.put(document)
+    self.assertEqual(AssessmentCache(self.cache.directory).get(digest), document)
+    before = set(self.cache.directory.iterdir())
+    with self.assertRaisesRegex(ValueError, 'Assessment document bound'):
+      self.cache.put({'data': 'x' * MAX_DOCUMENT})
+    self.assertEqual(set(self.cache.directory.iterdir()), before)
+    self.assertEqual(self.cache.get(digest), document)
+    self.assertEqual((MAX_DOCUMENT, MAX_FILES, MAX_TOTAL), (4 * 1024 * 1024, 128, 64 * 1024 * 1024))
 
   def test_full_cache_releases_room_preserving_saved_proof_dependency_and_checkpoints(self):
     linked = self.cache.put({'kind': 'next_drive_trial'})

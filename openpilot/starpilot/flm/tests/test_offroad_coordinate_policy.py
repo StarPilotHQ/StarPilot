@@ -1417,7 +1417,7 @@ class TestSelectedCurrentDriveInputs(unittest.TestCase):
       with self.subTest(invalid=invalid), self.assertRaises(ValueError):
         self.selected_source(**invalid)
 
-  def test_primary_long_drive_reuses_selected_reader_without_a_full_scan(self):
+  def test_primary_long_drive_reviews_every_original_segment(self):
     from types import SimpleNamespace
     from openpilot.starpilot.flm import offroad_processor as processor
     from openpilot.starpilot.flm import offroad_prior_inputs as inputs
@@ -1429,20 +1429,22 @@ class TestSelectedCurrentDriveInputs(unittest.TestCase):
       'recorded_lateral_request_rows': 100, 'active_lateral_request_rows': 90, 'invalid_lateral_request_rows': 0,
     }, quality_stops=[])
 
-    def collect(root, actual, *, permitted, walker):
+    def collect(root, actual, *, permitted, walker=None):
+      walker = processor.walk_completed_route if walker is None else walker
       self.assertEqual(walker(root, actual, permitted=permitted, consume=lambda *args: None), receipt)
       return collected
 
     with (
       patch.object(processor, 'latest_route', return_value=route),
       patch.object(processor, 'collect_route_inputs', side_effect=collect),
-      patch.object(processor, 'walk_completed_route', side_effect=AssertionError('Long drive must not start a full scan')),
+      patch.object(processor, 'walk_completed_route', return_value=receipt) as complete,
       patch.object(inputs, '_selected_sources', return_value=receipt) as selected,
     ):
       actual, result = processor.collect_latest_steering_inputs(None, '.', permitted=lambda: True)
     self.assertEqual(actual, route)
     self.assertIs(result, collected)
-    self.assertIsNone(selected.call_args.kwargs['cp_sha256'])
+    complete.assert_called_once()
+    selected.assert_not_called()
 
 
 

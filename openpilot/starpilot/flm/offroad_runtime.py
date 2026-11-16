@@ -287,7 +287,7 @@ def configure(cp, ci, controller, params, *, manual_status):
     return None, 'configuration_unavailable'
 
 
-def current_configuration(cp, params):
+def _current_controller(cp, params):
   from opendbc.car.car_helpers import interfaces
   from openpilot.starpilot.lateral.controller_selection import read_selection
   from openpilot.starpilot.flm.controller_replay import SelectedControllerFactory
@@ -299,6 +299,18 @@ def current_configuration(cp, params):
   factory = PidControllerFactory(cp, mode) if cp.lateralTuning.which() == 'pid' else SelectedControllerFactory(cp, mode, turn_assist=startup.turn_assist)
   controller, _ = factory.create()
   ci = interfaces[str(cp.carFingerprint)](cp)
+  return ci, controller
+
+
+def current_compatibility(cp, params):
+  from openpilot.starpilot.flm.runtime_adapter_registry import compatibility_for
+  from openpilot.starpilot.flm.manual_coordinates import baseline_settings
+  ci, controller = _current_controller(cp, params)
+  return dict(compatibility_for(cp, ci, controller), settings_sha256=baseline_settings(cp, params))
+
+
+def current_configuration(cp, params):
+  ci, controller = _current_controller(cp, params)
   from openpilot.starpilot.flm.runtime_adapter_registry import selected_descriptor
 
   scope, numeric = configuration_scope(cp, ci, controller, params, manual_status='not_configured')
