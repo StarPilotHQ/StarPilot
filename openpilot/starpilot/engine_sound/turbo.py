@@ -19,32 +19,70 @@ CLOSED = 0.1                      # at or below this load the throttle counts as
 CLOSED_SECONDS = 0.1              # longer than a rev-limiter cut, which must not open the valve
 BOV_FROM = 0.3                    # boost needed for the valve to open
 BOV_LEVEL = 1.0
-BOV_SECONDS = (0.3, 0.7)          # release length from just enough boost to full boost
+BOV_SECONDS = (0.6, 1.3)          # release length from just enough boost to full boost
+# The release follows a recording the user picked: a low whump as the valve opens, a mid-range rush, then from
+# 0.45 s a stutter about 11.5 times a second (75 ms between pulses, slowing to 92 ms, 6-8 dB deep) as it settles low.
+FLUTTER_START = 0.45
+FLUTTER_PERIOD = (0.08, 0.096)
+FLUTTER_DEPTH_DB = 7.0
 WHISTLE_HZ = (1400.0, 3200.0)     # whistle pitch from no boost to full boost
 WHISTLE_LEVEL = 0.07
 WHOOSH_LEVEL = 0.06
 VARIANTS = 6
 
 
+def _band(freq: np.ndarray, centre: float, octaves: float) -> np.ndarray:
+  return np.exp(-0.5 * (np.log2(np.maximum(freq, 1.0) / centre) / octaves) ** 2)
+
+
+def _ramp(t: float, points: tuple[tuple[float, float], ...]) -> float:
+  return float(np.interp(t, [p[0] for p in points], [p[1] for p in points]))
+
+
+def _flutter(rng: np.random.Generator, t: np.ndarray) -> np.ndarray:
+  """Gain that pulses as the valve chatters: unity on each pulse, FLUTTER_DEPTH_DB down between them."""
+  floor = 10 ** (-FLUTTER_DEPTH_DB / 20)
+  gain = np.ones(len(t))
+  at, pulses = FLUTTER_START, []
+  while at < t[-1]:
+    share = min((at - FLUTTER_START) / (t[-1] - FLUTTER_START), 1.0)
+    period = (FLUTTER_PERIOD[0] + (FLUTTER_PERIOD[1] - FLUTTER_PERIOD[0]) * share) * rng.uniform(0.92, 1.08)
+    pulses.append((at, period))
+    at += period
+  inside = t >= FLUTTER_START
+  gain[inside] = floor
+  for start, period in pulses:
+    width = 0.6 * period
+    sel = (t >= start) & (t < start + width)
+    gain[sel] = floor + (1 - floor) * np.sin(np.pi * (t[sel] - start) / width) ** 2
+  onset = np.clip((t - FLUTTER_START + 0.05) / 0.05, 0.0, 1.0)
+  return 1.0 - onset * (1.0 - gain)
+
+
 def _release(rng: np.random.Generator, seconds: float, sample_rate: int) -> np.ndarray:
-  """Hiss whose band slides down as the pressure drops, with a sharp opening and a long tail."""
+  """Noise shaped frame by frame: a low whump as the valve opens, a mid rush, then a chattering low tail."""
   frame, hop = 1024, 256
   length = int(seconds * sample_rate) + frame
   noise = rng.standard_normal(length)
   window = np.hanning(frame)
   freq = np.fft.rfftfreq(frame, 1 / sample_rate)
-  start_hz, end_hz = rng.uniform(2200, 3000), rng.uniform(700, 1000)
+  low = _band(freq, rng.uniform(320, 400), 0.6)
+  high = _band(freq, 5000.0, 0.8)
+  mid_start, mid_end = rng.uniform(1200, 1500), rng.uniform(750, 900)
   out = np.zeros(length)
   norm = np.zeros(length)
   for at in range(0, length - frame, hop):
-    share = at / (length - frame)
-    centre = start_hz * (end_hz / start_hz) ** share
-    gain = np.exp(-0.5 * (np.log2(np.maximum(freq, 1.0) / centre) / 0.7) ** 2)
+    t = at / sample_rate
+    mid = _band(freq, mid_start * (mid_end / mid_start) ** (t / seconds), 0.9)
+    low_weight = _ramp(t, ((0.0, 1.4), (0.12, 1.3), (0.3, 0.4), (0.6, 0.6), (0.95, 1.0)))
+    mid_weight = _ramp(t, ((0.0, 0.1), (0.15, 0.7), (0.24, 1.0), (0.6, 1.0), (1.0, 0.35)))
+    gain = low_weight * low + mid_weight * mid + 0.2 * mid_weight * high
     out[at:at + frame] += np.fft.irfft(np.fft.rfft(noise[at:at + frame] * window) * gain, frame) * window
     norm[at:at + frame] += window ** 2
   out = out[:length - frame] / np.maximum(norm[:length - frame], 1e-3)
   t = np.arange(len(out)) / sample_rate
-  envelope = np.minimum(t / 0.004, 1.0) * (0.75 * np.exp(-t / (0.22 * seconds)) + 0.25 * np.exp(-t / (0.6 * seconds)))
+  decay = np.where(t < 0.9 * seconds / BOV_SECONDS[1], 1.0, np.exp(-(t - 0.9 * seconds / BOV_SECONDS[1]) / 0.18))
+  envelope = np.minimum(t / 0.003, 1.0) * decay * _flutter(rng, t)
   envelope[-256:] *= np.linspace(1.0, 0.0, 256)
   out = out * envelope
   return (out / np.max(np.abs(out))).astype(np.float32)

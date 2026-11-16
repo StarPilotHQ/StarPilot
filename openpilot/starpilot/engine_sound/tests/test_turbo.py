@@ -29,10 +29,21 @@ def test_lifting_on_boost_fires_the_valve_and_vents_it():
   turbo = Turbo(1.0, 800.0, 6000.0)
   run(turbo, [(4000.0, 1.0)] * 200)
   on_boost = np.abs(run(turbo, [(4000.0, 1.0)] * 20)).max()
-  release = run(turbo, [(3800.0, 0.0)] * 90)
+  release = run(turbo, [(3800.0, 0.0)] * 160)
   assert np.abs(release).max() > 4 * on_boost
   assert turbo.boost < 0.1
   assert np.abs(release[-FRAMES * 10:]).max() < 0.5 * np.abs(release[FRAMES * 10:FRAMES * 20]).max()
+
+
+def test_the_release_stutters_about_eleven_times_a_second():
+  from openpilot.starpilot.engine_sound.turbo import BOV_SECONDS, FLUTTER_START, _release
+  release = _release(np.random.default_rng(0), BOV_SECONDS[1], 48000).astype(np.float64)
+  envelope = np.sqrt(np.convolve(release ** 2, np.ones(192) / 192, mode='same'))[::48]
+  body = envelope[int(FLUTTER_START * 1000) + 50:1100]
+  spectrum = np.abs(np.fft.rfft((body - body.mean()) * np.hanning(len(body)), 1 << 14))
+  freq = np.fft.rfftfreq(1 << 14, 1 / 1000)
+  band = (freq > 4) & (freq < 40)
+  assert 10.0 < freq[band][np.argmax(spectrum[band])] < 13.5
 
 
 def test_a_rev_limiter_cut_does_not_open_the_valve():
