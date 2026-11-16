@@ -1258,3 +1258,12 @@ console.log("Ford rear fog: make visibility, saved placement and strict metadata
   assert.equal(documentHelpers.overlapsReserved(profile, 'speed_limit', 317, 16, sample.document.layouts.compact), true)
   assert.equal(clampPlacement(profile, 'speed_limit', 330, 16, sample.document.layouts.compact).x, 320)
 }
+
+// The device writes version 15 after the attached-actions gap migration.
+{
+  const sample = snapshot()
+  sample.document.version = 15
+  assert.equal(validDocument(sample.document, sample.metadata), true)
+  sample.document.version = 16
+  assert.equal(validDocument(sample.document, sample.metadata), false)
+}
