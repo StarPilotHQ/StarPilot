@@ -608,6 +608,9 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 .gx-layout__layer.is-drop-target.is-drop-after::before { top: auto; bottom: -5px; }
 .gx-layout__drag-ghost { position: fixed; z-index: 1000; pointer-events: none; display: flex; align-items: center; gap: 12px; padding: 12px 16px; min-height: 44px; box-sizing: border-box; border: 2px solid var(--primary); border-radius: 16px; background: var(--background); color: var(--on-surface); box-shadow: 0 12px 32px #0008; transform: scale(1.03); }
 .gx-layout__drag-ghost strong { flex: 1; }
+.gx-layout__loupe { position: fixed; z-index: 1000; pointer-events: none; overflow: hidden; box-sizing: border-box; border: 2px solid var(--primary); border-radius: 16px; box-shadow: 0 12px 32px #0008;
+  background: repeating-linear-gradient(135deg, #090c10 0 6px, #131820 6px 12px); }
+.gx-layout__loupe svg { display: block; width: 100%; height: 100%; }
 .gx-layout__outline { pointer-events: none; }
 .gx-layout__help > summary { cursor: pointer; min-height: 40px; align-content: center; }
 .gx-layout__layer.is-dragging { opacity: .45; }

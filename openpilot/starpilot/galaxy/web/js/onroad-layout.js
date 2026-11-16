@@ -556,6 +556,34 @@ export const OnroadLayoutPage = {
         width: widget.width, height: widget.height + widget.visualInsetTop + widget.visualInsetBottom
       }
     },
+    // On touch, a magnified copy of the area around the dragged widget sits clear of the finger.
+    loupe() {
+      const drag = this.state.drag
+      if (!drag?.touch || !drag.moved || drag.resize || (drag.fromTray && !drag.inside) || drag.clientX == null || !this.$refs.preview) return null
+      const rect = this.$refs.preview.getBoundingClientRect(), viewWidth = window.innerWidth, viewHeight = window.innerHeight
+      if (!rect.width) return null
+      const gap = 48, edge = 8, x = drag.clientX, y = drag.clientY
+      let width = Math.round(Math.max(150, Math.min(240, viewWidth / 2 - 8))), height = Math.round(width * .62)
+      let left = Math.max(edge, Math.min(viewWidth - width - edge, x - width / 2)), top = y - gap - height
+      if (top < edge) {
+        // No room above: sit beside the finger on the roomier side, narrower if needed, before falling back to below.
+        const right = x < viewWidth / 2, beside = Math.min(width, Math.floor((right ? viewWidth - x : x) - 24 - edge))
+        if (beside >= 140) {
+          width = beside
+          height = Math.round(width * .62)
+          left = right ? x + 24 : x - 24 - width
+          top = Math.max(edge, Math.min(viewHeight - height - edge, y - height / 2))
+        } else top = Math.min(viewHeight - height - edge, y + gap)
+      }
+      const [widgetWidth, widgetHeight] = widgetSize(this.profile.widgets[drag.id], this.layout[drag.id])
+      const span = Math.max(width / (rect.width / this.profile.width * 2), widgetWidth * 1.5, widgetHeight * 1.5 * width / height)
+      const spanY = span * height / width
+      const centerX = this.previewX(drag.id) + widgetWidth / 2, centerY = this.layout[drag.id].y + widgetHeight / 2
+      return {
+        viewBox: [centerX - span / 2, centerY - spanY / 2, span, spanY].map(value => Math.round(value * 10) / 10).join(" "),
+        style: { left: Math.round(left) + "px", top: Math.round(top) + "px", width: width + "px", height: height + "px" }
+      }
+    },
     activeWidgets() { return this.widgets.filter(({ id }) => this.layout[id].enabled) },
     renderWidgets() {
       return this.layerWidgets.filter(item => !this.previewHidden(item.id)).reverse().map((item) => {
@@ -1242,6 +1270,8 @@ export const OnroadLayoutPage = {
       // A finger wobbles a few pixels on every tap; only a deliberate move drags the widget.
       if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < DRAG_SLOP) return
       drag.moved = true
+      drag.clientX = event.clientX
+      drag.clientY = event.clientY
       drag.inside = point.x >= 0 && point.y >= 0 && point.x <= this.profile.width && point.y <= this.profile.height
       if (!drag.fromTray || drag.inside) {
         const raw = { x: point.x - drag.offsetX, y: point.y - drag.offsetY }
