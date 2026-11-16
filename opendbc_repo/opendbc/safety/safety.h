@@ -33,6 +33,7 @@
 #include "opendbc/safety/modes/body.h"
 #include "opendbc/safety/modes/psa.h"
 #include "opendbc/safety/modes/byd.h"
+#include "opendbc/safety/modes/gwm.h"
 #include "opendbc/safety/modes/hyundai_canfd.h"
 
 uint32_t GET_BYTES_LE(const CANPacket_t *msg, int start, int len) {
@@ -464,6 +465,7 @@ int set_safety_hooks(uint16_t mode, uint16_t param) {
     {SAFETY_TESLA, &tesla_hooks},
     {SAFETY_TESLA_PREAP, &tesla_preap_hooks},
     {SAFETY_VOLVO, &volvo_dispatch_hooks},
+    {SAFETY_GWM, &gwm_hooks},
     {SAFETY_HYUNDAI_CANFD, &hyundai_canfd_hooks},
 #ifdef ALLOW_DEBUG
     {SAFETY_MG, &mg_hooks},
