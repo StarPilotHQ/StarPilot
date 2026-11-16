@@ -420,7 +420,8 @@ class EventLog:
     """Save the last seconds of device logs now; the session's own capture keeps only its newest lines."""
     if self.path is not None:
       now = datetime.now(UTC).timestamp()
-      system_slice.write_sidecar_async(self.path, now - STALL_CAPTURE_S, now, tag=".stall")
+      system_slice.write_sidecar_async(self.path, now - STALL_CAPTURE_S, now, tag=".stall",
+                                       on_firmware=lambda lines, reason: self("wifi_firmware_restart", lines=lines, reason=reason))
 
   def _line(self, record: dict) -> str:
     return json.dumps(record, default=str) + "\n"
