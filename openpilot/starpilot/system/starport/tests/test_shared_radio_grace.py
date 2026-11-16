@@ -135,6 +135,19 @@ def test_watch_holds_home_wifi_only_when_it_was_lost(tmp_path, carrier, held):
     watch.stop()
 
 
+@pytest.mark.parametrize("carrier, stopped", [("1\n", False), ("0\n", True), (None, True)])
+def test_stall_keeps_a_join_that_already_connected(tmp_path, carrier, stopped):
+  carrier_path = tmp_path / "carrier"
+  if carrier is not None:
+    carrier_path.write_text(carrier)
+  stops, logged = [], []
+  watch = SharedRadioWatch(lambda name, **fields: logged.append(name), counter=tmp_path / "carrier_changes",
+                           carrier=carrier_path, on_stall=lambda: stops.append(True))
+  watch.stalled()
+  assert stops == ([True] if stopped else [])
+  assert logged == ([] if stopped else ["other_wifi_join_kept"])
+
+
 def test_watch_without_the_counter_never_reports(tmp_path):
   watch = SharedRadioWatch(lambda *a, **k: None, interval=0.01, counter=tmp_path / "missing").start()
   try:

@@ -289,7 +289,7 @@ class SharedRadioWatch:
     self.counter = counter or Path(f"/sys/class/net/{interface}/carrier_changes")
     self.carrier = carrier or Path(f"/sys/class/net/{interface}/carrier")
     self.on_down = on_down  # the other network was lost, not just roamed
-    self.on_stall = on_stall  # the car's acks stopped after a change
+    self.on_stall = on_stall  # the car's acks stopped after a change that has not connected yet
     self.changed_at: float | None = None
     self._stop = threading.Event()
     self._thread = threading.Thread(target=self._run, name="aa_radio_watch", daemon=True)
@@ -329,6 +329,11 @@ class SharedRadioWatch:
           self.log("other_wifi_hold_failed", error=str(error) or type(error).__name__)
 
   def stalled(self) -> None:
+    # A join that already connected has only its address left. Stopping it there lost the hotspot and still
+    # dropped the car on 2026-11-16, while a joined hotspot then streamed alongside the car for minutes.
+    if self._carrier():
+      self.log("other_wifi_join_kept", interface=self.interface)
+      return
     if self.on_stall is not None:
       self.on_stall()
 
