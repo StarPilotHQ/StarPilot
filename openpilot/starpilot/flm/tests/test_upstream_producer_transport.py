@@ -9,7 +9,8 @@ from openpilot.starpilot.flm import producer_clock_equivalence as clock
 
 
 APPROVED = {
-  'selfdrive/modeld/modeld.py': '5ecc6ba7c3b275843ecbd69bd08aa61c41f0bc2320b77c6328046e4cf34663b6',
+  'starpilot/car/volkswagen/model_smoothing.py': 'dd5d0ddaf77fe05960b673557b1b9f649d303ddfdad77a5185c7b3156fc6bbd2',
+  'selfdrive/modeld/modeld.py': '7a0eaf1f854c8f290f157d860691bb3e2c00c7421fbf9f1f8a092683757988ee',
   'visionipc/visionipc_py.cc': '6c131c4f5eccb9f822f1aaae63733f26b1427c52340b61c9cdaf6cd4aee2f89d',
   'visionipc/visionipc_server.cc': 'a4325a5171eacb931eb271d06a992d2f27216040df113d92099f62cdfa67d81a',
   'visionipc/visionipc_client.cc': 'd142cd60eedabfc581e9770fcd6f0ca81b762ba9dbc608b54dd20a27a317a52d',
@@ -18,7 +19,7 @@ APPROVED = {
 
 def test_exact_installed_upstream_closure_is_checked_before_contract():
   contract = clock.pinned_default_contract()
-  assert len(clock.PRODUCER_SOURCE_HASHES) == 19
+  assert len(clock.PRODUCER_SOURCE_HASHES) == 20
   assert {relative: expected for _, relative, expected in clock.PRODUCER_SOURCE_HASHES if relative in APPROVED} == APPROVED
   assert contract.producer_revision == clock.CLOSURE_SHA256
   assert contract.proof_sha256 == clock.CLOSURE_SHA256
