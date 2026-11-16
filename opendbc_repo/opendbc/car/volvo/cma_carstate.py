@@ -23,6 +23,8 @@ class CarStateCMA(CarStateBase):
     self.msg_lca_3 = {}
     self.msg_gear_position = {}
     self.pilot_assist_engaged = False
+    self.pscm_status_supported = False
+    self.pscm_rearm_required = False
     self.msg_lca_5 = {}  # Formerly msg_speed_1
     self.msg_speed = {}
     self.msg_speed_2 = {}

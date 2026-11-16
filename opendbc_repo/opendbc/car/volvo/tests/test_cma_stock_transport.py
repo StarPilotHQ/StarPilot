@@ -71,8 +71,14 @@ def test_effective_withdrawal_preserves_only_received_stock(changes):
 
 
 def test_stock_received_while_active_cannot_leak_into_later_withdrawal():
+  from opendbc.car.volvo.helpers import checksum_1_pscm_related_message, checksum_2_pscm_related_message
   ci = interface()
-  ci.update([(1_000_000_000, packets())])
+  status = CANPacker('volvo_mid_1').make_can_msg('PSCM_RELATED', 2, {
+    'NEW_SIGNAL_2': 8, 'CHECKSUM_1': checksum_1_pscm_related_message(0, 0x80),
+    'CHECKSUM_2': checksum_2_pscm_related_message(0x80),
+  })
+  ci.update([(1_000_000_000, packets() + [status])])
+  assert ci.CS.pscm_status_supported
   ci.CS.out = structs.CarState.new_message(canValid=True, gearShifter=structs.CarState.GearShifter.drive).as_reader()
   ci.apply(structs.CarControl.new_message(latActive=True).as_reader(), 1_010_000_000)
   assert ci.CC.lat_active
