@@ -12,7 +12,7 @@ from opendbc.car.gm.values import (malibu_hybrid_profile, volt_cc_pedal_profile,
   is_ordinary_ascm_profile, is_ordinary_camera_profile, is_ordinary_sdgm_profile, is_bolt_euv_longitudinal,
   is_volt_gateway_profile, is_volt_cc_profile, is_silverado_cc_stock_profile,
   is_volt_ascm_longitudinal, is_volt_camera_stock, is_volt_camera_longitudinal,
-  is_volt_camera_removed, is_volt_sdgm_profile, is_ordinary_cc_profile, is_conventional_cc_pedal_profile,
+  is_volt_camera_removed, is_volt_sdgm_profile, is_ordinary_cc_profile, is_ordinary_cc_stock_profile, is_conventional_cc_pedal_profile,
 )
 from opendbc.car.gm.lateral import lane_centering_supported
 
@@ -73,7 +73,8 @@ def _qualified_gm_uncached(cp) -> bool:
                cp.carFingerprint == CAR.BUICK_LACROSSE and cp.openpilotLongitudinalControl))
     if is_ordinary_camera_profile(cp, longitudinal=cp.openpilotLongitudinalControl):
       return True
-    if is_silverado_cc_stock_profile(cp) or is_ordinary_cc_profile(cp) or is_conventional_cc_pedal_profile(cp) or malibu_hybrid_profile(cp) is not None:
+    if (is_silverado_cc_stock_profile(cp) or is_ordinary_cc_stock_profile(cp) or is_ordinary_cc_profile(cp) or
+        is_conventional_cc_pedal_profile(cp) or malibu_hybrid_profile(cp) is not None):
       return True
     if is_ordinary_sdgm_profile(cp, longitudinal=False) or is_ordinary_sdgm_profile(cp, longitudinal=True):
       return True

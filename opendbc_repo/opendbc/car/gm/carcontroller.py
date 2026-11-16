@@ -31,6 +31,7 @@ from opendbc.car.gm.values import (DBC, CanBus, CarControllerParams, CruiseButto
                                    NO_ACC_BOLT_CAR, is_bolt_pedal_profile, is_bolt_pedal_removed_profile,
                                    is_bolt_present_no_acc_pedal_profile, is_bolt_euv_longitudinal,
                                    is_volt_cc_longitudinal, is_volt_cc_profile, is_silverado_cc_stock_profile, is_ordinary_cc_profile,
+                                   is_ordinary_cc_stock_profile,
                                    CC_GATEWAY_STOCK_CAR, uses_camera_stock_controls, CAR, BOLT_CC_WORDS, is_bolt_cc_profile)
 from opendbc.car.interfaces import CarControllerBase
 
@@ -555,7 +556,7 @@ class CarController(CarControllerBase):
     if self.hybrid_profile is not None:
       stock_steer_ready = hybrid_lateral_ready(CS, now_nanos) and (aol_lateral or
                            CS.out.cruiseState.enabled and not CS.out.brakePressed and not CS.out.gasPressed)
-    if is_silverado_cc_stock_profile(self.CP):
+    if (is_silverado_cc_stock_profile(self.CP) or is_ordinary_cc_stock_profile(self.CP)):
       sources = CS.silverado_stock_sources
       stock_steer_ready = (CS.out.canValid and not CS.out.canTimeout and len(sources) == 8 and
                           all(0 < stamp <= now_nanos <= stamp + limit for stamp, limit in sources) and
@@ -1199,7 +1200,7 @@ class CarController(CarControllerBase):
       # While car is braking, cancel button causes ECM to enter a soft disable state with a fault status.
       # A delayed cancellation allows camera to cancel and avoids a fault when user depresses brake quickly
       cancel_requested = CC.cruiseControl.cancel
-      if is_silverado_cc_stock_profile(self.CP):
+      if (is_silverado_cc_stock_profile(self.CP) or is_ordinary_cc_stock_profile(self.CP)):
         cancel_requested = cancel_requested and stock_cruise_fresh and CS.out.cruiseState.available and CS.out.cruiseState.enabled
       self.cancel_counter = self.cancel_counter + 1 if cancel_requested else 0
 

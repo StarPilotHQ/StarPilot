@@ -1052,6 +1052,20 @@ def is_silverado_cc_stock_profile(cp):
 ORDINARY_CC_CAR = CC_GATEWAY_STOCK_CAR - {CAR.CHEVROLET_SILVERADO_CC}
 ORDINARY_CC_WORD = 0xC160
 
+def is_ordinary_cc_stock_profile(cp):
+  """Conventional cruise retains the stock owner when speed control is disabled."""
+  try:
+    return (cp.brand == 'gm' and cp.carFingerprint in ORDINARY_CC_CAR and
+            cp.networkLocation == CarParams.NetworkLocation.gateway and
+            cp.transmissionType == CarParams.TransmissionType.automatic and cp.radarUnavailable and
+            cp.pcmCruise and not cp.openpilotLongitudinalControl and not cp.alphaLongitudinalAvailable and
+            not cp.passive and not cp.dashcamOnly and not cp.notCar and control_flags(cp) == 0 and
+            len(cp.safetyConfigs) == 1 and cp.safetyConfigs[0].safetyModel == CarParams.SafetyModel.gm and
+            int(cp.safetyConfigs[0].safetyParam) == int(GMSafetyFlags.NO_ACC))
+  except (AttributeError, IndexError, TypeError, ValueError):
+    return False
+
+
 MALIBU_CC_F1_WORD = 0xC161
 MALIBU_CC_F1_STOCK_WORD = 0xC162
 MALIBU_CC_F1_SOURCES = {0x184: 8, 0x34A: 5, 0x348: 5, 0x1E1: 7, 0xF1: 6, 0x1C4: 8,
