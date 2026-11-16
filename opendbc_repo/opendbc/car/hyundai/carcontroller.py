@@ -415,6 +415,7 @@ class CarController(CarControllerBase):
   def create_canfd_msgs(self, apply_steer_req, apply_torque, set_speed_in_units, accel, stopping, hud_control, CS, CC, now_nanos):
     _projection = self.learning_projection_observer
     can_sends = []
+    stock_popup_owned = False
     canfd_lfa_icon = (self.canfd_dash_icons.update(self.frame, CC.enabled, CC.latActive)
                        if self.canfd_dash_icons is not None else None)
 
@@ -537,10 +538,18 @@ class CarController(CarControllerBase):
       stock_source = getattr(CS, "stock_lfa_status", None)
       stock_lfa = stock_source.current(clock_boot_ns()) if stock_source is not None else None
       stock_faults = stock_source.last_fault() if stock_source is not None and stock_lfa is None else None
+      stock_owned_status = False
+      if stock_source is not None:
+        display_healthy = CS.out.canValid and not (CS.out.canTimeout or CS.out.steerFaultTemporary or
+                                                   CS.out.steerFaultPermanent or CS.out.accFaulted)
+        stock_owned_status = stock_source.owns_display_status(apply_steer_req, clock_boot_ns(), healthy=display_healthy)
+        stock_popup_owned = stock_source.owns_disengage_popup(apply_steer_req, clock_boot_ns(), healthy=display_healthy,
+                                                            qualified_warning=stock_owned_status)
       damping_source = getattr(CS, "stock_lkas_damping", None)
       can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
                                                             steering_status_active, apply_steer_req, apply_torque,
                                                             stock_lfa=stock_lfa, stock_lfa_faults=stock_faults,
+                                                            stock_lfa_owned_status=stock_owned_status,
                                                             stock_lkas_damping=(damping_source.current_damping(clock_boot_ns())
                                                               if damping_source is not None else None)))
       if _projection is not None:
@@ -581,7 +590,7 @@ class CarController(CarControllerBase):
         cluster_source = getattr(CS, "stock_cluster_status", None)
         stock_cluster = cluster_source.current(clock_boot_ns()) if cluster_source is not None else None
         can_sends.append(hyundaicanfd.create_lfahda_cluster(self.packer, self.CAN, CC.enabled, lfa_icon=canfd_lfa_icon,
-                                                         stock_cluster=stock_cluster))
+                                                         stock_cluster=stock_cluster, owned_lfa_status=stock_popup_owned))
 
     # blinkers
     if lka_steering and self.CP.flags & HyundaiFlags.CANFD_ENABLE_BLINKERS:

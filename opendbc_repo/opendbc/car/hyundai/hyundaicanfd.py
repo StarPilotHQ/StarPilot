@@ -44,7 +44,8 @@ LFA_CONTROL_MASK = bytes.fromhex("ffffff3fc0ff3f000000000000ff0000")
 LFA_FAULT_MASK = bytes.fromhex("00000000c001c0f00000000000000000")
 
 
-def create_steering_messages(packer, CP, CAN, enabled, lat_active, apply_torque, *, stock_lfa=None, stock_lfa_faults=None, stock_lkas_damping=None):
+def create_steering_messages(packer, CP, CAN, enabled, lat_active, apply_torque, *, stock_lfa=None, stock_lfa_faults=None,
+                             stock_lkas_damping=None, stock_lfa_owned_status=False):
   values = {
     "LKA_OptUsmSta": 2,
     "LKA_SysIndReq": 2 if enabled else 1,
@@ -78,13 +79,20 @@ def create_steering_messages(packer, CP, CAN, enabled, lat_active, apply_torque,
       # Stale samples retain only faults; a fresh healthy camera sample clears them.
       mask = LFA_CONTROL_MASK if stock_lfa is not None else bytes(value ^ 0xFF for value in LFA_FAULT_MASK)
       stock_indication = (source[4] >> 6) | ((source[5] & 1) << 2)
-      if stock_indication >= 4:
+      owned_status = (stock_lfa is not None and stock_lfa_owned_status and stock_indication == 4 and
+                      source[7] >> 4 == 15 and not source[6] & 0xF0)
+      if owned_status:
+        mask = bytearray(mask)
+        mask[7] |= 0xF0
+      elif stock_indication >= 4:
         mask = bytearray(mask)
         mask[4], mask[5] = mask[4] & 0x3F, mask[5] & 0xFE
       elif stock_lfa is None:
         mask = bytearray(mask)
         mask[4], mask[5] = mask[4] | 0xC0, mask[5] | 1
       data = bytearray((old & ~owned) | (new & owned) for old, new, owned in zip(source, message[1], mask, strict=True))
+      if owned_status and not lat_active:
+        data[4], data[5] = (data[4] & 0x3F) | 0x40, data[5] & 0xFE
       data[:2] = hkg_can_fd_checksum(0x12A, None, data).to_bytes(2, "little")
       message = (message[0], bytes(data), message[2])
     ret.append(message)
@@ -218,7 +226,7 @@ def create_acc_cancel(packer, CP, CAN, cruise_info_copy):
 CLUSTER_CONTROL_MASK = bytes.fromhex("ffffff80008001000000000000000000")
 
 
-def create_lfahda_cluster(packer, CAN, enabled, *, lfa_icon=None, stock_cluster=None):
+def create_lfahda_cluster(packer, CAN, enabled, *, lfa_icon=None, stock_cluster=None, owned_lfa_status=False):
   values = {
     "HDA_ICON": 1 if enabled else 0,
     "LFA_ICON": (2 if enabled else 0) if lfa_icon is None else lfa_icon,
@@ -227,6 +235,8 @@ def create_lfahda_cluster(packer, CAN, enabled, *, lfa_icon=None, stock_cluster=
   if stock_cluster is not None:
     data = bytearray((old & ~owned) | (new & owned)
                      for old, new, owned in zip(stock_cluster, message[1], CLUSTER_CONTROL_MASK, strict=True))
+    if owned_lfa_status and stock_cluster[4] & 7 == 3:
+      data[4] &= 0xF8
     data[:2] = hkg_can_fd_checksum(message[0], None, data).to_bytes(2, "little")
     message = (message[0], bytes(data), message[2])
   return message
