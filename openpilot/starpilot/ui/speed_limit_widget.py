@@ -36,10 +36,19 @@ SET_HEADING_ROW, SET_NUMBER_ROW = SHARED_NUMBER_ROW - (NUMBER_ROW - HEADING_ROW)
 SET_STATUS_ROW = SHARED_NUMBER_ROW + 40
 
 
+# A soft shade around large text keeps it readable over bright or busy camera views.
+HALO = tuple((4 * math.cos(k * math.pi / 4), 4 * math.sin(k * math.pi / 4)) for k in range(8))
+
+
 def draw_text(fonts, text, role, size, x, y, color=INK):
   if isinstance(color, (tuple, list)):
     color = rl.Color(*color)
-  radius = 1.15 if fonts.profile == Profile.LARGE else 1.
+  large = fonts.profile == Profile.LARGE
+  if large:
+    halo = rl.Color(6, 14, 10, round(color.a * .25))
+    for dx, dy in HALO:
+      fonts.draw(text, role, size, x + dx, y + dy, halo)
+  radius = 1.15 if large else 1.
   contour = rl.Color(6, 14, 10, round(color.a * .95))
   for dx, dy in ((-radius, 0), (radius, 0), (0, -radius), (0, radius)):
     fonts.draw(text, role, size, x + dx, y + dy, contour)

@@ -1,5 +1,6 @@
 """One set speed and a shared, latest-limit sign in the large and compact UIs."""
 from dataclasses import replace
+import math
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -13,7 +14,7 @@ from openpilot.starpilot.ui.onroad_large_widgets import UnifiedSpeedWidget
 from openpilot.starpilot.ui.onroad import OnroadView
 from openpilot.starpilot.ui.onroad_state import ObservationKind, OnroadState, SpeedLimitObservation, slc_controls, speed_limit_bounds
 from openpilot.starpilot.ui.presentation import FontRole, Profile
-from openpilot.starpilot.ui.speed_limit_widget import INK, IN_USE, MUTED, REJECT, SpeedLimitWidget, draw_text, set_speed_status
+from openpilot.starpilot.ui.speed_limit_widget import HALO, INK, IN_USE, MUTED, REJECT, SpeedLimitWidget, draw_text, set_speed_status
 from openpilot.starpilot.ui.speed_limit_shapes import SpeedLimitShapes
 from openpilot.starpilot.ui.unified_speed_presentation import displayed_limit_mps, resolve_unified_speed
 
@@ -547,13 +548,16 @@ def test_text_contour_is_bounded_and_preserves_foreground_opacity(profile, alpha
   color = rl.Color(188, 132, 255, alpha)
   draw_text(font, '65 +5', FontRole.MEDIUM, 36, 100, 50, color)
   calls = [call.args for call in font.draw.call_args_list]
-  assert len(calls) == 5
+  # Large text adds a soft halo under its contour.
+  halo = len(HALO) if profile == Profile.LARGE else 0
+  assert len(calls) == halo + 5
   assert all(call[:3] == ('65 +5', FontRole.MEDIUM, 36) for call in calls)
   assert calls[-1][3:5] == (100, 50) and calls[-1][-1] is color
+  assert all(abs(math.hypot(call[3]-100, call[4]-50) - 4) < 1e-9 and call[-1].a == round(alpha*.25) for call in calls[:halo])
   radius = 1.15 if profile == Profile.LARGE else 1.
-  assert {(round(call[3]-100, 2), round(call[4]-50, 2)) for call in calls[:4]} == {
+  assert {(round(call[3]-100, 2), round(call[4]-50, 2)) for call in calls[halo:-1]} == {
     (-radius, 0), (radius, 0), (0, -radius), (0, radius)}
-  assert all(call[-1].a == round(alpha*.95) for call in calls[:4])
+  assert all(call[-1].a == round(alpha*.95) for call in calls[halo:-1])
 
 
 def test_full_coverage_contour_protects_base_muted_and_peak_purple_on_white():
@@ -564,7 +568,7 @@ def test_full_coverage_contour_protects_base_muted_and_peak_purple_on_white():
   for color in (INK, MUTED, IN_USE, REJECT, rl.Color(188, 132, 255, 255), rl.Color(170, 115, 235, 255)):
     font = fonts()
     draw_text(font, '65', FontRole.BOLD, 70, 100, 50, color)
-    contour = font.draw.call_args_list[0].args[-1]
+    contour = font.draw.call_args_list[-2].args[-1]
     background = [value*contour.a/255+255-contour.a for value in (contour.r, contour.g, contour.b)]
     assert (luminance((color.r, color.g, color.b))+.05)/(luminance(background)+.05) >= 4.5
 

@@ -30,6 +30,7 @@ from openpilot.starpilot.ui.onroad_curve import GlowPhase, controlling as curve_
 from openpilot.starpilot.ui.onroad_conditional import stop_active
 from openpilot.starpilot.ui.onroad_corner import CornerHintCache, render_corner_hint
 from openpilot.starpilot.ui.onroad_large_widgets import CurrentSpeedHud, UnifiedSpeedWidget, SteeringWheelWidget
+from openpilot.starpilot.ui.onroad_widget_style import draw_top_scrim
 from openpilot.starpilot.ui.onroad_cem_gauge import AetherGauge
 from openpilot.starpilot.ui.live_developer_sidebar import render_sidebar as render_live_sidebar
 from openpilot.starpilot.ui.layout_preview_sidebar import SIDEBAR_WIDTH
@@ -390,6 +391,7 @@ class OnroadView:
         self.camera_layer(content, state)
       elif self.background_layer is not None:
         self.background_layer(content, state)
+      draw_top_scrim(content)
       ordered = bool(state.customization.get("widgetOrder", {}).get("large"))
       if ordered:
         self._ordered_widgets(content, state)
