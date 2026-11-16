@@ -147,14 +147,64 @@ TURN_LEAD_ENGAGED_FRAC = 0.5
 TURN_LEAD_MODEL_OPPOSE = 0.003
 TURN_LEAD_STOP_MARGIN = 1.5
 TURN_LEAD_DECEL_GATE = -0.5
+# GV70-only turn-lead gate. All values below apply only when
+# ModelTurnAssist.gv70_lead_gate is set by controlsd for the
+# first-generation Electrified GV70; the Ioniq 6 path never reads them.
+# Rationale: with only the shared lead, a far probe ahead at an
+# intersection can be applied immediately while the near path is still
+# straight, starting the turn too early. The near/far fraction alone
+# does not separate that case, so check (a) is a same-sign + magnitude
+# floor, not a fraction; the separation comes from onset + ratio
+# jointly.
+GV70_TURN_LEAD_MAX_SPEED = 9.0
+GV70_LEAD_NEAR_PROBE_M = 4.0
+GV70_LEAD_NEAR_MIN = 0.010
+GV70_LEAD_ONSET_MAX_M = 8.0
+GV70_LEAD_RATIO_CAP = 2.0
+GV70_LEAD_RATCHET_RATE = 0.06
+# GV70-only high-speed preview. All values below apply only when
+# ModelTurnAssist.gv70_high_speed_preview is set by controlsd for the
+# first-generation Electrified GV70; every other car, including the
+# Ioniq 6, takes the original path. A far-ahead curvature must never
+# be imported on its own. Three circle probes at speed-scaled
+# distances must agree
+# in sign and be non-decreasing in magnitude, the applied target is
+# the MID probe (the far probe only confirms), the target is capped
+# at GV70_PREVIEW_RATIO_CAP times the model's own action curvature,
+# the model's own action must already exceed GV70_PREVIEW_BASE_MIN
+# (the preview amplifies a turn the model has begun; it does not
+# initiate one from a near-zero baseline), and the added curvature
+# is capped in lateral-accel terms and faded
+# out as the baseline desired lateral accel approaches the 1.9 cap,
+# so the preview is feedforward in the approach only and has zero
+# effect in a saturated core. The path-quality gate uses the model's
+# own lane-line probabilities, which are available on model_v2 at the
+# controlsd call site: at least one ego-lane line (indices 1 and 2)
+# must be confidently observed.
+GV70_PREVIEW_MIN_SPEED = 9.0
+GV70_PREVIEW_PROBE_TIMES = (1.2, 1.8, 2.4)
+GV70_PREVIEW_PROBE_MIN_M = (10.0, 15.0, 20.0)
+GV70_PREVIEW_PROBE_MAX_M = (24.0, 36.0, 48.0)
+GV70_PREVIEW_NEAR_MIN = 0.002
+GV70_PREVIEW_BASE_MIN = 0.0015
+GV70_PREVIEW_RATIO_CAP = 2.0
+GV70_PREVIEW_MAX_LAT_INCREMENT = 0.30
+GV70_PREVIEW_CAP_LAT_ACCEL = 1.9
+GV70_PREVIEW_FADE_LAT_ACCEL = 0.5
+GV70_PREVIEW_LANE_PROB_MIN = 0.50
+GV70_PREVIEW_RATCHET_RATE = 0.02
 
 
 class ModelTurnAssist:
 
-  def __init__(self):
+  def __init__(self, gv70_lead_gate: bool = False, gv70_high_speed_preview: bool = False):
+    self.gv70_lead_gate = gv70_lead_gate
+    self.gv70_high_speed_preview = gv70_high_speed_preview
     self.reset()
 
   def reset(self):
+    self.gv70_lead_value = 0.0
+    self.gv70_preview_value = 0.0
     self.turn_hold_curvature = 0.0
     self.turn_hold_standstill_t = 0.0
     self.turn_hold_swept = 0.0
@@ -165,6 +215,94 @@ class ModelTurnAssist:
     self.output_curvature = None
     self.curvature = 0.0
     self.turn_hold_done = False
+
+  def _gv70_gate_lead(self, model_v2, lead_curvature, baseline_curvature):
+    """GV70-only lead gate: returns the lead curvature allowed this frame.
+
+    All three checks must pass, otherwise the baseline is returned
+    (no lead) and the ratchet state re-syncs to the baseline:
+      (a) near/far agreement: the 4 m circle curvature has the same
+          sign as the lead and |near| >= GV70_LEAD_NEAR_MIN;
+      (b) onset distance: the model path's turn onset is at or
+          below GV70_LEAD_ONSET_MAX_M;
+      (c) ratio cap + ratchet: |lead| is capped at GV70_LEAD_RATIO_CAP
+          times |baseline| and the applied lead value moves toward
+          the capped target at at most GV70_LEAD_RATCHET_RATE / s.
+    Never called when gv70_lead_gate is off (Ioniq 6 path).
+    """
+    near = _plan_circle_curvature(model_v2.position.x, model_v2.position.y, GV70_LEAD_NEAR_PROBE_M)
+    onset = get_plan_turn_onset_dist(model_v2)
+    if (lead_curvature == 0.0 or baseline_curvature == 0.0 or near * lead_curvature <= 0.0 or
+        abs(near) < GV70_LEAD_NEAR_MIN or onset > GV70_LEAD_ONSET_MAX_M):
+      self.gv70_lead_value = baseline_curvature
+      return baseline_curvature
+    capped = math.copysign(min(abs(lead_curvature), GV70_LEAD_RATIO_CAP * abs(baseline_curvature)), lead_curvature)
+    if capped * self.gv70_lead_value > 0.0 and abs(capped) <= abs(self.gv70_lead_value):
+      # Shrinking request: follow the target immediately, never
+      # retain an old (larger) lead force.
+      self.gv70_lead_value = capped
+    else:
+      step = GV70_LEAD_RATCHET_RATE * DT_CTRL
+      self.gv70_lead_value += min(max(capped - self.gv70_lead_value, -step), step)
+    return self.gv70_lead_value
+
+  def _gv70_preview(self, CS, model_v2, CC, baseline_curvature, blinker_dir):
+    """GV70-only high-speed preview: returns the desired curvature.
+
+    Raises the baseline toward the MID spatial probe only when all
+    three probes agree monotonically, at least one ego lane line is
+    confidently observed, and the baseline is below the lateral-accel
+    cap. On any failed check the baseline is returned unchanged and
+    the ratchet state re-syncs to it. Never called when
+    gv70_high_speed_preview is off (all other cars).
+    """
+    def no_preview():
+      self.gv70_preview_value = baseline_curvature
+      return baseline_curvature
+
+    v_ego = CS.vEgo
+    if (not CC.latActive or blinker_dir != 0.0 or CS.steeringPressed or
+        not math.isfinite(v_ego) or v_ego < GV70_PREVIEW_MIN_SPEED or
+        model_v2.meta.laneChangeState != 0 or not _plan_positions_are_finite(model_v2) or
+        not math.isfinite(baseline_curvature) or baseline_curvature == 0.0):
+      return no_preview()
+    try:
+      lane_probs = [float(p) for p in model_v2.laneLineProbs]
+    except (AttributeError, TypeError, ValueError, OverflowError):
+      return no_preview()
+    if len(lane_probs) < 3 or not all(math.isfinite(p) for p in lane_probs):
+      return no_preview()
+    if max(lane_probs[1], lane_probs[2]) < GV70_PREVIEW_LANE_PROB_MIN:
+      return no_preview()
+    distances = [min(max(t * v_ego, lo), hi) for t, lo, hi in
+                 zip(GV70_PREVIEW_PROBE_TIMES, GV70_PREVIEW_PROBE_MIN_M, GV70_PREVIEW_PROBE_MAX_M, strict=True)]
+    if get_plan_reach(model_v2) < distances[-1]:
+      return no_preview()
+    probes = [_plan_circle_curvature(model_v2.position.x, model_v2.position.y, d) for d in distances]
+    if probes[0] == 0.0 or probes[0] * probes[1] <= 0.0 or probes[1] * probes[2] <= 0.0:
+      return no_preview()
+    magnitudes = [abs(p) for p in probes]
+    if magnitudes[0] < GV70_PREVIEW_NEAR_MIN or not (magnitudes[0] <= magnitudes[1] <= magnitudes[2]):
+      return no_preview()
+    target = probes[1]
+    if (target * baseline_curvature <= 0.0 or abs(baseline_curvature) < GV70_PREVIEW_BASE_MIN or
+        abs(target) <= abs(baseline_curvature)):
+      return no_preview()
+    capped = math.copysign(min(abs(target), GV70_PREVIEW_RATIO_CAP * abs(baseline_curvature)), target)
+    base_lat = abs(baseline_curvature) * v_ego ** 2
+    if base_lat >= GV70_PREVIEW_CAP_LAT_ACCEL:
+      return no_preview()
+    fade = min(max((GV70_PREVIEW_CAP_LAT_ACCEL - base_lat) / GV70_PREVIEW_FADE_LAT_ACCEL, 0.0), 1.0)
+    max_increment = min(GV70_PREVIEW_MAX_LAT_INCREMENT, GV70_PREVIEW_CAP_LAT_ACCEL - base_lat) / v_ego ** 2 * fade
+    candidate = baseline_curvature + math.copysign(min(abs(capped - baseline_curvature), max_increment), capped)
+    if candidate * self.gv70_preview_value <= 0.0 or abs(candidate) <= abs(self.gv70_preview_value):
+      # New direction or a shrinking request: follow immediately,
+      # never retain an old (larger) preview force.
+      self.gv70_preview_value = candidate
+    else:
+      step = GV70_PREVIEW_RATCHET_RATE * DT_CTRL
+      self.gv70_preview_value += min(max(candidate - self.gv70_preview_value, -step), step)
+    return self.gv70_preview_value
 
   def update_stopped(self, CS, new_desired_curvature):
     if CS.leftBlinker or CS.rightBlinker or self.output_curvature is None:
@@ -276,8 +414,9 @@ class ModelTurnAssist:
         hold_dir = math.copysign(1.0, self.turn_hold_curvature)
         if new_desired_curvature * hold_dir < abs(self.turn_hold_curvature):
           new_desired_curvature = self.turn_hold_curvature
+    lead_max_speed = GV70_TURN_LEAD_MAX_SPEED if self.gv70_lead_gate else TURN_LEAD_MAX_SPEED
     if (CC.latActive and (blinker_dir != 0.0) and (model_v2.meta.laneChangeState == 0) and
-        (TURN_LEAD_MIN_SPEED <= CS.vEgo < TURN_LEAD_MAX_SPEED) and (new_desired_curvature * blinker_dir > -TURN_LEAD_MODEL_OPPOSE)):
+        (TURN_LEAD_MIN_SPEED <= CS.vEgo < lead_max_speed) and (new_desired_curvature * blinker_dir > -TURN_LEAD_MODEL_OPPOSE)):
       d_near = max(min(TURN_LEAD_T * CS.vEgo, TURN_LEAD_MAX_M), TURN_LEAD_MIN_M)
       turning = self.curvature * blinker_dir > CURVATURE_HOLD_CONFIRM_MIN
       stopping_short = not turning and CS.aEgo < TURN_LEAD_DECEL_GATE and CS.vEgo ** 2 / (2.0 * -CS.aEgo) < TURN_LEAD_STOP_MARGIN * d_near
@@ -288,11 +427,15 @@ class ModelTurnAssist:
         engaged_ratio = abs(self.curvature) / abs(lead_curvature)
         engage_w = min(max((1.0 - engaged_ratio) / (1.0 - TURN_LEAD_ENGAGED_FRAC), 0.0), 1.0)
         lead_curvature *= speed_w * engage_w
+        if self.gv70_lead_gate:
+          lead_curvature = self._gv70_gate_lead(model_v2, lead_curvature, new_desired_curvature)
         if lead_curvature * blinker_dir > max(new_desired_curvature * blinker_dir, 0.0):
           new_desired_curvature = lead_curvature
           if CS.vEgo < CURVATURE_HOLD_RELEASE_SPEED and (not self.turn_hold_done) and (lead_curvature * blinker_dir > abs(self.turn_hold_curvature)):
             held_mag = min(lead_curvature * blinker_dir, abs(self.turn_hold_curvature) + CURVATURE_HOLD_RATCHET_RATE * DT_CTRL)
             self.turn_hold_curvature = math.copysign(held_mag, lead_curvature)
+    if self.gv70_high_speed_preview:
+      new_desired_curvature = self._gv70_preview(CS, model_v2, CC, new_desired_curvature, blinker_dir)
     self.output_curvature = new_desired_curvature
     return new_desired_curvature
 

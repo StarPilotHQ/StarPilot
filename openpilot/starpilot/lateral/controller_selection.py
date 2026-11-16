@@ -168,7 +168,25 @@ def turn_assist_supported(CP) -> bool:
 
 
 def model_turn_assist_supported(CP) -> bool:
-  return turn_assist_supported(CP) and policy_for(CP) == 'ioniq6'
+  # GV70: same model-turn-assist package as Ioniq 6 (turn lead, curvature
+  # hold, twitch guard), with all ModelTurnAssist constants unchanged.
+  # GV70 keeps its own policy ('genesis_gv70_electrified'); this only
+  # widens the controlsd assist gate, it does not rename the policy.
+  return turn_assist_supported(CP) and policy_for(CP) in ('ioniq6', 'genesis_gv70_electrified')
+
+
+def model_turn_assist_gv70_lead_gate(CP) -> bool:
+  # True only for the GV70: controlsd uses this to enable the
+  # GV70-only turn-lead gate (near/onset/ratio checks + wider lead
+  # speed range) in ModelTurnAssist. Ioniq 6 never enables it.
+  return turn_assist_supported(CP) and policy_for(CP) == 'genesis_gv70_electrified'
+
+
+def model_turn_assist_gv70_high_speed_preview(CP) -> bool:
+  # True only for the GV70: controlsd uses this to enable the
+  # GV70-only high-speed spatial preview in ModelTurnAssist.
+  # Ioniq 6 never enables it.
+  return turn_assist_supported(CP) and policy_for(CP) == 'genesis_gv70_electrified'
 
 
 def default_selection(CP) -> ControllerSelection:

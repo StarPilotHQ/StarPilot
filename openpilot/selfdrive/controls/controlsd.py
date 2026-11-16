@@ -196,10 +196,16 @@ class Controls:
       except Exception:
         self._discard_global_learning()
 
-    from openpilot.starpilot.lateral.controller_selection import model_turn_assist_supported
-
+    from openpilot.starpilot.lateral.controller_selection import (model_turn_assist_supported, model_turn_assist_gv70_lead_gate,
+                                                                   model_turn_assist_gv70_high_speed_preview)
     assist_enabled = self.vehicle_startup_preferences.turn_assist and model_turn_assist_supported(self.CP)
     self.turn_assist_enabled = lambda: assist_enabled
+    # GV70-only: gate the turn lead (near/onset/ratio checks, lead speed
+    # up to 9 m/s). No effect for any other car, including the Ioniq 6.
+    self.model_turn_assist.gv70_lead_gate = bool(assist_enabled and model_turn_assist_gv70_lead_gate(self.CP))
+    # GV70-only: high-speed spatial preview above 9 m/s. No effect for
+    # any other car, including the Ioniq 6.
+    self.model_turn_assist.gv70_high_speed_preview = bool(assist_enabled and model_turn_assist_gv70_high_speed_preview(self.CP))
 
   def _configure_route_tune(self, manual_status):
     from openpilot.starpilot.flm.offroad_runtime import configure
