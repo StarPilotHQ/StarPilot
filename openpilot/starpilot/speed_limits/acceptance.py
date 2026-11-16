@@ -163,7 +163,8 @@ class Decision:
 
 # Shared input predicates for every SLC module: one definition per question.
 def token(value: object) -> bool:
-  return type(value) is str and 0 < len(value) <= 256 and bool(value.strip()) and not any(ord(c) < 32 for c in value)
+  # min() is the C-level equivalent of all(ord(c) >= 32): no control characters.
+  return type(value) is str and 0 < len(value) <= 256 and min(value) >= ' ' and bool(value.strip())
 
 
 def integer(value: object, minimum: int = 0) -> TypeGuard[int]:
