@@ -4,11 +4,10 @@ This ledger does not authorize control or associate physical buttons with CAN.
 The input adapter must supply real action identities and a qualified context.
 """
 
-import math
 from dataclasses import dataclass, replace
 from enum import Enum
 
-from openpilot.starpilot.speed_limits.acceptance import ActionReceipt
+from openpilot.starpilot.speed_limits.acceptance import ActionReceipt, integer, number, token
 from openpilot.starpilot.speed_limits.acceptance import Decision as AcceptanceDecision
 from openpilot.starpilot.speed_limits.acceptance import State as AcceptanceState
 
@@ -98,23 +97,6 @@ class Result:
   errors: tuple[str, ...] = ()
 
 
-def _token(value: object) -> bool:
-  return type(value) is str and 0 < len(value) <= 256 and bool(value.strip()) and not any(ord(c) < 32 for c in value)
-
-
-def _integer(value: object, minimum: int = 0) -> bool:
-  return type(value) is int and value >= minimum
-
-
-def _speed(value: object) -> bool:
-  if type(value) is not int and type(value) is not float:
-    return False
-  try:
-    return math.isfinite(value) and value > 0
-  except OverflowError:
-    return False
-
-
 def _coherent(origin: Origin, disposition: Disposition) -> bool:
   if disposition is Disposition.DRIVER_INTENT:
     return origin is Origin.DRIVER_CRUISE
@@ -126,16 +108,16 @@ def _coherent(origin: Origin, disposition: Disposition) -> bool:
 
 
 def _state_valid(state: object) -> bool:
-  if (not isinstance(state, Ledger) or not _token(state.session_id) or type(state.transactions) is not tuple or
-      len(state.transactions) > MAX_TRANSACTIONS or not _integer(state.last_action_id, -1) or
-      not _integer(state.last_effect_id, -1) or type(state.reset_required) is not bool or
-      (state.last_timestamp_ns is not None and not _integer(state.last_timestamp_ns))):
+  if (not isinstance(state, Ledger) or not token(state.session_id) or type(state.transactions) is not tuple or
+      len(state.transactions) > MAX_TRANSACTIONS or not integer(state.last_action_id, -1) or
+      not integer(state.last_effect_id, -1) or type(state.reset_required) is not bool or
+      (state.last_timestamp_ns is not None and not integer(state.last_timestamp_ns))):
     return False
   last_id = -1
   for tx in state.transactions:
-    if (not isinstance(tx, Transaction) or not _integer(tx.action_id) or not last_id < tx.action_id <= state.last_action_id or
-        not isinstance(tx.origin, Origin) or not _token(tx.context_id) or not isinstance(tx.disposition, Disposition) or
-        not _integer(tx.started_at_ns) or state.last_timestamp_ns is None or tx.started_at_ns > state.last_timestamp_ns or
+    if (not isinstance(tx, Transaction) or not integer(tx.action_id) or not last_id < tx.action_id <= state.last_action_id or
+        not isinstance(tx.origin, Origin) or not token(tx.context_id) or not isinstance(tx.disposition, Disposition) or
+        not integer(tx.started_at_ns) or state.last_timestamp_ns is None or tx.started_at_ns > state.last_timestamp_ns or
         not _coherent(tx.origin, tx.disposition)):
       return False
     last_id = tx.action_id
@@ -150,15 +132,15 @@ def new_ledger(session_id: str) -> Ledger:
 
 
 def _event_valid(event: object) -> bool:
-  if not isinstance(event, (BeginAction, ResolveAction, CompleteAction, CruiseChange)) or not _token(event.session_id):
+  if not isinstance(event, (BeginAction, ResolveAction, CompleteAction, CruiseChange)) or not token(event.session_id):
     return False
   if isinstance(event, CruiseChange):
-    return (_integer(event.effect_id) and (event.action_id is None or _integer(event.action_id)) and
-            (event.previous_mps is None or _speed(event.previous_mps)) and _speed(event.selected_mps))
-  if not _integer(event.action_id):
+    return (integer(event.effect_id) and (event.action_id is None or integer(event.action_id)) and
+            (event.previous_mps is None or number(event.previous_mps, positive=True)) and number(event.selected_mps, positive=True))
+  if not integer(event.action_id):
     return False
   if isinstance(event, BeginAction):
-    return isinstance(event.origin, Origin) and _token(event.context_id)
+    return isinstance(event.origin, Origin) and token(event.context_id)
   if isinstance(event, ResolveAction):
     return isinstance(event.disposition, Disposition) and event.disposition is not Disposition.UNRESOLVED
   return True
@@ -172,7 +154,7 @@ def step(state: Ledger, event: BeginAction | ResolveAction | CompleteAction | Cr
     return Result(replace(state, reset_required=True), "invalid_input", errors=("invalid action event",))
   if event.session_id != state.session_id:
     return Result(state, "foreign_session")
-  if not _integer(now_ns) or (state.last_timestamp_ns is not None and now_ns < state.last_timestamp_ns):
+  if not integer(now_ns) or (state.last_timestamp_ns is not None and now_ns < state.last_timestamp_ns):
     return Result(replace(state, reset_required=True), "invalid_input", errors=("invalid or reversed monotonic clock",))
   state = replace(state, last_timestamp_ns=now_ns)
   if state.reset_required:
@@ -224,9 +206,9 @@ A caller handles actions not submitted to acceptance with an explicit resolution
 """
   if not _state_valid(state):
     return Result(state, "invalid_state", errors=("invalid ledger",))
-  if (not isinstance(decision, AcceptanceDecision) or not isinstance(decision.state, AcceptanceState) or not _integer(action_id) or
-      any(r is not None and (not isinstance(r, ActionReceipt) or not _integer(r.sequence_id) or
-                            type(r.acknowledged) is not bool or type(r.consumed) is not bool or not _token(r.status))
+  if (not isinstance(decision, AcceptanceDecision) or not isinstance(decision.state, AcceptanceState) or not integer(action_id) or
+      any(r is not None and (not isinstance(r, ActionReceipt) or not integer(r.sequence_id) or
+                            type(r.acknowledged) is not bool or type(r.consumed) is not bool or not token(r.status))
           for r in (decision.action_receipt, decision.adoption_receipt))):
     return Result(replace(state, reset_required=True), "invalid_input", errors=("invalid acceptance resolution",))
   if decision.state.session_id != state.session_id:
@@ -234,7 +216,7 @@ A caller handles actions not submitted to acceptance with an explicit resolution
   transaction = next((tx for tx in state.transactions if tx.action_id == action_id), None)
   if transaction is None:
     return Result(state, "unknown_or_completed_action")
-  if (not _integer(now_ns) or decision.state.last_timestamp_ns is None or not _integer(decision.state.last_timestamp_ns) or
+  if (not integer(now_ns) or decision.state.last_timestamp_ns is None or not integer(decision.state.last_timestamp_ns) or
       not transaction.started_at_ns <= decision.state.last_timestamp_ns <= now_ns):
     return Result(replace(state, reset_required=True), "invalid_input", errors=("acceptance clock does not match action lifecycle",))
   receipts = [r for r in (decision.action_receipt, decision.adoption_receipt) if r is not None and r.sequence_id == action_id]

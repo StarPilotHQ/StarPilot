@@ -91,7 +91,7 @@ def decode_event(raw: bytes) -> MapFrame:
 
 
 def _uint(value: object, *, positive: bool = False, maximum: int = MAX_UINT64) -> bool:
-  return type(value) is int and (value > 0 if positive else value >= 0) and value <= maximum
+  return acc.integer(value, 1 if positive else 0) and value <= maximum
 
 
 def _ordering_fields(frame: object) -> bool:

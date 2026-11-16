@@ -68,32 +68,12 @@ class PlannerCoordinate:
   ego_delta_mps: float | None = None
 
 
-def _number(value: object, *, positive: bool = False) -> bool:
-  if type(value) not in (int, float):
-    return False
-  assert isinstance(value, (int, float))
-  try:
-    return math.isfinite(value) and (value > 0 if positive else value >= 0)
-  except OverflowError:
-    return False
-
-
-def _signed_number(value: object) -> bool:
-  if type(value) not in (int, float):
-    return False
-  assert isinstance(value, (int, float))
-  try:
-    return math.isfinite(value)
-  except OverflowError:
-    return False
-
-
 def _pair_valid(pair: object, *, positive_raw: bool) -> bool:
   if not isinstance(pair, SpeedPair) or not isinstance(pair.status, DomainStatus):
     return False
   if pair.status is not DomainStatus.VALID:
     return pair.raw_mps is None and pair.cluster_mps is None
-  return (_number(pair.raw_mps, positive=positive_raw) and _number(pair.cluster_mps) and
+  return (acc.number(pair.raw_mps, positive=positive_raw) and acc.number(pair.cluster_mps) and
           pair.cluster_mps is not None and pair.raw_mps is not None and
           type(pair.session_id) is str and bool(pair.session_id) and
           type(pair.timestamp_ns) is int and pair.timestamp_ns >= 0)
@@ -101,7 +81,7 @@ def _pair_valid(pair: object, *, positive_raw: bool) -> bool:
 
 def selected_pair_from_kph(raw_mps: float, cluster_kph: float, *, session_id: str, timestamp_ns: int) -> SpeedPair:
   """Convert a qualified dashboard-selected cluster value from km/h to m/s."""
-  if not _number(raw_mps, positive=True) or not _number(cluster_kph):
+  if not acc.number(raw_mps, positive=True) or not acc.number(cluster_kph):
     return SpeedPair(DomainStatus.INVALID)
   return SpeedPair(DomainStatus.VALID, raw_mps, cluster_kph / 3.6, session_id, timestamp_ns)
 
@@ -110,11 +90,11 @@ def context_is_valid(context: object) -> bool:
   if not isinstance(context, DomainContext):
     return False
   return (type(context.session_id) is str and bool(context.session_id) and type(context.timestamp_ns) is int and
-          context.timestamp_ns >= 0 and _number(context.accepted_raw_mps, positive=True) and
-          _signed_number(context.offset_mps) and _number(context.effective_cluster_mps, positive=True) and
+          context.timestamp_ns >= 0 and acc.number(context.accepted_raw_mps, positive=True) and
+          acc.finite(context.offset_mps) and acc.number(context.effective_cluster_mps, positive=True) and
           math.isclose(context.effective_cluster_mps, context.accepted_raw_mps + context.offset_mps, rel_tol=0, abs_tol=1e-9) and
-          _number(context.selected_raw_mps, positive=True) and _number(context.selected_delta_mps) and
-          _number(context.ego_raw_mps) and _number(context.ego_delta_mps))
+          acc.number(context.selected_raw_mps, positive=True) and acc.number(context.selected_delta_mps) and
+          acc.number(context.ego_raw_mps) and acc.number(context.ego_delta_mps))
 
 
 def _schedule_valid(schedule: object) -> bool:
@@ -122,9 +102,9 @@ def _schedule_valid(schedule: object) -> bool:
     return False
   previous_upper = None
   for i, band in enumerate(schedule.bands):
-    if not isinstance(band, OffsetBand) or not _number(band.lower_mps) or not _signed_number(band.offset_mps):
+    if not isinstance(band, OffsetBand) or not acc.number(band.lower_mps) or not acc.finite(band.offset_mps):
       return False
-    if band.upper_mps is not None and (not _number(band.upper_mps, positive=True) or band.upper_mps <= band.lower_mps):
+    if band.upper_mps is not None and (not acc.number(band.upper_mps, positive=True) or band.upper_mps <= band.lower_mps):
       return False
     if i and (previous_upper is None or band.lower_mps < previous_upper):
       return False
@@ -133,7 +113,7 @@ def _schedule_valid(schedule: object) -> bool:
 
 
 def offset_for_limit(speed_mps: float, schedule: OffsetSchedule) -> float | None:
-  if not _number(speed_mps, positive=True) or not _schedule_valid(schedule):
+  if not acc.number(speed_mps, positive=True) or not _schedule_valid(schedule):
     return None
   for band in schedule.bands:
     if band.lower_mps <= speed_mps and (band.upper_mps is None or speed_mps < band.upper_mps):
@@ -144,17 +124,17 @@ def offset_for_limit(speed_mps: float, schedule: OffsetSchedule) -> float | None
 def adjusted_limit(speed_mps: float, schedule: OffsetSchedule, *, minimum_target_mps: float = 0.0) -> float | None:
   """Apply the offset within the ordinary cruise-speed bounds."""
   offset = offset_for_limit(speed_mps, schedule)
-  if offset is None or not _number(minimum_target_mps):
+  if offset is None or not acc.number(minimum_target_mps):
     return None
   value = speed_mps + offset
   if offset < 0 and value <= minimum_target_mps:
     value = speed_mps
-  return min(max(value, V_CRUISE_MIN / 3.6), V_CRUISE_MAX / 3.6) if _number(value, positive=True) else None
+  return min(max(value, V_CRUISE_MIN / 3.6), V_CRUISE_MAX / 3.6) if acc.number(value, positive=True) else None
 
 
 def set_speed_matches(target_mps: float, raw_kph: float, cluster_kph: float | None, is_metric: bool | None) -> bool:
   """Compare the SET values Card would actually write, including display-unit rounding."""
-  if type(is_metric) is not bool or not all(_number(v, positive=True) for v in (target_mps, raw_kph, cluster_kph)):
+  if type(is_metric) is not bool or not all(acc.number(v, positive=True) for v in (target_mps, raw_kph, cluster_kph)):
     return False
   if not V_CRUISE_MIN / 3.6 <= target_mps <= V_CRUISE_MAX / 3.6:
     return False
@@ -211,7 +191,7 @@ def resolve(decision: acc.Decision, schedule: OffsetSchedule, selected: SpeedPai
   if decision.control_target_mps is None or selected.status is not DomainStatus.VALID or ego.status is not DomainStatus.VALID:
     return DomainResolution(DomainStatus.UNAVAILABLE, reason="target or coordinate evidence unavailable")
   target = decision.control_target_mps
-  if (not _number(target, positive=True) or accepted is None or
+  if (not acc.number(target, positive=True) or accepted is None or
       accepted.candidate.speed_mps != target or not decision.authority.can_control or
       decision.policy.display_only or
       decision.state.observation.kind is not acc.ObservationKind.VALID and
@@ -235,10 +215,10 @@ def resolve(decision: acc.Decision, schedule: OffsetSchedule, selected: SpeedPai
 
 def to_planner_coordinate(context: DomainContext, *, override_mps: float = 0.) -> PlannerCoordinate:
   """Remove the ego delta from the selected cluster target exactly once."""
-  if not context_is_valid(context) or not _number(override_mps):
+  if not context_is_valid(context) or not acc.number(override_mps):
     return PlannerCoordinate(None, "invalid")
   cluster_target = max(context.effective_cluster_mps, override_mps)
   cap = cluster_target - context.ego_delta_mps
-  if not _number(cap, positive=True):
+  if not acc.number(cap, positive=True):
     return PlannerCoordinate(None, "nonpositive", cluster_target, context.ego_delta_mps)
   return PlannerCoordinate(cap, 'none', cluster_target, context.ego_delta_mps)

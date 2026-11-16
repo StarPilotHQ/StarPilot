@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-import math
 from typing import cast
 
+from openpilot.starpilot.speed_limits import acceptance as acc
 from openpilot.starpilot.speed_limits import speed_domain as sd
 
 MPH_TO_MPS = 0.44704
@@ -35,7 +35,7 @@ NEEDS_REVIEW = NeedsReview()
 
 
 def _finite(value: object) -> float:
-  if not isinstance(value, (int, float)) or type(value) not in (int, float) or not math.isfinite(value):
+  if not acc.finite(value):
     raise ValueError('SLC offset value must be finite')
   return float(value)
 

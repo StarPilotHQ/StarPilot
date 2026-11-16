@@ -20,10 +20,6 @@ from openpilot.starpilot.speed_limits.advance import Advance
 from openpilot.starpilot.speed_limits.vision.observation import clock_pair_ns, vision_observation
 
 
-def _number(value, *, positive=False) -> bool:
-  return type(value) in (int, float) and math.isfinite(value) and (value > 0 if positive else value >= 0)
-
-
 def _fresh(sm, service: str, now_ns: int) -> bool:
   timestamp = sm.logMonoTime.get(service, 0)
   frequency = SERVICE_LIST[service].frequency
@@ -54,7 +50,7 @@ def dashboard_observation(evidence, *, car_fingerprint: str, session_id: str, no
     return acc.Observation(acc.ObservationKind.STALE)
   if status == "absent":
     return acc.Observation(acc.ObservationKind.ABSENT)
-  if status != "valid" or not _number(evidence.speedMps, positive=True) or int(evidence.episode) <= 0:
+  if status != "valid" or not acc.number(evidence.speedMps, positive=True) or int(evidence.episode) <= 0:
     return acc.Observation(acc.ObservationKind.UNKNOWN)
   producer_session = str(evidence.producerSessionId)
   if not producer_session:
@@ -199,8 +195,8 @@ class Runtime:
 
   def _cruise(self, event: CruiseEvent | None, sm, now_ns: int) -> arb.Result | None:
     if (event is None or event.kind != 'driverChange' or not self._event_current(event, sm, now_ns) or
-        event.button not in ('accel', 'decel') or not _number(event.previous_mps, positive=True) or
-        not _number(event.selected_mps, positive=True) or event.previous_mps == event.selected_mps or
+        event.button not in ('accel', 'decel') or not acc.number(event.previous_mps, positive=True) or
+        not acc.number(event.selected_mps, positive=True) or event.previous_mps == event.selected_mps or
         abs(float(sm['carState'].vCruise) / 3.6 - event.selected_mps) > 0.1):
       return None
     self._mark_event(event)
@@ -239,8 +235,8 @@ class Runtime:
         event.button != ('accel' if event.kind == 'confirmationAccept' else 'decel')):
       return None, None, None
     if engagement:
-      if (event.command_id != 0 or not _number(event.selected_mps, positive=True) or
-          not _number(float(sm['carState'].vCruise), positive=True) or
+      if (event.command_id != 0 or not acc.number(event.selected_mps, positive=True) or
+          not acc.number(float(sm['carState'].vCruise), positive=True) or
           abs(float(sm['carState'].vCruise) / 3.6 - event.selected_mps) > 0.1):
         return None, None, None
     elif pending is None or event.decision_id != pending.decision_id or pending.candidate != shown.candidate:
@@ -356,8 +352,8 @@ class Runtime:
     authority = _authority(CP, sm, host_long, lateral, long_enabled=long_enabled)
     # Native pedal handoff keeps the engagement while the driver controls acceleration.
     authority = replace(authority, accelerator_override=bool(CP.openpilotLongitudinalControl and long_enabled and car_state.gasPressed))
-    selected = float(car_state.vCruise) if car_fresh and _number(car_state.vCruise) else 0.0
-    selected_cluster = float(car_state.vCruiseCluster) if car_fresh and _number(car_state.vCruiseCluster) else None
+    selected = float(car_state.vCruise) if car_fresh and acc.number(car_state.vCruise) else 0.0
+    selected_cluster = float(car_state.vCruiseCluster) if car_fresh and acc.number(car_state.vCruiseCluster) else None
     # Filtered ego speed can undershoot zero after the wheels stop.
     ego_speeds = (car_state.vEgo, car_state.vEgoCluster)
     ego_valid = car_fresh and all(type(speed) in (int, float) and math.isfinite(speed) and

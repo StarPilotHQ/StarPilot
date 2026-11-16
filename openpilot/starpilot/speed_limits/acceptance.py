@@ -1,5 +1,5 @@
 """Immutable acceptance decisions with explicit authority and no runtime I/O."""
-from typing import cast
+from typing import TypeGuard
 
 
 import math
@@ -161,36 +161,51 @@ class Decision:
   policy: Policy | None = None
 
 
-def _token(value: object) -> bool:
+# Shared input predicates for every SLC module: one definition per question.
+def token(value: object) -> bool:
   return type(value) is str and 0 < len(value) <= 256 and bool(value.strip()) and not any(ord(c) < 32 for c in value)
 
 
-def _integer(value: object, minimum: int = 0) -> bool:
+def integer(value: object, minimum: int = 0) -> TypeGuard[int]:
   return type(value) is int and value >= minimum
+
+
+def number(value: object, *, positive: bool = False) -> TypeGuard[int | float]:
+  if type(value) not in (int, float):
+    return False
+  try:
+    # A saved or decoded value can be an int too large for math.isfinite.
+    return math.isfinite(value) and (value > 0 if positive else value >= 0)
+  except OverflowError:
+    return False
+
+
+# The only predicate that admits a negative, since offsets may be below zero. Not
+# built on number(), whose own guard must stay a single call on the per-frame path.
+def finite(value: object) -> TypeGuard[int | float]:
+  if type(value) not in (int, float):
+    return False
+  try:
+    return math.isfinite(value)
+  except OverflowError:
+    return False
 
 
 def _identity_valid(identity: object) -> bool:
   if not isinstance(identity, ObservationIdentity) or not isinstance(identity.kind, IdentityKind):
     return False
   if identity.kind is IdentityKind.SESSION_VALUE:
-    return identity.value is None and _token(identity.session_id)
-  return _token(identity.value) and identity.session_id is None
-
-
-def _speed_valid(value: object) -> bool:
-  try:
-    return type(value) in (int, float) and math.isfinite(cast(float, value)) and cast(float, value) > 0
-  except OverflowError:
-    return False
+    return identity.value is None and token(identity.session_id)
+  return token(identity.value) and identity.session_id is None
 
 
 def _candidate_valid(candidate: object, session_id: str | None = None) -> bool:
-  if not isinstance(candidate, Candidate) or not _token(candidate.source) or not _identity_valid(candidate.observation_identity):
+  if not isinstance(candidate, Candidate) or not token(candidate.source) or not _identity_valid(candidate.observation_identity):
     return False
   identity = candidate.observation_identity
   if session_id is not None and identity.kind is IdentityKind.SESSION_VALUE and identity.session_id != session_id:
     return False
-  return _speed_valid(candidate.speed_mps)
+  return number(candidate.speed_mps, positive=True)
 
 
 def observation_is_valid(observation: object, *, session_id: str | None = None) -> bool:
@@ -201,7 +216,7 @@ def observation_is_valid(observation: object, *, session_id: str | None = None) 
 
 def _accepted_valid(accepted: object) -> bool:
   return (isinstance(accepted, AcceptedLimit) and _candidate_valid(accepted.candidate, accepted.session_id) and
-          _token(accepted.session_id) and _integer(accepted.accepted_at_ns))
+          token(accepted.session_id) and integer(accepted.accepted_at_ns))
 
 
 def _authority_errors(authority: object) -> list[str]:
@@ -236,15 +251,15 @@ def _state_errors(state: State) -> list[str]:
   errors = []
   if not isinstance(state, State):
     return ["invalid state type"]
-  if not _token(state.session_id) or not observation_is_valid(state.observation, session_id=state.session_id):
+  if not token(state.session_id) or not observation_is_valid(state.observation, session_id=state.session_id):
     errors.append("invalid state identity or observation")
   if state.accepted is not None and (not _accepted_valid(state.accepted) or not _candidate_valid(state.accepted.candidate, state.session_id)):
     errors.append("invalid accepted history")
-  if state.last_timestamp_ns is not None and not _integer(state.last_timestamp_ns):
+  if state.last_timestamp_ns is not None and not integer(state.last_timestamp_ns):
     errors.append("invalid state clock")
-  if state.received_speed_mps is not None and not _speed_valid(state.received_speed_mps):
+  if state.received_speed_mps is not None and not number(state.received_speed_mps, positive=True):
     errors.append("invalid received speed")
-  if not _integer(state.last_action_sequence, -1) or not _integer(state.next_decision_id, 1) or not _integer(state.next_presentation_id, 1):
+  if not integer(state.last_action_sequence, -1) or not integer(state.next_decision_id, 1) or not integer(state.next_presentation_id, 1):
     errors.append("invalid state sequence")
   if type(state.timer_running) is not bool:
     errors.append("invalid state flags")
@@ -254,8 +269,8 @@ def _state_errors(state: State) -> list[str]:
   if state.pending is not None:
     pending = state.pending
     if (not isinstance(pending, PendingDecision) or not _candidate_valid(pending.candidate, state.session_id) or
-        not _integer(pending.decision_id, 1) or not _integer(pending.active_elapsed_ns) or type(pending.automatic) is not bool or
-        not _integer(state.next_decision_id, 1) or pending.decision_id >= state.next_decision_id or
+        not integer(pending.decision_id, 1) or not integer(pending.active_elapsed_ns) or type(pending.automatic) is not bool or
+        not integer(state.next_decision_id, 1) or pending.decision_id >= state.next_decision_id or
         pending.candidate.speed_mps != state.received_speed_mps or
         pending.automatic and state.observation != Observation(ObservationKind.VALID, pending.candidate)):
       errors.append("invalid pending decision")
@@ -265,8 +280,8 @@ def _state_errors(state: State) -> list[str]:
     errors.append("timer lacks pending decision or clock")
   if state.presentation is not None:
     shown = state.presentation
-    if (not isinstance(shown, Presentation) or not _integer(shown.presentation_id, 1) or
-        not _integer(state.next_presentation_id, 1) or shown.presentation_id >= state.next_presentation_id or
+    if (not isinstance(shown, Presentation) or not integer(shown.presentation_id, 1) or
+        not integer(state.next_presentation_id, 1) or shown.presentation_id >= state.next_presentation_id or
         not _candidate_valid(shown.candidate, state.session_id) or state.last_timestamp_ns is None or
         state.observation != Observation(ObservationKind.VALID, shown.candidate) and not (
           isinstance(state.pending, PendingDecision) and not state.pending.automatic and
@@ -288,9 +303,9 @@ def new_session(session_id: str, accepted: AcceptedLimit | None = None) -> State
 
 
 def _action_valid(action: object) -> bool:
-  return (isinstance(action, DriverAction) and _token(action.session_id) and _integer(action.sequence_id) and
-          _integer(action.decision_id, 1) and isinstance(action.kind, ActionKind) and
-          (action.observed_ns is None or _integer(action.observed_ns, 1)))
+  return (isinstance(action, DriverAction) and token(action.session_id) and integer(action.sequence_id) and
+          integer(action.decision_id, 1) and isinstance(action.kind, ActionKind) and
+          (action.observed_ns is None or integer(action.observed_ns, 1)))
 
 
 def _timely(action: DriverAction, pending: PendingDecision, now_ns: int) -> bool:
@@ -299,8 +314,8 @@ def _timely(action: DriverAction, pending: PendingDecision, now_ns: int) -> bool
 
 
 def _adopt_valid(adopt: object) -> bool:
-  return (isinstance(adopt, AdoptRequest) and _token(adopt.session_id) and _integer(adopt.sequence_id) and
-          _integer(adopt.presentation_id, 1) and _candidate_valid(adopt.candidate, adopt.session_id))
+  return (isinstance(adopt, AdoptRequest) and token(adopt.session_id) and integer(adopt.sequence_id) and
+          integer(adopt.presentation_id, 1) and _candidate_valid(adopt.candidate, adopt.session_id))
 
 
 def _acknowledge(state: State, action: DriverAction | AdoptRequest | None) -> tuple[State, ActionReceipt | None]:
@@ -340,7 +355,7 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
   if not isinstance(policy, Policy) or any(type(v) is not bool for v in (
       policy.confirm_lower, policy.confirm_higher, policy.display_only)):
     errors.append("invalid policy")
-  if not _integer(now_ns) or (state.last_timestamp_ns is not None and now_ns < state.last_timestamp_ns):
+  if not integer(now_ns) or (state.last_timestamp_ns is not None and now_ns < state.last_timestamp_ns):
     errors.append("invalid or reversed monotonic clock")
   if action is not None and (not _action_valid(action) or action.observed_ns is not None and action.observed_ns > now_ns):
     errors.append("invalid driver action")
@@ -350,9 +365,9 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
     errors.append("ambiguous action and adopt request")
   if type(set_speed_matches) is not bool:
     errors.append("invalid SET alignment")
-  if not _integer(confirmation_grace_ns):
+  if not integer(confirmation_grace_ns):
     errors.append("invalid confirmation grace")
-  if confirmation_started_ns is not None and (not _integer(confirmation_started_ns) or not _integer(now_ns) or confirmation_started_ns > now_ns):
+  if confirmation_started_ns is not None and (not integer(confirmation_started_ns) or not integer(now_ns) or confirmation_started_ns > now_ns):
     errors.append('invalid confirmation start')
   if errors:
     # Do not defer a stale prompt or credit the invalid interval on recovery.
