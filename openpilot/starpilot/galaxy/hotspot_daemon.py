@@ -7,7 +7,7 @@ import subprocess
 import threading
 import time
 
-from openpilot.starpilot.galaxy.hotspot import HotspotSettings, STATUS_PATH, atomic_json
+from openpilot.starpilot.galaxy.hotspot import HotspotSettings, STATUS_PATH, atomic_json, paused
 from openpilot.starpilot.system.pipe_worker import spawn
 
 
@@ -41,7 +41,8 @@ def main():
             runtime = {'active': False, 'state': 'starting', 'reason': 'Starting hotspot service.'}
           if child.poll() is not None:
             raise RuntimeError('Worker exited')
-          child.stdin.write(json.dumps(config).encode() + b'\n')
+          standing_down = paused()
+          child.stdin.write(json.dumps({**config, 'enabled': not standing_down}).encode() + b'\n')
           child.stdin.flush()
           stdout = child.stdout
           if stdout is None:
@@ -57,6 +58,10 @@ def main():
               line, buffer = buffer.split(b'\n', 1)
               runtime = json.loads(line)
               last_reply = time.monotonic()
+          if standing_down:
+            runtime = {'active': False, 'state': 'waiting', 'reason': 'Paused while the comma joins Wi-Fi.', 'revision': revision}
+          elif runtime.get('state') == 'disabled':
+            runtime = {'active': False, 'state': 'starting', 'reason': 'Starting hotspot service.', 'revision': revision}
           if time.monotonic() - last_reply > 20:
             raise RuntimeError('Worker unresponsive')
         atomic_json(STATUS_PATH, {**runtime, 'revision': runtime.get('revision', revision), 'updated': time.monotonic()})
