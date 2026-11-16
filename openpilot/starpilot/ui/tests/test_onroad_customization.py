@@ -54,7 +54,7 @@ def test_v12_portrait_upgrade_preserves_preferences_and_is_idempotent():
   before = copy.deepcopy(old)
   updated = validate_document(old)
   expected = copy.deepcopy(old)
-  expected['version'] = 14
+  expected['version'] = 15
   expected['layouts']['compact']['speed_limit'].update(x=320, y=16)
   assert old == before and updated == expected
   assert validate_document(updated) == updated
@@ -68,7 +68,7 @@ def test_v12_edge_placements_remain_bounded_even_with_confirmation_disabled():
   old['layouts']['large']['cruise_limits']['y'] = 882
   old['layouts']['compact']['speed_limit'].update(x=358, y=108)
   updated = validate_document(old)
-  assert updated['layouts']['large']['cruise_limits']['y'] == 856
+  assert updated['layouts']['large']['cruise_limits']['y'] == 798
   assert updated['layouts']['compact']['speed_limit'] == {'x': 348, 'y': 96, 'enabled': True}
   assert validate_document(updated) == updated
   assert all(not layout['speed_limit_actions']['enabled'] for layout in updated['layouts'].values())
@@ -86,7 +86,7 @@ def test_v13_notice_upgrade_preserves_preferences_and_only_moves_a_conflicting_s
   before = copy.deepcopy(old)
   updated = validate_document(old)
   expected = copy.deepcopy(old)
-  expected['version'] = 14
+  expected['version'] = 15
   expected['layouts']['compact']['speed_limit']['y'] = min(sign_y, 16)
   assert old == before and updated == expected
   assert validate_document(updated) == updated
@@ -108,7 +108,7 @@ def test_v12_source_attachment_follows_the_new_row_without_moving_custom_actions
   actions = old['layouts']['large']['speed_limit_actions']
   actions['y'] = 367 if separate else 359
   updated = validate_document(old)
-  assert updated['layouts']['large']['speed_limit_actions']['y'] == (389 if separate else 381)
+  assert updated['layouts']['large']['speed_limit_actions']['y'] == (457 if separate else 449)
   assert validate_document(updated) == updated
   actions.update(x=600, y=400)
   assert validate_document(old)['layouts']['large']['speed_limit_actions'] == actions
@@ -170,7 +170,7 @@ def test_source_attachment_saves_real_bounded_positions_without_changing_input(v
   assert placement(saved, 'large', 'speed_limit_actions') == actions
   assert actions['y'] == card['y'] + widget_size(saved, 'large', 'cruise_limits')[1] + 8
   assert actions['y'] + widget_size(saved, 'large', 'speed_limit_actions')[1] <= 1050
-  assert actions['y'] == (389 if separate else 381)
+  assert actions['y'] == (457 if separate else 449)
 
 
 def test_v7_speed_layout_migration_is_bounded_non_mutating_and_idempotent():
@@ -192,8 +192,8 @@ def test_v7_speed_layout_migration_is_bounded_non_mutating_and_idempotent():
   original = copy.deepcopy(document)
   migrated = validate_document(document)
   assert document == original
-  assert migrated['version'] == 14 and validate_document(migrated) == migrated
-  assert migrated['layouts']['large']['cruise_limits']['x'] == 1437
+  assert migrated['version'] == 15 and validate_document(migrated) == migrated
+  assert migrated['layouts']['large']['cruise_limits']['x'] == 1391
   assert migrated['layouts']['large']['speed_limit_actions'] == {'x': 1510, 'y': 882, 'enabled': True}
   assert migrated['layouts']['large']['current_speed'] == original['layouts']['large']['current_speed']
   assert migrated['layouts']['large']['cem_gauge'] == {'x': 56, 'y': 536, 'enabled': True}
@@ -222,7 +222,7 @@ def test_v8_restores_only_compact_speed_defaults_and_preserves_customizations(cu
   original = copy.deepcopy(document)
   migrated = validate_document(document)
   assert document == original
-  assert migrated['version'] == 14 and validate_document(migrated) == migrated
+  assert migrated['version'] == 15 and validate_document(migrated) == migrated
   assert migrated['layouts']['large'] == document['layouts']['large']
   assert migrated['widgetColors'] == document['widgetColors']
   assert migrated['widgetOrder'] == document['widgetOrder']
@@ -263,7 +263,7 @@ def test_v8_actionless_layout_preserves_customizations_when_adding_compact_actio
   original = copy.deepcopy(document)
   migrated = validate_document(document)
   assert document == original
-  assert migrated['version'] == 14 and validate_document(migrated) == migrated
+  assert migrated['version'] == 15 and validate_document(migrated) == migrated
   assert migrated['layouts']['large'] == {**original['layouts']['large'], 'speed_limit_actions': large_actions}
   assert migrated['layouts']['compact']['speed_limit'] == default_document()['layouts']['compact']['speed_limit']
   assert migrated['layouts']['compact']['speed_limit_actions'] == {'x': 146, 'y': 44, 'enabled': True}
@@ -382,7 +382,7 @@ def test_v3_layout_migrates_wheel_size_without_changing_saved_placement_or_color
   for profile in ("large", "compact"):
     del document["layouts"][profile]["steering_wheel"]["size"]
   migrated = validate_document(document)
-  assert migrated["version"] == 14
+  assert migrated["version"] == 15
   assert migrated["palette"] == document["palette"]
   assert migrated["layouts"]["large"]["steering_wheel"] == {"x": 1300, "y": 100, "enabled": False, "size": 192}
   assert migrated["layouts"]["compact"]["steering_wheel"] == {"x": 90, "y": 130, "enabled": True, "size": 50}
@@ -416,7 +416,7 @@ def test_pre_action_saved_layout_migrates_without_losing_positions_or_palette(re
       assert migrated["layouts"][profile][key] == {
         **position, **({"size": customization_metadata()["profiles"][profile]["widgets"][key]["width"]}
                      if key == "steering_wheel" else {})}
-  assert migrated["layouts"]["large"]["speed_limit_actions"] == {"x": 312, "y": 367, "enabled": False}
+  assert migrated["layouts"]["large"]["speed_limit_actions"] == {"x": 312, "y": 425, "enabled": False}
   assert migrated["layouts"]["compact"]["speed_limit_actions"] == default_document()["layouts"]["compact"]["speed_limit_actions"]
 
 
@@ -434,7 +434,7 @@ def test_malformed_pre_action_cruise_placement_is_rejected():
 def test_duplicate_key_cannot_apply_otherwise_valid_placement():
   document = default_document()
   document["layouts"]["large"]["current_speed"]["x"] = 100
-  raw = json.dumps(document).replace('"version": 14', '"version": 11, "version": 11').encode()
+  raw = json.dumps(document).replace('"version": 15', '"version": 11, "version": 11').encode()
   with patch("openpilot.starpilot.ui.onroad_customization.read_saved", return_value=(raw, True)):
     assert read_customization(Mock()) == default_document()
 
@@ -450,7 +450,7 @@ def test_v9_large_sign_migration_preserves_customizations_and_clamps_bottom_edge
   before = deepcopy(old)
   updated = validate_document(old)
   assert old == before
-  assert updated['version'] == 14
+  assert updated['version'] == 15
   assert updated['layouts']['large']['cruise_limits']['y'] == default_document()['layouts']['large']['cruise_limits']['y']
   assert updated['layouts']['large']['speed_limit_actions'] == before['layouts']['large']['speed_limit_actions']
   assert updated['layouts']['compact'] == before['layouts']['compact']
@@ -463,7 +463,7 @@ def test_v9_moves_only_actions_paired_with_the_old_large_speed_group():
   old['layouts']['large']['cruise_limits'].update(x=188, y=95)
   old['layouts']['large']['speed_limit_actions'].update(x=200, y=268)
   updated = validate_document(old)
-  assert updated['layouts']['large']['speed_limit_actions'] == {'x': 212, 'y': 287, 'enabled': True}
+  assert updated['layouts']['large']['speed_limit_actions'] == {'x': 212, 'y': 345, 'enabled': True}
   assert validate_document(updated) == updated
 
 
@@ -560,7 +560,7 @@ def test_large_draw_origins_and_wheel_input_move_together():
   with patch("openpilot.starpilot.ui.onroad_large_widgets.draw_control_card") as card, patch.object(rl, "draw_line_ex"):
     UnifiedSpeedWidget(Mock(spec=BitmapFonts, **vars(fonts))).render(content, state)
     card.assert_not_called()
-    assert foreground_calls(fonts.draw)[0].args[3:5] == pytest.approx((275, 138.27), abs=.01)
+    assert foreground_calls(fonts.draw)[0].args[3:5] == pytest.approx((275, 145.55), abs=.01)
   CurrentSpeedHud(Mock(spec=BitmapFonts, **vars(fonts))).render(content, state)
   assert foreground_calls(fonts.draw)[-2].args[3:5] == (965, 112)
   wheel = SteeringWheelWidget(Path('/unused'))
@@ -593,7 +593,7 @@ def test_frozen_default_draw_geometry_and_neutral_colors():
     UnifiedSpeedWidget(Mock(spec=BitmapFonts, **vars(fonts))).render(content, state)
     card.assert_not_called()
     assert fonts.draw.call_args_list[0].args[0] == 'SET'
-    assert foreground_calls(fonts.draw)[0].args[3:5] == pytest.approx((175, 118.27), abs=.01)
+    assert foreground_calls(fonts.draw)[0].args[3:5] == pytest.approx((175, 125.55), abs=.01)
   CurrentSpeedHud(Mock(spec=BitmapFonts, **vars(fonts))).render(content, state)
   assert foreground_calls(fonts.draw)[-2].args[3:5] == (925, 72)
   assert foreground_calls(fonts.draw)[-1].args[3:5] == pytest.approx((925, 215.2))
@@ -706,7 +706,7 @@ def test_v1_palette_positions_and_visibility_migrate_without_mutating_source():
   original = copy.deepcopy(old)
   result = decode_document(json.dumps(old).encode())
   assert old == original
-  assert result['version'] == 14
+  assert result['version'] == 15
   assert result['palette'] == old['palette']
   for profile, layout in old['layouts'].items():
     for key, position in layout.items():

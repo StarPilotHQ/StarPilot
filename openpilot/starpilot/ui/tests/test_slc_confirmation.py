@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pytest
 
-from openpilot.starpilot.ui.large_speed_geometry import CONFIRMATION_SCALE
+from openpilot.starpilot.ui.large_speed_geometry import CONFIRMATION_SCALE, PROMPT_SCALE
 from openpilot.starpilot.ui.onroad_customization import default_document, validate_document
 from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadAlert, OnroadInput, manual_slc_confirmation, slc_controls, speed_limit_bounds
 from openpilot.starpilot.ui.presentation import Profile
@@ -51,12 +51,14 @@ def test_closed_and_open_card_share_anchor_and_physically_scaled_targets(profile
   after = speed_limit_bounds(profile, opened)
   assert before is not None and after is not None
   assert before[1] == after[1]
-  assert before[3] - after[3] == pytest.approx(7 if profile == Profile.COMPACT else 0)
+  # The notices are taller than their open buttons; their boxes are transparent.
+  assert before[3] - after[3] == pytest.approx(7 if profile == Profile.COMPACT else 16 * CONFIRMATION_SCALE[profile])
   assert after[0] <= before[0] < before[2] <= after[2]
   first, last = slc_controls(profile, opened)
-  scale = CONFIRMATION_SCALE[profile]
+  # Button widths stay at finger size; their height follows the notice they open from.
+  scale, height_scale = PROMPT_SCALE[profile], CONFIRMATION_SCALE[profile]
   assert (first.bounds[2] - first.bounds[0]) / scale == pytest.approx(180 if profile == Profile.LARGE else 150)
-  assert (first.bounds[3] - first.bounds[1]) / scale == pytest.approx(128 if profile == Profile.LARGE else 112)
+  assert (first.bounds[3] - first.bounds[1]) / height_scale == pytest.approx(128 if profile == Profile.LARGE else 112)
   assert (last.bounds[0] - first.bounds[2]) / scale == pytest.approx(12)
   assert (first.bounds[0] - after[0]) / scale == pytest.approx(8)
   assert (after[2] - last.bounds[2]) / scale == pytest.approx(8)
@@ -154,7 +156,7 @@ def test_new_layouts_reject_torque_overlap_and_legacy_migration_is_targeted(prof
   original = deepcopy(doc)
   migrated = validate_document(doc)
   assert doc == original
-  assert migrated['version'] == 14
+  assert migrated['version'] == 15
   assert migrated['palette'] == doc['palette']
   assert migrated['layouts']['large']['current_speed'] == doc['layouts']['large']['current_speed']
   assert migrated['layouts'][str(profile)][owner]['y'] == default_document()['layouts'][str(profile)][owner]['y']
@@ -166,7 +168,7 @@ def test_legacy_sources_keep_the_saved_action_area_below_the_row():
   doc.update(version=11, speedSources=True, speedSourcesCard=True)
   doc['layouts']['large']['speed_limit_actions']['y'] = 351
   migrated = validate_document(doc)
-  assert migrated['layouts']['large']['speed_limit_actions']['y'] == 389
+  assert migrated['layouts']['large']['speed_limit_actions']['y'] == 457
   assert validate_document(migrated) == migrated
 
 

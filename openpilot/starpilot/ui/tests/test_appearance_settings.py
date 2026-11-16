@@ -626,7 +626,7 @@ class AppearanceSettingsTests(unittest.TestCase):
       from openpilot.starpilot.ui.tests.test_unified_speed_native import foreground_calls
       x, y = foreground_calls(fonts.draw)[0].args[3:5]
       self.assertAlmostEqual(x, 175)
-      self.assertAlmostEqual(y, 118.27, places=2)  # SET centers on the sign beside it
+      self.assertAlmostEqual(y, 125.55, places=2)  # SET centers on the sign beside it
     for profile in (Profile.LARGE, Profile.COMPACT):
       view = onroad.OnroadView.__new__(onroad.OnroadView)
       view._fade = Mock()

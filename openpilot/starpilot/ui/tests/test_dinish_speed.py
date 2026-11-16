@@ -101,9 +101,10 @@ def test_large_set_and_limit_share_typography_at_the_saved_position():
         assert right-left <= 108*LARGE_SIGN_SCALE
         assert abs(posted[3] + (left + right) / 2 - (418 + SIGN_WIDTH/2*LARGE_SIGN_SCALE)) <= .5
         a, b = fonts.vertical_ink('120', FontRole.SET_SPEED, posted[2])
-        assert 60 <= b - a <= 70
-        # The posted sign keeps its own rows; with an offset its number is centered on row 76.
-        assert abs(posted[4]+(a+b)/2-(95+76*LARGE_SIGN_SCALE)) <= .5
+        assert 60 * 1.3 <= b - a <= 70 * 1.3  # 1.3x the compact display's physical size
+        # SET and the sign put their numbers on one shared row below the card top (y=95 here).
+        from openpilot.starpilot.ui.speed_limit_widget import SHARED_NUMBER_ROW
+        assert abs(posted[4]+(a+b)/2-(95+SHARED_NUMBER_ROW*LARGE_SIGN_SCALE)) <= .5
         assert {'DASH', '+10'} <= {call[0] for call in calls} and 'LIMIT' not in {call[0] for call in calls}
         set_calls = [call for call in calls if call[1] == FontRole.SET_SPEED and call[3] < 388]
         assert bool(set_calls) == (show_set and value is not None)
@@ -241,7 +242,9 @@ def test_status_below_set_has_real_ink_clearance_and_fits_its_widget():
             widget.render_max_speed(current)
         rows = [row for row in calls if row[-1].a > 0 and (row[-1].r, row[-1].g, row[-1].b) not in ((0, 0, 0), (6, 14, 10), (7, 16, 12))]
         number = next(row for row in rows if row[0] == str(set_speed) and row[1] == FontRole.SET_SPEED)
-        caption = next(row for row in rows if row[0] == (status if profile == Profile.LARGE else 'MAX'))
+        # The status repeats the held speed only when it differs from SET.
+        shown_status = 'OVERRIDE' if set_speed == 100 else status
+        caption = next(row for row in rows if row[0] == (shown_status if profile == Profile.LARGE else 'MAX'))
         if profile == Profile.COMPACT:
           assert status not in [row[0] for row in rows]
         bottom = number[4] + fonts.vertical_ink(*number[:3])[1]
@@ -251,8 +254,12 @@ def test_status_below_set_has_real_ink_clearance_and_fits_its_widget():
         saved = placement(current.customization, profile, key)
         width, height = widget_size(current.customization, profile, key)
         assert caption[4] + fonts.vertical_ink(*caption[:3])[1] <= saved['y'] + height - 12
-        scale = LARGE_SIGN_SCALE if profile == Profile.LARGE else 1
-        assert (16 <= caption[2] * profile.font_scale / Profile.COMPACT.font_scale / scale <= 22 + 1e-9) if profile == Profile.LARGE else caption[2] == 36
+        # The status grew with the large labels but is width-capped to SET's column; measure it physically.
+        from openpilot.starpilot.ui.large_speed_geometry import PHYSICAL_SCALE
+        from openpilot.starpilot.ui.speed_limit_widget import LABEL_SCALE
+        scale = PHYSICAL_SCALE if profile == Profile.LARGE else 1
+        nominal = caption[2] * profile.font_scale / Profile.COMPACT.font_scale / scale
+        assert (16 <= nominal <= 22 * 1.3 * LABEL_SCALE[profile] + 1e-9) if profile == Profile.LARGE else caption[2] == 36
         left, right = fonts.horizontal_ink(*caption[:3])
         number_left, number_right = fonts.horizontal_ink(*number[:3])
         if profile == Profile.COMPACT:
@@ -549,6 +556,9 @@ def test_source_card_action_sprite_contains_both_actual_button_rows():
 
 
 def test_both_sign_styles_contain_text_and_arrows_at_each_profile_scale():
+  from openpilot.starpilot.ui.onroad_state import SIGN_PADDING
+  from openpilot.starpilot.ui.speed_limit_widget import LABEL_SCALE, VIENNA_SCALE
+  from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_speed
   from unittest.mock import patch
   from openpilot.starpilot.ui.speed_limit_widget import SpeedLimitWidget
   from openpilot.starpilot.ui.tests.test_unified_speed_native import state
@@ -591,7 +601,12 @@ def test_both_sign_styles_contain_text_and_arrows_at_each_profile_scale():
               last_received_source=source, last_received_adjusted_limit_mps=(posted+offset)/3.6))
           bounds = speed_limit_bounds(profile, current)
           assert bounds is not None
-          x, y = bounds[0] + 12, bounds[1] + 12
+          x, y = bounds[0] + 12, bounds[1] + SIGN_PADDING[profile][0]
+          shown = resolve_unified_speed(current)
+          from openpilot.starpilot.ui.speed_limit_widget import SHARED_NUMBER_ROW
+          if profile == Profile.LARGE and not vienna:
+            # The large US sign's rows are placed so its number (row 76) sits on SET's shared row.
+            y += (SHARED_NUMBER_ROW - 76) * scale
           calls = []
           with patch.object(fonts, 'draw', lambda *args, sink=calls: sink.append(args)), \
                patch.object(widget.shapes, 'arrow') as arrow_draw:
@@ -605,8 +620,12 @@ def test_both_sign_styles_contain_text_and_arrows_at_each_profile_scale():
             c, d = fonts.vertical_ink(text, role, size)
             box = left+a, top+c, left+b, top+d
             if vienna:
-              cx, cy = x+64*scale, y+72*scale
-              assert all((px-cx)**2+(py-cy)**2 <= (47*scale)**2
+              ring = scale * (VIENNA_SCALE if profile == Profile.LARGE else 1)
+              cx = x+64*scale
+              # The large ring sits so its number (row 66, or 78 without an offset) is on SET's shared row.
+              number_row = 66 if shown.offset_text else 78
+              cy = y + SHARED_NUMBER_ROW*scale + (67 - number_row)*ring if profile == Profile.LARGE else y+72*scale
+              assert all((px-cx)**2+(py-cy)**2 <= (47*ring)**2
                          for px, py in product((box[0], box[2]), (box[1], box[3]))), case
               expected = widget.pulse.color(rl.Color(244, 247, 245, 255), current.observed_ns / 1e9)
               assert (color.r, color.g, color.b, color.a) == (expected.r, expected.g, expected.b, expected.a), case
@@ -615,7 +634,8 @@ def test_both_sign_styles_contain_text_and_arrows_at_each_profile_scale():
               assert x+5*scale <= box[0] < box[2] <= x+123*scale, case
               assert y+7*scale <= box[1] < box[3] <= y+137*scale, case
             ink.append((text, box))
-            nominal_size = size/widget.text_scale
+            label = 1 if role in (FontRole.BOLD, FontRole.SET_SPEED) else LABEL_SCALE[profile]
+            nominal_size = size/widget.text_scale / (VIENNA_SCALE if vienna and profile == Profile.LARGE else label)
             if role == FontRole.BOLD:
               assert 20 <= nominal_size <= (58 if vienna else 64)+.01, case
             elif role == FontRole.MEDIUM:
@@ -632,13 +652,13 @@ def test_both_sign_styles_contain_text_and_arrows_at_each_profile_scale():
             left, top, right, bottom = glyph if direction>0 else (-glyph[2], -glyph[3], -glyph[0], -glyph[1])
             arrow = ax+left*arrow_scale, ay+top*arrow_scale, ax+right*arrow_scale, ay+bottom*arrow_scale
             label = next(box for text, box in ink if text == heading)
-            assert abs(arrow[0] - label[2] - 6*scale) <= 1, case
+            assert abs(arrow[0] - label[2] - 6*scale*(VIENNA_SCALE if vienna and profile == Profile.LARGE else 1)) <= 1, case
             assert abs((label[0] + arrow[2]) / 2 - (x+64*scale)) <= .5, case
             assert abs((label[1] + label[3]) / 2 - (arrow[1] + arrow[3]) / 2) <= 1, case
             if vienna:
               # The arrow's transparent bounding-box corners are not painted ink.
               pixels = painted_pixels[size] * (arrow_scale if direction > 0 else -arrow_scale) + (ax, ay)
-              assert np.all(np.linalg.norm(pixels-(cx, cy), axis=1) <= 47*scale), case
+              assert np.all(np.linalg.norm(pixels-(cx, cy), axis=1) <= 47*ring), case
               assert .95*(label[3]-label[1]) <= arrow[3]-arrow[1] <= 1.25*(label[3]-label[1]), case
             else:
               assert x+7*scale <= arrow[0] < arrow[2] <= x+121*scale, case
@@ -657,7 +677,7 @@ def test_both_sign_styles_contain_text_and_arrows_at_each_profile_scale():
 
 def test_sign_profiles_share_layout_and_keep_aligned_numbers():
   from unittest.mock import Mock, patch
-  from openpilot.starpilot.ui.speed_limit_widget import SpeedLimitWidget
+  from openpilot.starpilot.ui.speed_limit_widget import LABEL_SCALE, VIENNA_SCALE, SpeedLimitWidget
   from openpilot.starpilot.ui.tests.test_unified_speed_native import state
   owns_context = not rl.is_window_ready()
   if owns_context:
@@ -680,14 +700,16 @@ def test_sign_profiles_share_layout_and_keep_aligned_numbers():
           calls = [call for call in calls if call[-1].a == 255]
           assert all(float(call[3]).is_integer() and float(call[4]).is_integer()
                      for call in calls if call[1] != FontRole.SET_SPEED)
+          # Large Vienna text grows with its ring; large US labels grow by LABEL_SCALE.
+          heading = calls[0][2] / widget.text_scale / ((VIENNA_SCALE if fonts.profile == Profile.LARGE else 1) if vienna else LABEL_SCALE[fonts.profile])
           if not vienna:
-            assert calls[0][2]/widget.text_scale <= 28
+            assert heading <= 28
           elif fonts.profile == Profile.LARGE and not pending:
-            assert 18 <= calls[0][2] / widget.text_scale <= 21
+            assert 18 <= heading <= 21
           elif vienna and pending and source == 'vision':
-            assert 14 <= round(calls[0][2] / widget.text_scale) <= 18
+            assert 14 <= round(heading) <= 18
           else:
-            assert abs(calls[0][2]/widget.text_scale-18) < 1e-9
+            assert abs(heading-18) < 1e-9
           drawn.append((widget, calls))
         small_widget, small_calls = drawn[0]
         large_widget, large_calls = drawn[1]
@@ -699,10 +721,21 @@ def test_sign_profiles_share_layout_and_keep_aligned_numbers():
           assert small_calls[1][1] == large_calls[1][1] == FontRole.SET_SPEED
         start = int(vienna and not pending)
         for a, b in zip(small_calls[start:], large_calls[start:], strict=True):
-          assert abs(a[2]/small_widget.text_scale-b[2]/large_widget.text_scale) < 1e-9
-          assert abs((a[3]-320)-(b[3]-318)/LARGE_SIGN_SCALE) <= 1
-          assert abs((a[4]-small_center)-(b[4]-large_center)/LARGE_SIGN_SCALE) <= 1
+          # The large Vienna ring and everything in it are VIENNA_SCALE larger.
+          ring = VIENNA_SCALE if vienna else 1
+          small_size, large_size = a[2]/small_widget.text_scale, b[2]/large_widget.text_scale/ring
           assert (a[-1].r, a[-1].g, a[-1].b, a[-1].a) == (b[-1].r, b[-1].g, b[-1].b, b[-1].a)
+          if vienna or a[1] in (FontRole.SET_SPEED, FontRole.BOLD):
+            # Numbers, and all Vienna text, share size and position relative to the sign on both profiles.
+            assert abs(small_size-large_size) < 1e-9
+            small_x, large_x = (fonts_x + sum(f.horizontal_ink(*call[:3])) / 2 for f, fonts_x, call in ((small, a[3], a), (large, b[3], b)))
+            assert abs((small_x-320-64)-(large_x-318-64*LARGE_SIGN_SCALE)/LARGE_SIGN_SCALE/ring) <= 1
+            # Except the large no-offset US sign, whose outline centers on its text rather than its 150-unit box.
+            if vienna or offset:
+              assert abs((a[4]+sum(small.vertical_ink(*a[:3]))/2-small_center)-(b[4]+sum(large.vertical_ink(*b[:3]))/2-large_center)/LARGE_SIGN_SCALE/ring) <= 1
+          else:
+            # Large labels are up to LABEL_SCALE larger, less when they shrink to fit the sign.
+            assert small_size - 1e-9 <= large_size <= small_size * LABEL_SCALE[Profile.LARGE] + 1e-9
         if pending:
           for widget in (small_widget, large_widget):
             asset, x, y, _, _ = widget.shapes.arrow.call_args.args
@@ -722,7 +755,7 @@ def test_v5_geometry_migrates_and_keeps_custom_actions_independent():
   doc['layouts']['large']['cruise_limits'].update(x=1550, y=638)
   doc['layouts']['large']['speed_limit_actions'].update(x=1550, y=954)
   migrated = validate_document(doc)
-  assert migrated['version'] == 14
+  assert migrated['version'] == 15
   assert migrated['layouts']['large']['cruise_limits'] == default_document()['layouts']['large']['cruise_limits']
   assert migrated['layouts']['large']['speed_limit_actions'] == {'x': 1550, 'y': 882, 'enabled': True}
   assert migrated['speedSources'] is True
@@ -730,7 +763,7 @@ def test_v5_geometry_migrates_and_keeps_custom_actions_independent():
   assert validate_document(migrated) == migrated
   doc['layouts']['large']['cruise_limits'].update(x=88, y=75)
   doc['layouts']['large']['speed_limit_actions'].update(x=88, y=447)
-  assert validate_document(doc)['layouts']['large']['speed_limit_actions']['y'] == 381
+  assert validate_document(doc)['layouts']['large']['speed_limit_actions']['y'] == 449
 
 
 def test_pending_choices_use_the_sign_with_separated_horizontal_targets():
@@ -749,8 +782,8 @@ def test_projection_v1_layout_migrates_without_losing_other_widgets():
   doc['widgets']['speed_limit_actions'].update(x=88, y=447)
   doc['widgets']['current_speed'].update(x=1400, y=100)
   migrated = validate_layout_for_viewport(doc, viewport)
-  assert migrated['version'] == 6
-  assert migrated['widgets']['speed_limit_actions']['y'] == 267
+  assert migrated['version'] == 7
+  assert migrated['widgets']['speed_limit_actions']['y'] == 325
   assert migrated['widgets']['current_speed'] == doc['widgets']['current_speed']
   assert validate_layout_for_viewport(migrated, viewport) == migrated
 
@@ -772,7 +805,7 @@ def test_committed_projection_v1_right_edge_is_preserved_and_clamped():
 @pytest.mark.parametrize('wheel_confirmation', [False, True])
 def test_chooser_binds_the_target_to_accept_and_keeps_all_native_ink_inside_its_control(wheel_confirmation):
   from unittest.mock import patch
-  from openpilot.starpilot.ui.large_speed_geometry import CONFIRMATION_SCALE
+  from openpilot.starpilot.ui.large_speed_geometry import PROMPT_SCALE
   from openpilot.starpilot.ui.speed_limit_widget import SpeedLimitWidget
   from openpilot.starpilot.ui.speed_limit_shapes import ATLAS_PATH, SPRITES, SPRITE_DENSITIES
   from openpilot.starpilot.ui.tests.test_slc_ui_actions import state
@@ -781,7 +814,8 @@ def test_chooser_binds_the_target_to_accept_and_keeps_all_native_ink_inside_its_
     rl.init_window(128, 128, 'Confirmation typography fixture')
   try:
     for profile in Profile:
-      scale = CONFIRMATION_SCALE[profile]
+      # The open prompt is drawn at finger size, the device's physical scale.
+      scale = PROMPT_SCALE[profile]
       with BitmapFonts(profile, default_font_directory()) as fonts:
         widget = SpeedLimitWidget(fonts, profile)
         try:

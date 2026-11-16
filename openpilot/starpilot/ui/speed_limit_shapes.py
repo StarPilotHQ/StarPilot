@@ -60,8 +60,8 @@ class SpeedLimitShapes:
     rl.draw_texture_pro(self.texture, source, rl.Rectangle(x, y, source.width * scale * width_scale, source.height * scale),
                         origin, rotation, color)
 
-  def circle(self, x, y, color):
-    self._outlined('ring', x, y, color)
+  def circle(self, x, y, color, *, scale=None):
+    self._outlined('ring', x, y, color, scale=scale)
 
   def _outlined(self, name, x, y, color, *, scale=None, width_scale=1):
     radius = self.scale if scale is None else scale
@@ -80,15 +80,15 @@ class SpeedLimitShapes:
     for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1), (0, 0)):
       self._draw('outline', x + dx * radius, y + dy * radius, color, scale=scale, width_scale=width_scale)
 
-  def in_use_ring(self, x, y, color):
+  def in_use_ring(self, x, y, color, *, scale=None):
     """A highlight ring around the red Vienna ring, whose outer edge is at radius 59.
 
     A see-through gap keeps the green apart from the red, so it reads as a highlight
     around the sign rather than part of it, with the weight of the thick rectangular outline.
     """
-    center = rl.Vector2(x, y)
-    rl.draw_ring(center, 61 * self.scale, 67.5 * self.scale, 0, 360, 96, rl.Color(6, 14, 10, 230))
-    rl.draw_ring(center, 62 * self.scale, 66.5 * self.scale, 0, 360, 96, color)
+    center, s = rl.Vector2(x, y), self.scale if scale is None else scale
+    rl.draw_ring(center, 61 * s, 67.5 * s, 0, 360, 96, rl.Color(6, 14, 10, 230))
+    rl.draw_ring(center, 62 * s, 66.5 * s, 0, 360, 96, color)
 
   def button(self, x, y, color, *, profile, scale, pressed=False):
     self._draw(f'button_{profile}' + ('_pressed' if pressed else ''), x, y, color, scale=scale)

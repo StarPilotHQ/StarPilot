@@ -11,7 +11,7 @@ from openpilot.starpilot.ui.onroad_customization import (CEM_GAUGE_WIDGET, CLOCK
                                                          SPEED_ALIGNMENTS, customization_metadata, validate_map_box, validate_widget_order)
 from openpilot.starpilot.ui.onroad_stopped_timer import timer_size
 from openpilot.starpilot.ui.onroad_torque_geometry import maximum_footprint
-from openpilot.starpilot.ui.onroad_customization import (SPEED_LAYOUT_V7, migrate_speed_layout, migrate_large_sign_layout,
+from openpilot.starpilot.ui.onroad_customization import (SPEED_LAYOUT_V7, migrate_speed_layout, migrate_large_sign_layout, migrate_attached_actions_gap,
                                                         place_attached_slc_actions, migrate_confirmation_layout)
 from openpilot.starpilot.ui.large_speed_geometry import sources_extent
 
@@ -185,7 +185,7 @@ def default_layout(screen, display=None):
 def default_layout_for_viewport(viewport, display=None):
   metadata = layout_metadata_for_viewport(viewport)
   display = {**DISPLAY_DEFAULTS, **{key: value for key, value in (display or {}).items() if key in DISPLAY_DEFAULTS}}
-  result = {'version': 6, 'clock24Hour': False, 'largeUiGammaTrial': False, **display, 'canvas': {key: metadata[key] for key in ('width', 'height')},
+  result = {'version': 7, 'clock24Hour': False, 'largeUiGammaTrial': False, **display, 'canvas': {key: metadata[key] for key in ('width', 'height')},
           'widgets': {key: {**widget['default'], **({'size': 192} if key == 'steering_wheel' else {})}
                       for key, widget in metadata['widgets'].items()}}
   place_attached_slc_actions(result['widgets'], metadata['bounds'], sources_extent(result))
@@ -230,7 +230,7 @@ def validate_layout_for_viewport(value, viewport, *, _legacy_geometry=False):
   if type(value) is dict:
     fields |= {field for field in ('widgetOrder', 'clock24Hour', 'largeUiGammaTrial', *DISPLAY_DEFAULTS) if field in value}
   if (type(value) is not dict or set(value) != fields or
-      type(value['version']) is not int or value['version'] not in (1, 2, 3, 4, 5, 6) or
+      type(value['version']) is not int or value['version'] not in (1, 2, 3, 4, 5, 6, 7) or
       value['canvas'] != {key: metadata[key] for key in ('width', 'height')} or
       type(value['widgets']) is not dict or not set(value['widgets']) <= set(metadata['widgets']) or
       not set(metadata['widgets']) - set(value['widgets']) <= {CEM_GAUGE_WIDGET, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET, *PROJECTION_WIDGETS}):
@@ -353,12 +353,14 @@ def validate_layout_for_viewport(value, viewport, *, _legacy_geometry=False):
     actions = result['widgets']['speed_limit_actions']
     if (actions['x'], actions['y']) == (100, 296):
       actions.update(x=metadata['widgets']['speed_limit_actions']['default']['x'], y=metadata['widgets']['speed_limit_actions']['default']['y'])
-    result['version'] = 6
+    result['version'] = 7
   if value['version'] == 5 and result.get('speedSources') is True:
     card, actions = result['widgets']['cruise_limits'], result['widgets']['speed_limit_actions']
     old_gap = 284 + (8 if result.get('speedSourcesCard') is True else 0)
     if actions['x'] == card['x'] + 24 and actions['y'] == card['y'] + old_gap:
       actions['y'] = card['y'] + 192
+  if value['version'] < 7:
+    migrate_attached_actions_gap(result['widgets'], bounds)
   migrate_confirmation_layout(result['widgets'], 'large', metadata['widgets'], bounds, extra_height=sources_extent(result))
   place_attached_slc_actions(result['widgets'], bounds, sources_extent(result))
   if len(json.dumps(result, separators=(',', ':'), allow_nan=False).encode()) > MAX_BYTES:

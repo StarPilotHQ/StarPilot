@@ -315,7 +315,7 @@ def test_wheel_cues_follow_confirmation_availability(profile, available, drawing
   if available:
     bounds = speed_limit_bounds(profile, current)
     assert bounds is not None
-    hint_y = bounds[1] + (12 if profile == Profile.LARGE else 8) + (142 if profile == Profile.LARGE else 136.75) * CONFIRMATION_SCALE[profile]
+    hint_y = bounds[1] + (12 if profile == Profile.LARGE else 8) + (161 if profile == Profile.LARGE else 136.75) * CONFIRMATION_SCALE[profile]
     assert all(call.args[2] == pytest.approx(hint_y) for call in calls)
     assert bounds[0] < calls[0].args[1] < calls[1].args[1] < bounds[2]
 

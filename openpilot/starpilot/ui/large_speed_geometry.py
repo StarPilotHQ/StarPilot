@@ -4,15 +4,18 @@ import math
 
 WIDTH = 488
 MAX_ROW_HEIGHT = 132
-# Preserve physical lettering size across the 402.5 PPI and 300 PPI displays.
-LARGE_SIGN_SCALE = math.hypot(2160, 1080) / 6 / 300
+# The compact display's physical size at 402.5 PPI, enlarged 1.3x: the windshield-mounted screen is
+# read at arm's length, and this puts the numbers near 27 arcmin at 70 cm (ISO 15008 recommends 20).
+PHYSICAL_SCALE = math.hypot(2160, 1080) / 6 / 300
+LARGE_SIGN_SCALE = PHYSICAL_SCALE * 1.3
 SIGN_WIDTH, SIGN_HEIGHT = 128, 144
 LIMIT_ROW_HEIGHT = math.ceil(SIGN_HEIGHT * LARGE_SIGN_SCALE)
 CARD_HEIGHT = LIMIT_ROW_HEIGHT
 ACTION_WIDTH = 308
 ACTION_HEIGHT = 168
 ACTION_X = 112
-ACTION_Y = 267
+# Attached just below the card.
+ACTION_Y = 75 + CARD_HEIGHT - 2
 GAP = 8
 SOURCE_ROW_HEIGHT = 76
 PADDING = 24
@@ -26,6 +29,8 @@ ACTION_BOUNDS = {
 ACTION_TEXT_SIZE = {'large': 64, 'compact': 48}
 
 CONFIRMATION_SCALE = {'large': LARGE_SIGN_SCALE, 'compact': 1.0}
+# The open prompt's Accept/Reject buttons are sized for fingers, which do not change with viewing distance.
+PROMPT_SCALE = {'large': PHYSICAL_SCALE, 'compact': 1.0}
 CONFIRMATION_HEIGHT = {'large': 168, 'compact': 152}
 CONFIRMATION_HEADER = 40
 CONFIRMATION_BUTTON = {'large': 180, 'compact': 150}
@@ -34,18 +39,21 @@ CONFIRMATION_PADDING = 8
 
 
 def confirmation_bounds(profile, x, y, *, opened=False):
+  # Opening keeps the notice's top; the buttons' width stays at finger size.
   scale = CONFIRMATION_SCALE[profile]
   width = 2 * CONFIRMATION_PADDING + 2 * CONFIRMATION_BUTTON[profile] + CONFIRMATION_GAP if opened else 240
-  left = x + 172 if profile == 'large' else x - 172 if opened else x - 100
+  # Large starts where the sign's tap area does, clear of a three-digit SET.
+  left = x + 218 if profile == 'large' else x - 172 if opened else x - 100
   top = y - (12 if profile == 'large' else 8)
-  height = CONFIRMATION_HEIGHT[profile] if opened else (168 if profile == 'large' else 159)
-  return left, top, left + width * scale, top + height * scale
+  # The large notice keeps its original spacing below a number on SET's row; its box is transparent.
+  height = CONFIRMATION_HEIGHT[profile] if opened else (184 if profile == 'large' else 159)
+  return left, top, left + width * (PROMPT_SCALE if opened else CONFIRMATION_SCALE)[profile], top + height * scale
 
 
 def confirmation_buttons(profile, bounds):
   left, top, _, bottom = bounds
-  scale = CONFIRMATION_SCALE[profile]
-  return tuple((left + (CONFIRMATION_PADDING + x) * scale, top + CONFIRMATION_HEADER * scale,
+  scale = PROMPT_SCALE[profile]
+  return tuple((left + (CONFIRMATION_PADDING + x) * scale, top + CONFIRMATION_HEADER * CONFIRMATION_SCALE[profile],
                 left + (CONFIRMATION_PADDING + x + CONFIRMATION_BUTTON[profile]) * scale, bottom)
                for x in (0, CONFIRMATION_BUTTON[profile] + CONFIRMATION_GAP))
 
