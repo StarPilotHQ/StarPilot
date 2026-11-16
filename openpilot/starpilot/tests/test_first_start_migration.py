@@ -47,6 +47,35 @@ class TestFirstStartMigration(unittest.TestCase):
   def start(self, **kwargs):
     migration.prepare_manager_start(self.params, self.storage, auto_migrate=True, **kwargs)
 
+  def test_dashboard_history_survives_settings_reset_outside_params(self):
+    saved = {'GalaxyDashboardStats': {'version': 1, 'routes': {'old': {'distanceMeters': 1500, 'duration': 60,
+                                        'engagedSeconds': 30, 'date': '2026-10-01T12:00:00+00:00',
+                                        'model': 'Original Model', 'segmentCount': 1, 'analysisComplete': True}}},
+             'StarPilotStats': {'StarPilotMeters': 5000, 'StarPilotDrives': 3},
+             'ApiCache_DriveStats': {'all': {'distance': 10, 'routes': 5, 'minutes': 30}}}
+    values = {key: json.dumps(value).encode() for key, value in saved.items()}
+    self.write(values | {'ForceStops': b'1'})
+    self.start()
+    history = self.storage / 'galaxy' / 'legacy-dashboard-stats.json'
+    self.assertEqual(json.loads(history.read_bytes()), {'version': 1, 'params': saved})
+    self.assertEqual(history.stat().st_mode & 0o777, 0o600)
+    self.assertFalse(set(values) & self.values().keys())
+    self.assertEqual(migration.load_snapshot(next((self.storage / 'snapshots').iterdir())), values | {'ForceStops': b'1'})
+    before = history.read_bytes()
+    self.start()
+    self.assertEqual(history.read_bytes(), before)
+    from openpilot.starpilot.galaxy.drive_stats import DriveStatsOwner
+    owner = DriveStatsOwner(root=self.root / 'logs', store=self.storage / 'galaxy' / 'drive-stats.json',
+                            permitted=lambda: False)
+    try:
+      dashboard = owner.snapshot()
+      self.assertAlmostEqual(dashboard['totals']['distanceMeters'], 16093.44)
+      self.assertEqual(dashboard['totals']['drives'], 5)
+      self.assertEqual(dashboard['models'][0]['name'], 'Original Model')
+      self.assertEqual(dashboard['models'][0]['drives'], 1)
+    finally:
+      owner.close()
+
   def test_epoch_two_archives_settings_and_calibration_retains_only_operational_state(self):
     original = {'IsMetric': b'1', 'ForceStops': b'0', 'SteerFriction': b'0.123',
                 'SecOCKey': b'private\x00bytes', 'CalibrationParams': b'legacy calibration',

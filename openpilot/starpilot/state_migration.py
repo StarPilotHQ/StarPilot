@@ -306,12 +306,32 @@ def stage_settings(bundle, storage, namespace):
   return destination
 
 
+def _save_dashboard_history(values, storage):
+  history = {}
+  for key in ('GalaxyDashboardStats', 'StarPilotStats', 'ApiCache_DriveStats'):
+    raw = values.get(key)
+    if raw is None or len(raw) > 4_000_000:
+      continue
+    try:
+      value = json.loads(raw)
+      if type(value) is dict:
+        json.dumps(value, allow_nan=False)
+        history[key] = value
+    except (ValueError, UnicodeError, RecursionError):
+      continue
+  if history:
+    destination = _private_dir(storage / 'galaxy') / 'legacy-dashboard-stats.json'
+    _atomic_write(destination, canonical_json({'version': 1, 'params': history}))
+
+
 def _migrate_first_start(params, namespace, storage, values, known, cache_keys, inspect_cache, *, retire_keys=None,
                          retire_action='archive incompatible reconstructible vehicle cache'):
   actual = namespace.resolve(strict=True)
   snapshot = _save_snapshot(values, storage / 'snapshots')
   if load_snapshot(snapshot) != values:
     raise MigrationRequired('Raw recovery snapshot readback failed')
+  if retire_keys is None:
+    _save_dashboard_history(values, storage)
   prepared = dict(values)
   actions = {}
   if (retire_keys is None and 'AlphaLongitudinalEnabled' in known and 'AlphaLongitudinalEnabled' not in values and

@@ -22,7 +22,7 @@ SOURCE_LIMITATIONS = frozenset({'Route has no observed duration', 'End of route 
                                 'Route has missing segments or logs', 'Route samples are missing or gapped'})
 
 SCHEMA_VERSION = 1
-MAX_CACHED_ROUTES = 2048
+MAX_CACHED_ROUTES = 5000
 MAX_CACHE_BYTES = 4_000_000
 MAX_SCAN_ROUTES = 100
 MAX_ANALYSES_PER_SCAN = 2
@@ -191,7 +191,10 @@ class DriveStatsOwner:
     self._corrupt = False
     self._pending = 0
     self._cursor = 0
+    self._legacy_imported = False
+    self._legacy_totals = {}
     self._load()
+    self._import_legacy()
 
   def _load(self):
     try:
@@ -216,6 +219,12 @@ class DriveStatsOwner:
             type(failure.get('analysisVersion', 0)) is not int or not 0 <= failure.get('analysisVersion', 0) < 2**31 or
             type(failure.get('reason')) is not str or len(failure['reason']) > 200):
           raise ValueError('Invalid retry record')
+      legacy_totals = data.get('legacyTotals', {})
+      if (type(legacy_totals) is not dict or any(key not in ('distanceMeters', 'durationSeconds', 'drives') or
+          _finite(value) is None for key, value in legacy_totals.items())):
+        raise ValueError('Invalid historical totals')
+      self._legacy_totals = legacy_totals
+      self._legacy_imported = data.get('legacyImported') is True
       self._failures = failures
       self._records = records
       self._scan_incomplete = data.get('scanIncomplete') is True
@@ -226,11 +235,78 @@ class DriveStatsOwner:
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
       self._corrupt = True
 
+  def _import_legacy(self):
+    if self._legacy_imported:
+      return
+    try:
+      with self.store.with_name('legacy-dashboard-stats.json').open('rb') as stream:
+        raw = stream.read(16_000_001)
+      if len(raw) > 16_000_000:
+        return
+      bundle = json.loads(raw)
+      if type(bundle) is not dict or bundle.get('version') != 1 or type(bundle.get('params')) is not dict:
+        return
+      saved = bundle['params']
+      dashboard = saved.get('GalaxyDashboardStats', {})
+      if type(dashboard) is not dict or type(dashboard.get('routes', {})) is not dict:
+        return
+      old_routes = dashboard.get('routes', {})
+      if len(old_routes) > MAX_CACHED_ROUTES:
+        return
+      ignored = dashboard.get('ignoredRoutes', [])
+      if type(ignored) is not list or any(type(name) is not str for name in ignored):
+        return
+      ignored = set(ignored)
+      imported = {}
+      for name, entry in old_routes.items():
+        if type(name) is not str or type(entry) is not dict or entry.get('analysisComplete') is not True:
+          continue
+        try:
+          start = datetime.fromisoformat(entry['date']).timestamp()
+          duration = entry['duration']
+          record = {'routeId': name, 'startTime': start, 'endTime': start + duration,
+                    'distanceMeters': entry['distanceMeters'], 'durationSeconds': duration,
+                    'engagedSeconds': entry.get('engagedSeconds', 0), 'aolSeconds': None, 'aolPercent': None,
+                    'model': entry.get('model'), 'distractedMoments': entry.get('distractedMoments', 0),
+                    'unresponsiveMoments': entry.get('unresponsiveMoments', 0), 'complete': True,
+                    'ignored': name in ignored, 'segmentCount': entry.get('segmentCount', 0),
+                    'sourceSignature': 'legacy-summary', 'analysisVersion': 0, 'legacySummary': True}
+          if _valid_record(record) and record['distanceMeters'] <= 1e12:
+            imported[name] = record
+        except (KeyError, ValueError, TypeError, OverflowError):
+          continue
+      cloud = saved.get('ApiCache_DriveStats', {})
+      all_time = cloud.get('all', {}) if type(cloud) is dict else {}
+      lifetime = saved.get('StarPilotStats', {})
+      if type(all_time) is not dict or type(lifetime) is not dict:
+        return
+      old_totals = {'distanceMeters': (_finite(all_time.get('distance')) or 0) * 1609.344,
+                    'durationSeconds': (_finite(all_time.get('minutes')) or 0) * 60,
+                    'drives': _finite(all_time.get('routes')) or 0}
+      old_totals['distanceMeters'] = max(old_totals['distanceMeters'], _finite(lifetime.get('StarPilotMeters')) or 0)
+      old_totals['durationSeconds'] = max(old_totals['durationSeconds'], _finite(lifetime.get('StarPilotSeconds')) or 0)
+      old_totals['drives'] = max(old_totals['drives'], _finite(lifetime.get('StarPilotDrives')) or 0)
+      old_totals = {key: value if _finite(value) is not None and value <= 1e12 else 0
+                    for key, value in old_totals.items()}
+      self._legacy_totals = {}
+      for key, value in old_totals.items():
+        observed = sum((_finite(record[key]) or 0) if key != 'drives' else 1
+                       for record in imported.values() if not record['ignored'])
+        self._legacy_totals[key] = max(0, value - observed)
+      self._records = imported | self._records
+      self._legacy_imported = True
+      self._bound()
+      self._save()
+    except (OSError, ValueError, TypeError, RecursionError):
+      return
+
   def _save(self):
     self.store.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    payload = {'schemaVersion': SCHEMA_VERSION, 'routes': self._records,
+    payload: dict[str, object] = {'schemaVersion': SCHEMA_VERSION, 'routes': self._records,
                'scanned': self._scanned, 'scanIncomplete': self._scan_incomplete, 'truncated': self._truncated,
                'failures': self._failures}
+    if self._legacy_imported:
+      payload.update(legacyImported=True, legacyTotals=self._legacy_totals)
     encoded = json.dumps(payload, separators=(',', ':'), allow_nan=False).encode()
     if len(encoded) > MAX_CACHE_BYTES:
       raise OSError('Drive statistics cache exceeds storage limit')
@@ -294,6 +370,8 @@ class DriveStatsOwner:
         signature, manifest = _route_signature(self.root, route)
         with self._lock:
           existing = self._records.get(route_id)
+          if existing and existing.get('legacySummary') is True:
+            continue
           failed = self._failures.get(route_id)
           if (existing and existing.get('sourceSignature') == signature and existing.get('complete') and
               existing.get('analysisVersion', 0) >= ANALYSIS_VERSION):
@@ -496,6 +574,8 @@ class DriveStatsOwner:
               'aolPercent': round(100 * seconds / duration, 1) if duration else None,
               'aolDurationSeconds': duration, 'aolDrives': len(observed)}
     totals = sums(complete)
+    for key, value in self._legacy_totals.items():
+      totals[key] += value
     past_week = sums([r for r in complete if day - timedelta(days=6) <=
                       datetime.fromtimestamp(r['startTime'], zone).date() <= day])
     totals.update(aol_sums(complete))
