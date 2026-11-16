@@ -77,6 +77,8 @@ class Controls:
     from openpilot.starpilot.car.subaru.smoothing import read_frozen
 
     self.subaru_smoothing = read_frozen(self.CP, self.params)
+    from openpilot.starpilot.car.volkswagen.model_smoothing import ControlSmoothing
+    self.volkswagen_smoothing = ControlSmoothing(self.CP)
 
     self.CI = interfaces[self.CP.carFingerprint](self.CP)
     self.hyundai_lateral_fault = LateralFaultLatch(self.CP.carFingerprint)
@@ -589,6 +591,8 @@ class Controls:
     from openpilot.starpilot.car.subaru.smoothing import seconds as subaru_smooth_seconds, control_maximum
 
     lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS + subaru_smooth_seconds(CS.vEgo, control_maximum(self))
+    if getattr(self, "volkswagen_smoothing", None) is not None:
+      lat_delay += self.volkswagen_smoothing.seconds(int(self.sm.logMonoTime["modelV2"]), time.monotonic_ns())
 
     actuators.curvature = self.desired_curvature
     if cycle_timing is not None:
