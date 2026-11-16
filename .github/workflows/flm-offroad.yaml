@@ -2,7 +2,7 @@ name: FLM offroad contracts
 
 on:
   push:
-    branches: [Dom]
+    branches: [Dom, StarPilot]
     paths:
       - 'openpilot/starpilot/flm/**'
       - 'openpilot/starpilot/lateral/**'
