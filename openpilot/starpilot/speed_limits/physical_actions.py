@@ -72,6 +72,14 @@ def active_ceiling(sm, now_ns: int, *, after_ns: int = 0) -> float | None:
   return cap if finite_speed(cap) and cap <= V_CRUISE_MAX / 3.6 + 1e-5 else None
 
 
+def accepted_target(sm, now_ns: int, *, after_ns: int = 0) -> float | None:
+  """The accepted limit plus offset, so wheel steps can stop on it."""
+  state = _state(sm, now_ns)
+  if state is None or int(state.frameMonoTime) <= after_ns or not state.hasAcceptedAdjustedLimit:
+    return None
+  return float(state.acceptedAdjustedLimit) if finite_speed(state.acceptedAdjustedLimit) else None
+
+
 def wheel_override_context(sm, now_ns: int, *, selected_kph: float, is_metric: bool,
                            after_ns: int = 0) -> SlcWheelContext | None:
   state = _state(sm, now_ns)

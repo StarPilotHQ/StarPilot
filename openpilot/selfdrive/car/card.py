@@ -33,7 +33,7 @@ from opendbc.car.hyundai.ioniq6_media import Ioniq6MediaButtons
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
 from opendbc.car.interfaces import CarInterfaceBase, RadarInterfaceBase
 from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
-from openpilot.selfdrive.car.cruise import SlcWheelContext, VCruiseHelper
+from openpilot.selfdrive.car.cruise import SlcWheelContext, VCruiseHelper, slc_target_kph
 from openpilot.starpilot.speed_limits import physical_actions as slc_physical
 from openpilot.starpilot.aol.intent import AolProcessFaultContext, independent_axis_requested, read_settings
 from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback, cp_identity
@@ -613,6 +613,8 @@ class Car:
         not (CS.brakePressed or CS.gasPressed or CS.standstill or CS.cruiseState.standstill)):
       wheel_context = slc_physical.wheel_override_context(self.sm, now_ns, after_ns=floor_ns,
         selected_kph=cruise_helper.v_cruise_kph, is_metric=self.is_metric)
+    stop = slc_physical.accepted_target(self.sm, now_ns, after_ns=floor_ns) if self.slc_replay else None
+    cruise_helper.slc_stop_kph = slc_target_kph(stop, self.is_metric) if stop is not None else None
     self.update_cruise_speed(CS, pending, wheel_context=wheel_context)
     if self.controller_cruise_sock is not None:
       for _ in range(8):

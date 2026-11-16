@@ -75,6 +75,7 @@ class VCruiseHelper:
     self.slc_released_suppressed = False
     self.slc_wheel_press: SlcWheelContext | None = None
     self.slc_wheel_tap: SlcWheelContext | None = None
+    self.slc_stop_kph: float | None = None  # SLC's limit plus offset; a step never skips over it
 
   @property
   def v_cruise_initialized(self):
@@ -252,6 +253,9 @@ class VCruiseHelper:
       self.v_cruise_kph = CRUISE_NEAREST_FUNC[button_type](display_speed / interval) * interval * (1. if is_metric else CV.MPH_TO_KPH)
     else:
       self.v_cruise_kph += v_cruise_delta * CRUISE_INTERVAL_SIGN[button_type]
+    stop = self.slc_stop_kph
+    if stop is not None and min(previous_kph, self.v_cruise_kph) < stop < max(previous_kph, self.v_cruise_kph):
+      self.v_cruise_kph = stop
 
     # If set is pressed while overriding, clip cruise speed to minimum of vEgo
     if CS.gasPressed and button_type in (ButtonType.decelCruise, ButtonType.setCruise):
