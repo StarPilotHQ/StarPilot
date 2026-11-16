@@ -25,10 +25,11 @@ HOP = SAMPLE_RATE // 20
 FFT = 1 << 14
 STEP = 1.008                      # candidate rpm spacing as a ratio
 MAX_STEP = 0.1                    # largest rpm change between 50 ms frames, as a log ratio
-NEAR = 0.12                       # stretch may wander this share either side of the bank rpm; replay evens out the pitch
-MIN_LOOP_SECONDS = 0.25
+NEAR = 0.07                       # stretch may wander this share either side of the bank rpm; replay evens out the pitch
+MIN_CYCLES = 4                    # fewer distinct engine cycles than this cannot hide a repeat
 LOOP_SECONDS = 1.5
 CROSSFADE_CYCLES = 2
+JOIN_SECONDS = 0.003              # crossfade between shuffled cycles
 PEAK = 0.89
 IDLE_LEVEL = 0.5
 OFF_LEVEL = 0.6
@@ -50,8 +51,8 @@ def read_recording(path: Path) -> np.ndarray:
   return audio
 
 
-def track(audio: np.ndarray, cylinders: int, anchor: tuple[float, float], half_orders: bool) -> tuple[np.ndarray, np.ndarray]:
-  """(times, rpm) every 50 ms by dynamic programming over engine-order salience, pinned at the anchor."""
+def track(audio: np.ndarray, cylinders: int, anchors: list[tuple[float, float]], half_orders: bool) -> tuple[np.ndarray, np.ndarray]:
+  """(times, rpm) every 50 ms by dynamic programming over engine-order salience, pinned at each anchor."""
   freq = np.fft.rfftfreq(FFT, 1 / SAMPLE_RATE)
   candidates = 400.0 * STEP ** np.arange(int(np.log(8000 / 400) / np.log(STEP)) + 1)
   # Orders are multiples of rpm/120. Some engines carry only the whole engine orders (even ones) under load, and
@@ -66,8 +67,9 @@ def track(audio: np.ndarray, cylinders: int, anchor: tuple[float, float], half_o
     rows.append(sum(w * np.interp(candidates * order / 120, freq, white) for order, w in zip(orders, weights, strict=True)) / weights.sum())
   salience = np.array(rows)
   times = np.arange(len(salience)) * HOP / SAMPLE_RATE + FFT / 2 / SAMPLE_RATE
-  pinned = int(np.argmin(np.abs(times - anchor[0])))
-  salience[pinned] = np.where(np.abs(np.log(candidates / anchor[1])) < 0.03, salience[pinned].max() + 100.0, -1e9)
+  for seconds, anchor_rpm in anchors:
+    pinned = int(np.argmin(np.abs(times - seconds)))
+    salience[pinned] = np.where(np.abs(np.log(candidates / anchor_rpm)) < 0.03, salience[pinned].max() + 100.0, -1e9)
   distance = np.abs(np.subtract.outer(np.arange(len(candidates)), np.arange(len(candidates)))) * np.log(STEP)
   penalty = np.where(distance > MAX_STEP, 1e9, 6.0 * distance)
   score, back = salience[0].copy(), np.zeros(salience.shape, dtype=np.int32)
@@ -122,14 +124,42 @@ def steady(audio: np.ndarray, times: np.ndarray, rpm: np.ndarray, span: tuple[fl
   cycle = 120.0 / target * SAMPLE_RATE
   fade = round(CROSSFADE_CYCLES * cycle)
   count = int(min(LOOP_SECONDS * SAMPLE_RATE, len(steady_audio) - fade) // cycle)
+  if count < LOOP_SECONDS * SAMPLE_RATE // cycle:
+    return shuffled(steady_audio, cycle, target)
   length = round(count * cycle)
-  if length < MIN_LOOP_SECONDS * SAMPLE_RATE:
-    return None
   start = (len(steady_audio) - length - fade) // 2
   segment = steady_audio[start:start + length + fade]
   ramp = 0.5 - 0.5 * np.cos(np.pi * np.arange(fade) / fade)
   loop = segment[:length].copy()
   loop[:fade] = segment[:fade] * np.sqrt(ramp) + segment[length:] * np.sqrt(1 - ramp)
+  return loop - loop.mean()
+
+
+def shuffled(steady_audio: np.ndarray, cycle: float, target: float, seed: int = 0) -> np.ndarray | None:
+  """A full-length loop from too short a stretch: its engine cycles in a shuffled order, so no short pattern repeats.
+
+  Each cycle is joined to the next on a cycle boundary with a short crossfade; the last join wraps to the first cycle.
+  """
+  join = round(JOIN_SECONDS * SAMPLE_RATE)
+  size = round(cycle)
+  grains = [steady_audio[round(i * cycle):round(i * cycle) + size + join] for i in range(int(len(steady_audio) // cycle))]
+  grains = [grain for grain in grains if len(grain) == size + join]
+  if len(grains) < MIN_CYCLES:
+    return None
+  rng = np.random.default_rng(seed + int(target))
+  order: list[int] = []
+  while len(order) * cycle < LOOP_SECONDS * SAMPLE_RATE:
+    for index in rng.permutation(len(grains)):
+      if not order or index != order[-1]:
+        order.append(int(index))
+  if order[-1] == order[0]:
+    order.pop()
+  ramp = np.sin(0.5 * np.pi * np.arange(join) / join) ** 2
+  loop = np.concatenate([grains[index][:size] for index in order])
+  for position, index in enumerate(order):
+    tail = grains[index][size:]
+    at = (position + 1) * size % len(loop)
+    loop[at:at + join] = loop[at:at + join] * ramp + tail * (1 - ramp)
   return loop - loop.mean()
 
 
@@ -153,7 +183,8 @@ def main():
   parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
   parser.add_argument('recording', type=Path)
   parser.add_argument('--cylinders', type=int, required=True)
-  parser.add_argument('--anchor', type=float, nargs=2, metavar=('SECONDS', 'RPM'), required=True)
+  parser.add_argument('--anchor', type=float, nargs=2, metavar=('SECONDS', 'RPM'), action='append', required=True,
+                      help='a time and its known rpm; repeat for each take in a spliced recording')
   parser.add_argument('--on', nargs='+', default=[], metavar='START-END')
   parser.add_argument('--off', nargs='+', default=[], metavar='START-END')
   parser.add_argument('--idle', nargs='+', default=[], metavar='START-END')
@@ -165,7 +196,7 @@ def main():
   args = parser.parse_args()
 
   audio = read_recording(args.recording)
-  times, rpm = track(audio, args.cylinders, tuple(args.anchor), args.half_orders)
+  times, rpm = track(audio, args.cylinders, [tuple(anchor) for anchor in args.anchor], args.half_orders)
   if args.track_image:
     track_image(args.track_image, audio, times, rpm, args.cylinders)
   masks = {'on': usable(times, rpm, ranges(args.on), 1), 'off': usable(times, rpm, ranges(args.off), -1)}
@@ -174,9 +205,12 @@ def main():
   high = max(rpm[masks['on'] | masks['off']])
   points = np.arange(np.ceil(low / args.step) * args.step, high + 1, args.step)
   if idle.any():
-    points = np.unique(np.append(points, round(float(np.median(rpm[idle])))))
+    idle_rpm = round(float(np.median(rpm[idle])))
+    points = np.unique(np.append(points[points >= 0.9 * idle_rpm], idle_rpm))
   loops = {}
   for layer, mask in masks.items():
+    if not mask.any():
+      continue
     for target in points:
       span = stretch(times, rpm, mask | idle, target)
       loop = steady(audio, times, rpm, span, target) if span else None

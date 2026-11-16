@@ -12,10 +12,6 @@
         "file": "off_750.wav"
       },
       {
-        "rpm": 1000,
-        "file": "off_1000.wav"
-      },
-      {
         "rpm": 1250,
         "file": "off_1250.wav"
       },
@@ -62,16 +58,8 @@
         "file": "on_1000.wav"
       },
       {
-        "rpm": 1250,
-        "file": "on_1250.wav"
-      },
-      {
         "rpm": 1500,
         "file": "on_1500.wav"
-      },
-      {
-        "rpm": 1750,
-        "file": "on_1750.wav"
       },
       {
         "rpm": 2000,

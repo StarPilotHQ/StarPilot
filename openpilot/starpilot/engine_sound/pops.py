@@ -16,13 +16,13 @@ MIN_RPM_SHARE = 0.2               # share of redline below which nothing pops; c
 WINDOW_SECONDS = (0.7, 2.4)       # pop window after a lift, short at low revs and long from high revs and full load
 BLIP_RPM_PER_SECOND = 1500.0      # rpm climbing this fast with no load is a downshift blip
 BLIP_EXTEND_SECONDS = 0.6
-# Matched to a recording of a real M3 on overrun: 10-15 short thumps a second centred near 350 Hz,
-# about 8 dB over the engine, half gone within 5 ms, and almost nothing above 1 kHz.
+# Timing from a recording of a real M3 on overrun (10-15 short thumps a second, almost nothing above 1 kHz);
+# pitched about a third lower and played louder than recorded, which carries better on car speakers.
 RATE = 14.0                       # pops per second at the start of a strong window
 KINDS = ('burble', 'pop', 'crackle')
 KIND_SHARES = (0.45, 0.35, 0.2)
-LEVEL = 0.3
-TOP_HZ = 1400.0
+LEVEL = 1.0
+TOP_HZ = 1000.0
 
 
 def _resonator(excitation: np.ndarray, frequency: float, q: float, sample_rate: int) -> np.ndarray:
@@ -63,7 +63,7 @@ def _crackle(rng: np.random.Generator, sample_rate: int) -> np.ndarray:
   out = np.zeros(length)
   at = 0
   for _ in range(rng.integers(2, 5)):
-    pop = _thump(rng, sample_rate, (300.0, 700.0), (0.002, 0.005)) * rng.uniform(0.4, 1.0)
+    pop = _thump(rng, sample_rate, (220.0, 450.0), (0.003, 0.006)) * rng.uniform(0.4, 1.0)
     if at + len(pop) > length:
       break
     out[at:at + len(pop)] += pop
@@ -73,8 +73,8 @@ def _crackle(rng: np.random.Generator, sample_rate: int) -> np.ndarray:
 
 def library(sample_rate: int = SAMPLE_RATE, seed: int = 3) -> dict[str, list[np.ndarray]]:
   rng = np.random.default_rng(seed)
-  return {'burble': [_normalised(_thump(rng, sample_rate, (180.0, 320.0), (0.006, 0.012)), sample_rate) for _ in range(LIBRARY_SIZE)],
-          'pop': [_normalised(_thump(rng, sample_rate, (300.0, 480.0), (0.003, 0.007)), sample_rate) for _ in range(LIBRARY_SIZE)],
+  return {'burble': [_normalised(_thump(rng, sample_rate, (120.0, 210.0), (0.008, 0.016)), sample_rate) for _ in range(LIBRARY_SIZE)],
+          'pop': [_normalised(_thump(rng, sample_rate, (190.0, 320.0), (0.004, 0.009)), sample_rate) for _ in range(LIBRARY_SIZE)],
           'crackle': [_crackle(rng, sample_rate) for _ in range(LIBRARY_SIZE)]}
 
 
@@ -133,7 +133,7 @@ class Pops:
         kind = 'pop' if blip else KINDS[self.rng.choice(len(KINDS), p=KIND_SHARES)]
         sample = self.samples[kind][self.rng.integers(LIBRARY_SIZE)]
         start = int(self.rng.integers(frames))
-        level = LEVEL * self.intensity * volume * envelope ** 0.5 * self.rng.uniform(0.35, 1.0)
+        level = LEVEL * self.intensity * volume * envelope ** 0.3 * self.rng.uniform(0.5, 1.0)
         out[start:start + len(sample)] += level * sample
         blip = False
     self.tail = out[frames:frames + self.longest].copy()

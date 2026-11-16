@@ -13,7 +13,8 @@ From recordings of real cars supplied for this project, built with tools/bank_fr
 tools/lower_bank.py --pitch 1.0 --off-mix 0 --off-mid 0:
 
   hellcat      hellcat.wav: --cylinders 8 --anchor 14 700 --idle 10.5-17.5 --on 25-94 --off 94-119
-  mustang_gt   mustanggt.wav: --cylinders 8 --half-orders --anchor 16.5 3456 --on 12.4-33.2
+  mustang_gt   mustanggt3.wav: --cylinders 8 --anchor 5 893 --anchor 48 835 --idle 42.5-54.5 --on 22-41 56-84
+               --off 22-41 56-84
 
 engine-sim is distributed under the following license:
 

@@ -1,15 +1,73 @@
 {
   "version": 1,
-  "source": "recording mustanggt.wav",
+  "source": "recording mustanggt3.wav",
   "layers": {
+    "off": [
+      {
+        "rpm": 750,
+        "file": "off_750.wav"
+      },
+      {
+        "rpm": 833,
+        "file": "off_833.wav"
+      },
+      {
+        "rpm": 1000,
+        "file": "off_1000.wav"
+      },
+      {
+        "rpm": 1250,
+        "file": "off_1250.wav"
+      },
+      {
+        "rpm": 1500,
+        "file": "off_1500.wav"
+      },
+      {
+        "rpm": 2250,
+        "file": "off_2250.wav"
+      },
+      {
+        "rpm": 2500,
+        "file": "off_2500.wav"
+      },
+      {
+        "rpm": 2750,
+        "file": "off_2750.wav"
+      },
+      {
+        "rpm": 3000,
+        "file": "off_3000.wav"
+      },
+      {
+        "rpm": 3250,
+        "file": "off_3250.wav"
+      },
+      {
+        "rpm": 3500,
+        "file": "off_3500.wav"
+      }
+    ],
     "on": [
+      {
+        "rpm": 750,
+        "file": "on_750.wav"
+      },
+      {
+        "rpm": 833,
+        "file": "on_833.wav"
+      },
+      {
+        "rpm": 1000,
+        "file": "on_1000.wav"
+      },
+      {
+        "rpm": 1250,
+        "file": "on_1250.wav"
+      },
       {
         "rpm": 1500,
         "file": "on_1500.wav"
-      },
-      {
-        "rpm": 1750,
-        "file": "on_1750.wav"
       },
       {
         "rpm": 2000,
@@ -38,14 +96,6 @@
       {
         "rpm": 3500,
         "file": "on_3500.wav"
-      },
-      {
-        "rpm": 3750,
-        "file": "on_3750.wav"
-      },
-      {
-        "rpm": 4000,
-        "file": "on_4000.wav"
       }
     ]
   }

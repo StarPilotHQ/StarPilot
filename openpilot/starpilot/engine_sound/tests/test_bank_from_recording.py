@@ -2,7 +2,8 @@ import wave
 
 import numpy as np
 
-from openpilot.starpilot.engine_sound.tools.bank_from_recording import SAMPLE_RATE, read_recording, stretch, steady, track, usable
+from openpilot.starpilot.engine_sound.tools.bank_from_recording import (LOOP_SECONDS, SAMPLE_RATE, read_recording, shuffled, stretch,
+                                                                        steady, track, usable)
 
 
 def v8_sweep(path, seconds=6.0, rate=44100):
@@ -25,7 +26,7 @@ def test_tracks_a_sweep_from_its_anchor_and_loops_play_at_the_bank_rpm(tmp_path)
   truth_t, truth_rpm = v8_sweep(tmp_path / 'v8.wav')
   audio = read_recording(tmp_path / 'v8.wav')
   assert abs(len(audio) / SAMPLE_RATE - 6.0) < 0.01
-  times, rpm = track(audio, 8, (1.0, 1000.0), half_orders=False)
+  times, rpm = track(audio, 8, [(1.0, 1000.0)], half_orders=False)
   expected = np.interp(times, truth_t, truth_rpm)
   inside = (times > 0.4) & (times < 5.6)
   assert np.max(np.abs(rpm[inside] / expected[inside] - 1)) < 0.03
@@ -38,3 +39,19 @@ def test_tracks_a_sweep_from_its_anchor_and_loops_play_at_the_bank_rpm(tmp_path)
   peak = np.argmax(spectrum) * SAMPLE_RATE / (1 << 20)
   assert abs(peak / (2000.0 * 8 / 120) - 1) < 0.02
   assert abs(loop[0] - loop[-1]) <= np.percentile(np.abs(np.diff(loop)), 99) * 1.5
+
+
+def test_a_short_stretch_becomes_a_full_loop_of_shuffled_whole_cycles():
+  rpm = 1800.0
+  cycle = 120.0 / rpm * SAMPLE_RATE
+  t = np.arange(round(6 * cycle)) / SAMPLE_RATE
+  rng = np.random.default_rng(0)
+  audio = np.sin(2 * np.pi * 8 * rpm / 120 * t) + 0.2 * rng.standard_normal(len(t))
+  loop = shuffled(audio, cycle, rpm)
+  assert loop is not None and len(loop) >= LOOP_SECONDS * SAMPLE_RATE - cycle
+  assert len(loop) % round(cycle) == 0
+  spectrum = np.abs(np.fft.rfft(np.tile(loop, 2) * np.hanning(2 * len(loop)), 1 << 20))
+  assert abs(np.argmax(spectrum) * SAMPLE_RATE / (1 << 20) / (8 * rpm / 120) - 1) < 0.01
+  steps = np.abs(np.diff(np.append(loop, loop[0])))
+  assert steps.max() < 4 * np.percentile(steps, 99)
+  assert shuffled(audio[:round(3 * cycle)], cycle, rpm) is None
