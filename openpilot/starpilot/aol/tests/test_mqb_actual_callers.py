@@ -34,7 +34,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
                                                                brake_held_engagement=False, creep_start=False, early_brake=False,
                                                                parked_boot=False, cruise_cancel=False, main_cycle=False,
                                                                pq_eps_pause=False, pq_real_fault=False, native_phase=0, delayed_heartbeat=False,
-                                                               manual_speed_withdrawal=False, cold_creep=False):
+                                                               manual_speed_withdrawal=False, cold_creep=False, cancel_override=False, reverse_boot=False):
   pq = candidate == CAR.VOLKSWAGEN_SHARAN_MK2
   with ExitStack() as cleanup:
     cleanup.enter_context(OpenpilotPrefix())
@@ -171,13 +171,13 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         assert not quiet.get_controls_allowed()
         assert native.get_current_safety_mode() != quiet.get_current_safety_mode()
 
-      brake = (60 if early_brake else 65) <= tick < 75 or (brake_held_engagement and tick < 29)
-      reverse = 85 <= tick < 95
+      brake = (60 if early_brake else 65) <= tick < 75 or (brake_held_engagement and tick < 29) or (reverse_boot and tick < 40)
+      reverse = 85 <= tick < 95 or (reverse_boot and tick < 35)
       ordinary = engage_on_set and 21 <= tick < (55 if cruise_cancel else 65)
       overrides = {
         'TSK_06': {'TSK_Status': 0 if main_cycle and 45 <= tick < 50 else 3 if ordinary and not alpha else 2},
-        'LH_EPS_03': {'EPS_HCA_Status': 3, 'EPS_Lenkmoment': 100 if early_brake and 52 <= tick <= 61 else 0},
-        'Motor_20': {'MO_Fahrpedalrohwert_01': 0},
+        'LH_EPS_03': {'EPS_HCA_Status': 3, 'EPS_Lenkmoment': 100 if (early_brake or cancel_override) and 52 <= tick <= 61 else 0},
+        'Motor_20': {'MO_Fahrpedalrohwert_01': 20 if cancel_override and 48 <= tick < 65 else 0},
         'Motor_14': {'MO_Fahrer_bremst': int(brake), 'MO_Kuppl_schalter': 0},
         'ESP_05': {'ESP_Fahrer_bremst': int(brake)},
         'Gateway_73': {'GE_Fahrstufe': 6 if reverse else 8},
@@ -198,7 +198,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
           'Motor_3': {'MO3_Pedalwert': 0},
           'Motor_5': {'MO5_GRA_Hauptsch': int(not main_cycle or not 45 <= tick < 50)},
           'Lenkhilfe_2': {'LH2_Sta_HCA': 2 if pq_real_fault and tick == 60 else 4 if pq_eps_pause and 45 <= tick < 50 else 3},
-          'Lenkhilfe_3': {'LH3_LM': 100 if early_brake and 52 <= tick <= 61 else 0},
+          'Lenkhilfe_3': {'LH3_LM': 100 if (early_brake or cancel_override) and 52 <= tick <= 61 else 0},
           'Getriebe_1': {'GE1_Wahl_Pos': 7 if reverse else 5},
           'Bremse_1': {'BR1_Rad_kmh': 0 if (parked_boot or brake_held_engagement) and tick < 30 else 72},
           'Airbag_1': {'Gurtschalter_Fahrer': int(not 105 <= tick < 111)},
@@ -242,7 +242,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         card.state_publish(state, radar)
       if tick >= 15:
         assert state.canValid and not state.canTimeout
-      if parked_boot and 15 <= tick < 30:
+      if (parked_boot and 15 <= tick < 30) or (reverse_boot and 15 <= tick < 40):
         assert not card.aol_card_intent.allowed_latch, 'VW_PARKED_START_CONSUMED_MAIN_ARM'
       if delayed_heartbeat and not startup_vetoes_checked:
         from copy import copy
@@ -366,7 +366,11 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
       for addr, data, bus in sent:
         assert offset <= bus < offset + 4
         accepted = native.safety_tx_hook(make_msg(bus - offset, addr, dat=data))
-        if pq and main_cycle and alpha and 45 <= tick < 50 and addr == 0x368:
+        if cancel_override and alpha and state.gasPressed and addr in (0x122, 0x12E):
+          raw_accel = ((data[4] & 7) << 8 | data[3]) if addr == 0x122 else ((data[7] << 3) | (data[6] >> 5))
+          accel = raw_accel * 5 - 7220
+          assert accepted == (accel == 3010)
+        elif pq and main_cycle and alpha and 45 <= tick < 50 and addr == 0x368:
           # Physical MAIN withdrawal precedes the next 10 Hz host acknowledgment.
           assert not accepted and not native.get_controls_allowed() and not permission & 2
         else:
@@ -377,12 +381,12 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
       emitted.extend(sent)
       lat_commands.append(command.latActive)
       long_commands.append(command.longActive)
-    if delayed_heartbeat and alpha and gearbox == 'manual' and native_phase == 0:
+    if delayed_heartbeat and not reverse_boot and alpha and gearbox == 'manual' and native_phase == 0:
       assert startup_vetoes_checked
     if creep_start:
       assert any(lat_commands[35:45]), 'AOL must request and obtain native steering below the manual long-enable speed'
       assert not any(long_commands[:46]), 'Creep AOL must not enable longitudinal below its independent minimum'
-    assert any(lat_commands[35:60])
+    assert any(lat_commands[45:60] if reverse_boot else lat_commands[35:60])
     assert any(lat_commands[76:84])  # braking released long, not qualified lateral intent
     assert not any(lat_commands[86:95])
     assert any(lat_commands[100:])
@@ -567,3 +571,27 @@ def test_manual_speed_event_never_masks_other_disarming_faults(veto):
   events.add(log.OnroadEvent.EventName.controlsMismatch)
   assert lateral_immediate_disable(cp, state, intent, events.to_msg())
   assert intent_disarming_fault(cp, events.to_msg(), state)
+
+
+@pytest.mark.parametrize('gearbox', ('automatic', 'manual', 'direct'))
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('phase', range(10))
+def test_mqb_cancel_with_accelerator_and_driver_steering(gearbox, alpha, phase):
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    gearbox, alpha, 0, False, True, cruise_cancel=True, cancel_override=True, native_phase=phase)
+
+
+@pytest.mark.parametrize('gearbox', ('automatic', 'manual', 'direct'))
+@pytest.mark.parametrize('alpha', (False, True))
+def test_mqb_reverse_braked_start_waits_before_consuming_default_main(gearbox, alpha):
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    gearbox, alpha, 0, False, False, parked_boot=True, reverse_boot=True, delayed_heartbeat=True)
+
+
+@pytest.mark.parametrize('gearbox', ('automatic', 'manual', 'direct'))
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('cancel', (False, True))
+def test_mqb_external_panda_fixed_selection_start_and_pedal_cancel(gearbox, alpha, cancel):
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    gearbox, alpha, 4, True, cancel, parked_boot=not cancel, reverse_boot=not cancel,
+    delayed_heartbeat=not cancel, cruise_cancel=cancel, cancel_override=cancel, native_phase=1)

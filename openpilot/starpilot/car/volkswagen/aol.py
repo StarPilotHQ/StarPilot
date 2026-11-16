@@ -146,7 +146,9 @@ class VolkswagenStockCardIntent(AolCardIntent):
       self.main_pulse = False
     state.buttonEvents = events
     super().update(state.as_reader(), **kwargs)
-    if (default_main_edge and state.canValid and not state.canTimeout and self.settings.enabled and
+    startup_inhibited = ((stock_qualified(self.cp) or long_qualified(self.cp)) and
+                         (temporary_restriction(self.cp, state) or state.brakePressed or state.regenBraking))
+    if (default_main_edge and not startup_inhibited and state.canValid and not state.canTimeout and self.settings.enabled and
         not state.steerFaultPermanent and not state.accFaulted and not self._fault_inhibit and
         (not self.cruise_lateral or not lateral_output_inhibited(self.cp, state))):
       self.allowed_latch = True
