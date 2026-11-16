@@ -1876,3 +1876,10 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-tuner__diagnostics dd { margin-bottom: 12px; }
 }
 .gx-tuner__manual .gx-row { padding-inline: 0; }
+.gx-card.gx-app-download { width: min(calc(100% - 40px), 380px); padding: 28px 24px 18px; gap: 16px; text-align: center; justify-items: center; }
+.gx-app-download__icon { width: 72px; height: 72px; object-fit: contain; }
+.gx-app-download h2 { margin: 0; font-size: 1.5rem; line-height: 1.2; }
+.gx-app-download > p { margin: 0; color: var(--text-muted); line-height: 1.5; }
+.gx-app-download__get { width: 100%; min-height: 48px; }
+.gx-app-download > .gx-app-download__platform { margin-top: -8px; font-size: .75rem; }
+.gx-app-download > .gx-btn--text { background: transparent; border-color: transparent; box-shadow: none; color: var(--text-muted); min-height: 44px; }
