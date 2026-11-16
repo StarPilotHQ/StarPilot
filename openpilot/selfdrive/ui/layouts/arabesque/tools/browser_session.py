@@ -97,6 +97,17 @@ def sealed_slot(size):
     raise
 
 
+# AGNOS 20.5+ applies a 128M MemoryMax drop-in to every service and limits system.slice to 512M and 512 tasks.
+BACKGROUND_LIMIT = Path('/usr/lib/systemd/system/service.d/background.conf')
+
+
+def memory_properties(unit):
+  if not BACKGROUND_LIMIT.exists():
+    return []
+  # Run outside system.slice and set MemoryMax=1G after start; the drop-in's value applies when the unit is created.
+  return ['Slice=app.slice', f'ExecStartPost=+/usr/bin/systemctl set-property --runtime {unit}.service MemoryMax=1G']
+
+
 def load_setup():
   source = Path(__file__).resolve()
   path = (Path('/tmp/arabesque-runtime/setup.py') if str(source).startswith('/tmp/arabesque-bridge/') else
@@ -151,6 +162,7 @@ def launch_command(unit, address, width, height, fps, capture, purpose='browse',
     'CPUAffinity=0-5', 'CPUSchedulingPolicy=other', 'Nice=10', 'CPUWeight=10', 'MemoryMax=1G', 'LimitNPROC=1024',
     'StandardOutput=null', 'StandardError=journal',
   ]
+  properties += memory_properties(unit)
   if maintenance:
     properties.append('RuntimeMaxSec=900')
   elif (runtime / 'isolation/xkb').is_dir():
@@ -179,6 +191,7 @@ def preparation_command(unit, address):
     'NoNewPrivileges=yes', 'CapabilityBoundingSet=CAP_CHOWN', 'ProtectSystem=strict', 'ReadWritePaths=/data',
     'PrivateTmp=yes', 'ProtectKernelTunables=yes', 'ProtectControlGroups=yes', 'UMask=0022', 'WorkingDirectory=/tmp',
     'CPUAffinity=0-5', 'CPUSchedulingPolicy=other', 'Nice=10', 'MemoryMax=1G', 'StandardOutput=null', 'StandardError=journal',
+    *memory_properties(unit),
   ]
   command = ['sudo', '-n', '/usr/bin/timeout', '--kill-after=1', '15', '/usr/bin/systemd-run', '--quiet', '--collect', f'--unit={unit}']
   command += [f'--property={value}' for value in properties]
