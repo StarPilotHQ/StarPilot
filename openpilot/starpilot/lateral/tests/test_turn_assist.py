@@ -179,6 +179,28 @@ def test_shared_assist_actual_torque_factories(brand, candidate):
   assert not turn_assist_supported(cp)
 
 
+@pytest.mark.parametrize('brand,candidate,expected', [
+  ('hyundai', 'HYUNDAI_IONIQ_6', (True, False, False)),
+  ('hyundai', 'GENESIS_GV70_ELECTRIFIED_1ST_GEN', (True, True, True)),
+  ('toyota', 'TOYOTA_COROLLA_TSS2', (False, False, False)),
+])
+def test_model_turn_assist_features_by_policy(brand, candidate, expected):
+  from importlib import import_module
+  from openpilot.starpilot.lateral.controller_selection import model_turn_assist_features
+  car = getattr(import_module(f'opendbc.car.{brand}.values').CAR, candidate)
+  cp = interfaces[car].get_non_essential_params(car)
+  features = model_turn_assist_features(cp)
+  assert (features.supported, features.lead_gate, features.high_speed_preview) == expected
+
+
+def test_model_turn_assist_features_denied_without_turn_assist_support():
+  from openpilot.starpilot.lateral.controller_selection import model_turn_assist_features
+  cp = interfaces[CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN].get_non_essential_params(CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN)
+  cp.notCar = True
+  features = model_turn_assist_features(cp)
+  assert (features.supported, features.lead_gate, features.high_speed_preview) == (False, False, False)
+
+
 def test_g70_assist_preserves_vehicle_output_cap():
   from openpilot.starpilot.lateral.genesis_g70_policy import get_genesis_g70_low_speed_output_limit
   cp = interfaces[CAR.GENESIS_G70_2020].get_non_essential_params(CAR.GENESIS_G70_2020)

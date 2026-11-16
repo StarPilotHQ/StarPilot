@@ -175,18 +175,20 @@ def model_turn_assist_supported(CP) -> bool:
   return turn_assist_supported(CP) and policy_for(CP) in ('ioniq6', 'genesis_gv70_electrified')
 
 
-def model_turn_assist_gv70_lead_gate(CP) -> bool:
-  # True only for the GV70: controlsd uses this to enable the
-  # GV70-only turn-lead gate (near/onset/ratio checks + wider lead
-  # speed range) in ModelTurnAssist. Ioniq 6 never enables it.
-  return turn_assist_supported(CP) and policy_for(CP) == 'genesis_gv70_electrified'
+@dataclass(frozen=True)
+class ModelTurnAssistFeatures:
+  supported: bool
+  lead_gate: bool
+  high_speed_preview: bool
 
 
-def model_turn_assist_gv70_high_speed_preview(CP) -> bool:
-  # True only for the GV70: controlsd uses this to enable the
-  # GV70-only high-speed spatial preview in ModelTurnAssist.
-  # Ioniq 6 never enables it.
-  return turn_assist_supported(CP) and policy_for(CP) == 'genesis_gv70_electrified'
+def model_turn_assist_features(CP) -> ModelTurnAssistFeatures:
+  # The turn-lead gate (near/onset/ratio checks, lead speed up to 9 m/s)
+  # and the high-speed spatial preview are enabled for the GV70 only;
+  # every other car, including the Ioniq 6, gets the base package.
+  gv70_gates = turn_assist_supported(CP) and policy_for(CP) == 'genesis_gv70_electrified'
+  return ModelTurnAssistFeatures(supported=model_turn_assist_supported(CP),
+                                 lead_gate=gv70_gates, high_speed_preview=gv70_gates)
 
 
 def default_selection(CP) -> ControllerSelection:
