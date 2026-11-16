@@ -18,6 +18,8 @@ assert.ok(GalaxyPage.template.indexOf('<RemoteAccess') < GalaxyPage.template.ind
 assert.ok(!GalaxyPage.template.includes('<LocalAccess'))
 assert.ok(GalaxyPage.template.includes('<h3>Get the app</h3>'))
 assert.ok(GalaxyPage.template.includes('<InstallApp :url="url" />'))
+assert.ok(GalaxyPage.template.includes('href="#/networks"'))
+assert.ok(GalaxyPage.template.indexOf('<InstallApp') < GalaxyPage.template.indexOf('#/networks'))
 assert.ok(!GalaxyPage.template.includes('PWA'))
 assert.ok(DriveStatePanel.template.includes('gx-card gx-force-drive'))
 const css = readFileSync(new URL('../web/css/galaxy.css', import.meta.url), 'utf8')

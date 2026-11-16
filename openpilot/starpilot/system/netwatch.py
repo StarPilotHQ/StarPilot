@@ -220,11 +220,19 @@ def main() -> None:
   signal.signal(signal.SIGINT, lambda *_: stop.set())
   watcher = Watcher()
   watcher.start()
+  reconcile_at = 0.0
   while not stop.is_set():
     now = time.monotonic()
     for name, count in watcher.tick(now):
       cloudlog.event('netwatch_changed', link=name, closed=count, up=watcher.links[name].stable is not None)
     publish(watcher.status())
+    if now >= reconcile_at:
+      reconcile_at = now + 300
+      try:
+        from openpilot.starpilot.galaxy import network_prefs
+        network_prefs.apply_preference()  # newly saved networks pick up the Wi-Fi/cellular preference
+      except Exception:
+        cloudlog.exception('netwatch_preference_failed')
     stop.wait(1.0)
 
 
