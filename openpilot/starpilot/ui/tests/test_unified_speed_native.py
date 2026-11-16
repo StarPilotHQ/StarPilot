@@ -130,10 +130,10 @@ def test_set_and_binding_slc_stay_visible_beside_sign_or_prompt(profile, stage):
   if stage == 'prompt':
     assert 'NEW LIMIT' in texts
   if pending:
-    assert '25' in texts and not any(text.startswith('LAST') for text in texts)
+    assert '25' in texts
     assert ('OSM' in texts) == (stage != 'expanded')
   else:
-    assert 'DASH' in texts and '30' in texts and not any(text.startswith('LAST') for text in texts)
+    assert 'DASH' in texts and '30' in texts
 
 
 @pytest.mark.parametrize('gap', [False, True])
@@ -175,7 +175,7 @@ def test_accepted_sign_keeps_text_geometry_and_styling_through_source_gaps(profi
                 last_received_source='vision', last_received_speed_limit_mps=99 / 3.6,
                 last_received_adjusted_limit_mps=109 / 3.6)
   rendered = []
-  for observation in (obs, gap, replace(obs, sign_recovering=True)):
+  for observation in (obs, gap):
     font.draw.reset_mock()
     for shape in ('outline', 'thick_outline', 'circle', 'draw_ring'):
       drawing[shape].reset_mock()
@@ -184,9 +184,9 @@ def test_accepted_sign_keeps_text_geometry_and_styling_through_source_gaps(profi
     shapes = [(shape, *call.args[:2], rgba_tuple(call.args[2]), call.kwargs)
               for shape in ('outline', 'thick_outline', 'circle') for call in drawing[shape].call_args_list]
     rendered.append((text, shapes))
-  assert rendered[0] == rendered[1] == rendered[2]
+  assert rendered[0] == rendered[1]
   texts = [row[0] for row in rendered[0][0]]
-  assert not any(text.startswith('LAST') or text in ('SET IS LOW', 'RAISE SET', 'LIMIT') for text in texts)
+  assert not any(text in ('SET IS LOW', 'RAISE SET', 'LIMIT') for text in texts)
 
 
 @pytest.mark.parametrize('profile', list(Profile))
@@ -286,14 +286,13 @@ def test_pending_notice_pulses_without_changing_ink_and_arrow_follows_speed(prof
 
 @pytest.mark.parametrize('profile', list(Profile))
 @pytest.mark.parametrize('vienna', [False, True])
-@pytest.mark.parametrize('recovering', [False, True])
-def test_regular_sign_keeps_the_outlined_arrow(profile, vienna, recovering, drawing):
+def test_regular_sign_keeps_the_outlined_arrow(profile, vienna, drawing):
   current = state()
   current = replace(current, appearance=replace(current.appearance, use_vienna_sign=vienna),
-                    speed_limit=replace(current.speed_limit, decision_id=0, sign_recovering=recovering))
+                    speed_limit=replace(current.speed_limit, decision_id=0))
   font = fonts(profile)
   SpeedLimitWidget(font, profile).render(current)
-  assert foreground_calls(font.draw)[0].args[0] == ('LAST OSM' if recovering and profile == Profile.LARGE else 'OSM')
+  assert foreground_calls(font.draw)[0].args[0] == 'OSM'
   assert drawing['arrow'].call_args.args[0] == 'compact'
 
 
@@ -374,10 +373,10 @@ def test_override_sign_uses_cluster_target_and_restores_normal_sign(profile, vie
 @pytest.mark.parametrize('vienna', [False, True])
 @pytest.mark.parametrize('latest_received', [False, True])
 @pytest.mark.parametrize('offset', [False, True])
-@pytest.mark.parametrize('source,heading', [('map', 'LAST OSM'), ('vision', 'LAST VISION'), ('dashboard', 'LAST DASH'),
-                                             ('mapbox', 'LAST NAV'), ('online', 'LAST'), ('unknown', 'LAST')])
+@pytest.mark.parametrize('source,heading', [('map', 'OSM'), ('vision', 'VISION'), ('dashboard', 'DASH'),
+                                             ('mapbox', 'NAV'), ('online', 'SPEED'), ('unknown', 'SPEED')])
 def test_retained_limits_keep_original_source_and_have_no_actions(profile, vienna, latest_received, offset, source, heading, drawing):
-  # LAST history is what the sign shows while SLC is not using an accepted limit.
+  # A retained reading keeps its own source label while SLC is not using an accepted limit.
   current = state(show_slc_offset=offset, longitudinal_active=False)
   observation = replace(current.speed_limit, kind=ObservationKind.STALE, source='none', speed_limit_mps=None,
     pending_speed_limit_mps=None, last_received_speed_limit_mps=50/3.6 if latest_received else None,
@@ -387,10 +386,8 @@ def test_retained_limits_keep_original_source_and_have_no_actions(profile, vienn
   font = fonts(profile)
   render_sign(SpeedLimitWidget(font, profile), current)
   texts = [call.args[0] for call in foreground_calls(font.draw)]
-  expected_heading = heading if profile == Profile.LARGE else heading.removeprefix('LAST ').replace('LAST', 'SPEED')
-  assert texts.count(expected_heading) == 1
-  if profile == Profile.COMPACT:
-    assert not any(text.startswith('LAST') for text in texts)
+  assert texts.count(heading) == 1
+  assert not any(text.startswith('LAST') for text in texts)
   assert ('50' if latest_received else '40') in texts
   drawing['arrow'].assert_not_called()
   assert slc_controls(profile, current) == ()
@@ -404,7 +401,7 @@ def test_retained_sign_has_no_proposal_arrow_when_actions_are_hidden(profile, dr
                         last_received_speed_limit_mps=50 / 3.6, last_received_source='map')
   font = fonts(profile)
   render_sign(SpeedLimitWidget(font, profile), replace(current, speed_limit=observation))
-  assert foreground_calls(font.draw)[0].args[0] == ('LAST OSM' if profile == Profile.LARGE else 'OSM')
+  assert foreground_calls(font.draw)[0].args[0] == 'OSM'
   drawing['arrow'].assert_not_called()
 
 

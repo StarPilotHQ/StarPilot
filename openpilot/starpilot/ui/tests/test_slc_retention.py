@@ -386,7 +386,7 @@ def test_retired_fallback_cannot_reset_session_or_change_set_speed_sign_and_reco
   shown = resolve_unified_speed(view)
   assert target == pytest.approx(45, abs=1e-4)
   assert (shown.max_text, shown.posted_text, shown.source, shown.status) == ('50', '45', 'map', 'Using speed limit')
-  assert shown.limit_in_use and not shown.show_last
+  assert shown.limit_in_use
   assert not view.speed_limit.driver_override_active
   recovered, view, target = drive.step(1100)
   assert not view.speed_limit.driver_override_active
@@ -417,7 +417,7 @@ def test_maps_loss_keeps_accepted_target_display_and_control(tmp_path, loss):
   assert view.speed_limit.kind != ObservationKind.VALID
   shown = resolve_unified_speed(view)
   assert (shown.max_text, shown.posted_text, shown.status) == ('70', '45', 'Using speed limit')
-  assert shown.limit_in_use and not shown.show_last
+  assert shown.limit_in_use
   assert all(slc_controls(profile, view) == () for profile in Profile)
   assert not output.message.slcState.hasPending
 
@@ -444,7 +444,7 @@ def test_long_gap_confirmation_and_recovery_keep_the_accepted_limit(tmp_path, an
   assert not output.message.slcState.hasPending
   shown = resolve_unified_speed(view)
   assert shown.posted_text == str(limit if answer == 'accept' else 45)
-  assert shown.limit_in_use and not shown.show_last
+  assert shown.limit_in_use
   assert view.speed_limit.last_received_speed_limit_mps == pytest.approx(limit * MPH)
   # A dead SLC publisher cannot make the widget claim retained control indefinitely.
   drive.ui.sm.alive['slcState'] = False
@@ -503,10 +503,9 @@ def test_retention_respects_lower_max_and_reset(tmp_path, offset):
   assert view.speed_limit.kind != ObservationKind.VALID and shown.posted_retained
   assert shown.status == 'Using set speed'
   # SLC still follows its accepted limit through the gap; SET below it is ordinary cruising.
-  assert not shown.limit_in_use and not shown.show_last
+  assert not shown.limit_in_use
   assert replace(shown, posted_retained=False) == resolve_unified_speed(before)
   _, recovered, target = drive.step(400)
-  assert recovered.speed_limit.sign_recovering
   assert resolve_unified_speed(recovered) == resolve_unified_speed(before)
   assert target == pytest.approx(40, rel=0, abs=1e-4)
   drive.runtime.reset()

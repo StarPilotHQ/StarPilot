@@ -22,7 +22,7 @@ def test_sign_shows_the_accepted_limit_while_slc_is_on_and_the_latest_reading_ot
     shown = resolve_unified_speed(replace(current, longitudinal_active=on))
     assert (shown.posted_text, shown.offset_text) == (accepted if on else live)
     assert shown.source == ('dashboard' if on else 'vision')
-    assert not shown.posted_retained and not shown.show_last
+    assert not shown.posted_retained
   pedal = resolve_unified_speed(replace(current, longitudinal_active=False, longitudinal_overridden=True))
   assert (pedal.posted_text, pedal.source) == (accepted[0], 'dashboard')
 
@@ -121,7 +121,7 @@ def test_confirmation_proposal_uses_the_pending_target_and_its_offset(pending, a
   assert resolve_unified_speed(replace(current, speed_limit=observation)).proposal_text == expected
 
 
-@pytest.mark.parametrize('change', ['none', 'retained', 'hold', 'recovering', 'pending', 'source', 'rounded-posted',
+@pytest.mark.parametrize('change', ['none', 'retained', 'hold', 'pending', 'source', 'rounded-posted',
                                   'rounded-target', 'pedal', 'override', 'display-only', 'not-limiting', 'disengaged'])
 def test_in_use_requires_accepted_target_and_actual_control(change):
   current = state()
@@ -129,7 +129,7 @@ def test_in_use_requires_accepted_target_and_actual_control(change):
                 accepted_source='vision', effective_cluster_target_mps=32., effective_cap_mps=32., limiting_max_set=True)
   changes = {
     'retained': {'kind': ObservationKind.STALE, 'speed_limit_mps': None, 'last_received_speed_limit_mps': 30.},
-    'hold': {'status': 'display_hold'}, 'recovering': {'sign_recovering': True},
+    'hold': {'status': 'display_hold'},
     'pending': {'pending_speed_limit_mps': 30.}, 'source': {'accepted_source': 'dashboard'},
     'rounded-posted': {'accepted_speed_limit_mps': 30.01},
     'rounded-target': {'effective_cluster_target_mps': 32.01},
@@ -139,7 +139,7 @@ def test_in_use_requires_accepted_target_and_actual_control(change):
   current = replace(current, speed_limit=replace(obs, **changes.get(change, {})),
                     longitudinal_overridden=change == 'pedal', longitudinal_active=change != 'disengaged')
   # The accepted limit is the one in use, whichever source or reading the latest observation shows.
-  assert resolve_unified_speed(current).limit_in_use == (change in ('none', 'retained', 'recovering', 'source', 'rounded-posted'))
+  assert resolve_unified_speed(current).limit_in_use == (change in ('none', 'retained', 'source', 'rounded-posted'))
 
 
 def test_pedal_basis_cannot_be_presented_as_a_held_override_between_message_updates():
@@ -167,18 +167,15 @@ def test_accepted_target_survives_source_gaps_without_presenting_rejected_histor
                 last_received_source='vision')
   held = resolve_unified_speed(replace(current, speed_limit=gap))
   assert held.posted_retained
-  assert not held.show_last
   assert (held.posted_text, held.source, held.offset_text) == ('55', 'dashboard', '+5')
   assert (held.limit_in_use, held.active_side, held.status) == (before.limit_in_use, before.active_side, before.status)
-  recovered = resolve_unified_speed(replace(current, speed_limit=replace(obs, sign_recovering=True)))
-  assert recovered == before
 
 
 @pytest.mark.parametrize('change,accepted', [
   ('none', True), ('no-cap', True), ('different-target', True), ('no-session', True), ('pedal', True), ('override', True),
   ('no-accepted', False), ('no-adjusted', False), ('no-source', False), ('off', False), ('display-only', False),
   ('display-hold', False), ('pending', False)])
-def test_source_history_stays_last_only_without_an_accepted_limit_in_use(change, accepted):
+def test_sign_shows_accepted_limit_in_use_else_last_reading(change, accepted):
   current = state(cruise_kph=60., longitudinal_active=change != 'off', longitudinal_overridden=change == 'pedal')
   obs = replace(current.speed_limit, kind=ObservationKind.STALE, speed_limit_mps=None, source='none',
                 last_received_speed_limit_mps=30., last_received_source='vision',
@@ -192,5 +189,4 @@ def test_source_history_stays_last_only_without_an_accepted_limit_in_use(change,
   }
   shown = resolve_unified_speed(replace(current, speed_limit=replace(obs, **changes.get(change, {}))))
   assert shown.posted_retained
-  assert shown.show_last != accepted
   assert (shown.source, shown.posted_text) == (('dashboard', '72') if accepted else ('vision', '108'))

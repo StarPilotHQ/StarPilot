@@ -300,7 +300,7 @@ def test_every_slc_state_draws_the_plain_sign_with_real_fonts():
           calls = []
           with patch.object(fonts, 'draw', lambda *args, sink=calls: sink.append(args)):
             widget.render(current)
-          # SLC keeps following its accepted VISION limit through a gap, so no LAST.
+          # SLC keeps following its accepted VISION limit through a gap.
           assert [call[0] for call in calls if call[-1].a == 255] == ['VISION', '100'] + (['+10'] if variant == 'offset' else [])
         widget.close()
   finally:
@@ -612,7 +612,7 @@ def test_both_sign_styles_contain_text_and_arrows_at_each_profile_scale():
                patch.object(widget.shapes, 'arrow') as arrow_draw:
             widget.render(current)
           calls = [call for call in calls if call[-1].a == 255]
-          assert sum(call[0] == (f'LAST {heading}' if retained and profile == Profile.LARGE else heading) for call in calls) == 1, case
+          assert sum(call[0] == heading for call in calls) == 1, case
           assert all(call[0] != 'LIMIT' for call in calls), case
           ink = []
           for text, role, size, left, top, color in calls:

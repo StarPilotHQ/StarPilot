@@ -46,7 +46,7 @@ from openpilot.starpilot.ui.onroad_state import conditional_lead_from_message
 from openpilot.starpilot.ui.onroad_state import (AlertSize, BorderSignals, ObservationKind, OnroadAlert,
                                                 OnroadState, SpeedLimitObservation, is_personality_notice, speed_limit_from_message)
 from openpilot.starpilot.ui.unified_speed_presentation import (displayed_adjusted_limit_mps, displayed_limit_mps,
-                                                              displayed_limit_source, positive, retaining_limit)
+                                                              positive, retaining_limit)
 from openpilot.starpilot.ui.onroad_stopped_timer import StoppedTimer
 from openpilot.starpilot.speed_limits.vision.stop_observation import StopConfirmation
 from openpilot.starpilot.ui.onroad_lane_alerts import lateral_lane_alert
@@ -344,8 +344,6 @@ class RuntimeSnapshotAdapter:
     self._reverse_driver_camera = ReverseDriverCamera()
     self._vision_stop = StopConfirmation(display_only=True)
     self._slc_sign_cache: tuple[int, tuple[int, int], str, SpeedLimitObservation] | None = None
-    self._slc_last_sign: tuple[tuple[int, int], str, str, float] | None = None
-    self._slc_sign_recovery_ns: int | None = None
     self._mono_clock, self._boot_clock = mono_clock, boot_clock
     self._device_after_mono_ns = mono_clock()
     self._device_offset_ns: int | None = None
@@ -398,25 +396,6 @@ class RuntimeSnapshotAdapter:
   def connectivity_allowed(self) -> bool:
     """Fresh effective offroad admission for connectivity setup, regardless of ignition."""
     return self.confirmed_offroad()
-
-  def _stabilize_slc_label(self, observation: SpeedLimitObservation, drive_key: tuple[int, int] | None,
-                           session: str, stamp: int) -> SpeedLimitObservation:
-    limit = displayed_limit_mps(observation)
-    if drive_key is not None and session and limit is not None:
-      sign = (drive_key, session, displayed_limit_source(observation), limit)
-      if observation.kind != ObservationKind.VALID or observation.status == 'display_hold':
-        self._slc_last_sign = sign
-        self._slc_sign_recovery_ns = None
-        return observation
-      if sign == self._slc_last_sign:
-        # Redrawing a single live packet must never clear LAST.
-        if self._slc_sign_recovery_ns is None or stamp < self._slc_sign_recovery_ns:
-          self._slc_sign_recovery_ns = stamp
-        if stamp - self._slc_sign_recovery_ns < SLC_SIGN_HOLD_NS:
-          return replace(observation, sign_recovering=True)
-    self._slc_last_sign = None
-    self._slc_sign_recovery_ns = None
-    return observation
 
   def build(self, mode: ShellMode, selected: Destination = Destination.STAR, *, compact_y: float = 0,
             compact_scroll_x: float = 0, sidebar_expanded: bool = True, now_ns: int | None = None,
@@ -668,9 +647,6 @@ class RuntimeSnapshotAdapter:
       # instead of letting it come and go with the source.
       observation = SpeedLimitObservation(kind=ObservationKind.STALE, source=observation.source, status=observation.status,
                                           source_readings=observation.source_readings)
-    observation = self._stabilize_slc_label(observation, drive_key if mode == ShellMode.ONROAD else None,
-                                           str(getattr(slc, 'sessionId', '')) if show_slc else '',
-                                           int(sm.logMonoTime['slcState']) if show_slc else 0)
     # Temporary old StarPilot route replay shim. Retire by deleting this call
     # and its import; remaining cleanup is documented in
     # openpilot/starpilot/ui/old_starpilot_route_shim.py.

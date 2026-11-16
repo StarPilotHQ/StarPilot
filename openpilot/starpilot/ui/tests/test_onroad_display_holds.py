@@ -52,7 +52,7 @@ def test_unknown_slc_keeps_only_display_sign_during_brief_gap(source):
 
 @pytest.mark.parametrize('source', ['dashboard', 'map', 'vision'])
 @pytest.mark.parametrize('has_last_received', [False, True])
-def test_slc_last_label_requires_stable_recovery(source, has_last_received):
+def test_slc_sign_retained_only_through_gaps(source, has_last_received):
   ui = display_ui()
   live = ui.sm.messages['slcState']
   live.source = source
@@ -62,30 +62,26 @@ def test_slc_last_label_requires_stable_recovery(source, has_last_received):
                               'lastReceivedSpeedLimit': live.speedLimit, 'lastReceivedSource': source}))
   adapter = RuntimeSnapshotAdapter(ui)
 
-  def update(message, elapsed_ms, *, render_ms=None):
+  def update(message, elapsed_ms):
     ui.sm.messages['slcState'] = message
     ui.sm.logMonoTime['slcState'] = NOW + elapsed_ms * 1_000_000
-    now = elapsed_ms if render_ms is None else render_ms
-    return adapter.build(ShellMode.ONROAD, now_ns=NOW + now * 1_000_000).onroad
+    return adapter.build(ShellMode.ONROAD, now_ns=NOW + elapsed_ms * 1_000_000).onroad
 
-  def last(state):
-    return resolve_unified_speed(state).posted_retained or state.speed_limit.sign_recovering
+  def retained(state):
+    return resolve_unified_speed(state).posted_retained
 
-  assert not last(update(live, 0))
-  assert last(update(gap, 50))
-  assert last(update(live, 100))
-  assert last(update(gap, 150))
-  assert last(update(live, 200))
-  assert last(update(live, 250))
-  assert last(update(live, 300))
-  assert last(update(live, 300, render_ms=350))  # Redrawing the same packet cannot clear LAST.
-  assert not last(update(live, 350))
+  assert not retained(update(live, 0))
+  assert retained(update(gap, 50))
+  assert not retained(update(live, 100))  # A live reading is current at once.
+  assert retained(update(gap, 150))
+  assert not retained(update(live, 200))
+  assert not retained(update(live, 350))
 
-  assert last(update(gap, 400))
-  assert not last(update(NS(**(vars(live) | {'speedLimit': live.speedLimit + 1})), 450))
-  assert last(update(unknown_slc(), 500))
+  assert retained(update(gap, 400))
+  assert not retained(update(NS(**(vars(live) | {'speedLimit': live.speedLimit + 1})), 450))
+  assert retained(update(unknown_slc(), 500))
   other_source = 'dashboard' if source != 'dashboard' else 'map'
-  assert not last(update(NS(**(vars(live) | {'source': other_source})), 550))
+  assert not retained(update(NS(**(vars(live) | {'source': other_source})), 550))
 
 
 @pytest.mark.parametrize('display_only', [False, True])

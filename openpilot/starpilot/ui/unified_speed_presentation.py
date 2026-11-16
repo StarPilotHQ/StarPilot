@@ -25,7 +25,6 @@ class UnifiedSpeedPresentation:
   override_text: str | None
   posted_retained: bool = False
   limit_in_use: bool = False
-  show_last: bool = False
   offset_configured: bool = False
 
   @property
@@ -97,7 +96,6 @@ def resolve_unified_speed(state, *, confirmation=False) -> UnifiedSpeedPresentat
   else:
     posted, target, source = displayed_limit_mps(obs), displayed_adjusted_limit_mps(obs), displayed_limit_source(obs)
   posted_retained = positive(posted) and (str(obs.kind) != 'valid' or obs.status == 'display_hold')
-  show_last = (posted_retained or obs.sign_recovering) and not using_accepted
   # SLC can only limit to a limit it has accepted; old replayed routes carry none.
   slc_limiting = (slc_engaged and not obs.driver_override_active and obs.limiting_max_set and
                   positive(obs.accepted_speed_limit_mps))
@@ -151,6 +149,6 @@ def resolve_unified_speed(state, *, confirmation=False) -> UnifiedSpeedPresentat
     posted_text=speed(posted), offset_text=offset, unit='km/h' if state.metric else 'mph', source=source,
     pending=pending, active_side=('limit' if slc_limiting else 'max') if state.cruise_active else 'none',
     status=status, proposal_text=speed(proposal), override_text=override, posted_retained=posted_retained,
-    limit_in_use=limit_in_use, show_last=show_last,
+    limit_in_use=limit_in_use,
     offset_configured=state.slc_offset_schedule is not None and
                       offset_for_limit(posted, state.slc_offset_schedule) not in (None, 0.))

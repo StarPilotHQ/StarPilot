@@ -38,8 +38,7 @@ class SpeedLimitPulse:
         self.last_limit = limit
       return
     if not pending:
-      live = (observation.kind == ObservationKind.VALID and observation.status != 'display_hold' and
-              not observation.sign_recovering)
+      live = observation.kind == ObservationKind.VALID and observation.status != 'display_hold'
       if live and not observation.action_enabled and limit != self.last_limit:
         self.start_time = now
         self.display_pulsing = True

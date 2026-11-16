@@ -106,7 +106,6 @@ class SpeedLimitObservation:
   last_received_speed_limit_mps: float | None = None
   last_received_source: str = 'none'
   last_received_adjusted_limit_mps: float | None = None
-  sign_recovering: bool = False
 
   def __post_init__(self) -> None:
     for value in (self.speed_limit_mps, self.offset_mps, self.pending_speed_limit_mps,

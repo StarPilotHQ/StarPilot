@@ -174,14 +174,11 @@ def test_mutcd_preserves_text_sizes_and_fits_both_sizes_with_real_fonts(profile)
           text, role, size, x, y, _ = call.args
           left, right = font.horizontal_ink(text, role, size)
           top, bottom = font.vertical_ink(text, role, size)
-          if text.startswith('LAST '):
-            assert right - left == pytest.approx(108 * widget.scale)
-          else:
-            nominal = {FontRole.SEMI_BOLD: 26, FontRole.SET_SPEED: 70, FontRole.MEDIUM: 27}[role] * widget.text_scale
-            if role == FontRole.SET_SPEED:
-              assert size == pytest.approx(nominal)
-            else:  # Large labels are larger, shrinking only to fit the sign.
-              assert nominal - 1e-6 <= size <= nominal * LABEL_SCALE[profile] + 1e-6
+          nominal = {FontRole.SEMI_BOLD: 26, FontRole.SET_SPEED: 70, FontRole.MEDIUM: 27}[role] * widget.text_scale
+          if role == FontRole.SET_SPEED:
+            assert size == pytest.approx(nominal)
+          else:  # Large labels are larger, shrinking only to fit the sign.
+            assert nominal - 1e-6 <= size <= nominal * LABEL_SCALE[profile] + 1e-6
           boxes.append((x + left, y + top, x + right, y + bottom))
         assert cx - half_width + 1 <= min(box[0] for box in boxes)
         assert max(box[2] for box in boxes) <= cx + half_width - 1

@@ -254,8 +254,6 @@ class SpeedLimitWidget:
   def _sign(self, state: OnroadState, bounds, now: float) -> None:
     shown, obs = resolve_unified_speed(state), state.speed_limit
     heading = SOURCE_LABELS.get(shown.source, 'SPEED')
-    if shown.show_last and self.profile == Profile.LARGE:
-      heading = f'LAST {heading}' if heading != 'SPEED' else 'LAST'
     x, top = bounds[0] + 12, bounds[1] + SIGN_PADDING[self.profile][0]
     card_top, large = top, self.profile == Profile.LARGE
     scale, text_scale = self.scale, self.text_scale

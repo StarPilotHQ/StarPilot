@@ -64,11 +64,10 @@ driver override wins over the limit. Pressing the accelerator adds no status.
 Both sign styles identify the displayed source: DASH for Dashboard, OSM for offline
 Maps, and VISION for the vision model. Explicit Mapbox readings in historical
 replay use NAV; unidentified live sources show SPEED. A retained road reading
-shows LAST alongside its source when known. For the same source and speed, the
-label clears after 150 ms of live updates. Vision keeps a confirmed sign current
-after it leaves view while the camera pipeline stays healthy. DASH follows the
-current OEM reading, and Maps keeps the current road limit separate from its
-upcoming preview.
+keeps its source label. Vision keeps a confirmed sign current after it leaves
+view while the camera pipeline stays healthy. DASH follows the current OEM
+reading, and Maps keeps the current road limit separate from its upcoming
+preview.
 During a new-limit confirmation an active OVERRIDE stays below SET;
 if SET is hidden, it appears in the confirmation header with a `Now:` label.
 The expanded Accept button contains the proposed limit including its offset
