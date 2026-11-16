@@ -224,6 +224,8 @@ class CatalogModelState:
     self.warp_copied = None
 
   def _reset_state(self) -> None:
+    for replay in getattr(self, "_laboratory_replays", ()):
+      replay.clear()
     from openpilot.starpilot.models.compile import make_stateful_input_queues, make_supercombo_input_queues, make_split_input_queues
 
     if self.onnx_history:

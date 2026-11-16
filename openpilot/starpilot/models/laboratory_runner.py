@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -57,8 +58,20 @@ class LaboratoryPair:
     self.chestnut = True
     self.model_id = f"{lateral.model_id}+{longitudinal.model_id}"
     self._last_outputs = None
+    self._layout_cache = None
+
+  def _clear_replays(self):
+    if self._layout_cache is not None:
+      self._layout_cache.clear()
+    for model in (self.lateral, self.longitudinal):
+      for replay in getattr(model, "_laboratory_replays", ()):
+        replay.clear()
 
   def run(self, bufs, transforms, inputs, after_enqueue=None):
+    with self._layout_cache.installed() if self._layout_cache is not None else nullcontext():
+      return self._run(bufs, transforms, inputs, after_enqueue)
+
+  def _run(self, bufs, transforms, inputs, after_enqueue=None):
     if self.failed:
       raise RuntimeError("Model Laboratory pair failed; load a fallback before continuing")
     try:
@@ -74,6 +87,7 @@ class LaboratoryPair:
       self._last_outputs = lateral, longitudinal
       return compose_model_outputs(lateral, longitudinal)
     except Exception:
+      self._clear_replays()
       self.failed = True
       self.lateral.last_warp = self.longitudinal.last_warp = None
       raise
@@ -89,6 +103,7 @@ class LaboratoryPair:
                  for value, model in zip(self._last_outputs, (self.lateral, self.longitudinal), strict=True)]
       return log.ModelDataV2.Action(**hybrid_action_values(*actions))
     except Exception:
+      self._clear_replays()
       self.failed = True
       raise
 
@@ -110,6 +125,7 @@ class LaboratoryPair:
       return LaboratoryFrame(composed, action,
                              (self.lateral_role, self.longitudinal_role))
     except Exception:
+      self._clear_replays()
       self.failed = True
       self.lateral.last_warp = self.longitudinal.last_warp = None
       raise
@@ -139,5 +155,13 @@ def load_laboratory_pair(cam_w: int, cam_h: int, config: dict, *, root: Path = R
                 source.get('_source_contract') is None else None)
     loaded.append(load_verified_model(cam_w, cam_h, Path(role['path']), role['version'], role['chestnut'],
                                       role['model_id'], role['sha256'], root=root, coherent_warp=coherent))
+    if coherent is not None:
+      from openpilot.starpilot.models.laboratory_replay import enable_replay
+      enable_replay(loaded[-1][0])
     contracts.append(role['source_contract'])
-  return LaboratoryPair(loaded[0][0], loaded[1][0], loaded[0][1], loaded[1][1], tuple(contracts))
+  pair = LaboratoryPair(loaded[0][0], loaded[1][0], loaded[0][1], loaded[1][1], tuple(contracts))
+  if all(source.get('artifact_format') == LEGACY_ABI and source.get('_source_contract') is None for source in contracts):
+    from tinygrad.uop.ops import UOp
+    from openpilot.starpilot.models.laboratory_layout import WeakLayoutMemo
+    pair._layout_cache = WeakLayoutMemo(UOp.contiguous_view)
+  return pair
