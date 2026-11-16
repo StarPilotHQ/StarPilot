@@ -94,7 +94,7 @@ def test_branch_commit_lookup_stays_on_official_repository_and_bounds_body():
   response.iter_content.return_value = [b'{"sha":"' + b"b" * 40 + b'"}']
   session.get.return_value = response
   assert fetch_branch_commit("feature/branch", session=session) == "b" * 40
-  assert session.get.call_args.args[0] == "https://api.github.com/repos/firestar5683/StarPilot/commits/feature%2Fbranch"
+  assert session.get.call_args.args[0] == "https://api.github.com/repos/StarPilotHQ/StarPilot/commits/feature%2Fbranch"
   assert session.get.call_args.kwargs["allow_redirects"] is False
   response.iter_content.return_value = [b"x" * 65_537]
   assert fetch_branch_commit("branch", session=session) is None

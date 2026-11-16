@@ -11,7 +11,7 @@ import requests
 from openpilot.starpilot.analytics.credentials import CLIENT_TOKEN
 
 WRITE_URL = "https://stats.firestar.link/api/v2/write"
-COMMITS_URL = "https://api.github.com/repos/firestar5683/StarPilot/commits/"
+COMMITS_URL = "https://api.github.com/repos/StarPilotHQ/StarPilot/commits/"
 MAX_PAYLOAD = 128 * 1024
 MAX_SETTINGS = 2051
 MAX_TEXT_BYTES = 256
