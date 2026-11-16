@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from math import fabs, exp
+from math import fabs, exp, isfinite
 import numpy as np
 
 from opendbc.car import get_safety_config, structs
@@ -75,9 +75,12 @@ NON_LINEAR_TORQUE_PARAMS = {
     "left": [3.8060, 0.8282, 0.1702, 0],
     "right": [3.8060, 0.8282, 0.1702, 0],
   },
+  # ENVISION keeps a static entry here as a fallback for tests / external
+  # callers of get_lataccel_torque_siglin(). Real runtime path uses the
+  # dynamic get_envision_dynamic_params() below.
   CAR.BUICK_ENVISION_SDGM: {
-    "left": [2.4, 1.05, 0.20, 0.0],
-    "right": [2.4, 1.05, 0.20, 0.0],
+    "left": [2.4, 0.98, 0.18, 0.0],
+    "right": [2.4, 0.98, 0.18, 0.0],
   },
 }
 
@@ -92,6 +95,54 @@ NON_LINEAR_TORQUE_PARAM_ALIASES = {
 def get_nonlinear_torque_params(car_fingerprint):
   source_fingerprint = NON_LINEAR_TORQUE_PARAM_ALIASES.get(car_fingerprint, car_fingerprint)
   return NON_LINEAR_TORQUE_PARAMS.get(source_fingerprint)
+
+
+# --- Envision-only dynamic siglin torque tuning ---------------------------
+# Envision schedules the (a, b, c, d) siglin coefficients by vehicle speed
+# instead of using the single static set in NON_LINEAR_TORQUE_PARAMS above.
+# Low speed raises b (torque ceiling) and c (linear slope) to overcome EPS
+# resistance during tight 90-degree turns; high speed softens both to avoid
+# over-torque. The static entry for CAR.BUICK_ENVISION_SDGM is kept in
+# NON_LINEAR_TORQUE_PARAMS as a fallback for tests / external callers of
+# get_lataccel_torque_siglin(); the real runtime path uses the schedule below.
+
+ENVISION_SPEED_BP = [6.7, 13.4, 20.1, 29.1]  # m/s (~24/48/72/105 km/h)
+ENVISION_A_V = [2.4, 2.4, 2.4, 2.4]
+ENVISION_B_V = [0.98, 0.98, 0.95, 0.95]      # raised at low speed for 90° turns
+ENVISION_C_V = [0.18, 0.19, 0.20, 0.20]
+ENVISION_D_V = [0.0, 0.0, 0.0, 0.0]
+
+# Center fade: silence the linear term near |lat_accel| = 0 so straight-line
+# steering-wheel noise is not amplified. Fading (rather than hard-gating)
+# keeps the slope continuous at the boundary.
+ENVISION_C_FADE_LAT_ACCEL_BP = [0.0, 0.2]  # m/s^2
+ENVISION_C_FADE_V = [0.0, 1.0]
+
+# vEgo low-pass used to schedule the dynamic map. CarInterface.update runs
+# at ~100 Hz => dt = 0.01 s; choosing tau = 0.5 s gives alpha = dt/(tau+dt)
+# = 0.01/0.51 ~= 0.02.
+ENVISION_VEGO_FILTER_ALPHA = 0.02
+
+# Inverse-map sample grid, built once at import time and reused by every
+# lateral_accel_from_torque_envision call.
+_ENVISION_LATACCEL_SAMPLES = np.arange(-5.0, 5.0, 0.01)
+
+
+def get_envision_dynamic_params(v_ego: float) -> tuple[float, float, float, float]:
+  """Interpolate the Envision siglin (a, b, c, d) at the given speed.
+
+  Non-finite or negative speeds are treated as 0 to keep the lookup safe
+  during startup frames where vEgo hasn't been parsed yet.
+  """
+  if not isfinite(v_ego) or v_ego < 0.0:
+    v_ego = 0.0
+
+  a = float(np.interp(v_ego, ENVISION_SPEED_BP, ENVISION_A_V))
+  b = float(np.interp(v_ego, ENVISION_SPEED_BP, ENVISION_B_V))
+  c = float(np.interp(v_ego, ENVISION_SPEED_BP, ENVISION_C_V))
+  d = float(np.interp(v_ego, ENVISION_SPEED_BP, ENVISION_D_V))
+  return a, b, c, d
+
 
 PEDAL_MSG = 0x201
 CAM_MSG = 0x320
@@ -151,6 +202,31 @@ class CarInterface(CarInterfaceBase):
   CarController = CarController
   RadarInterface = RadarInterface
 
+  # ENVISION-only filtered speed cache. Class-level defaults; instance
+  # writes (self._envision_v_ego_filt = ...) shadow them so multiple
+  # CarInterface instances never interfere.
+  _envision_v_ego_filt = 0.0
+  _envision_v_ego_ready = False
+
+  def update(self, can_list, *args, **kwargs):
+    ret = super().update(can_list, *args, **kwargs)
+    # Only ENVISION needs a fresh filtered vEgo for dynamic torque interpolation.
+    # self.CS is populated inside super().update(), so read it after the call.
+    if self.CP.carFingerprint == CAR.BUICK_ENVISION_SDGM:
+      cs = getattr(self, 'CS', None)
+      if cs is not None:
+        # Use getattr to protect against early frames where vEgo isn't parsed yet
+        v = float(getattr(cs, 'vEgo', 0.0))
+        if isfinite(v) and v >= 0.0:
+          if not self._envision_v_ego_ready:
+            if v > 0.0:  # Wait for a valid non-zero speed to snap
+              self._envision_v_ego_filt = v
+              self._envision_v_ego_ready = True
+          else:
+            # 100 Hz low-pass, tau ~= 0.5 s -> alpha = dt / (tau + dt) ~= 0.02
+            self._envision_v_ego_filt += ENVISION_VEGO_FILTER_ALPHA * (v - self._envision_v_ego_filt)
+    return ret
+
   @staticmethod
   def get_pid_accel_limits(CP, current_speed, cruise_speed):
     if CP.enableGasInterceptorDEPRECATED and bool(CP.flags & GMFlags.PEDAL_LONG.value):
@@ -208,6 +284,22 @@ class CarInterface(CarInterfaceBase):
     return torque_values, lataccel_values
 
   def torque_from_lateral_accel(self) -> TorqueFromLateralAccelCallbackType:
+    # ENVISION-only dynamic siglin path. Other cars fall through to the
+    # original static siglin table / linear path unchanged.
+    if self.CP.carFingerprint == CAR.BUICK_ENVISION_SDGM:
+      def torque_from_lateral_accel_envision(lateral_acceleration: float, torque_params: structs.CarParams.LateralTorqueTuning):
+        a, b, c, d = get_envision_dynamic_params(self._envision_v_ego_filt)
+        sig_input = a * lateral_acceleration
+        sig = np.sign(sig_input) * (1 / (1 + np.exp(-np.abs(sig_input))) - 0.5)
+
+        # This completely cuts off the high-frequency noise amplification near the center,
+        # without creating any step discontinuities (no slope jumps).
+        c_fade = np.interp(abs(lateral_acceleration), ENVISION_C_FADE_LAT_ACCEL_BP, ENVISION_C_FADE_V)
+
+        steer_torque = sig * b + lateral_acceleration * c * c_fade + d
+        return float(steer_torque)
+      return torque_from_lateral_accel_envision
+
     if get_nonlinear_torque_params(self.CP.carFingerprint) is not None:
       torque_values, lataccel_values = self.get_lataccel_torque_siglin()
 
@@ -218,6 +310,17 @@ class CarInterface(CarInterfaceBase):
       return self.torque_from_lateral_accel_linear
 
   def lateral_accel_from_torque(self) -> LateralAccelFromTorqueCallbackType:
+    # ENVISION-only dynamic inverse path. Other cars fall through to the
+    # original static siglin / linear path unchanged.
+    if self.CP.carFingerprint == CAR.BUICK_ENVISION_SDGM:
+      def lateral_accel_from_torque_envision(torque: float, torque_params: structs.CarParams.LateralTorqueTuning):
+        a, b, c, d = get_envision_dynamic_params(self._envision_v_ego_filt)
+        sig_input = a * _ENVISION_LATACCEL_SAMPLES
+        sig = np.sign(sig_input) * (1 / (1 + np.exp(-np.abs(sig_input))) - 0.5)
+        torque_values = sig * b + _ENVISION_LATACCEL_SAMPLES * c + d
+        return float(np.interp(torque, torque_values, _ENVISION_LATACCEL_SAMPLES))
+      return lateral_accel_from_torque_envision
+
     if get_nonlinear_torque_params(self.CP.carFingerprint) is not None:
       torque_values, lataccel_values = self.get_lataccel_torque_siglin()
 
@@ -445,6 +548,7 @@ class CarInterface(CarInterfaceBase):
     elif candidate == CAR.BUICK_ENVISION_SDGM:
       ret.minEnableSpeed = -1.  # engage speed is decided by pcm
       ret.steerActuatorDelay = 0.2
+      ret.minSteerSpeed = 7 * CV.MPH_TO_MS
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
     elif candidate in (CAR.BUICK_LACROSSE, CAR.BUICK_LACROSSE_ASCM, CAR.BUICK_LACROSSE_ASCM_19US):
