@@ -23535,6 +23535,10 @@ msgid "Mustang GT"
 msgstr "Mustang GT"
 
 #: openpilot/starpilot/engine_sound/profiles.py
+msgid "Supra Turbo"
+msgstr "Supra Turbo"
+
+#: openpilot/starpilot/engine_sound/profiles.py
 msgid "LFA"
 msgstr "LFA"
 

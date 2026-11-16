@@ -38,6 +38,7 @@ class Profile:
   tremolo: tuple[float, float] = (0.0, 0.0)      # rate in Hz, depth
   gain: tuple[float, float] = (0.35, 1.0)        # loudness at no load and full load
   pops: float = 0.0                   # overrun pops and crackle, 0 none to 1 heavy
+  turbo: float = 0.0                  # turbo whistle and blow-off valve, 0 none to 1 loud
 
 
 def _engine_partials(firing: int, count: int, rough: float, bright: float) -> tuple[tuple[int, float, float], ...]:
@@ -56,11 +57,12 @@ RACE_GEARS = (520.0, 340.0, 250.0, 198.0, 165.0, 142.0)
 RACE_REDLINE = 8600.0
 
 
-def _recorded(name: str, label: str, *, cylinders: int, idle: float, redline: float, loops: str = '', pops: float = 0.0) -> Profile:
+def _recorded(name: str, label: str, *, cylinders: int, idle: float, redline: float, loops: str = '', pops: float = 0.0,
+              turbo: float = 0.0) -> Profile:
   """A bundled loop bank (of the same name unless given), geared like the race car but scaled to its own rev range."""
   scale = redline / RACE_REDLINE
   return Profile(
-    name=name, label=label, loops=loops or name, pops=pops,
+    name=name, label=label, loops=loops or name, pops=pops, turbo=turbo,
     idle_rpm=idle, redline_rpm=redline,
     gears=tuple(ratio * scale for ratio in RACE_GEARS),
     upshift_rpm=(0.38 * redline, 0.96 * redline), downshift_rpm=(0.2 * redline, 0.6 * redline),
@@ -75,10 +77,11 @@ PROFILES: dict[str, Profile] = {profile.name: profile for profile in (
   _recorded('bmw_m52', 'BMW M52', cylinders=6, idle=700.0, redline=7000.0),
   _recorded('f1_car', 'F1 Car', cylinders=12, idle=2000.0, redline=17000.0),
   _recorded('ferrari_f136', 'Ferrari F136', cylinders=8, idle=1000.0, redline=9000.0),
-  # Banks from real recordings that end at 3000 and 3500 rpm; above about 1.5 times that the loops sound sped up.
+  # Banks from real recordings that end at 3000 and 6000 rpm; above about 1.5 times that the loops sound sped up.
   _recorded('hellcat', 'Hellcat', cylinders=8, idle=700.0, redline=4500.0),
   _recorded('lfa', 'LFA', cylinders=10, idle=1000.0, redline=9000.0),
-  _recorded('mustang_gt', 'Mustang GT', cylinders=8, idle=835.0, redline=5250.0),
+  _recorded('mustang_gt', 'Mustang GT', cylinders=8, idle=835.0, redline=7000.0),
+  _recorded('supra_turbo', 'Supra Turbo', cylinders=6, idle=800.0, redline=6000.0, turbo=1.0),
 )}
 
 

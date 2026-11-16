@@ -114,7 +114,9 @@ def stretch(times: np.ndarray, rpm: np.ndarray, mask: np.ndarray, target: float)
 def steady(audio: np.ndarray, times: np.ndarray, rpm: np.ndarray, span: tuple[float, float], target: float) -> np.ndarray | None:
   """The span replayed against the engine's own cycle so it runs at exactly the target rpm, as a seamless loop."""
   sample_times = np.arange(int(span[0] * SAMPLE_RATE), int(span[1] * SAMPLE_RATE)) / SAMPLE_RATE
-  cycles = np.cumsum(np.interp(sample_times, times, rpm)) / 120.0 / SAMPLE_RATE
+  if len(sample_times) < 2:
+    return None
+  cycles =np.cumsum(np.interp(sample_times, times, rpm)) / 120.0 / SAMPLE_RATE
   per_sample = target / 120.0 / SAMPLE_RATE
   out_cycles = np.arange(cycles[0], cycles[-1], per_sample)
   source = np.interp(out_cycles, cycles, sample_times) * SAMPLE_RATE

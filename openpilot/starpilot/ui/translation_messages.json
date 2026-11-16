@@ -32243,6 +32243,12 @@
       ]
     },
     {
+      "source": "Supra Turbo",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
       "source": "LFA",
       "refs": [
         "openpilot/starpilot/engine_sound/profiles.py"

@@ -62,7 +62,7 @@ def test_quiet_at_zero_volume_and_profiles_without_pops_are_unchanged(tmp_path):
   assert not np.concatenate([pops.render(6000.0, load, FRAMES, 0.0) for load in [1.0] * 50 + [0.0] * 100]).any()
   bank = load_bank(make_bank(tmp_path))
   plain = LoopSynth(PROFILES['bmw_m52'], bank)
-  assert plain.pops is None
+  assert plain.effects == []
   popping = LoopSynth(replace(PROFILES['bmw_m52'], pops=1.0), bank)
   steps = [(5000.0, 1.0)] * 50 + [(5000.0 - 20 * i, 0.0) for i in range(150)]
   quiet = np.concatenate([plain.render(rpm, load, FRAMES, 1.0) for rpm, load in steps])

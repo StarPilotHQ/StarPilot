@@ -1,27 +1,23 @@
 {
   "version": 1,
-  "source": "recording mustanggt3.wav",
+  "source": "recordings mustanggt4.wav, idle from mustanggt3.wav",
   "layers": {
     "off": [
-      {
-        "rpm": 750,
-        "file": "off_750.wav"
-      },
       {
         "rpm": 833,
         "file": "off_833.wav"
       },
       {
-        "rpm": 1000,
-        "file": "off_1000.wav"
-      },
-      {
-        "rpm": 1250,
-        "file": "off_1250.wav"
-      },
-      {
         "rpm": 1500,
         "file": "off_1500.wav"
+      },
+      {
+        "rpm": 1750,
+        "file": "off_1750.wav"
+      },
+      {
+        "rpm": 2000,
+        "file": "off_2000.wav"
       },
       {
         "rpm": 2250,
@@ -46,32 +42,60 @@
       {
         "rpm": 3500,
         "file": "off_3500.wav"
+      },
+      {
+        "rpm": 3750,
+        "file": "off_3750.wav"
+      },
+      {
+        "rpm": 4000,
+        "file": "off_4000.wav"
+      },
+      {
+        "rpm": 4250,
+        "file": "off_4250.wav"
+      },
+      {
+        "rpm": 4500,
+        "file": "off_4500.wav"
+      },
+      {
+        "rpm": 4750,
+        "file": "off_4750.wav"
+      },
+      {
+        "rpm": 5000,
+        "file": "off_5000.wav"
+      },
+      {
+        "rpm": 5250,
+        "file": "off_5250.wav"
+      },
+      {
+        "rpm": 5500,
+        "file": "off_5500.wav"
+      },
+      {
+        "rpm": 5750,
+        "file": "off_5750.wav"
+      },
+      {
+        "rpm": 6000,
+        "file": "off_6000.wav"
       }
     ],
     "on": [
       {
-        "rpm": 750,
-        "file": "on_750.wav"
-      },
-      {
         "rpm": 833,
         "file": "on_833.wav"
-      },
-      {
-        "rpm": 1000,
-        "file": "on_1000.wav"
-      },
-      {
-        "rpm": 1250,
-        "file": "on_1250.wav"
       },
       {
         "rpm": 1500,
         "file": "on_1500.wav"
       },
       {
-        "rpm": 2000,
-        "file": "on_2000.wav"
+        "rpm": 1750,
+        "file": "on_1750.wav"
       },
       {
         "rpm": 2250,
@@ -90,12 +114,44 @@
         "file": "on_3000.wav"
       },
       {
-        "rpm": 3250,
-        "file": "on_3250.wav"
+        "rpm": 3750,
+        "file": "on_3750.wav"
       },
       {
-        "rpm": 3500,
-        "file": "on_3500.wav"
+        "rpm": 4000,
+        "file": "on_4000.wav"
+      },
+      {
+        "rpm": 4250,
+        "file": "on_4250.wav"
+      },
+      {
+        "rpm": 4500,
+        "file": "on_4500.wav"
+      },
+      {
+        "rpm": 4750,
+        "file": "on_4750.wav"
+      },
+      {
+        "rpm": 5000,
+        "file": "on_5000.wav"
+      },
+      {
+        "rpm": 5250,
+        "file": "on_5250.wav"
+      },
+      {
+        "rpm": 5500,
+        "file": "on_5500.wav"
+      },
+      {
+        "rpm": 5750,
+        "file": "on_5750.wav"
+      },
+      {
+        "rpm": 6000,
+        "file": "on_6000.wav"
       }
     ]
   }
