@@ -124,57 +124,41 @@ class Runtime:
       raise ValueError('SLC display units must be Boolean')
     self.settings = settings
     self.is_metric = is_metric
-    self.map_source = MapSource()
-    self.advance = Advance()
     self.vision_enabled = vision_enabled
     # Exact saved Vision opt-in may grant control; source identity and current
     # driver confirmation remain independent requirements for each episode.
     self.vision_control_qualified = vision_enabled and vision_control_qualified
     self.vision_display_qualified = bool(vision_enabled and vision_display_qualified and settings.display and not settings.enabled)
-    self.vision_diagnostic = acc.Observation(acc.ObservationKind.UNKNOWN)
-    self._last_vision_producer = ''
-    self._last_vision_frame = 0
-    self._last_vision_eof_boot = 0
-    self._last_vision_episode = 0
-    self.session_id = session_id or uuid.uuid4().hex
-    self.state = comp.new_session(self.session_id, previous_limit)
-    self.history_limit = self.state.acceptance.accepted
-    self.ledger = arb.new_ledger(self.session_id)
-    self.last_ui_sequence = -1
-    self.last_cruise_event = -1
-    self.last_cruise_producer: str | None = None
-    self._ui_receipt = None
-    self.last_received: acc.Candidate | None = None
-    self._ego_delta_key: tuple[str, str] | None = None
-    self._ego_delta_mps = 0.0
-    self._ego_sample_ns = 0
-    self.current_presentation: acc.Presentation | None = None
+    self._start_session(session_id or uuid.uuid4().hex, previous_limit)
 
   def reset(self) -> None:
-    previous_limit = self.history_limit
-    self.map_source.reset()
+    self._start_session(uuid.uuid4().hex, self.history_limit)
+
+  def _start_session(self, session_id: str, previous_limit: acc.AcceptedLimit | None) -> None:
+    """Every per-drive field. Settings and Vision qualification deliberately survive a reset."""
+    self.session_id = session_id
+    try:
+      self.state = comp.new_session(session_id, previous_limit)
+    except ValueError:
+      self.state = comp.new_session(session_id)
+    self.history_limit = self.state.acceptance.accepted
+    self.ledger = arb.new_ledger(session_id)
+    self.map_source = MapSource()
     self.advance = Advance()
     self.vision_diagnostic = acc.Observation(acc.ObservationKind.UNKNOWN)
     self._last_vision_producer = ''
     self._last_vision_frame = 0
     self._last_vision_eof_boot = 0
     self._last_vision_episode = 0
-    self.session_id = uuid.uuid4().hex
-    try:
-      self.state = comp.new_session(self.session_id, previous_limit)
-    except ValueError:
-      self.state = comp.new_session(self.session_id)
-    self.history_limit = self.state.acceptance.accepted
-    self.ledger = arb.new_ledger(self.session_id)
     self.last_ui_sequence = -1
     self.last_cruise_event = -1
-    self.last_cruise_producer = None
+    self.last_cruise_producer: str | None = None
+    self.last_received: acc.Candidate | None = None
+    self.current_presentation: acc.Presentation | None = None
     self._ui_receipt = None
-    self.last_received = None
-    self._ego_delta_key = None
+    self._ego_delta_key: tuple[str, str] | None = None
     self._ego_delta_mps = 0.0
     self._ego_sample_ns = 0
-    self.current_presentation = None
 
   def update_offsets(self, offsets: sd.OffsetSchedule, *, is_metric: bool | None = None) -> None:
     if is_metric is not None:
