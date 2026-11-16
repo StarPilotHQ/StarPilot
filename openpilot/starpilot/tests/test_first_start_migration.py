@@ -21,7 +21,8 @@ class TestFirstStartMigration(unittest.TestCase):
     self.namespace = self.root / 'params' / 'd'
     self.namespace.mkdir(parents=True)
     self.storage = self.root / 'recovery'
-    self.types = {'AlphaLongitudinalEnabled': 'BOOL', 'IsMetric': 'BOOL', 'ForceStops': 'BOOL', 'OpenpilotEnabledToggle': 'BOOL', 'SteerFriction': 'FLOAT',
+    self.types = {'IsRhdDetected': 'BOOL', 'LanguageSetting': 'STRING', 'AlphaLongitudinalEnabled': 'BOOL', 'IsMetric': 'BOOL',
+                  'ForceStops': 'BOOL', 'OpenpilotEnabledToggle': 'BOOL', 'SteerFriction': 'FLOAT',
                   'CalibrationParams': 'BYTES', 'CarParamsCache': 'BYTES', 'CarParamsPersistent': 'BYTES', 'CarParamsPrevRoute': 'BYTES',
                   'LiveParametersV2': 'BYTES', 'LiveDelay': 'BYTES',
                   'LiveTorqueParameters': 'BYTES', 'SecOCKey': 'BYTES', 'DongleId': 'STRING',
@@ -93,6 +94,63 @@ class TestFirstStartMigration(unittest.TestCase):
     params = Params(str(self.root / 'native-params'))
     for key in migration.VEHICLE_PREFERENCE_KEYS:
       self.assertEqual(params.get_type(key).name, 'BOOL', key)
+
+  def test_regional_choices_survive_migration_and_later_changes(self):
+    original = {'IsMetric': b'1', 'IsRhdDetected': b'1', 'LanguageSetting': b'main_ko',
+                'SteerFriction': b'0.337', 'CarParamsPersistent': b'old fingerprint'}
+    self.write(original)
+    self.start()
+    self.assertEqual(self.values(), {key: original[key] for key in ('IsMetric', 'IsRhdDetected', 'LanguageSetting')})
+    self.assertEqual(migration.load_snapshot(next((self.storage / 'snapshots').iterdir())), original)
+    self.write({'IsMetric': b'0', 'IsRhdDetected': b'0', 'LanguageSetting': b'fr'})
+    changed = self.values()
+    self.start()
+    self.assertEqual(self.values(), changed)
+
+  def test_every_supported_current_and_legacy_language_is_retained(self):
+    catalog = json.loads((SOURCE.parents[1] / 'selfdrive/ui/translations/languages.json').read_text())
+    for code in catalog.values():
+      for prefix in ('', 'main_'):
+        with self.subTest(language=prefix + code), tempfile.TemporaryDirectory() as directory:
+          namespace = Path(directory) / 'params' / 'd'
+          namespace.mkdir(parents=True)
+          params = SimpleNamespace(get_param_path=lambda namespace=namespace: str(namespace), all_keys=self.params.all_keys, get_type=self.params.get_type)
+          raw = (prefix + code).encode()
+          (namespace / 'LanguageSetting').write_bytes(raw)
+          migration.prepare_manager_start(params, Path(directory) / 'state', auto_migrate=True)
+          self.assertEqual((namespace / 'LanguageSetting').read_bytes(), raw)
+
+  def test_invalid_regional_values_are_archived(self):
+    for language in (b'', b'\xff', b'unknown', b'main_', b'e' * 33):
+      with self.subTest(language=language), tempfile.TemporaryDirectory() as directory:
+        namespace = Path(directory) / 'params' / 'd'
+        namespace.mkdir(parents=True)
+        params = SimpleNamespace(get_param_path=lambda namespace=namespace: str(namespace), all_keys=self.params.all_keys, get_type=self.params.get_type)
+        original = {'IsMetric': b'true', 'IsRhdDetected': b'2', 'LanguageSetting': language}
+        for key, raw in original.items():
+          (namespace / key).write_bytes(raw)
+        storage = Path(directory) / 'state'
+        migration.prepare_manager_start(params, storage, auto_migrate=True)
+        self.assertEqual(migration._read_namespace(namespace), {})
+        self.assertEqual(migration.load_snapshot(next((storage / 'snapshots').iterdir())), original)
+
+  def test_legacy_explicit_wheel_side_wins_only_with_valid_override(self):
+    for override in (b'0', b'1', b'true'):
+      for side in (b'0', b'1', b'invalid'):
+        with self.subTest(override=override, side=side), tempfile.TemporaryDirectory() as directory:
+          namespace = Path(directory) / 'params' / 'd'
+          namespace.mkdir(parents=True)
+          params = SimpleNamespace(get_param_path=lambda namespace=namespace: str(namespace), all_keys=self.params.all_keys, get_type=self.params.get_type)
+          original = {'IsRhdDetected': b'1', 'IsRHDOverride': override, 'IsRHD': side}
+          for key, raw in original.items():
+            (namespace / key).write_bytes(raw)
+          migration.prepare_manager_start(params, Path(directory) / 'state', auto_migrate=True)
+          expected = side if override == b'1' and side in (b'0', b'1') else b'1'
+          self.assertEqual(migration._read_namespace(namespace), {'IsRhdDetected': expected})
+
+  def test_regional_defaults_are_not_invented_for_a_fresh_install(self):
+    self.start()
+    self.assertEqual(self.values(), {})
 
   def test_onboarding_keeps_only_previously_saved_acceptance(self):
     self.write({'HasAcceptedTerms': b'2', 'CompletedTrainingVersion': b'0.2.0', 'ForceStops': b'1'})
