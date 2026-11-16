@@ -149,3 +149,13 @@ def test_builtin_authentication_allows_normal_branch_branding():
   assert CLIENT_TOKEN.encode() in payload
   assert ReportClient(CLIENT_TOKEN, session=session).send(payload)
   assert session.post.call_args.kwargs['data'] == payload
+
+
+
+@pytest.mark.parametrize('major', [7, 8, 6, 0, -1, 100, True, '7', 7.0, None])
+def test_software_major_is_a_validated_integer_not_a_branch_guess(major):
+  payload = build_payload({'branch': 'StarPilot', 'metrics': {'software_major': major}}, {}, 1).decode()
+  if type(major) is int and 0 < major < 100:
+    assert f'software_major={major}i' in payload
+  else:
+    assert 'software_major=' not in payload

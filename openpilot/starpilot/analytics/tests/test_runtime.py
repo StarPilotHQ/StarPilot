@@ -361,3 +361,17 @@ def test_unknown_saved_identity_does_not_get_guessed_from_selection():
   obj.poll_once()
   client.send.assert_not_called()
   assert values['UsageStatsStatus']['state'] == 'awaiting_model_identity'
+
+
+
+def test_real_worker_metadata_reports_product_major_independently_of_branch():
+  from unittest.mock import patch
+  from openpilot.starpilot.analytics import runtime
+  from openpilot.starpilot.ui.brand import DISPLAY_VERSION
+  metadata = SimpleNamespace(channel='StarPilot', openpilot=SimpleNamespace(git_commit='a' * 40))
+  with patch('openpilot.common.hardware.COMMA_HARDWARE', True), \
+       patch('openpilot.common.version.get_build_metadata', return_value=metadata), \
+       patch('openpilot.cereal.messaging.SubMaster'), patch.object(runtime, 'AnalyticsWorker') as factory:
+    runtime.build_worker()
+  assert factory.call_args.kwargs['metadata']['branch'] == 'StarPilot'
+  assert factory.call_args.kwargs['metadata']['metrics'] == {'commit': 'a' * 40, 'software_major': int(DISPLAY_VERSION.split('.')[0])}

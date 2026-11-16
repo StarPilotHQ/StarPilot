@@ -279,10 +279,12 @@ def build_worker():
   from openpilot.cereal import messaging
   from openpilot.common.params import Params
   from openpilot.common.version import get_build_metadata
+  from openpilot.starpilot.ui.brand import DISPLAY_VERSION
   metadata = get_build_metadata()
   return AnalyticsWorker(Params(), messaging.SubMaster(list(SERVICES)),
                          metadata={'branch': metadata.channel, 'device': HARDWARE.get_device_type(),
-                                   'metrics': {'commit': metadata.openpilot.git_commit}})
+                                   'metrics': {'commit': metadata.openpilot.git_commit,
+                                               'software_major': int(DISPLAY_VERSION.split('.')[0])}})
 
 
 def main():

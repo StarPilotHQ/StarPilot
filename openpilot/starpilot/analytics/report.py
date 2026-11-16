@@ -23,9 +23,9 @@ METRICS = frozenset(("blocked_user", "current_months_kilometers", "event", "star
                     "lagd_learned_delay_seconds", "lagd_learned_delay_std_seconds", "lagd_valid_blocks", "rainbow_path",
                     "random_events", "total_aol_seconds", "total_lateral_seconds", "total_longitudinal_seconds",
                     "total_tracked_seconds", "tuning_level", "up_to_date", "using_stock_acc", "model_sha256",
-                    "model_variant", "commit"))
+                    "model_variant", "commit", "software_major"))
 INT_FIELDS = frozenset(("current_months_kilometers", "event", "starpilot_drives",
-                        "lagd_calibration_percent", "lagd_valid_blocks", "tuning_level"))
+                        "lagd_calibration_percent", "lagd_valid_blocks", "tuning_level", "software_major"))
 FLOAT_FIELDS = frozenset(("starpilot_hours", "starpilot_miles", "lagd_applied_delay_seconds", "lagd_learned_delay_seconds",
                          "lagd_learned_delay_std_seconds", "total_aol_seconds", "total_lateral_seconds",
                          "total_longitudinal_seconds", "total_tracked_seconds"))
@@ -77,6 +77,8 @@ def _fields(snapshot, settings):
   for key, value in list(fields.items()):
     if key in INT_FIELDS:
       valid = type(value) is int and _scalar(value) is not None
+      if key == "software_major":
+        valid = valid and 0 < value < 100
     elif key in FLOAT_FIELDS:
       valid = _number(value)
       if valid:
