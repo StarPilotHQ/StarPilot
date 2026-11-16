@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
+from openpilot.starpilot.engine_sound.pops import Pops
 from openpilot.starpilot.engine_sound.profiles import Profile
 from openpilot.starpilot.engine_sound.synth import SAMPLE_RATE
 
@@ -86,6 +87,7 @@ class LoopSynth:
     self.rpm = profile.idle_rpm
     self.load = 0.0
     self.gain = 0.0
+    self.pops = Pops(profile.pops, profile.idle_rpm, profile.redline_rpm, sample_rate) if profile.pops else None
 
   def _layer(self, layer: str, rpm: np.ndarray) -> np.ndarray:
     points, loops = self.bank[layer]
@@ -123,4 +125,7 @@ class LoopSynth:
       off = self._layer('off', rpm_ramp)
       out = on * np.sqrt(load_ramp) + off * np.sqrt(1 - load_ramp)
     self.rpm, self.load, self.gain = rpm, load, target_gain
-    return np.tanh(out * gain).astype(np.float32)
+    out = out * gain
+    if self.pops is not None:
+      out = out + self.pops.render(rpm, load, frames, volume)
+    return np.tanh(out).astype(np.float32)

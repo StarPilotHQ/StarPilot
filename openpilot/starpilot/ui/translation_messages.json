@@ -32207,6 +32207,12 @@
       ]
     },
     {
+      "source": "BMW M3",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
       "source": "BMW M52",
       "refs": [
         "openpilot/starpilot/engine_sound/profiles.py"
@@ -32220,6 +32226,18 @@
     },
     {
       "source": "Ferrari F136",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Hellcat",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Mustang GT",
       "refs": [
         "openpilot/starpilot/engine_sound/profiles.py"
       ]

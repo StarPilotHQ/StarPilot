@@ -36,6 +36,8 @@ class Synth:
     self.frequency = profile.idle_rpm * profile.pitch
     self.load = 0.0
     self.gain = 0.0
+    from openpilot.starpilot.engine_sound.pops import Pops
+    self.pops = Pops(profile.pops, profile.idle_rpm, profile.redline_rpm, sample_rate) if profile.pops else None
 
   def _lookup(self, table: np.ndarray, phase: np.ndarray) -> np.ndarray:
     position = (phase % 1.0) * TABLE_SIZE
@@ -81,7 +83,10 @@ class Synth:
 
     self.phase = float(phase[-1] % 1.0)
     self.frequency, self.load, self.gain = float(frequency[-1]), load, target_gain
-    return np.tanh(0.8 * out * gain).astype(np.float32)
+    out = 0.8 * out * gain
+    if self.pops is not None:
+      out = out + self.pops.render(rpm, load, frames, volume)
+    return np.tanh(out).astype(np.float32)
 
 
 def to_pcm(samples: np.ndarray) -> bytes:

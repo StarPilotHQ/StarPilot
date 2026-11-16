@@ -23515,6 +23515,10 @@ msgid "Plays a simulated engine on the car speakers that follows the accelerator
 msgstr "Spielt über die Fahrzeuglautsprecher einen simulierten Motor ab, der dem Gaspedal folgt, auch beim Hochdrehen in Parkstellung oder Neutral. Nutzt die unter Spotify und Telefon-Audio gewählte Audioausgabe und verstummt, solange ein Warnton ertönt."
 
 #: openpilot/starpilot/engine_sound/profiles.py
+msgid "BMW M3"
+msgstr "BMW M3"
+
+#: openpilot/starpilot/engine_sound/profiles.py
 msgid "BMW M52"
 msgstr "BMW M52"
 
@@ -23525,6 +23529,14 @@ msgstr "F1 Car"
 #: openpilot/starpilot/engine_sound/profiles.py
 msgid "Ferrari F136"
 msgstr "Ferrari F136"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Hellcat"
+msgstr "Hellcat"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Mustang GT"
+msgstr "Mustang GT"
 
 #: openpilot/starpilot/engine_sound/profiles.py
 msgid "LFA"

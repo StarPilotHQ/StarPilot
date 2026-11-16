@@ -9,6 +9,12 @@ commit 85f7c3b959a908ed5232ede4f1a4ac7eafe6b630), recorded with tools/esrec:
   ferrari_f136 assets/engines/atg-video-2/08_ferrari_f136_v8.mr
   lfa          assets/engines/atg-video-2/10_lfa_v10.mr
 
+From recordings of real cars supplied for this project, built with tools/bank_from_recording.py and equalised with
+tools/lower_bank.py --pitch 1.0 --off-mix 0 --off-mid 0:
+
+  hellcat      hellcat.wav: --cylinders 8 --anchor 14 700 --idle 10.5-17.5 --on 25-94 --off 94-119
+  mustang_gt   mustanggt.wav: --cylinders 8 --half-orders --anchor 16.5 3456 --on 12.4-33.2
+
 engine-sim is distributed under the following license:
 
 MIT License

@@ -23496,6 +23496,10 @@ msgid "Plays a simulated engine on the car speakers that follows the accelerator
 msgstr ""
 
 #: openpilot/starpilot/engine_sound/profiles.py
+msgid "BMW M3"
+msgstr ""
+
+#: openpilot/starpilot/engine_sound/profiles.py
 msgid "BMW M52"
 msgstr ""
 
@@ -23505,6 +23509,14 @@ msgstr ""
 
 #: openpilot/starpilot/engine_sound/profiles.py
 msgid "Ferrari F136"
+msgstr ""
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Hellcat"
+msgstr ""
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Mustang GT"
 msgstr ""
 
 #: openpilot/starpilot/engine_sound/profiles.py
