@@ -119,7 +119,7 @@ def source_revisions(root, route):
   segments = route.get('segments', ())
   if not segments and type(route.get('routeId')) is str and LOCAL_ID.fullmatch(route['routeId']):
     try:
-      segments = [{'segmentName': name} for name in sorted(_route_names(Path(root), route['routeId'], lambda: True))[:MAX_SEGMENTS]]
+      segments = [{'segmentName': name} for name in sorted(_route_names(Path(root), route['routeId'], lambda: True))]
     except _Incomplete:
       segments = ()
   for segment in segments:

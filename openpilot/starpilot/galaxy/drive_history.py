@@ -167,8 +167,11 @@ class DriveHistory:
             result['scanIncomplete'] = True
             continue
           existing = routes.get(route_id)
-          if existing is not None and (number in existing or len(existing) >= self.max_segments_per_route):
-            omit(route_id, 'Duplicate segment or route segment limit exceeded')
+          if existing is not None and number in existing:
+            omit(route_id, 'Duplicate original segment number')
+            continue
+          if existing is not None and len(existing) >= self.max_segments_per_route:
+            omit(route_id, 'Route segment limit exceeded')
             continue
           if segment_count >= self.max_segments:
             result['scanIncomplete'] = True

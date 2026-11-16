@@ -12,7 +12,9 @@ from openpilot.starpilot.flm.offroad_route import (
   RouteInputError, RouteInputCancelled, route_reader, source_revisions,
 )
 from openpilot.starpilot.galaxy.drive_analysis import _route_names, _closed_source, _Incomplete
-from openpilot.starpilot.galaxy.drive_history import _segment_files, DIR_FLAGS, SEGMENT_NAME
+from openpilot.starpilot.galaxy.drive_history import _segment_files, DIR_FLAGS, SEGMENT_NAME, MAX_ROOT_ENTRIES
+
+MAX_LONG_REVIEW_SEGMENTS = 32
 
 
 def partial_inventory(root, route_id, *, permitted):
@@ -24,8 +26,10 @@ def partial_inventory(root, route_id, *, permitted):
     match = SEGMENT_NAME.fullmatch(name)
     assert match is not None
     number = int(match.group('number'))
-    if number >= MAX_SEGMENTS or number in numbers:
-      raise RouteInputError(route_id, 'Ambiguous or oversized partial recording')
+    if number >= MAX_ROOT_ENTRIES:
+      raise RouteInputError(route_id, 'Partial recording exceeds the inventory bound')
+    if number in numbers:
+      raise RouteInputError(route_id, 'Duplicate original segment number')
     numbers[number] = name
   if not numbers:
     raise RouteInputError(route_id, 'No original segments available')
@@ -56,6 +60,11 @@ def walk_partial_route(root, route, *, permitted, consume):
   started = time.monotonic()
   receipts, decoded, omitted, contexts, seen = [], [], [], set(), set()
   cp_hash, first, last, wall, total = None, None, 0, 0, 0
+  available = [row['number'] for row in route['segments'] if not row['unavailable']]
+  selected = set(available)
+  if len(route['segments']) > MAX_SEGMENTS and len(available) > MAX_LONG_REVIEW_SEGMENTS:
+    selected = {available[i * (len(available) - 1) // (MAX_LONG_REVIEW_SEGMENTS - 1)] for i in range(MAX_LONG_REVIEW_SEGMENTS)}
+  byte_bound = False
 
   def allowed():
     return permitted() and time.monotonic() - started <= MAX_ANALYSIS_SECONDS
@@ -68,11 +77,16 @@ def walk_partial_route(root, route, *, permitted, consume):
     if segment['unavailable']:
       omitted.append((number, 'Segment is open, missing or unavailable'))
       continue
+    if number not in selected or byte_bound:
+      omitted.append((number, 'Outside the bounded partial-drive review'))
+      continue
     try:
       with _closed_source(root, name, segment['files'], allowed, prefer_rlog=True) as (raw, codec, current, _):
+        if total + len(raw) > MAX_TOTAL_BYTES:
+          byte_bound = True
+          omitted.append((number, 'Partial input byte bound reached'))
+          continue
         total += len(raw)
-        if total > MAX_TOTAL_BYTES:
-          raise RouteInputCancelled('Partial input byte bound exceeded')
         receipts[-1] = (name, hashlib.sha256(raw).hexdigest(), len(raw))
         if receipts[-1][1] in seen:
           omitted.append((number, 'Original segment bytes already reviewed'))
