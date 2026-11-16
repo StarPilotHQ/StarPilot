@@ -82,6 +82,10 @@ GV70_TURN_IN_FRICTION_LAT_RISE = 0.20
 GV70_TURN_IN_FRICTION_JERK_RISE = 0.24
 GV70_TURN_IN_TRANSITION_SPEED = 10.0
 GV70_TURN_IN_PHASE_SCALE = 0.10
+GV70_TURN_IN_THRESHOLD_SCALE_MIN = 0.82
+GV70_TURN_IN_THRESHOLD_SCALE_MAX = 1.18
+GV70_TURN_IN_FRICTION_SCALE_MIN = 0.82
+GV70_TURN_IN_FRICTION_SCALE_MAX = 1.08
 # Low-speed calming. The setpoint smoothstep below returns 0 at
 # |setpoint| <= 0.30 (full low-speed-factor reduction) and 1 at
 # |setpoint| >= 0.50 (no reduction). Two trigger paths feed it: a
@@ -97,6 +101,17 @@ GV70_CALM_ENTER_SPEED = 4.0
 GV70_CALM_EXIT_SPEED = 4.5
 GV70_CALM_RAMP_IN_SECONDS = 1.5
 GV70_CALM_RAMP_OUT_SECONDS = 0.3
+# Approach-phase build (see the block in update() for the gates). The
+# history window is ~0.5 s at 100 Hz; the boost is a magnitude in
+# lateral-accel units, ramped per frame, added to feedforward only.
+GV70_APPROACH_WINDOW_FRAMES = 50
+GV70_APPROACH_SIGN_FLIP_CURVATURE = 0.008
+GV70_APPROACH_MIN_CURVATURE = 0.003
+GV70_APPROACH_MIN_TREND = 0.001
+GV70_APPROACH_SPEED_BP = [8.0, 12.0]
+GV70_APPROACH_SETPOINT_BP = [0.3, 1.0, 1.9]
+GV70_APPROACH_BOOST_CAP = 0.45
+GV70_APPROACH_BOOST_STEP = 0.05
 
 
 # The helpers below mirror the named Ioniq 6 helpers, with the same
@@ -164,7 +179,7 @@ def get_gv70_turn_in_threshold_scale(v_ego: float, desired_lateral_accel: float 
     GV70_TURN_IN_THRESHOLD_REDUCTION_LEFT,
     GV70_TURN_IN_THRESHOLD_REDUCTION_RIGHT,
   ) * _gv70_transition_envelope(v_ego, desired_lateral_accel, desired_lateral_jerk) * turn_in_weight)
-  return min(max(threshold_scale, 0.82), 1.18)
+  return min(max(threshold_scale, GV70_TURN_IN_THRESHOLD_SCALE_MIN), GV70_TURN_IN_THRESHOLD_SCALE_MAX)
 
 
 def get_gv70_turn_in_friction_scale(v_ego: float, desired_lateral_accel: float, desired_lateral_jerk: float) -> float:
@@ -180,7 +195,7 @@ def get_gv70_turn_in_friction_scale(v_ego: float, desired_lateral_accel: float, 
   friction_scale = 1.0
   friction_scale += (_gv70_side_value(desired_lateral_accel, GV70_TURN_IN_FRICTION_BOOST_LEFT, GV70_TURN_IN_FRICTION_BOOST_RIGHT) *
                      _gv70_transition_envelope(v_ego, desired_lateral_accel, desired_lateral_jerk) * turn_in_weight)
-  return min(max(friction_scale, 0.82), 1.08)
+  return min(max(friction_scale, GV70_TURN_IN_FRICTION_SCALE_MIN), GV70_TURN_IN_FRICTION_SCALE_MAX)
 
 def supported_cp(CP):
   return (
@@ -221,7 +236,7 @@ class GenesisGV70TorquePolicy:
     # Approach-build state.
     # 50 frames = ~0.5 s at 100 Hz; boost is a magnitude in lateral-accel
     # units, ramped at 0.05/frame, and is added to feedforward only.
-    self.approach_curv_hist = deque([0.0] * 50, maxlen=50)
+    self.approach_curv_hist = deque([0.0] * GV70_APPROACH_WINDOW_FRAMES, maxlen=GV70_APPROACH_WINDOW_FRAMES)
     self.approach_boost = 0.0
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
@@ -370,17 +385,17 @@ class GenesisGV70TorquePolicy:
     #  * if the demand peak still exceeds the cap, this only delays
     #    the shortfall, it does not fix it.
     self.approach_curv_hist.append(desired_curvature)
-    _trend = desired_curvature - self.approach_curv_hist[0] if len(self.approach_curv_hist) >= 50 else 0.0
-    _sign_stable = not any(v * desired_curvature < 0.0 and abs(v) > 0.008 for v in self.approach_curv_hist)
-    _rising = (_trend * desired_curvature > 0.0 and abs(_trend) >= 0.001
-               and abs(desired_curvature) >= 0.003 and _sign_stable)
+    _trend = desired_curvature - self.approach_curv_hist[0] if len(self.approach_curv_hist) >= GV70_APPROACH_WINDOW_FRAMES else 0.0
+    _sign_stable = not any(v * desired_curvature < 0.0 and abs(v) > GV70_APPROACH_SIGN_FLIP_CURVATURE for v in self.approach_curv_hist)
+    _rising = (_trend * desired_curvature > 0.0 and abs(_trend) >= GV70_APPROACH_MIN_TREND
+               and abs(desired_curvature) >= GV70_APPROACH_MIN_CURVATURE and _sign_stable)
     _target_boost = 0.0
     if (_rising and not CS.steeringPressed and not steer_limited_by_safety
         and not curvature_limited and setpoint != 0.0):
-      _speed_w = float(np.interp(CS.vEgo, [8.0, 12.0], [0.0, 1.0]))
-      _mag_w = float(np.interp(abs(setpoint), [0.3, 1.0, 1.9], [0.0, 1.0, 0.0]))
-      _target_boost = 0.45 * _speed_w * _mag_w
-    _boost_step = float(np.clip(_target_boost - self.approach_boost, -0.05, 0.05))
+      _speed_w = float(np.interp(CS.vEgo, GV70_APPROACH_SPEED_BP, [0.0, 1.0]))
+      _mag_w = float(np.interp(abs(setpoint), GV70_APPROACH_SETPOINT_BP, [0.0, 1.0, 0.0]))
+      _target_boost = GV70_APPROACH_BOOST_CAP * _speed_w * _mag_w
+    _boost_step = float(np.clip(_target_boost - self.approach_boost, -GV70_APPROACH_BOOST_STEP, GV70_APPROACH_BOOST_STEP))
     self.approach_boost += _boost_step
     if self.approach_boost != 0.0 and setpoint != 0.0:
       ff += math.copysign(self.approach_boost, setpoint)
