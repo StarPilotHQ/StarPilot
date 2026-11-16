@@ -25,6 +25,7 @@ MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
 MAX_KEYS = 4096
 OPERATIONAL_KEYS = frozenset({
   'DongleId', 'HardwareSerial', 'GithubSshKeys', 'GithubUsername', 'SshEnabled',
+  'AlphaLongitudinalEnabled', 'HasAcceptedTerms', 'CompletedTrainingVersion',
   'CellularDisabled', 'GsmApn', 'GsmMetered', 'GsmRoaming', 'NetworkMetered', 'BluetoothEnabled',
   'ConnectProvider', 'PairingProvider', 'PairingEmail', 'PrimeType', 'AssistNowToken', 'SecOCKey',
 })
@@ -301,6 +302,10 @@ def _migrate_first_start(params, namespace, storage, values, known, cache_keys, 
     raise MigrationRequired('Raw recovery snapshot readback failed')
   prepared = dict(values)
   actions = {}
+  if (retire_keys is None and 'AlphaLongitudinalEnabled' in known and 'AlphaLongitudinalEnabled' not in values and
+      values.get('ExperimentalLongitudinalEnabled') in (b'0', b'1')):
+    prepared['AlphaLongitudinalEnabled'] = values['ExperimentalLongitudinalEnabled']
+    actions['AlphaLongitudinalEnabled'] = 'preserve legacy longitudinal choice'
   for key, raw in values.items():
     if retire_keys is not None:
       if key in retire_keys:

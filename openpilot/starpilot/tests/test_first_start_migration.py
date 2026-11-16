@@ -21,11 +21,11 @@ class TestFirstStartMigration(unittest.TestCase):
     self.namespace = self.root / 'params' / 'd'
     self.namespace.mkdir(parents=True)
     self.storage = self.root / 'recovery'
-    self.types = {'IsMetric': 'BOOL', 'ForceStops': 'BOOL', 'OpenpilotEnabledToggle': 'BOOL', 'SteerFriction': 'FLOAT',
+    self.types = {'AlphaLongitudinalEnabled': 'BOOL', 'IsMetric': 'BOOL', 'ForceStops': 'BOOL', 'OpenpilotEnabledToggle': 'BOOL', 'SteerFriction': 'FLOAT',
                   'CalibrationParams': 'BYTES', 'CarParamsCache': 'BYTES', 'CarParamsPersistent': 'BYTES', 'CarParamsPrevRoute': 'BYTES',
                   'LiveParametersV2': 'BYTES', 'LiveDelay': 'BYTES',
                   'LiveTorqueParameters': 'BYTES', 'SecOCKey': 'BYTES', 'DongleId': 'STRING',
-                  'BluetoothEnabled': 'BOOL', 'GsmMetered': 'BOOL', 'HasAcceptedTerms': 'STRING'}
+                  'BluetoothEnabled': 'BOOL', 'GsmMetered': 'BOOL', 'HasAcceptedTerms': 'STRING', 'CompletedTrainingVersion': 'STRING'}
     self.params = SimpleNamespace(get_param_path=lambda: str(self.namespace), all_keys=lambda: list(self.types),
                                   get_type=lambda key: SimpleNamespace(name=self.types[key]))
     self.cache = SimpleNamespace(CACHE_KEYS={'CalibrationParams', 'CarParamsCache', 'CarParamsPersistent', 'CarParamsPrevRoute',
@@ -63,6 +63,52 @@ class TestFirstStartMigration(unittest.TestCase):
     before = {str(path): path.read_bytes() for path in self.storage.rglob('*') if path.is_file()}
     self.start()
     self.assertEqual({str(path): path.read_bytes() for path in self.storage.rglob('*') if path.is_file()}, before)
+
+  def test_onboarding_keeps_only_previously_saved_acceptance(self):
+    self.write({'HasAcceptedTerms': b'2', 'CompletedTrainingVersion': b'0.2.0', 'ForceStops': b'1'})
+    self.start()
+    self.assertEqual(self.values(), {'HasAcceptedTerms': b'2', 'CompletedTrainingVersion': b'0.2.0'})
+    self.start()
+    self.assertEqual(self.values(), {'HasAcceptedTerms': b'2', 'CompletedTrainingVersion': b'0.2.0'})
+
+  def test_fresh_install_does_not_fabricate_onboarding_acceptance(self):
+    self.start()
+    self.assertNotIn('HasAcceptedTerms', self.values())
+    self.assertNotIn('CompletedTrainingVersion', self.values())
+
+  def test_alpha_longitudinal_preserves_both_values_and_later_changes(self):
+    for value in (b'0', b'1'):
+      with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+        namespace = Path(directory) / 'params' / 'd'
+        namespace.mkdir(parents=True)
+        storage = Path(directory) / 'recovery'
+        params = SimpleNamespace(get_param_path=lambda namespace=namespace: str(namespace), all_keys=self.params.all_keys, get_type=self.params.get_type)
+        (namespace / 'AlphaLongitudinalEnabled').write_bytes(value)
+        migration.prepare_manager_start(params, storage, auto_migrate=True)
+        self.assertEqual((namespace / 'AlphaLongitudinalEnabled').read_bytes(), value)
+        changed = b'1' if value == b'0' else b'0'
+        (namespace / 'AlphaLongitudinalEnabled').write_bytes(changed)
+        migration.prepare_manager_start(params, storage, auto_migrate=True)
+        self.assertEqual((namespace / 'AlphaLongitudinalEnabled').read_bytes(), changed)
+
+  def test_legacy_longitudinal_choice_requires_canonical_value_and_never_overrides_alpha(self):
+    for legacy in (b'0', b'1', b'true', b'', b'2'):
+      for alpha in (None, b'0', b'1', b'invalid'):
+        with self.subTest(legacy=legacy, alpha=alpha), tempfile.TemporaryDirectory() as directory:
+          namespace = Path(directory) / 'params' / 'd'
+          namespace.mkdir(parents=True)
+          storage = Path(directory) / 'recovery'
+          params = SimpleNamespace(get_param_path=lambda namespace=namespace: str(namespace), all_keys=self.params.all_keys, get_type=self.params.get_type)
+          (namespace / 'ExperimentalLongitudinalEnabled').write_bytes(legacy)
+          if alpha is not None:
+            (namespace / 'AlphaLongitudinalEnabled').write_bytes(alpha)
+          original = migration._read_namespace(namespace)
+          migration.prepare_manager_start(params, storage, auto_migrate=True)
+          expected = alpha if alpha in (b'0', b'1') else legacy if alpha is None and legacy in (b'0', b'1') else None
+          path = namespace / 'AlphaLongitudinalEnabled'
+          self.assertEqual(path.read_bytes() if path.exists() else None, expected)
+          self.assertFalse((namespace / 'ExperimentalLongitudinalEnabled').exists())
+          self.assertIn(original, [migration.load_snapshot(path) for path in (storage / 'snapshots').iterdir()])
 
   def test_invalid_operational_bool_archived_all_old_preferences_removed(self):
     original = {'IsMetric': b'True', 'ForceStops': b'1', 'OpenpilotEnabledToggle': b'true',

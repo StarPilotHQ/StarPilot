@@ -21,7 +21,7 @@ class TestDomHandoff(unittest.TestCase):
     self.namespace = self.root / 'params' / 'd'
     self.namespace.mkdir(parents=True)
     self.storage = self.root / 'recovery'
-    self.types = {'IsMetric': 'BOOL', 'CalibrationParams': 'BYTES', 'DongleId': 'STRING'}
+    self.types = {'AlphaLongitudinalEnabled': 'BOOL', 'IsMetric': 'BOOL', 'CalibrationParams': 'BYTES', 'DongleId': 'STRING'}
     self.params = SimpleNamespace(get_param_path=lambda: str(self.namespace), all_keys=lambda: self.types,
                                   get_type=lambda key: SimpleNamespace(name=self.types[key]))
     cache = SimpleNamespace(CACHE_KEYS={'CalibrationParams'}, inspect_cache=lambda key, raw: SimpleNamespace(status='valid'))
@@ -54,6 +54,15 @@ class TestDomHandoff(unittest.TestCase):
     self.assertIn(original, [migration.load_snapshot(path) for path in (self.storage / 'snapshots').iterdir()])
     self.assertEqual(json.loads(self.profile.read_bytes())['consumed_dom_token'], 'a' * 32)
     self.assertTrue(self.handoff.exists())
+
+  def test_handoff_keeps_alpha_longitudinal_choice(self):
+    self.write(AlphaLongitudinalEnabled=b'1', DomSetting=b'old')
+    self.mark_dom()
+    self.start()
+    self.assertEqual(migration._read_namespace(self.namespace), {'AlphaLongitudinalEnabled': b'1'})
+    self.write(AlphaLongitudinalEnabled=b'0')
+    self.start()
+    self.assertEqual((self.namespace / 'AlphaLongitudinalEnabled').read_bytes(), b'0')
 
   def test_same_token_and_marker_removal_preserve_rebase_preferences(self):
     self.mark_dom()
