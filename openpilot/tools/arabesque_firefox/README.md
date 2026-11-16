@@ -6,7 +6,7 @@ A fully local Firefox browser for the large StarPilot UI on comma 3/3X. Firefox 
 
 | Property | Implementation |
 | --- | --- |
-| Target platform | ARM64 AGNOS `19.8.1`, `20.2-starpilot.1`, `20.2.1`; physical-device results below cover `19.8.1` |
+| Target platform | ARM64 AGNOS `19.8.1`, `20.2-starpilot.1`, `20.2.1`, `20.5.1`, `20.5.2`; physical-device results below cover `19.8.1` |
 | Pinned browser | Official Mozilla Firefox ESR `153.6.0esr`; exact artifacts in [runtime.json](runtime.json) |
 | Browser execution | Firefox and Xvfb run on the comma itself |
 | Display | Private Xvfb framebuffer → XCB capture → shared memory → Raylib texture |
@@ -517,7 +517,7 @@ The UI calls the same installer automatically. A developer may run it explicitly
 sudo -n /usr/local/venv/bin/python3 openpilot/tools/arabesque_firefox/setup.py
 ```
 
-Preparation requires root, ARM64 AGNOS `19.8.1`, `20.2-starpilot.1` or `20.2.1`, safe ownership, an available numeric UID and sufficient free space. Existing runtimes use the transactional updater.
+Preparation requires root, ARM64 AGNOS `19.8.1`, `20.2-starpilot.1`, `20.2.1`, `20.5.1` or `20.5.2`, safe ownership, an available numeric UID and sufficient free space. Existing runtimes use the transactional updater.
 
 The `offline/` directory ships the original archives named by digest. The installer copies them into the private package cache and checks each size and digest before extraction. For a new pinned release, refresh the directory with `python3 openpilot/tools/arabesque_firefox/setup.py --stage-offline` and include the resulting archives in the device checkout. Packages absent from a checkout can still be fetched from their pinned HTTPS URLs during setup or an explicit update.
 

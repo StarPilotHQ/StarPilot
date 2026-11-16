@@ -23,7 +23,7 @@ FORMAT = 1
 FLOOR = 6 * 1024**3
 DISPLAY_PACKAGE = 'display-xvfb.deb'
 FREETYPE_PACKAGE = 'graphics-libfreetype6.deb'
-SUPPORTED_AGNOS = ('19.8.1', '20.2-starpilot.1', '20.2.1')
+SUPPORTED_AGNOS = ('19.8.1', '20.2-starpilot.1', '20.2.1', '20.5.1', '20.5.2')
 PHASES = {'staging', 'copying', 'qualifying', 'activate', 'committed', 'restore-copy', 'restore', 'restored'}
 
 

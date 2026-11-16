@@ -125,7 +125,7 @@ def test_preparation_refuses_unprivileged_host_without_writing(tmp_path, monkeyp
   assert not (tmp_path / 'browser').exists()
 
 
-@pytest.mark.parametrize('version', ['19.8.1', '20.2-starpilot.1', '20.2.1', '20.2.2'])
+@pytest.mark.parametrize('version', ['19.8.1', '20.2-starpilot.1', '20.2.1', '20.2.2', '20.5.1', '20.5.2'])
 def test_private_display_bundle_has_an_explicit_agnos_allowlist(tmp_path, monkeypatch, version):
   target = setup.approved()
   version_file = tmp_path / 'VERSION'
