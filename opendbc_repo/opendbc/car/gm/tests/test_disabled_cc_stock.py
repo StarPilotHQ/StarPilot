@@ -22,6 +22,7 @@ class TestDisabledCcStock(unittest.TestCase):
     from opendbc.car.gm.aol import qualified_gm
     from opendbc.car.gm.lateral import lane_centering_supported
     from opendbc.car.gm.feature_capabilities import longitudinal_supported
+    from openpilot.starpilot.lateral.controller_selection import policy_for
     for identity in ORDINARY_CC_CAR:
       for release in (False, True):
         cp = params(identity, release=release)
@@ -41,6 +42,7 @@ class TestDisabledCcStock(unittest.TestCase):
         self.assertEqual(cp.minEnableSpeed, -1.)
         self.assertTrue(qualified_gm(cp))
         self.assertTrue(lane_centering_supported(cp))
+        self.assertEqual(policy_for(cp), 'ordinary_cc')
         self.assertFalse(longitudinal_supported(cp))
         self.assertTrue(disable_long_supported(cp))
         before = cp.to_dict()
