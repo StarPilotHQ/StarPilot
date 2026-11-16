@@ -1417,3 +1417,32 @@ def test_discovery_waits_past_the_message_timeout_for_a_slow_adapter():
     sender.join()
     a.close()
     b.close()
+
+
+def test_drive_join_picks_the_best_allowed_network_and_re_pauses_auto_join(monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  profiles = {"/settings/home": {"uuid": ("s", "home"), "autoconnect-priority": ("i", 2)},
+              "/settings/phone": {"uuid": ("s", "phone"), "autoconnect-priority": ("i", 5)},
+              "/settings/off": {"uuid": ("s", "off"), "autoconnect": ("b", False), "autoconnect-priority": ("i", 9)},
+              "/settings/car": {"uuid": ("s", "car"), "id": ("s", network.CONNECTION_ID)}}
+  state, calls, sets, order = [30], [], [], []
+  monkeypatch.setattr(network.NetworkLease, "_wifi_devices", lambda lease: [("/dev/wlan0", "wlan0")])
+  props = {"State": lambda: state[0], "AvailableConnections": lambda: list(profiles)}
+  monkeypatch.setattr(network.NetworkLease, "_get", lambda lease, path, interface, name: props[name]())
+  def call(lease, path, interface, member, signature=None, body=(), timeout=10.0):
+    if member == "GetSettings":
+      return ({"connection": profiles[path]},)
+    calls.append(body)
+    state[0] = 100
+  monkeypatch.setattr(network.NetworkLease, "_call", call)
+  monkeypatch.setattr(network.NetworkLease, "_set", lambda lease, *args: sets.append(args[2:]))
+  monkeypatch.setattr(network.time, "sleep", lambda _s: None)
+  lease = network.NetworkLease(lambda *a, **k: None, "wlan0")
+  lease.autoconnect_paused = True
+  outcome = lease.drive_join(lambda uuid: uuid != "phone", before=lambda: order.append("pause") or True, after=lambda: order.append("resume"))
+  assert outcome == "joined" and calls == [("/settings/home", "/dev/wlan0", "/")] and order == ["pause", "resume"]
+  assert sets == [("Autoconnect", "b", False)]
+  state[0], calls[:] = 30, []
+  assert lease.drive_join(lambda uuid: False) == "none" and calls == []
+  state[0] = 50
+  assert lease.drive_join(lambda uuid: True) == "none" and calls == []

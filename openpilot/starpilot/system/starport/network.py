@@ -62,6 +62,8 @@ SECURITY_WPA3 = (32,)
 AUTOCONNECT_MARKER = DATA_DIR / "wifi_autoconnect_paused.json"
 REJOIN_MARKER = DATA_DIR / "wifi_rejoin.json"
 REJOIN_ATTEMPTS = 2
+DRIVE_JOIN_TIMEOUT_S = 20.0
+DEVICE_STATE_FAILED = 120
 
 
 class NetworkError(RuntimeError):
@@ -475,7 +477,11 @@ class NetworkLease:
         return False
       state = int(self._get(self.device_path, NM_DEVICE_IFACE, "State"))
       if state == DEVICE_STATE_ACTIVATED:
-        return False  # connected again; nothing to hold
+        if self._carrier():
+          return False  # connected again; nothing to hold
+        # NetworkManager reports a lost network as connected for 15 s, then joins the next one by itself.
+        self._pause_autoconnect()
+        return self.autoconnect_paused
       self._pause_autoconnect()
       if DEVICE_STATE_PREPARE <= state < DEVICE_STATE_ACTIVATED:
         self._remember_join()
@@ -484,6 +490,67 @@ class NetworkLease:
         except NetworkError as error:
           self.log("wifi_hold_disconnect_failed", error=str(error))
       return self.autoconnect_paused
+
+  def _carrier(self) -> bool:
+    try:
+      return Path(f"/sys/class/net/{self.interface}/carrier").read_text().strip() == "1"
+    except OSError:
+      return True
+
+  def drive_join(self, allowed: Callable[[str], bool], before: Callable[[], bool] = lambda: True,
+                 after: Callable[[], None] = lambda: None, timeout: float = DRIVE_JOIN_TIMEOUT_S) -> str:
+    """Join the best allowed saved network in range by hand while auto-join stays paused.
+
+    Returns "connected" (already on a network), "none" (nothing to join), "joined" or "failed".
+    """
+    with self._lock:
+      path = self.device_path or next((path for path, name in self._wifi_devices() if name == self.interface), "")
+      if not path:
+        return "none"
+      state = int(self._get(path, NM_DEVICE_IFACE, "State"))
+      if state == DEVICE_STATE_ACTIVATED:
+        return "connected" if self._carrier() else "none"
+      if state != DEVICE_STATE_DISCONNECTED:
+        return "none"
+      candidates = []
+      for connection in self._get(path, NM_DEVICE_IFACE, "AvailableConnections"):
+        profile = self._call(connection, NM_SETTINGS_CONNECTION_IFACE, "GetSettings")[0].get("connection", {})
+        values = {key: entry[1] for key, entry in profile.items()}
+        if values.get("id") == CONNECTION_ID or not values.get("autoconnect", True) or not allowed(values.get("uuid", "")):
+          continue
+        candidates.append((int(values.get("autoconnect-priority", 0)), int(values.get("timestamp", 0)), connection))
+      if not candidates:
+        return "none"
+      target = max(candidates)[2]
+    if not before():
+      after()
+      return "none"
+    try:
+      with self._lock:
+        self._call(NM_PATH, NM_IFACE, "ActivateConnection", "ooo", (target, path, "/"))
+      deadline, started = time.monotonic() + timeout, False
+      while time.monotonic() < deadline:
+        time.sleep(0.25)
+        with self._lock:
+          state = int(self._get(path, NM_DEVICE_IFACE, "State"))
+        if state == DEVICE_STATE_ACTIVATED:
+          return "joined"
+        if state >= DEVICE_STATE_PREPARE:
+          started = state != DEVICE_STATE_FAILED
+        if started and state in (DEVICE_STATE_DISCONNECTED, DEVICE_STATE_FAILED):
+          return "failed"  # refused, or stopped because the car link stalled
+      return "failed"
+    except NetworkError as error:
+      self.log("wifi_drive_join_failed", error=str(error))
+      return "failed"
+    finally:
+      after()
+      if self.autoconnect_paused:
+        try:
+          with self._lock:
+            self._set(path, NM_DEVICE_IFACE, "Autoconnect", "b", False)  # joining by hand turns auto-join back on
+        except NetworkError as error:
+          self.log("wifi_autoconnect_pause_failed", error=str(error))
 
   def _remember_join(self) -> None:
     """Disconnect blocks the network being joined from autoconnecting; note it so it can be rejoined after the session."""

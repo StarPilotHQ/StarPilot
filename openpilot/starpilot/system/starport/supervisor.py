@@ -2129,6 +2129,8 @@ class Supervisor:
                                on_stall=getattr(lease, "stop_home_join", None)).start()
       session.radio_change = radio.recent
       session.radio_stalled = radio.stalled
+      if not radio._carrier() and getattr(lease, "hold_home_wifi", None) is not None:
+        lease.hold_home_wifi()  # wlan0 is not on a network: it joins one under StarPort's control, not by itself
     try:
       from openpilot.starpilot.system.starport.media_audio import MediaAudio, music_control
       from openpilot.starpilot.system.starport.media_status import MediaStatus
