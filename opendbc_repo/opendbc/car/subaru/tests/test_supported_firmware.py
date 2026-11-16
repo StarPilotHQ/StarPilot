@@ -1,5 +1,6 @@
 """Supported Subaru identities preserve exact matching and stock-only admission."""
 import unittest
+import pytest
 
 from opendbc.car.structs import CarParams
 from opendbc.car.fw_versions import match_fw_to_car_exact
@@ -23,6 +24,7 @@ RESTORED = [
   ('SUBARU_IMPREZA_2025', 'abs', 1968, 'a220240705'),
   ('SUBARU_IMPREZA_2025', 'eps', 1862, 'c220240101'),
   ('SUBARU_IMPREZA_2025', 'fwdCamera', 1927, '1d210800460000000000'),
+  ('SUBARU_IMPREZA_2025', 'fwdCamera', 1927, '1d21080046142108003d'),
   ('SUBARU_IMPREZA_2025', 'engine', 1954, '0422657007'),
   ('SUBARU_LEGACY_2025', 'abs', 1968, 'a120241100'),
   ('SUBARU_LEGACY_2025', 'eps', 1862, '5bc0d11000'),
@@ -89,15 +91,36 @@ def recorded_impreza_firmware():
           for ecu, address, version, logging, bus, obd in rows]
 
 
-def test_recorded_impreza_firmware_selects_exact_identity_without_overrides():
+@pytest.mark.parametrize('full_startup', [False, True])
+def test_recorded_impreza_firmware_selects_exact_identity_without_overrides(full_startup):
   from opendbc.car.fw_versions import match_fw_to_car, build_fw_dict
 
-  fw = recorded_impreza_firmware()
+  fw = recorded_impreza_startup_firmware() if full_startup else recorded_impreza_firmware()
   exact, matches = match_fw_to_car(fw, '0' * 17, log=False)
   assert exact and matches == {CAR.SUBARU_IMPREZA_2025}
   assert bytes.fromhex('20020e') not in build_fw_dict(fw)[0x787, None]
-  for ecu in (CarParams.Ecu.engine, CarParams.Ecu.fwdCamera):
+  for ecu in (CarParams.Ecu.abs, CarParams.Ecu.engine, CarParams.Ecu.fwdCamera):
     unknown = [CarParams.CarFw(ecu=row.ecu, address=row.address, subAddress=row.subAddress,
                               fwVersion=b'unknown firmware' if row.ecu == ecu and not row.logging else row.fwVersion,
                               brand=row.brand, logging=row.logging) for row in fw]
     assert CAR.SUBARU_IMPREZA_2025 not in match_fw_to_car(unknown, '0' * 17, log=False)[1]
+
+
+def recorded_impreza_startup_firmware(camera_version='1d21080046142108003d'):
+  # 388aeb4f2701bd8e/0000001e--432395cebf: preserve all actual responses, including other query brands.
+  rows = (
+    ('abs', 1968, 'a220240705', 'subaru', True, 1, True),
+    ('engine', 1954, '0422657007', 'subaru', True, 1, True),
+    ('eps', 1862, 'c220240101', 'subaru', True, 1, True),
+    ('fwdCamera', 1927, camera_version, 'subaru', False, 0, True),
+    ('fwdCamera', 1927, '20020e', 'subaru', True, 0, True),
+    ('abs', 1968, 'a220240705', 'subaru', False, 1, False),
+    ('engine', 1954, '0422657007', 'subaru', False, 1, False),
+    ('hvac', 1971, 'f100b90100', 'hyundai', True, 1, True),
+    ('fwdRadar', 2000, 'f100000002', 'hyundai', False, 1, True),
+    ('fwdCamera', 1988, 'f100ac0300', 'hyundai', False, 1, True),
+    ('adas', 1840, 'f100bb0f07', 'hyundai', True, 1, False),
+  )
+  return [CarParams.CarFw(ecu=ecu, address=address, fwVersion=bytes.fromhex(version),
+                         brand=brand, logging=logging, bus=bus, obdMultiplexing=obd)
+          for ecu, address, version, brand, logging, bus, obd in rows]

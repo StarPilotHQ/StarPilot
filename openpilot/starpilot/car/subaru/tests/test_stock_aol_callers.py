@@ -563,7 +563,12 @@ def test_actual_main_during_temporary_eps_waits_for_clear(subaru_native_pair, tm
     CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, main_during_eps=True)
 
 
-def test_actual_impreza2025_automatic_full_stack(subaru_native_pair, tmp_path):
+@pytest.mark.parametrize('full_startup', [False, True])
+def test_actual_impreza2025_automatic_full_stack(subaru_native_pair, tmp_path, full_startup):
+  from opendbc.car.subaru.tests.test_supported_firmware import recorded_impreza_startup_firmware
+
+  camera_version = '1d21080046142108003d' if full_startup else '1d210800460000000000'
+  firmware = recorded_impreza_startup_firmware(camera_version)
   test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
     CAR.SUBARU_IMPREZA_2025, subaru_native_pair, tmp_path, main_only=True,
-    stop_resume=True, hard_stop_native_first=True)
+    stop_resume=True, hard_stop_native_first=True, firmware=firmware)
