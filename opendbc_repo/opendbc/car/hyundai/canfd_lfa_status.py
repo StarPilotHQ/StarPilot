@@ -6,8 +6,6 @@ from opendbc.car.hyundai.values import CAR, HyundaiFlags
 
 
 MAX_AGE_NS = 50_000_000
-DISPLAY_FAULT_HOLD_NS = 2_100_000_000
-DISPLAY_RELEASE_NS = 150_000_000
 
 
 def preserves_stock_lfa(cp):
@@ -51,8 +49,6 @@ class CANFDLfaStatus:
     self.counter = None
     self.body = None
     self.observed_ns = 0
-    self.display_fault_start_ns = 0
-    self.display_last_active_ns = 0
 
   def update(self, can_packets):
     boot_clock = getattr(time, 'CLOCK_BOOTTIME', None)
@@ -83,21 +79,6 @@ class CANFDLfaStatus:
       return self.body
     return None
 
-  def owns_display_status(self, active, now_ns, *, healthy=True):
-    body = self.current(now_ns) if healthy else None
-    matches = (body is not None and ((body[4] >> 6) | ((body[5] & 1) << 2)) == 4 and
-               body[7] >> 4 == 15 and not body[6] & 0xC0)
-    if matches:
-      if active:
-        if not self.display_fault_start_ns:
-          self.display_fault_start_ns = now_ns
-        self.display_last_active_ns = now_ns
-        return True
-      if self.display_last_active_ns and now_ns <= max(self.display_fault_start_ns + DISPLAY_FAULT_HOLD_NS,
-                                                       self.display_last_active_ns + DISPLAY_RELEASE_NS):
-        return True
-    self.display_fault_start_ns = self.display_last_active_ns = 0
-    return False
 
   def last_fault(self):
     body = self.body
