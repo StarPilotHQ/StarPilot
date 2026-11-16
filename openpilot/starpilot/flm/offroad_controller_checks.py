@@ -58,6 +58,7 @@ def original_unclipped_hint(control, outputs):
 
 
 def original_nonemitted_control(cp, control, outputs, originals):
+  from dataclasses import replace
   from openpilot.starpilot.flm.torque_eligibility import consumed_sources_current
   from openpilot.starpilot.flm.torque_emission_replay import EmissionHistory
 
@@ -65,12 +66,13 @@ def original_nonemitted_control(cp, control, outputs, originals):
     b.carrier_frame <= a.carrier_frame or b.control_ns < a.control_ns for a, b in zip(outputs, outputs[1:], strict=False)
   ):
     return False
-  for before, after in zip(outputs, outputs[1:], strict=False):
+  for index, (before, after) in enumerate(zip(outputs, outputs[1:], strict=False)):
     if not before.control_ns < control.control_ns < after.control_ns:
       continue
     if (
       after.carrier_frame != before.carrier_frame + 1
-      or not control.control_ns - 30_000_000 <= before.apply_ns < after.apply_ns <= control.control_ns + 30_000_000
+      or not control.control_ns < after.apply_ns <= after.carrier_observed_ns
+      or not control.native_required and after.apply_ns > control.source_receipt_ns + 500_000_000
       or not 0 < before.carrier_observed_ns < after.carrier_observed_ns
       or not 0 < control.source_receipt_ns <= control.control_ns <= control.source_receipt_ns + 500_000_000
       or control.native_required
@@ -82,9 +84,21 @@ def original_nonemitted_control(cp, control, outputs, originals):
       )
     ):
       return False
+    bracket = index
+    while bracket >= 0 and outputs[bracket].carrier_observed_ns > control.control_ns:
+      bracket -= 1
+    if (bracket < 0 or not control.control_ns - 30_000_000 <= outputs[bracket].carrier_observed_ns
+        <= control.control_ns < outputs[bracket + 1].carrier_observed_ns <= control.control_ns + 30_000_000):
+      return False
+    first = bracket
+    while (first > 0 and outputs[first - 1].control_ns == outputs[first].control_ns
+           and outputs[first - 1].apply_ns == outputs[first].apply_ns):
+      first -= 1
+    chain = outputs[first:index + 2]
     history = EmissionHistory(cp, identity=control.identity, baseline_revision=control.baseline_revision)
+    previous = anchor = None
     try:
-      for output in (before, after):
+      for output in chain:
         source = originals.get(output.control_ns)
         if (
           source is None
@@ -94,17 +108,26 @@ def original_nonemitted_control(cp, control, outputs, originals):
           )
           or not consumed_sources_current(source, output)
           or output.projection is None
-          or output.projection.frame + 1 != output.carrier_frame
-          or not history.record_carrier(output)
-          or not history.record(source, output)
+          or previous is not None and (output.carrier_frame != previous.carrier_frame + 1
+                                       or output.carrier_observed_ns <= previous.carrier_observed_ns)
         ):
           return False
+        if anchor is not None and (output.control_ns, output.apply_ns) == (anchor.control_ns, anchor.apply_ns):
+          if replace(output, carrier_frame=anchor.carrier_frame, carrier_observed_ns=anchor.carrier_observed_ns) != anchor:
+            return False
+        else:
+          if (output.projection.frame + 1 != output.carrier_frame
+              or anchor is not None and output.apply_ns <= anchor.apply_ns):
+            return False
+          anchor = output
+        if not history.record_carrier(output) or not history.record(source, output):
+          return False
         history.verify(source, output)
+        previous = output
     except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
       return False
     return True
   return False
-
 
 def check_candidate(cp, controls, values, *, score_start_ns=0, score_end_ns=2**64 - 1, require_change=True, original_outputs=()):
   from openpilot.starpilot.flm.controller_replay import (
@@ -242,6 +265,8 @@ def check_candidate(cp, controls, values, *, score_start_ns=0, score_end_ns=2**6
 
 def check_original_native(cp, controls, outputs, commands, *, require_change=True):
   """Decode originals then replay the registered encoder; no new native grant."""
+  from dataclasses import replace
+  from opendbc.car.steering_projection import TorqueProjection
   from openpilot.starpilot.flm.torque_emission_replay import EmissionHistory, delivered
 
   if (
@@ -258,17 +283,28 @@ def check_original_native(cp, controls, outputs, commands, *, require_change=Tru
   history = EmissionHistory(cp, identity=first.identity, baseline_revision=first.baseline_revision)
   by_control = {c.control_ns: c for c in controls}
   originals = {}
+  previous_carrier = None
   for output in outputs:
     control = by_control.get(output.control_ns)
     if control is None:
       continue
-    if output.apply_ns in originals:
-      if originals[output.apply_ns] != output:
+    if (previous_carrier is not None and (output.carrier_frame != previous_carrier.carrier_frame + 1
+                                         or output.carrier_observed_ns <= previous_carrier.carrier_observed_ns)
+        or not history.record_carrier(output)):
+      return {'qualified': False, 'reason': 'original_native_source_not_eligible'}
+    previous_carrier = output
+    original = originals.get(output.apply_ns)
+    if original is not None:
+      if (output.control_ns != original.control_ns
+          or replace(output, carrier_frame=original.carrier_frame,
+                     carrier_observed_ns=original.carrier_observed_ns) != original):
         return {'qualified': False, 'reason': 'conflicting_original_native_delivery'}
-      continue
+    elif not isinstance(output.projection, TorqueProjection) or output.projection.frame + 1 != output.carrier_frame:
+      return {'qualified': False, 'reason': 'original_native_source_not_eligible'}
     if not history.record(control, output):
       return {'qualified': False, 'reason': 'original_native_source_not_eligible'}
-    originals[output.apply_ns] = output
+    if original is None:
+      originals[output.apply_ns] = output
   if len(originals) < 25:
     return {'qualified': False, 'reason': 'insufficient_original_native_delivery'}
   baseline = {stamp: before for stamp, before, _ in commands}
