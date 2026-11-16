@@ -185,6 +185,35 @@ class TestRetainedAgnos(unittest.TestCase):
     self.slot.assert_not_called()
     self.updater.set_consistent_flag.assert_not_called()
 
+  def test_legacy_staging_defers_to_the_new_hardware_aware_launcher(self):
+    source = (ROOT / 'launch_env.sh').read_text()
+    for version in ('19.8.1', '19.8.2', '20.2.1', '20.5.2'):
+      with self.subTest(version=version):
+        installed = self.root / 'VERSION'
+        installed.write_text(version + '\n')
+        environment = self.root / 'staged_launch_env.sh'
+        environment.write_text(source.replace('/VERSION', str(installed)))
+        script = 'unset AGNOS_VERSION AGNOS_ACCEPTED_VERSIONS\n' + \
+          f'source {shlex.quote(str(environment))}\n' + \
+          'printf "%s\\n%s\\n%s\\n" "$AGNOS_VERSION" "$AGNOS_ACCEPTED_VERSIONS" "$AGNOS_UPDATE_POLICY"'
+        required, accepted, policy = subprocess.check_output(['bash', '-c', script], text=True).splitlines()
+        self.assertIn(version, accepted.split())
+        self.assertEqual(required, '20.5.2')
+        self.assertEqual(policy, 'auto')
+
+  def test_runtime_still_requires_upgrade_when_legacy_staging_accepts_old_os(self):
+    self.environment.write_text('export AGNOS_VERSION="20.5.2"\nexport AGNOS_UPDATE_POLICY="auto"\n' +
+                                'export AGNOS_ACCEPTED_VERSIONS="20.2.1 20.5.2"\n')
+    verifier = self.root / 'openpilot/common/hardware/comma/agnos.py'
+    verifier.parent.mkdir(parents=True)
+    verifier.write_text('#!/bin/sh\nexit 1\n')
+    verifier.chmod(0o700)
+    function = 'function run_agnos_updater { echo upgrade-required; exit 37; }\n' + \
+      shell_function(ROOT / 'launch_chffrplus.sh', 'agnos_init')
+    result = self.run_shell(function, 'agnos_init', '20.2.1')
+    self.assertEqual(result.returncode, 37, result.stderr)
+    self.assertIn('upgrade-required', result.stdout)
+
   def test_retained_mismatch_blocks_finalization_without_flash(self):
     for current in ('19.6.20', '19.8', '', '19.8.2 '):
       with self.subTest(current=current):
