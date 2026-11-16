@@ -282,3 +282,68 @@ class TestPolestarCounters(unittest.TestCase):
     self.assertEqual(unchanged[1], status[1])
     self.assertTrue(self.tx(unchanged))
     self.assertFalse(self.safety.get_controls_allowed())
+
+  def pscm_counter_status(self, counter, replica):
+    data = bytearray(8)
+    data[1] = (counter << 4) | 1
+    data[2] = 0x80 | replica
+    return cma.checksummed((0x17, data, 2))
+
+  def test_pscm_equal_and_one_count_lag_keep_permission(self):
+    for counter in range(15):
+      for lag in (0, 1):
+        with self.subTest(counter=counter, lag=lag):
+          self.reset()
+          self.feed()
+          status = self.pscm_counter_status(counter, (counter - lag) % 15)
+          self.assertTrue(self.rx(status))
+          self.assertTrue(self.safety.get_controls_allowed())
+          self.assertTrue(self.tx(self.relay(status)))
+          self.assertTrue(self.tx(self.lca_command()))
+
+  def test_pscm_other_counter_relationships_still_withdraw(self):
+    for counter, replica in ((15, 14), (15, 0), (0, 1), (0, 13), (1, 14)):
+      with self.subTest(counter=counter, replica=replica):
+        self.reset()
+        self.feed()
+        status = self.pscm_counter_status(counter, replica)
+        self.assertFalse(self.rx(status))
+        self.assertFalse(self.safety.get_controls_allowed())
+        self.safety.safety_tick()
+        self.assertFalse(self.safety.safety_config_valid())
+        self.assertTrue(self.tx(self.relay(status)))
+        self.safety.set_controls_allowed(True)
+        self.assertFalse(self.tx(self.lca_command()))
+
+  def test_pscm_lag_retains_crc_identity_and_freshness_checks(self):
+    status = self.pscm_counter_status(0, 14)
+    for pos in (0, 3):
+      self.reset()
+      self.feed()
+      data = bytearray(status[1])
+      data[pos] ^= 1
+      self.assertFalse(self.rx((0x17, data, 2)))
+      self.assertFalse(self.safety.get_controls_allowed())
+    for bus in (0, 1, 3, 4, 5, 6, 7):
+      self.reset()
+      self.feed(cruise=False)
+      self.rx((0x17, status[1], bus))
+      self.assertFalse(self.tx(self.relay(status)))
+    self.reset()
+    self.feed(cruise=False)
+    self.assertTrue(self.rx(status))
+    self.safety.set_timer(110000)
+    self.assertTrue(self.tx(self.relay(status)))
+    self.safety.set_timer(110001)
+    self.assertFalse(self.tx(self.relay(status)))
+
+  def test_pscm_lag_does_not_change_other_native_profiles(self):
+    try:
+      for param in (0, 1):
+        self.PARAM = param
+        self.setUp()
+        self.feed()
+        self.assertFalse(self.rx(self.pscm_counter_status(0, 14)))
+        self.assertFalse(self.safety.get_controls_allowed())
+    finally:
+      self.PARAM = 5

@@ -163,8 +163,9 @@ def pscm_status_validation_class(data):
   # Keep pending stock status in the same validation class as the native cache.
   checksum_valid = (data[0] == checksum_1_pscm_related_message(data[1], data[2]) and
                     data[3] == checksum_2_pscm_related_message(data[2]))
-  quality_valid = ((data[1] & 8) == 0 and 0x80 <= data[2] <= 0x8E and
-                   data[1] >> 4 == data[2] & 15)
+  counter, replica = data[1] >> 4, data[2] & 15
+  quality_valid = ((data[1] & 8) == 0 and 0x80 <= data[2] <= 0x8E and counter < 15 and
+                   (counter - replica) % 15 in (0, 1))
   return data[2] >> 4, checksum_valid, quality_valid
 
 

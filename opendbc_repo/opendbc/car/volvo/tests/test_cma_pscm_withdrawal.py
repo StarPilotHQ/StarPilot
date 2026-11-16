@@ -39,7 +39,7 @@ def forwarded(frames):
 
 
 GOOD = status(0x11, 0x81)
-OFFSET = status(0x21, 0x81)
+OFFSET = status(0x31, 0x81)
 
 
 @pytest.mark.parametrize('unsupported', [
@@ -86,3 +86,27 @@ def test_missing_status_cannot_grant_host_lateral():
   assert not ci.CC.lat_active
   assert pscm_status_validation_class(GOOD) == (8, True, True)
   assert pscm_status_validation_class(OFFSET) == (8, True, False)
+
+
+@pytest.mark.parametrize('counter', range(15))
+@pytest.mark.parametrize('lag', [0, 1])
+def test_supported_counter_relationship_keeps_host_active(counter, lag):
+  ci = interface()
+  step(ci, 40, True)
+  packet = status((counter << 4) | 1, 0x80 | ((counter - lag) % 15))
+  assert pscm_status_validation_class(packet) == (8, True, True)
+  step(ci, 41, True, packet)
+  assert ci.CC.lat_active and not ci.CS.pscm_rearm_required
+  incoming, messages = step(ci, 42, False, packet)
+  assert messages == forwarded(incoming)
+
+
+@pytest.mark.parametrize('counter,replica', [(15, 14), (15, 0), (0, 1), (0, 13), (1, 14)])
+def test_other_counter_relationships_still_withdraw(counter, replica):
+  ci = interface()
+  step(ci, 40, True)
+  packet = status((counter << 4) | 1, 0x80 | replica)
+  assert pscm_status_validation_class(packet) == (8, True, False)
+  incoming, messages = step(ci, 41, True, packet)
+  assert not ci.CC.lat_active and ci.CS.pscm_rearm_required
+  assert messages == forwarded(incoming)

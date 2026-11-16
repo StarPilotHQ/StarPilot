@@ -277,7 +277,7 @@ static bool volvo_cma_lca2_quality(const CANPacket_t *msg) {
   return valid;
 }
 static bool volvo_cma_receiver_quality(const CANPacket_t *msg) {
-  return volvo_cma_quality(msg) && volvo_cma_lca2_quality(msg);
+  return volvo_cma_quality(msg, volvo_cma_lca2_mod15) && volvo_cma_lca2_quality(msg);
 }
 
 // Unchanged native status is transport evidence, never valid control evidence.
