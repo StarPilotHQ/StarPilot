@@ -64,6 +64,36 @@ class TestFirstStartMigration(unittest.TestCase):
     self.start()
     self.assertEqual({str(path): path.read_bytes() for path in self.storage.rglob('*') if path.is_file()}, before)
 
+  def test_vehicle_preferences_keep_canonical_choices_and_new_settings_survive_restart(self):
+    self.types.update(dict.fromkeys(migration.VEHICLE_PREFERENCE_KEYS, 'BOOL'))
+    original = {key: b'1' if index % 2 else b'0' for index, key in enumerate(sorted(migration.VEHICLE_PREFERENCE_KEYS))}
+    original.update({'AlphaLongitudinalEnabled': b'1', 'CarParamsCache': b'old fingerprint',
+                     'CarParamsPersistent': b'old safety configuration', 'CarParamsPrevRoute': b'old route', 'SteerFriction': b'0.337'})
+    self.write(original)
+    self.start()
+    expected = {key: raw for key, raw in original.items() if key in migration.OPERATIONAL_KEYS}
+    self.assertEqual(self.values(), expected)
+    self.assertEqual(migration.load_snapshot(next((self.storage / 'snapshots').iterdir())), original)
+    for key in migration.VEHICLE_PREFERENCE_KEYS:
+      (self.namespace / key).write_bytes(b'0' if expected[key] == b'1' else b'1')
+    changed = self.values()
+    self.start()
+    self.assertEqual(self.values(), changed)
+
+  def test_invalid_vehicle_preferences_are_archived_without_enabling_them(self):
+    self.types.update(dict.fromkeys(migration.VEHICLE_PREFERENCE_KEYS, 'BOOL'))
+    original = dict.fromkeys(migration.VEHICLE_PREFERENCE_KEYS, b'true')
+    self.write(original)
+    self.start()
+    self.assertEqual(self.values(), {})
+    self.assertEqual(migration.load_snapshot(next((self.storage / 'snapshots').iterdir())), original)
+
+  def test_vehicle_preference_keys_are_registered_booleans(self):
+    from openpilot.common.params import Params
+    params = Params(str(self.root / 'native-params'))
+    for key in migration.VEHICLE_PREFERENCE_KEYS:
+      self.assertEqual(params.get_type(key).name, 'BOOL', key)
+
   def test_onboarding_keeps_only_previously_saved_acceptance(self):
     self.write({'HasAcceptedTerms': b'2', 'CompletedTrainingVersion': b'0.2.0', 'ForceStops': b'1'})
     self.start()

@@ -23,12 +23,23 @@ RENAMED_BOOL_KEYS = {'AndroidAutoEnabled': 'StarPortEnabled'}
 MAX_VALUE_BYTES = 32 * 1024 * 1024
 MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
 MAX_KEYS = 4096
+VEHICLE_PREFERENCE_KEYS = frozenset({
+  'RemoteStartBootsComma', 'HKGRemoteStartBootsComma', 'IgnoreIgnitionLine',
+  'TeslaWakeOnCAN', 'DisableOpenpilotLongitudinal', 'LongPitch',
+  'VoltSNG', 'SNGHack', 'GMAutoHold',
+  'VoltOnePedalMode', 'TeslaCoopSteering', 'TeslaAOLScreenTap',
+  'TeslaAOLDisengageOnBrake', 'SubaruAvhStartup', 'SubaruStopStartOff',
+  'SubaruSNG', 'SubaruRedneckCruise', 'ToyotaAutoHold',
+  'JeepBrakeHold', 'DriveModeProfiles', 'DriveModeAcceleration',
+  'DriveModeDeceleration', 'NostalgiaMode', 'RemapCancelToDistance',
+  'FordHandsFreeCluster',
+})
 OPERATIONAL_KEYS = frozenset({
   'DongleId', 'HardwareSerial', 'GithubSshKeys', 'GithubUsername', 'SshEnabled',
   'AlphaLongitudinalEnabled', 'HasAcceptedTerms', 'CompletedTrainingVersion',
   'CellularDisabled', 'GsmApn', 'GsmMetered', 'GsmRoaming', 'NetworkMetered', 'BluetoothEnabled',
   'ConnectProvider', 'PairingProvider', 'PairingEmail', 'PrimeType', 'AssistNowToken', 'SecOCKey', 'SecOCKeys',
-})
+}) | VEHICLE_PREFERENCE_KEYS
 
 
 class MigrationRequired(RuntimeError):
