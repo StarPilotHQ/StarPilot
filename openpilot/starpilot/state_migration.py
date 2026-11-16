@@ -27,7 +27,7 @@ OPERATIONAL_KEYS = frozenset({
   'DongleId', 'HardwareSerial', 'GithubSshKeys', 'GithubUsername', 'SshEnabled',
   'AlphaLongitudinalEnabled', 'HasAcceptedTerms', 'CompletedTrainingVersion',
   'CellularDisabled', 'GsmApn', 'GsmMetered', 'GsmRoaming', 'NetworkMetered', 'BluetoothEnabled',
-  'ConnectProvider', 'PairingProvider', 'PairingEmail', 'PrimeType', 'AssistNowToken', 'SecOCKey',
+  'ConnectProvider', 'PairingProvider', 'PairingEmail', 'PrimeType', 'AssistNowToken', 'SecOCKey', 'SecOCKeys',
 })
 
 

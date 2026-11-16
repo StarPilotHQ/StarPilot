@@ -76,6 +76,17 @@ class TestFirstStartMigration(unittest.TestCase):
     self.assertNotIn('HasAcceptedTerms', self.values())
     self.assertNotIn('CompletedTrainingVersion', self.values())
 
+  def test_security_key_library_survives_preference_reset_and_restart(self):
+    self.types['SecOCKeys'] = 'STRING'
+    library = b'[{"name":"family car","value":"abababababababababababababababab"}]'
+    original = {'SecOCKey': b'ab' * 16, 'SecOCKeys': library, 'SteerFriction': b'0.2'}
+    self.write(original)
+    self.start()
+    self.assertEqual(self.values(), {'SecOCKey': original['SecOCKey'], 'SecOCKeys': library})
+    self.assertEqual(migration.load_snapshot(next((self.storage / 'snapshots').iterdir())), original)
+    self.start()
+    self.assertEqual(self.values()['SecOCKeys'], library)
+
   def test_alpha_longitudinal_preserves_both_values_and_later_changes(self):
     for value in (b'0', b'1'):
       with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
