@@ -3,6 +3,7 @@ import numpy as np
 from collections import deque
 
 from cereal import custom, log
+from opendbc.car.gm.values import CAR as GM_CAR
 from opendbc.car.honda.values import CAR as HONDA_CAR, HondaFlags
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR, HyundaiFlags
 from opendbc.car.lateral import get_friction
@@ -76,6 +77,18 @@ def get_center_chatter_friction_jerk_deadzone(v_ego, setpoint, vehicle_deadzone=
 # 18.3-18.7s: ff pinned at -0.5 against a correct right-turn hold at 0.3 m/s).
 FF_ROLL_OFFSET_FADE_BP = [0.5, 2.5]  # m/s
 FF_ROLL_OFFSET_FADE_V = [0.0, 1.0]
+
+# Envision C4 self-constraint
+ENVISION_MAX_TORQUE_RATE = 5.0  # normalized torque units per second; output_torque is -1..1, NOT Nm
+ENVISION_CENTER_DEADBAND_LAT_ACCEL = 0.3  # m/s^2
+ENVISION_CENTER_MIN_SCALE = 0.6  # dimensionless
+# 1.0 = verified default, matches the version road-tested for hundreds of km.
+# i *= center_scale every frame, same rate as output taper, so the integrator
+# cannot wind up in the center band. <1.0 is a future A/B knob, not enabled.
+ENVISION_CENTER_I_DECAY_POWER = 1.0
+ENVISION_UNWIND_OUTPUT_SCALE = 0.8  # dimensionless
+ENVISION_UNWIND_MAX_SPEED_MPS = 25.0  # m/s; exactly 90 km/h (25 * 3.6)
+
 
 class LatControlTorque(LatControl):
   def __init__(self, CP, CI, dt):
@@ -163,6 +176,16 @@ class LatControlTorque(LatControl):
     if self.is_honda_accord:
       self.pid._k_p = [self.pid._k_p[0], [*self.pid._k_p[1][:-1], HONDA_ACCORD_TORQUE_KP]]
       self.pid._k_i = [self.pid._k_i[0], [HONDA_ACCORD_TORQUE_KI] * len(self.pid._k_i[1])]
+    # ==================== Envision Specific Tuning ====================
+    self.is_envision = CP.carFingerprint == GM_CAR.BUICK_ENVISION_SDGM
+    if self.is_envision:
+      # Below ~3 m/s lateral control is inactive, so early gains are placeholders.
+      # The stock KP at 5-10 m/s over-amplifies IMU noise from SUV suspension rebound.
+      self.pid._k_p = [
+        [1, 1.5, 2.0, 3.0, 5, 7.5, 10, 15, 30],       # Speed grid (m/s)
+        [25, 20, 18.0, 18.0, 8.0, 3.1, 1.3, 0.7, 0.58]  # Smoothed KP values
+      ]
+    # ================================================================
     if self.is_palisade:
       self.torque_params.latAccelFactor *= PALISADE_BASE_LAT_ACCEL_FACTOR_MULT
     if self.is_ioniq_5:
@@ -724,6 +747,37 @@ class LatControlTorque(LatControl):
         output_torque *= kia_stinger_2022_center_taper
       elif self.is_civic_bosch_modified and civic_bosch_modified_a_lateral_testing_ground_active():
         output_torque *= civic_bosch_modified_a_center_taper
+      # =========================================================================
+      # ==================== Buick Envision (C4) self-constraint =================
+      # 1) Slew-rate limit in normalized torque units. output_torque is -1..1,
+      #    NOT Nm. GM CarController STEER_DELTA_UP/DOWN is much stricter, so this
+      #    only smooths LatControl's internal prev_output_torque and logs; it does
+      #    not change the final CAN command.
+      # 2) Center taper. Hard gate at deadband; inside the band scale output and
+      #    integrator by the same factor each frame, so the integrator is drained
+      #    at the same rate as the output and cannot accumulate across frames.
+      # 3) Unwind damping: only when unwinding, driver holding wheel, and <90 km/h.
+      # =========================================================================
+      if self.is_envision:
+        max_delta_torque = ENVISION_MAX_TORQUE_RATE * self.dt
+        output_torque = float(np.clip(
+          output_torque,
+          self.prev_output_torque - max_delta_torque,
+          self.prev_output_torque + max_delta_torque,
+        ))
+
+        if abs(setpoint) < ENVISION_CENTER_DEADBAND_LAT_ACCEL:
+          center_scale = float(np.interp(
+            abs(setpoint),
+            [0.0, ENVISION_CENTER_DEADBAND_LAT_ACCEL],
+            [ENVISION_CENTER_MIN_SCALE, 1.0],
+          ))
+          output_torque *= center_scale
+          self.pid.i *= center_scale ** ENVISION_CENTER_I_DECAY_POWER
+
+        if unwind_detected and CS.steeringPressed and CS.vEgo < ENVISION_UNWIND_MAX_SPEED_MPS:
+          output_torque *= ENVISION_UNWIND_OUTPUT_SCALE
+      # =========================================================================
       pid_log.active = True
       pid_log.p = float(self.pid.p)
       pid_log.i = float(self.pid.i)
