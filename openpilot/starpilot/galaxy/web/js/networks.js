@@ -21,7 +21,7 @@ export const NetworksPage = {
   name: "NetworksPage",
   components: { GxNotice, GxState, GalaxySettingRow, GalaxyHotspot },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
-  data: () => ({ snapshot: null, busy: false, error: '', timer: null, controller: null, generation: 0, active: false }),
+  data: () => ({ snapshot: null, busy: false, error: '', openUuid: null, timer: null, controller: null, generation: 0, active: false }),
   computed: {
     linkName() { return LINKS[this.snapshot?.link.link] || 'Unknown' },
     changed() {
@@ -30,7 +30,7 @@ export const NetworksPage = {
     },
     cellularDetail() {
       const cellular = this.snapshot.cellular
-      if (!cellular.enabled) return 'Cellular data is off. The comma only goes online over Wi-Fi.'
+      if (!cellular.enabled) return 'Off · comma goes online over Wi-Fi only.'
       return cellular.connected ? `Connected${cellular.operator ? ' to ' + cellular.operator : ''}${cellular.type ? ' (' + cellular.type.toUpperCase() + ')' : ''}.` : 'Not connected right now.'
     },
   },
@@ -40,10 +40,18 @@ export const NetworksPage = {
   methods: {
     switchRow, choiceRow,
     start() { if (this.mode === 'local') { this.active = true; this.refresh() } },
-    stop() { this.active = false; this.generation++; clearTimeout(this.timer); this.controller?.abort(); this.snapshot = null; this.busy = false },
+    stop() { this.active = false; this.generation++; clearTimeout(this.timer); this.controller?.abort(); this.snapshot = null; this.openUuid = null; this.busy = false },
     adopt(value) {
       if (!validNetworks(value)) throw new Error('Invalid network status')
       this.snapshot = value
+      if (this.openUuid && !value.networks.some(n => n.uuid === this.openUuid)) this.openUuid = null
+    },
+    isOpen(network) { return this.openUuid === network.uuid || this.snapshot?.networks.length === 1 },
+    toggleNetwork(uuid) { this.openUuid = this.openUuid === uuid ? null : uuid },
+    networkSummary(network) {
+      const parts = [this.signalText(network), network.autoJoin ? (network.whileDriving ? 'Auto-join' : 'Parked only') : 'Manual']
+      if (network.metered !== 'Auto') parts.push(network.metered)
+      return parts.join(' · ')
     },
     async refresh() {
       if (!this.active || this.busy) return
@@ -94,40 +102,47 @@ export const NetworksPage = {
       return network.signal == null ? 'Not in range' : `In range, signal ${network.signal}%`
     },
   },
-  template: `<div class="gx-stack">
+  template: `<section class="gx-driving gx-networks" aria-label="Networks">
+    <header class="gx-settings__header gx-page-header"><div><h2>Networks</h2><p>Wi-Fi priority, cellular data, and local hotspot access.</p></div></header>
     <GxState v-if="mode !== 'local'">Connect to your comma to manage its networks.</GxState>
     <GxState v-else-if="!snapshot && !error" loading>Loading network settings…</GxState>
     <template v-if="snapshot">
-      <section class="gx-card gx-panel gx-stack"><div class="gx-section__header"><i class="bi bi-arrow-left-right" aria-hidden="true"></i><span class="gx-section__title">Connection</span></div>
-        <p>Online through: <strong>{{ linkName }}</strong><span v-if="changed"> · last switched at {{ changed }}</span></p>
-        <GalaxySettingRow :row="choiceRow('Prefer', snapshot.prefer === 'cellular' ? 'Cellular' : 'Wi-Fi', ['Wi-Fi', 'Cellular'], 'Which connection the comma uses when both are available. Wi-Fi stays connected either way.')" :index="0"
+      <GxNotice v-if="!snapshot.editable" tone="warn">Park before changing network settings.</GxNotice>
+      <section class="gx-card gx-settings__section"><div class="gx-section__header"><i class="bi bi-arrow-left-right" aria-hidden="true"></i><span class="gx-section__title">Connection</span><span class="gx-chip">{{ linkName }}<template v-if="changed"> · {{ changed }}</template></span></div>
+        <GalaxySettingRow :row="choiceRow('Prefer', snapshot.prefer === 'cellular' ? 'Cellular' : 'Wi-Fi', ['Wi-Fi', 'Cellular'], 'Used when both are available; apps reconnect automatically.')" :index="0"
           :busy="busy" :disabled="!snapshot.editable" :save-value="(index, value) => send({ action: 'prefer', value: value === 'Cellular' ? 'cellular' : 'wifi' })" />
         <GalaxySettingRow :row="switchRow('Cellular data', snapshot.cellular.enabled, cellularDetail)" :index="1"
           :busy="busy" :disabled="!snapshot.editable" :save-value="(index, value) => send({ action: 'cellular', value: value === 'On' })" />
-        <p class="gx-note">When the comma changes networks, apps such as Spotify reconnect on the new one within a few seconds, without restarting.</p>
       </section>
-      <section class="gx-card gx-panel gx-stack"><div class="gx-section__header"><i class="bi bi-wifi" aria-hidden="true"></i><span class="gx-section__title">Saved Wi-Fi networks</span></div>
-        <p>The comma joins the highest network on this list that is in range. Add or forget networks on the comma's own Wi-Fi screen.</p>
-        <GxState v-if="!snapshot.networks.length">No saved Wi-Fi networks yet.</GxState>
-        <div v-for="(network, index) in snapshot.networks" :key="network.uuid" class="gx-card gx-stack">
-          <div class="gx-row gx-row--borderless"><div class="gx-row__info"><span class="gx-row__label">{{ index + 1 }}. {{ network.name }}</span><span class="gx-row__desc">{{ signalText(network) }}</span></div>
+      <section class="gx-card gx-settings__section"><div class="gx-section__header"><i class="bi bi-wifi" aria-hidden="true"></i><span class="gx-section__title">Saved Wi-Fi networks</span><span v-if="snapshot.networks.length" class="gx-section__count">{{ snapshot.networks.length }}</span></div>
+        <p v-if="!snapshot.networks.length" class="gx-empty">No saved Wi-Fi networks yet. Add or forget networks on the comma's Wi-Fi screen.</p>
+        <p v-else class="gx-note gx-networks__caption">Joined in priority order when in range. Add or forget networks on the comma's Wi-Fi screen.</p>
+        <div v-for="(network, index) in snapshot.networks" :key="network.uuid" class="gx-networks__item">
+          <div class="gx-row gx-networks__row">
+            <button type="button" class="gx-row__info gx-networks__toggle" :aria-expanded="isOpen(network)" @click="toggleNetwork(network.uuid)">
+              <span class="gx-row__label">{{ index + 1 }}. {{ network.name }}</span>
+              <span class="gx-row__desc">{{ networkSummary(network) }}</span>
+            </button>
             <div class="gx-actions">
               <button type="button" class="gx-icon-btn" :aria-label="'Move ' + network.name + ' up'" :disabled="busy || !snapshot.editable || index === 0" @click="move(index, -1)"><i class="bi bi-arrow-up" aria-hidden="true"></i></button>
               <button type="button" class="gx-icon-btn" :aria-label="'Move ' + network.name + ' down'" :disabled="busy || !snapshot.editable || index === snapshot.networks.length - 1" @click="move(index, 1)"><i class="bi bi-arrow-down" aria-hidden="true"></i></button>
-            </div></div>
-          <GalaxySettingRow :row="switchRow('Join automatically', network.autoJoin)" :index="index"
-            :busy="busy" :disabled="!snapshot.editable" :save-value="(i, value) => setNetwork(network, 'autoJoin', value === 'On')" />
-          <GalaxySettingRow :row="switchRow('Join while StarPort is on', network.whileDriving, 'Off: the comma stays on its current connection during a drive and joins this network once the car link ends.')" :index="index"
-            :busy="busy" :disabled="!snapshot.editable || !network.autoJoin" :save-value="(i, value) => setNetwork(network, 'whileDriving', value === 'On')" />
-          <GalaxySettingRow :row="choiceRow('Data limit', network.metered, ['Auto', 'Metered', 'Unmetered'], 'Metered networks are not used for large uploads.')" :index="index"
-            :busy="busy" :disabled="!snapshot.editable" :save-value="(i, value) => setNetwork(network, 'metered', value)" />
+              <button v-if="snapshot.networks.length > 1" type="button" class="gx-icon-btn" :aria-label="(isOpen(network) ? 'Collapse ' : 'Configure ') + network.name" :aria-expanded="isOpen(network)" @click="toggleNetwork(network.uuid)"><i class="bi" :class="isOpen(network) ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i></button>
+            </div>
+          </div>
+          <div v-show="isOpen(network)" class="gx-networks__details">
+            <GalaxySettingRow :row="switchRow('Join automatically', network.autoJoin)" :index="index"
+              :busy="busy" :disabled="!snapshot.editable" :save-value="(i, value) => setNetwork(network, 'autoJoin', value === 'On')" />
+            <GalaxySettingRow :row="switchRow('Join while StarPort is on', network.whileDriving, 'When off, stays on the current connection until the drive ends.')" :index="index"
+              :busy="busy" :disabled="!snapshot.editable || !network.autoJoin" :save-value="(i, value) => setNetwork(network, 'whileDriving', value === 'On')" />
+            <GalaxySettingRow :row="choiceRow('Data limit', network.metered, ['Auto', 'Metered', 'Unmetered'], 'Metered networks skip large uploads.')" :index="index"
+              :busy="busy" :disabled="!snapshot.editable" :save-value="(i, value) => setNetwork(network, 'metered', value)" />
+          </div>
         </div>
-        <GalaxySettingRow :row="switchRow('Pause Galaxy hotspot while joining Wi-Fi', snapshot.pauseHotspot, 'During a drive the hotspot stops for a few seconds while the comma joins a network, so the join does not disturb the car link. Phones on the hotspot reconnect afterwards.')" :index="0"
+        <GalaxySettingRow :row="switchRow('Pause Galaxy hotspot while joining Wi-Fi', snapshot.pauseHotspot, 'Briefly pauses the hotspot during a drive so joining Wi-Fi does not disturb StarPort.')" :index="0"
           :busy="busy" :disabled="!snapshot.editable" :save-value="(index, value) => send({ action: 'pauseHotspot', value: value === 'On' })" />
       </section>
-      <GxNotice v-if="!snapshot.editable">Park before changing network settings.</GxNotice>
     </template>
     <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
-    <GalaxyHotspot :mode="mode" :unauthorized="unauthorized" />
-  </div>`,
+    <GalaxyHotspot v-if="mode === 'local'" :mode="mode" :unauthorized="unauthorized" />
+  </section>`,
 }

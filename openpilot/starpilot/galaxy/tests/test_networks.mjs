@@ -22,6 +22,12 @@ vm.active = true
 vm.adopt(value)
 assert.equal(vm.signalText(value.networks[0]), 'Connected')
 assert.equal(vm.signalText(value.networks[1]), 'In range, signal 60%')
+assert.equal(vm.networkSummary(value.networks[0]), 'Connected · Auto-join')
+assert.equal(vm.isOpen(value.networks[0]), false)
+vm.toggleNetwork(first)
+assert.equal(vm.isOpen(value.networks[0]), true)
+vm.toggleNetwork(first)
+assert.equal(vm.isOpen(value.networks[0]), false)
 const sent = []
 globalThis.fetch = async (_url, options) => { sent.push(options?.body ? JSON.parse(options.body) : null); return { ok: true, json: async () => value } }
 await vm.move(1, -1)

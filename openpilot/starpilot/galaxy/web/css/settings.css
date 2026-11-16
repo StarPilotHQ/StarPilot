@@ -911,3 +911,16 @@ html.gx-maker-open, html.gx-maker-open body { touch-action: manipulation; }
 .gx-sentry-status .gx-status-dot { flex: none; background: currentColor; }
 .gx-sentry-status--armed .gx-status-dot { background: var(--success); }
 .gx-sentry-status--warning .gx-status-dot { background: var(--warning); }
+.gx-networks > .gx-card { margin-bottom: 0; }
+.gx-networks__caption { margin: 0; padding: var(--sp-2) var(--sp-4) var(--sp-3); border-top: 1px solid var(--outline); }
+.gx-networks__toggle { border: 0; padding: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.gx-networks__toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: var(--radius-sm); }
+.gx-networks__details { background: rgba(255, 255, 255, 0.015); box-shadow: inset 3px 0 var(--primary); }
+.gx-networks__details > .gx-row { padding-left: calc(var(--sp-4) + var(--sp-2)); }
+.gx-hotspot__controls { flex: 1 1 260px; justify-content: flex-end; }
+.gx-hotspot__field { flex: 1 1 160px; max-width: 240px; }
+.gx-hotspot__details { padding: var(--sp-3) var(--sp-4); }
+@media (max-width: 600px) {
+  .gx-hotspot__field { max-width: none; }
+  .gx-hotspot__controls { justify-content: stretch; }
+}
