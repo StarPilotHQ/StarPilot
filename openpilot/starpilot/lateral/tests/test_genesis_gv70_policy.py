@@ -25,7 +25,7 @@ from openpilot.starpilot.lateral.torque_shaping import KP
 def controller_for(vehicle=CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN, mode=None):
   cp = interfaces[vehicle].get_non_essential_params(vehicle)
   controller = LatControlTorque(cp.as_reader(), interfaces[vehicle](cp), 0.01, controller_mode=mode)
-  cs = SimpleNamespace(vEgo=25.0, steeringAngleDeg=0.0, steeringPressed=False)
+  cs = SimpleNamespace(vEgo=25.0, steeringAngleDeg=0.0, steeringPressed=False, standstill=False)
   params = log.VehicleParameters.new_message(angleOffsetDeg=0.0, roll=0.0)
   return cp, controller, VehicleModel(cp), cs, params
 
@@ -155,6 +155,98 @@ def test_measurement_damping_does_not_touch_other_vehicle_policies(vehicle):
   _, controller, *_ = controller_for(vehicle)
   assert not isinstance(selected_policy(controller), policy.GenesisGV70TorquePolicy)
   assert max(controller.pid._k_d[1]) == 0
+
+
+def test_crawl_turn_in_ff_scale_only_when_building_at_low_speed():
+  # desLat > 0 is a GV70 right turn, desLat < 0 a left turn (sign-flipped
+  # vs the Ioniq 6 labels); the left boost (0.24) is larger than the
+  # right boost (0.18).
+  left = policy.get_gv70_crawl_turn_in_ff_scale(-0.5, -1.0, 0.0)
+  right = policy.get_gv70_crawl_turn_in_ff_scale(0.5, 1.0, 0.0)
+  assert left > right > 1.0
+  assert left == pytest.approx(1.0 + 0.24 * policy._gv70_sigmoid(5.3), abs=1e-6)
+  # No boost when jerk opposes the turn-in, and none at road speed.
+  assert policy.get_gv70_crawl_turn_in_ff_scale(0.5, -1.0, 0.0) == 1.0
+  assert policy.get_gv70_crawl_turn_in_ff_scale(0.5, 1.0, 30.0) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_turn_in_threshold_and_friction_scales_only_on_turn_in():
+  # Turn-in (accel and jerk same sign): threshold is reduced, friction raised.
+  assert policy.get_gv70_turn_in_threshold_scale(2.0, 0.5, 1.0) < 1.0
+  assert policy.get_gv70_turn_in_friction_scale(2.0, 0.5, 1.0) > 1.0
+  # Unwind (opposite signs): both scales are exactly neutral.
+  assert policy.get_gv70_turn_in_threshold_scale(2.0, 0.5, -1.0) == 1.0
+  assert policy.get_gv70_turn_in_friction_scale(2.0, 0.5, -1.0) == 1.0
+  # Scales stay inside the Ioniq clamps even for extreme inputs.
+  assert 0.82 <= policy.get_gv70_turn_in_threshold_scale(0.0, -5.0, -50.0) <= 1.18
+  assert 0.82 <= policy.get_gv70_turn_in_friction_scale(0.0, -5.0, -50.0) <= 1.08
+
+
+def test_calm_speed_entry_hysteresis_and_release():
+  _, controller, vm, cs, params = controller_for()
+  selected = selected_policy(controller)
+  cs.vEgo = 4.2
+  selected._moveoff_frames = 10000  # move-off path never eligible in this test
+  for _ in range(200):
+    update(controller, vm, cs, params)
+  assert selected._calm_lsf_amount == 0.0  # 4.2 m/s alone never enters the band
+  cs.vEgo = 3.0  # below the 4.0 m/s entry speed
+  for _ in range(200):
+    update(controller, vm, cs, params)
+  assert selected._calm_lsf_amount == 1.0
+  cs.vEgo = 4.2  # inside the 4.0/4.5 hysteresis band: calm holds
+  for _ in range(50):
+    update(controller, vm, cs, params)
+  assert selected._calm_lsf_amount == 1.0
+  cs.vEgo = 5.0  # above the 4.5 m/s exit speed: released over 0.3 s
+  for _ in range(50):
+    update(controller, vm, cs, params)
+  assert selected._calm_lsf_amount == 0.0
+
+
+def test_calm_moveoff_is_immediate_while_speed_entry_ramps():
+  _, controller, vm, cs, params = controller_for()
+  selected = selected_policy(controller)
+  cs.vEgo = 2.0
+  cs.standstill = True
+  update(controller, vm, cs, params)
+  assert selected._calm_lsf_amount == 1.0  # standstill/move-off needs no ramp
+
+  _, controller2, vm2, cs2, params2 = controller_for()
+  selected2 = selected_policy(controller2)
+  cs2.vEgo = 3.0
+  selected2._moveoff_frames = 10000
+  for _ in range(15):  # 0.15 s into the 1.5 s speed-entry ramp
+    update(controller2, vm2, cs2, params2)
+  assert selected2._calm_lsf_amount == pytest.approx(0.1, abs=0.02)
+
+
+def test_approach_build_boosts_rising_curvature_and_is_capped():
+  _, controller, vm, cs, params = controller_for()
+  selected = selected_policy(controller)
+  cs.vEgo = 10.0
+  for _ in range(60):
+    update(controller, vm, cs, params, curvature=0.005)
+  assert selected.approach_boost == 0.0  # constant curvature: no trend, no boost
+
+  _, controller2, vm2, cs2, params2 = controller_for()
+  selected2 = selected_policy(controller2)
+  cs2.vEgo = 10.0
+  curvature = 0.0035
+  for _ in range(80):
+    curvature += 0.00005
+    update(controller2, vm2, cs2, params2, curvature=curvature)
+  # Speed weight at 10 m/s is 0.5, so the target can never exceed 0.45 * 0.5.
+  assert 0.02 < selected2.approach_boost <= 0.45 * 0.5
+
+  _, controller3, vm3, cs3, params3 = controller_for()
+  selected3 = selected_policy(controller3)
+  cs3.vEgo = 15.0
+  curvature = 0.003
+  for _ in range(80):
+    curvature += 0.00003
+    update(controller3, vm3, cs3, params3, curvature=curvature)
+  assert 0.1 < selected3.approach_boost <= 0.45  # hard cap at full speed weight
 
 
 def test_learned_calibration_updates_stay_raw_without_new_multipliers():
