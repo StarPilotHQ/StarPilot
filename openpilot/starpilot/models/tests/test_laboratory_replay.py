@@ -183,7 +183,10 @@ class TestAdmittedReplay(unittest.TestCase):
   def test_replaced_capture_linear_invalidates_bindings(self):
     x, jit, replay = self.ready()
     from tinygrad.engine import jit as module
-    jit.captured._linear = jit.captured._linear.replace(tag='replacement')
+    original = jit.captured._linear
+    jit.captured._linear = original.replace(src=(*original.src, *original.src))
+    self.assertIsNot(jit.captured._linear, original)
+    jit.captured.__dict__.pop('linear', None)
     with patch.object(module, '_prepare_jit_inputs', wraps=module._prepare_jit_inputs) as prepare:
       np.testing.assert_array_equal(replay(x=x).numpy(), np.arange(8) + 1)
       self.assertGreaterEqual(prepare.call_count, 1)

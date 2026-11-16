@@ -79,6 +79,7 @@ class TestLaboratoryIdentity(unittest.TestCase):
     pair = LaboratoryPair.__new__(LaboratoryPair)
     pair.failed = False
     pair._last_outputs = None
+    pair._layout_cache = None
     pair.lateral = Mock(spec_set=['last_warp'])
     pair.longitudinal = Mock(spec_set=['last_warp'])
     pair.lateral.last_warp = pair.longitudinal.last_warp = object()

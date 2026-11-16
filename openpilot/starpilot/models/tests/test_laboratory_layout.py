@@ -47,13 +47,13 @@ class TestWeakLayout(unittest.TestCase):
     view = base[2:8]
     with installed(cache):
       first = view.uop.buffer.ensure_allocated()
-      np.testing.assert_array_equal(first.numpy(), np.arange(2, 8, dtype=np.float32))
+      np.testing.assert_array_equal(np.frombuffer(first.as_memoryview(), dtype=np.float32), np.arange(2, 8, dtype=np.float32))
       storage = base.uop.base.buffer
       storage.deallocate()
       storage.allocate(opaque=np.arange(16, dtype=np.float32) + 100)
       second = view.uop.buffer.ensure_allocated()
       self.assertIsNot(first, second)
-      np.testing.assert_array_equal(second.numpy(), np.arange(2, 8, dtype=np.float32) + 100)
+      np.testing.assert_array_equal(np.frombuffer(second.as_memoryview(), dtype=np.float32), np.arange(2, 8, dtype=np.float32) + 100)
 
   def test_noncontiguous_buffers_still_refuse(self):
     cache = WeakLayoutMemo(ORIGINAL)
