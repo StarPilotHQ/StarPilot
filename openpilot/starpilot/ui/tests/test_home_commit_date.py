@@ -3,7 +3,7 @@
 from dataclasses import replace
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from openpilot.starpilot.ui.home import HomeView
 from openpilot.starpilot.ui.presentation import FontRole, Profile
@@ -37,6 +37,33 @@ class TestHomeCommitDate(unittest.TestCase):
     self.view._icon.assert_any_call("icons_mici/settings.png", 48, 48, 8, 192, 0.9)
     self.view._icon.assert_any_call("icons_mici/settings/network/wifi_strength_slash.png", 50, 44, 76, 190.5, 0.9)
     self.view._mode_atom.assert_called_once_with(self.state.mode, 146, 192)
+
+  def test_stable_label_is_display_only_and_exact(self):
+    for branch in ("StarPilot", "Dom", "starpilot", "StarPilot-dev", ""):
+      with self.subTest(branch=branch):
+        self.view.fonts.draw.reset_mock()
+        state = replace(self.state, branch=branch)
+        drawn = self.render(state)
+        label = "Stable" if branch == "StarPilot" else branch
+        self.assertIn(f"{state.version}  {label}".strip(), drawn)
+        self.assertEqual(state.branch, branch)
+
+  def test_large_home_only_relabels_matching_branch_field(self):
+    self.view.fonts.profile = Profile.LARGE
+    self.view._sidebar = Mock()
+    self.view._mode_banner = Mock()
+    self.view._label = Mock()
+    for branch in ("StarPilot", "Dom", "StarPilot-dev", ""):
+      with self.subTest(branch=branch), patch("openpilot.starpilot.ui.home.DriveStatsDashboard"):
+        self.view._label.reset_mock()
+        description = f"7.0 / {branch} / abc123 / Nov 16"
+        state = replace(self.state, branch=branch, description=description)
+        self.view.render(state)
+        label = "Stable" if branch == "StarPilot" else branch
+        detail = self.view._label.call_args_list[1].args[0]
+        self.assertEqual(detail, f" 7.0 / {label} / abc123 / Nov 16 - {state.model_label}")
+        self.assertEqual(state.description, description)
+        self.assertEqual(state.branch, branch)
 
   def test_missing_date_preserves_full_version_row(self):
     state = replace(self.state, commit_date="", branch="a" * 28)

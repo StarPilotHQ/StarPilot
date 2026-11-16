@@ -114,7 +114,13 @@ class HomeView:
   def _large(self, state: HomeState) -> None:
     self._sidebar(state)
     header = rl.Rectangle(340, 40, 1780, 80)
-    detail = (" " + state.description if state.description else "") + (" - " + state.model_label if state.model_label else "")
+    description = state.description
+    if state.branch == "StarPilot":
+      parts = description.split(" / ")
+      if len(parts) > 1 and parts[1] == "StarPilot":
+        parts[1] = "Stable"
+      description = " / ".join(parts)
+    detail = (" " + description if description else "") + (" - " + state.model_label if state.model_label else "")
     size = 48
     brand = self._measure("StarPilot", FontRole.BRAND, size + 2)
     model = self._measure(detail, FontRole.MEDIUM, size)
@@ -225,7 +231,8 @@ class HomeView:
   def _compact(self, state: HomeState):
     white = rl.Color(255, 255, 255, 229)
     self._text("StarPilot", FontRole.BRAND, 64, 6, 8, white)
-    version_branch = f"{state.version}  {state.branch}".strip()
+    branch_label = "Stable" if state.branch == "StarPilot" else state.branch
+    version_branch = f"{state.version}  {branch_label}".strip()
     date_width = self._measure(state.commit_date, FontRole.ROMAN, 30).width if state.commit_date else 0
     version_width = 520 - date_width - 16 if state.commit_date else 520
     for text, y, color, width in ((version_branch, 98, rl.GRAY, version_width), (state.model_label, 140, white, 520)):
