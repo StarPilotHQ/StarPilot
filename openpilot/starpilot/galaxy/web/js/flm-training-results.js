@@ -35,6 +35,7 @@ const detailValue = (value, depth = 0) => value === null || typeof value === "bo
 export function validTrainingResults(value) {
   if (!value || value.version !== 1 || !Array.isArray(value.history) || value.history.length > 20) return false
   if (value.preference !== undefined && !validLearningPreference(value.preference)) return false
+  if (value.savedHistory !== undefined && !validSavedHistory(value.savedHistory)) return false
   if (!value.history.every(row => row && text(row.time, 80) && text(row.status, 64) && text(row.reason) && typeof row.applied === "boolean")) return false
   const row = value.current
   if (row === null) return true
@@ -56,6 +57,17 @@ export function validTrainingResults(value) {
         key === 'Recorded steering response' ? item === null || recordedSteeringView(item) !== null :
         key === 'Recorded coordinate recommendations' ? validCoordinateRecommendations(item) :
         key === 'Recorded suggestion sources' ? validSuggestionSources(item) : detailValue(item)))
+}
+export function validSavedHistory(value) {
+  return keysAre(value, ['status', 'historicalOnly', 'profiles']) && ['readable', 'unavailable'].includes(value.status) &&
+    value.historicalOnly === true && Array.isArray(value.profiles) && value.profiles.length <= 8 &&
+    (value.status !== 'unavailable' || value.profiles.length === 0) && value.profiles.every(row =>
+      keysAre(row, ['completedAt', 'state', 'values']) && stamp(row.completedAt) &&
+      ['ready_for_next_drive', 'accepted', 'accepted_after_drive', 'retained_after_drive', 'rolled_back'].includes(row.state) &&
+      Array.isArray(row.values) && row.values.length > 0 && row.values.length <= 35 &&
+      new Set(row.values.map(pair => Array.isArray(pair) ? pair[0] : null)).size === row.values.length &&
+      row.values.every(pair => Array.isArray(pair) && pair.length === 2 && [...SURFACE_NAMES, ...FRICTION_NAMES].includes(pair[0]) &&
+        Number.isFinite(pair[1]) && pair[1] !== 0 && Math.abs(pair[1]) <= .25))
 }
 const labels = { collecting: "Gathering driving examples", unavailable: "Waiting for usable driving data",
   qualifiedFit: "Fit passed validation", qualified: "Fit passed validation", rejected: "Fit did not pass validation",

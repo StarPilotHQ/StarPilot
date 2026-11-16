@@ -18,6 +18,9 @@ class FlmTrainingResults:
       "version": 1, "current": None, "history": []}
     if self.params is not None:
       result['preference'] = self.preference()
+      from openpilot.starpilot.galaxy.flm_saved_settings import snapshot
+
+      result['savedHistory'] = snapshot(self.params, result['preference'])
     return result
 
   def preference(self):

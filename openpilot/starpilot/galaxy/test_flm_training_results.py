@@ -171,6 +171,86 @@ def test_scoped_on_is_not_overridden_by_legacy_off(tmp_path):
   assert FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['preference']['enabled'] is True
 
 
+def saved_route(cp, *, revision='earlier-controller'):
+  from openpilot.starpilot.flm.offroad_store import RouteScope, remember
+  from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES
+  from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
+
+  scope = RouteScope(car_params_digest(cp), revision, 'a' * 64, 'b' * 64, '0', 'starpilot', 'torque')
+  zero = dict.fromkeys(ROUTE_NAMES, 0.0)
+  row = {'scope': scope.document(), 'values': dict(zero, friction_threshold_mid=.0036,
+    friction_threshold_fast=.0048, friction_threshold_highway=.0048), 'previous': zero,
+    'route_sha256s': ['c' * 64, 'd' * 64], 'source_start_ns': 1, 'source_end_ns': 2,
+    'analysis_sha256': 'e' * 64, 'completed_wall_ns': 1_794_777_785_171_179_957, 'sequence': 1, 'state': 'ready_for_next_drive'}
+  return remember(None, row)
+
+
+@pytest.mark.parametrize('parked', (True, False))
+def test_earlier_saved_settings_survive_missing_report_without_becoming_current(tmp_path, parked):
+  params, cp = choice_fixture(tmp_path, parked=parked)
+  params.put('AutomaticSteeringProfiles', saved_route(cp))
+  before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.iterdir()}
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()
+  assert actual['current'] is None
+  assert actual['savedHistory']['status'] == 'readable' and actual['savedHistory']['historicalOnly'] is True
+  assert len(actual['savedHistory']['profiles']) == 1
+  assert dict(actual['savedHistory']['profiles'][0]['values']) == {
+    'friction_threshold_mid': .0036, 'friction_threshold_fast': .0048, 'friction_threshold_highway': .0048}
+  assert 'scope' not in str(actual['savedHistory']) and 'currentApplication' not in actual
+  assert before == {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.iterdir()}
+
+
+def test_old_setup_is_history_even_when_latest_review_reports_zero_saved(tmp_path):
+  params, cp = choice_fixture(tmp_path)
+  params.put('AutomaticSteeringProfiles', saved_route(cp))
+  path = tmp_path / 'training.json'
+  value = report()
+  value['vehicle'] = str(cp.carFingerprint)
+  value['current']['application']['applied'] = False
+  value['current']['details'] = {'Saved route adjustment count': 0}
+  write(path, value)
+  actual = FlmTrainingResults(path, clock=lambda: NOW, params=params).snapshot()
+  assert actual['current']['details']['Saved route adjustment count'] == 0
+  assert actual['current']['application']['applied'] is False
+  assert len(actual['savedHistory']['profiles'][0]['values']) == 3
+
+
+def test_other_vehicle_saved_values_are_not_shown(tmp_path):
+  params, cp = choice_fixture(tmp_path)
+  cp.carFingerprint = 'OTHER_RECORDED_CAR'
+  params.put('AutomaticSteeringProfiles', saved_route(cp))
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['savedHistory']
+  assert actual == {'status': 'readable', 'historicalOnly': True, 'profiles': []}
+
+
+@pytest.mark.parametrize('raw', (b'{', b'', b'x' * 32769))
+def test_damaged_saved_history_is_unavailable_not_empty(tmp_path, raw):
+  params, _ = choice_fixture(tmp_path)
+  params.put('AutomaticSteeringProfiles', raw)
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['savedHistory']
+  assert actual == {'status': 'unavailable', 'historicalOnly': True, 'profiles': []}
+  assert (tmp_path / 'AutomaticSteeringProfiles').read_bytes() == raw
+
+
+def test_saved_history_changed_during_read_is_not_published(tmp_path, monkeypatch):
+  from openpilot.starpilot.galaxy import flm_saved_settings
+
+  params, cp = choice_fixture(tmp_path)
+  params.put('AutomaticSteeringProfiles', saved_route(cp))
+  original, calls = flm_saved_settings.read_saved, []
+
+  def changed(owner, key, limit):
+    if key == 'AutomaticSteeringProfiles':
+      calls.append(key)
+      if len(calls) == 2:
+        return b'changed', True
+    return original(owner, key, limit)
+
+  monkeypatch.setattr(flm_saved_settings, 'read_saved', changed)
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['savedHistory']
+  assert actual == {'status': 'unavailable', 'historicalOnly': True, 'profiles': []}
+
+
 @pytest.mark.parametrize('key,raw', (('IsOffroad', b'wat'), ('CarParamsPersistent', b'bad'),
   ('SteeringLearningPreferences', b'{'), ('CarParamsPersistent', b'x' * (1024 * 1024 + 1))))
 def test_unreadable_choice_is_unknown_not_off(tmp_path, key, raw):

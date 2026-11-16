@@ -80,6 +80,13 @@ function report() {
   }
   if (scenario === 'incomplete') delete value.current.details['Recorded steering observations']
   if (scenario === 'unknown-change') value.current.details['Automatic configuration changed'] = true
+  if (scenario.startsWith('earlier-saved')) {
+    value.savedHistory = { status: 'readable', historicalOnly: true, profiles: [{ completedAt: 1794777785171,
+      state: 'ready_for_next_drive', values: [['friction_threshold_mid', .0036], ['friction_threshold_fast', .0048], ['friction_threshold_highway', .0048]] }] }
+    value.current.details['Saved route adjustment count'] = null
+    if (scenario === 'earlier-saved-no-report') value.current = null
+  }
+  if (scenario === 'history-unavailable') value.savedHistory = { status: 'unavailable', historicalOnly: true, profiles: [] }
   assert(validTrainingResults(value), 'Browser fixtures must pass the real report validator')
   return value
 }
@@ -281,7 +288,7 @@ try {
     }
   }
   await viewport(416);await execute('document.documentElement.dataset.theme="dark"')
-  for (const name of ['none', 'empty', 'saved', 'inconclusive', 'neutral-reviewed', 'rollback', 'recent-rollback', 'conflict', 'contradictory', 'stale', 'retained', 'earlier-drive', 'wrong-car', 'incomplete', 'unknown-change']) {
+  for (const name of ['none', 'empty', 'saved', 'inconclusive', 'neutral-reviewed', 'rollback', 'recent-rollback', 'conflict', 'contradictory', 'stale', 'retained', 'earlier-drive', 'wrong-car', 'incomplete', 'unknown-change', 'earlier-saved', 'earlier-saved-no-report', 'history-unavailable']) {
     await change(name);await layout(`state/${name}`);await capture(name)
     if (name === 'neutral-reviewed') {
       assert(await execute('return window.flm.review.title === "Your learned tune is saved" && window.flm.offroad.savedCount === 1'))
@@ -321,6 +328,22 @@ try {
     }
     if (name === 'stale') assert(await execute('return !/Refresh|Reconnect/.test(window.flm.review.description)&&window.flm.savedSummary==="0 saved"'))
     if (name === 'saved') assert.equal(await execute('return window.flm.currentApplied'), false)
+    if (name === 'history-unavailable') {
+      await click('#tuner-tab-tune')
+      assert(await execute('return document.querySelector(".gx-tuner__saved-list").textContent.includes("Saved settings are temporarily unavailable.")'))
+      assert.equal(await execute('return window.flm.review.count'), 5)
+      await capture('history-unavailable-tune');checks.push('unavailable-history-is-not-empty-and-preserves-findings')
+    }
+    if (name.startsWith('earlier-saved')) {
+      const writes = requests.length
+      await click('#tuner-tab-tune')
+      assert(await execute('return window.flm.earlierSaved[0].values.length===3 && window.flm.review.saved.length===0 && !window.flm.currentApplied'))
+      assert(await execute('const e=document.querySelector(".gx-tuner__saved-list");return e.textContent.includes("Earlier saved setup")&&e.textContent.includes("0.36%")&&e.textContent.includes("0.48%")&&!e.textContent.includes("No saved adjustments reported")'))
+      assert.equal(await execute('return window.flm.review.count'), name === 'earlier-saved' ? 5 : 0, 'Displaying saved history must preserve the current suggestion count')
+      await click('.gx-tuner__saved-list summary');await layout(name);await capture(name+'-history')
+      assert.equal(requests.length, writes, 'Reviewing saved history must never write or reactivate a tune')
+      checks.push(name+'/three-saved-values/history-only/no-write')
+    }
     if (['saved', 'none', 'contradictory', 'unknown-change'].includes(name)) {
       await click('#tuner-tab-tune')
       assert(await execute('return document.querySelector("#tuner-saved-title").textContent==="Auto-learned settings"'))

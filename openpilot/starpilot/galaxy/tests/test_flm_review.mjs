@@ -4,7 +4,7 @@ import { FlmPage } from '../web/js/flm.js'
 import { GalaxySettingRow } from '../web/js/galaxy-setting-row.js'
 import { PlotGraph } from '../web/js/plots.js'
 import { reviewModel, dialPercent, ideaValue, ideaStatus, ideaExplanation, ideaDetails } from '../web/js/flm-review.js'
-import { SURFACE_NAMES, FRICTION_NAMES, offroadView, validTrainingResults } from '../web/js/flm-training-results.js'
+import { SURFACE_NAMES, FRICTION_NAMES, offroadView, validTrainingResults, validSavedHistory } from '../web/js/flm-training-results.js'
 
 const idea = (parameter, target = .005) => ({ parameter, baseline: 0, target, delta: target, windows: 14,
   reason: 'recorded_candidate_requires_automatic_checks' })
@@ -87,6 +87,22 @@ const emptyText = textOf(renderEmpty.call(context, context, []))
 assert(emptyText.includes('Saved tune not reported'))
 assert(!emptyText.includes('Earlier report'), 'No-report state must not pretend an earlier report exists')
 assert.equal(context.navigationGroups.length, 7)
+const savedHistory = { status: 'readable', historicalOnly: true, profiles: [{ completedAt: 1794777785171,
+  state: 'ready_for_next_drive', values: [['friction_threshold_mid', .0036], ['friction_threshold_fast', .0048], ['friction_threshold_highway', .0048]] }] }
+assert(validSavedHistory(savedHistory))
+assert(!validSavedHistory({ ...savedHistory, historicalOnly: false }))
+assert(!validSavedHistory({ ...savedHistory, status: 'unavailable' }))
+for (const pair of [['invented_dial', .0048], ['friction_threshold_mid', Infinity], ['friction_threshold_mid', .251]])
+  assert(!validSavedHistory({ ...savedHistory, profiles: [{ ...savedHistory.profiles[0], values: [pair] }] }))
+context.view = 'tune'
+context.report = { version: 1, history: [], current: null, savedHistory }
+assert(validTrainingResults(context.report))
+const earlierText = textOf(renderEmpty.call(context, context, []))
+assert(earlierText.includes('Earlier saved setup') && earlierText.includes('Mid-speed friction threshold'))
+assert(!earlierText.includes('No saved adjustments reported'))
+assert.equal(context.currentApplied, false, 'History cannot acknowledge current application')
+assert.equal(context.review.saved.length, 0, 'An earlier setup does not become the current tune')
+context.view = 'overview';context.report = null
 assert.deepEqual(context.navigationGroups.slice(0, 6).flatMap(group => group.names).sort(), [...SURFACE_NAMES].sort())
 assert.deepEqual(context.navigationGroups[6].names, FRICTION_NAMES)
 context.group = 'friction'
