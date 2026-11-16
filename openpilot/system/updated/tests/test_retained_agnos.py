@@ -24,6 +24,53 @@ def shell_function(path, name):
   return source[start:source.index('\n}\n', start) + 3]
 
 
+class TestAgnosUiLaunch(unittest.TestCase):
+  def launch(self, import_status, ui_status=0, legacy_status=0):
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      log = root / 'calls'
+      legacy = root / 'openpilot/common/hardware/comma/updater'
+      legacy.parent.mkdir(parents=True)
+      legacy.write_text('#!/bin/bash\nprintf "legacy\\0" >> "$CALL_LOG"\n' +
+                        'printf "%s\\0" "$@" >> "$CALL_LOG"\nexit "$LEGACY_STATUS"\n')
+      legacy.chmod(0o700)
+      function = shell_function(ROOT / 'launch_chffrplus.sh', 'run_agnos_updater')
+      script = function + r'''
+python3() {
+  printf 'python\0' >> "$CALL_LOG"
+  printf '%s\0' "$@" >> "$CALL_LOG"
+  if [ "$1" = '-c' ]; then return "$IMPORT_STATUS"; fi
+  return "$UI_STATUS"
+}
+run_agnos_updater '/flasher with spaces.py' '/manifest with spaces.json'
+'''
+      environment = dict(os.environ, DIR=str(root), CALL_LOG=str(log), IMPORT_STATUS=str(import_status),
+                         UI_STATUS=str(ui_status), LEGACY_STATUS=str(legacy_status))
+      result = subprocess.run(['bash', '-c', script], env=environment, check=False)
+      return result.returncode, log.read_bytes().split(b'\0')[:-1]
+
+  def test_current_source_ui_uses_the_same_flasher_and_manifest(self):
+    status, calls = self.launch(0)
+    self.assertEqual(status, 0)
+    self.assertEqual(calls, [b'python', b'-c', b'import openpilot.system.ui.updater', b'python', b'-m',
+                             b'openpilot.system.ui.updater', b'/flasher with spaces.py', b'/manifest with spaces.json'])
+
+  def test_older_runtime_uses_portable_updater(self):
+    status, calls = self.launch(1)
+    self.assertEqual(status, 0)
+    self.assertEqual(calls, [b'python', b'-c', b'import openpilot.system.ui.updater', b'legacy',
+                             b'/flasher with spaces.py', b'/manifest with spaces.json'])
+
+  def test_source_ui_failure_does_not_start_another_installation(self):
+    status, calls = self.launch(0, ui_status=7)
+    self.assertEqual(status, 7)
+    self.assertNotIn(b'legacy', calls)
+
+  def test_portable_ui_failure_propagates(self):
+    status, _ = self.launch(1, legacy_status=9)
+    self.assertEqual(status, 9)
+
+
 class TestRetainedAgnos(unittest.TestCase):
   def setUp(self):
     self.directory = tempfile.TemporaryDirectory()

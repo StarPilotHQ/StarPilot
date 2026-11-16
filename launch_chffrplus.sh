@@ -4,6 +4,14 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
 
 source "$DIR/launch_env.sh"
 
+function run_agnos_updater {
+  if python3 -c "import openpilot.system.ui.updater"; then
+    python3 -m openpilot.system.ui.updater "$@"
+  else
+    "$DIR/openpilot/common/hardware/comma/updater" "$@"
+  fi
+}
+
 function agnos_init {
   if [ "${AGNOS_UPDATE_POLICY:-auto}" = "retain" ] && [ "$(< /VERSION)" != "$AGNOS_VERSION" ]; then
     echo "This StarPilot build retains AGNOS $AGNOS_VERSION; installed OS does not match. No OS update was attempted."
@@ -30,7 +38,7 @@ function agnos_init {
       sudo reboot
     fi
     while true; do
-      "$DIR/openpilot/common/hardware/comma/updater" "$AGNOS_PY" "$MANIFEST"
+      run_agnos_updater "$AGNOS_PY" "$MANIFEST"
     done
   fi
 
