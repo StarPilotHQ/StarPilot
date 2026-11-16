@@ -10,10 +10,13 @@ commit 85f7c3b959a908ed5232ede4f1a4ac7eafe6b630), recorded with tools/esrec:
   lfa          assets/engines/atg-video-2/10_lfa_v10.mr
   supra_turbo  assets/engines/atg-video-2/03_2jz.mr
 
-From a recording of a real car supplied for this project, built with tools/bank_from_recording.py and equalised with
-tools/lower_bank.py --pitch 1.0 --off-mix 0 --off-mid 0:
+From recordings of real cars supplied for this project, built with tools/bank_from_recording.py:
 
-  hellcat      hellcat.wav: --cylinders 8 --anchor 14 700 --idle 10.5-17.5 --on 25-94 --off 94-119
+  hellcat      hellcat.wav: --cylinders 8 --anchor 14 700 --idle 10.5-17.5 --on 25-94 --off 94-119,
+               then equalised with tools/lower_bank.py --pitch 1.0 --off-mix 0 --off-mid 0
+  jaguar_ftype Jaguar2.wav: --cylinders 8 --half-orders --anchor 17 721 --anchor 40 5122 --anchor 66 4402
+               --idle 14.5-19.5 --on 20.5-45.8 52-77 --denoise 10, not equalised (the in-car recording is already
+               bass-heavy); the 750 rpm loop (a second idle) and the 3500 rpm loop (dominated by crank-rate boom) removed
 
 engine-sim is distributed under the following license:
 

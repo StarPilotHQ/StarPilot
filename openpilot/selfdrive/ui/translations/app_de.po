@@ -23535,6 +23535,10 @@ msgid "Hellcat"
 msgstr "Hellcat"
 
 #: openpilot/starpilot/engine_sound/profiles.py
+msgid "Jaguar F-Type"
+msgstr "Jaguar F-Type"
+
+#: openpilot/starpilot/engine_sound/profiles.py
 msgid "Supra Turbo"
 msgstr "Supra Turbo"
 

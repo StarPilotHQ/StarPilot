@@ -18,25 +18,27 @@ LIFT_FROM = 0.3                   # load the throttle must come down from
 CLOSED = 0.1                      # at or below this load the throttle counts as closed
 CLOSED_SECONDS = 0.1              # longer than a rev-limiter cut, which must not open the valve
 BOV_FROM = 0.3                    # boost needed for the valve to open
-BOV_LEVEL = 1.0
+BOV_LEVEL = 0.55                  # A-weighted, about 5 dB over the coasting engine and just under it at full throttle
 BOV_SECONDS = (0.6, 1.3)          # release length from just enough boost to full boost
-# The release follows a recording the user picked: a low whump as the valve opens, a mid-range rush, then from
-# 0.45 s a stutter about 11.5 times a second (75 ms between pulses, slowing to 92 ms, 6-8 dB deep) as it settles low.
+# The release follows a recording the user picked. Its spectrum, measured in four stages (the opening whump, the rush,
+# the stutter, the tail) as dB per Hz in third-octave bands, shapes the noise; from 0.45 s it stutters about 11.5 times
+# a second (80 ms between pulses, slowing to 96 ms, 7 dB deep).
+SHAPE_HZ = (63.0, 100.0, 160.0, 250.0, 400.0, 630.0, 1000.0, 1600.0, 2500.0, 4000.0, 6300.0, 10000.0)
+SHAPE_SECONDS = (0.075, 0.3, 0.725, 1.15)
+SHAPE_DB = (
+  (-23.0, -22.3, -12.0, -4.2, -17.7, -21.4, -29.6, -25.8, -31.3, -34.0, -24.9, -35.8),
+  (-29.5, -22.9, -13.2, -5.8, -7.1, -14.9, -17.2, -16.4, -19.2, -24.3, -19.0, -25.3),
+  (-25.6, -17.7, -14.2, 0.0, -3.3, -10.7, -15.9, -17.3, -20.8, -22.9, -20.0, -25.3),
+  (-22.5, -21.7, -14.8, -14.7, -8.5, -26.7, -29.5, -29.4, -30.6, -33.5, -30.0, -40.1),
+)
+LOW_CUT_HZ = 90.0                 # below this the recording carries the engine, not the valve
 FLUTTER_START = 0.45
 FLUTTER_PERIOD = (0.08, 0.096)
 FLUTTER_DEPTH_DB = 7.0
 WHISTLE_HZ = (1400.0, 3200.0)     # whistle pitch from no boost to full boost
-WHISTLE_LEVEL = 0.07
-WHOOSH_LEVEL = 0.06
+WHISTLE_LEVEL = 0.045             # with the intake rush, about 8 dB under the engine on boost, A-weighted
+WHOOSH_LEVEL = 0.038
 VARIANTS = 6
-
-
-def _band(freq: np.ndarray, centre: float, octaves: float) -> np.ndarray:
-  return np.exp(-0.5 * (np.log2(np.maximum(freq, 1.0) / centre) / octaves) ** 2)
-
-
-def _ramp(t: float, points: tuple[tuple[float, float], ...]) -> float:
-  return float(np.interp(t, [p[0] for p in points], [p[1] for p in points]))
 
 
 def _flutter(rng: np.random.Generator, t: np.ndarray) -> np.ndarray:
@@ -60,30 +62,28 @@ def _flutter(rng: np.random.Generator, t: np.ndarray) -> np.ndarray:
 
 
 def _release(rng: np.random.Generator, seconds: float, sample_rate: int) -> np.ndarray:
-  """Noise shaped frame by frame: a low whump as the valve opens, a mid rush, then a chattering low tail."""
-  frame, hop = 1024, 256
+  """Noise given the recording's spectrum stage by stage, then its stutter and decay."""
+  frame, hop = 2048, 512
   length = int(seconds * sample_rate) + frame
   noise = rng.standard_normal(length)
   window = np.hanning(frame)
   freq = np.fft.rfftfreq(frame, 1 / sample_rate)
-  low = _band(freq, rng.uniform(320, 400), 0.6)
-  high = _band(freq, 5000.0, 0.8)
-  mid_start, mid_end = rng.uniform(1200, 1500), rng.uniform(750, 900)
+  log_freq = np.log2(np.maximum(freq, 20.0))
+  low_cut = np.where(freq < LOW_CUT_HZ, -12.0 * np.log2(LOW_CUT_HZ / np.maximum(freq, 20.0)), 0.0)
+  shape = np.array(SHAPE_DB)
   out = np.zeros(length)
   norm = np.zeros(length)
   for at in range(0, length - frame, hop):
-    t = at / sample_rate
-    mid = _band(freq, mid_start * (mid_end / mid_start) ** (t / seconds), 0.9)
-    low_weight = _ramp(t, ((0.0, 1.4), (0.12, 1.3), (0.3, 0.4), (0.6, 0.6), (0.95, 1.0)))
-    mid_weight = _ramp(t, ((0.0, 0.1), (0.15, 0.7), (0.24, 1.0), (0.6, 1.0), (1.0, 0.35)))
-    gain = low_weight * low + mid_weight * mid + 0.2 * mid_weight * high
+    t = (at + frame / 2) / sample_rate
+    stage = [np.interp(t, SHAPE_SECONDS, shape[:, band]) for band in range(len(SHAPE_HZ))]
+    gain = 10 ** ((np.interp(log_freq, np.log2(SHAPE_HZ), stage) + low_cut) / 20)
     out[at:at + frame] += np.fft.irfft(np.fft.rfft(noise[at:at + frame] * window) * gain, frame) * window
     norm[at:at + frame] += window ** 2
   out = out[:length - frame] / np.maximum(norm[:length - frame], 1e-3)
   t = np.arange(len(out)) / sample_rate
   decay = np.where(t < 0.9 * seconds / BOV_SECONDS[1], 1.0, np.exp(-(t - 0.9 * seconds / BOV_SECONDS[1]) / 0.18))
   envelope = np.minimum(t / 0.003, 1.0) * decay * _flutter(rng, t)
-  envelope[-256:] *= np.linspace(1.0, 0.0, 256)
+  envelope[-512:] *= np.linspace(1.0, 0.0, 512)
   out = out * envelope
   return (out / np.max(np.abs(out))).astype(np.float32)
 

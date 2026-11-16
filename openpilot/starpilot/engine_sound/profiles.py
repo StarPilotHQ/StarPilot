@@ -77,8 +77,9 @@ PROFILES: dict[str, Profile] = {profile.name: profile for profile in (
   _recorded('bmw_m52', 'BMW M52', cylinders=6, idle=700.0, redline=7000.0),
   _recorded('f1_car', 'F1 Car', cylinders=12, idle=2000.0, redline=17000.0),
   _recorded('ferrari_f136', 'Ferrari F136', cylinders=8, idle=1000.0, redline=9000.0),
-  # A bank from a real recording that ends at 3000 rpm; above about 1.5 times that the loops sound sped up.
+  # Banks from real recordings that end at 3000 and 5250 rpm; above about 1.5 times that the loops sound sped up.
   _recorded('hellcat', 'Hellcat', cylinders=8, idle=700.0, redline=4500.0),
+  _recorded('jaguar_ftype', 'Jaguar F-Type', cylinders=8, idle=721.0, redline=6500.0, pops=1.0),
   _recorded('lfa', 'LFA', cylinders=10, idle=1000.0, redline=9000.0),
   _recorded('supra_turbo', 'Supra Turbo', cylinders=6, idle=800.0, redline=6000.0, turbo=1.0),
 )}

@@ -2,8 +2,8 @@ import wave
 
 import numpy as np
 
-from openpilot.starpilot.engine_sound.tools.bank_from_recording import (LOOP_SECONDS, SAMPLE_RATE, read_recording, shuffled, stretch,
-                                                                        steady, track, usable)
+from openpilot.starpilot.engine_sound.tools.bank_from_recording import (LOOP_SECONDS, SAMPLE_RATE, denoise, read_recording, shuffled,
+                                                                        stretch, steady, track, usable)
 
 
 def v8_sweep(path, seconds=6.0, rate=44100):
@@ -39,6 +39,18 @@ def test_tracks_a_sweep_from_its_anchor_and_loops_play_at_the_bank_rpm(tmp_path)
   peak = np.argmax(spectrum) * SAMPLE_RATE / (1 << 20)
   assert abs(peak / (2000.0 * 8 / 120) - 1) < 0.02
   assert abs(loop[0] - loop[-1]) <= np.percentile(np.abs(np.diff(loop)), 99) * 1.5
+
+
+def test_denoise_keeps_the_engine_orders_and_lowers_what_lies_between():
+  rpm, cycles = 2400.0, 30
+  cycle = 120.0 / rpm * SAMPLE_RATE
+  t = np.arange(round(cycles * cycle)) / SAMPLE_RATE
+  engine = np.sin(2 * np.pi * 8 * rpm / 120 * t)
+  noise = 0.3 * np.random.default_rng(0).standard_normal(len(t))
+  cleaned = denoise(engine + noise, cycle, 10.0)
+  assert np.sqrt(np.mean((cleaned - engine) ** 2)) < 0.45 * np.sqrt(np.mean(noise ** 2))
+  assert abs(np.dot(cleaned, engine) / np.dot(engine, engine) - 1) < 0.02
+  assert np.array_equal(denoise(engine + noise, cycle, 0.0), engine + noise)
 
 
 def test_a_short_stretch_becomes_a_full_loop_of_shuffled_whole_cycles():

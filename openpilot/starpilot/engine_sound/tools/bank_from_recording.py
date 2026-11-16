@@ -165,6 +165,23 @@ def shuffled(steady_audio: np.ndarray, cycle: float, target: float, seed: int = 
   return loop - loop.mean()
 
 
+def denoise(loop: np.ndarray, cycle: float, reduce_db: float) -> np.ndarray:
+  """Turn down what lies between the engine's orders.
+
+  A loop holds a whole number of engine cycles at one rpm, so every order (rpm/120 multiple) falls on an exact FFT bin;
+  broadband background noise fills the bins between them. Cycle-to-cycle variation also lives there, so they are only
+  lowered, never removed.
+  """
+  if reduce_db <= 0:
+    return loop
+  cycles = max(round(len(loop) / cycle), 1)
+  spectrum = np.fft.rfft(loop)
+  between = np.ones(len(spectrum), dtype=bool)
+  between[::cycles] = False
+  spectrum[between] *= 10 ** (-reduce_db / 20)
+  return np.fft.irfft(spectrum, len(loop))
+
+
 def track_image(path: Path, audio: np.ndarray, times: np.ndarray, rpm: np.ndarray, cylinders: int) -> None:
   from PIL import Image, ImageDraw
   columns = [20 * np.log10(np.abs(np.fft.rfft(audio[i:i + 8192] * np.hanning(8192))) + 1e-9)
@@ -192,6 +209,8 @@ def main():
   parser.add_argument('--idle', nargs='+', default=[], metavar='START-END')
   parser.add_argument('--half-orders', action='store_true',
                       help='track with every half order; use when the loaded spectrum has lines every rpm/120 Hz')
+  parser.add_argument('--denoise', type=float, default=0.0, metavar='DB',
+                      help='turn down background noise between the engine orders by this much')
   parser.add_argument('--step', type=float, default=250.0)
   parser.add_argument('--out', type=Path, required=True)
   parser.add_argument('--track-image', type=Path)
@@ -217,7 +236,7 @@ def main():
       span = stretch(times, rpm, mask | idle, target)
       loop = steady(audio, times, rpm, span, target) if span else None
       if loop is not None:
-        loops[(layer, int(target))] = loop
+        loops[(layer, int(target))] = denoise(loop, 120.0 / target * SAMPLE_RATE, args.denoise)
   if not any(layer == 'on' for layer, _ in loops):
     raise SystemExit('no loaded stretch long enough for a loop')
 
