@@ -38,6 +38,13 @@ for (const [id, offsetX, offsetY] of [['speed_limit', -182.5, -12.5], ['speed_li
 for (const rect of [{offsetX:-193}, {offsetY:-14}, {visible:'false'}]) {
   await assert.rejects(widgetArtMetadata(image({...meta,sprites:{speed_limit:{x:0,y:0,width:2,height:1,...rect}}})))
 }
+for (const offsetY of [-19, -19.5, -20]) {
+  const native = {...meta, sprites: {cruise_limits: {x:0,y:0,width:2,height:1,offsetY}}}
+  assert.deepEqual(await widgetArtMetadata(image(native)), native)
+}
+for (const rect of [{offsetY:-20.01}, {offsetX:-2.01}, {x:1}, {width:3}]) {
+  await assert.rejects(widgetArtMetadata(image({...meta,sprites:{cruise_limits:{x:0,y:0,width:2,height:1,...rect}}})))
+}
 const compactIds=['weather','max_speed','speed_limit','steering_wheel','conditional_mode','following_distance','model_confidence',
   'driver_monitor','speed_limit_actions','rear_fog','driving_mode_descriptions','clock']
 const complete={...meta,sprites:Object.fromEntries(compactIds.map(id=>[id,{x:0,y:0,width:2,height:1,visible:true}]))}

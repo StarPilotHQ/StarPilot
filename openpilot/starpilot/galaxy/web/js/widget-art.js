@@ -35,7 +35,7 @@ export async function widgetArtMetadata(blob, header = null) {
       Object.keys(metadata.sprites).length > 24) throw new Error("Invalid widget art metadata")
   for (const [id, rect] of Object.entries(metadata.sprites)) {
     const minX = id === "speed_limit" ? -192 : -2
-    const minY = id === "speed_limit_actions" ? -33 : ["cruise_limits", "speed_limit"].includes(id) ? -13 : -1
+    const minY = id === "speed_limit_actions" ? -33 : id === "cruise_limits" ? -20 : id === "speed_limit" ? -13 : -1
     if (!/^[a-z_]+$/.test(id) || !rect || ![rect.x,rect.y,rect.width,rect.height].every(Number.isInteger) ||
         rect.x < 0 || rect.y < 0 || rect.width < 1 || rect.height < 1 ||
         rect.x + rect.width > metadata.width || rect.y + rect.height > metadata.height ||

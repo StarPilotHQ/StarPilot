@@ -10,11 +10,11 @@ print(json.dumps(dict(document=default_document(), defaults=default_document(), 
                      revision="native", editable=True, valid=True, activeProfile="large", supportedProfiles=["large"])))
 `], { encoding: "utf8" }))
 assert.equal(validSnapshot(data), true)
-for (const version of [11, 12, 13, 14]) {
+for (const version of [11, 12, 13, 14, 15]) {
   assert.equal(validSnapshot({ ...data, document: { ...data.document, version } }), true)
   assert.equal(validSnapshot({ ...data, defaults: { ...data.defaults, version } }), true)
 }
-for (const version of [9, 10, 15]) {
+for (const version of [9, 10, 16]) {
   assert.equal(validSnapshot({ ...data, document: { ...data.document, version } }), false)
   assert.equal(validSnapshot({ ...data, defaults: { ...data.defaults, version } }), false)
 }
@@ -92,28 +92,32 @@ assert.equal(vm.layout.nav_map.opacity, 35)
 assert.equal(validSnapshot({ ...data, document: vm.state.draft }), true)
 
 // Use actual native geometry for source attachment, bounds, and the transient timer.
-assert.deepEqual(data.metadata.profiles.large.widgets.cruise_limits.sourcesExtent, {inline:104, card:112, actionGap:8})
+assert.deepEqual(data.metadata.profiles.large.widgets.cruise_limits.sourcesExtent, {inline:114, card:122, actionGap:8})
 vm.state.draft = structuredClone(data.document)
 vm.state.selected = "cruise_limits"
 vm.setSpeedSources("speedSources", true)
-assert.equal(vm.layout.speed_limit_actions.y, 381)
+assert.equal(vm.layout.speed_limit_actions.y, 449)
 vm.setSpeedSources("speedSourcesCard", true)
-assert.equal(vm.layout.speed_limit_actions.y, 389)
+assert.equal(vm.layout.speed_limit_actions.y, 457)
 vm.setSpeedSources("speedSources", false)
-assert.equal(vm.layout.speed_limit_actions.y, 267)
+assert.equal(vm.layout.speed_limit_actions.y, 325)
 const overlapping = structuredClone(data.document)
 overlapping.layouts.large.cruise_limits.y = 550
 assert.equal(validDocument(overlapping, data.metadata), false)
 // Disable torque while testing source attachment at the lower screen edge.
 vm.layout.torque_bar.enabled = false
-vm.layout.cruise_limits.x = 1430
-vm.layout.speed_limit_actions.x = 1454
+vm.layout.cruise_limits.x = 1300
+vm.layout.speed_limit_actions.x = 1324
 vm.layout.cruise_limits.y = 690
-vm.layout.speed_limit_actions.y = 882
+vm.layout.speed_limit_actions.y = 940
 vm.setSpeedSources("speedSources", true)
-assert.equal(vm.layout.cruise_limits.y, 568)
+assert.equal(vm.layout.cruise_limits.y, 500)
 assert.equal(vm.layout.speed_limit_actions.y, 882)
 assert.equal(validDocument(vm.state.draft, data.metadata), true)
+const beyondNewPromptWidth = JSON.parse(JSON.stringify(vm.state.draft))
+beyondNewPromptWidth.layouts.large.cruise_limits.x = 1430
+assert.equal(validDocument(beyondNewPromptWidth, data.metadata), false)
+
 Object.assign(vm.layout.speed_limit_actions, {x:600, y:500})
 vm.setSpeedSources("speedSources", false)
 assert.deepEqual([vm.layout.speed_limit_actions.x, vm.layout.speed_limit_actions.y], [600, 500])
