@@ -6,6 +6,7 @@ import { GalaxySettingRow, settingControl } from "./galaxy-setting-row.js"
 import { PollTimer, connectionError } from "./polling.js"
 import { requestJson } from "./startup.js"
 import { bluetoothConnection } from "./bluetooth-notice.js"
+import { FlmBackup } from './flm-backup.js'
 import { PlotGraph, PlotsPage, chartGeometry } from "./plots.js"
 import { validTrainingResults, readable, detailText, surfaceRows, coordinateText, trackingView, measurementText, validTrackingValues, trackingPlotView, sourceSeconds, validLearningPreference, SURFACE_GROUPS, tunerStatus, learningReason, sourceCaptureCounts, historyTitle, offroadView, FRICTION_NAMES, offroadCoordinateEvidence, recommendationText } from "./flm-training-results.js"
 
@@ -43,7 +44,7 @@ const PARAMETER_LABELS = {
 
 export const FlmPage = {
   name: "FlmPage",
-  components: { GxState, GxNotice, GxDialog, PlotGraph, PlotsPage, GalaxySettingRow },
+  components: { GxState, GxNotice, GxDialog, PlotGraph, PlotsPage, GalaxySettingRow, FlmBackup },
   props: { initialView: { type: String, default: "overview" }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, default: path => { window.location.hash = path } } },
   data: () => ({ report: null, error: "", loading: false, request: null, receivedAt: 0, now: 0, bluetooth: bluetoothConnection(),
@@ -176,6 +177,7 @@ export const FlmPage = {
     },
   },
   methods: {
+    backupRestored() { this.manualWrite = null;this.manualResetRequested = false;this.manualFeed?.load('tuning');return this.load() },
     dialPercent, ideaStatus, ideaValue, ideaHeading, curvePointLabel, ideaDetails, readable, detailText, coordinateText, measurementText, sourceSeconds, learningReason, historyTitle, recommendationText,
     ideaExplanation(idea) { return idea.reason?.startsWith('observed_') ? learningReason(idea.reason) : ideaExplanation(idea) },
     manualEvidence(name, unit) { return offroadCoordinateEvidence(this.report, name, this.live, unit) },
@@ -352,6 +354,7 @@ export const FlmPage = {
           <details v-if="review.other.length" id="tuner-earlier-findings" class="gx-tuner__disclosure"><summary>{{ review.other.length }} earlier grouped findings</summary><p>This older report does not identify a single dial or absolute target for these findings. They are not changes to apply.</p><p v-for="(idea, index) in review.other" :key="index">{{ readable(idea.parameter) }} · {{ recommendationText(idea) }} · {{ amount(idea.windows) }} recorded windows.</p></details>
         </section>
         </div>
+        <FlmBackup :unauthorized="unauthorized" :parked="preference?.parked === true" :bluetooth="bluetooth" @restored="backupRestored" />
         <div class="gx-tuner__tune-layout"><div class="gx-tuner__section-heading"><div><h3>Explore your settings</h3><p>Choose an area below. Amber labels show findings from your drive.</p></div></div><nav class="gx-tuner__groups" aria-label="Steering parameter groups"><button v-for="item in navigationGroups" :key="item.id" type="button" :aria-pressed="group === item.id" :class="{ 'has-ideas': groupHasIdeas(item), 'gx-tuner__curve-tile': item.id === 'friction' }" @click="reviewGroup(item.id)"><i :class="['bi', item.icon]" aria-hidden="true"></i><span>{{ item.label }}<small>{{ item.id === 'friction' ? 'Auto Learn only · ' : '' }}{{ groupChanges(item) }}</small></span><i class="bi" :class="groupHasIdeas(item) ? 'bi-lightbulb' : 'bi-chevron-right'" aria-hidden="true"></i></button></nav>
           <section class="gx-card gx-tuner__section gx-tuner__parameters" :id="group === 'friction' ? 'tuner-friction' : undefined" :aria-labelledby="'tuner-group-' + group + '-title'" tabindex="-1"><div class="gx-tuner__section-heading"><div><p class="gx-tuner__eyebrow">{{ group === 'friction' ? 'MANAGED BY AUTO LEARN' : 'YOUR MANUAL CONTROLS' }}</p><h3 :id="'tuner-group-' + group + '-title'">{{ selectedGroup.label }}</h3><p>{{ selectedGroup.description }}</p></div></div>
             <section v-if="group !== 'friction'" class="gx-tuner__manual" aria-label="Manual tuning"><div class="gx-tuner__manual-note"><i class="bi bi-info-circle" aria-hidden="true"></i><p>Moving a slider saves a manual override for your next drive and pauses Auto Learn. Zero removes the override. Reviewing a finding does neither.</p></div>

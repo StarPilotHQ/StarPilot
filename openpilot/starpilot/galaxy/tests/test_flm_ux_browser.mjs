@@ -17,6 +17,10 @@ const targetIndex = SURFACE_NAMES.indexOf('highway_center_taper_max')
 const running = child => child.exitCode === null && child.signalCode === null
 assert.equal(running({ exitCode: null, signalCode: 'SIGTERM' }), false, 'A signal-reaped child must not be awaited for a second exit')
 let scenario = 'ideas', parked = true, saveError = false, reportError = false, pending = null
+let backupReject = false
+const tuneBackup = { format: 'starpilot-flm-tune', version: 1, vehicle: 'DECLARED_UI_CAR', metric: false,
+  controllerMode: 'starpilot', cpSha256: 'a'.repeat(64), createdAt: '2026-11-16T03:00:00Z', checksum: 'declared-ui-checksum',
+  manual: [{ page: 'tuning', key: 'torque:surface:highway_center_taper_max', value: '0.5' }], learned: {} }
 const manual = Object.fromEntries(SURFACE_NAMES.map(name => [name, 0]))
 const hints = [['highway_center_taper_max', .005], ['friction_threshold_low', .002],
   ['friction_threshold_mid', .004], ['friction_threshold_fast', .005], ['friction_threshold_highway', .006]]
@@ -120,11 +124,20 @@ const server = createServer(async (req, res) => {
     if (pathname === '/api/plots/live') return json({ schemaVersion: 1, sessionId: '0000000000000001', state: 'unavailable', sampleIndex: 0, sampleAgeSeconds: null, error: 'Declared parked fixture', bootStabilizing: false, values: null })
     if (pathname === '/api/device/state') return json({ state: parked ? 'parked' : 'driving', maxAgeMs: 3000 })
     if (pathname === '/api/flm/training-results') return json(reportError ? { error: 'Declared connection error' } : report(), reportError ? 503 : 200)
+    if (pathname === '/api/flm/backup') return json(tuneBackup)
     if (pathname === '/api/settings/pages/tuning') return json(settings())
     if (pathname.startsWith('/api/settings/')) {
       let raw = ''; for await (const chunk of req) raw += chunk
       const body = JSON.parse(raw); requests.push({ path: pathname, body })
       if (!parked || saveError) return json({ error: 'Declared save refusal' }, 503)
+      if (pathname === '/api/settings/flm-backup/preview') return backupReject ? json({ error: 'No Auto Learn setup matches the current controller.' }, 409) :
+        json({ intent: 'declared-backup-intent', question: 'Restore these manual slider values? Manual overrides pause Auto Learn.', count: 1,
+          changes: [['Highway center taper', '0', '0.5']] })
+      if (pathname === '/api/settings/flm-backup/confirm') {
+        assert.equal(body.intent, 'declared-backup-intent');assert.equal(body.confirmed, true)
+        manual.highway_center_taper_max = .5
+        return json({ complete: true, restored: 1, unchanged: 0, skipped: [] })
+      }
       if (pathname.endsWith('/preview') || pathname.endsWith('/reset-default')) {
         pending = { intent: 'declared-intent-' + requests.length, row: body.row, value: pathname.endsWith('/reset-default') ? 0 : body.value }
         return json({ ...pending, question: 'Remove the thirty manual overrides?', proposed: body.value === undefined ? 'Reset' : body.value })
@@ -478,6 +491,43 @@ try {
     checks.push('full-page-200/'+physical+'/primary-nav');await capture('full-page-200-'+physical+'-footer')
   }
   assert.equal(requests.length,writesBeforeReflow,'Full-page review/navigation must not write settings')
+  await viewport(416);await change('ideas');await click('#tuner-tab-tune')
+  await click('[data-role=flm-backup] summary')
+  await layout('backup/export');await capture('backup-export')
+  const downloads = join(profile, 'downloads');await mkdir(downloads)
+  await command(`/session/${session}/goog/cdp/execute`, { cmd: 'Browser.setDownloadBehavior', params: { behavior: 'allow', downloadPath: downloads } })
+  const beforeBackup = requests.length
+  await click('[data-role=flm-backup] .gx-actions button:first-child')
+  await until(() => existsSync(join(downloads, 'starpilot-flm-tune.json')))
+  assert.deepEqual(JSON.parse(await readFile(join(downloads, 'starpilot-flm-tune.json'), 'utf8')), tuneBackup)
+  assert.equal(requests.length, beforeBackup, 'Export downloads a file without a mutation request')
+  await execute(`const input=document.querySelector('[data-role=flm-backup] input[type=file]'),files=new DataTransfer();
+    files.items.add(new File([arguments[0]],'tune.json',{type:'application/json'}));input.files=files.files;input.dispatchEvent(new Event('change',{bubbles:true}))`, JSON.stringify(tuneBackup))
+  await until(() => execute('return !!document.querySelector("#flm-import-title")'))
+  assert.equal(requests.length, beforeBackup, 'Choosing an imported file is local until review')
+  await layout('backup/import');await capture('backup-import-mobile')
+  await click('dialog[aria-labelledby=flm-import-title] .gx-actions button:last-child')
+  await until(() => execute('return !!document.querySelector("#flm-restore-title")'))
+  assert.equal(requests.at(-1).path, '/api/settings/flm-backup/preview')
+  await layout('backup/confirm');await capture('backup-confirm-mobile')
+  await viewport(1280);await layout('backup/confirm-desktop');await capture('backup-confirm-desktop')
+  await click('dialog[aria-labelledby=flm-restore-title] .gx-actions button:last-child')
+  await until(() => execute('return !document.querySelector("dialog[open]")'))
+  assert.equal(requests.at(-1).path, '/api/settings/flm-backup/confirm')
+  await until(() => execute('return document.querySelector("[data-role=flm-backup]").textContent.includes("1 setting restored")'))
+  backupReject = true
+  await execute(`const input=document.querySelector('[data-role=flm-backup] input[type=file]'),files=new DataTransfer();
+    files.items.add(new File([arguments[0]],'tune.json',{type:'application/json'}));input.files=files.files;input.dispatchEvent(new Event('change',{bubbles:true}))`, JSON.stringify(tuneBackup))
+  await until(() => execute('return !!document.querySelector("#flm-import-title")'))
+  await click('dialog[aria-labelledby=flm-import-title] .gx-actions button:last-child')
+  await until(() => execute('return document.querySelector("dialog[open]").textContent.includes("No Auto Learn setup matches")'))
+  assert(!await execute('return !!document.querySelector("#flm-restore-title")'), 'Incompatible backup never reaches confirmation')
+  await capture('backup-incompatible');await click('dialog[aria-labelledby=flm-import-title] .gx-actions button:first-child')
+  await change('applied', { parked: false });await click('#tuner-tab-tune')
+  await click('[data-role=flm-backup] summary')
+  assert(await execute('return document.querySelector("[data-role=flm-backup] .gx-actions button:last-of-type").disabled'))
+  await capture('backup-driving-locked')
+  checks.push('backup/real-download/local-file/preview/confirmed-restore/incompatible/driving-lockout')
   assert.deepEqual(errors, [])
   console.log(`Real Chromium FLM UI: ${checks.length} responsive/theme/state checks, 5 findings/7 destinations, parked save/reset, driving lockout, errors and retained evidence passed`)
 } catch (error) {

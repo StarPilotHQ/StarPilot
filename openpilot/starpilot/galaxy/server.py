@@ -235,6 +235,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
   models_lock = threading.Lock()
   settings_gateway = settings
   recovery_gateway = None
+  flm_backup_gateway = None
   vehicle_gateway = vehicle_selection
   toyota_source = toyota_tools
   model_source = models
@@ -490,6 +491,15 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         from openpilot.starpilot.galaxy.defaults_recovery import DefaultsRecovery
         recovery_gateway = DefaultsRecovery(gateway)
       return recovery_gateway
+
+  def flm_backups():
+    nonlocal flm_backup_gateway
+    gateway = feature_settings()
+    with settings_lock:
+      if flm_backup_gateway is None:
+        from openpilot.starpilot.galaxy.flm_backup import FlmBackup
+        flm_backup_gateway = FlmBackup(gateway)
+      return flm_backup_gateway
 
   def toyota_owner():
     nonlocal toyota_source
@@ -1349,6 +1359,25 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         else:
           if self.require_session():
             self.json(200, result)
+      elif path == '/api/flm/backup':
+        if not self.require_session():
+          return
+        identity = self.settings_session()
+        if urlsplit(self.path).query:
+          self.json(400, {'error': 'Unexpected tune backup query'})
+          return
+        from openpilot.starpilot.galaxy.flm_backup import BackupRefused
+        try:
+          result = flm_backups().export()
+        except (SettingsChanged, BackupRefused) as error:
+          self.json(409, {'error': str(error)})
+        except (SettingsUnavailable, OSError, RuntimeError, ValueError):
+          self.json(503, {'error': 'Tune backup is unavailable'})
+        else:
+          if self.settings_session() == identity:
+            self.attachment('starpilot-flm-tune.json', json.dumps(result, indent=2).encode(), 'application/json; charset=utf-8')
+          else:
+            self.json(401, {'error': 'Sign in to Galaxy'})
       elif path == '/api/flm/logs/download':
         if not self.require_session():
           return
@@ -1667,6 +1696,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
       if path not in ('/api/companion/uplink', '/api/companion/settings', '/api/companion/location',
                       '/api/connect/proxy', '/api/connect/provider', '/api/auth/login', '/api/auth/logout', '/api/settings/preview', '/api/settings/confirm',
                       '/api/settings/recovery/preview', '/api/settings/recovery/confirm',
+                      '/api/settings/flm-backup/preview', '/api/settings/flm-backup/confirm',
                       '/api/settings/reset-default', '/api/settings/restore', '/api/recordings/action',
                       '/api/replay/start', '/api/replay/control', '/api/replay/stop',
                       '/api/replay/export-start',
@@ -1703,7 +1733,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         size = int(self.headers.get('Content-Length', ''))
       except ValueError:
         size = -1
-      max_size = 256 * 1024 if path == '/api/settings/restore' else 17408 if path in ('/api/ui/layout', '/api/ui/layout/preview') else 4096
+      max_size = (256 * 1024 if path == '/api/settings/restore' else 66 * 1024 if path == '/api/settings/flm-backup/preview' else
+                  17408 if path in ('/api/ui/layout', '/api/ui/layout/preview') else 4096)
       if not 0 < size <= max_size:
         self.json(413, {'error': 'Invalid request size'})
         return
@@ -1719,6 +1750,32 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         payload = json.loads(self.rfile.read(size), object_pairs_hook=unique_object)
       except (ValueError, UnicodeError, RecursionError):
         self.json(400, {'error': 'Invalid request'})
+        return
+      if path in ('/api/settings/flm-backup/preview', '/api/settings/flm-backup/confirm'):
+        identity = self.settings_session()
+        if identity is None:
+          self.json(401, {'error': 'Sign in to Galaxy'})
+          return
+        from openpilot.starpilot.galaxy.flm_backup import BackupRefused
+        try:
+          def authorized():
+            return self.settings_session() == identity
+          if path.endswith('/preview'):
+            if type(payload) is not dict or set(payload) != {'backup', 'mode'}:
+              raise BackupRefused('Invalid restore preview.')
+            result = flm_backups().preview(payload['backup'], payload['mode'], identity, authorized=authorized)
+          else:
+            if (type(payload) is not dict or set(payload) != {'intent', 'confirmed'} or
+                type(payload['intent']) is not str or len(payload['intent']) > 64 or payload['confirmed'] is not True):
+              raise BackupRefused('Confirm the restore preview first.')
+            with effect_lock:
+              result = flm_backups().confirm(payload['intent'], identity, authorized=authorized)
+        except (SettingsChanged, BackupRefused) as error:
+          self.json(409 if authorized() else 401, {'error': str(error) if authorized() else 'Sign in to Galaxy'})
+        except (SettingsUnavailable, OSError, RuntimeError, ValueError, TypeError):
+          self.json(503, {'error': 'Tune restore is unavailable. Refresh the saved tune before retrying.'})
+        else:
+          self.json(200 if authorized() else 401, result if authorized() else {'error': 'Sign in to Galaxy'})
         return
       if path.startswith('/api/replay/'):
         replay_api.post(self, path, payload)

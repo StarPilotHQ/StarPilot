@@ -81,6 +81,7 @@
 .gx-tuner .gx-tuner__timeline p { font-size: 14px;line-height: 1.65; }
 .gx-tuner :focus-visible { outline: 2px solid var(--primary);outline-offset: 4px; }
 @media (max-width: 900px) {
+  .gx-tuner { padding-bottom: max(128px, env(safe-area-inset-bottom)); }
   .gx-tuner .gx-tuner__overview-grid { grid-template-columns: minmax(0, 1fr); }
   .gx-tuner__drive { grid-template-columns: 40px minmax(0, 1fr);padding: 24px;gap: 16px; }
   .gx-tuner__drive-mark { width: 40px;height: 40px; }
@@ -195,3 +196,6 @@
 [data-theme="light"] .gx-tuner__drive[data-tone="saved"] .gx-tuner__drive-actions > button:first-child { color: #fff; }
 
 @media (max-width: 300px), (max-height: 340px) { .gx-app:has(.gx-tuner) .gx-appbar__menu { display: inline-flex; } }
+
+.gx-flm-backup-choices { display: grid;gap: 8px; }
+.gx-flm-backup-choices label { display: flex;align-items: center;gap: 12px;min-height: 44px; }
