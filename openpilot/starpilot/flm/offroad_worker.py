@@ -969,12 +969,12 @@ class OffroadWorker:
           continue
         report.setdefault('original_source_requalification', []).append(contract)
         for cohort in group['cohorts']:
-          if not all(role in cohort for role in ('training', 'heldout')):
-            continue
-          if 'qualification_roles' in cohort and any(len(cohort['qualification_roles'][role]['windows']) < 3 for role in ('training', 'heldout')):
+          if not all(3 <= len(cohort.get(role, {}).get('windows', ())) <= 12 for role in ('training', 'heldout')):
             continue
           proposal, proof = selector.propose(group, cohort)
           report['stable_profile_reports'].append({'context': group['original_context_sha256'], 'cohort': cohort['cohort'], **proof})
+          if 'qualification_roles' in cohort and any(len(cohort['qualification_roles'][role]['windows']) < 3 for role in ('training', 'heldout')):
+            continue  # Keep the observed suggestion; do not enqueue an automatic fit.
           if proposal is not None:
             choices.append((group, {**cohort, 'stable_profile_proof': proof}, proposal))
           for alternative in proof.get('coordinate_candidates', []):
@@ -994,13 +994,13 @@ class OffroadWorker:
         for cohort in group['cohorts']:
           if cohort['cohort'].rsplit(':', 1)[-1] not in ('steady', 'turn_in', 'unwind'):
             continue
-          if not all(role in cohort for role in ('training', 'heldout')):
-            continue
-          roles = cohort.get('qualification_roles', cohort)
-          if any(not 3 <= len(roles[role]['windows']) <= 12 for role in ('training', 'heldout')):
+          if not all(3 <= len(cohort.get(role, {}).get('windows', ())) <= 12 for role in ('training', 'heldout')):
             continue
           _, proof = selector.propose(group, cohort)
           report['short_turn_profile_reports'].append({'context': group['original_context_sha256'], 'cohort': cohort['cohort'], **proof})
+          roles = cohort.get('qualification_roles', cohort)
+          if any(not 3 <= len(roles[role]['windows']) <= 12 for role in ('training', 'heldout')):
+            continue
           for alternative in proof.get('coordinate_candidates', []):
             choices.append((group, {**cohort, 'stable_profile_proof': proof}, alternative))
 

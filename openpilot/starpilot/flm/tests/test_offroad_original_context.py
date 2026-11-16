@@ -48,3 +48,16 @@ def test_checkpoint_never_fabricates_or_extends_preroll():
   outputs = [NS(control_ns=1_999_999_999, carrier_observed_ns=2_990_000_000)]
   assert original_checkpoint(controls, outputs, 3_000_000_000) is None
   assert original_checkpoint([], outputs, 3_000_000_000) is None
+
+
+@pytest.mark.parametrize('stable', (False, True))
+def test_provisional_profiles_remain_visible_without_automatic_fit_partitions(stable):
+  from openpilot.starpilot.flm.tests.test_offroad_coordinate_policy import TestShortTurnProposalCoverage
+
+  case = TestShortTurnProposalCoverage()
+  events = case.dispatch(native_count=0, overlap=stable)
+  assert events == ([('profile', '2:both:center')] if stable else []) + [('profile', '2:left:turn_in')]
+  assert case.last_result['configuration_changed'] is False
+  assert case.last_result['recommendation_count'] == 1
+  assert case.last_result['recommendations'][0]['parameter'] == 'turn_in_boost_left'
+  assert case.last_result['recommendations'][0]['target'] == .005

@@ -702,7 +702,7 @@ class TestShortTurnProposalCoverage(unittest.TestCase):
     self.assertEqual(set(selector.spans), {w['identity'] for g in (short, stable) for w in g['selected_original_windows']})
     self.assertEqual(len(selector.spans), 12)
 
-  def dispatch(self, *, training_count=3, overlap=False):
+  def dispatch(self, *, training_count=3, overlap=False, native_count=None):
     from types import SimpleNamespace
     from openpilot.starpilot.flm import offroad_worker as module
     from openpilot.starpilot.flm.offroad_processor import CompletedAssessment
@@ -713,6 +713,8 @@ class TestShortTurnProposalCoverage(unittest.TestCase):
     roles = {'training': {'windows': ids[:training_count], 'reference_rms': 0.1}, 'heldout': {'windows': ids[3:], 'reference_rms': 0.1}}
     metadata = {'route_values': tuple(values().items()), 'route_revision': REVISION, 'controller_mode': 'starpilot', 'route_scope': scope().key()}
     short = {'cohort': '2:left:turn_in', 'whole_windows': 6, 'proposal': None, **roles}
+    if native_count is not None:
+      short['qualification_roles'] = {'training': {'windows': ids[:training_count][:native_count]}, 'heldout': {'windows': ids[3:][:native_count]}}
     original = [{'identity': wid, 'segment': 0, 'start_ns': (100 + i * 10) * 10**9, 'end_ns': (102 + i * 10) * 10**9} for i, wid in enumerate(ids)]
     group = {'original_metadata': metadata, 'original_context_sha256': 'f' * 64, 'cohorts': [short], 'selected_original_windows': original}
     selected = values()
@@ -724,6 +726,8 @@ class TestShortTurnProposalCoverage(unittest.TestCase):
       long_ids = tuple(str(i) * 64 for i in range(1, 7))
       long_roles = {'training': {'windows': long_ids[:3], 'reference_rms': 0.6}, 'heldout': {'windows': long_ids[3:], 'reference_rms': 0.6}}
       long_cohort = {'cohort': '2:both:center', 'whole_windows': 6, **long_roles}
+      if native_count is not None:
+        long_cohort['qualification_roles'] = {'training': {'windows': long_ids[:3][:native_count]}, 'heldout': {'windows': long_ids[3:][:native_count]}}
       long_original = [{'identity': wid, 'segment': 0, 'start_ns': i * 10**10, 'end_ns': i * 10**10 + 6 * 10**9} for i, wid in enumerate(long_ids)]
       stable_groups = (dict(group, cohorts=[long_cohort], selected_original_windows=long_original),)
       for i in range(3):
@@ -740,9 +744,11 @@ class TestShortTurnProposalCoverage(unittest.TestCase):
 
       def propose(self, actual_group, cohort):
         events.append(('profile', cohort['cohort']))
+        proof = {'coordinate_candidates': [proposal], 'roles': {role: {'original_windows': cohort[role]['windows'],
+                 'coordinate_candidates': [proposal]} for role in ('training', 'heldout')}}
         if cohort['cohort'].endswith('center'):
-          return proposal, {'coordinate_candidates': []}
-        return None, {'coordinate_candidates': [proposal]}
+          return proposal, dict(proof, frozen_training_profile=proposal, coordinate_candidates=[])
+        return None, proof
 
     def assessed(params, root, previous, *, permitted):
       previous(cp)
@@ -776,6 +782,7 @@ class TestShortTurnProposalCoverage(unittest.TestCase):
           assessor=assessed, checker=refused, scope_for=lambda cp, params: scope()).run_once()
       self.assertFalse(result['configuration_changed'])
       self.assertIsNone(params.get(KEY), 'A proposal or mocked native refusal cannot save an automatic tune')
+    self.last_result = result
     return events
 
   def test_short_turn_reaches_original_native_refusal_only_with_both_full_partitions(self):
