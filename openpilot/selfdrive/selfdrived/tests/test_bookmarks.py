@@ -1,6 +1,8 @@
 import ast
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace as NS
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -15,9 +17,9 @@ source = Path(__file__).parents[1] / 'selfdrived.py'
 module = ast.parse(source.read_text())
 owner = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == 'SelfdriveD')
 method = next(node for node in owner.body if isinstance(node, ast.FunctionDef) and node.name == '_update_bookmarks')
-namespace = {'messaging': messaging, 'EventName': EventName}
+namespace: dict[str, object] = {'messaging': messaging, 'EventName': EventName}
 exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), 'exec'), namespace)
-update_bookmarks = namespace['_update_bookmarks']
+update_bookmarks = cast(Callable[[NS], None], namespace['_update_bookmarks'])
 
 
 class Sources(dict):
@@ -117,7 +119,7 @@ def test_large_burst_is_bounded_without_discarding_remaining_bookmarks():
 
 
 class SavedCheckpoint:
-  def __init__(self, value=None):
+  def __init__(self, value: dict[str, object] | None = None):
     self.value = value
     self.writes = self.reads = self.removes = 0
 
@@ -168,6 +170,7 @@ def test_unseen_startup_device_state_does_not_erase_saved_count():
   sources.seen = {'deviceState': False}
   drive = NS(bookmarks=counter, sm=sources)
   update_bookmarks(drive)
+  assert params.value is not None
   assert params.value['count'] == 4
   assert params.reads == params.writes == params.removes == 0
 
