@@ -1,5 +1,28 @@
 # Source provenance
 
+## GWM Haval H6 GT from Alexandre Sato's port
+
+GWM Haval H6 GT support originates with **Alexandre Sato** (`AlexandreSato`,
+<sato_alexandre@hotmail.com>), who reverse engineered the car and wrote the port directly against
+upstream openpilot. His own device commits appear as `Comma Device <device@comma.ai>`. The port
+began in [alexandresato/openpilot, `port_gwm_haval_h6`](https://github.com/alexandresato/openpilot/tree/port_gwm_haval_h6)
+at `selfdrive/car/gwm/` - earliest commits `897876495` ("use Toyota Corolla TSS2 as a base",
+2024-06-29) and `6d82c406b` ("init from scratch", 2024-07-06) - and moved to
+[alexandresato/opendbc, `port_gwm_haval_h6`](https://github.com/alexandresato/opendbc/tree/port_gwm_haval_h6)
+in `5433e24bf` ("move GWM to opendbc", 2024-08-18). Both repositories are MIT-licensed forks of
+`commaai/openpilot` and `commaai/opendbc`. The CAN layout, the CRC-8/0x1D helper, the
+`gwm_basic_chksum_for_0x12B` routine, the DBC and the longitudinal gas/brake command structure are
+his work. He does not maintain or endorse StarPilot or this adaptation.
+
+The port reached here through gustavoclimaco's forks: `gustavoclimaco/opendbc` (`2d46e5224`) into
+`gustavoclimaco/sunnypilot`, then `gustavoclimaco/frogpilot` (`ford-gwm-2026`, `6e9c010c`), where it
+was tuned and road-validated on that vehicle. Deviations from Sato's original: the longitudinal gas
+map is a line through zero rather than a `[0.25, 1]` deadzone; a Stop & Go resume pulse on
+`AP_ENABLE_COMMAND`, since the car has no native Stop & Go; separate `main_on` / `acc_enabled`
+latches so the brake drops ACC without dropping lateral; rolling counters wrap at 15 to match the
+stock streams measured on the bus; and a 253 steer torque cap set by where the EPS latches a
+permanent fault.
+
 ## Jetlink external inference
 
 The comma-side Jetlink client and USB transport in `jetlink_repo` are by Zeph Leggett and the [Jetlink contributors](https://github.com/zoompilot/jetlink). They are vendored from revision `9cfde98eec1d7cc714d800504944cf1a3944513d` under the MIT license, retained in [jetlink_repo/LICENSE](jetlink_repo/LICENSE). StarPilot's adapter (`openpilot/starpilot/models/jetlink_adapter.py`) builds on Jetlink's openpilot layer and owns its param names, Always On Lateral rule, model runner reset, settings and alerts. Companion applications and inference servers remain distributed by Jetlink.
