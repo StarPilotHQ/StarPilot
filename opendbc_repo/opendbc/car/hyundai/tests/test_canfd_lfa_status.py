@@ -155,14 +155,14 @@ def test_mask_owns_only_current_dbc_actuation_and_normal_status_fields():
   signals = packer.dbc.name_to_msg['LFA'].sigs
   expected = bytearray(16)
   owned = ('CHECKSUM', 'COUNTER', 'LKA_OptUsmSta', 'LKA_RcgSta', 'LKA_SysIndReq',
-           'StrTqReqVal', 'ActToiSta', 'Damping_Gain')
+           'StrTqReqVal', 'ActToiSta')
   for name in owned:
     signal = signals[name]
     assert signal.is_little_endian
     for bit in range(signal.lsb, signal.lsb + signal.size):
       expected[bit // 8] |= 1 << (bit % 8)
   assert bytes(expected) == LFA_CONTROL_MASK
-  for name in ('LKA_UsmMod', 'ToiFltSta', 'LKA_SysWrn', 'LKA_OnOffEquip2Sta', 'ELK_SysFlrSta', 'FCA_ESA_WrnSta'):
+  for name in ('Damping_Gain', 'LKA_UsmMod', 'ToiFltSta', 'LKA_SysWrn', 'LKA_OnOffEquip2Sta', 'ELK_SysFlrSta', 'FCA_ESA_WrnSta'):
     signal = signals[name]
     assert all(not (LFA_CONTROL_MASK[bit // 8] >> (bit % 8)) & 1 for bit in range(signal.lsb, signal.lsb + signal.size))
 
@@ -724,3 +724,45 @@ def test_actual_startup_popup_ownership_preserves_failures_and_hands_off(car, al
       if address == 0x1E0 and bus == ci.CC.CAN.ECAN and tick >= 15:
         observed.append(body[4] & 7)
   assert observed and all(v == (0 if popup == 3 else popup) for v in observed)
+
+
+@pytest.mark.parametrize('car', (CAR.HYUNDAI_KONA_2ND_GEN, CAR.HYUNDAI_KONA_HEV_2ND_GEN, CAR.HYUNDAI_KONA_EV_2ND_GEN,
+                                CAR.HYUNDAI_IONIQ_5, CAR.HYUNDAI_IONIQ_6, CAR.KIA_EV6,
+                                CAR.KIA_NIRO_EV_2ND_GEN, CAR.GENESIS_GV60_EV_1ST_GEN))
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('damping', (0, 37, 100, 255))
+def test_actual_hda1_sender_preserves_fresh_camera_damping(car, alpha, damping, clock):
+  cp = params(car, alpha=alpha)
+  assert preserves_stock_lfa(cp)
+  ci = CarInterface(cp)
+  ci.update([])
+  packer = CANPacker(DBC[car][Bus.pt])
+  command = structs.CarControl.new_message(enabled=True, latActive=True)
+  command.actuators.torque = .4
+  for tick in range(6):
+    clock[0] = 5_000_000_000 + tick * 10_000_000
+    address, original, bus = template(packer, ci.CC.CAN.CAM, tick)
+    body = bytearray(original)
+    body[13] = damping
+    body[:2] = hkg_can_fd_checksum(address, None, body).to_bytes(2, 'little')
+    stock = address, bytes(body), bus
+    state = ci.update([(clock[0], physical_frames(ci, packer, tick, stock))])
+    assert state.canValid and not state.canTimeout
+    _, packets = ci.apply(command.as_reader(), clock[0])
+    outgoing = [raw for address, raw, bus in packets if address == 0x12A and bus == ci.CC.CAN.ECAN]
+    assert len(outgoing) == 1
+    assert outgoing[0][13] == damping
+    assert int.from_bytes(outgoing[0][:2], 'little') == hkg_can_fd_checksum(0x12A, None, bytearray(outgoing[0]))
+
+
+def test_stale_camera_damping_does_not_replace_sender_fallback():
+  from opendbc.car.hyundai.hyundaicanfd import create_steering_messages
+  cp = params()
+  packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+  _, body, _ = packer.make_can_msg('LFA', 2, {'Damping_Gain': 37, 'ToiFltSta': 2})
+  for active in (False, True):
+    args = (packer, cp, CanBus(cp), active, active, 0)
+    missing = create_steering_messages(*args)[0][1]
+    stale = create_steering_messages(*args, stock_lfa_faults=body)[0][1]
+    assert missing[13] == stale[13] == 100
+    assert stale[6] & 0xC0 == body[6] & 0xC0
