@@ -123,12 +123,12 @@ def test_passive_vehicle_never_guided(case, field):
   assert select(TurnIntent(params, cp), sm) == log.Desire.none
 
 
-@pytest.mark.parametrize('modifier', ['straight', 'right'])
-def test_guiding_route_does_not_hide_user_signal(case, modifier):
+@pytest.mark.parametrize('kind,modifier', [('turn', 'straight'), ('turn', 'right'), ('arrive', 'straight')])
+def test_guiding_route_does_not_hide_user_signal(case, kind, modifier):
   params, cp, sm = case
   sm.valid['starpilotNavigation'] = sm.alive['starpilotNavigation'] = True
   sm.logMonoTime['starpilotNavigation'] = NOW
-  instruction = NS(maneuverType='turn', maneuverModifier=modifier, distanceMeters=30.)
+  instruction = NS(maneuverType=kind, maneuverModifier=modifier, distanceMeters=30.)
   nav = NS(version=2, enabled=True, controlValid=True, status='guiding', sessionId='producer', revision='one',
            frameMonoTime=NOW, startedMonoTime=1, locationMonoTime=NOW, instruction=instruction, nextManeuver=instruction)
   sm['starpilotNavigation'] = NS(navigation=nav)
