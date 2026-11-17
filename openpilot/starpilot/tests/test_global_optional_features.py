@@ -195,9 +195,9 @@ def test_toyota_actual_conditional_planner_host_uses_native_mpc_and_adjacent_rad
   # Reuse the serialized fresh-source integration trace with Toyota's unchanged
   # native CarParams, including pcmCruise=True, rather than a modified CP stub.
   from openpilot.selfdrive.controls.tests import test_conditional_runtime_loop as fixture
-  case = fixture.TestConditionalRuntimeLoop('test_automatic_chill_ignores_retired_slc_modes_but_keeps_native_radar_veto')
+  case = fixture.TestConditionalRuntimeLoop('test_retired_chill_setting_maps_to_cem_and_native_radar_still_vetoes_ccm')
   with patch.object(fixture, 'CarInterface', NS(get_non_essential_params=lambda candidate: toyota())):
-    case.test_automatic_chill_ignores_retired_slc_modes_but_keeps_native_radar_veto()
+    case.test_retired_chill_setting_maps_to_cem_and_native_radar_still_vetoes_ccm()
 
 
 def test_toyota_galaxy_long_authority_and_native_curve_rows(tmp_path):

@@ -39,17 +39,19 @@ def test_jetlink_gets_the_frames_delay_before_every_run():
   run = next(node.lineno for node in statements if isinstance(node, ast.Try) and
              any(isinstance(child, ast.Call) and ast.unparse(child.func) == "model.run" for child in ast.walk(node)))
   assert (line("subaru_tau = subaru_smooth_seconds(v_ego, subaru_smoothing)") <
-          line("lat_delay = sm['lateralDelay'].lateralDelay + LAT_SMOOTH_SECONDS + subaru_tau") <
+          line("volkswagen_tau = volkswagen_smoothing(CP, receipt_owner.load)") <
+          line("lat_delay = sm['lateralDelay'].lateralDelay + LAT_SMOOTH_SECONDS + subaru_tau + volkswagen_tau") <
           line("model.lat_delay = lat_delay") < run)
   assignments = {ast.unparse(node.targets[0]): node for node in statements if isinstance(node, ast.Assign)}
   # Reuse the same joined runner across frames: each write must include the current delay and smoothing.
   model = SimpleNamespace(lat_delay=-1.)
-  for delay, tau in ((.1, 0.), (.25, .4), (.05, 2.)):
+  for delay, subaru_tau, volkswagen_tau in ((.1, 0., 0.), (.25, .4, 0.), (.05, 2., 0.),
+                                           (.2, 0., .3), (.15, .4, .3), (.1, 0., 0.)):
     env = {"sm": {"lateralDelay": SimpleNamespace(lateralDelay=delay)}, "LAT_SMOOTH_SECONDS": .03,
-           "subaru_tau": tau, "model": model}
+           "subaru_tau": subaru_tau, "volkswagen_tau": volkswagen_tau, "model": model}
     code = ast.Module(body=[assignments["lat_delay"], assignments["model.lat_delay"]], type_ignores=[])
     exec(compile(ast.fix_missing_locations(code), str(MODEL_SOURCE), "exec"), env)
-    assert model.lat_delay == pytest.approx(delay + .03 + tau)
+    assert model.lat_delay == pytest.approx(delay + .03 + subaru_tau + volkswagen_tau)
 
 
 @pytest.mark.parametrize("runner_chestnut,stored_active", [(True, False), (True, True), (False, True), (False, False)])
