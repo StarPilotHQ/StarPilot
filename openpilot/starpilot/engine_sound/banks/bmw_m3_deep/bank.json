@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "source": "engine-sim engines/bmw/M52B28.mr",
+  "layers": {
+    "on": [
+      {
+        "rpm": 1575,
+        "file": "on_1575.wav"
+      },
+      {
+        "rpm": 2700,
+        "file": "on_2700.wav"
+      },
+      {
+        "rpm": 3825,
+        "file": "on_3825.wav"
+      },
+      {
+        "rpm": 4950,
+        "file": "on_4950.wav"
+      },
+      {
+        "rpm": 6075,
+        "file": "on_6075.wav"
+      },
+      {
+        "rpm": 7200,
+        "file": "on_7200.wav"
+      },
+      {
+        "rpm": 8325,
+        "file": "on_8325.wav"
+      },
+      {
+        "rpm": 9450,
+        "file": "on_9450.wav"
+      },
+      {
+        "rpm": 10575,
+        "file": "on_10575.wav"
+      },
+      {
+        "rpm": 11700,
+        "file": "on_11700.wav"
+      },
+      {
+        "rpm": 12825,
+        "file": "on_12825.wav"
+      },
+      {
+        "rpm": 13950,
+        "file": "on_13950.wav"
+      },
+      {
+        "rpm": 15075,
+        "file": "on_15075.wav"
+      }
+    ],
+    "off": [
+      {
+        "rpm": 1575,
+        "file": "off_1575.wav"
+      },
+      {
+        "rpm": 2700,
+        "file": "off_2700.wav"
+      },
+      {
+        "rpm": 3825,
+        "file": "off_3825.wav"
+      },
+      {
+        "rpm": 4950,
+        "file": "off_4950.wav"
+      },
+      {
+        "rpm": 6075,
+        "file": "off_6075.wav"
+      },
+      {
+        "rpm": 7200,
+        "file": "off_7200.wav"
+      },
+      {
+        "rpm": 8325,
+        "file": "off_8325.wav"
+      },
+      {
+        "rpm": 9450,
+        "file": "off_9450.wav"
+      },
+      {
+        "rpm": 10575,
+        "file": "off_10575.wav"
+      },
+      {
+        "rpm": 11700,
+        "file": "off_11700.wav"
+      },
+      {
+        "rpm": 12825,
+        "file": "off_12825.wav"
+      },
+      {
+        "rpm": 13950,
+        "file": "off_13950.wav"
+      },
+      {
+        "rpm": 15075,
+        "file": "off_15075.wav"
+      }
+    ]
+  }
+}

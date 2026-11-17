@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "source": "recording NissanSuperGT.wav",
+  "layers": {
+    "off": [
+      {
+        "rpm": 2023,
+        "file": "off_2023.wav"
+      },
+      {
+        "rpm": 5200,
+        "file": "off_5200.wav"
+      },
+      {
+        "rpm": 5525,
+        "file": "off_5525.wav"
+      },
+      {
+        "rpm": 5850,
+        "file": "off_5850.wav"
+      },
+      {
+        "rpm": 6175,
+        "file": "off_6175.wav"
+      },
+      {
+        "rpm": 6500,
+        "file": "off_6500.wav"
+      },
+      {
+        "rpm": 6825,
+        "file": "off_6825.wav"
+      },
+      {
+        "rpm": 7150,
+        "file": "off_7150.wav"
+      },
+      {
+        "rpm": 7475,
+        "file": "off_7475.wav"
+      },
+      {
+        "rpm": 7800,
+        "file": "off_7800.wav"
+      },
+      {
+        "rpm": 8125,
+        "file": "off_8125.wav"
+      },
+      {
+        "rpm": 8450,
+        "file": "off_8450.wav"
+      },
+      {
+        "rpm": 8775,
+        "file": "off_8775.wav"
+      },
+      {
+        "rpm": 9100,
+        "file": "off_9100.wav"
+      }
+    ],
+    "on": [
+      {
+        "rpm": 2023,
+        "file": "on_2023.wav"
+      },
+      {
+        "rpm": 4225,
+        "file": "on_4225.wav"
+      },
+      {
+        "rpm": 4550,
+        "file": "on_4550.wav"
+      },
+      {
+        "rpm": 4875,
+        "file": "on_4875.wav"
+      },
+      {
+        "rpm": 5200,
+        "file": "on_5200.wav"
+      },
+      {
+        "rpm": 5525,
+        "file": "on_5525.wav"
+      },
+      {
+        "rpm": 5850,
+        "file": "on_5850.wav"
+      },
+      {
+        "rpm": 6175,
+        "file": "on_6175.wav"
+      },
+      {
+        "rpm": 6500,
+        "file": "on_6500.wav"
+      },
+      {
+        "rpm": 6825,
+        "file": "on_6825.wav"
+      },
+      {
+        "rpm": 7150,
+        "file": "on_7150.wav"
+      },
+      {
+        "rpm": 7475,
+        "file": "on_7475.wav"
+      },
+      {
+        "rpm": 7800,
+        "file": "on_7800.wav"
+      },
+      {
+        "rpm": 8125,
+        "file": "on_8125.wav"
+      },
+      {
+        "rpm": 8450,
+        "file": "on_8450.wav"
+      },
+      {
+        "rpm": 8775,
+        "file": "on_8775.wav"
+      },
+      {
+        "rpm": 9100,
+        "file": "on_9100.wav"
+      }
+    ]
+  }
+}

@@ -84,8 +84,11 @@ class Synth:
     self.phase = float(phase[-1] % 1.0)
     self.frequency, self.load, self.gain = float(frequency[-1]), load, target_gain
     out = 0.8 * out * gain
+    added = np.zeros(frames, dtype=np.float32)
     for layer in self.effects:
-      out = out + layer.render(rpm, load, frames, volume)
+      added = added + layer.render(rpm, load, frames, volume)
+      out = out * getattr(layer, 'engine_gain', 1.0)
+    out = out + added
     return np.tanh(out).astype(np.float32)
 
 

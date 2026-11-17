@@ -1,6 +1,7 @@
 from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from openpilot.starpilot.engine_sound.loops import LoopSynth, load_bank
 from openpilot.starpilot.engine_sound.profiles import PROFILES
@@ -18,32 +19,69 @@ def test_boost_lags_the_throttle_and_needs_revs():
   turbo = Turbo(1.0, 800.0, 6000.0)
   run(turbo, [(4000.0, 1.0)] * 10)
   early = turbo.boost
-  run(turbo, [(4000.0, 1.0)] * 150)
+  run(turbo, [(4000.0, 1.0)] * 250)
   assert early < 0.25 < 0.8 < turbo.boost
   low = Turbo(1.0, 800.0, 6000.0)
   run(low, [(850.0, 1.0)] * 200)
   assert low.boost == 0.0
 
 
+def test_the_first_tenth_of_pedal_makes_no_boost_and_part_boost_whistles_faintly():
+  light = Turbo(1.0, 800.0, 6000.0)
+  assert not run(light, [(4000.0, 0.1)] * 300).any() and light.boost == 0.0
+  part, full = Turbo(1.0, 800.0, 6000.0), Turbo(1.0, 800.0, 6000.0)
+  run(part, [(4000.0, 0.2)] * 400)
+  run(full, [(4000.0, 1.0)] * 400)
+  quiet, loud = np.abs(run(part, [(4000.0, 0.2)] * 20)).max(), np.abs(run(full, [(4000.0, 1.0)] * 20)).max()
+  assert quiet < 0.3 * loud
+
+
 def test_lifting_on_boost_fires_the_valve_and_vents_it():
   turbo = Turbo(1.0, 800.0, 6000.0)
   run(turbo, [(4000.0, 1.0)] * 200)
   on_boost = np.abs(run(turbo, [(4000.0, 1.0)] * 20)).max()
-  release = run(turbo, [(3800.0, 0.0)] * 160)
-  assert np.abs(release).max() > 4 * on_boost
+  release = run(turbo, [(3800.0, 0.0)] * 190)
+  assert np.abs(release).max() > 2.5 * on_boost
   assert turbo.boost < 0.1
   assert np.abs(release[-FRAMES * 10:]).max() < 0.5 * np.abs(release[FRAMES * 10:FRAMES * 20]).max()
 
 
-def test_the_release_stutters_about_eleven_times_a_second():
-  from openpilot.starpilot.engine_sound.turbo import BOV_SECONDS, FLUTTER_START, _release
-  release = _release(np.random.default_rng(0), BOV_SECONDS[1], 48000).astype(np.float64)
-  envelope = np.sqrt(np.convolve(release ** 2, np.ones(192) / 192, mode='same'))[::48]
-  body = envelope[int(FLUTTER_START * 1000) + 50:1100]
-  spectrum = np.abs(np.fft.rfft((body - body.mean()) * np.hanning(len(body)), 1 << 14))
-  freq = np.fft.rfftfreq(1 << 14, 1 / 1000)
-  band = (freq > 4) & (freq < 40)
-  assert 10.0 < freq[band][np.argmax(spectrum[band])] < 13.5
+def test_the_recorded_release_loads_at_three_speeds_and_flutters():
+  from openpilot.starpilot.engine_sound.turbo import BOV_SPEEDS, load_releases
+  releases = load_releases()
+  assert len(releases) == len(BOV_SPEEDS)
+  assert len(releases[0]) > len(releases[1]) > len(releases[2]) > 2 * 48000
+  release = releases[1].astype(np.float64)
+  spectrum = np.fft.rfft(release)
+  freq = np.fft.rfftfreq(len(release), 1 / 48000)
+  spectrum[(freq < 1200) | (freq > 9000)] = 0
+  high = np.fft.irfft(spectrum, len(release))
+  db = 20 * np.log10(np.sqrt(np.convolve(high ** 2, np.ones(96) / 96, mode='same'))[::48] + 1e-9)
+  peaks = [i for i in range(12, len(db) - 12) if db[i] == db[i - 12:i + 13].max() and db[i] > np.median(db[max(0, i - 60):i + 60]) + 3]
+  assert 12.0 < len(peaks) / (len(db) / 1000) < 20.0
+
+
+def test_the_release_fades_in_and_the_engine_dips_under_it_then_recovers():
+  from openpilot.starpilot.engine_sound.turbo import ENGINE_DUCK_DB
+  turbo = Turbo(1.0, 800.0, 6000.0)
+  run(turbo, [(4000.0, 1.0)] * 200)
+  assert np.all(turbo.engine_gain == 1.0)
+  run(turbo, [(3800.0, 0.0)] * 10)
+  first = turbo.render(3800.0, 0.0, FRAMES, 1.0)
+  later = run(turbo, [(3800.0, 0.0)] * 30)
+  assert np.abs(first[:48]).max() < np.abs(later).max()
+  assert turbo.engine_gain[-1] == pytest.approx(10 ** (-ENGINE_DUCK_DB / 20), rel=0.05)
+  run(turbo, [(3800.0, 0.0)] * 400)
+  assert turbo.engine_gain[-1] == pytest.approx(1.0, abs=1e-3)
+
+
+def test_a_missing_recording_means_no_release_and_no_crash(tmp_path, monkeypatch):
+  from openpilot.starpilot.engine_sound import turbo as module
+  assert module.load_releases(tmp_path / 'missing.wav') == []
+  monkeypatch.setattr(module, 'load_releases', lambda **kwargs: [])
+  quiet = Turbo(1.0, 800.0, 6000.0)
+  run(quiet, [(4000.0, 1.0)] * 200)
+  assert np.abs(run(quiet, [(3800.0, 0.0)] * 50)).max() < 0.1
 
 
 def test_a_rev_limiter_cut_does_not_open_the_valve():

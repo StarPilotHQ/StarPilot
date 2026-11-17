@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "source": "engine-sim engines/bmw/M52B28.mr",
+  "layers": {
+    "on": [
+      {
+        "rpm": 1208,
+        "file": "on_1208.wav"
+      },
+      {
+        "rpm": 2070,
+        "file": "on_2070.wav"
+      },
+      {
+        "rpm": 2932,
+        "file": "on_2932.wav"
+      },
+      {
+        "rpm": 3795,
+        "file": "on_3795.wav"
+      },
+      {
+        "rpm": 4658,
+        "file": "on_4658.wav"
+      },
+      {
+        "rpm": 5520,
+        "file": "on_5520.wav"
+      },
+      {
+        "rpm": 6382,
+        "file": "on_6382.wav"
+      },
+      {
+        "rpm": 7245,
+        "file": "on_7245.wav"
+      },
+      {
+        "rpm": 8107,
+        "file": "on_8107.wav"
+      },
+      {
+        "rpm": 8970,
+        "file": "on_8970.wav"
+      },
+      {
+        "rpm": 9832,
+        "file": "on_9832.wav"
+      },
+      {
+        "rpm": 10695,
+        "file": "on_10695.wav"
+      },
+      {
+        "rpm": 11558,
+        "file": "on_11558.wav"
+      }
+    ],
+    "off": [
+      {
+        "rpm": 1208,
+        "file": "off_1208.wav"
+      },
+      {
+        "rpm": 2070,
+        "file": "off_2070.wav"
+      },
+      {
+        "rpm": 2932,
+        "file": "off_2932.wav"
+      },
+      {
+        "rpm": 3795,
+        "file": "off_3795.wav"
+      },
+      {
+        "rpm": 4658,
+        "file": "off_4658.wav"
+      },
+      {
+        "rpm": 5520,
+        "file": "off_5520.wav"
+      },
+      {
+        "rpm": 6382,
+        "file": "off_6382.wav"
+      },
+      {
+        "rpm": 7245,
+        "file": "off_7245.wav"
+      },
+      {
+        "rpm": 8107,
+        "file": "off_8107.wav"
+      },
+      {
+        "rpm": 8970,
+        "file": "off_8970.wav"
+      },
+      {
+        "rpm": 9832,
+        "file": "off_9832.wav"
+      },
+      {
+        "rpm": 10695,
+        "file": "off_10695.wav"
+      },
+      {
+        "rpm": 11558,
+        "file": "off_11558.wav"
+      }
+    ]
+  }
+}

@@ -126,6 +126,8 @@ class LoopSynth:
       out = on * np.sqrt(load_ramp) + off * np.sqrt(1 - load_ramp)
     self.rpm, self.load, self.gain = rpm, load, target_gain
     out = out * gain
+    added = np.zeros(frames, dtype=np.float32)
     for layer in self.effects:
-      out = out + layer.render(rpm, load, frames, volume)
-    return np.tanh(out).astype(np.float32)
+      added = added + layer.render(rpm, load, frames, volume)
+      out = out * getattr(layer, 'engine_gain', 1.0)
+    return np.tanh(out + added).astype(np.float32)

@@ -32213,6 +32213,12 @@
       ]
     },
     {
+      "source": "BMW M3 Deep",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
       "source": "BMW M52",
       "refs": [
         "openpilot/starpilot/engine_sound/profiles.py"
@@ -32243,7 +32249,13 @@
       ]
     },
     {
-      "source": "Nissan Super GT",
+      "source": "Nissan Super GT1",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Nissan Super GT2",
       "refs": [
         "openpilot/starpilot/engine_sound/profiles.py"
       ]

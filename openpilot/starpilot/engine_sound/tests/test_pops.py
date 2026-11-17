@@ -1,9 +1,10 @@
 from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from openpilot.starpilot.engine_sound.loops import LoopSynth, load_bank
-from openpilot.starpilot.engine_sound.pops import Pops, library
+from openpilot.starpilot.engine_sound.pops import GRAIN_SECONDS, Pops, library, load_grains
 from openpilot.starpilot.engine_sound.profiles import PROFILES
 from openpilot.starpilot.engine_sound.tests.test_loops import make_bank
 
@@ -71,6 +72,71 @@ def test_quiet_at_zero_volume_and_profiles_without_pops_are_unchanged(tmp_path):
   assert np.abs(loud - quiet).max() > 0.05 and np.abs(loud).max() <= 1.0
 
 
-def test_the_m3_pops_and_the_m52_does_not():
-  assert PROFILES['bmw_m3'].pops > 0 and PROFILES['bmw_m3'].loops == 'bmw_m52'
+def test_the_m3s_pop_on_their_own_banks_and_the_m52_does_not():
+  assert (PROFILES['bmw_m3'].loops, PROFILES['bmw_m3_deep'].loops) == ('bmw_m3', 'bmw_m3_deep')
+  assert PROFILES['bmw_m3'].pops > 0 and PROFILES['bmw_m3_deep'].pops > 0
   assert PROFILES['bmw_m52'].pops == 0
+
+
+def test_burbling_profiles():
+  assert [name for name, profile in PROFILES.items() if profile.burble] == ['bmw_m3', 'bmw_m3_deep', 'jaguar_ftype']
+  assert all(PROFILES[name].pops > 0 for name in ('bmw_m3', 'bmw_m3_deep', 'jaguar_ftype'))
+  assert [name for name, profile in PROFILES.items() if profile.pop_pitch != 1.0] == ['bmw_m3_deep']
+
+
+def test_a_lower_pop_pitch_plays_every_pop_slower():
+  plain, deep = Pops(1.0, 700.0, 7000.0, burble=True), Pops(1.0, 700.0, 7000.0, burble=True, pitch=0.8)
+  assert len(deep.grains) == len(plain.grains)
+  assert len(deep.grains[0]) == pytest.approx(len(plain.grains[0]) / 0.8, abs=2)
+  assert len(deep.samples['pop'][0]) == pytest.approx(len(plain.samples['pop'][0]) / 0.8, abs=2)
+  assert deep.longest > plain.longest
+
+
+def test_recorded_grains_load_and_a_missing_recording_falls_back_to_plain_pops(tmp_path):
+  grains = load_grains()
+  assert len(grains) == 62 and all(len(g) == int(GRAIN_SECONDS * 48000) for g in grains)
+  assert load_grains(tmp_path / 'missing.wav') == []
+  assert not Pops(1.0, 721.0, 6500.0, sample_rate=44100, burble=True).burble
+
+
+def test_a_low_rev_lift_burbles_then_rumbles_and_a_high_rev_lift_still_crackles():
+  pops = Pops(1.0, 721.0, 6500.0, burble=True)
+  run(pops, [(2300.0, 0.3)] * 100)
+  burst = run(pops, [(2300.0 - 2 * i, 0.0) for i in range(110)])
+  assert pops.window == 0.0 and np.abs(burst).max() > 0.05
+  run(pops, [(2000.0, 0.0)] * 15)
+  assert pops.burst == 0.0 and pops.rumble > 0.0
+  rumble = run(pops, [(2000.0, 0.0)] * 50)
+  assert 0.003 < np.sqrt(np.mean(rumble[4 * FRAMES:] ** 2)) < 0.03
+  assert not run(pops, [(2000.0, 0.0)] * 200)[-50 * FRAMES:].any()
+
+  high = Pops(1.0, 721.0, 6500.0, burble=True)
+  run(high, [(5500.0, 0.9)] * 100)
+  run(high, [(5500.0, 0.0)])
+  assert high.window > 0.0 and high.burst == 0.0
+
+
+def test_downshift_bursts_are_occasional_never_back_to_back_and_shrink():
+  first, lengths = 0, {1: set(), 2: set(), 3: set()}
+  for seed in range(300):
+    pops = Pops(1.0, 721.0, 6500.0, seed=seed, burble=True)
+    fired = []
+    for _ in range(8):
+      pops.burst = 0.0
+      before = pops.downshift_bursts
+      pops._downshift()
+      fired.append(pops.downshift_bursts > before)
+      if fired[-1]:
+        lengths[pops.downshift_bursts].add(round(pops.burst, 4))
+    assert not any(a and b for a, b in zip(fired, fired[1:], strict=False)) and sum(fired) <= 3
+    first += fired[0]
+  assert 0.2 < first / 300 < 0.4
+  assert lengths[1] == {0.35} and lengths[2] == {0.21} and lengths[3] == {0.126}
+
+
+def test_a_downshift_blip_in_burble_mode_never_fires_a_single_pop():
+  for seed in range(20):
+    pops = Pops(1.0, 721.0, 6500.0, seed=seed, burble=True)
+    run(pops, [(1400.0, 0.0)] * 50)
+    blip = run(pops, [(1400.0 + 60 * i, 0.0) for i in range(8)] + [(1880.0, 0.0)] * 60)
+    assert blip.any() == (pops.downshift_bursts == 1)

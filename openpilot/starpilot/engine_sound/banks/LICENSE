@@ -10,6 +10,11 @@ commit 85f7c3b959a908ed5232ede4f1a4ac7eafe6b630), recorded with tools/esrec:
   lfa          assets/engines/atg-video-2/10_lfa_v10.mr
   supra_turbo  assets/engines/atg-video-2/03_2jz.mr
 
+  bmw_m3       the bmw_m52 bank lowered again with tools/lower_bank.py --pitch 1.15 --bass 3 --treble -3 --off-mix 0
+               --off-mid 0
+  bmw_m3_deep  the bmw_m52 bank lowered again with tools/lower_bank.py --pitch 1.5 --bass 8 --treble -9 --off-mix 0
+               --off-mid 0
+
 From recordings of real cars supplied for this project, built with tools/bank_from_recording.py:
 
   hellcat      hellcat.wav: --cylinders 8 --anchor 14 700 --idle 10.5-17.5 --on 25-94 --off 94-119,
@@ -21,7 +26,17 @@ From recordings of real cars supplied for this project, built with tools/bank_fr
                comb (whether that is rpm/120 or rpm/60 cannot be told from the recording; the profile uses the same
                units, so the pitch is right either way), pinned with --anchor at every 0.25 s point whose comb
                measured clearly, --idle 18.6-19.6 --on 9-17 19.7-65 79.4-88.2 --off 9-17 65-71 74.2-76 79.4-88.2,
-               not equalised
+               then the recording's wind hiss lowered 18 dB between the engine orders (fading in from 500 Hz, full
+               from 1 kHz up) and equalised with tools/lower_bank.py --pitch 1.0 --bass 4 --treble -8 --off-mix 0
+               --off-mid 0
+  nissan_super_gt2 the same loops, hiss lowered the same way, equalised with tools/lower_bank.py --pitch 1.3 --bass 6
+               --treble -10 --off-mix 0 --off-mid 0
+
+turbo/blowoff.wav is the blow-off flutter from 11.89-14.45 s of flutter.wav, a recording supplied for this project,
+with the recording's own engine taken out from under it (high-passed at 180 Hz and its steady spectrum subtracted).
+
+pops/burble_grains.wav is the 62 pops of the two overrun bursts at 6.35-7.5 s and 9.85-11.3 s of burbles.wav, a
+recording supplied for this project: 52 ms from 2 ms before each pop, band-passed 100 Hz-20 kHz, each normalised.
 
 engine-sim is distributed under the following license:
 

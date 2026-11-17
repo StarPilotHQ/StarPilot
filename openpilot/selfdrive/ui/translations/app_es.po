@@ -23519,6 +23519,10 @@ msgid "BMW M3"
 msgstr "BMW M3"
 
 #: openpilot/starpilot/engine_sound/profiles.py
+msgid "BMW M3 Deep"
+msgstr "BMW M3 Deep"
+
+#: openpilot/starpilot/engine_sound/profiles.py
 msgid "BMW M52"
 msgstr "BMW M52"
 
@@ -23539,8 +23543,12 @@ msgid "Jaguar F-Type"
 msgstr "Jaguar F-Type"
 
 #: openpilot/starpilot/engine_sound/profiles.py
-msgid "Nissan Super GT"
-msgstr "Nissan Super GT"
+msgid "Nissan Super GT1"
+msgstr "Nissan Super GT1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Nissan Super GT2"
+msgstr "Nissan Super GT2"
 
 #: openpilot/starpilot/engine_sound/profiles.py
 msgid "Supra Turbo"
