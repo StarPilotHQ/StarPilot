@@ -168,27 +168,31 @@ def turn_assist_supported(CP) -> bool:
 
 
 def model_turn_assist_supported(CP) -> bool:
-  # GV70: same model-turn-assist package as Ioniq 6 (turn lead, curvature
-  # hold, twitch guard), with all ModelTurnAssist constants unchanged.
-  # GV70 keeps its own policy ('genesis_gv70_electrified'); this only
-  # widens the controlsd assist gate, it does not rename the policy.
+  # GV70: model-turn-assist package as Ioniq 6 (curvature hold, twitch
+  # guard), with all ModelTurnAssist constants unchanged; the GV70 does
+  # not apply the turn lead (see model_turn_assist_features) and instead
+  # gets the high-speed spatial preview. GV70 keeps its own policy
+  # ('genesis_gv70_electrified'); this only widens the controlsd assist
+  # gate, it does not rename the policy.
   return turn_assist_supported(CP) and policy_for(CP) in ('ioniq6', 'genesis_gv70_electrified')
 
 
 @dataclass(frozen=True)
 class ModelTurnAssistFeatures:
   supported: bool
-  lead_gate: bool
+  turn_lead: bool
   high_speed_preview: bool
 
 
 def model_turn_assist_features(CP) -> ModelTurnAssistFeatures:
-  # The turn-lead gate (near/onset/ratio checks, lead speed up to 9 m/s)
-  # and the high-speed spatial preview are enabled for the GV70 only;
-  # every other car, including the Ioniq 6, gets the base package.
-  gv70_gates = turn_assist_supported(CP) and policy_for(CP) == 'genesis_gv70_electrified'
-  return ModelTurnAssistFeatures(supported=model_turn_assist_supported(CP),
-                                 lead_gate=gv70_gates, high_speed_preview=gv70_gates)
+  # The turn lead is part of the base package (Ioniq 6). The GV70 does
+  # not apply it: with the blinker on at low speed it imported far-ahead
+  # curvature and started the turn too early. The GV70 instead gets the
+  # high-speed spatial preview; every other car takes the base path.
+  supported = model_turn_assist_supported(CP)
+  gv70 = supported and policy_for(CP) == 'genesis_gv70_electrified'
+  return ModelTurnAssistFeatures(supported=supported,
+                                 turn_lead=supported and not gv70, high_speed_preview=gv70)
 
 
 def default_selection(CP) -> ControllerSelection:

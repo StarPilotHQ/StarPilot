@@ -147,21 +147,6 @@ TURN_LEAD_ENGAGED_FRAC = 0.5
 TURN_LEAD_MODEL_OPPOSE = 0.003
 TURN_LEAD_STOP_MARGIN = 1.5
 TURN_LEAD_DECEL_GATE = -0.5
-# GV70-only turn-lead gate. All values below apply only when
-# ModelTurnAssist.gv70_lead_gate is set by controlsd for the
-# first-generation Electrified GV70; the Ioniq 6 path never reads them.
-# Rationale: with only the shared lead, a far probe ahead at an
-# intersection can be applied immediately while the near path is still
-# straight, starting the turn too early. The near/far fraction alone
-# does not separate that case, so check (a) is a same-sign + magnitude
-# floor, not a fraction; the separation comes from onset + ratio
-# jointly.
-GV70_TURN_LEAD_MAX_SPEED = 9.0
-GV70_LEAD_NEAR_PROBE_M = 4.0
-GV70_LEAD_NEAR_MIN = 0.010
-GV70_LEAD_ONSET_MAX_M = 8.0
-GV70_LEAD_RATIO_CAP = 2.0
-GV70_LEAD_RATCHET_RATE = 0.06
 # GV70-only high-speed preview. All values below apply only when
 # ModelTurnAssist.gv70_high_speed_preview is set by controlsd for the
 # first-generation Electrified GV70; every other car, including the
@@ -197,13 +182,12 @@ GV70_PREVIEW_RATCHET_RATE = 0.02
 
 class ModelTurnAssist:
 
-  def __init__(self, gv70_lead_gate: bool = False, gv70_high_speed_preview: bool = False):
-    self.gv70_lead_gate = gv70_lead_gate
+  def __init__(self, turn_lead: bool = True, gv70_high_speed_preview: bool = False):
+    self.turn_lead = turn_lead
     self.gv70_high_speed_preview = gv70_high_speed_preview
     self.reset()
 
   def reset(self):
-    self.gv70_lead_value = 0.0
     self.gv70_preview_value = 0.0
     self.turn_hold_curvature = 0.0
     self.turn_hold_standstill_t = 0.0
@@ -215,36 +199,6 @@ class ModelTurnAssist:
     self.output_curvature = None
     self.curvature = 0.0
     self.turn_hold_done = False
-
-  def _gv70_gate_lead(self, model_v2, lead_curvature, baseline_curvature):
-    """GV70-only lead gate: returns the lead curvature allowed this frame.
-
-    All three checks must pass, otherwise the baseline is returned
-    (no lead) and the ratchet state re-syncs to the baseline:
-      (a) near/far agreement: the 4 m circle curvature has the same
-          sign as the lead and |near| >= GV70_LEAD_NEAR_MIN;
-      (b) onset distance: the model path's turn onset is at or
-          below GV70_LEAD_ONSET_MAX_M;
-      (c) ratio cap + ratchet: |lead| is capped at GV70_LEAD_RATIO_CAP
-          times |baseline| and the applied lead value moves toward
-          the capped target at at most GV70_LEAD_RATCHET_RATE / s.
-    Never called when gv70_lead_gate is off (Ioniq 6 path).
-    """
-    near = _plan_circle_curvature(model_v2.position.x, model_v2.position.y, GV70_LEAD_NEAR_PROBE_M)
-    onset = get_plan_turn_onset_dist(model_v2)
-    if (lead_curvature == 0.0 or baseline_curvature == 0.0 or near * lead_curvature <= 0.0 or
-        abs(near) < GV70_LEAD_NEAR_MIN or onset > GV70_LEAD_ONSET_MAX_M):
-      self.gv70_lead_value = baseline_curvature
-      return baseline_curvature
-    capped = math.copysign(min(abs(lead_curvature), GV70_LEAD_RATIO_CAP * abs(baseline_curvature)), lead_curvature)
-    if capped * self.gv70_lead_value > 0.0 and abs(capped) <= abs(self.gv70_lead_value):
-      # Shrinking request: follow the target immediately, never
-      # retain an old (larger) lead force.
-      self.gv70_lead_value = capped
-    else:
-      step = GV70_LEAD_RATCHET_RATE * DT_CTRL
-      self.gv70_lead_value += min(max(capped - self.gv70_lead_value, -step), step)
-    return self.gv70_lead_value
 
   def _gv70_preview(self, CS, model_v2, CC, baseline_curvature, blinker_dir):
     """GV70-only high-speed preview: returns the desired curvature.
@@ -414,9 +368,8 @@ class ModelTurnAssist:
         hold_dir = math.copysign(1.0, self.turn_hold_curvature)
         if new_desired_curvature * hold_dir < abs(self.turn_hold_curvature):
           new_desired_curvature = self.turn_hold_curvature
-    lead_max_speed = GV70_TURN_LEAD_MAX_SPEED if self.gv70_lead_gate else TURN_LEAD_MAX_SPEED
-    if (CC.latActive and (blinker_dir != 0.0) and (model_v2.meta.laneChangeState == 0) and
-        (TURN_LEAD_MIN_SPEED <= CS.vEgo < lead_max_speed) and (new_desired_curvature * blinker_dir > -TURN_LEAD_MODEL_OPPOSE)):
+    if (self.turn_lead and CC.latActive and (blinker_dir != 0.0) and (model_v2.meta.laneChangeState == 0) and
+        (TURN_LEAD_MIN_SPEED <= CS.vEgo < TURN_LEAD_MAX_SPEED) and (new_desired_curvature * blinker_dir > -TURN_LEAD_MODEL_OPPOSE)):
       d_near = max(min(TURN_LEAD_T * CS.vEgo, TURN_LEAD_MAX_M), TURN_LEAD_MIN_M)
       turning = self.curvature * blinker_dir > CURVATURE_HOLD_CONFIRM_MIN
       stopping_short = not turning and CS.aEgo < TURN_LEAD_DECEL_GATE and CS.vEgo ** 2 / (2.0 * -CS.aEgo) < TURN_LEAD_STOP_MARGIN * d_near
@@ -427,8 +380,6 @@ class ModelTurnAssist:
         engaged_ratio = abs(self.curvature) / abs(lead_curvature)
         engage_w = min(max((1.0 - engaged_ratio) / (1.0 - TURN_LEAD_ENGAGED_FRAC), 0.0), 1.0)
         lead_curvature *= speed_w * engage_w
-        if self.gv70_lead_gate:
-          lead_curvature = self._gv70_gate_lead(model_v2, lead_curvature, new_desired_curvature)
         if lead_curvature * blinker_dir > max(new_desired_curvature * blinker_dir, 0.0):
           new_desired_curvature = lead_curvature
           if CS.vEgo < CURVATURE_HOLD_RELEASE_SPEED and (not self.turn_hold_done) and (lead_curvature * blinker_dir > abs(self.turn_hold_curvature)):

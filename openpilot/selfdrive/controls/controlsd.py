@@ -200,10 +200,9 @@ class Controls:
     assist_features = model_turn_assist_features(self.CP)
     assist_enabled = self.vehicle_startup_preferences.turn_assist and assist_features.supported
     self.turn_assist_enabled = lambda: assist_enabled
-    # Per-model feature gates, resolved by controller_selection: the
-    # turn-lead gate and the high-speed preview stay off for cars whose
-    # policy does not enable them.
-    self.model_turn_assist.gv70_lead_gate = bool(assist_enabled and assist_features.lead_gate)
+    # Per-model features, resolved by controller_selection: the turn
+    # lead and the high-speed preview follow each policy's feature set.
+    self.model_turn_assist.turn_lead = bool(assist_enabled and assist_features.turn_lead)
     self.model_turn_assist.gv70_high_speed_preview = bool(assist_enabled and assist_features.high_speed_preview)
 
   def _configure_route_tune(self, manual_status):
