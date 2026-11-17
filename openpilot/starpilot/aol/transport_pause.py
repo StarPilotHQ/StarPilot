@@ -245,8 +245,11 @@ class TransportPauseFeedback:
     # Require fresh LAT and all health/fault checks.
     ford_long = bool(ford_qualified(cp, marked_only=True) and cp.openpilotLongitudinalControl)
     from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
+    cancel_event_ns = int(sm.logMonoTime['onroadEvents'])
+    volkswagen_cancel = bool(0 < cancel_event_ns <= now_ns and now_ns - cancel_event_ns <= AXIS_MAX_AGE_NS and
+      any(event.name == log.OnroadEvent.EventName.buttonCancel and event.userDisable for event in sm['onroadEvents']))
     volkswagen_withdrawal = bool(volkswagen_long_qualified(cp, marked_only=True) and cs.cruiseState.available and
-      (physical_cancel(cs, cp) or not axis.desiredLongitudinal and not axis.longitudinalActive))
+      (physical_cancel(cs, cp) or volkswagen_cancel or not axis.desiredLongitudinal and not axis.longitudinalActive))
     early_long = gm or cp.brand == 'hyundai' and early_native_long_withdrawal_supported(cp) or ev9 or ford_withdrawal or ford_long or volkswagen_withdrawal
     from openpilot.starpilot.car.gm.aol import f1_conventional_lateral_owner, gm_physical_pedal_withdrawal
     gm_pedal = gm_physical_pedal_withdrawal(cp, cs) and not f1_conventional_lateral_owner(cp)
