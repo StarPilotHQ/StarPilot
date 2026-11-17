@@ -212,7 +212,8 @@ static void gm_hybrid_rx(const CANPacket_t *msg) {
               } else {
               }
               if (gm_hybrid_semantic_reset && (button == 1U)) { gm_hybrid_semantic_reset = false; }
-              if ((button == 5U) || (button == 6U)) { controls_allowed = false; }
+              // Hybrid pedal takeover uses physical Cancel only to stop stock cruise.
+              if ((button == 5U) || ((button == 6U) && !gm_hybrid_pedal)) { controls_allowed = false; }
               gm_hybrid_button = button; gm_hybrid_button_seen = true;
             }
           }
