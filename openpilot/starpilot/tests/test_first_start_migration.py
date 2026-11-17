@@ -76,6 +76,140 @@ class TestFirstStartMigration(unittest.TestCase):
     finally:
       owner.close()
 
+  def already_reset_history(self):
+    saved = {'GalaxyDashboardStats': {'version': 1, 'routes': {
+      'overlap': {'date': '2026-10-01T12:00:00+00:00', 'duration': 60, 'distanceMeters': 1000,
+                  'engagedSeconds': 30, 'model': 'Original', 'segmentCount': 1, 'analysisComplete': True},
+      'old-only': {'date': '2026-10-01T13:00:00+00:00', 'duration': 60, 'distanceMeters': 1000,
+                   'engagedSeconds': 30, 'model': 'Original', 'segmentCount': 1, 'analysisComplete': True}}},
+      'ApiCache_DriveStats': {'all': {'distance': 10, 'routes': 6, 'minutes': 30}}}
+    self.write({key: json.dumps(value).encode() for key, value in saved.items()} |
+               {'PrivateCredential': b'not-statistics', 'ForceStops': b'1'})
+    # The earlier reset captured raw archives but did not export dashboard data.
+    with patch.object(migration, '_save_dashboard_history'):
+      self.start()
+    self.assertFalse((self.storage / 'galaxy' / 'legacy-dashboard-stats.json').exists())
+    return next((self.storage / 'snapshots').iterdir())
+
+  def archive_bytes(self):
+    return {str(path.relative_to(self.storage)): path.read_bytes()
+            for path in (self.storage / 'snapshots').rglob('*') if path.is_file()}
+
+  def test_archived_history_backfills_mixed_dashboard_once_without_restoring_params(self):
+    from openpilot.starpilot.galaxy.drive_stats import DriveStatsOwner
+    self.already_reset_history()
+    archives = self.archive_bytes()
+    params_before = self.values()
+    store = self.storage / 'galaxy' / 'drive-stats.json'
+    current = DriveStatsOwner(root=self.root / 'logs', store=store, permitted=lambda: False)
+    overlap = {'routeId': 'overlap', 'startTime': 1790856000, 'endTime': 1790856080,
+               'distanceMeters': 1200., 'durationSeconds': 80., 'engagedSeconds': 50.,
+               'model': 'Reviewed Model', 'complete': True, 'ignored': False, 'segmentCount': 1,
+               'sourceSignature': 'current-source', 'analysisVersion': 9}
+    newer = dict(overlap, routeId='current-only', distanceMeters=2500., model='New Model')
+    current._records.update(overlap=overlap, **{'current-only': newer})
+    current._save()
+    current.close()
+    original_read = migration._read_value
+
+    def stats_only(path):
+      if path.parent.name == 'values':
+        self.assertIn(path.name, ('GalaxyDashboardStats', 'StarPilotStats', 'ApiCache_DriveStats'))
+      return original_read(path)
+
+    with patch.object(migration, '_read_value', side_effect=stats_only):
+      self.start()
+    self.assertEqual(self.values(), params_before)
+    self.assertEqual(self.archive_bytes(), archives)
+    restored = DriveStatsOwner(root=self.root / 'logs', store=store, permitted=lambda: False)
+    try:
+      self.assertEqual(restored._records['overlap'], overlap)
+      self.assertEqual(restored._records['current-only'], newer)
+      snapshot = restored.snapshot()
+      self.assertAlmostEqual(snapshot['totals']['distanceMeters'], 18793.44)
+      self.assertEqual(snapshot['totals']['drives'], 7)
+      self.assertEqual({m['name']: m['drives'] for m in snapshot['models']},
+                       {'Original': 1, 'Reviewed Model': 1, 'New Model': 1})
+    finally:
+      restored.close()
+    before = store.read_bytes()
+    self.start()
+    repeated = DriveStatsOwner(root=self.root / 'logs', store=store, permitted=lambda: False)
+    try:
+      self.assertEqual(store.read_bytes(), before)
+      self.assertEqual(repeated.snapshot()['totals'], snapshot['totals'])
+    finally:
+      repeated.close()
+    self.assertEqual(self.archive_bytes(), archives)
+
+  def test_backfill_skips_corrupt_newer_archive_and_leaves_both_untouched(self):
+    good = self.already_reset_history()
+    values = migration.load_snapshot(good)
+    values['GalaxyDashboardStats'] = json.dumps({'version': 1, 'routes': {}}).encode()
+    bad = migration._save_snapshot(values, self.storage / 'snapshots')
+    (bad / 'migration.json').write_bytes((good / 'migration.json').read_bytes())
+    (bad / 'migration.json').chmod(0o600)
+    (bad / 'values' / 'GalaxyDashboardStats').write_bytes(b'corrupt')
+    before = self.archive_bytes()
+    self.start()
+    recovered = json.loads((self.storage / 'galaxy' / 'legacy-dashboard-stats.json').read_bytes())
+    self.assertIn('old-only', recovered['params']['GalaxyDashboardStats']['routes'])
+    self.assertEqual(self.archive_bytes(), before)
+
+  def test_backfill_skips_hash_valid_malformed_stats_before_older_valid_history(self):
+    good = self.already_reset_history()
+    values = migration.load_snapshot(good)
+    values['GalaxyDashboardStats'] = b'{"version":1,"routes":[]}'
+    malformed = migration._save_snapshot(values, self.storage / 'snapshots')
+    (malformed / 'migration.json').write_bytes((good / 'migration.json').read_bytes())
+    (malformed / 'migration.json').chmod(0o600)
+    before = self.archive_bytes()
+    self.start()
+    recovered = json.loads((self.storage / 'galaxy' / 'legacy-dashboard-stats.json').read_bytes())
+    self.assertIn('old-only', recovered['params']['GalaxyDashboardStats']['routes'])
+    self.assertEqual(self.archive_bytes(), before)
+
+  def test_backfill_rejects_wrong_namespace_and_symlinked_values(self):
+    archive = self.already_reset_history()
+    receipt_path = archive / 'migration.json'
+    receipt = json.loads(receipt_path.read_bytes())
+    receipt['namespace'] = str(self.root / 'another-device' / 'd')
+    receipt_path.write_bytes(migration.canonical_json(receipt))
+    self.start()
+    destination = self.storage / 'galaxy' / 'legacy-dashboard-stats.json'
+    self.assertFalse(destination.exists())
+    receipt['namespace'] = str(self.namespace)
+    receipt_path.write_bytes(migration.canonical_json(receipt))
+    value = archive / 'values' / 'GalaxyDashboardStats'
+    other = self.root / 'outside-archive.json'
+    other.write_bytes(value.read_bytes())
+    value.unlink()
+    value.symlink_to(other)
+    self.start()
+    self.assertFalse(destination.exists())
+    self.assertTrue(value.is_symlink())
+    value.unlink()
+    value.write_bytes(other.read_bytes())
+    values = archive / 'values'
+    outside = self.root / 'outside-values'
+    values.rename(outside)
+    values.symlink_to(outside, target_is_directory=True)
+    self.start()
+    self.assertFalse(destination.exists())
+    self.assertTrue(values.is_symlink())
+
+  def test_backfill_never_replaces_existing_export_and_dry_run_never_recovers(self):
+    self.already_reset_history()
+    self.start(dry_run=True)
+    destination = self.storage / 'galaxy' / 'legacy-dashboard-stats.json'
+    self.assertFalse(destination.exists())
+    destination.parent.mkdir(mode=0o700)
+    destination.write_bytes(b'existing export')
+    before = self.archive_bytes()
+    self.start()
+    self.assertEqual(destination.read_bytes(), b'existing export')
+    self.assertEqual(self.archive_bytes(), before)
+
   def test_epoch_two_archives_settings_and_calibration_retains_only_operational_state(self):
     original = {'IsMetric': b'1', 'ForceStops': b'0', 'SteerFriction': b'0.123',
                 'SecOCKey': b'private\x00bytes', 'CalibrationParams': b'legacy calibration',
