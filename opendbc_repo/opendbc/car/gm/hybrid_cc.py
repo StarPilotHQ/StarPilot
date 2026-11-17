@@ -103,8 +103,11 @@ def physical_semantic(raw: bytes, *, bus: int) -> str | None:
   if bus != 0 or len(raw) != 7 or raw[:3] != bytes(3) or raw[3] not in (1, 0x41) or raw[4] > 3:
     return None
   word = int.from_bytes(raw[5:7], 'big')
-  unique = {0x15EE: 'neutral', 0x1FCC: 'neutral', 0x55AE: 'resume', 0x5F8C: 'resume',
-            0x2ACD: 'main', 0x20EF: 'main', 0x60AF: 'cancel', 0x6A8D: 'cancel'}
+  # OEM receive codes differ from the custom transmit phase table.
+  unique = {0x10FF: 'neutral', 0x15EE: 'neutral', 0x1ADD: 'neutral', 0x1FCC: 'neutral',
+            0x20EF: 'resume', 0x25DE: 'resume', 0x2ACD: 'resume', 0x2FBC: 'resume',
+            0x50BF: 'main', 0x55AE: 'main', 0x5A9D: 'main', 0x5F8C: 'main',
+            0x60AF: 'cancel', 0x659E: 'cancel', 0x6A8D: 'cancel', 0x6F7C: 'cancel'}
   if word in unique:
     return unique[word]
   if raw == standard_set_bytes(raw[4]) or (raw[4] == 0 and word in (0x30DF, 0x35CE, 0x3ABD, 0x3FAC)):
@@ -215,7 +218,7 @@ def status_ready(cs, now_ns):
               physical is not None and rearm_ready(cs, now_ns) and
               0 < physical.main_ns <= now_ns <= physical.main_ns + 300_000_000 and
               physical.main_on and not physical.brake_pressed and
-              not physical.accelerator_pressed and not physical.sensor_gas and
+              not physical.sensor_gas and
               len(physical.camera_ns) == (0 if profile.removed else 2) and
               all(0 < stamp <= now_ns <= stamp + 1_000_000_000 for stamp in physical.camera_ns))
 

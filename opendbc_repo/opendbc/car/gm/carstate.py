@@ -504,7 +504,10 @@ class CarState(CarStateBase):
         elif self.camera_pedal_profile is not None and self.camera_pedal_profile.longitudinal:
           ret.gasPressed = ret.gasPressed or first + second > 1190
         else:
-          ret.gasPressed = (125677 * first + 251976 * second > 198510000 if self.volt_cc_pedal_profile is not None else sum(tracks) / 2. > 23.0)
+          if self.volt_cc_pedal_profile is not None or self.hybrid_profile is not None:
+            ret.gasPressed = 125677 * first + 251976 * second > 198510000
+          else:
+            ret.gasPressed = sum(tracks) / 2. > 23.0
 
     ret.steeringAngleDeg = pt_cp.vl["PSCMSteeringAngle"]["SteeringWheelAngle"]
     ret.steeringRateDeg = pt_cp.vl["PSCMSteeringAngle"]["SteeringWheelRate"]

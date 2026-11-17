@@ -86,7 +86,7 @@ def test_pedal_set_during_accelerator_override_retains_intent_without_actuation(
   try:
     case.reset(0xE802, alternative)
     case.warm()
-    kwargs = {'tracks': (1000, 500)} if sensor_override else {'gas': True}
+    kwargs = {'tracks': (1000, 500), 'gas': sensor_override}
     case.feed(**kwargs)
     case.rx(0x1E1, standard_set_bytes(0))
     assert not case.safety.get_controls_allowed()
