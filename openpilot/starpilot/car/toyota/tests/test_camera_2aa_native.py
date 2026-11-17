@@ -52,7 +52,9 @@ def test_native_camera_sources_limits_and_identity(stock, experience):
   assert safety.aol_get_permission_mask() == ((1 if stock else 3) if experience else 0)
   assert tx('STEERING_LKA', {'STEER_REQUEST': 1, 'STEER_TORQUE_CMD': 3})
   assert tx('ACC_CONTROL', {'ACCEL_CMD': 0.1}) == (not stock)
-  for accel in (-3.501, 2.001):
+  for accel in (-3.5, 2.001, 3.5):
+    assert tx('ACC_CONTROL', {'ACCEL_CMD': accel}) == (not stock)
+  for accel in (-3.501, 3.501):
     assert not tx('ACC_CONTROL', {'ACCEL_CMD': accel})
   for values in ({'STEER_REQUEST': 1}, {'STEER_REQUEST_2': 1}, {'STEER_ANGLE_CMD': 0.1}, {'TORQUE_WIND_DOWN': 100}):
     assert not tx('STEERING_LTA', values)
