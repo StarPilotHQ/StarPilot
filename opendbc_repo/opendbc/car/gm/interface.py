@@ -100,23 +100,20 @@ def get_nonlinear_torque_params(car_fingerprint):
 # --- Envision-only dynamic siglin torque tuning ---------------------------
 # Envision schedules the (a, b, c, d) siglin coefficients by vehicle speed
 # instead of using the single static set in NON_LINEAR_TORQUE_PARAMS above.
-# Low speed raises b (torque ceiling) and c (linear slope) to overcome EPS
-# resistance during tight 90-degree turns; high speed softens both to avoid
-# over-torque. The static entry for CAR.BUICK_ENVISION_SDGM is kept in
-# NON_LINEAR_TORQUE_PARAMS as a fallback for tests / external callers of
-# get_lataccel_torque_siglin(); the real runtime path uses the schedule below.
+# Low speed raises b (torque ceiling) to overcome EPS resistance during tight
+# 90-degree turns, while high speed softens b to prevent over-torque.
+# Center damping is handled symmetrically in LatControlTorque rather than
+# attenuating the linear term here, preserving exact forward/inverse symmetry
+# and smooth initial breakaway torque across the zero-crossing deadzone.
+# The static entry for CAR.BUICK_ENVISION_SDGM is kept in NON_LINEAR_TORQUE_PARAMS
+# as a fallback for tests / external callers of get_lataccel_torque_siglin();
+# the real runtime path uses the schedule below.
 
 ENVISION_SPEED_BP = [6.7, 13.4, 20.1, 29.1]  # m/s (~24/48/72/105 km/h)
 ENVISION_A_V = [2.4, 2.4, 2.4, 2.4]
 ENVISION_B_V = [0.98, 0.98, 0.95, 0.95]      # raised at low speed for 90° turns
 ENVISION_C_V = [0.18, 0.19, 0.20, 0.20]
 ENVISION_D_V = [0.0, 0.0, 0.0, 0.0]
-
-# Center fade: silence the linear term near |lat_accel| = 0 so straight-line
-# steering-wheel noise is not amplified. Fading (rather than hard-gating)
-# keeps the slope continuous at the boundary.
-ENVISION_C_FADE_LAT_ACCEL_BP = [0.0, 0.2]  # m/s^2
-ENVISION_C_FADE_V = [0.0, 1.0]
 
 # vEgo low-pass used to schedule the dynamic map. CarInterface.update runs
 # at ~100 Hz => dt = 0.01 s; choosing tau = 0.5 s gives alpha = dt/(tau+dt)
@@ -292,11 +289,10 @@ class CarInterface(CarInterfaceBase):
         sig_input = a * lateral_acceleration
         sig = np.sign(sig_input) * (1 / (1 + np.exp(-np.abs(sig_input))) - 0.5)
 
-        # This completely cuts off the high-frequency noise amplification near the center,
-        # without creating any step discontinuities (no slope jumps).
-        c_fade = np.interp(abs(lateral_acceleration), ENVISION_C_FADE_LAT_ACCEL_BP, ENVISION_C_FADE_V)
-
-        steer_torque = sig * b + lateral_acceleration * c * c_fade + d
+        # Keep the full linear term across all lateral accelerations so the
+        # forward map matches lateral_accel_from_torque_envision() symmetrically
+        # and provides clean breakaway slope through the EPS friction band.
+        steer_torque = sig * b + lateral_acceleration * c + d
         return float(steer_torque)
       return torque_from_lateral_accel_envision
 
