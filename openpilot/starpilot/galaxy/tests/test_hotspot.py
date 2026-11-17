@@ -456,3 +456,21 @@ def test_netlink_new_interface_payloads():
   wireless.create('aa0', iftype=2)
   station = attribute(1, struct.pack('I', 0)) + attribute(4, b'aa0\0') + attribute(5, struct.pack('I', 2))
   wireless.query.assert_called_with(22, 7, station, ack=True)
+
+
+def test_a_pause_request_expires_on_its_own_and_a_bad_file_never_pauses(tmp_path):
+  from openpilot.starpilot.galaxy import hotspot
+  path, now = tmp_path / 'pause.json', [100.0]
+  assert not hotspot.paused(path, lambda: now[0])
+  hotspot.request_pause(30, path, lambda: now[0])
+  assert hotspot.paused(path, lambda: now[0])
+  now[0] += 31
+  assert not hotspot.paused(path, lambda: now[0])
+  hotspot.request_pause(10_000, path, lambda: now[0])
+  now[0] += hotspot.MAX_PAUSE_S + 1
+  assert not hotspot.paused(path, lambda: now[0])
+  path.write_text('{"until": 1e18}')
+  assert not hotspot.paused(path, lambda: now[0])  # a stale or forged file cannot hold the hotspot down
+  hotspot.clear_pause(path)
+  hotspot.clear_pause(path)
+  assert not path.exists()

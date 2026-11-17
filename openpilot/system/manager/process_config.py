@@ -192,6 +192,8 @@ procs = [
     enabled=COMMA_HARDWARE and not os.environ.get('OPENPILOT_PREFIX'),
     restart_on_exit=True,
   ),
+  PythonProcess("netwatchd", "openpilot.starpilot.system.netwatch", galaxy_local,
+                enabled=COMMA_HARDWARE and not os.environ.get('OPENPILOT_PREFIX'), restart_on_exit=True),
   PythonProcess(
     "companion_uplink",
     "openpilot.starpilot.galaxy.companion_uplink_daemon",

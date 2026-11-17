@@ -19,6 +19,8 @@ MAX_LINE = 300
 SIDECAR_SUFFIX = ".system.json"
 QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 SSID = re.compile(r"(?i)\b(e?ssid)\b[=: ]+\S+")
+FIRMWARE = re.compile(r"subsys-restart|failure reason|Root PD|icnss: (PD service down|QMI Service Disconnected)")
+MAX_FIRMWARE_LINES = 40
 
 
 def _timestamp(value: float) -> str:
@@ -53,6 +55,12 @@ def _lines(data: bytes) -> list[str]:
   return [line for line in text.splitlines() if line.strip()][-MAX_LINES:]
 
 
+def firmware_lines(data: bytes) -> list[str]:
+  """Wi-Fi and modem firmware restart lines from the whole kernel window, kept apart from the newest-lines cap."""
+  text = system_snapshot.redact(data).decode("utf-8", errors="replace")
+  return [line[:MAX_LINE] for line in text.splitlines() if FIRMWARE.search(line)][:MAX_FIRMWARE_LINES]
+
+
 def collect(start: float, end: float, *, collector=system_snapshot.collect) -> dict:
   """The slice for [start, end] (epoch seconds), each source as {"lines": [...]} or {"error": ...}."""
   files = collector(start, DEADLINE_S, command_set=commands(start, end))
@@ -72,6 +80,9 @@ def collect(start: float, end: float, *, collector=system_snapshot.collect) -> d
   proc = files.get("proc.txt")
   if proc:
     result["sources"]["proc"] = {"lines": _lines(proc)}
+  firmware = firmware_lines(files.get("kernel", b""))
+  if firmware:
+    result["sources"]["firmware"] = {"lines": firmware}
   return result
 
 
@@ -80,11 +91,17 @@ def sidecar_path(log_path: Path, tag: str = "") -> Path:
   return log_path.with_name(f"session-{match[1] if match else log_path.stem}{tag}{SIDECAR_SUFFIX}")
 
 
-def write_sidecar(log_path: Path, start: float, end: float, *, collector=system_snapshot.collect, tag: str = "") -> None:
+def write_sidecar(log_path: Path, start: float, end: float, *, collector=system_snapshot.collect, tag: str = "",
+                  on_firmware=None) -> None:
   """Capture the window and save it beside the session log; never raises."""
   try:
     path = sidecar_path(log_path, tag)
-    text = json.dumps(collect(start, end, collector=collector))
+    captured = collect(start, end, collector=collector)
+    firmware = captured["sources"].get("firmware", {}).get("lines", [])
+    if firmware and on_firmware is not None:
+      reason = next((line.split("failure reason", 1)[1].strip(" :") for line in firmware if "failure reason" in line), "")
+      on_firmware(len(firmware), reason[:200])
+    text = json.dumps(captured)
     temporary = path.with_name(path.name + ".tmp")
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as handle:
@@ -94,8 +111,9 @@ def write_sidecar(log_path: Path, start: float, end: float, *, collector=system_
     pass
 
 
-def write_sidecar_async(log_path: Path, start: float, end: float, tag: str = "") -> threading.Thread:
-  thread = threading.Thread(target=write_sidecar, args=(log_path, start, end), kwargs={"tag": tag}, name="aa_system_slice", daemon=True)
+def write_sidecar_async(log_path: Path, start: float, end: float, tag: str = "", on_firmware=None) -> threading.Thread:
+  thread = threading.Thread(target=write_sidecar, args=(log_path, start, end), kwargs={"tag": tag, "on_firmware": on_firmware},
+                            name="aa_system_slice", daemon=True)
   thread.start()
   return thread
 

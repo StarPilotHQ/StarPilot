@@ -73,6 +73,7 @@ export const ONROAD_LAYOUT_TEMPLATE = `
               <svg ref="preview" class="gx-layout__preview" :style="{'--layout-glow': state.profile === 'compact' ? '4px' : '14px'}" :viewBox="'0 0 ' + profile.width + ' ' + profile.height" :width="profile.width" :height="profile.height"
                 @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag"
                 role="group" :aria-label="projection ? 'StarPort layout preview' : (state.profile === 'large' ? 'Big' : 'Small') + ' layout preview'">
+                <g id="gx-layout-stage">
                 <image v-if="nativeBackdropReady" :href="state.backdrop.url" :width="profile.width" :height="profile.height" preserveAspectRatio="none" data-preview-source="device-backdrop" />
                 <template v-else>
                 <rect width="100%" height="100%" fill="#252b32" />
@@ -160,8 +161,12 @@ export const ONROAD_LAYOUT_TEMPLATE = `
                     :y1="guide.axis === 'y' ? guide.value : 0" :y2="guide.axis === 'y' ? guide.value : profile.height" vector-effect="non-scaling-stroke" />
                 </g>
                 <rect v-if="state.showEditingAids && selectionBox" class="gx-layout__outline" :x="selectionBox.x" :y="selectionBox.y" :width="selectionBox.width" :height="selectionBox.height" rx="4" fill="none" stroke="#d4baff" stroke-width="2" vector-effect="non-scaling-stroke" />
+                </g>
               </svg>
               </div>
+              <Teleport to="body"><div v-if="loupe" class="gx-layout__loupe" aria-hidden="true" :style="loupe.style">
+                <svg :viewBox="loupe.viewBox" preserveAspectRatio="xMidYMid meet"><use href="#gx-layout-stage" /></svg>
+              </div></Teleport>
               <!-- The Small screen is too short to carry the chip over the layout; it sits underneath instead. -->
               <span v-if="!projection && state.showFavoriteZones && state.showEditingAids && state.profile === 'compact'" class="gx-layout__stage-chip gx-layout__stage-chip--below" aria-hidden="true"><i class="bi bi-grid-3x3-gap"></i>Tap areas</span>
               <GxCollapse><div v-show="state.tipsOpen" id="gx-layout-tips" class="gx-layout__tips">

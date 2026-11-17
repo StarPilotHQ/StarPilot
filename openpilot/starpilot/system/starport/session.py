@@ -102,6 +102,8 @@ CODEC_NAMES = {3: "H.264", 5: "VP9", 6: "AV1", 7: "H.265"}
 # kind and then every hundredth, so a head unit repeating one cannot flood the session log.
 IGNORED_LOG_FIRST = 5
 IGNORED_LOG_EVERY = 100
+INPUT_LOG_FIRST = 20
+INPUT_LOG_EVERY = 100
 FRAME_RATES = {1: 60, 2: 30}
 # Software H.264 on the comma is the constraint: prefer 720p, then 480p. 1080p
 # is accepted only when nothing smaller is offered.
@@ -797,6 +799,9 @@ class ProjectionSession(Session):
     """Open the touch/key channel so input is acknowledged; failures are not fatal."""
     inputs = [ch for ch in self.channels if ch.get("input")]
     channel = next((ch for ch in inputs if ch.get("display_id") in (None, 0)), inputs[0] if inputs else None)
+    self.event("input_channels", channels=[{"channel": ch["id"], "display_id": ch.get("display_id"),
+                                           "config": str(ch.get("input_config") or InputConfig())} for ch in inputs],
+               selected=channel["id"] if channel is not None else None)
     if channel is None:
       return
     try:
@@ -812,9 +817,14 @@ class ProjectionSession(Session):
         self.touch = TouchMapper(config, self.mode.width, self.mode.height, self.mode.margin_width, self.mode.margin_height,
                                  content_left=self.mode.content_left, content_top=self.mode.content_top)
       self.event("input_opened", channel=channel["id"], keycodes=list(config.keycodes),
-                 touch=f"{config.touch_width}x{config.touch_height}")
+                 touch=f"{config.touch_width}x{config.touch_height}", display_id=channel.get("display_id"),
+                 mapping={"touch_width": self.touch.touch_width, "touch_height": self.touch.touch_height,
+                          "video_width": self.touch.video_width, "video_height": self.touch.video_height,
+                          "content_left": self.touch.left, "content_top": self.touch.top,
+                          "content_width": self.touch.content_width, "content_height": self.touch.content_height,
+                          "content_space": self.touch.content_space} if self.touch is not None else None)
     except (TimeoutError, ValueError) as error:
-      self.event("input_unavailable", error=str(error))
+      self.event("input_unavailable", channel=channel["id"], error=str(error))
 
   def _open_optional(self, channel: dict, name: str) -> bool:
     try:
@@ -968,21 +978,31 @@ class ProjectionSession(Session):
     elif channel == self.input_channel:
       if kind == INPUT_EVENT:
         self.input_events += 1
+        mapped = []
+        disposition = "no_mapper" if self.touch is None else "unfocused" if not self.focused else "no_touch_event"
         if self.touch is not None and self.focused:
           try:
-            self.touch_events.extend(self.touch.decode(data))
+            mapped = self.touch.decode(data)
+            self.touch_events.extend(mapped)
+            if mapped:
+              disposition = "queued"
           except ValueError as error:
-            self.event("input_invalid", error=str(error))
+            disposition = "invalid"
+            self.event("input_invalid", channel=channel, kind=kind, error=str(error))
+        if self.input_events <= INPUT_LOG_FIRST or self.input_events % INPUT_LOG_EVERY == 0:
+          self.event("input_event", channel=channel, kind=kind, count=self.input_events, bytes=len(data),
+                     focused=self.focused, disposition=disposition, message=describe(data),
+                     mapped=[{"kind": event.kind, "x": round(event.x, 5), "y": round(event.y, 5)} for event in mapped])
         # The driver may be on the car's own screen while Android Auto plays the music.
         try:
           for action in self.keys.decode(data):
-            self.event("media_key", action=action)
+            self.event("media_key", channel=channel, action=action)
             if self.media_control is not None:
               self.media_control(action)
         except ValueError as error:
-          self.event("input_invalid", error=str(error))
+          self.event("input_invalid", channel=channel, kind=kind, error=str(error))
       elif kind == INPUT_BINDING_RESPONSE:
-        self.event("input_bound", status=signed(one(fields, 1, 0)))
+        self.event("input_bound", channel=channel, status=signed(one(fields, 1, 0)))
       else:
         self.ignored("input_ignored", channel, kind, data)
     elif channel is not None and channel == self.sensor_channel:

@@ -1266,11 +1266,100 @@ def test_autoconnect_stays_on_when_recovery_marker_cannot_be_written(tmp_path, m
   assert not lease.autoconnect_paused and changes == []
 
 
+class RejoinNM:
+  def __init__(self, state=30, autoconnect=True, available=("/settings/home",)):
+    self.state, self.autoconnect, self.available = state, autoconnect, list(available)
+    self.activated = []
+    self.refuse = False
+
+  def install(self, monkeypatch, network):
+    monkeypatch.setattr(network.NetworkLease, "_wifi_devices", lambda lease: [("/dev/wlan0", "wlan0")])
+    props = {"Autoconnect": lambda: self.autoconnect, "State": lambda: self.state, "AvailableConnections": lambda: self.available}
+    monkeypatch.setattr(network.NetworkLease, "_get", lambda lease, path, interface, name: props[name]())
+    def call(lease, path, interface, member, signature=None, body=(), timeout=10.0):
+      self.activated.append((member, body))
+      if self.refuse:
+        raise network.NetworkError("No connection with that path")
+    monkeypatch.setattr(network.NetworkLease, "_call", call)
+
+
+def rejoin_marker(tmp_path, network, connections=("/settings/home",), boot=None):
+  marker = tmp_path / "rejoin.json"
+  marker.write_text(json.dumps({"interface": "wlan0", "boot": boot or network._boot_id(), "connections": list(connections)}))
+  return marker
+
+
+def test_rejoin_reactivates_the_network_a_hold_interrupted(tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  nm, log = RejoinNM(), []
+  nm.install(monkeypatch, network)
+  marker = rejoin_marker(tmp_path, network)
+  assert network.rejoin_interrupted(lambda event, **fields: log.append(event), marker)
+  assert nm.activated == [("ActivateConnection", ("/settings/home", "/dev/wlan0", "/"))] and not marker.exists()
+  assert log == ["wifi_rejoined"]
+
+
+@pytest.mark.parametrize("nm", [RejoinNM(state=100), RejoinNM(state=50), RejoinNM(autoconnect=False), RejoinNM(available=())],
+                         ids=["connected", "joining", "held", "out_of_range"])
+def test_rejoin_waits_until_wlan0_is_idle_and_the_network_is_in_range(tmp_path, monkeypatch, nm):
+  from openpilot.starpilot.system.starport import network
+  nm.install(monkeypatch, network)
+  marker = rejoin_marker(tmp_path, network)
+  assert not network.rejoin_interrupted(lambda *a, **k: None, marker)
+  assert nm.activated == [] and marker.exists()
+
+
+def test_rejoin_prefers_the_latest_interrupted_network(tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  nm = RejoinNM(available=("/settings/hotspot", "/settings/home"))
+  nm.install(monkeypatch, network)
+  marker = rejoin_marker(tmp_path, network, connections=("/settings/hotspot", "/settings/home"))
+  assert not network.rejoin_interrupted(lambda *a, **k: None, marker)
+  assert nm.activated == [("ActivateConnection", ("/settings/home", "/dev/wlan0", "/"))]
+  assert json.loads(marker.read_text())["connections"] == ["/settings/hotspot"]
+
+
+def test_rejoin_gives_up_on_a_network_after_two_refused_joins(tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  nm = RejoinNM()
+  nm.refuse = True
+  nm.install(monkeypatch, network)
+  marker = rejoin_marker(tmp_path, network)
+  assert not network.rejoin_interrupted(lambda *a, **k: None, marker)
+  assert marker.exists()
+  assert network.rejoin_interrupted(lambda *a, **k: None, marker)
+  assert len(nm.activated) == 2 and not marker.exists()
+
+
+def test_rejoin_keeps_waiting_while_networkmanager_is_unavailable(tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  nm = RejoinNM()
+  nm.install(monkeypatch, network)
+
+  def unavailable(lease):
+    raise network.NetworkError("NetworkManager is not running")
+  monkeypatch.setattr(network.NetworkLease, "_wifi_devices", unavailable)
+  marker = rejoin_marker(tmp_path, network)
+  for _ in range(3):
+    assert not network.rejoin_interrupted(lambda *a, **k: None, marker)
+  assert marker.exists() and "failures" not in json.loads(marker.read_text())
+
+
+def test_rejoin_is_dropped_after_a_reboot(tmp_path, monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  nm = RejoinNM()
+  nm.install(monkeypatch, network)
+  marker = rejoin_marker(tmp_path, network, boot="an earlier boot")
+  assert network.rejoin_interrupted(lambda *a, **k: None, marker)
+  assert nm.activated == [] and not marker.exists()
+
+
 def test_supervisor_retries_wifi_recovery_while_idle(monkeypatch):
   from openpilot.starpilot.system.starport import network, supervisor
   results = [False, True]
   calls = []
   monkeypatch.setattr(network, "recover_autoconnect", lambda log: calls.append(1) or results.pop(0))
+  monkeypatch.setattr(network, "rejoin_interrupted", lambda log: True)
   sup = supervisor.Supervisor.__new__(supervisor.Supervisor)
   sup.log, sup._wifi_recover_at = (lambda *a, **k: None), 0.0  # ty: ignore[invalid-assignment]  # test double
   sup._session_alive = lambda: False  # ty: ignore[invalid-assignment]  # test double
@@ -1328,3 +1417,66 @@ def test_discovery_waits_past_the_message_timeout_for_a_slow_adapter():
     sender.join()
     a.close()
     b.close()
+
+
+def test_drive_join_picks_the_best_allowed_network_and_re_pauses_auto_join(monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  profiles = {"/settings/home": {"uuid": ("s", "home"), "autoconnect-priority": ("i", 2)},
+              "/settings/phone": {"uuid": ("s", "phone"), "autoconnect-priority": ("i", 5)},
+              "/settings/off": {"uuid": ("s", "off"), "autoconnect": ("b", False), "autoconnect-priority": ("i", 9)},
+              "/settings/car": {"uuid": ("s", "car"), "id": ("s", network.CONNECTION_ID)}}
+  state, calls, sets, order = [30], [], [], []
+  monkeypatch.setattr(network.NetworkLease, "_wifi_devices", lambda lease: [("/dev/wlan0", "wlan0")])
+  props = {"State": lambda: state[0], "AvailableConnections": lambda: list(profiles)}
+  monkeypatch.setattr(network.NetworkLease, "_get", lambda lease, path, interface, name: props[name]())
+  def call(lease, path, interface, member, signature=None, body=(), timeout=10.0):
+    if member == "GetSettings":
+      return ({"connection": profiles[path]},)
+    calls.append(body)
+    state[0] = 100
+  monkeypatch.setattr(network.NetworkLease, "_call", call)
+  monkeypatch.setattr(network.NetworkLease, "_set", lambda lease, *args: sets.append(args[2:]))
+  monkeypatch.setattr(network.time, "sleep", lambda _s: None)
+  lease = network.NetworkLease(lambda *a, **k: None, "wlan0")
+  lease.autoconnect_paused = True
+  outcome = lease.drive_join(lambda uuid: uuid != "phone", before=lambda: order.append("pause") or True, after=lambda: order.append("resume"))
+  assert outcome == "joined" and calls == [("/settings/home", "/dev/wlan0", "/")] and order == ["pause", "resume"]
+  assert sets == [("Autoconnect", "b", False)]
+  state[0], calls[:] = 30, []
+  assert lease.drive_join(lambda uuid: False) == "none" and calls == []
+  state[0] = 50
+  assert lease.drive_join(lambda uuid: True) == "none" and calls == []
+
+
+@pytest.mark.parametrize("states", [(120,), (40, 120), (40, 30)])
+def test_drive_join_resumes_hotspot_promptly_after_failure(monkeypatch, states):
+  from openpilot.starpilot.system.starport import network
+  now, reads, order, sets = [0.0], [0], [], []
+
+  def get(lease, path, interface, name):
+    if name == "AvailableConnections":
+      return ["/settings/home"]
+    reads[0] += 1
+    return network.DEVICE_STATE_DISCONNECTED if reads[0] == 1 else states[min(reads[0] - 2, len(states) - 1)]
+
+  def call(lease, path, interface, member, *args):
+    if member == "GetSettings":
+      return ({"connection": {"uuid": ("s", "home")}},)
+
+  monkeypatch.setattr(network.NetworkLease, "_get", get)
+  monkeypatch.setattr(network.NetworkLease, "_call", call)
+  monkeypatch.setattr(network.NetworkLease, "_set", lambda lease, *args: sets.append(args[2:]))
+  monkeypatch.setattr(network.time, "monotonic", lambda: now[0])
+  monkeypatch.setattr(network.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+  lease = network.NetworkLease(lambda *a, **k: None, "wlan0")
+  lease.device_path = "/dev/wlan0"
+  lease.autoconnect_paused = True
+
+  result = lease.drive_join(lambda uuid: True, before=lambda: order.append("pause") or True,
+                            after=lambda: order.append("resume"))
+
+  assert result == "failed"
+  assert now[0] == len(states) * 0.25
+  assert reads[0] == len(states) + 1
+  assert order == ["pause", "resume"]
+  assert sets == [("Autoconnect", "b", False)]

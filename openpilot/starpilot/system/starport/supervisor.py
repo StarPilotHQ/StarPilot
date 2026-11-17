@@ -289,7 +289,7 @@ class SharedRadioWatch:
     self.counter = counter or Path(f"/sys/class/net/{interface}/carrier_changes")
     self.carrier = carrier or Path(f"/sys/class/net/{interface}/carrier")
     self.on_down = on_down  # the other network was lost, not just roamed
-    self.on_stall = on_stall  # the car's acks stopped after a change
+    self.on_stall = on_stall  # the car's acks stopped after a change that has not connected yet
     self.changed_at: float | None = None
     self._stop = threading.Event()
     self._thread = threading.Thread(target=self._run, name="aa_radio_watch", daemon=True)
@@ -329,6 +329,11 @@ class SharedRadioWatch:
           self.log("other_wifi_hold_failed", error=str(error) or type(error).__name__)
 
   def stalled(self) -> None:
+    # A join that already connected has only its address left. Stopping it there lost the hotspot and still
+    # dropped the car on 2026-11-16, while a joined hotspot then streamed alongside the car for minutes.
+    if self._carrier():
+      self.log("other_wifi_join_kept", interface=self.interface)
+      return
     if self.on_stall is not None:
       self.on_stall()
 
@@ -415,7 +420,8 @@ class EventLog:
     """Save the last seconds of device logs now; the session's own capture keeps only its newest lines."""
     if self.path is not None:
       now = datetime.now(UTC).timestamp()
-      system_slice.write_sidecar_async(self.path, now - STALL_CAPTURE_S, now, tag=".stall")
+      system_slice.write_sidecar_async(self.path, now - STALL_CAPTURE_S, now, tag=".stall",
+                                       on_firmware=lambda lines, reason: self("wifi_firmware_restart", lines=lines, reason=reason))
 
   def _line(self, record: dict) -> str:
     return json.dumps(record, default=str) + "\n"
@@ -1878,13 +1884,13 @@ class Supervisor:
       raise errors[0]
 
   def recover_wifi(self, now: float | None = None) -> None:
-    """Turn wlan0 autoconnect back on if a session paused it and crashed. Retried while idle until it works."""
+    """Turn wlan0 autoconnect back on and rejoin a network a session stopped. Retried while idle until done."""
     now = time.monotonic() if now is None else now
     if now < self._wifi_recover_at or self._session_alive():
       return
-    from openpilot.starpilot.system.starport.network import recover_autoconnect
+    from openpilot.starpilot.system.starport import network
     try:
-      done = recover_autoconnect(self.log)
+      done = network.recover_autoconnect(self.log) and network.rejoin_interrupted(self.log)
     except Exception as error:
       self.log("wifi_autoconnect_recover_failed", error=str(error))
       done = False
@@ -2123,6 +2129,8 @@ class Supervisor:
                                on_stall=getattr(lease, "stop_home_join", None)).start()
       session.radio_change = radio.recent
       session.radio_stalled = radio.stalled
+      if not radio._carrier() and getattr(lease, "hold_home_wifi", None) is not None:
+        lease.hold_home_wifi()  # wlan0 is not on a network: it joins one under StarPort's control, not by itself
     try:
       from openpilot.starpilot.system.starport.media_audio import MediaAudio, music_control
       from openpilot.starpilot.system.starport.media_status import MediaStatus

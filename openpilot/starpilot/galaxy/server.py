@@ -124,6 +124,16 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         hotspot_source = HotspotSettings()
     return hotspot_source
 
+  network_source = None
+
+  def network_owner():
+    nonlocal network_source
+    with hotspot_source_lock:
+      if network_source is None:
+        from openpilot.starpilot.galaxy.network_prefs import NetworkSettings
+        network_source = NetworkSettings()
+    return network_source
+
   def cloud_status():
     from openpilot.starpilot.connect.provider import status
     return cloud.status() if cloud is not None else status()
@@ -856,6 +866,16 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           result = hotspot_owner().snapshot(parked())
         except (OSError, ValueError):
           self.json(503, {'error': 'Hotspot settings are unavailable.'})
+        else:
+          if self.require_session():
+            self.json(200, result)
+      elif path == '/api/galaxy/networks':
+        if not self.require_session():
+          return
+        try:
+          result = network_owner().snapshot(parked())
+        except (OSError, ValueError):
+          self.json(503, {'error': 'Network settings are unavailable.'})
         else:
           if self.require_session():
             self.json(200, result)
@@ -1706,7 +1726,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/settings/reset-default', '/api/settings/restore', '/api/recordings/action',
                       '/api/replay/start', '/api/replay/control', '/api/replay/stop',
                       '/api/replay/export-start',
-                      '/api/galaxy/pair', '/api/galaxy/unpair', '/api/galaxy/device-name', '/api/galaxy/hotspot',
+                      '/api/galaxy/pair', '/api/galaxy/unpair', '/api/galaxy/device-name', '/api/galaxy/hotspot', '/api/galaxy/networks',
                       '/api/cameras/snapshot', '/api/cameras/white-balance',
                       '/api/starport/layout', '/api/starport/enable', '/api/starport/control', '/api/starport/pairing',
                       '/api/starport/logs/send',
@@ -1810,6 +1830,27 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(400, {'error': str(error)})
         except OSError:
           self.json(503, {'error': 'Companion settings unavailable'})
+        else:
+          self.json(200, result)
+        return
+      if path == '/api/galaxy/networks':
+        identity = self.settings_session()
+        if identity is None:
+          self.json(401, {'error': 'Sign in to Galaxy'})
+          return
+        try:
+          from openpilot.starpilot.galaxy.network_prefs import via_hotspot
+          with effect_lock:
+            result = network_owner().apply(payload, lambda: self.settings_session() == identity and parked(),
+                                           background=via_hotspot(self.client_address[0]))
+        except PermissionError:
+          self.json(409, {'error': 'Park before changing network settings.'})
+        except FileExistsError as error:
+          self.json(409, {'error': str(error)})
+        except ValueError as error:
+          self.json(400, {'error': str(error)})
+        except OSError:
+          self.json(503, {'error': 'Network settings are unavailable.'})
         else:
           self.json(200, result)
         return
