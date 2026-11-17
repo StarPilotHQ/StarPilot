@@ -132,7 +132,7 @@ class TouchMapper:
       if isinstance(raw, bytes):
         loc = parse_fields(raw)
         locations.append((int(one(loc, 3, 0) or 0), int(one(loc, 1, 0) or 0), int(one(loc, 2, 0) or 0)))
-    action = one(fields, 3, ACTION_DRAG)
+    action = one(fields, 3, ACTION_PRESS)
     index = int(one(fields, 2, 0) or 0)
     if not locations:
       return []
