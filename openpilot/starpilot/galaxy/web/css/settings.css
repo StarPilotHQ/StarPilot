@@ -914,12 +914,13 @@ html.gx-maker-open, html.gx-maker-open body { touch-action: manipulation; }
 .gx-networks > .gx-card { margin-bottom: 0; }
 .gx-networks__caption { margin: 0; padding: var(--sp-2) var(--sp-4) var(--sp-3); border-top: 1px solid var(--outline); }
 .gx-networks__header-btn { min-height: 36px; padding: 0 var(--sp-3); }
-.gx-networks__scan { border-top: 1px solid var(--outline); background: rgba(255, 255, 255, 0.015); }
-.gx-networks__subhead { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4) var(--sp-2); }
+.gx-networks__header-actions { margin-left: auto; }
+.gx-networks__subhead { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--outline); }
 .gx-networks__link-btn { border: 0; padding: 0; background: none; font: inherit; font-size: var(--fs-sm); cursor: pointer; }
-.gx-networks__join-row { flex-wrap: wrap; background: rgba(255, 255, 255, 0.02); }
-.gx-networks__join-form { flex: 1 1 280px; justify-content: flex-end; }
-.gx-networks__field { flex: 1 1 160px; max-width: 240px; }
+.gx-networks__dialog { display: grid; gap: var(--sp-3); }
+.gx-networks__label { display: grid; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--on-surface-variant); }
+.gx-networks__password { display: flex; gap: var(--sp-2); align-items: center; }
+.gx-networks__password .gx-field { flex: 1; min-width: 0; }
 .gx-networks__toggle { border: 0; padding: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .gx-networks__toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: var(--radius-sm); }
 .gx-networks__details { background: rgba(255, 255, 255, 0.015); box-shadow: inset 3px 0 var(--primary); }
@@ -928,6 +929,6 @@ html.gx-maker-open, html.gx-maker-open body { touch-action: manipulation; }
 .gx-hotspot__field { flex: 1 1 160px; max-width: 240px; }
 .gx-hotspot__details { padding: var(--sp-3) var(--sp-4); }
 @media (max-width: 600px) {
-  .gx-networks__field, .gx-hotspot__field { max-width: none; }
-  .gx-networks__join-form, .gx-hotspot__controls { justify-content: stretch; }
+  .gx-hotspot__field { max-width: none; }
+  .gx-hotspot__controls { justify-content: stretch; }
 }

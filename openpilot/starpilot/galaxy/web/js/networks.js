@@ -3,6 +3,7 @@ import { GxNotice } from "./notice.js"
 import { GxState } from "./state.js"
 import { GalaxySettingRow, switchRow } from "./galaxy-setting-row.js"
 import { GalaxyHotspot } from "./hotspot.js"
+import { GxDialog } from "./dialog.js"
 
 const METERED = ['Auto', 'Metered', 'Unmetered']
 const SECURITY = ['open', 'wpa', 'unsupported']
@@ -26,7 +27,7 @@ export const choiceRow = (label, value, choices, reason = '') => ({ label, value
 
 export const NetworksPage = {
   name: "NetworksPage",
-  components: { GxNotice, GxState, GalaxySettingRow, GalaxyHotspot },
+  components: { GxNotice, GxState, GalaxySettingRow, GalaxyHotspot, GxDialog },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ snapshot: null, busy: false, error: '', openUuid: null, adding: false, joiningSsid: '', joinPassword: '',
     hiddenOpen: false, hiddenSsid: '', showJoinPassword: false, forgetUuid: null, timer: null, controller: null, generation: 0, active: false }),
@@ -34,6 +35,7 @@ export const NetworksPage = {
     linkName() { return LINKS[this.snapshot?.link.link] || 'Unknown' },
     availableNetworks() { return this.snapshot?.available || [] },
     joining() { return this.snapshot?.lastJoin?.state === 'joining' },
+    joinOpen() { return this.hiddenOpen || !!this.joiningSsid },
     canSubmitJoin() {
       const ssid = this.hiddenOpen ? this.hiddenSsid.trim() : this.joiningSsid
       if (!ssid || ssid.length > 64) return false
@@ -97,7 +99,7 @@ export const NetworksPage = {
         return this.send({ action: 'join', ssid: item.ssid, password: '' })
       }
       this.hiddenOpen = false
-      this.joiningSsid = this.joiningSsid === item.ssid ? '' : item.ssid
+      this.joiningSsid = item.ssid
       this.joinPassword = ''
       this.showJoinPassword = false
     },
@@ -106,8 +108,9 @@ export const NetworksPage = {
       this.joinPassword = ''
       this.hiddenSsid = ''
       this.showJoinPassword = false
-      this.hiddenOpen = !this.hiddenOpen
+      this.hiddenOpen = true
     },
+    closeJoin() { if (!this.busy) this.cancelJoin() },
     async submitJoin() {
       const ssid = this.hiddenOpen ? this.hiddenSsid.trim() : this.joiningSsid
       if (!ssid) return false
@@ -185,43 +188,8 @@ export const NetworksPage = {
         <GalaxySettingRow :row="switchRow('Cellular data', snapshot.cellular.enabled, cellularDetail)" :index="1"
           :busy="busy" :disabled="!snapshot.editable" :save-value="(index, value) => send({ action: 'cellular', value: value === 'On' })" />
       </section>
-      <section class="gx-card gx-settings__section"><div class="gx-section__header"><i class="bi bi-wifi" aria-hidden="true"></i><span class="gx-section__title">Saved Wi-Fi networks</span><span v-if="snapshot.networks.length" class="gx-section__count">{{ snapshot.networks.length }}</span>
-          <button v-if="!adding" type="button" class="gx-btn gx-btn--tonal gx-networks__header-btn" :disabled="busy || !snapshot.editable" @click="openScan"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add network</button>
-          <div v-else class="gx-actions">
-            <button type="button" class="gx-btn gx-btn--tonal gx-networks__header-btn" :disabled="busy || !snapshot.editable" @click="scanNetworks"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> {{ busy ? 'Scanning…' : 'Scan' }}</button>
-            <button type="button" class="gx-btn gx-btn--tonal gx-networks__header-btn" :disabled="busy" @click="closeScan">Done</button>
-          </div></div>
-        <div v-if="adding" class="gx-networks__scan">
-          <p class="gx-note gx-networks__caption">Joining pauses the Galaxy hotspot for up to 30 seconds. If your phone is on it, it reconnects afterwards.</p>
-          <div class="gx-networks__subhead"><span class="gx-row__label">Nearby networks</span><button type="button" class="gx-link gx-networks__link-btn" :disabled="busy || !snapshot.editable" @click="openHidden">{{ hiddenOpen ? 'Cancel hidden network' : 'Join hidden network' }}</button></div>
-          <div v-if="hiddenOpen" class="gx-row gx-networks__join-row">
-            <div class="gx-actions gx-networks__join-form">
-              <input class="gx-field gx-networks__field" type="text" aria-label="Network name (SSID)" v-model="hiddenSsid" :disabled="busy || !snapshot.editable" maxlength="64" autocomplete="off" placeholder="Network name (SSID)" @keydown.enter="submitJoin" />
-              <input class="gx-field gx-networks__field" :type="showJoinPassword ? 'text' : 'password'" aria-label="Network password" v-model="joinPassword" :disabled="busy || !snapshot.editable" maxlength="64" autocomplete="new-password" placeholder="Password (blank if open)" @keydown.enter="submitJoin" />
-              <button type="button" class="gx-icon-btn" :aria-label="showJoinPassword ? 'Hide password' : 'Show password'" :aria-pressed="showJoinPassword" :disabled="busy || !snapshot.editable" @click="showJoinPassword = !showJoinPassword"><i class="bi" :class="showJoinPassword ? 'bi-eye-slash' : 'bi-eye'" aria-hidden="true"></i></button>
-              <button type="button" class="gx-btn" :disabled="busy || !snapshot.editable || !canSubmitJoin" @click="submitJoin">{{ busy ? 'Joining…' : 'Join' }}</button>
-            </div>
-          </div>
-          <p v-if="!availableNetworks.length && !hiddenOpen" class="gx-empty" role="status">{{ busy ? 'Scanning for nearby Wi-Fi networks…' : 'No new Wi-Fi networks found nearby.' }}</p>
-          <div v-for="item in availableNetworks" :key="item.ssid" class="gx-networks__item">
-            <div class="gx-row gx-networks__row">
-              <div class="gx-row__info">
-                <span class="gx-row__label"><i class="bi" :class="item.security === 'open' ? 'bi-wifi' : 'bi-lock-fill'" aria-hidden="true"></i> {{ item.ssid }}</span>
-                <span class="gx-row__desc">Signal {{ item.signal }}% · {{ item.security === 'open' ? 'Open' : item.security === 'unsupported' ? 'Enterprise Wi-Fi (unsupported)' : 'Password required' }}</span>
-              </div>
-              <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy || !snapshot.editable || item.security === 'unsupported'" @click="selectAvailable(item)">{{ joiningSsid === item.ssid ? 'Cancel' : 'Join' }}</button>
-            </div>
-            <div v-if="joiningSsid === item.ssid" class="gx-row gx-networks__join-row">
-              <div class="gx-row__info"><span class="gx-row__label">Password for {{ item.ssid }}</span><span class="gx-row__desc">8–64 characters</span></div>
-              <div class="gx-actions gx-networks__join-form">
-                <input class="gx-field gx-networks__field" :type="showJoinPassword ? 'text' : 'password'" :aria-label="'Password for ' + item.ssid" v-model="joinPassword" :disabled="busy || !snapshot.editable" maxlength="64" autocomplete="new-password" placeholder="Wi-Fi password" @keydown.enter="submitJoin" />
-                <button type="button" class="gx-icon-btn" :aria-label="showJoinPassword ? 'Hide password' : 'Show password'" :aria-pressed="showJoinPassword" :disabled="busy || !snapshot.editable" @click="showJoinPassword = !showJoinPassword"><i class="bi" :class="showJoinPassword ? 'bi-eye-slash' : 'bi-eye'" aria-hidden="true"></i></button>
-                <button type="button" class="gx-btn" :disabled="busy || !snapshot.editable || !canSubmitJoin" @click="submitJoin">{{ busy ? 'Joining…' : 'Connect' }}</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <p v-if="!snapshot.networks.length" class="gx-empty">No saved Wi-Fi networks yet. Choose Add network to scan and join one.</p>
+      <section class="gx-card gx-settings__section"><div class="gx-section__header"><i class="bi bi-wifi" aria-hidden="true"></i><span class="gx-section__title">Saved Wi-Fi networks</span><span v-if="snapshot.networks.length" class="gx-section__count">{{ snapshot.networks.length }}</span></div>
+        <p v-if="!snapshot.networks.length" class="gx-empty">No saved Wi-Fi networks yet. Scan for nearby networks below to join one.</p>
         <p v-else class="gx-note gx-networks__caption">Joined in priority order when in range.</p>
         <div v-for="(network, index) in snapshot.networks" :key="network.uuid" class="gx-networks__item">
           <div class="gx-row gx-networks__row">
@@ -255,6 +223,40 @@ export const NetworksPage = {
         <GalaxySettingRow :row="switchRow('Pause Galaxy hotspot while joining Wi-Fi', snapshot.pauseHotspot, 'Briefly pauses the hotspot during a drive so joining Wi-Fi does not disturb StarPort.')" :index="0"
           :busy="busy" :disabled="!snapshot.editable" :save-value="(index, value) => send({ action: 'pauseHotspot', value: value === 'On' })" />
       </section>
+      <section class="gx-card gx-settings__section"><div class="gx-section__header"><i class="bi bi-broadcast" aria-hidden="true"></i><span class="gx-section__title">Nearby networks</span><span v-if="adding && availableNetworks.length" class="gx-section__count">{{ availableNetworks.length }}</span>
+          <div class="gx-actions gx-networks__header-actions">
+            <button type="button" class="gx-btn gx-btn--tonal gx-networks__header-btn" :disabled="busy || !snapshot.editable" @click="adding ? scanNetworks() : openScan()"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> {{ busy && adding ? 'Scanning…' : adding ? 'Rescan' : 'Scan' }}</button>
+            <button v-if="adding" type="button" class="gx-btn gx-btn--tonal gx-networks__header-btn" :disabled="busy" @click="closeScan">Done</button>
+          </div></div>
+        <p v-if="!adding" class="gx-empty">Scan to find Wi-Fi networks to join.</p>
+        <p v-else-if="!availableNetworks.length" class="gx-empty" role="status">{{ busy ? 'Scanning for nearby Wi-Fi networks…' : 'No new Wi-Fi networks found nearby.' }}</p>
+        <template v-else><div v-for="item in availableNetworks" :key="item.ssid" class="gx-row gx-networks__row">
+          <div class="gx-row__info">
+            <span class="gx-row__label"><i class="bi" :class="item.security === 'open' ? 'bi-wifi' : 'bi-lock-fill'" aria-hidden="true"></i> {{ item.ssid }}</span>
+            <span class="gx-row__desc">Signal {{ item.signal }}% · {{ item.security === 'open' ? 'Open' : item.security === 'unsupported' ? 'Enterprise Wi-Fi (unsupported)' : 'Password required' }}</span>
+          </div>
+          <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy || !snapshot.editable || item.security === 'unsupported'" @click="selectAvailable(item)">Join</button>
+        </div></template>
+        <div class="gx-networks__subhead"><span class="gx-row__desc">Network not listed?</span><button type="button" class="gx-link gx-networks__link-btn" :disabled="busy || !snapshot.editable" @click="openHidden">Join hidden network</button></div>
+      </section>
+      <GxDialog v-if="joinOpen" :inert="busy" labelledby="gx-networks-join-title" describedby="gx-networks-join-note" @close="closeJoin">
+        <form class="gx-networks__dialog" @submit.prevent="canSubmitJoin && submitJoin()">
+          <h3 id="gx-networks-join-title">{{ hiddenOpen ? 'Join hidden network' : 'Join ' + joiningSsid }}</h3>
+          <p id="gx-networks-join-note" class="gx-row__desc">Joining pauses the Galaxy hotspot for up to 30 seconds. If your phone is on it, it reconnects afterwards.</p>
+          <label v-if="hiddenOpen" class="gx-networks__label">Network name (SSID)
+            <input class="gx-field" type="text" v-model="hiddenSsid" maxlength="64" autocomplete="off" autofocus />
+          </label>
+          <label class="gx-networks__label">{{ hiddenOpen ? 'Password (blank if open)' : 'Password · 8–64 characters' }}
+            <span class="gx-networks__password">
+              <input class="gx-field" :type="showJoinPassword ? 'text' : 'password'" v-model="joinPassword" maxlength="64" autocomplete="new-password" :autofocus="!hiddenOpen" />
+              <button type="button" class="gx-icon-btn" :aria-label="showJoinPassword ? 'Hide password' : 'Show password'" :aria-pressed="showJoinPassword" @click="showJoinPassword = !showJoinPassword"><i class="bi" :class="showJoinPassword ? 'bi-eye-slash' : 'bi-eye'" aria-hidden="true"></i></button>
+            </span>
+          </label>
+          <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
+          <div class="gx-actions gx-settings__controls"><button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="cancelJoin">Cancel</button>
+            <button type="submit" class="gx-btn" :disabled="busy || !snapshot.editable || !canSubmitJoin">{{ busy ? 'Joining…' : 'Join' }}</button></div>
+        </form>
+      </GxDialog>
     </template>
     <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
     <GalaxyHotspot v-if="mode === 'local'" :mode="mode" :unauthorized="unauthorized" />

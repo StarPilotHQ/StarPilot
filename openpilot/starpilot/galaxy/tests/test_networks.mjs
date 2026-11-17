@@ -10,6 +10,7 @@ assert.equal(validNetworks({ ...value, prefer: 'both' }), false)
 assert.equal(validNetworks({ ...value, networks: [{ ...value.networks[0], metered: 'Sometimes' }] }), false)
 compile(NetworksPage.template, { decodeEntities: text => text })
 assert.ok(NetworksPage.template.includes('<GalaxyHotspot'))
+assert.ok(NetworksPage.template.includes('<GxDialog v-if="joinOpen"'))
 for (const label of ['Cellular data', 'Prefer', 'Join while StarPort is on', 'Pause Galaxy hotspot while joining Wi-Fi'])
   assert.ok(NetworksPage.template.includes(label), label)
 function instance() {
